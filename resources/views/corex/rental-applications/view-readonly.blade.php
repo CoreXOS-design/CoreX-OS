@@ -21,9 +21,8 @@
             ->wherePivot('role', 'tenant')
             ->where('properties.id', $rentalApplication->property_id)
             ->first();
-        // .ai/specs/leases.md sec1.3 — the lease linkTenantProperty() now
-        // creates in the same action, surfaced here so the agent sees the
-        // terms without leaving this screen.
+        // The lease created for this application on the lease screen (leases.md §15.3),
+        // surfaced here so the agent sees the terms without leaving this screen.
         $applicationLease = \App\Models\Lease::where('rental_application_id', $rentalApplication->id)->first();
     }
 @endphp
@@ -43,7 +42,7 @@
         <x-slot name="left">
             <div class="min-w-0">
                 <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
-                    {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
+                    {{ $rentalApplication->contact?->full_name ?? 'Rental Application' }}
                 </h1>
                 <span class="ds-badge ds-badge-info">
                     {{ $rentalApplication->displayStatusLabel() }} — read-only, as submitted and signed
@@ -74,7 +73,7 @@
                  rental_applications.archive, matching every other module. --}}
             @permission('rental_applications.archive')
             <form method="POST" action="{{ route('corex.rental-applications.destroy', $rentalApplication) }}"
-                  onsubmit="return confirm('Archive this rental application? It can be recovered by an admin.');" class="inline">
+                  data-confirm="Archive this rental application? It can be recovered by an admin." data-confirm-danger data-confirm-label="Archive" class="inline">
                 @csrf
                 @method('DELETE')
                 <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
@@ -82,16 +81,6 @@
             @endpermission
         </x-slot>
     </x-sticky-action-bar>
-
-    @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
-    @endif
-    @if(session('warning'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color: var(--ds-amber, #b45309);">{{ session('warning') }}</div>
-    @endif
-    @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">{{ session('error') }}</div>
-    @endif
 
     <div class="rounded-md p-3 text-xs" style="background: var(--surface-2, #f9fafb); border: 1px solid var(--border); color: var(--text-secondary);">
         This is a faithful, read-only rendering of the application the applicant submitted and signed. It cannot be
@@ -168,6 +157,9 @@
         @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
         @else
             <span class="ds-badge ds-badge-info">{{ $rentalApplication->displayStatusLabel() }}</span>
+            @permission('rental_applications.create')
+                @include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])
+            @endpermission
         @endif
 
         @if($rentalApplication->status === 'approved')
@@ -200,65 +192,51 @@
                 results: [],
                 propertyId: {{ Js::from($rentalApplication->property_id) }},
                 {{-- Johan, QA1 walk, 2026-09-21 — address first, never the
-                     listing's marketing title. Same fix as the search
-                     results below (Property::toSearchResult()'s own
-                     buildDisplayAddress()-first label), applied here too so
-                     the ALREADY-linked property reads identically to one
-                     just picked from search. --}}
+                     listing's marketing title. Same label as the search
+                     results (Property::toSearchResult()), so the ALREADY-linked
+                     property reads identically to one just picked. --}}
                 propertyLabel: {{ Js::from($rentalApplication->property?->buildDisplayAddress()) }},
                 unlinkConfirming: false,
-                {{-- Johan, 2026-09-22 (property 4283 / rental application
-                     290) — PRECEDENCE RULING: the approved application
-                     amount wins; the property is the fallback when the
-                     application carries no approved amount. "the approved
-                     figure is what the landlord actually agreed to for this
-                     tenant, and the property listing price is often stale
-                     or negotiated down." Same rule for both rent and
-                     deposit. Kept as their own values (not read live off
-                     $rentalApplication again) so select() below can compare
-                     against them without a second data source appearing
-                     mid-form. rentalAmountSource/depositAmountSource drive
-                     the short "from ..." label next to each field — cleared
-                     the moment the agent actually types in that field
-                     (@input below), since a value they typed themselves
-                     isn't "from" anywhere any more. --}}
-                approvedRentalAmount: {{ Js::from($rentalApplication->approved_rental_amount) }},
-                approvedDepositAmount: {{ Js::from($rentalApplication->approved_deposit_amount) }},
-                rentalAmount: {{ Js::from(old('rental_amount', $rentalApplication->approved_rental_amount)) }},
-                depositAmount: {{ Js::from(old('deposit_amount', $rentalApplication->approved_deposit_amount)) }},
-                rentalAmountSource: {{ Js::from($rentalApplication->approved_rental_amount !== null ? 'approved' : null) }},
-                depositAmountSource: {{ Js::from($rentalApplication->approved_deposit_amount !== null ? 'approved' : null) }},
+                {{-- Johan, QA1, 2026-10-07 — empty-state/searching rows: typing a
+                     street number that does not exist used to show nothing at
+                     all, so it looked like no search was happening.
+                     searchLoading drives 'Searching…'; searchedQuery (null until
+                     a search for the CURRENT text has come back) drives 'No
+                     rental properties match'; searchFailed a plain error row. A
+                     reply for text the agent has since changed is discarded. --}}
+                searchLoading: false,
+                searchedQuery: null,
+                searchFailed: false,
                 async search() {
-                    if (this.query.length < 2) { this.results = []; return; }
-                    const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(this.query));
-                    this.results = await res.json();
+                    const q = this.query.trim();
+                    if (q.length < 2) { this.results = []; this.searchedQuery = null; this.searchFailed = false; this.searchLoading = false; return; }
+                    this.searchLoading = true;
+                    try {
+                        const res = await fetch({{ Js::from(route('corex.rental-applications.search-properties')) }} + '?q=' + encodeURIComponent(q), { headers: { 'Accept': 'application/json' } });
+                        const data = res.ok ? await res.json() : null;
+                        if (q !== this.query.trim()) return;
+                        this.searchFailed = !Array.isArray(data);
+                        this.results = this.searchFailed ? [] : data;
+                        this.searchedQuery = q;
+                    } catch (e) {
+                        if (q !== this.query.trim()) return;
+                        this.results = [];
+                        this.searchFailed = true;
+                        this.searchedQuery = q;
+                    } finally {
+                        if (q === this.query.trim()) this.searchLoading = false;
+                    }
                 },
+                resetSearchState() { this.searchedQuery = null; this.searchFailed = false; },
                 select(p) {
                     this.propertyId = p.id;
                     this.propertyLabel = p.label;
-                    // PRECEDENCE (see the ruling above): the approved
-                    // application amount always wins when it exists; the
-                    // property's own rental details are only the fallback.
-                    // No value anywhere (null) means an empty field, never
-                    // a written zero; ?? only catches null/undefined, so a
-                    // genuinely-stored 0 is preserved as 0.
-                    if (this.approvedRentalAmount !== null) {
-                        this.rentalAmount = this.approvedRentalAmount;
-                        this.rentalAmountSource = 'approved';
-                    } else {
-                        this.rentalAmount = p.rental_amount ?? '';
-                        this.rentalAmountSource = p.rental_amount != null ? 'property' : null;
-                    }
-                    if (this.approvedDepositAmount !== null) {
-                        this.depositAmount = this.approvedDepositAmount;
-                        this.depositAmountSource = 'approved';
-                    } else {
-                        this.depositAmount = p.deposit_amount ?? '';
-                        this.depositAmountSource = p.deposit_amount != null ? 'property' : null;
-                    }
                     this.searching = false;
                     this.query = '';
                     this.results = [];
+                    this.searchedQuery = null;
+                    this.searchFailed = false;
+                    this.searchLoading = false;
                 },
              }">
             @if($tenantLinkedProperty)
@@ -305,14 +283,33 @@
                         @if($applicationLease->end_date) to {{ $applicationLease->end_date->format('Y-m-d') }} @endif
                         — <span class="ds-badge {{ $applicationLease->status === 'active' ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ ucfirst($applicationLease->status) }}</span>
                         @permission('leases.view')
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.show', $applicationLease) }}" class="underline">View lease</a>
+                            @endfeature
                         @endpermission
                     </p>
+                @else
+                    {{-- Johan, QA1, 2026-10-07 — linking no longer creates a lease; the agent creates it on the
+                         lease screen (leases.md §15.3), pre-filled from this application and the property. --}}
+                    @permission('leases.create')
+                        @feature('rental-leases')
+                        <a href="{{ route('corex.leases.create', ['property_id' => $tenantLinkedProperty->id, 'rental_application_id' => $rentalApplication->id]) }}"
+                           class="corex-btn-primary text-xs mt-2 inline-block" data-test="create-lease-from-application">Create the lease</a>
+                        @endfeature
+                    @endpermission
                 @endif
             @else
-                <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Link this tenant to a property</p>
-                <form method="POST" action="{{ route('corex.rental-applications.link-tenant-property', $rentalApplication) }}" class="flex flex-wrap items-end gap-2">
-                    @csrf
+                <p class="text-xs font-medium mb-1" style="color: var(--text-secondary);">Choose the property for this tenant's lease</p>
+                {{-- Johan, QA1, 2026-10-07 — choosing the property OPENS the lease screen (leases.md §15.3); nothing is
+                     linked or created until the agent completes it. Cancelling there leaves this application
+                     approved with no new link and no lease. --}}
+                <style>
+                    /* One height for every action button in this block: the filled button had no border, the outline one had 1px, so they differed by 2px. */
+                    .rr-equal-btns .corex-btn-primary, .rr-equal-btns .corex-btn-outline { box-sizing: border-box; border: 1px solid transparent; min-height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+                    .rr-equal-btns .corex-btn-outline { border-color: var(--border); }
+                </style>
+                <form method="GET" action="{{ route('corex.leases.create') }}" class="flex flex-wrap items-end gap-2 rr-equal-btns">
+                    <input type="hidden" name="rental_application_id" value="{{ $rentalApplication->id }}">
                     <input type="hidden" name="property_id" :value="propertyId">
                     <template x-if="!searching">
                         <span class="inline-flex items-center gap-2">
@@ -325,7 +322,7 @@
                     </template>
                     <template x-if="searching">
                         <div class="relative" style="max-width: 22rem;">
-                            <input type="text" x-model="query" @input.debounce.300ms="search()" @keydown.escape="searching = false"
+                            <input type="text" x-model="query" @input="resetSearchState()" @input.debounce.300ms="search()" @keydown.escape="searching = false"
                                    placeholder="Search rental properties…" autofocus
                                    class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
                             <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
@@ -337,7 +334,10 @@
                                  property picker (resources/views/tools/
                                  pdf_splitter_review.blade.php): address + status
                                  badge, then ref + agent as a muted subtitle. --}}
-                            <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                            <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length || searchLoading || searchedQuery !== null">
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--text-muted);" x-show="searchLoading && !results.length" data-test="rental-property-searching">Searching…</div>
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--text-muted);" x-show="!searchLoading && searchedQuery !== null && !searchFailed && !results.length" data-test="rental-property-no-results" x-text="'No rental properties match \'' + searchedQuery + '\''"></div>
+                                <div class="px-2 py-1.5 text-xs" style="color: var(--ds-red, #dc2626);" x-show="!searchLoading && searchFailed" data-test="rental-property-search-failed">The search could not be completed. Please try again.</div>
                                 <template x-for="p in results" :key="p.id">
                                     <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
                                         <div class="flex items-center gap-1.5">
@@ -351,52 +351,11 @@
                         </div>
                     </template>
 
-                    {{-- .ai/specs/leases.md sec1.3 / conductor ruling 2026-09-15 —
-                         gap 1 closed: linking a tenant now captures the lease
-                         terms in the SAME action, instead of leaving a
-                         property+tenant link with no rent/dates anywhere.
-                         Pre-filled from the application's own
-                         approved_rental_amount where the agent already set
-                         one; always editable. Does NOT touch property status
-                         — that ruling stays pending with Johan, untouched by
-                         this change (see linkTenantProperty()'s own
-                         docblock). --}}
-                    <div class="w-full flex flex-wrap items-end gap-2 mt-1 pt-2" style="border-top: 1px dashed var(--border);">
-                        <div>
-                            <label class="text-[11px]" style="color: var(--text-muted);">Monthly rental (R)</label><br>
-                            {{-- Johan, 2026-09-22 — precedence: approved
-                                 application amount wins, property is the
-                                 fallback (select()/ruling above); still a
-                                 plain editable starting value, not locked. --}}
-                            <input type="number" name="rental_amount" step="0.01" min="0" required
-                                   x-model="rentalAmount" @input="rentalAmountSource = null"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;"><br>
-                            <span class="text-[10px]" style="color: var(--text-muted);" x-show="rentalAmountSource"
-                                  x-text="rentalAmountSource === 'approved' ? 'from approved application' : 'from property'"></span>
-                        </div>
-                        <div>
-                            <label class="text-[11px]" style="color: var(--text-muted);">Deposit (R)</label><br>
-                            <input type="number" name="deposit_amount" step="0.01" min="0"
-                                   x-model="depositAmount" @input="depositAmountSource = null"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 8rem;"><br>
-                            <span class="text-[10px]" style="color: var(--text-muted);" x-show="depositAmountSource"
-                                  x-text="depositAmountSource === 'approved' ? 'from approved application' : 'from property'"></span>
-                        </div>
-                        <div>
-                            <label class="text-[11px]" style="color: var(--text-muted);">Lease start date</label><br>
-                            <input type="date" name="lease_start_date" required value="{{ old('lease_start_date', now()->toDateString()) }}"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-                        </div>
-                        <div>
-                            <label class="text-[11px]" style="color: var(--text-muted);">Lease end date (optional)</label><br>
-                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date') }}"
-                                   class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-                        </div>
-                    </div>
-
-                    <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Link as tenant</button>
+                    @permission('leases.create')
+                        <button type="submit" class="corex-btn-primary text-xs" :disabled="!propertyId">Continue to the lease</button>
+                    @endpermission
                 </form>
-                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Sets {{ $rentalApplication->contact->full_name ?? 'this applicant' }} as the tenant on this property, and creates the lease record with the terms above.</p>
+                <p class="text-[11px] mt-1" style="color: var(--text-muted);">Opens the lease screen with the tenant, property and rent filled in. Nothing is linked and no lease exists until you complete it there.</p>
             @endif
         </div>
         @endif
@@ -434,11 +393,11 @@
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Supporting Documents</h2>
             <p class="text-xs" style="color: var(--text-muted);" @if($rentalApplication->documents->isNotEmpty()) hidden @endif>None uploaded yet.</p>
-            <ul class="text-xs space-y-1" style="color: var(--text-secondary);" @if($rentalApplication->documents->isEmpty()) hidden @endif>
+            <ul id="supportingDocumentsList" class="text-xs space-y-1" style="color: var(--text-secondary);" @if($rentalApplication->documents->isEmpty()) hidden @endif>
                 @foreach($rentalApplication->documents as $doc)
                     <li>✓ <a href="{{ route('corex.rental-applications.documents.download', [$rentalApplication, $doc]) }}" style="color: var(--brand-icon, #2563eb);">{{ $doc->original_name }}</a> @if($doc->documentType) ({{ $doc->documentType->label }}) @endif
                         <span style="color: var(--text-muted);">— {{ $doc->uploaded_by ? 'added by ' . ($doc->uploader->name ?? 'an agent') : 'from applicant' }}</span>
-                        @if($rentalApplication->submitted_at && $doc->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at) && $doc->uploaded_by)
+                        @if($rentalApplication->submitted_at && $doc->created_at->greaterThanOrEqualTo($rentalApplication->submitted_at))
                             <span class="ds-badge ds-badge-warning" title="This document was added after the application was submitted">Added after submission</span>
                             <span style="color: var(--text-muted);">{{ $doc->created_at->format('d M Y H:i') }}</span>
                         @endif

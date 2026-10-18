@@ -105,7 +105,8 @@ final class RentalApplicationInputPreservationTest extends TestCase
         $response2->assertSessionHasErrors('contact_id');
 
         $create2 = $this->actingAs($this->agent)->get(route('corex.rental-applications.create'));
-        $create2->assertSee('Flat to let in Ramsgate');
+        // The picker labels a property by its ADDRESS (not its marketing title) — 3f2c7a766.
+        $create2->assertSee('9 Beach Road');
         $create2->assertSee((string) $property->id, false);
     }
 

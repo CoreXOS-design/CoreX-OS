@@ -41,6 +41,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
     private Agency $agency;
     private User $owner;
     private User $agent;
+    private Branch $branch;
 
     protected function setUp(): void
     {
@@ -53,7 +54,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         Role::clearCache();
 
         $this->agency = Agency::create(['name' => 'Margate Realty', 'slug' => 'margate-realty']);
-        Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
+        $this->branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
         $this->owner = User::factory()->create(['role' => 'system_owner', 'agency_id' => null]);
         $this->agent = User::factory()->create([
             'role' => 'agent', 'agency_id' => $this->agency->id, 'p24_agent_id' => 7001,
@@ -238,7 +239,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         // Pre-existing property already fully imported from the SAME url set.
         Property::withoutGlobalScopes()->create([
             'agency_id' => $this->agency->id,
-            'branch_id' => $this->agency->id,
+            'branch_id' => $this->branch->id, // a real branch row (FK) — not the agency id
             'agent_id' => $this->agent->id,
             'external_id' => (string) Str::uuid(),
             'title' => 'Existing', 'property_type' => 'house', 'status' => 'active', 'price' => 1000000,
@@ -264,7 +265,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
         // so its stored signature no longer matches the incoming gallery.
         Property::withoutGlobalScopes()->create([
             'agency_id' => $this->agency->id,
-            'branch_id' => $this->agency->id,
+            'branch_id' => $this->branch->id, // a real branch row (FK) — not the agency id
             'agent_id' => $this->agent->id,
             'external_id' => (string) Str::uuid(),
             'title' => 'Existing', 'property_type' => 'house', 'status' => 'active', 'price' => 1000000,
@@ -469,7 +470,7 @@ class ParallelImportGalleryIntegrityTest extends TestCase
     {
         return Property::withoutGlobalScopes()->create(array_merge([
             'agency_id' => $this->agency->id,
-            'branch_id' => $this->agency->id,
+            'branch_id' => $this->branch->id, // a real branch row (FK) — not the agency id
             'agent_id' => $this->agent->id,
             'external_id' => (string) Str::uuid(),
             'title' => 'P ' . Str::random(5),

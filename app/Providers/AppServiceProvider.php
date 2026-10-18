@@ -54,6 +54,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
+        // section 21.3 of rentals-faults-work-orders.md - the one seam behind "Send <name> to inspect"; records only until the fault flow replaces it.
+
         // ─────────────────────────────────────────────────────────────────────────────
         // AT-261 — EVERY LISTENER WAS FIRING TWICE.
         //
@@ -159,6 +161,22 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // AT-454 - Road to Sold settings are memoised for seconds only, and dropped at the start of every
+        // queued job and artisan command, so the nightly build (one long process) never works from a stale copy.
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobProcessing::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Console\Events\CommandStarting::class, fn () => \App\Services\RoadToSold\SettingsService::forget());
+        // The settings screens build their links from where they are mounted (sales now, rentals later).
+        // Every web-template document says "us" in the DOCUMENT's own agency's words ($docAgency), resolved by the same
+        // rule as the letterhead (DocumentAgencyContext: the document's agency, else the signed-in user's, else nothing —
+        // never a default agency). No template carries an agency's name, address or contact line as literal text.
+        \Illuminate\Support\Facades\View::composer('docuperfect.web-templates.*', function ($view) {
+            $view->with('docAgency', \App\Support\Docuperfect\DocumentAgencyContext::wording());
+        });
+
+        \Illuminate\Support\Facades\View::composer('road-to-sold.settings.*', function ($view) {
+            $view->with(['rb' => \App\Services\RoadToSold\Support\Routing::base(), 'rtsTrack' => \App\Services\RoadToSold\Support\Routing::track()]);
+        });
+
         // ── DESTRUCTIVE-SCHEMA GUARD (post-incident 2026-08-05: hfc_staging wiped by a
         // migrate:fresh run directly against it) ────────────────────────────────────────
         // Hard-block the destructive schema commands — migrate:fresh, migrate:refresh,
@@ -260,8 +278,23 @@ class AppServiceProvider extends ServiceProvider
         Presentation::observe(PresentationObserver::class);
         DealSettlement::observe(DealSettlementObserver::class);
         Property::observe(PropertyObserver::class);
+        // .ai/specs/rental-renewals.md §15 (GATE 2) row 6 — restores a
+        // property's pre-let status when an out-inspection completes.
+        // RentalInspectionController is cc1's file (off limits); an
+        // observer reacts to the state change itself, no controller edit.
+        \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionCompletionObserver::class);
+        // INSPECTIONS I-5 BEGIN — a loaded interim date follows the inspection booked from it (§45.7).
+        \App\Models\RentalInspection::observe(\App\Observers\RentalInspectionPlannedDateObserver::class);
+        // INSPECTIONS I-5 END
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
+
+        // AT-456 Part D — a scheduled social post that could not go out tells its agent (bell).
+        // Explicit registration: listener auto-discovery is OFF (AT-261), see register().
+        Event::listen(
+            \App\Events\Marketing\MarketingPostScheduleFailed::class,
+            \App\Listeners\Marketing\NotifyAgentOfFailedScheduledPost::class,
+        );
 
         // Portal Leads: log every new portal lead (extension point for future
         // Slack/push integrations). See .ai/specs/portal-leads.md.
@@ -291,6 +324,26 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         // AT-450 — a collected title deed tells the responsible agent and emails every owner. SYNC and failure-isolated inside the listener.
         Event::listen(\App\Events\TitleDeeds\TitleDeedCollected::class, \App\Listeners\TitleDeeds\NotifyOnTitleDeedCollected::class);
+        // §17.5 (maintenance flow, Build 1) — one in-app note to the property's agent per crew "Send to office".
+        Event::listen(\App\Events\Rentals\RentalCrewLinesSubmitted::class, \App\Listeners\Rentals\NotifyAgentOfCrewLines::class);
+        // §14.28 (rental-work-orders.md) — the landlord is told when the crew marks a job card's work completed (link OR signed copy).
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
+        // §17.10.1 (BUILD 3) — the same crew completion also opens a completion round: the tenant is asked to check the finished work.
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
+        // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
+        Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
+        // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five
+        // things about an envelope; UpdateLeaseSigningState keeps the lease whose agreement it is in step. One block.
+        foreach ([
+            \App\Events\Docuperfect\SignatureEnvelopeSent::class,
+            \App\Events\Docuperfect\SignatureEnvelopeFinalized::class,
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            \App\Events\Docuperfect\SignatureEnvelopeCancelled::class,
+            \App\Events\Docuperfect\SignatureEnvelopeExpired::class,
+        ] as $leaseAgreementEngineEvent) {
+            Event::listen($leaseAgreementEngineEvent, \App\Listeners\Rentals\UpdateLeaseSigningState::class);
+        }
+        // LEASE-AGREEMENT END
         // AT-118 — a session-scoped communications access grant dies at logout.
         Event::listen(Logout::class, \App\Listeners\Communications\RevokeCommsGrantsOnLogout::class);
 
@@ -347,6 +400,20 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\AgencyCreated::class,
             \App\Listeners\Onboarding\SeedDefaultRentalApplicationChecklistTemplate::class,
         );
+        // Agency VAT set-up, 2026-10-05 — same signal, same established
+        // mechanism: seeds Standard/No VAT/Custom VAT types for a
+        // brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalVatTypes::class,
+        );
+        // Pastel-style enhancement, 2026-10-05 — same signal, same
+        // established mechanism: seeds the Labour/Part catalogue types and
+        // the eleven default units for a brand-new agency.
+        Event::listen(
+            \App\Events\AgencyCreated::class,
+            \App\Listeners\Onboarding\SeedDefaultRentalCatalogueTypesAndUnits::class,
+        );
         Event::listen(
             \App\Events\Contact\ContactTestimonialSubmitted::class,
             \App\Listeners\Contacts\NotifyAgentOfClientTestimonial::class,
@@ -364,6 +431,13 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(
             \App\Events\Docuperfect\SupportingBatchFiled::class,
             \App\Listeners\Document\FileSupportingBatchOnSplitterCompletion::class,
+        );
+
+        // Lead response time (Johan, 2026-10-07) — a genuine contact with a contact stamps their open portal
+        // enquiries with the first response. Spec: .ai/specs/lead-response-time.md.
+        Event::listen(
+            \App\Events\Contact\ContactContactedByAgent::class,
+            \App\Listeners\LeadResponse\RecordLeadFirstResponse::class,
         );
 
         // The domain-event logging family — every one of these was discovery-only.
@@ -500,9 +574,6 @@ class AppServiceProvider extends ServiceProvider
             // 14.5 AI
             \App\Events\AI\AINarrativeGenerated::class,
             \App\Events\AI\AINarrativeFailedFallback::class,
-            // Phase B2 — agency budget signals.
-            \App\Events\AI\AgencyAiBudgetWarning::class,
-            \App\Events\AI\AgencyAiBudgetCapped::class,
             // Presentations Phase 8 — outcome capture lifecycle.
             \App\Events\Presentation\PresentationOutcomeRecorded::class,
             \App\Events\Presentation\PresentationOutcomePrompted::class,
@@ -754,6 +825,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\RentalApplication\RentalApplicationApproved::class,
             \App\Events\RentalApplication\RentalApplicationDeclined::class,
             \App\Events\RentalApplication\RentalApplicationReopened::class,
+            \App\Events\RentalApplication\RentalApplicationWithdrawn::class,
         ] as $rentalApplicationEvent) {
             Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
         }
@@ -911,7 +983,13 @@ class AppServiceProvider extends ServiceProvider
             // Login audit trail (.ai/specs/login-audit-trail.md) — permanent,
             // never-pruned record of every successful login, unlike the
             // `sessions` table which Laravel GCs after SESSION_LIFETIME.
-            if ($event->user) {
+            // Staff-only: `login_histories.user_id` FKs to `users`. AT-445
+            // added a 'client-web' session guard (tenant/landlord portal)
+            // that also fires this same generic Login event — ClientUser
+            // logins already have their own audit trail (ClientAccessLog
+            // via ClientAuthService::log()), so this must not try to write
+            // a ClientUser id into a users-FK column.
+            if ($event->user instanceof \App\Models\User) {
                 LoginHistory::create([
                     'user_id'    => $event->user->id,
                     'event'      => 'login',
@@ -949,7 +1027,8 @@ class AppServiceProvider extends ServiceProvider
             }
         });
         Event::listen(Logout::class, function (Logout $event) {
-            if ($event->user) {
+            // AT-445 — same staff-only guard as the Login listener above.
+            if ($event->user instanceof \App\Models\User) {
                 LoginHistory::create([
                     'user_id'    => $event->user->id,
                     'event'      => 'logout',
@@ -1147,6 +1226,19 @@ class AppServiceProvider extends ServiceProvider
                 ->response(fn () => response()->view('rental-inspections.public.unavailable', [
                     'reason' => 'rate_limited',
                 ], 429));
+        });
+
+        // §46 — a party's personal signing link. Opening/reading is budgeted per link (a phone reloading a long
+        // report is normal); the signing POST is much tighter, per link AND per address, because it writes.
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-sign-show', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(60)
+                ->by('rental-inspection-sign-show:' . (string) $request->route('token'))
+                ->response(fn () => response()->view('rental-inspections.public.unavailable', ['reason' => 'rate_limited'], 429));
+        });
+        \Illuminate\Support\Facades\RateLimiter::for('rental-inspection-sign-submit', function (\Illuminate\Http\Request $request) {
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(10)
+                ->by('rental-inspection-sign-submit:' . (string) $request->route('token') . ':' . $request->ip())
+                ->response(fn () => response()->json(['message' => 'Too many attempts — please wait a minute and try again.'], 429));
         });
 
         // PDF — read-only render, generous default, same window as

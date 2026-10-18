@@ -49,7 +49,8 @@ return [
         ['key' => 'access_import_listings',   'label' => 'Access Import Listings',          'section' => 'agency-tracker',   'type' => 'access',  'module' => 'listings',         'sort_order' => 6],
         ['key' => 'access_worksheet_market',  'label' => 'Access Worksheet Market',         'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 7],
         ['key' => 'access_branch_assignments','label' => 'Access Branch Assignments',       'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 8],
-        ['key' => 'access_rental_signatures', 'label' => 'Access Rental Signatures',        'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 9],
+        // AT-439 (2026-10-05) — 'access_rental_signatures' retired: its only
+        // gated route (rental.signatures, RentalDivisionController) is gone.
 
         // ── Agency Tracker — Legacy granular ──
         ['key' => 'view_worksheet',          'label' => 'View Worksheet',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 10],
@@ -78,8 +79,20 @@ return [
         // are scoped more tightly, by their own key, like every other report.
         ['key' => 'view_buyers_report',      'label' => 'View Buyers Report',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 40],
         ['key' => 'buyers_report.view',      'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'buyers_report',    'sort_order' => 41],
+        // Performance & ROI report scope (QA1 scope-fix, 2026-10-07) — the ROI report's
+        // OWN breadth key, same shape as buyers_report.view above: view_performance only
+        // says whether a role can open the report at all; THIS says how much it sees
+        // inside it (own / branch / all via scope_defaults: agent=own, branch_manager=branch,
+        // admin=all). A role with view_performance but no row here sees its OWN figures only
+        // (fails closed) until an admin raises it in Role Manager. Enforced at the query
+        // layer by PerformanceReportScopeResolver -> PerformanceScope ceiling.
+        ['key' => 'performance_report.view', 'label' => 'View',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'performance_report', 'sort_order' => 17.5],
         ['key' => 'manage_targets',          'label' => 'Manage Targets',                  'section' => 'agency-tracker',   'type' => 'access',  'module' => 'agency_tracker',   'sort_order' => 18],
-        ['key' => 'view_rentals',            'label' => 'View Rentals',                    'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 19],
+        // AT-439 (2026-10-05) — 'view_rentals' retired: every route/tour step it
+        // gated (RentalsController, RentalDivisionController, the rent-* tour
+        // pack) is gone. 'manage_rentals' is KEPT — RentalPermissionsController
+        // (an unrelated, still-live, unflagged screen toggling the per-user
+        // can_capture_rentals flag) still requires it; not part of this scope.
         ['key' => 'manage_rentals',          'label' => 'Create & Edit Rentals',           'section' => 'agency-tracker',   'type' => 'access',  'module' => 'rentals',          'sort_order' => 20],
         ['key' => 'view_daily_activity',     'label' => 'View Daily Activity',             'section' => 'agency-tracker',   'type' => 'access',  'module' => 'daily_activity',   'sort_order' => 21],
         ['key' => 'manage_tv_messages',      'label' => 'Manage TV Messages',              'section' => 'agency-tracker',   'type' => 'access',  'module' => 'tv_messages',      'sort_order' => 22],
@@ -104,6 +117,17 @@ return [
         ['key' => 'rentals.create',          'label' => 'Create',                          'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 39],
         ['key' => 'rentals.edit',            'label' => 'Edit',                            'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 40],
         ['key' => 'rentals.archive',         'label' => 'Archive',                         'section' => 'agency-tracker',   'type' => 'action',  'module' => 'rentals',          'sort_order' => 41],
+
+        // ── Rental Command Centre (AT-441) — .ai/specs/rental-command-centre.md.
+        // Access-only: every action button on this screen navigates into the
+        // OWNING screen's own permission-gated action (leases.*, rental_fault_
+        // reports.*, rental_work_orders.*, rental_inspections.*) — this screen
+        // never duplicates or bypasses those gates, so it needs no action keys
+        // of its own. Not added to any role's 'role_defaults' below, matching
+        // leases.view/rental_fault_reports.view/rental_work_orders.view/
+        // rental_inspections.view — assigned per role via Role Manager, not a
+        // fresh-install default.
+        ['key' => 'rental_command_centre.view', 'label' => 'View Rental Command Centre', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_command_centre', 'sort_order' => 1],
 
         // ── Rental Applications (AT-392) ──
         ['key' => 'rental_applications.view',            'label' => 'View Rental Applications',            'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_applications', 'sort_order' => 1],
@@ -138,6 +162,20 @@ return [
         ['key' => 'leases.renew',  'label' => 'Record Escalations / Renewals', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 3],
         ['key' => 'leases.cancel', 'label' => 'Cancel Leases',           'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 5],
         ['key' => 'leases.manage_settings', 'label' => 'Manage Lease Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 6],
+        // leases.md §18 — change a lease's notice period / early-cancellation terms (they feed the lease agreement and the tenant / owner portal).
+        ['key' => 'lease_notice_terms.edit', 'label' => 'Edit Lease Notice Terms', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 8],
+
+        // .ai/specs/rental-renewals.md §5(b), GATE 1 (approved 2026-10-04) —
+        // which imported DocuPerfect templates an agency treats as its
+        // rental lease/renewal/addendum documents.
+        ['key' => 'rental_lease_templates.manage_settings', 'label' => 'Manage Rental Lease Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'leases', 'sort_order' => 7],
+
+        // .ai/specs/rental-takeon-import.md §8 — one-time, high-stakes bulk
+        // migration of an agency's existing rental book. Agency-admin only
+        // by design (not granted to branch_manager/agent/office_admin
+        // defaults below) — this is not a day-to-day agent action.
+        ['key' => 'rentals_take_on_import.view',   'label' => 'View Rental Take-On Import Batches', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rentals_take_on_import', 'sort_order' => 1],
+        ['key' => 'rentals_take_on_import.manage', 'label' => 'Upload & Confirm Rental Take-On Imports', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rentals_take_on_import', 'sort_order' => 2],
 
         // ── Rental Inspections (rental-inspections.md) ──
         ['key' => 'rental_inspections.view',              'label' => 'View Rental Inspections',                'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_inspections', 'sort_order' => 1],
@@ -148,9 +186,27 @@ return [
         // call heavier than recording a routine observation.
         ['key' => 'rental_inspections.resolve_discrepancy', 'label' => 'Resolve Inspection Discrepancies',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 3],
         // Separately gated per §6 — overrides a party's own consent to sign.
-        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign Out-Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        ['key' => 'rental_inspections.sign_on_behalf',      'label' => 'Sign an Inspection on Tenant\'s Behalf', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 4],
+        // §45.5 (Build I-3) — record who attended an inspection and the invitations given off the system.
+        // Granted wherever rental_inspections.create is; correcting someone else's record also needs
+        // rental_inspections.resolve_discrepancy.
+        ['key' => 'rental_inspections.record_attendance',   'label' => 'Record Inspection Attendance',            'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 7],
         // agency-onboarding-rentals-step.md §8 — same role as leases.manage_settings.
+        // §45.8 (Build I-6b) — what used to be one blanket `.create` is split so each action can be given (or withheld)
+        // on its own. Granted wherever `.create` is today (and `.export` wherever `.view` is) so nobody loses anything,
+        // EXCEPT archiving a COMPLETED, signed inspection — evidence — which is `.archive_completed`: managers only.
+        ['key' => 'rental_inspections.edit_details',        'label' => 'Edit Inspection Details',                 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 8],
+        ['key' => 'rental_inspections.archive',             'label' => 'Archive Inspections',                     'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 9],
+        ['key' => 'rental_inspections.archive_completed',   'label' => 'Archive Completed (Signed) Inspections',  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 10],
+        ['key' => 'rental_inspections.restore',             'label' => 'Restore Archived Inspections',            'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 11],
+        ['key' => 'rental_inspections.cancel',              'label' => 'Cancel Inspections',                      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 12],
+        ['key' => 'rental_inspections.reschedule',          'label' => 'Reschedule Inspections',                  'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 13],
+        ['key' => 'rental_inspections.public_link',         'label' => 'Issue / Revoke the Public Report Link',   'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 14],
+        ['key' => 'rental_inspections.export',              'label' => 'Export / Print the Inspections List',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 15],
         ['key' => 'rental_inspections.manage_settings',     'label' => 'Manage Rental Inspection Settings',       'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 5],
+        // §45.7 (Build I-5) — load / move / skip / archive the interim inspection dates an agency wants. Granted wherever
+        // rental_inspections.create is (the Due tab itself needs only .view).
+        ['key' => 'rental_inspections.manage_planned_dates', 'label' => 'Manage Planned (Interim) Inspection Dates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inspections', 'sort_order' => 7],
         // rental-inspection-form.md §7 — separately gated per the same reasoning
         // as .resolve_discrepancy: marking an in-vs-out difference as fair wear
         // and tear (excluding it from the deposit conversation) is a judgement
@@ -163,6 +219,13 @@ return [
         // §8 — the move-out comparison's disposition vocabulary (present/short/damaged/missing).
         ['key' => 'rental_inventories.manage_settings', 'label' => 'Manage Rental Inventory Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_inventories', 'sort_order' => 3],
 
+        // ── Rental Fault Types catalogue (rentals-faults-work-orders.md §2, 2026-09-29) ──
+        ['key' => 'rental_fault_types.view',   'label' => 'View Rental Fault Types',        'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_types', 'sort_order' => 1],
+        // Covers create, edit, archive, restore, document upload — one key, per Johan's
+        // ruling (§14(3) of that spec): follow rental_work_orders.create/
+        // rental_fault_reports.create's own single-key shape, no archive/restore split.
+        ['key' => 'rental_fault_types.create', 'label' => 'Manage Rental Fault Types',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_types', 'sort_order' => 2],
+
         // ── Rental Fault Reports (rental-work-orders.md §3a, 2026-09-24/25) ──
         ['key' => 'rental_fault_reports.view',   'label' => 'View Rental Fault Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_fault_reports', 'sort_order' => 1],
         ['key' => 'rental_fault_reports.create', 'label' => 'Report & Edit Faults',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 2],
@@ -171,6 +234,8 @@ return [
         // an owner's decision, or making an outcome final, is a heavier call
         // than logging or editing what was reported.
         ['key' => 'rental_fault_reports.record_approval', 'label' => 'Record Owner Approval', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 4],
+        // Fault flow F2 (2026-10-08) - sending the prepared fault report to the owner is the moment the owner first sees it.
+        ['key' => 'rental_fault_reports.send_to_owner',   'label' => 'Send Fault Report to Owner', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 7],
         ['key' => 'rental_fault_reports.resolve',         'label' => 'Set Fault Outcome',      'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_fault_reports', 'sort_order' => 5],
         // Stage 4 — raising a real work order from an already-approved
         // fault report (the agency_appoints route, §3a.1) is a distinct,
@@ -191,6 +256,59 @@ return [
         // value the approval-limit gate rides on, separate from .create
         // (logging/editing the work order itself).
         ['key' => 'rental_work_orders.manage_quotes', 'label' => 'Capture & Select Work Order Quotes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 7],
+        // §17.15 (maintenance flow, 6 Oct 2026) — three heavier decisions, each its own key.
+        // The owner's emergency agreement is captured by the office, never overridden (§17.8).
+        ['key' => 'rental_work_orders.record_emergency_approval', 'label' => 'Authorise an Emergency Cost (owner emergency limit)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 8],
+        // The owner's agreed work terms per property (no-approval limit, variation tolerance) are standing
+        // spending authority — a tighter grant than logging a work order (§17.6.2).
+        ['key' => 'rental_work_orders.manage_work_terms', 'label' => 'Manage Owner Work Terms (per property)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 9],
+        // "Contractor reports done", "Record tenant's answer", "Send back to crew/contractor" (§17.10).
+        ['key' => 'rental_work_orders.manage_completion', 'label' => 'Capture Completion, Tenant Answers & Disputes', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 10],
+        // §17.31 — the supplier's invoice documents on a work order: file, replace, share with the owner, archive, restore, view.
+        // Separate from .manage_quotes/.complete: an invoice carries the supplier's figures, so seeing it is a decision of its own.
+        ['key' => 'rental_work_orders.manage_invoices', 'label' => 'File & Manage Supplier Invoices on a Work Order', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_work_orders', 'sort_order' => 11],
+
+        // ── Rental Portal Access (AT-445, .ai/specs/rental-portal-access.md §9) ──
+        ['key' => 'rental_portal.manage_settings', 'label' => 'Manage Rental Portal Settings', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_portal', 'sort_order' => 1],
+        ['key' => 'rental_notices.create', 'label' => 'Draft & Send Rental Notices', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 1],
+        ['key' => 'rental_notices.review', 'label' => 'Review & Decide Notices Received, Send to the Other Party', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 3],
+        ['key' => 'rental_breaches.view', 'label' => 'View the Breach Register', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_breaches', 'sort_order' => 1],
+        ['key' => 'rental_breaches.manage', 'label' => 'Issue Breach Notices & Notices to Vacate, Mark Remedied', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_breaches', 'sort_order' => 2],
+        ['key' => 'rental_notice_templates.manage_settings', 'label' => 'Manage Rental Notice Templates', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_notices', 'sort_order' => 2],
+
+        // ── Rental Reports (AT-443) — .ai/specs/rentals-reports.md. Access-only —
+        // reports are read-only, no separate create/edit/archive action exists on
+        // this screen (same pattern as rental_command_centre.view).
+        ['key' => 'rental_reports.view', 'label' => 'View Rental Reports', 'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_reports', 'sort_order' => 1],
+
+        // ── Rental Parts & Labour Catalogue (rental-work-orders.md §14, AT-442) ──
+        ['key' => 'rental_catalogue.view',   'label' => 'View Rental Catalogue',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_catalogue', 'sort_order' => 1],
+        // One key for the whole CRUD surface — same single-key shape as
+        // rental_fault_types.create / deals_v2.manage_suppliers.
+        ['key' => 'rental_catalogue.manage', 'label' => 'Manage Rental Catalogue', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_catalogue', 'sort_order' => 2],
+
+        // ── Rental Job Cards (rental-work-orders.md §14, AT-442) — the internal
+        // counterpart to an outside-supplier work order. ──
+        ['key' => 'rental_job_cards.view',   'label' => 'View Rental Job Cards',   'section' => 'agency-tracker', 'type' => 'access', 'module' => 'rental_job_cards', 'sort_order' => 1],
+        ['key' => 'rental_job_cards.create', 'label' => 'Log & Edit Job Cards',    'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 2],
+        // Sending a quote to the owner moves money past the approval gate —
+        // same weight-of-decision reasoning as rental_work_orders.manage_quotes.
+        ['key' => 'rental_job_cards.send_quote', 'label' => 'Send Job Card Quotes to Owner', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 3],
+        // Worker/agent/tenant sign-off and completing the job card are the
+        // point evidence becomes final — same reasoning as
+        // rental_work_orders.complete/.record_approval.
+        ['key' => 'rental_job_cards.sign_off', 'label' => 'Sign Off & Complete Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 4],
+        ['key' => 'rental_job_cards.cancel',     'label' => 'Cancel Job Cards',          'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 5],
+        // §14.28 — mint / email / revoke the crew's no-login link; the crew page
+        // link panel on Rental Crews reuses it (§14.29). A link is a live
+        // credential, so it is its own key rather than riding on .create.
+        ['key' => 'rental_job_cards.share',      'label' => 'Share Job Cards with Crew', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 6],
+        // §17.15 (maintenance flow, 6 Oct 2026, Decision 4) — cost and margin are the agency's own business:
+        // "price and send quotes" (set selling, markup, accept crew lines) and "see cost and margin" are
+        // separate keys, both default-granted to whoever can send quotes today. Everyone else sees selling only;
+        // crew links show cost only, never selling.
+        ['key' => 'rental_job_cards.price',      'label' => 'Set Selling Prices & Markup on Job Cards', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 7],
+        ['key' => 'rental_job_cards.view_costs', 'label' => 'View Costs & Margin on Job Cards',        'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_job_cards', 'sort_order' => 8],
 
         // ── Rental Details (rental-property-tab.md §2/§8, Part 1) — agency-defined
         // fields, rental price type list, lease type list, all on one settings page.
@@ -357,6 +475,7 @@ return [
         ['key' => 'templates.create',            'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 15],
         ['key' => 'templates.edit',              'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 16],
         ['key' => 'templates.archive',           'label' => 'Archive',                     'section' => 'docuperfect',      'type' => 'action',  'module' => 'templates',        'sort_order' => 17],
+        ['key' => 'templates.transfer',          'label' => 'Export / Import Template Packages (owner)', 'section' => 'docuperfect', 'type' => 'action', 'module' => 'templates', 'sort_order' => 18],
         ['key' => 'clauses.view',                'label' => 'View',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 18],
         ['key' => 'clauses.create',              'label' => 'Create',                      'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 19],
         ['key' => 'clauses.edit',                'label' => 'Edit',                        'section' => 'docuperfect',      'type' => 'action',  'module' => 'clauses',          'sort_order' => 20],
@@ -464,6 +583,9 @@ return [
         // agency's roster itself, resolved by SyndicationApprovalService::canApprove().
         // Two lists of "who approves" would drift.
         ['key' => 'properties.syndication.manage_approvers', 'label' => 'Configure Syndication Approval (switch + approvers)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 16],
+        // Correct a property's Listed Date (reason required, recorded in the notes + audited).
+        // Default: admin (all-minus-exclude) and branch manager. Spec: .ai/specs/property-listed-date-correction.md
+        ['key' => 'properties.listed_date.correct', 'label' => 'Correct Listed Date (reason required)', 'section' => 'properties', 'type' => 'action', 'module' => 'properties', 'sort_order' => 17],
 
         // ── Contacts ──
         ['key' => 'access_contacts',             'label' => 'Access Contacts',             'section' => 'contacts',         'type' => 'access',  'module' => 'contacts',         'sort_order' => 1],
@@ -491,8 +613,16 @@ return [
         // gets a Role Manager own/branch/agency scope selector from day one. ──
         ['key' => 'buyer_pipeline.view',         'label' => 'View',                        'section' => 'buyer-pipeline',   'type' => 'action',  'module' => 'buyer_pipeline',   'sort_order' => 10],
 
+        // ── Road to Sold (AT-454, .ai/specs/road-to-sold.md section 4) ──
+        // road_to_sold.view is the data-breadth key (own / branch / agency via scope_defaults + Role Manager).
+        ['key' => 'access_road_to_sold',           'label' => 'Access Road to Sold',           'section' => 'road-to-sold',     'type' => 'access',  'module' => 'road_to_sold',     'sort_order' => 1],
+        ['key' => 'road_to_sold.view',             'label' => 'View',                          'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 10],
+        ['key' => 'road_to_sold.manage_settings',  'label' => 'Manage Road to Sold settings',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 11],
+        ['key' => 'road_to_sold.manage_areas',     'label' => 'Assign areas to agents',        'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 12],
+        ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 13],
+
         // ── Core Matches ──
-        ['key' => 'access_core_matches',         'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
+        ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],
         ['key' => 'core_matches.view',           'label' => 'View',                        'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 10],
         ['key' => 'core_matches.create',         'label' => 'Create',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 11],
         ['key' => 'core_matches.delete',         'label' => 'Delete',                      'section' => 'core-matches',     'type' => 'action',  'module' => 'core_matches',     'sort_order' => 12],
@@ -503,6 +633,13 @@ return [
         // can move a buyer between agents. Ever." Never granted to agent —
         // mirrors contacts.reassign_agent's existing role placement exactly.
         ['key' => 'core_matches.reassign',       'label' => 'Reassign buyer to another agent', 'section' => 'core-matches', 'type' => 'action', 'module' => 'core_matches', 'sort_order' => 16],
+        // Johan, 2026-10-07 — "role manager setting … own / branch / agency … agency decides how they want
+        // it to show": WHO may read the notes recorded on a buyer, from the Intelligence tab's Buyer Interest
+        // Signals and from Core Matches (view only). A `.view` action key, so Role Manager draws the standard
+        // Own / Branch / Agency selector and PermissionService::getDataScope($user, 'buyer_notes') reads it.
+        // Own = buyers whose primary agent is the viewer; Branch = buyers whose primary agent is in the
+        // viewer's branch; Agency = any buyer in the agency. Resolved by App\Services\Buyers\BuyerNotesAccess.
+        ['key' => 'buyer_notes.view',            'label' => 'View buyer notes (Intelligence tab & Core Matches)', 'section' => 'core-matches', 'type' => 'action', 'module' => 'buyer_notes', 'sort_order' => 17],
 
         // ── Portal Leads (P24 + PP unified) ──
         ['key' => 'access_portal_leads',         'label' => 'Access Portal Leads',         'section' => 'portal-leads',     'type' => 'access',  'module' => 'portal_leads',     'sort_order' => 1],
@@ -536,6 +673,12 @@ return [
         // Data-scope view key — drives the None / Own / Branch / All selector in
         // Role Manager (whose properties the user may build ads for).
         ['key' => 'ad_manager.view',             'label' => 'View',                        'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 2],
+        // AT-456 Part D — schedule Facebook / Instagram posts from generated ads, and see the Scheduled
+        // Posts screen. Not a scope key: how many posts a user sees follows their Properties data scope.
+        ['key' => 'ad_manager.schedule_posts',   'label' => 'Schedule social posts',       'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 3],
+        // Company Ads (.ai/specs/company-ads.md §9) — make, edit, duplicate, archive and restore the agency's
+        // company ads (season's greetings, closures, welcomes). Viewing / downloading them needs only access_ad_manager.
+        ['key' => 'ad_manager.company_ads',      'label' => 'Create company ads',          'section' => 'calculators',      'type' => 'action',  'module' => 'ad_manager',       'sort_order' => 4],
 
         // ── Flow Map ──
         ['key' => 'access_flow_map',             'label' => 'Access Flow Map',             'section' => 'flow-map',         'type' => 'access',  'module' => 'flow_map',         'sort_order' => 1],
@@ -597,6 +740,9 @@ return [
         // ── MIC property row comments — .ai/specs/mic-property-row-comments.md ──
         ['key' => 'mic.comments.view',           'label' => 'View Property Comments',              'section' => 'prospecting',      'type' => 'access',  'module' => 'mic',              'sort_order' => 58],
         ['key' => 'mic.comments.add',            'label' => 'Add Property Comments',               'section' => 'prospecting',      'type' => 'action',  'module' => 'mic',              'sort_order' => 59],
+        // AT-454 — correct a MIC listing's listed date (reason required, history kept). Default: admin + branch manager,
+        // same as properties.listed_date.correct.
+        ['key' => 'mic.listed_date.correct',     'label' => 'Correct Listed Date on MIC (reason required)', 'section' => 'prospecting', 'type' => 'action', 'module' => 'mic', 'sort_order' => 60],
 
         // ── Evaluation (Property/Suburb/Town Reports) ──
         ['key' => 'access_evaluation',           'label' => 'Access Evaluation Reports',   'section' => 'evaluation',       'type' => 'access',  'module' => 'evaluation',       'sort_order' => 1],
@@ -670,6 +816,9 @@ return [
         ['key' => 'manage_designations',         'label' => 'Manage Designations',         'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 2],
         ['key' => 'manage_branch_settings',      'label' => 'Manage Branch Settings',      'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 3],
         ['key' => 'prospecting_setup.manage',    'label' => 'Manage Prospecting Setup',    'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
+        // Structured address matching (spec structured-address-matching.md §10) — the admin-only list of addresses CoreX could not read.
+        // Not in any role's role_defaults include list: admin / super_admin hold it through the all-minus-exclude rule, nobody else by default.
+        ['key' => 'address_review.manage',       'label' => 'Address Review (unreadable addresses)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 7],
         ['key' => 'manage_performance_settings', 'label' => 'Manage Performance Settings', 'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 4],
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
@@ -873,6 +1022,14 @@ return [
         // ── Diagnostics ──
         ['key' => 'view_photo_upload_report', 'label' => 'View Photo Upload Report',  'section' => 'system', 'type' => 'access', 'module' => 'diagnostics', 'sort_order' => 90],
 
+        // ── Other Agency Stock — .ai/specs/other-agency-stock.md §7 ──
+        // Gates OtherAgencyStockStatusGate::canChange() — changing a property's
+        // status TO or FROM other_agency_stock (import is via the Chrome
+        // extension's own auth, not this — this is the in-app status-change
+        // seam). Docblock on the gate: once Andre's "only authorised users can
+        // turn syndication on" setting lands, this key is expected to delegate
+        // to (or be replaced by) that instead.
+        ['key' => 'other_agency_stock.change_status', 'label' => 'Change Other Agency Stock Status', 'section' => 'properties', 'type' => 'action', 'module' => 'other_agency_stock', 'sort_order' => 1],
         // ── Auctions (AT-432) — .ai/specs/auctions.md §20 ──
         // Feature-flagged off by default (config/corex-features.php 'auctions') —
         // an agency that does not auction sees nothing regardless of these grants.
@@ -902,14 +1059,6 @@ return [
         ['key' => 'auctions.results.view',           'label' => 'View Results',                       'section' => 'auctions', 'type' => 'access', 'module' => 'auctions', 'sort_order' => 18],
         ['key' => 'auctions.results.export',         'label' => 'Export Results',                     'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 19],
         ['key' => 'auctions.manage_settings',        'label' => 'Manage Auction Settings',            'section' => 'auctions', 'type' => 'action', 'module' => 'auctions', 'sort_order' => 20],
-        // ── Other Agency Stock — .ai/specs/other-agency-stock.md §7 ──
-        // Gates OtherAgencyStockStatusGate::canChange() — changing a property's
-        // status TO or FROM other_agency_stock (import is via the Chrome
-        // extension's own auth, not this — this is the in-app status-change
-        // seam). Docblock on the gate: once Andre's "only authorised users can
-        // turn syndication on" setting lands, this key is expected to delegate
-        // to (or be replaced by) that instead.
-        ['key' => 'other_agency_stock.change_status', 'label' => 'Change Other Agency Stock Status', 'section' => 'properties', 'type' => 'action', 'module' => 'other_agency_stock', 'sort_order' => 1],
     ],
 
     // ──────────────────────────────────────────────────────────
@@ -931,7 +1080,7 @@ return [
             // board — owner-only, so admin is excluded from the all-minus rule.
             // manage_reference_sources is likewise platform-owner-only: it's a
             // global, not per-agency, allowlist (ellie-reference-sources spec).
-            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources'],
+            'exclude' => ['manage_agency_switching', 'reveal_mailbox_credential', 'reveal_backup_password', 'agency_setup.track', 'manage_reference_sources', 'templates.transfer'],
             // Payroll: admin gets full payroll management
             'include' => [
                 'manage_payroll', 'run_payroll', 'view_payroll_reports', 'view_own_payslips',
@@ -956,6 +1105,7 @@ return [
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team', 'mic.regenerate_brief', 'mic.view_ai_costs',
                 'mic.restore_reports', 'mic.comments.view', 'mic.comments.add',
+                'mic.listed_date.correct', // AT-454
                 // Agency Public API — admins manage their agency's website keys
                 'agency_api.view', 'agency_api.manage',
                 // Testimonials — admins curate which testimonials go on the website
@@ -984,6 +1134,10 @@ return [
                 // can actually reach the screen the promote button lives on, matching
                 // the role's real-world need to review and take contested captures.
                 'deeds_capture.access', 'deeds_capture.promote',
+                // .ai/specs/other-agency-stock.md §7 — branch managers may change
+                // Other Agency Stock status; agents/assistants/viewers do not
+                // (fresh-install default; agencies can widen via Role Manager).
+                'other_agency_stock.change_status',
                 // AT-432 (.ai/specs/auctions.md §20) — Branch Manager gets everything
                 // in the Auctions module EXCEPT manage_settings and bid.retract.
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit', 'auctions.archive',
@@ -992,22 +1146,18 @@ return [
                 'auctions.bidders.verify_fica', 'auctions.bidders.deposits',
                 'auctions.room.operate', 'auctions.bid.record', 'auctions.hammer',
                 'auctions.results.view', 'auctions.results.export',
-                // .ai/specs/other-agency-stock.md §7 — branch managers may change
-                // Other Agency Stock status; agents/assistants/viewers do not
-                // (fresh-install default; agencies can widen via Role Manager).
-                'other_agency_stock.change_status',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts', 'export_reports',
                 'access_agency_tracker', 'access_daily_activity', 'access_deal_register',
                 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
-                'access_rental_signatures',
                 'communication_mailboxes.view', // AT-395 — branch scope (scope_defaults)
                 // AT-283 (Johan's ruling): settlement is admin-only — "not even bm can
                 // access settlements". BM keeps the deal register, loses settle_deals.
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'create_deals', 'proforma.generate', 'proforma.view',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile
-                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'manage_targets',
-                'view_rentals', 'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'viewing_feedback_edit.view', // viewing feedback edit - scope branch (scope_defaults)
+                'properties.listed_date.correct', // Correct Listed Date (reason required) - Johan's default: admin + branch manager
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view', 'manage_targets',
+                'manage_rentals', 'view_daily_activity', 'manage_tv_messages',
                 'deals.view', 'deals.create', 'deals.edit',
                 'listings.view', 'listings.create', 'listings.edit',
                 'rentals.view', 'rentals.create', 'rentals.edit',
@@ -1035,14 +1185,16 @@ return [
                 // full working set incl. cancel/approval/resolve powers; the
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
-                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel',
-                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.resolve_discrepancy',
+                'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
+                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
+                'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
                 'rental_inspections.review_deposit_comparison',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.cancel',
-                'rental_fault_reports.record_approval', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
+                'rental_fault_reports.record_approval', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.resolve', 'rental_fault_reports.raise_work_order',
                 'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.record_approval',
-                'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes',
+                'rental_work_orders.complete', 'rental_work_orders.cancel', 'rental_work_orders.manage_quotes', 'rental_work_orders.manage_invoices',
+                'rental_work_orders.manage_completion', 'rental_work_orders.record_emergency_approval',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'tv_messages.view', 'tv_messages.create', 'tv_messages.edit',
                 'targets.view', 'targets.create', 'targets.edit',
@@ -1112,7 +1264,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create', 'commercial_evals.edit',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create', 'sales_docs.edit',
-                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'ad_manager.schedule_posts', 'ad_manager.company_ads', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_deposit_calculator', 'access_deposit_calc_history',
                 'access_prospecting', 'access_evaluation',
@@ -1122,8 +1274,11 @@ return [
                 'contacts.view', 'contacts.create', 'contacts.edit', 'contacts.archive',
                 'contacts.delete', 'contacts.whatsapp', 'contacts.email', 'contacts.export',
                 'contacts.reassign_agent', // AT-118 hardening — managers reassign contact agents
+                // AT-454 — Road to Sold: branch managers see their branch and assign areas / set targets for it.
+                'access_road_to_sold', 'road_to_sold.view', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets',
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
                 'core_matches.all_view', 'core_matches.reassign',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
@@ -1160,11 +1315,38 @@ return [
                 // EXCEPT regenerate_brief and view_ai_costs (admin+ only).
                 'mic.edit_address', 'mic.merge_duplicates', 'mic.upload_reports',
                 'mic.view_team',
+                'mic.listed_date.correct', // AT-454
                 // AT-380 — .view scope (branch_manager→branch, agent→own via
                 // scope_defaults). Admin/owner get these via '*'/all-minus-exclude.
                 'market_intelligence.view', 'outreach_canvassing.view',
                 // MIC property row comments — agency-wide visibility per Johan's spec.
                 'mic.comments.view', 'mic.comments.add',
+                // 2026-10-14 (go-live: new-agency walk) — the manager's working surface that HFC held only
+                // through hand-ticked grants, so a freshly provisioned agency's manager got a 403 on Calendar
+                // and Tasks: the whole Command Centre, plus archive of the records the role already creates.
+                // (tasks.assign + health.view are the manager-only extras; automation.manage stays admin.)
+                'command_center.view', 'command_center.scorecards.own', 'command_center.health.view',
+                'command_center.calendar.view', 'command_center.calendar.create', 'command_center.calendar.edit', 'command_center.calendar.delete',
+                'command_center.tasks.view', 'command_center.tasks.create', 'command_center.tasks.edit', 'command_center.tasks.assign', 'command_center.tasks.delete',
+                'listings.archive', 'rentals.archive', 'daily_activity.archive',
+                'create_presentations', 'contact_rental_history.view', 'buyer_pipeline.view', 'view_own_stats',
+                // 2026-10-14 (Johan: "each gets everything - they decide in setup what they want and need"):
+                // everything HFC's corresponding role holds today, so a new agency starts exactly where HFC is and
+                // trims per role in Role Manager. Platform-owner-only keys (admin's exclude list) and the three
+                // retired keys (view_rentals, access_rental_signatures, ppra_employment_letters.sign_as_principal)
+                // are NOT part of it. Where this reaches past an older ruling (AT-283: settlement/payroll/deal
+                // register are admin-only), the newer ruling wins - see roles-permissions.md.
+                'access_branch_assignments', 'access_import_listings', 'agency.authorize_external_access', 'agency.manage_access_authorization',
+                'agency_api.manage', 'agency_api.view', 'approve_policy', 'approve_rmcp',
+                'client_app.create_login', 'client_app.force_logout', 'client_app.remove_access', 'client_app.reset_password',
+                'client_app.view_logs', 'command_center.automation.manage', 'commercial_evals.archive', 'compile_pack',
+                'compliance.fica.approve', 'compliance.fica.review', 'compliance.whistleblow.configure', 'contacts.import',
+                'deeds_capture.view', 'documents.archive', 'finance.view', 'import_listings',
+                'knowledge.manage', 'manage_courses', 'manage_document_library', 'manage_knowledge_base',
+                'manage_p24', 'marketing_suppressions.manage', 'marketing_suppressions.view', 'mic.regenerate_brief',
+                'mic.restore_reports', 'mic.view_ai_costs', 'outreach_templates.manage', 'p24.manage',
+                'packs.archive', 'properties.archive', 'sales_docs.archive', 'targets.archive',
+                'testimonials.publish', 'tv_messages.archive', 'users.view',
             ],
         ],
 
@@ -1174,11 +1356,11 @@ return [
                 'access_auctions', 'auctions.view', 'auctions.create', 'auctions.edit',
                 'auctions.bidders.view', 'auctions.results.view',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
-                'access_agency_tracker', 'access_daily_activity', 'access_rental_signatures',
+                'access_agency_tracker', 'access_daily_activity',
                 'communication_mailboxes.view', // AT-395 — own scope (scope_defaults)
                 'view_worksheet', 'edit_worksheet', 'view_deals', 'proforma.generate', 'proforma.view',
-                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
-                'view_rentals', 'manage_rentals', 'view_daily_activity',
+                'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view',
+                'manage_rentals', 'view_daily_activity',
                 'deals.view', 'deals.create',
                 'calendar.tile.my_deals', // AT-216 R3 — deal-pipeline deck tile (agent's working surface)
                 'viewing_feedback_edit.view', // viewing feedback edit - scope own (appointments they created)
@@ -1204,10 +1386,12 @@ return [
                 // resolution, sign-on-behalf and every manage_settings stay with
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
-                'leases.view', 'leases.create', 'leases.renew',
-                'rental_inspections.view', 'rental_inspections.create',
-                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.raise_work_order',
-                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete',
+                'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_breaches.view', 'rental_breaches.manage',
+                'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
+                'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
+                'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
+                'rental_work_orders.view', 'rental_work_orders.create', 'rental_work_orders.complete', 'rental_work_orders.manage_invoices',
+                'rental_work_orders.manage_completion', 'rental_work_orders.record_emergency_approval',
                 'daily_activity.view', 'daily_activity.create', 'daily_activity.edit',
                 'targets.view',
                 'access_my_portal', 'upload_own_documents', 'edit_own_profile', 'view_agency_documents',
@@ -1256,7 +1440,7 @@ return [
                 'commercial_evals.view', 'commercial_evals.create',
                 'access_sales_documents',
                 'sales_docs.view', 'sales_docs.create',
-                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
+                'access_calculators', 'access_ad_manager', 'ad_manager.view', 'ad_manager.schedule_posts', 'access_ellie', 'use_ellie_voice', 'use_property_image_ai', 'access_flow_map',
                 'access_pdf_splitter', 'access_pdf_suite', 'access_image_converter',
                 'access_prospecting', 'access_evaluation',
                 'access_properties', 'access_imported_stock', 'create_properties',
@@ -1264,8 +1448,10 @@ return [
                 'access_contacts',
                 'contacts.view', 'contacts.create', 'contacts.edit',
                 'contacts.whatsapp', 'contacts.email', 'contacts.export',
+                'access_road_to_sold', 'road_to_sold.view', // AT-454 — an agent works their own Road to Sold list
                 'access_core_matches',
                 'core_matches.view', 'core_matches.create', 'core_matches.delete', 'core_matches.manage', 'core_matches.convert_to_deal',
+                'buyer_notes.view', // who may read notes on a buyer — own/branch/agency via scope_defaults + Role Manager
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
@@ -1308,6 +1494,48 @@ return [
                 // see and add comments (Johan's explicit ask — cross-agent
                 // visibility on a specific property).
                 'mic.comments.view', 'mic.comments.add',
+                // 2026-10-14 (go-live: new-agency walk) — the agent's day-to-day surface. HFC's agents held
+                // these only through hand-ticked grants that never reached this list, so a new agency's agent
+                // got a 403 on Calendar and Tasks and could not create/edit/archive a listing. Everything
+                // here is the agent's OWN work: no tasks.assign (assigning to others), no health.view /
+                // automation.manage (manager/admin), no compliance, finance, user or settings keys.
+                'command_center.view', 'command_center.scorecards.own',
+                'command_center.calendar.view', 'command_center.calendar.create', 'command_center.calendar.edit', 'command_center.calendar.delete',
+                'command_center.tasks.view', 'command_center.tasks.create', 'command_center.tasks.edit', 'command_center.tasks.delete',
+                'listings.create', 'listings.edit', 'listings.archive', 'rentals.archive', 'daily_activity.archive',
+                'create_presentations', 'contact_rental_history.view', 'buyer_pipeline.view',
+                // 2026-10-14 (Johan: "each gets everything - they decide in setup what they want and need"):
+                // everything HFC's corresponding role holds today, so a new agency starts exactly where HFC is and
+                // trims per role in Role Manager. Platform-owner-only keys (admin's exclude list) and the three
+                // retired keys (view_rentals, access_rental_signatures, ppra_employment_letters.sign_as_principal)
+                // are NOT part of it. Where this reaches past an older ruling (AT-283: settlement/payroll/deal
+                // register are admin-only), the newer ruling wins - see roles-permissions.md.
+                'access_branch_assignments', 'access_communication_archive', 'access_compliance', 'access_compliance_dashboard',
+                'access_import_listings', 'access_listing_stock', 'access_tv_messages', 'access_worksheet_market',
+                'agency.authorize_external_access', 'agency.manage_access_authorization', 'agency_api.manage', 'agency_api.view',
+                'approve_policy', 'approve_rmcp', 'assign_training', 'client_app.create_login',
+                'client_app.force_logout', 'client_app.remove_access', 'client_app.reset_password', 'client_app.view_logs',
+                'command_center.automation.manage', 'command_center.health.view', 'command_center.tasks.assign', 'commercial_evals.archive',
+                'commercial_evals.edit', 'communication.manage', 'compile_pack', 'compliance.fica.approve',
+                'compliance.fica.review', 'compliance.manage', 'compliance.view', 'compliance.whistleblow.approve',
+                'compliance.whistleblow.configure', 'compliance.whistleblow.view_all_agency', 'contacts.archive', 'contacts.delete',
+                'contacts.import', 'contacts.reassign_agent', 'core_matches.all_view', 'create_deals',
+                'deals_v2.archive', 'deals_v2.create', 'deals_v2.override_dates', 'deeds_capture.access',
+                'deeds_capture.view', 'delete_properties', 'documents.archive', 'documents.edit',
+                'edit_policy', 'edit_rmcp', 'export_reports', 'finance.view',
+                'import_listings', 'knowledge.manage', 'manage_activity_mappings', 'manage_clients',
+                'manage_compliance', 'manage_courses', 'manage_document_library', 'manage_employee_screenings',
+                'manage_information_officer', 'manage_knowledge_base', 'manage_p24', 'manage_targets',
+                'manage_tv_messages', 'marketing_suppressions.manage', 'marketing_suppressions.view', 'mic.merge_duplicates',
+                'mic.regenerate_brief', 'mic.restore_reports', 'mic.view_ai_costs', 'mic.view_team',
+                'outreach_templates.manage', 'p24.manage', 'packs.archive', 'packs.create',
+                'packs.edit', 'properties.ad_templates.manage', 'properties.archive', 'prospecting_setup.manage',
+                'publish_properties', 'roles.view', 'run_analysis', 'sales_docs.archive',
+                'sales_docs.edit', 'settings.view', 'supervision.manage', 'supervision.view',
+                'targets.archive', 'targets.create', 'targets.edit', 'templates.view',
+                'testimonials.publish', 'training.manage', 'tv_messages.archive', 'tv_messages.create',
+                'tv_messages.edit', 'tv_messages.view', 'upload_documents_library', 'users.view',
+                'view_communication_flag_register', 'view_compliance_reports',
             ],
         ],
 
@@ -1316,8 +1544,8 @@ return [
                 'access_my_portal',
                 'view_dashboard', 'view_dashboard_kpis', 'view_dashboard_charts',
                 'access_agency_tracker', 'access_daily_activity',
-                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view',
-                'view_rentals', 'view_daily_activity',
+                'view_worksheet', 'view_deals', 'view_listings', 'view_performance', 'view_buyers_report', 'buyers_report.view', 'performance_report.view',
+                'view_daily_activity',
                 'deals.view', 'listings.view', 'rentals.view', 'daily_activity.view', 'targets.view',
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all
                 // should have access but agencies can set who can use inventory" —
@@ -1342,6 +1570,7 @@ return [
                 'access_properties', 'access_imported_stock', 'properties.view',
                 'access_contacts', 'contacts.view', 'contacts.export',
                 'access_core_matches', 'core_matches.view',
+                'buyer_notes.view',
                 'access_portal_leads', 'portal_leads.view',
                 'p24.view',
                 'access_knowledge_base', 'knowledge.view',
@@ -1356,8 +1585,74 @@ return [
                 // default -> a viewer captures nothing). scope_defaults gives
                 // viewer 'branch', consistent with every other .view key it holds.
                 'market_intelligence.view',
+                // 2026-10-14 — read-only Calendar / Tasks (a viewer who cannot open the calendar is locked out of the day's plan).
+                'command_center.view', 'command_center.calendar.view', 'command_center.tasks.view',
                 // Sidebar sections
                 'sidebar.section.agents', 'sidebar.section.tools',
+                // 2026-10-14 (Johan: "each gets everything - they decide in setup what they want and need"):
+                // everything HFC's corresponding role holds today, so a new agency starts exactly where HFC is and
+                // trims per role in Role Manager. Platform-owner-only keys (admin's exclude list) and the three
+                // retired keys (view_rentals, access_rental_signatures, ppra_employment_letters.sign_as_principal)
+                // are NOT part of it. Where this reaches past an older ruling (AT-283: settlement/payroll/deal
+                // register are admin-only), the newer ruling wins - see roles-permissions.md.
+                'access_ad_manager', 'access_branch_assignments', 'access_clause_library', 'access_communication_archive',
+                'access_compliance', 'access_compliance_dashboard', 'access_deal_register', 'access_deal_register_v2',
+                'access_deposit_calc_history', 'access_deposit_calculator', 'access_docuperfect', 'access_docuperfect_packs',
+                'access_image_converter', 'access_import_listings', 'access_listing_stock', 'access_misfiled_documents',
+                'access_pdf_splitter', 'access_pdf_suite', 'access_supervision', 'access_tv_messages',
+                'access_viewing_packs', 'access_worksheet_market', 'ad_manager.view', 'agency.authorize_external_access',
+                'agency.manage_access_authorization', 'agency_api.manage', 'agency_api.view', 'apply_for_leave',
+                'approve_leave', 'approve_policy', 'approve_rmcp', 'assign_training',
+                'assign_user_branch', 'branches.switch', 'buyer_pipeline.view', 'calculators.manage',
+                'calendar.tile.my_deals', 'clauses.create', 'clauses.edit', 'client_app.create_login',
+                'client_app.force_logout', 'client_app.remove_access', 'client_app.reset_password', 'client_app.view_logs',
+                'command_center.automation.manage', 'command_center.calendar.create', 'command_center.calendar.delete', 'command_center.calendar.edit',
+                'command_center.health.view', 'command_center.scorecards.own', 'command_center.tasks.assign', 'command_center.tasks.create',
+                'command_center.tasks.delete', 'command_center.tasks.edit', 'commercial_evals.archive', 'commercial_evals.create',
+                'commercial_evals.edit', 'communication.manage', 'communication.send', 'communication_mailboxes.view',
+                'communications.view', 'compile_pack', 'compliance.fica.approve', 'compliance.fica.review',
+                'compliance.fica.send', 'compliance.manage', 'compliance.view', 'compliance.whistleblow.approve',
+                'compliance.whistleblow.configure', 'compliance.whistleblow.create', 'compliance.whistleblow.view', 'compliance.whistleblow.view_all_agency',
+                'contact_rental_history.view', 'contacts.archive', 'contacts.create', 'contacts.delete',
+                'contacts.edit', 'contacts.email', 'contacts.import', 'contacts.reassign_agent',
+                'contacts.whatsapp', 'core_matches.all_view', 'core_matches.convert_to_deal', 'core_matches.create',
+                'core_matches.delete', 'core_matches.manage', 'core_matches.reassign', 'create_deals',
+                'create_docuperfect_docs', 'create_presentations', 'create_properties', 'daily_activity.archive',
+                'daily_activity.create', 'daily_activity.edit', 'deal_comms_suspense.resolve', 'deal_comms_suspense.view',
+                'deals.create', 'deals.edit', 'deals_v2.archive', 'deals_v2.create',
+                'deals_v2.distribute_documents', 'deals_v2.edit', 'deals_v2.manage_distribution_rules', 'deals_v2.manage_pipeline',
+                'deals_v2.manage_suppliers', 'deals_v2.override_dates', 'deals_v2.view', 'deals_v2.view_overview',
+                'deeds_capture.access', 'deeds_capture.promote', 'deeds_capture.view', 'delete_properties',
+                'documents.archive', 'documents.create', 'documents.edit', 'edit_own_profile',
+                'edit_policy', 'edit_rmcp', 'edit_user_ppra_status', 'edit_worksheet',
+                'esign.settings', 'export_reports', 'fica.view', 'filing.create',
+                'filing.edit', 'finance.view', 'import_listings', 'knowledge.manage',
+                'listings.archive', 'listings.create', 'listings.edit', 'manage_activity_mappings',
+                'manage_announcements', 'manage_branch', 'manage_branch_compliance', 'manage_clauses',
+                'manage_clients', 'manage_compliance', 'manage_compliance_officer', 'manage_courses',
+                'manage_document_library', 'manage_employee_screenings', 'manage_information_officer', 'manage_knowledge_base',
+                'manage_leave', 'manage_p24', 'manage_rentals', 'manage_supervision',
+                'manage_targets', 'manage_templates', 'manage_tv_messages', 'marketing_suppressions.manage',
+                'marketing_suppressions.view', 'mic.comments.add', 'mic.comments.view', 'mic.edit_address',
+                'mic.merge_duplicates', 'mic.regenerate_brief', 'mic.restore_reports', 'mic.upload_reports',
+                'mic.view_ai_costs', 'mic.view_team', 'misfiled_documents.refile', 'outreach.compose',
+                'outreach.summary.view', 'outreach_canvassing.view', 'outreach_queue.cancel', 'outreach_queue.dispatch',
+                'outreach_queue.view', 'outreach_templates.manage', 'p24.manage', 'packs.archive',
+                'packs.create', 'packs.edit', 'presentations.create', 'presentations.edit',
+                'proforma.generate', 'proforma.view', 'properties.ad_templates.manage', 'properties.archive',
+                'properties.create', 'properties.edit', 'properties.share', 'publish_properties',
+                'rental_applications.archive', 'rental_applications.create', 'rental_applications.view', 'rental_applications.view_returned',
+                'rentals.archive', 'rentals.create', 'rentals.edit', 'roles.view',
+                'run_analysis', 'sales_docs.archive', 'sales_docs.create', 'sales_docs.edit',
+                'send_messages', 'shared_drive.files.delete', 'shared_drive.folders.create', 'shared_drive.folders.delete',
+                'shared_drive.upload', 'sidebar.section.branch_manager', 'supervision.manage', 'supervision.view',
+                'targets.archive', 'targets.create', 'targets.edit', 'templates.create',
+                'templates.edit', 'testimonials.publish', 'training.manage', 'triage_communications',
+                'tv_messages.archive', 'tv_messages.create', 'tv_messages.edit', 'tv_messages.view',
+                'upload_documents_library', 'upload_own_documents', 'users.view', 'verify_user_documents',
+                'view_agency_documents', 'view_branch_stats', 'view_communication_flag_register', 'view_compliance_reports',
+                'view_leave_reports', 'view_own_payslips', 'view_team_leave_calendar', 'viewing_packs.create',
+                'viewing_packs.edit', 'viewing_packs.view',
             ],
         ],
 
@@ -1389,6 +1684,94 @@ return [
                 'ppra_employment_letters.view', 'ppra_employment_letters.create',
                 // Title Deed Register (AT-450) - the office runs the register: everything except the override and the settings.
                 'access_title_deeds', 'title_deeds.view', 'title_deeds.create', 'title_deeds.edit', 'title_deeds.archive', 'title_deeds.notify', 'title_deeds.handover',
+                // 2026-10-14 (Johan: "each gets everything - they decide in setup what they want and need"):
+                // everything HFC's corresponding role holds today, so a new agency starts exactly where HFC is and
+                // trims per role in Role Manager. Platform-owner-only keys (admin's exclude list) and the three
+                // retired keys (view_rentals, access_rental_signatures, ppra_employment_letters.sign_as_principal)
+                // are NOT part of it. Where this reaches past an older ruling (AT-283: settlement/payroll/deal
+                // register are admin-only), the newer ruling wins - see roles-permissions.md.
+                // HELD OUT for office_admin (HFC's holds them): access_role_manager, edit_permissions, change_user_roles,
+                // roles.edit, impersonate_users - they let a non-admin rewrite roles or become anyone, so the first office
+                // admin could make themselves admin on day one. Johan named role VIEWS, not role EDITING; awaiting his word.
+                'access_ad_manager', 'access_agency_tracker', 'access_branch_assignments', 'access_calculators',
+                'access_clause_library', 'access_client_portal', 'access_commercial_evaluations', 'access_communication',
+                'access_communication_archive', 'access_compliance', 'access_compliance_dashboard', 'access_contacts',
+                'access_core_matches', 'access_daily_activity', 'access_document_library', 'access_docuperfect',
+                'access_docuperfect_packs', 'access_ellie', 'access_evaluation', 'access_filing_register',
+                'access_finance_engine', 'access_flow_map', 'access_franchise_admin', 'access_image_converter',
+                'access_import_listings', 'access_knowledge_base', 'access_listing_stock', 'access_my_portal',
+                'access_pdf_splitter', 'access_pdf_suite', 'access_policy', 'access_portal_leads',
+                'access_presentations', 'access_properties', 'access_prospecting', 'access_rmcp',
+                'access_sales_documents', 'access_settings', 'access_shared_drive',
+                'access_soft_deletes', 'access_supervision', 'access_training', 'access_tv_messages',
+                'access_viewing_packs', 'access_worksheet_market', 'ad_manager.view', 'ad_manager.schedule_posts', 'ad_manager.company_ads', 'adjust_leave_balances',
+                'agency.authorize_external_access', 'agency.manage_access_authorization', 'agency.p24.configure', 'agency.p24.sync',
+                'agency_api.manage', 'agency_api.view', 'apply_for_leave', 'approve_leave',
+                'approve_policy', 'approve_rmcp', 'assign_training', 'assign_user_branch',
+                'buyer_notes.view', 'buyer_pipeline.view', 'calculators.manage', 
+                'clauses.archive', 'clauses.create', 'clauses.edit', 'clauses.view',
+                'client_app.create_login', 'client_app.force_logout', 'client_app.remove_access', 'client_app.reset_password',
+                'client_app.view_logs', 'command_center.automation.manage', 'command_center.automation.view', 'command_center.calendar.create',
+                'command_center.calendar.delete', 'command_center.calendar.edit', 'command_center.calendar.view', 'command_center.health.view',
+                'command_center.scorecards.all', 'command_center.scorecards.branch', 'command_center.scorecards.own', 'command_center.settings',
+                'command_center.tasks.assign', 'command_center.tasks.create', 'command_center.tasks.delete', 'command_center.tasks.edit',
+                'command_center.tasks.view', 'command_center.view', 'commercial_evals.archive', 'commercial_evals.create',
+                'commercial_evals.edit', 'commercial_evals.view', 'communication.manage', 'communication.send',
+                'communication.view', 'compile_pack', 'compliance.fica.approve', 'compliance.fica.review',
+                'compliance.fica.send', 'compliance.manage', 'compliance.view', 'compliance.whistleblow.approve',
+                'compliance.whistleblow.configure', 'compliance.whistleblow.create', 'compliance.whistleblow.view', 'compliance.whistleblow.view_all_agency',
+                'contact_governance.leave_matrix', 'contact_governance.manage', 'contact_rental_history.view', 'contacts.archive',
+                'contacts.create', 'contacts.delete', 'contacts.edit', 'contacts.email',
+                'contacts.export', 'contacts.import', 'contacts.reassign_agent', 'contacts.view',
+                'contacts.whatsapp', 'core_matches.all_view', 'core_matches.convert_to_deal', 'core_matches.create',
+                'core_matches.delete', 'core_matches.manage', 'core_matches.view', 'create_deals',
+                'create_docuperfect_docs', 'create_presentations', 'create_properties', 'daily_activity.archive',
+                'daily_activity.create', 'daily_activity.edit', 'daily_activity.view', 'dashboard.oversight.manage',
+                'dashboard.oversight.view', 'deals.archive', 'deals.create', 'deals.edit',
+                'deals.view', 'deals_v2.archive', 'deals_v2.create', 'deals_v2.edit',
+                'deals_v2.override_dates', 'deals_v2.view', 'deeds_capture.access', 'deeds_capture.view',
+                'delete_properties', 'documents.archive', 'documents.create', 'documents.edit',
+                'documents.view', 'edit_own_profile', 'edit_policy',
+                'edit_rmcp', 'edit_user_designation', 'edit_user_ppra_status', 'edit_worksheet',
+                'export_reports', 'filing.archive', 'filing.create', 'filing.edit',
+                'filing.view', 'finance.manage', 'finance.view', 
+                'import_listings', 'knowledge.manage', 'knowledge.view', 'listings.archive',
+                'listings.create', 'listings.edit', 'listings.view', 'manage_activity_mappings',
+                'manage_agency_compliance', 'manage_announcements', 'manage_branch', 'manage_branch_compliance',
+                'manage_branch_settings', 'manage_branches', 'manage_clauses', 'manage_clients',
+                'manage_communication_mailboxes', 'manage_compliance', 'manage_compliance_officer', 'manage_courses',
+                'manage_designations', 'manage_document_library', 'manage_docuperfect_settings', 'manage_employee_screenings',
+                'manage_finance_definitions', 'manage_information_officer', 'manage_knowledge_base', 'manage_leave',
+                'manage_leave_types', 'manage_p24', 'manage_payroll', 'manage_performance_settings',
+                'manage_rentals', 'manage_staff_take_on', 'manage_supervision', 'manage_system',
+                'manage_targets', 'manage_templates', 'manage_tv_messages', 'manage_user_compliance',
+                'manage_users', 'market_intelligence.view', 'marketing_suppressions.manage', 'marketing_suppressions.view',
+                'mic.edit_address', 'mic.merge_duplicates', 'mic.regenerate_brief', 'mic.restore_reports',
+                'mic.upload_reports', 'mic.view_ai_costs', 'mic.view_team', 'outreach.compose',
+                'outreach_templates.manage', 'p24.manage', 'p24.view', 'packs.archive',
+                'packs.create', 'packs.edit', 'packs.view', 'portal_leads.view',
+                'ppra_employment_letters.receive', 'presentations.archive', 'presentations.create', 'presentations.edit',
+                'presentations.view', 'properties.ad_templates.manage', 'properties.archive', 'properties.create',
+                'properties.edit', 'properties.view', 'prospecting_setup.manage', 'publish_properties',
+                'rentals.archive', 'rentals.create', 'rentals.edit', 'rentals.view',
+                'roles.view', 'run_analysis', 'run_finance_audit',
+                'run_payroll', 'sales_docs.archive', 'sales_docs.create', 'sales_docs.edit',
+                'sales_docs.view', 'send_messages', 'settings.edit', 'settings.view',
+                'shared_drive.download', 'shared_drive.folders.create', 'shared_drive.upload', 'shared_drive.view',
+                'sidebar.section.agents', 'sidebar.section.tools', 'supervision.manage', 'supervision.view',
+                'targets.archive', 'targets.create', 'targets.edit', 'targets.view',
+                'templates.archive', 'templates.create', 'templates.edit', 'templates.view',
+                'testimonials.publish', 'training.manage', 'training.view', 'triage_communications',
+                'tv_messages.archive', 'tv_messages.create', 'tv_messages.edit', 'tv_messages.view',
+                'upload_documents_library', 'upload_own_documents', 'use_ellie_voice', 'use_property_image_ai',
+                'users.archive', 'users.create', 'users.edit', 'users.view',
+                'verify_user_documents', 'view_agency_documents', 'view_branch_stats', 'view_communication_flag_register',
+                'view_company_stats', 'view_compliance_reports', 'view_daily_activity', 'view_dashboard',
+                'view_dashboard_charts', 'view_dashboard_kpis', 'view_deals', 'view_financial_reports',
+                'view_leave_reports', 'view_listings', 'view_own_payslips', 'view_own_screening',
+                'view_own_stats', 'view_payroll_reports', 'view_performance', 'view_team_leave_calendar',
+                'view_worksheet', 'viewing_packs.archive', 'viewing_packs.create', 'viewing_packs.edit',
+                'viewing_packs.view',
             ],
         ],
 

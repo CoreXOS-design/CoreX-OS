@@ -115,8 +115,10 @@ final class OwnerContactResolverTest extends TestCase
         // Every masked position still gets a Contact — just not deduped, since there's no ID to dedupe on.
         $johanRows = TrackedPropertyOwner::where('tracked_property_id', $tp->id)->where('name', 'WILKEN JOHAN')->get();
         $this->assertCount(3, $johanRows);
+        // WILKEN covers BOTH masked owners that share the surname: 3 × JOHAN and 3 × HESTER JOHANNA
+        // CATHARINA = 6 positions, none of which can dedupe.
         $this->assertCount(
-            3,
+            6,
             Contact::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('first_name', 'WILKEN')->get(),
             'without a real ID, each masked position inserts its own contact — expected, not a bug (§7.8)'
         );

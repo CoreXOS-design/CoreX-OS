@@ -9,6 +9,7 @@ use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -110,22 +111,27 @@ class Property extends Model
     public const STATUS_SOLD_BY_3RD_PARTY = 'sold_by_3rd_party';
 
     /**
-     * AT-Core-Matches (2026-09-29) — the listing sold, but by ANOTHER agency
-     * (cc3's addition, landing separately). Reference this constant, never the
-     * literal 'other_agency_stock', so cc3's merge lines up with the Core
-     * Matches allow-list below without either side re-typing the slug.
+     * .ai/specs/other-agency-stock.md — a SINGLE listing imported (via the
+     * Chrome extension) from Property24/PrivateProperty that belongs to
+     * ANOTHER agency, not ours. Deliberately on-market (NEVER added to
+     * OFF_MARKET_STATUSES): it must stay eligible for Core Matches and
+     * viewing packs like any other property — that is the entire point of
+     * the feature (Johan: "Buyers see it in viewing packs like any other
+     * property"). What makes it different is enforced elsewhere, not by
+     * status classification: EnforcesMarketingReadiness::enforceListingNotDraft()
+     * and the explicit guards inside Property24SyndicationService,
+     * PrivatePropertySyndicationService, WebsiteSyndicationService and the
+     * Ad Manager picker all refuse it by name — we may never syndicate or
+     * advertise a listing that isn't ours to advertise. Visibility (who
+     * INTERNALLY may see it at all) is a separate, agency-configurable role
+     * setting — see OtherAgencyStockVisibility.
+     *
+     * Also the Core Matches allow-list's own literal (AT-Core-Matches,
+     * 2026-09-29, CORE_MATCH_DEFAULT_ALLOWED_STATUSES below) — reference
+     * this constant there, never the string, so the two builds never drift
+     * on the slug.
      */
     public const STATUS_OTHER_AGENCY_STOCK = 'other_agency_stock';
-
-    /**
-     * AT-432 — the slug of the 'On Auction' property_status setting item,
-     * same slugging convention as STATUS_SOLD_BY_3RD_PARTY above
-     * (strtolower(str_replace(' ', '_', $name))). Written ONLY by
-     * AuctionLotStatusService when a lot's catalogue publishes; restored to
-     * `pre_auction_status` on cancel/withdraw/passed-in (§6.2). On-market —
-     * deliberately NOT in OFF_MARKET_STATUSES.
-     */
-    public const STATUS_ON_AUCTION = 'on_auction';
 
     /** Instance check — true when this property is another agency's imported listing. */
     public function isOtherAgencyStock(): bool
@@ -196,12 +202,102 @@ class Property extends Model
     }
 
     /**
+     * AT-432 — the slug of the 'On Auction' property_status setting item,
+     * same slugging convention as STATUS_SOLD_BY_3RD_PARTY above
+     * (strtolower(str_replace(' ', '_', $name))). Written ONLY by
+     * AuctionLotStatusService when a lot's catalogue publishes; restored to
+     * `pre_auction_status` on cancel/withdraw/passed-in (§6.2). On-market —
+     * deliberately NOT in OFF_MARKET_STATUSES.
+     */
+    public const STATUS_ON_AUCTION = 'on_auction';
+
+    /**
      * On-market listings = base status NOT in OFF_MARKET_STATUSES. This is the
      * canonical definition of "active"/live stock for dashboards and filters.
      */
     public function scopeOnMarket($query)
     {
-        return $query->whereNotIn('status', self::OFF_MARKET_STATUSES);
+        return self::constrainOnMarket($query);
+    }
+
+    /**
+     * Off-market listings — the exact complement of scopeOnMarket().
+     */
+    public function scopeOffMarket($query)
+    {
+        return self::constrainOffMarket($query);
+    }
+
+    /**
+     * SQL for a status column normalised EXACTLY the way isOnMarket() normalises the PHP
+     * value: trimmed, lower-cased, spaces turned into underscores. The P24 importer writes
+     * display-cased values ("Sold", "Let Out") and a stray space must not make a sold listing
+     * look live, so every query that asks "is this off the market" compares THIS expression to
+     * OFF_MARKET_STATUSES (BUILD_STANDARD §6 — one definition, SQL and PHP agree).
+     *
+     * Index note: wrapping the column in functions means MySQL cannot use an index on `status`
+     * for this predicate. It is a NOT IN / low-cardinality test that never used one usefully;
+     * the selective columns (agency_id, agent_id, ...) still drive the plan.
+     *
+     * @param string $column a plain or table-qualified column name ("status", "properties.status")
+     */
+    public static function normalisedStatusSql(string $column = 'status'): string
+    {
+        if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $column)) {
+            throw new \InvalidArgumentException("Not a plain column name: {$column}");
+        }
+
+        return "LOWER(REPLACE(TRIM({$column}),' ','_'))";
+    }
+
+    /**
+     * Constrain any query builder (Eloquent or DB::table) to on-market rows. A NULL status
+     * counts as on-market, matching isOnMarket() (an empty status is not off-market).
+     */
+    public static function constrainOnMarket($query, string $column = 'status', string $boolean = 'and')
+    {
+        $expr = self::normalisedStatusSql($column);
+        $in   = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+
+        return $query->whereRaw("({$column} IS NULL OR {$expr} NOT IN ({$in}))", self::OFF_MARKET_STATUSES, $boolean);
+    }
+
+    /**
+     * Constrain any query builder to off-market rows (complement of constrainOnMarket()).
+     *
+     * @param array<int, string> $except statuses to leave out of the off-market set
+     *                                   (e.g. ['sold'] where Sold has its own layer)
+     */
+    public static function constrainOffMarket($query, string $column = 'status', array $except = [], string $boolean = 'and')
+    {
+        $statuses = array_values(array_diff(self::OFF_MARKET_STATUSES, $except));
+        $expr     = self::normalisedStatusSql($column);
+        $in       = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->whereRaw("{$expr} IN ({$in})", $statuses, $boolean);
+    }
+
+    /**
+     * Is this raw status string off-market? Substring match against
+     * OFF_MARKET_STATUSES (underscore AND space form) so variants like
+     * "sold • cash" or "let out" resolve — the same rule PropertyObserver uses
+     * when it DISPATCHES a de-syndication, so a queued job re-checking at run
+     * time agrees with what queued it. Empty status is not off-market.
+     */
+    public static function matchesOffMarketStatus(string $status): bool
+    {
+        $s = strtolower(trim($status));
+        if ($s === '') {
+            return false;
+        }
+
+        foreach (self::OFF_MARKET_STATUSES as $needle) {
+            if (str_contains($s, $needle) || str_contains($s, str_replace('_', ' ', $needle))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -213,7 +309,12 @@ class Property extends Model
      */
     public function isOnMarket(): bool
     {
-        return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+        // Case- and whitespace-insensitive, the one place this is decided: the P24 importer
+        // writes display-cased values ("Sold", "Let Out") and a stray space must not make a
+        // sold listing look live. Every row-level caller goes through here, not in_array().
+        $normalised = strtolower(str_replace(' ', '_', trim((string) $this->status)));
+
+        return ! in_array($normalised, self::OFF_MARKET_STATUSES, true);
     }
 
     /**
@@ -389,7 +490,7 @@ class Property extends Model
         return $query->where(function ($q) use ($placeholders, $statuses) {
             $q->whereNull('p24_imported_at')
               ->orWhereNotNull('imported_released_at')   // AT-422 — a user has taken it over
-              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", $statuses);
+              ->orWhereRaw(self::normalisedStatusSql() . " NOT IN ($placeholders)", $statuses);
         });
     }
 
@@ -406,9 +507,7 @@ class Property extends Model
             ->whereNotNull('expiry_date')
             ->whereDate('expiry_date', '>=', $from->toDateString())
             ->whereDate('expiry_date', '<=', $to->toDateString())
-            ->where(function ($q) {
-                $q->whereNull('status')->orWhereNotIn('status', self::OFF_MARKET_STATUSES);
-            });
+            ->onMarket();
     }
 
     /**
@@ -424,7 +523,7 @@ class Property extends Model
 
         return $query->whereNotNull('p24_imported_at')
             ->whereNull('imported_released_at')   // AT-422 — released rows are ordinary properties
-            ->whereRaw("LOWER(status) IN ($placeholders)", $statuses);
+            ->whereRaw(self::normalisedStatusSql() . " IN ($placeholders)", $statuses);
     }
 
     /**
@@ -441,7 +540,7 @@ class Property extends Model
         $placeholders = implode(',', array_fill(0, count($statuses), '?'));
 
         return $query->orderByRaw(
-            "CASE WHEN p24_imported_at IS NOT NULL AND imported_released_at IS NULL AND LOWER(status) IN ($placeholders) THEN 1 ELSE 0 END",
+            "CASE WHEN p24_imported_at IS NOT NULL AND imported_released_at IS NULL AND " . self::normalisedStatusSql() . " IN ($placeholders) THEN 1 ELSE 0 END",
             $statuses
         );
     }
@@ -457,7 +556,7 @@ class Property extends Model
     {
         return $this->p24_imported_at !== null
             && $this->imported_released_at === null
-            && in_array(strtolower((string) $this->status), self::importedStockStatuses(), true);
+            && in_array(strtolower(str_replace(' ', '_', trim((string) $this->status))), self::importedStockStatuses(), true);
     }
 
     /**
@@ -750,6 +849,29 @@ class Property extends Model
     }
 
     /**
+     * Johan's ruling (2026-10-05) — a property with an active lease must never
+     * be archived. The only lease status that means "in force" is
+     * Lease::STATUS_ACTIVE (leases.md §3.6) — this single check already covers
+     * every shape Johan described (month-to-month, under-notice, signed-but-
+     * not-yet-started all activate the lease and carry status='active'
+     * regardless of start/end date). draft/expired/cancelled never block, so a
+     * draft renewal sitting on an already-ended lease is never mistaken for
+     * the thing keeping the property occupied.
+     *
+     * Queried directly against leases.property_id + leases.agency_id rather
+     * than relying on the ambient AgencyScope, so the guard is correct from
+     * any calling context (console/import/no-auth), not only inside a
+     * request with a logged-in user.
+     */
+    public function blockingActiveLease(): ?\App\Models\Lease
+    {
+        return \App\Models\Lease::where('property_id', $this->id)
+            ->where('agency_id', $this->agency_id)
+            ->where('status', \App\Models\Lease::STATUS_ACTIVE)
+            ->first();
+    }
+
+    /**
      * AT-448 — has this listing "gone live"? Go Live was pressed on it
      * (compliance_snapshot_at) OR it has ever been on a portal / the website
      * (wasEverAdvertised). Both stamps are sticky, so an expired or withdrawn
@@ -850,6 +972,17 @@ class Property extends Model
         // (superseding the 2026-09-26 lease ruling). Null means "use the
         // agency default" (RentalWorkOrderSetting::thresholdFor()).
         'rental_no_approval_spend_threshold',
+        // §17.6.1 — the second owner work term (variation tolerance %, null = agency default) and who/when
+        // either term was last changed. Edited only through the work-terms panel (Build 2).
+        'rental_variation_tolerance_percent',
+        'rental_work_terms_updated_at',
+        'rental_work_terms_updated_by_user_id',
+        // .ai/specs/rentals-faults-work-orders.md §3 — so a tenant's fault
+        // first-aid screen can tell them exactly where to look.
+        'rental_main_water_valve_location',
+        'rental_main_water_valve_photo_path',
+        'rental_db_board_location',
+        'rental_db_board_photo_path',
         'city',
         'suburb',
         'suburb_normalised',
@@ -909,10 +1042,17 @@ class Property extends Model
         'expiry_lock_engaged_at',
         'lease_start_date',
         'lease_end_date',
+        'wizard_token',   // the property wizard's per-session stamp: one draft per wizard session
+        // .ai/specs/rental-renewals.md §19 — whether lease_start_date (reused
+        // as "available from") is pushed to Property24/Private Property.
+        'show_available_from_on_portals',
         'headline',
         'street_name',
         'street_name_normalised',
         'street_number',
+        // Structured address layer (.ai/specs/structured-address-matching.md §3) — derived, written by the one parser.
+        'street_core', 'street_type', 'scheme_number', 'township', 'lpi_code',
+        'address_raw', 'address_parse_status', 'address_parse_note',
         'province',
         'town',
         'latitude',
@@ -1057,6 +1197,7 @@ class Property extends Model
         'occupation_date'     => 'date',
         'lease_start_date'    => 'date',
         'lease_end_date'      => 'date',
+        'show_available_from_on_portals' => 'boolean',
         'baths'               => 'decimal:1',
         'half_baths'          => 'integer',
         'rental_amount'       => 'float',
@@ -1066,6 +1207,8 @@ class Property extends Model
         'admin_fee'           => 'float',
         'marketing_fee'       => 'float',
         'rental_no_approval_spend_threshold' => 'float',
+        'rental_variation_tolerance_percent' => 'float',
+        'rental_work_terms_updated_at' => 'datetime',
         'latitude'                => 'decimal:7',
         'longitude'               => 'decimal:7',
         'geo_resolved_at'         => 'datetime',
@@ -1142,6 +1285,12 @@ class Property extends Model
         // portal-scrape rows + LocationGrouper composites via the same
         // composite key shape they all share (see PropertyAddressKey).
         static::saving(function (Property $property) {
+            // Structured address layer (.ai/specs/structured-address-matching.md §5): the one parser
+            // writes street_core/street_type/status and fills only EMPTY street_number/street_name/unit/complex/P24 suburb.
+            // Absorbs its own failures — a save never fails because of it. Runs FIRST so the normalised
+            // caches below are built from the street name it may just have filled.
+            app(\App\Services\Address\AddressStructurer::class)->apply($property);
+
             if ($property->isDirty('suburb') || $property->suburb_normalised === null) {
                 $property->suburb_normalised = \App\Models\Prospecting\TrackedPropertyAddress::normaliseSuburb($property->suburb);
             }
@@ -1274,6 +1423,12 @@ class Property extends Model
      * fix". Writes go through App\Services\Property\ContactPropertyLinker,
      * never a bare attach()/sync().
      */
+    /** AT-445 — every lease ever raised on this property, newest first. */
+    public function leases(): HasMany
+    {
+        return $this->hasMany(Lease::class)->orderByDesc('id');
+    }
+
     public function contacts(): BelongsToMany
     {
         return $this->belongsToMany(Contact::class, 'contact_property')
@@ -1323,6 +1478,41 @@ class Property extends Model
         }
 
         return $contacts->count() === 1 ? $contacts->first() : null;
+    }
+
+    /**
+     * AT-442 follow-up (item 8) — a STRICT landlord-side lookup for anything
+     * that SENDS MAIL to "the owner": no sole-contact fallback. The sole-
+     * contact fallback in sellerOwnerContact() above is correct for its own
+     * callers (PDF Splitter filing, FICA pre-fill — a low-risk guess for
+     * where to FILE a document) but is exactly how a rental property with
+     * ONLY a tenant linked (the tenant's role doesn't match the seller-side
+     * list, so it falls through to "the one contact on file") got a real
+     * tenant addressed as "the owner" on a quote email — confirmed on QA1,
+     * property 5792. Only a contact whose pivot role is explicitly
+     * seller/owner/landlord/lessor is ever returned; null otherwise, never
+     * a guess. Narrowly scoped to mail — do NOT use this for filing/display
+     * callers that already rely on sellerOwnerContact()'s own fallback.
+     */
+    public function landlordContact(): ?Contact
+    {
+        $sellerSide = ['seller', 'owner', 'landlord', 'lessor'];
+
+        return $this->contacts()->get()->first(function ($c) use ($sellerSide) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $sellerSide, true);
+        });
+    }
+
+    /**
+     * .ai/specs/rentals-faults-work-orders.md section 21.2 - who looks at a fault of this type FIRST on this rental property, in order: this property's own
+     * "Who looks at faults first" entries that cover the type, else the owner's default. Empty when nobody is set. Read-only; sends nothing.
+     *
+     * @return \Illuminate\Support\Collection<int, array<string, mixed>> supplier_id, name, kind, kind_label, tell_mode, tell_label, source, source_label, position, callout_line, phone, has_contact
+     */
+    public function firstRespondersFor(\App\Models\RentalFaultType|int|null $faultType = null): \Illuminate\Support\Collection
+    {
+        return app(\App\Services\Rentals\FirstResponderService::class)->forProperty($this, $faultType);
     }
 
     /**
@@ -2142,6 +2332,19 @@ class Property extends Model
     }
 
     /**
+     * The properties a user may put a NEW LEASE on: rental listings only, within
+     * the user's own / branch / agency properties scope (scopeVisibleTo above, on
+     * top of the global AgencyScope). The ONE definition — the New Lease picker's
+     * search endpoint, the store() validation and the ?property_id= pre-fill all
+     * call this, so what the picker offers, what a save accepts and what the form
+     * pre-fills can never drift (leases.md §7.2). Deliberately no status filter.
+     */
+    public function scopeRentalVisibleTo($query, \App\Models\User $user)
+    {
+        return $query->where('listing_type', 'rental')->visibleTo($user);
+    }
+
+    /**
      * AT-448 — the plain-agent "my listings" / "my branch" restriction the
      * Properties list applies (moved here from PropertyController so the
      * expiring-soon popup and its dismiss endpoint use the SAME rule, never a
@@ -2338,21 +2541,41 @@ class Property extends Model
     }
 
     /**
-     * Canonical public-website URL for this listing:
-     *   {base}/property/{slug}-{id}      (titled listing)
-     *   {base}/property/{id}             (no title — bare id fallback)
+     * The public URL of this listing - the one a client is sent ("View listing", share links, the map).
      *
-     * Base URL lives in config('integrations.public_website_url') — never
-     * hardcode it. Resolution on the website is by the trailing id, so the
-     * slug segment is SEO-only and a changing title never breaks the link.
+     *   1. the OWNING agency's own website (Company Settings -> website URL):  {website_url}/property/{slug}-{id}
+     *   2. else CoreX's public property page for that agency:                 /{agency-slug}/properties/{id}
+     *   3. only with no agency at all: the install's configured site (config('integrations.public_website_url'), never an agency's).
+     *
+     * It used to be ONE install-wide site (hfcoastal.co.za) for every agency, so a second agency's tenant or buyer was sent to
+     * Home Finders Coastal's website (Cape walk, 14 Oct 2026). Resolution on an agency website is by the trailing id, so the slug
+     * segment is SEO-only and a changing title never breaks the link.
      */
     public function getPublicUrlAttribute(): string
     {
-        $base = rtrim((string) config('integrations.public_website_url'), '/');
         $slug = $this->slug;
         $path = $slug !== '' ? "{$slug}-{$this->id}" : (string) $this->id;
 
-        return "{$base}/property/{$path}";
+        $agencyId = (int) $this->agency_id;
+        if ($agencyId > 0) {
+            // request-scoped memo (the container is rebuilt per request / per test): `public_url` is appended to every serialised property
+            app()->scopedIf('property.public_url.agencies', fn () => new \ArrayObject());
+            $memo = app('property.public_url.agencies');
+            if (! isset($memo[$agencyId])) {
+                $memo[$agencyId] = \Illuminate\Support\Facades\DB::table('agencies')->where('id', $agencyId)->first(['slug', 'website_url']) ?: false;
+            }
+            $agency = $memo[$agencyId] ?: null;
+
+            $site = trim((string) ($agency->website_url ?? ''));
+            if ($site !== '' && preg_match('#^https?://#i', $site) === 1) {
+                return rtrim($site, '/') . "/property/{$path}";
+            }
+            if (trim((string) ($agency->slug ?? '')) !== '') {
+                return route('public.agency.properties.show', ['agencySlug' => $agency->slug, 'property' => $this->id]);
+            }
+        }
+
+        return rtrim((string) config('integrations.public_website_url'), '/') . "/property/{$path}";
     }
 
     /**
@@ -2503,6 +2726,41 @@ class Property extends Model
         }
 
         return 'R ' . number_format((int) $this->effectivePrice(), 0, '.', ' ');
+    }
+
+    /**
+     * AT-439 follow-up — Johan's ruling 2026-10-04: "rent and dates live on the
+     * LEASE; the property only links to it." The most recent lease on this
+     * property with status 'active'. Callers that list many properties MUST
+     * eager-load this (`->with('activeLease')`) — see PropertyController::index().
+     */
+    public function activeLease(): HasOne
+    {
+        return $this->hasOne(Lease::class)->where('status', Lease::STATUS_ACTIVE)->orderByDesc('start_date');
+    }
+
+    /**
+     * Display-only rental price. effectivePrice() (above) stays untouched on
+     * purpose — it is also read by syndication (P24/PP), matching, and
+     * notifications, none of which this fix may change behaviour for. This
+     * method exists solely for on-screen display (properties list, property
+     * header/overview, Rental tab): a rental property's active lease carries
+     * the AGREED rent going forward; properties.rental_amount is only the
+     * original ASKING figure and is used here only when no lease is active.
+     * Sale listings are identical to effectivePrice().
+     */
+    public function displayRentalPrice(): float
+    {
+        if (!$this->isRental()) {
+            return $this->effectivePrice();
+        }
+
+        return (float) ($this->activeLease?->rental_amount ?? $this->rental_amount ?? 0);
+    }
+
+    public function formattedDisplayPrice(): string
+    {
+        return 'R ' . number_format((int) $this->displayRentalPrice(), 0, '.', ' ');
     }
 
     /**
@@ -3631,8 +3889,18 @@ class Property extends Model
 
             'agency_name'       => $agency?->name ?? '',
             'website'           => $agency?->website_url ?: '',
+            'agency_phone'      => trim((string) ($agency?->phone ?? '')),
             'logo'              => $logoUrl,
             'watermark'         => strtoupper((string) ($agency?->name ?? '')),
+
+            // AT-456 §B.9-1 — more listing facts (erf size, levy, rates, price per m², pet friendly, available
+            // from, rent, show day, auction), each '' when the listing has no value so the ad leaves it off.
+            ...\App\Services\AdTemplates\AdListingFacts::for($this),
+
+            // §B.9-1 — the QR block: the listing's own public page (the agency's own website where it has one,
+            // else CoreX's public page — Property::public_url), as the module grid the kernel draws.
+            'public_url'        => $this->public_url,
+            'qr_matrix'         => \App\Services\AdTemplates\ListingQrMatrix::forUrl($this->public_url),
         ];
     }
 

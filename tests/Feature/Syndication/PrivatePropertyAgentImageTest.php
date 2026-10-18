@@ -83,6 +83,9 @@ class PrivatePropertyAgentImageTest extends TestCase
     public function test_submit_agent_images_pushes_the_jpeg_rendition_not_the_webp_path(): void
     {
         Storage::fake('public');
+        // Private Property only accepts an https:// image URL (the service builds it from app.url and
+        // skips an http:// one), and the test app runs on http://localhost — so give it an https app URL.
+        config(['app.url' => 'https://corex.test']);
 
         $agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal-' . Str::random(6)]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);

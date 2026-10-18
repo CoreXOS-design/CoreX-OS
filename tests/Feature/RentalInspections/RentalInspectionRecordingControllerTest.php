@@ -31,6 +31,7 @@ use Tests\TestCase;
 final class RentalInspectionRecordingControllerTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private Agency $agency;
     private Branch $branch;
@@ -45,6 +46,8 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
         $this->agency = Agency::create(['name' => 'RI Recording Agency', 'slug' => 'ri-recording-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
+        // These fixtures have no checklist; the "empty checklist cannot be signed" and "Routine follows the full checks" rules (spec §52) have their own tests.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['empty_checklist_blocks_signing' => false, 'routine_follows_full_checks' => false]);
         $this->agent = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
         ]);
@@ -137,7 +140,10 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $this->assertSame('Bedroom', $room->type);
 
         $items = RentalInspectionItem::where('property_room_id', $room->id)->pluck('label')->all();
-        $this->assertEqualsCanonicalizing(['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'], $items);
+        // Build I-2 (§45.4): a Bedroom gets the floor-to-ceiling bedroom-family baseline.
+        // Asserted against the constant itself so a future edit to that list can't
+        // silently drift this test again.
+        $this->assertEqualsCanonicalizing(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom'], $items);
     }
 
     /**
@@ -148,8 +154,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
      */
     public function test_adding_a_space_pulls_the_agencys_own_configured_room_type_defaults(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'room_type_item_defaults' => ['Bedroom' => ['Built-in Cupboard', 'Aircon']],
         ]);
 
@@ -177,7 +182,9 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $room = PropertyRoom::where('property_id', $this->property->id)->where('label', $legacy->label)->first();
         $this->assertNotNull($room);
         $this->assertSame('Bedroom', $room->type);
-        $this->assertSame(5, RentalInspectionItem::where('property_room_id', $room->id)->count());
+        // Same bedroom-family checklist as the manual-add path above —
+        // asserted against the constant so a future edit can't silently drift this.
+        $this->assertSame(count(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom']), RentalInspectionItem::where('property_room_id', $room->id)->count());
     }
 
     public function test_assign_type_is_refused_for_an_item_that_already_has_a_room(): void
@@ -672,6 +679,19 @@ final class RentalInspectionRecordingControllerTest extends TestCase
      */
     public function test_two_different_agents_recording_conflicting_conditions_produce_one_discrepancy(): void
     {
+        // This test's own premise is two different agents collaborating on one
+        // inspection — only reachable at 'branch' scope or wider (both agents
+        // share $this->branch). Without this, RentalInspection::resolveRouteBinding()
+        // ->visibleTo() filters the route-model-binding to 'own' under the
+        // test-suite-only unseeded fallback, and $secondAgent 404s before the
+        // controller is ever reached — same seeding technique the file's own
+        // sign_on_behalf tests already use for a specific-scope need.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        // .create is seeded too: seeding .view alone flips the table to strictly-enrolled,
+        // and the observation/photo routes are gated on rental_inspections.create.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
+        \App\Services\PermissionService::clearCache();
+
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
         $secondAgent = User::factory()->create([
@@ -837,6 +857,15 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_a_different_agent_recording_a_real_condition_after_a_photo_does_not_create_a_spurious_discrepancy(): void
     {
+        // Same reachability note as test_two_different_agents_recording_conflicting_
+        // conditions_produce_one_discrepancy() above — collaborative recording by a
+        // second agent needs 'branch' scope or wider to even reach the controller.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.view', 'scope' => 'branch']);
+        // .create is seeded too: seeding .view alone flips the table to strictly-enrolled,
+        // and the observation/photo routes are gated on rental_inspections.create.
+        \App\Models\RolePermission::create(['role' => 'agent', 'permission_key' => 'rental_inspections.create', 'scope' => 'own']);
+        \App\Services\PermissionService::clearCache();
+
         \Illuminate\Support\Facades\Storage::fake('public');
         $item = $this->makeItem();
         $inspection = $this->makeInspection();
@@ -1325,6 +1354,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
         ])->assertStatus(201);
+        $this->recordAttendanceForEveryParty($inspection);
 
         $this->postJson(route('corex.rental-inspections.complete', $inspection))
             ->assertOk()
@@ -1398,8 +1428,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_a_condition_key_the_agency_has_removed_is_rejected(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
         ]);
         $item = $this->makeItem();
@@ -1415,8 +1444,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     /** Retha's Good/OK/Bad — a fully custom 3-state vocabulary, distinct keys, distinct requires_notes. */
     public function test_a_fully_custom_condition_vocabulary_is_honoured(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [
                 ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
                 ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false],
@@ -1463,8 +1491,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
 
     public function test_mark_room_na_is_rejected_when_the_agency_has_removed_na(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [['key' => 'good', 'label' => 'Good', 'requires_notes' => false]],
         ]);
         $room = $this->makeRoomWithItems(1);
@@ -1876,6 +1903,108 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         );
     }
 
+    /**
+     * 2026-10-14 (Johan, property 21222) — same item, several photos each side: paired by position (1st with 1st,
+     * 2nd with 2nd ...), extras stay unpaired, the button's response says what happened, and a re-run is a no-op.
+     */
+    public function test_auto_pair_pairs_the_photos_of_one_item_by_position_and_reports_the_result(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $walls = RentalInspectionItem::create([
+            'agency_id' => $this->agency->id, 'property_id' => $this->property->id,
+            'kind' => RentalInspectionItem::KIND_SPACE, 'label' => 'Walls', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+
+        $inCeiling = array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2, 3]);
+        $outCeiling = array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2, 3, 4]);
+        $inWalls = array_map(fn () => $this->makePhotoForItem($in, $walls, $room), [1, 2, 3]);
+        $outWalls = array_map(fn () => $this->makePhotoForItem($out, $walls, $room), [1, 2, 3]);
+
+        $response = $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))->assertOk();
+
+        $response->assertJson(['created_count' => 6, 'unmatched_count' => 1, 'message' => 'Paired 6 photos, 1 without a match.']);
+        foreach ([[$inCeiling, $outCeiling], [$inWalls, $outWalls]] as [$ins, $outs]) {
+            foreach ([0, 1, 2] as $i) {
+                $this->assertSame(
+                    \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($ins[$i])->id,
+                    \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($outs[$i])->id,
+                    "photo " . ($i + 1) . " pairs with photo " . ($i + 1)
+                );
+            }
+        }
+        $this->assertNull(\App\Models\RentalInspectionPhotoMatchGroup::forPhoto($outCeiling[3]), 'the 4th out photo has no twin');
+
+        // Idempotent: nothing new on a second press, and it still says so.
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()
+            ->assertJson(['created_count' => 0, 'unmatched_count' => 1]);
+    }
+
+    /**
+     * Property 21222, 14 Oct 2026 (spec §56a): In -> Out -> a next inspection. The Out's photos already sit in
+     * groups with the In's photos; the new tail's photos must join those SAME groups, 1st with 1st, 2nd with 2nd —
+     * not find every Out photo "taken" and pair only with the leftover one.
+     */
+    public function test_auto_pair_in_a_chain_of_three_joins_the_groups_the_predecessor_already_has(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $inPhotos = array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2, 3]);
+        $outPhotos = array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2, 3, 4]);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 3]);
+
+        $next = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $nextPhotos = array_map(fn () => $this->makePhotoForItem($next, $ceiling, $room), [1, 2, 3, 4]);
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()
+            ->assertJson(['created_count' => 4, 'unmatched_count' => 0]);
+
+        $groupOf = fn ($photo) => \App\Models\RentalInspectionPhotoMatchGroup::forPhoto($photo)?->id;
+        foreach ([0, 1, 2] as $i) {
+            $this->assertNotNull($groupOf($inPhotos[$i]));
+            $this->assertSame($groupOf($inPhotos[$i]), $groupOf($outPhotos[$i]), 'the earlier pair is left as it was');
+            $this->assertSame($groupOf($outPhotos[$i]), $groupOf($nextPhotos[$i]), 'photo ' . ($i + 1) . ' of the new inspection joins photo ' . ($i + 1) . "'s group");
+        }
+        $this->assertNotNull($groupOf($nextPhotos[3]));
+        $this->assertSame($groupOf($outPhotos[3]), $groupOf($nextPhotos[3]), 'the 4th pairs with the 4th, which had no earlier twin');
+
+        // Second press: nothing left to do.
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 0, 'unmatched_count' => 0]);
+    }
+
+    public function test_auto_pair_in_a_chain_of_three_still_respects_an_unmatch_made_on_the_new_pair(): void
+    {
+        $room = $this->makeRoom();
+        $ceiling = $this->makeItem();
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        array_map(fn () => $this->makePhotoForItem($in, $ceiling, $room), [1, 2]);
+        array_map(fn () => $this->makePhotoForItem($out, $ceiling, $room), [1, 2]);
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))->assertOk();
+
+        $next = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $nextPhotos = array_map(fn () => $this->makePhotoForItem($next, $ceiling, $room), [1, 2]);
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 2]);
+
+        // The agent unmatches the new inspection's 2nd photo; a later press must not undo that decision.
+        $member = \App\Models\RentalInspectionPhotoMatchGroupMember::where('rental_inspection_photo_id', $nextPhotos[1]->id)->first();
+        $this->deleteJson(route('corex.properties.rental-inspection-photo-matches.destroy', [$this->property, $member]))->assertOk();
+
+        $this->postJson(route('corex.properties.rental-inspection-photo-matches.auto-pair', $this->property))
+            ->assertOk()->assertJson(['created_count' => 0, 'unmatched_count' => 2]); // the new 2nd photo and the Out's 2nd photo, each without a twin in THIS pair
+        $this->assertNull(\App\Models\RentalInspectionPhotoMatchGroup::forPhoto($nextPhotos[1]));
+    }
+
     public function test_tab_payload_exposes_the_compare_pair_and_its_matches_once_an_out_inspection_exists(): void
     {
         [$photoIn, $photoOut] = $this->makeMatchablePair();
@@ -1984,8 +2113,10 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     /** Per USER, not global — the whole reason this moved off localStorage. */
     public function test_screen_preference_is_scoped_per_user_not_shared(): void
     {
+        // A branch manager (may open this branch's property tab) — an own-scoped colleague can no longer
+        // read another agent's property tab at all (rental-inspections.md §45.8 H2), which is not what this tests.
         $otherAgent = User::factory()->create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'branch_manager',
         ]);
 
         $this->postJson(route('corex.rental-inspections.screen-preference'), [

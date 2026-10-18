@@ -267,7 +267,7 @@ class WebTemplateDataService
             'erf_no'                => $property['erf'] ?? $property['erf_number'] ?? $property['property_number'] ?? '',
             'unit_no'               => $property['unit_number'] ?? '',
             'complex_name'          => $property['complex_name'] ?? '',
-            'district'              => $property['district'] ?? 'Ray Nkonyeni',
+            'district'              => $property['district'] ?? '',
             'property_type'         => $property['property_type'] ?? '',
             'property_description'  => $property['description'] ?? '',
             // Property aliases
@@ -278,7 +278,7 @@ class WebTemplateDataService
             // CDS property aliases
             'property_street'       => $address,
             'property_township'     => $suburb,
-            'property_district'     => $property['district'] ?? 'Ray Nkonyeni',
+            'property_district'     => $property['district'] ?? '',
             'property_erf_number'   => $property['erf'] ?? $property['erf_number'] ?? $property['property_number'] ?? '',
             'property_complex_name' => $property['complex_name'] ?? '',
             // CDS generic contact aliases (first non-agent: seller for sales, lessor for rental)
@@ -328,6 +328,14 @@ class WebTemplateDataService
             'min_term_month'        => '',
             'min_term_year'         => '',
             'renewal_months'        => '',
+            // Lease notice and early cancellation (leases.md §18.8)
+            'notice_period'                  => '',
+            'notice_period_unit'             => '',
+            'earliest_notice_date'           => '',
+            'early_cancellation_allowed'     => '',
+            'early_cancellation_notice'      => '',
+            'early_cancellation_notice_unit' => '',
+            'early_cancellation_penalty'     => '',
             // Utilities
             'electricity_settlement'=> '',
             'electricity_deposit'   => '',
@@ -1249,6 +1257,11 @@ class WebTemplateDataService
             'lease_start_day'   => $leaseStart ? (int) date('d', strtotime($leaseStart)) : '',
             'lease_start_month' => $leaseStart ? date('F', strtotime($leaseStart)) : '',
             'lease_start_year'  => $leaseStart ? date('Y', strtotime($leaseStart)) : '',
+            // leases.md §18.8 — the lease's own notice / early-cancellation terms. A lease agreement is filled from the lease's
+            // terms through the agency's field map (LeaseAgreementDocumentValues); these arms let the catalogue fields resolve
+            // from the same values when a document carries them in its details, and print nothing otherwise.
+            'notice_period', 'notice_period_unit', 'earliest_notice_date', 'early_cancellation_allowed',
+            'early_cancellation_notice', 'early_cancellation_notice_unit', 'early_cancellation_penalty' => (string) ($details[$attr] ?? ''),
             default             => '',
         };
     }
@@ -1552,13 +1565,13 @@ class WebTemplateDataService
             'street_address' => trim("{$address}, {$suburb}", ', '),
             'property_street' => $address,
             'property_township' => $suburb,
-            'property_district' => $property['district'] ?? 'Ray Nkonyeni',
+            'property_district' => $property['district'] ?? '',
             'property_erf_number' => $property['erf'] ?? $property['erf_number'] ?? '',
             'property_complex_name' => $property['complex_name'] ?? '',
             'erf_no' => $property['erf'] ?? $property['erf_number'] ?? '',
             'unit_no' => $property['unit_number'] ?? '',
             'complex_name' => $property['complex_name'] ?? '',
-            'district' => $property['district'] ?? 'Ray Nkonyeni',
+            'district' => $property['district'] ?? '',
             // CDS generic contact aliases (first non-agent contact: seller for sales, lessor for rental)
             'contact_full_names' => $sellerName ?: $lessorName,
             'contact_address' => ($seller['address'] ?? '') ?: ($lessor['address'] ?? ''),

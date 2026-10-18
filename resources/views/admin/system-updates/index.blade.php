@@ -66,14 +66,14 @@
     <div class="rounded-md overflow-hidden"
          style="background:var(--surface); border:1px solid var(--border);">
         <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm ds-table">
             <thead>
                 <tr style="background:var(--surface-2); color:var(--text-secondary);">
-                    <th class="text-left px-4 py-3 font-semibold">Type</th>
-                    <th class="text-left px-4 py-3 font-semibold">Title</th>
-                    <th class="text-left px-4 py-3 font-semibold">Status</th>
-                    <th class="text-left px-4 py-3 font-semibold">Seen by</th>
-                    <th class="text-right px-4 py-3 font-semibold">Actions</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Type</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Title</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Seen by</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -81,9 +81,7 @@
                 @php $chip = $update->typeChip(); @endphp
                 <tr style="border-top:1px solid var(--border); color:var(--text-primary);">
                     <td class="px-4 py-3">
-                        <span class="inline-flex items-center px-2 py-1 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide whitespace-nowrap"
-                              style="background:color-mix(in srgb, var({{ $chip['token'] }}, {{ $chip['fallback'] }}) 15%, transparent);
-                                     color:var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
+                        <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
                             {{ $chip['label'] }}
                         </span>
                     </td>
@@ -98,11 +96,11 @@
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap">
                         @if($update->trashed())
-                            <span style="color:var(--text-secondary);">Archived</span>
+                            <span class="ds-badge ds-badge-default">Archived</span>
                         @elseif($update->isPublished())
-                            <span style="color:var(--ds-emerald, #10b981);">Published</span>
+                            <span class="ds-badge ds-badge-success">Published</span>
                         @else
-                            <span style="color:var(--ds-amber, #f59e0b);">Draft</span>
+                            <span class="ds-badge ds-badge-warning">Draft</span>
                         @endif
                     </td>
                     <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">

@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Tests\Unit\BuyersReport;
 
+use App\Models\Agency;
+use App\Models\Branch;
 use App\Models\User;
 use App\Services\BuyersReport\BuyersReportScope;
 use App\Services\BuyersReport\BuyersReportScopeResolver;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -31,25 +33,16 @@ use Tests\TestCase;
  * cross-AGENCY isolation independently of the branch check, since that's
  * the more serious failure mode (AT-381).
  *
- * DB approach: hand-built minimal schema (agencies, branches, users, roles,
- * role_permissions), same technique used all night for the RefreshDatabase /
- * ERROR-1419 trigger-privilege gotcha on this box — bypasses artisan migrate
- * entirely, exercises the REAL PermissionService::getDataScope() and the
- * REAL resolver, not a stand-in.
+ * DB approach: the normal RefreshDatabase path with real rows (agencies, branches,
+ * users, roles, role_permissions), exercising the REAL PermissionService::getDataScope()
+ * and the REAL resolver, not a stand-in. (This file used to DROP and re-create those
+ * core tables by hand — the old ERROR-1419 workaround — which, inside a lane's persistent
+ * test schema, left every later test file in that schema without a `users` table until
+ * `lane-test.sh --fresh`. It never touches DDL now.)
  */
 final class BuyersReportScopeResolverTest extends TestCase
 {
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->buildSchema();
-    }
-
-    protected function tearDown(): void
-    {
-        $this->dropSchema();
-        parent::tearDown();
-    }
+    use RefreshDatabase;
 
     public function test_branch_manager_requesting_another_branch_by_url_is_ignored_and_own_branch_is_used(): void
     {
@@ -91,8 +84,8 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedBranch($otherBranch, $agencyId);
         $this->grantBuyersReportScope('branch_manager', $agencyId, 'branch');
 
-        DB::table('users')->insert(['id' => 501, 'agency_id' => $agencyId, 'branch_id' => $ownBranch]);
-        DB::table('users')->insert(['id' => 502, 'agency_id' => $agencyId, 'branch_id' => $otherBranch]);
+        $this->seedPlainUser(501, $agencyId, $ownBranch);
+        $this->seedPlainUser(502, $agencyId, $otherBranch);
 
         $bm = $this->makeUser(701, $agencyId, $ownBranch, 'branch_manager');
         $resolver = new BuyersReportScopeResolver();
@@ -126,8 +119,8 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedBranch($branch, $agencyId);
         $this->grantBuyersReportScope('agent', $agencyId, 'own');
 
-        DB::table('users')->insert(['id' => 601, 'agency_id' => $agencyId, 'branch_id' => $branch]);
-        DB::table('users')->insert(['id' => 602, 'agency_id' => $agencyId, 'branch_id' => $branch]);
+        $this->seedPlainUser(601, $agencyId, $branch);
+        $this->seedPlainUser(602, $agencyId, $branch);
 
         $agent = $this->makeUser(601, $agencyId, $branch, 'agent');
         $resolver = new BuyersReportScopeResolver();
@@ -147,8 +140,8 @@ final class BuyersReportScopeResolverTest extends TestCase
         $this->seedBranch(1102, $otherAgency);
         $this->grantBuyersReportScope('admin', $myAgency, 'all');
 
-        DB::table('users')->insert(['id' => 1201, 'agency_id' => $myAgency, 'branch_id' => 1101]);
-        DB::table('users')->insert(['id' => 1202, 'agency_id' => $otherAgency, 'branch_id' => 1102]);
+        $this->seedPlainUser(1201, $myAgency, 1101);
+        $this->seedPlainUser(1202, $otherAgency, 1102);
 
         $admin = $this->makeUser(1301, $myAgency, null, 'admin');
         $resolver = new BuyersReportScopeResolver();
@@ -296,77 +289,26 @@ final class BuyersReportScopeResolverTest extends TestCase
 
     private function seedAgency(int $id, bool $splitBranches): void
     {
-        DB::table('agencies')->insert([
-            'id' => $id, 'name' => 'Test Agency ' . $id,
-            'split_branches_enabled' => $splitBranches,
-        ]);
+        $agency = Agency::forceCreate(['id' => $id, 'name' => 'Test Agency ' . $id, 'slug' => 'test-agency-' . $id]);
+        $agency->forceFill(['split_branches_enabled' => $splitBranches])->save();
     }
 
     private function seedBranch(int $id, int $agencyId): void
     {
-        DB::table('branches')->insert(['id' => $id, 'agency_id' => $agencyId, 'name' => 'Branch ' . $id]);
+        Branch::forceCreate(['id' => $id, 'agency_id' => $agencyId, 'name' => 'Branch ' . $id]);
+    }
+
+    /** A real (persisted) user with just an id, agency and branch — the colleague a page is requested for. */
+    private function seedPlainUser(int $id, int $agencyId, ?int $branchId): void
+    {
+        User::factory()->create(['id' => $id, 'agency_id' => $agencyId, 'branch_id' => $branchId]);
     }
 
     private function grantBuyersReportScope(string $role, int $agencyId, string $scope): void
     {
-        DB::table('roles')->insert(['name' => $role, 'agency_id' => $agencyId, 'is_owner' => false, 'sort_order' => 1]);
+        DB::table('roles')->insert(['name' => $role, 'label' => $role, 'agency_id' => $agencyId, 'is_owner' => false, 'sort_order' => 1]);
         DB::table('role_permissions')->insert([
             'role' => $role, 'permission_key' => 'buyers_report.view', 'agency_id' => $agencyId, 'scope' => $scope,
         ]);
-    }
-
-    private function dropSchema(): void
-    {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('role_permissions');
-        Schema::dropIfExists('roles');
-        Schema::dropIfExists('users');
-        Schema::dropIfExists('branches');
-        Schema::dropIfExists('agencies');
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        Schema::create('agencies', function ($table) {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->boolean('split_branches_enabled')->default(false);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('branches', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->string('name')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('users', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->string('role', 40)->nullable();
-        });
-
-        Schema::create('roles', function ($table) {
-            $table->id();
-            $table->string('name', 60);
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->boolean('is_owner')->default(false);
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('role_permissions', function ($table) {
-            $table->id();
-            $table->string('role', 60);
-            $table->string('permission_key', 100);
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->string('scope', 20)->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
     }
 }

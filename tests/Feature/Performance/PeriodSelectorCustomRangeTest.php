@@ -93,8 +93,11 @@ class PeriodSelectorCustomRangeTest extends TestCase
             ->get(route('performance.agency-report', ['period' => 'custom']));
 
         $response->assertOk();
-        $response->assertSee(':disabled="!start || !end"', false);
-        $response->assertSee('Pick both a start and end date', false);
+        // The selector is now compare-aware: Apply stays disabled until readyToSubmit() says every custom range
+        // in use has both dates (it used to be a bare `!start || !end`).
+        $response->assertSee(':disabled="!readyToSubmit()"', false);
+        $response->assertSee("this.preset === 'custom' && (!this.start || !this.end)", false);
+        $response->assertSee('Pick both dates for every custom range in use', false);
     }
 
     public function test_company_report_apply_button_uses_a_defined_brand_variable_with_contrast(): void
@@ -132,9 +135,10 @@ class PeriodSelectorCustomRangeTest extends TestCase
         foreach (['company' => $companyResponse, 'branch' => $branchResponse, 'agent' => $agentResponse] as $label => $response) {
             $response->assertOk();
             $response->assertSee('x-model="preset"', false);
-            // Same guard clause every page must carry: only auto-submit for a
-            // NON-custom selection, never for "Custom" itself.
-            $response->assertSee("!== 'custom'", false);
+            // Same guard every page must carry: a change only auto-submits when readyToSubmit() is true, so a
+            // half-filled "Custom" range never fires a request.
+            $response->assertSee('@change="maybeAutoSubmit($event.target)"', false);
+            $response->assertSee("this.preset === 'custom' && (!this.start || !this.end)", false);
         }
     }
 

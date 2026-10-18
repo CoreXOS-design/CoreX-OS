@@ -8,7 +8,6 @@ use App\Models\AgencyContactSettings;
 use App\Models\Contact;
 use App\Models\Property;
 use App\Models\Prospecting\TrackedProperty;
-use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 
 /**
@@ -197,42 +196,35 @@ final class ContactAddressPropertyGuard
      */
     private function matchStockProperty(int $agencyId, array $facts, string $mode): ?Property
     {
-        $streetNorm = TrackedPropertyAddress::normaliseStreet($facts['street_name'] ?? null);
-        $suburbNorm = TrackedProperty::normaliseSuburb($facts['suburb'] ?? null);
-        if (blank($streetNorm) || blank($suburbNorm)) {
+        if (blank($facts['street_name'] ?? null) || blank($facts['suburb'] ?? null)) {
             return null;
         }
-
-        $query = Property::where('agency_id', $agencyId)
-            ->whereNull('deleted_at')
-            ->where('street_name_normalised', $streetNorm)
-            ->where('suburb_normalised', $suburbNorm);
-
         $streetNo = trim((string) ($facts['street_number'] ?? ''));
-        if ($streetNo !== '') {
-            $query->where('street_number', $streetNo);
-        } elseif ($mode === 'strict') {
+        if ($streetNo === '' && $mode === 'strict') {
             // Strict needs a street number to call a stock hit certain.
             return null;
         }
 
-        $factUnit = $this->normaliseUnit($facts['unit_number'] ?? null);
-        foreach ($query->get() as $candidate) {
-            $candUnit = $this->normaliseUnit($candidate->unit_number);
-            if ($factUnit !== null && $candUnit !== null && $factUnit !== $candUnit) {
-                continue;
+        // 2026-10-07 (structured address matching, step 6) — this was an exact comparison of the normalised street
+        // name WITH its type ("Grindewald Road" never met "Grindewald") and of the raw number column. It is now the
+        // shared scored comparison: street type may be missing on one side, an old row's number may live in its
+        // street text, and a different number or unit is never the same property. Unit stays a hard discriminator
+        // (a conflicting unit on BOTH sides vetoes); a unit on one side only never blocks a warning, exactly as before.
+        $hits = app(\App\Services\Address\AddressMatcher::class)->properties($agencyId, \App\Services\Address\AddressFacts::fromPayload($facts));
+        foreach ($hits as $h) {
+            $tier = $h['result']['tier'];
+            $c = $h['result']['columns'];
+            $exact = $tier === \App\Services\Address\AddressMatchScorer::TIER_EXACT;
+            $unitOneSideOnly = $tier === \App\Services\Address\AddressMatchScorer::TIER_POSSIBLE
+                && ($c['unit'] ?? '') === 'one_side' && ($c['suburb'] ?? '') === 'agree'
+                && ($c['number'] ?? '') === 'agree' && ($c['street'] ?? '') === 'agree' && ($c['type'] ?? '') !== 'differ';
+            $streetOnlyNoNumber = $streetNo === '' && $tier === \App\Services\Address\AddressMatchScorer::TIER_STREET_ONLY;
+            if ($exact || $unitOneSideOnly || $streetOnlyNoNumber) {
+                return $h['model'];
             }
-            return $candidate;
         }
 
         return null;
-    }
-
-    /** Normalise a unit number for equality (lowercased + trimmed). Blank ⇒ null (never a veto). */
-    private function normaliseUnit(?string $value): ?string
-    {
-        $v = strtolower(trim((string) ($value ?? '')));
-        return $v === '' ? null : $v;
     }
 
     /** Canonical facts array built from raw captured address components. */

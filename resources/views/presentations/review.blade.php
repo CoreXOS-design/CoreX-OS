@@ -350,7 +350,7 @@
             <div id="cma-valuation-guardrail" class="review-warn-banner"
                  data-severity="{{ $vg['severity'] ?? 'review' }}"
                  style="margin-top:10px;{{ ($vg['severity'] ?? '') === 'high' ? ' border-left:4px solid var(--ds-amber,#f59e0b);' : '' }}">
-                <strong>⚠ Valuation sanity check</strong> — {{ $vg['message'] }}
+                <strong>⚠ Evaluation sanity check</strong> — {{ $vg['message'] }}
                 <span style="display:block; margin-top:4px; font-size:11px; color:var(--text-muted);">
                     Median headline R {{ number_format((int) ($vg['median_value'] ?? 0), 0, '.', ' ') }}
                     · size-normalised R {{ ($vg['rm2_value'] ?? null) ? number_format((int) $vg['rm2_value'], 0, '.', ' ') : '—' }}
@@ -372,7 +372,7 @@
             </div>
             <div id="cma-no-condition-banner" class="cma-no-cond-banner"
                  {{ ($currentConditionId || ($cmaValuation['condition_applied'] ?? false)) ? 'hidden' : '' }}>
-                No condition set — using baseline valuation. Set a condition above to refine.
+                No condition set — using baseline evaluation. Set a condition above to refine.
             </div>
 
             {{-- Tick-wire build — CoreX-computed pool size + CMA Info
@@ -402,7 +402,7 @@
                     <span id="cma-size-lift-label">
                         This {{ $cmaValuation['size_lift_subject_noun'] ?? 'erf' }} is
                         <strong>{{ $cmaValuation['size_diff_pct'] ?? 0 }}%</strong> larger than the comparable sales.
-                        Tick to lift the valuation by <strong>{{ $cmaValuation['size_lift_pct'] ?? 0 }}%</strong>.
+                        Tick to lift the evaluation by <strong>{{ $cmaValuation['size_lift_pct'] ?? 0 }}%</strong>.
                     </span>
                 </label>
             </div>
@@ -562,7 +562,7 @@
                             <div style="text-align:right; color: var(--text-muted); font-size:11px;">
                                 {{ $row['distance_m'] !== null ? ($row['distance_m'] < 1000 ? $row['distance_m'].'m' : number_format($row['distance_m']/1000, 1).'km') : '—' }}
                             </div>
-                            <div title="{{ $row['is_cross_type'] ? 'Cross-title comparison — not recommended for valuation' : '' }}"
+                            <div title="{{ $row['is_cross_type'] ? 'Cross-title comparison — not recommended for evaluation' : '' }}"
                                  style="font-size: 14px; color: {{ $row['is_cross_type'] ? 'var(--ds-amber,#f59e0b)' : 'transparent' }};">
                                 {{ $row['is_cross_type'] ? '!' : '' }}
                             </div>
@@ -729,7 +729,7 @@
         window.buildCompetitorCard = function (m) {
             var badges = [tierBadge(m.tier)];
             if (m.is_hfc_owned) {
-                badges.push({ label: 'HFC', fg: '#10b981', bg: '#ecfdf5' });
+                badges.push({ label: 'Own', fg: '#10b981', bg: '#ecfdf5' });
                 if (m.days_on_market !== null && m.days_on_market !== undefined) {
                     badges.push({ label: m.days_on_market + 'd', fg: '#475569', bg: '#f1f5f9' });
                 }
@@ -1395,7 +1395,7 @@
             if (sizeLiftLabel && available) {
                 sizeLiftLabel.innerHTML = 'This ' + (data.cma.size_lift_subject_noun || 'erf') +
                     ' is <strong>' + (data.cma.size_diff_pct ?? 0) + '%</strong> larger than the comparable sales. ' +
-                    'Tick to lift the valuation by <strong>' + (data.cma.size_lift_pct ?? 0) + '%</strong>.';
+                    'Tick to lift the evaluation by <strong>' + (data.cma.size_lift_pct ?? 0) + '%</strong>.';
             }
         }
         if (sizeAdjNote) {
@@ -1458,7 +1458,7 @@
                 const d = await r.json();
                 if (d?.ok) {
                     applyCmaUpdate(d);
-                    toast(wantApplied ? 'Size lift applied — valuation updated.' : 'Size lift removed — back to comp median.');
+                    toast(wantApplied ? 'Size lift applied — evaluation updated.' : 'Size lift removed — back to comp median.');
                 } else {
                     sizeLiftTick.checked = !wantApplied;
                     toast('Could not update the size lift — please retry.');

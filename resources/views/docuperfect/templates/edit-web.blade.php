@@ -33,6 +33,7 @@
                class="text-xs px-3 py-1.5 border border-white/30 text-white/70 hover:bg-white/10 hover:text-white transition-colors">
                 Back
             </a>
+            @if(auth()->user()->isOwnerRole() && auth()->user()->hasPermission('templates.transfer'))<a href="{{ route('docuperfect.templates.export', $template->id) }}" class="text-xs px-3 py-1.5 border border-white/30 text-white/70 hover:bg-white/10 hover:text-white transition-colors">Export package</a>@endif
             <div x-data="{ submitting: false }">
                 <form method="POST" action="{{ route('docuperfect.import.template.edit', $template->id) }}" class="inline" @submit="submitting = true">
                     @csrf

@@ -16,10 +16,23 @@ class RentalWorkOrderPhoto extends Model
 
     public const UPDATED_AT = null;
 
+    /** rental_work_order_photos.uploaded_via — where the photo came from (§14.27.6 item 6). Null = uploaded before the column existed. */
+    public const VIA_CREW_LINK = 'crew_link';
+    public const VIA_CREW_PAGE = 'crew_page';
+    public const VIA_OFFICE = 'office';
+    /** §17.10.4 — a tenant's "not complete" photo (rental_work_order_photos.photo_type = RentalWorkOrder::PHOTO_DISPUTE). */
+    public const VIA_TENANT = 'tenant';
+
     protected $fillable = [
         'agency_id',
         'rental_work_order_id',
+        'rental_job_card_id',
+        // §17.5.1 — the crew line a photo explains / §17.10.4 — the completion round a dispute photo belongs to.
+        'rental_job_card_line_id',
+        'rental_completion_round_id',
         'photo_type',
+        'caption',
+        'uploaded_via',
         'storage_path',
         'uploaded_by_user_id',
         'client_idempotency_key',
@@ -47,6 +60,12 @@ class RentalWorkOrderPhoto extends Model
     public function workOrder(): BelongsTo
     {
         return $this->belongsTo(RentalWorkOrder::class, 'rental_work_order_id');
+    }
+
+    /** Set when this photo belongs to a job card with no linked work order (RentalJobCardService::storePhoto()). */
+    public function jobCard(): BelongsTo
+    {
+        return $this->belongsTo(RentalJobCard::class, 'rental_job_card_id');
     }
 
     public function uploadedBy(): BelongsTo

@@ -69,8 +69,10 @@ final class MicPriceGuardTest extends TestCase
         $ref = $this->ref();
         $this->postJson('/api/prospecting/import', $this->payload($ref, 1_800_000))->assertOk();
 
-        // Misparse: dropped a zero (1,800,000 -> 180,000) = 10x jump.
-        $this->postJson('/api/prospecting/import', $this->payload($ref, 180_000))->assertOk();
+        // Misparse: dropped a zero and mangled a digit (1,800,000 -> 179,000) = ~10x drop. (Exactly
+        // 180,000 is NOT a misparse any more: stored == new*10+0 is the decimal-strip signature the
+        // guard deliberately lets through as a self-correction — MIC CRISIS ITEM 2, 2026-08-18.)
+        $this->postJson('/api/prospecting/import', $this->payload($ref, 179_000))->assertOk();
 
         $listing = ProspectingListing::where('portal_ref', $ref)->firstOrFail();
         $this->assertSame(1_800_000, (int) $listing->price, 'Good price must be preserved');

@@ -547,3 +547,44 @@ confirming the payload/PUT logic itself was never the problem.
   within its run interval, with no human needing to notice.
 - Any deactivation whose P24 removal cannot be confirmed within a defined window raises a visible
   admin notification, not just a log line.
+
+---
+
+# Portal presence follows property status — P24 re-list (Johan, 2026-10-06)
+
+**Ruling:** portal presence is driven by PROPERTY STATUS. `let_out` = off both portals. Back to Active/Available = back on both portals for rent, even while the current lease is still running. An active lease blocks nothing about portals (`Property::blockingActiveLease()` is — and stays — absent from every status/portal path).
+
+**The gap (investigation `/tmp/qa1-cc5-2026-10-06-b.md`, J1c/J1e):** a `let_out` property ends OFF P24 (`DesyndicatePropertyFromPortalsJob` → `p24_syndication_status='deactivated'`). When it went back on-market, `PropertyObserver::saved` pushed a bare `Active` — not P24's back-on-market path — and never reset CoreX's own marker, so CoreX kept showing the listing as off Property24 and relied on P24 accepting Withdrawn→Active.
+
+**The fix (`PropertyObserver`):**
+- `saving()` records an off-market → on-market `status` move (`$returningToMarket`, same capture pattern as AT-68's renewal reminder — `getOriginal()` is only reliable there); `saved()` consumes it.
+- In the P24 status block, AFTER the unchanged PP-exclusive and approval gates: if the move is a return to market AND `p24_syndication_status` is `deactivated` / `sold` / `rented` (not a live advert), call `Property24SyndicationService::reactivateListing()` — `BackOnMarket`, which re-checks the gates and the agent-conflict guard, and writes `submitted` + clears `p24_last_error` **only after P24 accepts the push** (audit-truth). A transient failure leaves the marker untouched with a retryable note; a permanent refusal records `error`; neither claims the listing is back.
+- An on-market → on-market status tweak on a listing an agent deliberately switched off P24 is NOT a re-list (unchanged: it never was auto-relisted by a status edit that does not leave off-market).
+- `syncActivationStatus()` later promotes `submitted` → `active` when P24's `is-on-portal` confirms.
+
+**Unchanged gates:** Private Property exclusive window still blocks the P24 push (`blockIfPpExclusive`); syndication approval (`refusalForUpdate`/`blockIfNotApproved`) still applies. Terminal pushes (Rented/Withdrawn/…) are never blocked.
+
+**Tests (fake portal clients only):** `tests/Feature/Syndication/PortalPresenceFollowsStatusTest.php` — let_out → Rented push + withdraw job; let_out → active → `BackOnMarket` + marker reset on success / unchanged on failure; same with an active lease; marker `rented` re-list; PP exclusive blocks; deliberate-off listing not re-listed.
+
+**Late withdraw job — FIXED (Johan, 2026-10-06):** `DesyndicatePropertyFromPortalsJob::handle()` now re-reads the property's CURRENT status when it runs (a fresh row, not the dispatch-time copy) and only withdraws if it is still off-market (`Property::matchesOffMarketStatus()` — `OFF_MARKET_STATUSES`, underscore + space forms, substring variants; the same rule `PropertyObserver` uses to dispatch). If the property is back on market the whole job is a no-op — P24, Private Property AND website — and logs `DesyndicatePropertyFromPortalsJob: skipped for property #N — back on market`. A soft-deleted property is never "back on market" and still proceeds. Dispatch timing, the re-list path above and `deactivateListing()` are unchanged. Other queued portal jobs checked: `SyncPpListingStatusJob` (re-reads status at run time) and `SubmitListingToProperty24` (maps current status at run time) were already safe. Tests: `tests/Feature/Syndication/DesyndicateJobStatusRecheckTest.php`.
+
+**Sandbox check (Staging, conductor):** see the handover in `/tmp/qa1-cc6-portal-status-2026-10-06.md`.
+
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F1/C-F4) - External publishing guard
+
+`App\Support\ExternalPublishingGuard` is the one gate in front of every WRITE to Meta, Property24 and Private Property. Allowed by default; refused when `Instance::isDemo()` or `corex.external_publishing` (env `COREX_EXTERNAL_PUBLISHING`, default true) is false - set it false on any copy of live (live-testing) that carries real credentials. Property24: `Property24ApiClient::request()` refuses every non-GET (returns `success=false, refused=true`, one WARNING, no HTTP call). Private Property: `PrivatePropertySoapClient::call()` refuses the write operations (UpdateAgent, UpdateAgentImage, UpdateListing, ListingStatusUpdate, ListingShowdayUpdate, UpdateUniqueAgentID, UpdateUniqueListingID, UpdateListingVideoOrMatterport). Reads are never gated. PropertyObserver no longer queues `SyncPpListingStatusJob` for a save made with `skipSyndicationAutomation`.
+
+## Audit fix 2026-10-18 — the mapper no longer scans P24's agent list on a refresh
+
+`Property24ListingMapper::resolveContactAgentIds()` resolved the listing's P24 agents by downloading the whole
+`GET /agencies/{id}/agents` list (15-90 s, 610 KB) and matching `sourceReference` — on EVERY submit, including an
+unchanged refresh whenever the 25 h cache was cold (every deploy clears it). That broke the refresh cost contract
+(CLAUDE.md "Portal sync"). It now uses the stored `(users.p24_agent_id, users.p24_agent_agency_id)` pair first — the same
+rule as `Property24SyndicationService::resolveRegisteredAgentId()` — and scans the list only for an agent with no stored
+pair under this agency. Opted-out agents (`exclude_from_p24`) are still never attached. `Property24RefreshCostTest` was
+red on QA2 before this; its fixture now also mirrors a real saved listing (coordinates, split street name/number, agent
+re-read from the DB) so it measures P24 calls only. All three tests green.
+

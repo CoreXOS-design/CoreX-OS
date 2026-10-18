@@ -53,11 +53,11 @@ final class CommsNavIaTest extends TestCase
         $resp->assertSee('Flagged Messages');         // was "Flag Register"
         $resp->assertSee('Archive Access Requests');  // was "Access Requests"
         $resp->assertSee('Link My WhatsApp');         // AT-156, added to the menu
-        $resp->assertSee('My Capture Consent');       // was "My WhatsApp Capture" — the consent Johan couldn't find
-        $resp->assertSee('Capture Consent (Team)');   // was "Capture Opt-outs (Review)"
+        $resp->assertSee('My WhatsApp Consent');      // was "My WhatsApp Capture" — the consent Johan couldn't find (AT-195 settled on this wording)
+        $resp->assertSee('WhatsApp Consent — Review'); // was "Capture Opt-outs (Review)"
         $resp->assertSee('WhatsApp Capture (Browser Extension)');
         $resp->assertSee('Email Capture Setup');      // moved from Settings
-        $resp->assertSee('Archive Mailboxes');        // moved from Compliance
+        $resp->assertSee('Email Mailboxes (import)'); // moved from Compliance (AT-195 named it for what it does)
         $resp->assertSee('My Communication Setup');   // was "Communication Capture"
 
         // Old ambiguous labels are gone.

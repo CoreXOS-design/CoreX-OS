@@ -79,7 +79,7 @@ class AgentCapPeriod extends Model
         $this->company_dollar_paid = bcadd($this->company_dollar_paid, $amount, 2);
         $this->transactions_count++;
 
-        if (!$this->is_capped && bccomp($this->company_dollar_paid, $this->cap_amount, 2) >= 0) {
+        if ($this->hasCap() && !$this->is_capped && bccomp($this->company_dollar_paid, $this->cap_amount, 2) >= 0) {
             $this->is_capped = true;
             $this->capped_at = now();
         }
@@ -115,11 +115,40 @@ class AgentCapPeriod extends Model
     }
 
     /**
-     * Check if agent has reached their cap.
+     * Does this period have a cap at all? A cap is a POSITIVE amount; 0 / blank means "no cap" (14 Oct 2026): a new agency starts
+     * with no cap, and a zero cap must never read as "capped from the first deal" (that skipped the agency's split and mentor fee).
+     */
+    public function hasCap(): bool
+    {
+        return bccomp((string) ($this->cap_amount ?? '0'), '0', 2) > 0;
+    }
+
+    /**
+     * The agency has entered a cap: open periods that had none (cap 0) adopt it. Periods with a positive cap are left alone.
+     */
+    public static function adoptAgencyCap(int $agencyId, float $cap): void
+    {
+        if ($agencyId <= 0 || $cap <= 0) {
+            return;
+        }
+
+        static::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->current()
+            ->where(fn ($q) => $q->whereNull('cap_amount')->orWhere('cap_amount', 0))
+            ->update(['cap_amount' => $cap, 'is_capped' => false, 'capped_at' => null]);
+    }
+
+    /**
+     * Check if agent has reached their cap. No cap (0 / blank) = never capped, whatever an older flag says.
      */
     public function checkCap(): bool
     {
-        return $this->is_capped || bccomp((string) ($this->company_dollar_paid ?? '0'), (string) ($this->cap_amount ?? '0'), 2) >= 0;
+        if (! $this->hasCap()) {
+            return false;
+        }
+
+        return $this->is_capped || bccomp((string) ($this->company_dollar_paid ?? '0'), (string) $this->cap_amount, 2) >= 0;
     }
 
     /**
@@ -127,7 +156,7 @@ class AgentCapPeriod extends Model
      */
     public function getRemainingToCap(): string
     {
-        if ($this->is_capped) {
+        if (! $this->hasCap() || $this->is_capped) {
             return '0.00';
         }
 
@@ -141,8 +170,8 @@ class AgentCapPeriod extends Model
      */
     public function getCapProgressPercent(): float
     {
-        if (bccomp($this->cap_amount, '0', 2) === 0) {
-            return 100.0;
+        if (! $this->hasCap()) {
+            return 0.0; // no cap: nothing to be a percentage of
         }
 
         $percent = (float) bcdiv(bcmul($this->company_dollar_paid, '100', 2), $this->cap_amount, 2);
@@ -200,7 +229,7 @@ class AgentCapPeriod extends Model
             'agency_id' => $agencyId,
             'period_start' => $periodStart->toDateString(),
             'period_end' => $periodEnd->toDateString(),
-            'cap_amount' => $settings->annual_cap,
+            'cap_amount' => $settings->annual_cap ?? 0,
         ]);
     }
 }

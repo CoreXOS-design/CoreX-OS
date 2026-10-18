@@ -1,6 +1,7 @@
 {{-- Rentals step — the repeater lists an agency words for itself: refusal reasons,
      inspection condition states (+ the "All Good" baseline), photo-note
-     classifications, and inventory condition states.
+     classifications, inventory condition states, and (Build I-2) the agency's own
+     room types.
 
      Same repeater markup as the full settings screens (corex/settings/
      rental-inspections.blade.php, rental-inventory.blade.php), rendered inside the
@@ -12,13 +13,21 @@
          delegates when this partial's *_submitted marker is present
        - inventory_condition_states -> RentalInventorySettingsController::
          updateConditionStates (own field name: the wizard form is one combined form).
+       - room_templates -> via RentalListsWizardSaver, only when room_templates_submitted is present (every kind's list is posted);
+         the canonical saver only touches the kinds posted.
+       - custom_room_types -> via RentalListsWizardSaver, only when this partial's
+         custom_room_types_submitted marker is present; only ACTIVE types are rendered,
+         and the canonical saver archives (never deletes) a type removed here.
      Every list posts its own hidden marker so a post that never rendered this partial
      can never wipe or fail anything (agency-onboarding-setup.md §6.1).
 
      Vars: $wzRefusalPresets, $wzConditionStates, $wzBaselineConditionKey,
-           $wzPhotoClassifications, $wzInventoryConditionStates. --}}
+           $wzPhotoClassifications, $wzInventoryConditionStates, $wzCustomRoomTypes, $wzAttendedAsLabels (Build I-3),
+           $wzMoveOutClassificationLabels (§45.14). --}}
 
 @php
+    $wzAttendedAsLabels = $wzAttendedAsLabels ?? \App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS;
+    $wzMoveOutClassificationLabels = $wzMoveOutClassificationLabels ?? \App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS;
     $wzBox = 'background:var(--surface-2,#f8fafc); border:1px solid var(--border,#e5e7eb); border-radius:6px;';
     $wzInput = 'border:1px solid var(--border,#e5e7eb);';
 @endphp
@@ -99,6 +108,44 @@
         </div>
     </div>
 
+    {{-- How someone attended an inspection (Build I-3) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}">
+        <input type="hidden" name="attended_as_labels_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">How someone attended an inspection</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the words used when an agent records who was at an inspection &mdash; in person, someone attending on a party's behalf, a co-occupant, or anyone else. The four ways are fixed; reword each to match your own paperwork. A blank box keeps the default.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The attendance wording on the inspection screen, the signed report and the report link tenants and landlords open.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS as $wzAttendedKey => $wzAttendedDefault)
+            <div class="flex items-center gap-2">
+                <span class="text-xs w-40" style="color:var(--text-muted);">{{ $wzAttendedDefault }} (default)</span>
+                <input type="text" name="attended_as_labels[{{ $wzAttendedKey }}]" maxlength="60" value="{{ $wzAttendedAsLabels[$wzAttendedKey] }}"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+            </div>
+        @endforeach
+    </div>
+
+    {{-- Move-out classifications (§45.14) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}">
+        <input type="hidden" name="move_out_classification_labels_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Move-out classifications</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the three words an agent picks from when classifying a difference found at move-out &mdash; what was already there at move-in, what the landlord is responsible for, and what is charged to the tenant. The three are fixed; reword each to match your own paperwork. A blank box keeps the default.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The wording of the classification choices and the &ldquo;Classified &hellip;&rdquo; line on the move-out comparison screen, from now on.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS as $wzMoKey => $wzMoDefault)
+            <div class="flex items-center gap-2">
+                <span class="text-xs w-40" style="color:var(--text-muted);">{{ $wzMoDefault }} (default)</span>
+                <input type="text" name="move_out_classification_labels[{{ $wzMoKey }}]" maxlength="60" value="{{ $wzMoveOutClassificationLabels[$wzMoKey] }}"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+            </div>
+        @endforeach
+    </div>
+
     {{-- Photo-note classifications --}}
     <div class="p-4 space-y-2" style="{{ $wzBox }}" x-data="{ classifications: {{ Js::from($wzPhotoClassifications) }} }">
         <input type="hidden" name="photo_note_classifications_submitted" value="1">
@@ -118,6 +165,61 @@
             </div>
         </template>
         <button type="button" @click="classifications.push({ key: 'custom_' + Date.now(), label: '' })" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a type</button>
+    </div>
+
+    {{-- Your own room types (Build I-2, §45.4 item 3) --}}
+    <div class="p-4 space-y-2" style="{{ $wzBox }}" x-data="{ types: {{ Js::from(collect($wzCustomRoomTypes ?? [])->map(fn ($t) => ['key' => $t['key'], 'label' => $t['label']])->values()) }} }">
+        <input type="hidden" name="custom_room_types_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Your own room types</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: rooms or areas you inspect that CoreX's 50 standard room types do not cover &mdash; for example a roof space, a DB board or a pool house. Leave this empty if the standard list is enough.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> The room-type choices offered when an agent adds a room to a property's inspection checklist, plus the room-type checklists and walking order in Settings. Removing one here only archives it &mdash; rooms already using it are not touched, and it can be restored from Settings.
+        </p>
+        <template x-for="(row, i) in types" :key="i">
+            <div class="flex items-center gap-2">
+                <input type="text" x-model="row.label" :name="`custom_room_types[${i}][label]`" maxlength="60" placeholder="Room type name"
+                       class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+                <input type="hidden" :name="`custom_room_types[${i}][key]`" :value="row.key">
+                <button type="button" @click="types.splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#e11d48);">Remove</button>
+            </div>
+        </template>
+        <button type="button" @click="types.push({ key: '', label: '' })" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a room type</button>
+    </div>
+
+    {{-- Standard rooms per kind of property (§55) --}}
+    <div class="p-4 space-y-3" style="{{ $wzBox }}" data-qa="wz-room-templates"
+         x-data="{
+             types: {{ Js::from(collect($wzRoomTemplateTypeOptions ?? [])->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label']])->values()) }},
+             lists: {{ Js::from($wzRoomTemplates ?? []) }},
+             add(f) { this.lists[f].push({ type: this.types[0].key, count: 1 }); },
+         }">
+        <input type="hidden" name="room_templates_submitted" value="1">
+        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">Standard rooms for a new rental property</h4>
+        <p class="text-xs" style="color:var(--text-muted);">
+            What it is: the rooms CoreX builds for a rental property that has none yet, by kind of property &mdash; one list for a house, a flat, a townhouse and anything else. Bedrooms, bathrooms and garages use the property's own numbers when it has them.
+        </p>
+        <p class="text-[11px]" style="color:var(--text-muted);">
+            <span class="font-semibold">What this changes:</span> When an agent starts the first inspection of a property with no rooms, one press on "Build rooms from the standard checklist" creates these rooms, each with its inspection items. Properties that already have rooms are never changed.
+        </p>
+        @foreach(\App\Models\RentalInspectionSetting::ROOM_TEMPLATE_FAMILIES as $wzFamKey => $wzFamLabel)
+            <div class="space-y-2">
+                <h5 class="text-xs font-semibold" style="color:var(--text-secondary,#475569);">{{ $wzFamLabel }}</h5>
+                <input type="hidden" name="room_templates[{{ $wzFamKey }}][_present][type]" value="">  {{-- marks this kind as posted, so emptying its list saves an empty list --}}
+                <template x-for="(row, i) in lists['{{ $wzFamKey }}']" :key="i">
+                    <div class="flex items-center gap-2">
+                        <select x-model="row.type" :name="`room_templates[{{ $wzFamKey }}][${i}][type]`" class="flex-1 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}">
+                            <template x-for="t in types" :key="t.key"><option :value="t.key" x-text="t.label" :selected="t.key === row.type"></option></template>
+                        </select>
+                        <input type="number" min="1" max="{{ \App\Models\RentalInspectionSetting::ROOM_TEMPLATE_MAX_COUNT }}" x-model.number="row.count" :name="`room_templates[{{ $wzFamKey }}][${i}][count]`"
+                               class="w-20 rounded-md px-3 py-2 text-sm" style="{{ $wzInput }}" aria-label="How many">
+                        <button type="button" @click="lists['{{ $wzFamKey }}'].splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color:var(--ds-crimson,#e11d48);">Remove</button>
+                    </div>
+                </template>
+                <button type="button" @click="add('{{ $wzFamKey }}')" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="{{ $wzInput }} color:var(--text-primary);">+ Add a room</button>
+            </div>
+        @endforeach
     </div>
 
     {{-- Inventory condition states --}}

@@ -29,6 +29,46 @@ class PropertySellerLink extends Model
 
     public function isActive(): bool { return $this->revoked_at === null; }
 
+    /** The contact_property roles that make a contact a seller-side party of a property. */
+    public const SELLER_SIDE_ROLES = ['owner', 'seller', 'landlord', 'lessor'];
+
+    /**
+     * Links that are still IN FORCE: not manually revoked, and whose seller has not been
+     * taken off the property since (spec seller-live-link.md, "When the seller is removed").
+     *
+     * "Removed" is read from the contact_property row for the same (property, contact) pair —
+     * the ONE row per pair — as evidence: it is archived, or its role is now something other
+     * than a seller-side role. A pair with no contact_property row at all (links issued
+     * before the pivot was reliably written) or a null role is NOT evidence of removal, so a
+     * legacy link for a current seller is never switched off by this. Because it is derived
+     * from the relationship on every read, it covers every removal path (and links orphaned
+     * before this rule existed) with no data repair, and re-linking the seller switches the
+     * very same link back on. A manual Revoke (revoked_at) is permanent and never undone here.
+     */
+    public function scopeStillHeld($query)
+    {
+        return $query->whereNull('property_seller_links.revoked_at')
+            ->whereNotExists(function ($removed) {
+                $removed->select(\DB::raw(1))
+                    ->from('contact_property')
+                    ->whereColumn('contact_property.property_id', 'property_seller_links.property_id')
+                    ->whereColumn('contact_property.contact_id', 'property_seller_links.contact_id')
+                    ->where(function ($w) {
+                        $w->whereNotNull('contact_property.deleted_at')
+                            ->orWhere(function ($r) {
+                                $r->whereNotNull('contact_property.role')
+                                    ->whereNotIn('contact_property.role', self::SELLER_SIDE_ROLES);
+                            });
+                    });
+            });
+    }
+
+    /** True while this link is not revoked and its seller is not known to have been removed. */
+    public function isHeld(): bool
+    {
+        return static::withoutGlobalScopes()->whereKey($this->getKey())->stillHeld()->exists();
+    }
+
     public static function generateToken(): string
     {
         return bin2hex(random_bytes(32)); // 64-char hex

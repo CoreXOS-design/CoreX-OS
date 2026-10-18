@@ -58,14 +58,14 @@
             </div>
         @else
             <div class="overflow-x-auto">
-                <table class="w-full text-sm">
+                <table class="w-full text-sm ds-table">
                     <thead>
-                        <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                            <th class="text-left font-medium px-4 py-3 text-xs" style="color: var(--text-secondary);">Webinar</th>
-                            <th class="text-left font-medium px-4 py-3 text-xs" style="color: var(--text-secondary);">When</th>
-                            <th class="text-left font-medium px-4 py-3 text-xs" style="color: var(--text-secondary);">Demo access ends</th>
-                            <th class="text-left font-medium px-4 py-3 text-xs" style="color: var(--text-secondary);">Status</th>
-                            <th class="text-right font-medium px-4 py-3 text-xs" style="color: var(--text-secondary);">Registered</th>
+                        <tr style="background: var(--surface-2);">
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Webinar</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">When</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Demo access ends</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
+                            <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Registered</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -91,9 +91,7 @@
                                         $open = $webinar->isOpenForRegistration();
                                         $tone = $webinar->isArchived() ? 'var(--text-muted)' : ($open ? 'var(--ds-emerald)' : 'var(--ds-amber)');
                                     @endphp
-                                    <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium"
-                                          style="background: color-mix(in srgb, {{ $tone }} 12%, transparent);
-                                                 color: {{ $tone }};">
+                                    <span class="ds-badge" style="--ds-badge-c: {{ $tone }};">
                                         {{ $webinar->statusLabel() }}
                                     </span>
                                 </td>

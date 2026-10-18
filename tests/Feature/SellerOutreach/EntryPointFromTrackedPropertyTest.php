@@ -151,6 +151,10 @@ final class EntryPointFromTrackedPropertyTest extends TestCase
             'created_by_user_id' => $userId,
         ]);
 
+        // The default duplicate mode is soft_warn (the agent sees a "use existing / create anyway" panel — see
+        // the next test). The SILENT reuse this test covers is the agency's `auto_link` mode.
+        \App\Models\AgencyContactSettings::forAgency($agencyId)->update(['duplicate_mode' => 'auto_link']);
+
         $this->actingAs(User::find($userId))
             ->post(route('seller-outreach.entry.store-from-tracked-property', ['trackedProperty' => $tp->id]), [
                 'first_name' => 'Alice',  // different name

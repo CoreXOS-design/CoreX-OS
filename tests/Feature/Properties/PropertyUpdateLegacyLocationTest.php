@@ -106,7 +106,7 @@ final class PropertyUpdateLegacyLocationTest extends TestCase
 
     public function test_picking_a_verified_suburb_links_and_canonicalises(): void
     {
-        $kzn    = P24Province::create(['p24_id' => 4, 'p24_country_id' => 1, 'name' => 'KwaZulu-Natal']);
+        $kzn    = P24Province::create(['p24_id' => 4, 'p24_country_id' => \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa'])->id, 'name' => 'KwaZulu-Natal']);
         $ballito = P24City::create(['p24_id' => 200, 'p24_province_id' => $kzn->id, 'name' => 'Ballito']);
         $suburb = P24Suburb::create([
             'name' => 'Shortens Country Estate', 'slug' => 'shortens', 'p24_id' => 9001,

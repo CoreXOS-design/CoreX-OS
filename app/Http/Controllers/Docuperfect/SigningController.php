@@ -15,6 +15,7 @@ use App\Models\Docuperfect\SignatureMarker;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\FicaSubmission;
+use App\Services\Compliance\FicaGate;
 use App\Services\Docuperfect\DocumentFlattener;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\LetterheadRefresher;
@@ -44,6 +45,16 @@ class SigningController extends Controller
         $signingRequest = SignatureRequest::where('token', $token)
             ->with(['template.document', 'template.markers.signatures', 'template.creator'])
             ->firstOrFail();
+
+        // Public page, nobody signed in: the letterhead and the agency wording in the document are the DOCUMENT's own
+        // agency (else its creator's, the same order getAgencyBranding() uses for the page chrome) — never a default one.
+        $signingDocument = $signingRequest->template?->document;
+        \App\Support\Docuperfect\DocumentAgencyContext::enter(
+            $signingDocument?->agency_id
+                ? (int) $signingDocument->agency_id
+                : ($signingRequest->template?->creator?->agency_id ? (int) $signingRequest->template->creator->agency_id : null),
+            $signingDocument?->branch_id ? (int) $signingDocument->branch_id : null
+        );
 
         // Already completed — show enhanced summary.
         // Johan, 2026-08-24 — checked BEFORE isSigningBlocked() now (was
@@ -80,6 +91,7 @@ class SigningController extends Controller
                 'request' => $signingRequest,
                 'consentLog' => $consentLog,
                 'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
                 'agentName' => $creator->name ?? null,
                 'agentEmail' => $creator->email ?? null,
                 'agentPhone' => $creator->phone ?? $creator->cell ?? null,
@@ -139,13 +151,13 @@ class SigningController extends Controller
             }
         }
 
-        // FICA gate — external signers must have submitted FICA before signing
+        // FICA gate — external signers must have SUBMITTED FICA before signing (Johan, 2026-10-08: the
+        // gate lifts on submitted, not only on approved). The one rule lives in FicaGate — sales and
+        // rentals both ask it; this is the one place sales genuinely hard-stops.
         if ($signingRequest->fica_required && $signingRequest->contact_id) {
-            $ficaApproved = FicaSubmission::where('contact_id', $signingRequest->contact_id)
-                ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
-                ->exists();
+            $ficaGateOpen = FicaGate::isOpen((int) $signingRequest->contact_id);
 
-            if (! $ficaApproved) {
+            if (! $ficaGateOpen) {
                 $ficaSub = $signingRequest->fica_submission_id
                     ? FicaSubmission::find($signingRequest->fica_submission_id)
                     : FicaSubmission::where('contact_id', $signingRequest->contact_id)
@@ -165,7 +177,7 @@ class SigningController extends Controller
                 // already lapsed is renewed to last as long as this signing
                 // link, so the FICA step is never "expired" on a live link.
                 if ($ficaSub) {
-                    $ficaSub->keepLinkAliveUntil($signingRequest->token_expires_at ?? now()->addDays(14));
+                    $ficaSub->keepLinkAliveUntil($signingRequest->token_expires_at ?? now()->addDays(max(\App\Services\Compliance\FicaWindows::DEFAULT_LINK_EXPIRY_DAYS, \App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaSub->agency_id))));
                     if ($ficaSub->isDirty()) {
                         $ficaSub->save();
                     }
@@ -427,7 +439,7 @@ class SigningController extends Controller
             // Re-resolve the letterhead so a stored merged_html snapshot
             // never serves stale agency data ("The Mandate Company /
             // Margate") at signing — always show CURRENT agency.
-            $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+            $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml, $signingDocument?->agency_id ? (int) $signingDocument->agency_id : null, $signingDocument?->branch_id ? (int) $signingDocument->branch_id : null);
 
             // Phase 1B.5 — replace `~~~~MARKER~~~~` tokens with styled
             // insertable-block partials. Recipient context wires the
@@ -1022,6 +1034,7 @@ class SigningController extends Controller
             'request' => $signingRequest,
             'consentLog' => $consentLog,
             'downloadAvailable' => $downloadAvailable,
+            'awaitingAgentApproval' => (bool) optional($template)->isPendingAgentApproval(),   // everyone has signed; the agent checks it before the copy goes out
             'agentName' => $creator->name ?? null,
             'agentEmail' => $creator->email ?? null,
             'agentPhone' => $creator->phone ?? $creator->cell ?? null,
@@ -1064,14 +1077,14 @@ class SigningController extends Controller
         // "signing already completed" page.
         if (!$agency) {
             return [
-                'name' => config('app.name', 'CoreX OS'),
+                'name' => \App\Support\ClientBrand::NEUTRAL,
                 'logo' => null,
                 'color' => '#0b2a4a',
             ];
         }
 
         return [
-            'name' => $agency->name ?? config('app.name', 'CoreX OS'),
+            'name' => \App\Support\ClientBrand::name($agency),
             'logo' => $agency->logo_path ? asset('storage/' . $agency->logo_path) : null,
             'color' => $agency->default_color ?? $agency->button_color ?? '#0b2a4a',
         ];

@@ -8,10 +8,11 @@ use App\Events\Prospecting\TrackedPropertyCreated;
 use App\Events\Prospecting\TrackedPropertyEnriched;
 use App\Events\Prospecting\TrackedPropertyPromotedToStock;
 use App\Models\Property;
-use App\Services\Address\AddressMatchScorer;
-use App\Services\Address\AddressMatcher;
-use App\Services\Address\AddressFacts;
 use App\Models\Prospecting\TrackedProperty;
+use App\Services\Address\AddressFacts;
+use App\Services\Address\AddressMatcher;
+use App\Services\Address\AddressMatchScorer;
+use App\Services\Address\LpiCode;
 use App\Models\Prospecting\TrackedPropertyAddress;
 use App\Models\Prospecting\TrackedPropertyExternalRef;
 use App\Models\Prospecting\TrackedPropertyOwner;
@@ -70,6 +71,12 @@ final class TrackedPropertyMatchOrCreateService
      * runs between a strategy setting this and matchOrCreate() reading it.
      */
     private ?string $lastMatchStrategy = null;
+
+    /** @var array<string,mixed>|null the AddressMatchScorer verdict behind the last scored match (spec structured-address-matching.md §6) */
+    private ?array $lastScoredMatch = null;
+
+    /** exact scorer rule -> the strategy label the Deeds screen and the decision log have always used */
+    private const RULE_STRATEGY = ['lpi' => '3_erf_suburb', 'erf' => '3_erf_suburb', 'scheme' => '3b_scheme_section', 'street' => '4_normalised_address'];
 
     /** @var array<int, array{type: string, id: int, label: string}>|null */
     private ?array $lastMatchCandidates = null;
@@ -453,6 +460,9 @@ final class TrackedPropertyMatchOrCreateService
             'reason'    => $this->reasonFor($this->lastMatchStrategy, $facts, $tp),
             'label'     => $this->candidateLabel($tp),
             'confident' => $this->lastMatchStrategy !== '5_token_overlap_untiebroken',
+            // the scorer's per-column verdicts when a scored strategy produced this match (null for 0/1/2/5)
+            'matched_on' => $this->lastScoredMatch['matched_on'] ?? null,
+            'columns'    => $this->lastScoredMatch['columns'] ?? null,
         ];
     }
 
@@ -649,6 +659,7 @@ final class TrackedPropertyMatchOrCreateService
         // straight after can never see stale state from an earlier match.
         $this->lastMatchStrategy = null;
         $this->lastMatchCandidates = null;
+        $this->lastScoredMatch = null;
 
         // Strategy 0: Address-history match (Phase C2 silent-killer fix).
         // Consult tracked_property_addresses BEFORE the portal-ref / GPS / erf
@@ -724,92 +735,16 @@ final class TrackedPropertyMatchOrCreateService
             }
         }
 
-        // Strategy 3: Erf number + suburb (works even when address is unknown).
-        // numbersConflict() guard added 2026-08-13 (sectional-title "SS" fix):
-        // erf+suburb uniquely identifies a FREEHOLD stand, but every unit in a
-        // sectional scheme sits on the SAME underlying erf — that's how SA
-        // sectional title is structured, not a data-quality issue. This
-        // strategy had no conflict check at all, so two different units in
-        // the same scheme/erf (e.g. ASTOVE section 30 vs a different section)
-        // collapsed into one TrackedProperty purely on erf+suburb equality,
-        // even though numbersConflict() already knows how to veto on a
-        // differing section_number when both sides carry one. Same shape as
-        // the strategy=1 fix — a missing section number on either side still
-        // never blocks a match, so plain freehold-vs-freehold matching on erf
-        // is untouched.
-        if (!empty($facts['erf_number']) && !empty($facts['suburb'])) {
-            $erfMatch = TrackedProperty::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->where('erf_number', trim((string) $facts['erf_number']))
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
-                ->first();
-            if ($erfMatch && ! $this->numbersConflict($facts, $erfMatch) && $this->acceptCandidate($agencyId, $source, $erfMatch, '3_erf_suburb')) {
-                return $erfMatch;
-            }
-        }
-
-        // Strategy 3b: Scheme identity + section/unit number (2026-08-27,
-        // Johan/cc3's finding — a sectional-title re-capture with no erf
-        // number created a duplicate instead of finding the existing unit).
-        // Erf number does NOT identify a sectional-title unit (strategy 3's
-        // own comment above: every unit in a scheme shares one erf) — a
-        // capture that has no street address yet either (address geocoding
-        // not run, or the deed itself carries no physical address, both
-        // real and common) then had no strategy left that could ever find
-        // it: strategy 4 needs street_number/street_name, strategy 5 needs
-        // street_name/address, strategy 2 needs GPS. Every one of them
-        // silently required an identifier a bare sectional-title deed does
-        // not carry. The one identifier it DOES always carry is its own
-        // legal identity: scheme (name or the deeds-office scheme_number)
-        // plus section number — the exact SA sectional-title analogue of
-        // erf+suburb for freehold, same "structural identity, not address"
-        // tier, so it sits right after strategy 3. scheme_number, being the
-        // registered legal number, is preferred over the free-text scheme/
-        // complex name when both are available. section_number is CMA/deed-
-        // reliable (numbersConflict()'s own comment); unit_number is the
-        // fallback when section_number wasn't captured on this pass.
-        // numbersConflict() still runs — a genuinely different unit that
-        // happens to share a scheme is vetoed exactly as strategy 3 is.
-        $schemeNumber = trim((string) ($facts['scheme_number'] ?? ''));
-        $schemeName   = trim((string) ($facts['complex_name'] ?? $facts['scheme_name'] ?? ''));
-        $unitKey      = trim((string) ($facts['section_number'] ?? $facts['unit_number'] ?? ''));
-        if ($unitKey !== '' && ($schemeNumber !== '' || $schemeName !== '')) {
-            $schemeQuery = TrackedProperty::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->where(function ($w) use ($unitKey) {
-                    $w->where('section_number', $unitKey)
-                        ->orWhere('unit_number', $unitKey);
-                });
-            if ($schemeNumber !== '') {
-                $schemeQuery->whereRaw('LOWER(TRIM(scheme_number)) = ?', [mb_strtolower($schemeNumber)]);
-            } else {
-                $schemeQuery->where(function ($w) use ($schemeName) {
-                    $w->whereRaw('LOWER(TRIM(complex_name)) = ?', [mb_strtolower($schemeName)])
-                        ->orWhereRaw('LOWER(TRIM(scheme_name)) = ?', [mb_strtolower($schemeName)]);
-                });
-            }
-            $schemeMatch = $schemeQuery->first();
-            if ($schemeMatch && ! $this->numbersConflict($facts, $schemeMatch) && $this->acceptCandidate($agencyId, $source, $schemeMatch, '3b_scheme_section')) {
-                return $schemeMatch;
-            }
-        }
-
-        // Strategy 4: Normalised structured address.
-        if (!empty($facts['street_number']) && !empty($facts['street_name']) && !empty($facts['suburb'])) {
-            $addressMatch = TrackedProperty::queryWithoutAgencyScope()
-                ->where('agency_id', $agencyId)
-                ->whereNull('deleted_at')
-                ->where('street_number', trim((string) $facts['street_number']))
-                ->where('street_name', $this->normaliseStreetName($facts['street_name']))
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
-                ->first();
-            // street_number already matches exactly here; the gate adds the UNIT
-            // dimension so Unit 1 and Unit 2 at "1 The Oval" don't collapse.
-            if ($addressMatch && ! $this->numbersConflict($facts, $addressMatch) && $this->acceptCandidate($agencyId, $source, $addressMatch, '4_normalised_address')) {
-                return $addressMatch;
-            }
+        // Strategies 3 / 3b / 4 — erf (+ portion / LPI) + suburb, sectional scheme + section/unit, and
+        // street number + street + suburb — are now ONE scored comparison (2026-10-07,
+        // .ai/specs/structured-address-matching.md §6): AddressMatcher retrieves the candidates from indexed
+        // sets (no unordered first(), no limit) and AddressMatchScorer decides, with the same hard vetoes
+        // these strategies each carried (a different street number, unit/section, erf, portion, LPI, scheme
+        // number or an unrelated suburb is never the same property) plus the new ones (portion, LPI,
+        // street TYPE tolerance, Property24 neighbours as "possible" only). The labels below are unchanged.
+        $scored = $this->scoredTrackedMatch($agencyId, $facts, $source);
+        if ($scored !== null) {
+            return $scored;
         }
 
         // Strategy 5: Token-overlap address match (loose, last resort).
@@ -817,7 +752,7 @@ final class TrackedPropertyMatchOrCreateService
             $candidates = TrackedProperty::queryWithoutAgencyScope()
                 ->where('agency_id', $agencyId)
                 ->whereNull('deleted_at')
-                ->where('suburb_normalised', TrackedProperty::normaliseSuburb($facts['suburb']))
+                ->whereIn('suburb_normalised', TrackedPropertyAddress::suburbSpellingKeys($facts['suburb']))
                 ->limit(50)
                 ->get();
 
@@ -841,6 +776,17 @@ final class TrackedPropertyMatchOrCreateService
                     // which is exactly how "1 The Oval" used to match "2 The Oval".
                     // Veto a differing number before any token comparison.
                     if ($this->numbersConflict($facts, $cand)) {
+                        continue;
+                    }
+                    // 2026-10-07 (tracked property 373: four different streets in
+                    // one suburb merged into one record). Words alone are not an
+                    // address: old CMA report imports stored the whole line in
+                    // street_name ("4 Garden Place   Cadastral Extent  1 605 M²"),
+                    // so any two such rows shared "cadastral" + "extent" — two
+                    // tokens — and passed the overlap test while naming
+                    // different streets. When BOTH sides yield a street name,
+                    // the streets themselves must agree (street type ignored).
+                    if (! $this->streetsAgree($facts['street_name'] ?? $facts['address'] ?? null, $cand->street_name)) {
                         continue;
                     }
                     $candTokens = $this->extractAddressTokens(
@@ -899,6 +845,59 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return null;
+    }
+
+    /**
+     * The scored replacement for strategies 3 / 3b / 4: the strongest exact rule with a usable hit wins
+     * (LPI/erf, then scheme + unit, then street), best score first and oldest id on a tie — deterministic,
+     * never "whichever row the database returned first". A candidate an agent already rejected for this
+     * capture is skipped (acceptCandidate), exactly as before.
+     */
+    private function scoredTrackedMatch(int $agencyId, array $facts, array $source): ?TrackedProperty
+    {
+        $a = AddressFacts::fromPayload($facts);
+        $hits = app(AddressMatcher::class)->trackedProperties($agencyId, $a);
+        foreach (AddressMatcher::exactByRule($hits) as $rule => $group) {
+            foreach ($group as $h) {
+                /** @var TrackedProperty $tp */
+                $tp = $h['model'];
+                if ($this->acceptCandidate($agencyId, $source, $tp, self::RULE_STRATEGY[$rule])) {
+                    $this->lastScoredMatch = $h['result'];
+
+                    return $tp;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Tracked properties that are only a POSSIBLE match for these facts (some identifying columns agree,
+     * none contradict — a neighbouring suburb, a different street type, a missing portion/unit). Shown to the
+     * agent side by side by the capture pre-check; never linked automatically.
+     *
+     * @return array<int, array{tracked_property: TrackedProperty, reason: string, matched_fields: array<int,string>, columns: array<string,string>, matched_on: array<int,string>, score: int}>
+     */
+    public function findPossibleTrackedMatches(int $agencyId, array $facts, array $excludeIds = []): array
+    {
+        $hits = app(AddressMatcher::class)->trackedProperties($agencyId, AddressFacts::fromPayload($facts), null, $excludeIds);
+        $out = [];
+        foreach ($hits as $h) {
+            if ($h['result']['tier'] !== AddressMatchScorer::TIER_POSSIBLE) {
+                continue;
+            }
+            $out[] = [
+                'tracked_property' => $h['model'],
+                'reason'           => $h['result']['reasons'][0] ?? 'Some of the address agrees and nothing contradicts it.',
+                'matched_fields'   => $h['result']['matched_fields'],
+                'columns'          => $h['result']['columns'],
+                'matched_on'       => $h['result']['matched_on'],
+                'score'            => $h['result']['score'],
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -1032,7 +1031,7 @@ final class TrackedPropertyMatchOrCreateService
             '0_address_history_gps' => 'GPS is within about 5 metres of an address already confirmed for this property.',
             '1_source_ref' => 'Same source reference as a previous capture of this property.',
             '2_gps_cma', '2_gps_latlng' => 'GPS is within about 5 metres of this property\'s known location.',
-            '3_erf_suburb' => 'Same erf number (' . trim((string) ($facts['erf_number'] ?? '?')) . ') and suburb.',
+            '3_erf_suburb' => 'Same erf number (' . trim((string) ($facts['erf_number'] ?? (LpiCode::parse($facts['lpi_code'] ?? null)['erf'] ?? '?'))) . ') and suburb.',
             '3b_scheme_section' => 'Same sectional scheme and section/unit number (' . trim((string) ($facts['section_number'] ?? $facts['unit_number'] ?? '?')) . ').',
             '4_normalised_address' => 'Street number, street name and suburb all match exactly.',
             '5_token_overlap' => 'Address is a close text match on this street and suburb — no other property on this street was a candidate.',
@@ -1148,6 +1147,22 @@ final class TrackedPropertyMatchOrCreateService
             return true;
         }
 
+        // (6) Erf PORTION (structured address layer, 2026-10-07) — stand 1166 Lynne Avenue is six different
+        // properties sharing one erf number; the portion is what tells them apart. Both populated + differ
+        // = different properties. The LPI code carries the portion, so it counts when no portion was sent.
+        $factLpi = LpiCode::parse($facts['lpi_code'] ?? null);
+        $factPortion = TrackedPropertyAddress::normaliseNumericIdentifier($facts['erf_portion'] ?? ($factLpi['portion'] ?? null));
+        $candPortion = TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_portion ?? null);
+        if ($factPortion !== null && $candPortion !== null && $factPortion !== $candPortion) {
+            return true;
+        }
+
+        // (7) The full LPI code — the registered stand itself. Both present and different = different.
+        $candLpi = filled($candidate->lpi_code ?? null) ? mb_strtolower(trim((string) $candidate->lpi_code)) : null;
+        if ($factLpi !== null && $candLpi !== null && $factLpi['code'] !== $candLpi) {
+            return true;
+        }
+
         return false;
     }
 
@@ -1221,8 +1236,10 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         // Last meaningful segment: polluted cmainfo rows append "Cadastral Extent 1 375 M²".
+        // The pollution is cut off inline first: rows written since the street normaliser
+        // collapsed whitespace carry it on the SAME line ("1 Como Drive Cadastral Extent 1 225 M").
         $segments = array_values(array_filter(
-            array_map('trim', preg_split('/[\r\n,]+|\s{2,}/u', (string) $name) ?: []),
+            array_map('trim', preg_split('/[\r\n,]+|\s{2,}/u', $this->stripExtentPollution((string) $name)) ?: []),
             fn ($s) => $s !== '' && ! preg_match('/extent|m²|\bm2\b/iu', $s)
         ));
         $line = $segments !== [] ? end($segments) : (string) $name;
@@ -1241,10 +1258,70 @@ final class TrackedPropertyMatchOrCreateService
         return [implode(' ', $words), $type];
     }
 
-    /** Street types are compatible when either side has none or both are the same word. */
-    private function streetTypesCompatible(?string $a, ?string $b): bool
+    /**
+     * Do two street lines name the same street? Street number, unit prefix,
+     * street type and CMA "Cadastral Extent … M²" pollution are all ignored
+     * (streetParts()); the remaining name words must be the same, or one
+     * side's words wholly contained in the other's ("Baumbach" ⊂ "Von
+     * Baumbach"). When either side has no readable street name there is
+     * nothing to contradict, so the answer is true — this only ever REMOVES a
+     * candidate that positively names a different street.
+     */
+    private function streetsAgree(?string $a, ?string $b): bool
     {
-        return $a === null || $b === null || $a === $b;
+        $coresA = $this->streetCores($a);
+        $coresB = $this->streetCores($b);
+        if ($coresA === [] || $coresB === []) {
+            return true;
+        }
+        foreach ($coresA as $wordsA) {
+            foreach ($coresB as $wordsB) {
+                if (array_diff($wordsA, $wordsB) === [] || array_diff($wordsB, $wordsA) === []) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Cut a CMA "Cadastral Extent 1 375 M²" tail (and anything after it on the
+     * same line) off a street/address text — the pollution of old report
+     * imports, which is not part of any address.
+     */
+    private function stripExtentPollution(string $text): string
+    {
+        return (string) preg_replace('/\s*\b(?:cadastral\s+)?extent\b.*$/imu', '', $text);
+    }
+
+    /**
+     * Street-name word lists of EVERY readable segment of a street/address text
+     * (line, comma and double-space separated), number, unit prefix, street
+     * type and "Cadastral Extent … M²" pollution removed. A free-text address
+     * such as "15 Sandpiper Avenue, somewhere" yields two candidates; an old
+     * report row yields one. Empty when nothing street-like can be read.
+     *
+     * @return array<int, array<int,string>>
+     */
+    private function streetCores(?string $text): array
+    {
+        if (! filled($text)) {
+            return [];
+        }
+        $cores = [];
+        foreach (preg_split('/[\r\n,]+|\s{2,}/u', (string) $text) ?: [] as $segment) {
+            $segment = trim($this->stripExtentPollution($segment));
+            if ($segment === '' || preg_match('/extent|m²|\bm2\b/iu', $segment)) {
+                continue;
+            }
+            [$core] = $this->streetParts($segment);
+            if ($core !== null) {
+                $cores[] = explode(' ', $core);
+            }
+        }
+
+        return $cores;
     }
 
     /**
@@ -1266,34 +1343,6 @@ final class TrackedPropertyMatchOrCreateService
     public function factsHaveStreetNumber(array $facts): bool
     {
         return $this->streetNumberSet($facts['street_number'] ?? null, $facts['street_name'] ?? null, $facts['address'] ?? null) !== [];
-    }
-
-    /**
-     * Tracked properties that are only a POSSIBLE match for these facts (some identifying columns agree,
-     * none contradict — a neighbouring suburb, a different street type, a missing portion/unit). Shown to the
-     * agent side by side by the capture pre-check; never linked automatically.
-     *
-     * @return array<int, array{tracked_property: TrackedProperty, reason: string, matched_fields: array<int,string>, columns: array<string,string>, matched_on: array<int,string>, score: int}>
-     */
-    public function findPossibleTrackedMatches(int $agencyId, array $facts, array $excludeIds = []): array
-    {
-        $hits = app(AddressMatcher::class)->trackedProperties($agencyId, AddressFacts::fromPayload($facts), null, $excludeIds);
-        $out = [];
-        foreach ($hits as $h) {
-            if ($h['result']['tier'] !== AddressMatchScorer::TIER_POSSIBLE) {
-                continue;
-            }
-            $out[] = [
-                'tracked_property' => $h['model'],
-                'reason'           => $h['result']['reasons'][0] ?? 'Some of the address agrees and nothing contradicts it.',
-                'matched_fields'   => $h['result']['matched_fields'],
-                'columns'          => $h['result']['columns'],
-                'matched_on'       => $h['result']['matched_on'],
-                'score'            => $h['result']['score'],
-            ];
-        }
-
-        return $out;
     }
 
     /**
@@ -1803,6 +1852,9 @@ final class TrackedPropertyMatchOrCreateService
             // to every other source: none of them ever populate these keys.
             'deeds_office', 'scheme_name', 'scheme_number', 'section_number',
             'bond_holder', 'bond_amount', 'sale_type', 'deeds_registered_date',
+            // Structured address layer (.ai/specs/structured-address-matching.md §3): the CMA LPI code
+            // (erf + portion + township) rides the same enrich() precedence/audit path as every other fact.
+            'lpi_code', 'erf_portion',
         ];
 
         // 2026-08-19 (Johan) — an attempted-but-placeholder field is kept as an
@@ -1953,70 +2005,17 @@ final class TrackedPropertyMatchOrCreateService
      */
     private function resolvePropertyMatch(TrackedProperty $tp): ?Property
     {
-        $isSectional = filled($tp->scheme_number)
-            || (filled($tp->section_number) && preg_match('/\d/', (string) $tp->section_number));
-
-        if ($isSectional) {
-            $complexName = trim((string) ($tp->complex_name ?: $tp->scheme_name));
-            $section = trim((string) $tp->section_number);
-            if ($complexName !== '' && $section !== '') {
-                // 2026-08-21 (property 15698 incident) — unit_number is compared
-                // leading-zero-normalised, not by exact string, on BOTH sides: a
-                // deed's section_number '2' must match a stored unit_number '02'.
-                // Fetch every unit in the named complex (a small set) and filter in
-                // PHP with normaliseNumericIdentifier() rather than exact SQL
-                // equality, so this can never silently miss a real match again.
-                $sectionKey = TrackedPropertyAddress::normaliseNumericIdentifier($section);
-                $matches = Property::queryWithoutAgencyScope()
-                    ->where('agency_id', $tp->agency_id)
-                    ->whereNull('deleted_at')
-                    ->whereRaw('LOWER(complex_name) = ?', [mb_strtolower($complexName)])
-                    ->get()
-                    ->filter(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->unit_number) === $sectionKey)
-                    ->values();
-                if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'sectional')) {
-                    return $match;
-                }
-            }
-        } elseif (filled($tp->erf_number) && filled($tp->suburb)) {
-            // Same leading-zero normalisation for erf/stand number. Scoped to the
-            // suburb (indexed) + erf_number NOT NULL to keep the PHP-side filter set
-            // small — a suburb-wide fetch, not agency-wide.
-            //
-            // 2026-08-22 (matcher-accuracy build, real data evidence: stand 1166,
-            // Lynne Avenue, Ramsgate — 6 genuinely different portions sharing the
-            // identical bare stand number "1166" with no portion suffix captured
-            // anywhere) — a bare erf/stand number can legitimately match MORE THAN
-            // ONE distinct Property when a subdivided erf's portion was never
-            // captured structurally. Collecting every candidate (rather than
-            // ->first()) is what makes that ambiguity visible instead of silently
-            // merging onto whichever portion happens to sort first.
-            $erfKey = TrackedPropertyAddress::normaliseNumericIdentifier($tp->erf_number);
-            $matches = Property::queryWithoutAgencyScope()
-                ->where('agency_id', $tp->agency_id)
-                ->whereNull('deleted_at')
-                ->whereNotNull('erf_number')
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->get()
-                ->filter(fn ($candidate) => TrackedPropertyAddress::normaliseNumericIdentifier($candidate->erf_number) === $erfKey)
-                ->values();
-            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'freehold_erf')) {
-                return $match;
-            }
-        }
-
-        // Fallback: normalised address + suburb, for either title type.
-        if (filled($tp->street_number) && filled($tp->street_name) && filled($tp->suburb)) {
-            $matches = Property::queryWithoutAgencyScope()
-                ->where('agency_id', $tp->agency_id)
-                ->whereNull('deleted_at')
-                ->where('street_number', trim((string) $tp->street_number))
-                ->where('street_name_normalised', TrackedPropertyAddress::normaliseStreet($tp->street_name))
-                ->where('suburb_normalised', TrackedPropertyAddress::normaliseSuburb($tp->suburb))
-                ->get()
-                ->reject(fn ($candidate) => $this->propertyIdentityConflicts($tp, $candidate))
-                ->values();
-            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, 'address_fallback')) {
+        // 2026-10-07 — sectional scheme + unit, freehold erf (+ portion / LPI) + suburb and street number + street +
+        // suburb are ONE scored comparison now (.ai/specs/structured-address-matching.md §6), the same one the capture
+        // pre-check uses, so a capture can never be "found" by one and "not found" by the other. The strongest exact
+        // rule that finds exactly ONE property links; a rule that finds several is logged as ambiguous and falls
+        // through to the next, exactly like the sequential strategies this replaces. Only EXACT links: a possible
+        // match (neighbouring suburb, different street type, missing unit/portion) is left for the agent — see
+        // possiblePropertyMatches() and the promote screen's "same property?" question.
+        $hits = app(AddressMatcher::class)->properties((int) $tp->agency_id, AddressFacts::fromModel($tp));
+        foreach (AddressMatcher::exactByRule($hits) as $rule => $group) {
+            $matches = collect($group)->pluck('model')->values();
+            if ($match = $this->resolveOrLogAmbiguous($tp, $matches, $rule)) {
                 return $match;
             }
         }
@@ -2056,6 +2055,48 @@ final class TrackedPropertyMatchOrCreateService
         }
 
         return null;
+    }
+
+    /**
+     * The Property rows the promote link's street-address fallback would accept
+     * for this tracked property (confident hits only, unit conflicts removed).
+     * Public so the Deeds-screen evidence panel (PropertyDuplicateMatchEvidence)
+     * lists exactly what Promote will act on — the two must never disagree.
+     *
+     * @return \Illuminate\Support\Collection<int, Property>
+     */
+    public function addressFallbackCandidates(TrackedProperty $tp): \Illuminate\Support\Collection
+    {
+        $hits = app(AddressMatcher::class)->properties((int) $tp->agency_id, AddressFacts::fromModel($tp));
+
+        return collect(AddressMatcher::exactByRule($hits)['street'] ?? [])->pluck('model')->values();
+    }
+
+    /**
+     * Properties that are only a POSSIBLE match for this tracked property (some identifying columns agree, none
+     * contradict). The promote screen shows each side by side and asks the agent — promote never silently links
+     * to one and never silently creates a second property beside one (structured-address-matching.md §7).
+     *
+     * @return array<int, array{property: Property, reason: string, columns: array<string,string>, matched_on: array<int,string>, score: int}>
+     */
+    public function possiblePropertyMatches(TrackedProperty $tp): array
+    {
+        $hits = app(AddressMatcher::class)->properties((int) $tp->agency_id, AddressFacts::fromModel($tp));
+        $out = [];
+        foreach ($hits as $h) {
+            if ($h['result']['tier'] !== AddressMatchScorer::TIER_POSSIBLE) {
+                continue;
+            }
+            $out[] = [
+                'property'   => $h['model'],
+                'reason'     => $h['result']['reasons'][0] ?? 'Some of the address agrees and nothing contradicts it.',
+                'columns'    => $h['result']['columns'],
+                'matched_on' => $h['result']['matched_on'],
+                'score'      => $h['result']['score'],
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -2118,8 +2159,10 @@ final class TrackedPropertyMatchOrCreateService
         int $promotingUserId,
         array $propertyFields = [],
         bool $forceCreate = false,
+        ?int $linkToPropertyId = null,
+        bool $askOnPossible = false,
     ): Property {
-        return DB::transaction(function () use ($trackedPropertyId, $promotingUserId, $propertyFields, $forceCreate) {
+        return DB::transaction(function () use ($trackedPropertyId, $promotingUserId, $propertyFields, $forceCreate, $linkToPropertyId, $askOnPossible) {
             $tp = TrackedProperty::queryWithoutAgencyScope()->findOrFail($trackedPropertyId);
 
             if ($tp->isPromoted()) {
@@ -2140,7 +2183,29 @@ final class TrackedPropertyMatchOrCreateService
             // fresh, exactly as if no match existed. Opt-in and additive — every
             // other caller (the generic Tracked Properties promote button, etc.)
             // is unaffected; default false preserves existing behaviour everywhere.
-            $existingProperty = $forceCreate ? null : $this->resolvePropertyMatch($tp);
+            //
+            // Structured address matching (decision 2, 2026-10-07): $linkToPropertyId is the property an agent
+            // chose as "the same one" from a POSSIBLE match; $askOnPossible makes this refuse (nothing written)
+            // when only a possible match exists and the agent has not yet said same/different — so an
+            // agent-facing promote never silently creates a second property beside one. Programmatic callers
+            // (the rental take-on import) leave both off and behave as before.
+            if ($forceCreate) {
+                $existingProperty = null;
+            } elseif ($linkToPropertyId !== null) {
+                $existingProperty = Property::queryWithoutAgencyScope()
+                    ->where('agency_id', $tp->agency_id)->whereNull('deleted_at')->find($linkToPropertyId);
+                if ($existingProperty === null) {
+                    throw new \DomainException('The property chosen to link to could not be found.');
+                }
+            } else {
+                $existingProperty = $this->resolvePropertyMatch($tp);
+                if ($existingProperty === null && $askOnPossible) {
+                    $possible = $this->possiblePropertyMatches($tp);
+                    if ($possible !== []) {
+                        throw new PossiblePropertyMatchException($tp, $possible);
+                    }
+                }
+            }
 
             if ($existingProperty) {
                 // REFRESH — never blank an existing value with null/empty,

@@ -149,10 +149,13 @@ class RentalApplicationMailer
         }
 
         $isSubjectToFica = $application->status === 'approved' && $application->ficaOutstanding();
-        $ficaContinueUrl = $isSubjectToFica ? $this->ficaContinueUrlFor($application) : null;
+        $ficaContinueUrl = $isSubjectToFica && ! $application->ficaGateOpen() ? $this->ficaContinueUrlFor($application) : null;
 
         try {
-            Mail::to($recipientEmail)->send(new RentalApplicationApprovedMail($application, $properties, $isSubjectToFica, $ficaContinueUrl));
+            // FICA already SUBMITTED (compliance still verifying) is not the same as FICA still to do: the email must not ask
+            // them to "verify now" again.
+            $ficaSubmitted = $isSubjectToFica && $application->ficaGateOpen();
+            Mail::to($recipientEmail)->send(new RentalApplicationApprovedMail($application, $properties, $isSubjectToFica, $ficaSubmitted ? null : $ficaContinueUrl, $ficaSubmitted));
 
             return true;
         } catch (\Throwable $e) {

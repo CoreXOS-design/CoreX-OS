@@ -202,6 +202,7 @@ A Delete action is available from the event-detail panel for every user-editable
 4. **Inline `z-index` for calendar layering** — never a fresh Tailwind arbitrary class (no `npm run build` on deploy). (§3)
 5. **`{this,future,all}` scope** is the contract for every recurring edit/delete surface. (§7.4, §11)
 6. **Class flags are by `actor_role`, never a hardcoded class list**, in every seeder/backfill. (§2.2)
+7. **The event's direct contact (`calendar_events.contact_id`) and its attendee links name the same contact.** `CalendarEventCreator::primaryContactId()` takes the first CONTACT in `attendees[]` (the only shape the mobile app sends), else `contact_ids[0]`, else `contact_id` — the same precedence `syncEventLinks()` uses to build the link rows — and, like the links, accepts only a contact of the event's own agency. (Fixed 2026-10-07: the old read looked at `contact_ids` only, so a mobile event added with a contact attendee had link rows but no contact on the event.)
 
 ---
 

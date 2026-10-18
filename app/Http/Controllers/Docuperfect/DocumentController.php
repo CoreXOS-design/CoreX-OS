@@ -363,6 +363,13 @@ class DocumentController extends Controller
 
     /**
      * Send a document to the Rental E-Signatures workflow.
+     *
+     * AT-439 — used to bind to the legacy `rental_properties` table. Repointed to the real
+     * `Property` pillar via the same hardened, agency/branch/own-scoped lookup already used
+     * for linking a property to a rental application (Property::findLinkableForRentalApplication())
+     * — this is the one write path in the whole e-sign chain that could put a rental_properties id
+     * into documents.property_id, so closing it here makes every downstream prefill/read path
+     * (SupportingBatchPrefillResolver, ESignWizardController) resolve against Property only.
      */
     public function sendToRentals(Request $request, $id)
     {
@@ -376,15 +383,16 @@ class DocumentController extends Controller
 
         $request->validate([
             'document_type' => 'required|string',
-            'property_id' => 'required|exists:rental_properties,id',
+            'property_id' => 'required|exists:properties,id',
         ]);
 
-        $property = \App\Models\Rental\RentalProperty::findOrFail($request->property_id);
+        $property = \App\Models\Property::findLinkableForRentalApplication((int) $request->property_id, $user);
+        abort_if($property === null, 404);
 
         $document->update([
             'document_type' => $request->document_type,
             'property_id' => $property->id,
-            'property_address' => $property->full_address,
+            'property_address' => $property->buildDisplayAddress(),
         ]);
 
         return redirect()->route('docuperfect.signatures.setup', $document->id)

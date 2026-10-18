@@ -5,7 +5,6 @@ namespace App\Services\Docuperfect;
 use App\Models\Docuperfect\Document;
 use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Property;
-use App\Models\Rental\RentalProperty;
 
 /**
  * AT-373-adjacent / e-sign recipient supporting docs — Part B (step 1).
@@ -13,8 +12,11 @@ use App\Models\Rental\RentalProperty;
  * Resolves the KNOWN property / address prefill for a recipient's supporting-document BATCH, to
  * hand to Andre's multi-doc splitter so the agent never re-types what CoreX already knows. The
  * uploads belong to a signing request → e-sign Document, which the e-sign wizard stamped with the
- * chosen property (property_id = main Property pillar when the flow carried one, else a
- * RentalProperty) + a property_address string.
+ * chosen property (property_id = the real Property pillar) + a property_address string.
+ *
+ * AT-439 — the legacy RentalProperty fallback (property_id resolving against the retired
+ * rental_properties table) is removed. Nothing writes a rental_properties id into
+ * documents.property_id any more — see DocumentController::sendToRentals().
  *
  * Returns NULL cleanly when nothing is known — the splitter then lets the agent enter it manually
  * (Johan's fallback). The output shape is the stable prefill contract the hand-off (step 2) passes.
@@ -43,8 +45,6 @@ class SupportingBatchPrefillResolver
         $parts  = [];
 
         if ($propertyId !== null) {
-            // property_id is the main Property pillar when the wizard used flow->property_id, else a
-            // RentalProperty (the two id-spaces are distinct, so resolve by trying the pillar first).
             if ($p = Property::withoutGlobalScopes()->whereNull('deleted_at')->find($propertyId)) {
                 $source = 'properties';
                 $parts  = [
@@ -59,18 +59,6 @@ class SupportingBatchPrefillResolver
                 if ($address === null) {
                     $line = trim(implode(' ', array_filter([$p->street_number, $p->street_name])));
                     $address = trim($line . ($p->suburb ? ', ' . $p->suburb : '')) ?: null;
-                }
-            } elseif ($rp = RentalProperty::withoutGlobalScopes()->find($propertyId)) {
-                $source = 'rental_properties';
-                $parts  = [
-                    'street_name' => $rp->address_line_1 ?: null,
-                    'suburb'      => $rp->suburb ?: null,
-                    'city'        => $rp->city ?: null,
-                    'province'    => $rp->province ?: null,
-                    'postal_code' => $rp->postal_code ?: null,
-                ];
-                if ($address === null) {
-                    $address = ($rp->full_address ?: trim(implode(', ', array_filter([$rp->address_line_1, $rp->suburb])))) ?: null;
                 }
             }
         }

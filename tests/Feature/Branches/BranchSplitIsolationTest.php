@@ -49,6 +49,8 @@ final class BranchSplitIsolationTest extends TestCase
         // 2026-07-19 (Johan's ruling): both agency-wide, not branch data.
         \App\Models\Compliance\WhistleblowComplaint::class,      // confidential — officer-scoped, agency-wide by design
         \App\Models\Compliance\AgencyComplianceProvision::class, // agency-level compliance config
+        // 2026-10-14: agency storage locations for the title deed register - branch_id is an optional narrowing (null = every branch of the agency).
+        \App\Models\TitleDeeds\TitleDeedStorageLocation::class,
     ];
 
     /**
@@ -254,6 +256,53 @@ final class BranchSplitIsolationTest extends TestCase
             \App\Models\DealMoneyLine::whereKey($line->id)->exists(),
             'the Shepstone agent must be able to see the money line on their own deal'
         );
+    }
+
+    /**
+     * Rentals are branch data too (14 Oct 2026: Lease, applications, faults, work orders, notices, breaches, inspections, title deeds,
+     * auctions, Road to Sold plans were all born unscoped). A Margate agent must not read a Port Shepstone lease, and a notice or breach
+     * logged by a Margate principal sits in the LEASE's branch so the Shepstone agent still sees it.
+     */
+    public function test_a_lease_and_its_children_are_branch_scoped_and_children_follow_the_lease(): void
+    {
+        [$agency, $margate, $shepstone] = $this->agencyWithTwoBranches();
+        $principal      = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $margate->id, 'role' => 'admin', 'is_active' => true]);
+        $agentMargate   = $this->agent($agency, $margate);
+        $agentShepstone = $this->agent($agency, $shepstone);
+
+        $property = Property::withoutEvents(fn () => Property::withoutGlobalScopes()->create([
+            'external_id' => 'T-' . Str::random(8), 'title' => '1 Rental Road', 'address' => '1 Rental Road',
+            'agent_id' => $agentShepstone->id, 'branch_id' => $shepstone->id, 'agency_id' => $agency->id,
+        ]));
+        $leaseId = DB::table('leases')->insertGetId(array_merge($this->requiredColumns('leases'), [
+            'agency_id' => $agency->id, 'branch_id' => $shepstone->id, 'property_id' => $property->id, 'created_at' => now(), 'updated_at' => now(),
+        ]));
+
+        BranchScope::flushCache();
+        $this->actingAs($principal);   // acting user sits in MARGATE
+        $notice = new \App\Models\LeaseNotice();
+        foreach ($this->requiredColumns('lease_notices') as $col => $val) {
+            $notice->{$col} = $val;
+        }
+        $notice->lease_id  = $leaseId;
+        $notice->agency_id = $agency->id;
+        $notice->branch_id = null;
+        $notice->save();
+
+        $this->assertSame(
+            (int) $shepstone->id,
+            (int) \App\Models\LeaseNotice::withoutGlobalScopes()->whereKey($notice->id)->value('branch_id'),
+            'the notice must take the LEASE\'s branch (Port Shepstone), not the acting principal\'s (Margate)'
+        );
+
+        BranchScope::flushCache();
+        $this->actingAs($agentShepstone);
+        $this->assertTrue(\App\Models\Lease::whereKey($leaseId)->exists(), 'the lease\'s own branch sees it');
+        $this->assertTrue(\App\Models\LeaseNotice::whereKey($notice->id)->exists(), 'and its notice');
+
+        $this->actingAs($agentMargate);
+        $this->assertFalse(\App\Models\Lease::whereKey($leaseId)->exists(), 'SPLIT LEAK: a Margate agent can read a Port Shepstone lease');
+        $this->assertFalse(\App\Models\LeaseNotice::whereKey($notice->id)->exists(), 'SPLIT LEAK: ... or its notice');
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

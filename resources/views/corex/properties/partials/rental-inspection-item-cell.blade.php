@@ -70,19 +70,6 @@
 @endif
             </template>
         </div>
-@if($readOnly)
-        <div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
-             class="text-xs mt-0.5 rir-note-callout"
-             :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
-             x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
-@else
-        <input type="text"
-               x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
-               x-model="obsField({{ $inspectionJs }}, item.id).notes"
-               @input="onNotesInput({{ $inspectionJs }}, item)"
-               placeholder="Notes (required)"
-               class="prop-input w-full">
-@endif
     </div>
 
     {{-- §27.1.2 — the global "Photos: shown/hidden" toggle wraps this whole
@@ -191,7 +178,8 @@
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
                              data-qa="insp-tile-predecessor" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" alt="">
+                             @click="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})" :title="tile.photo ? tile.photo.taken_caption : ''" alt="">
+                        <span class="rir-photo-time" data-qa="insp-photo-time" x-show="tile.photo" x-text="tile.photo ? tile.photo.taken_caption_short : ''"></span>
                         {{-- §41, 2026-09-29 — linked indicator; same
                              openCompareViewer() call as the tile image
                              itself, just a second, more discoverable
@@ -253,7 +241,8 @@
                         <img x-show="tile.photo" :src="tile.photo ? tile.photo.storage_path : ''"
                              data-qa="insp-tile-tail" :data-item-id="item.id"
                              style="display:block; width:100%; height:100%; object-fit:cover; cursor:pointer;"
-                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" alt="">
+                             @click="tile.photo && openCompareViewer(tile.photo, chainTail)" :title="tile.photo ? tile.photo.taken_caption : ''" alt="">
+                        <span class="rir-photo-time" data-qa="insp-photo-time" x-show="tile.photo" x-text="tile.photo ? tile.photo.taken_caption_short : ''"></span>
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
                         <button type="button" x-show="tile.photo" @click.stop="photoUploader({{ $inspectionJs }}).toggleSelected(tile.photo.id)"
                                 class="absolute bottom-0.5 left-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
@@ -350,3 +339,35 @@
         </div>
     </div>
 </div>
+
+@unless($readOnly)
+{{-- 2026-10-14 — the editable (out/current) note input used to sit inside the same
+     `flex:none` buttons column. An input has an intrinsic width (~214px), wider than the
+     185px button grid, so tapping Damaged on the OUT side widened that column and pushed
+     it out of line with the IN side (measured 214 vs 185, strip 338 vs 367). It now sits
+     below the row exactly like the read-only note, so both sides keep the same fixed
+     button size. --}}
+<input type="text"
+       x-show="selectedConditionFor({{ $inspectionJs }}, item) && conditionRequiresNotes(selectedConditionFor({{ $inspectionJs }}, item))"
+       x-model="obsField({{ $inspectionJs }}, item.id).notes"
+       @input="onNotesInput({{ $inspectionJs }}, item)"
+       placeholder="Notes (required)"
+       class="prop-input w-full">
+@endunless
+@if($readOnly)
+{{-- BUG FIX, 2026-10-14 (Johan, property 21222 Ceiling): the read-only item
+     note used to sit INSIDE the `flex:none` condition-buttons column above.
+     A flex:none column sizes to its widest child, so a long note widened the
+     column to the note's full intrinsic width — the two-column button grid
+     stretched into full-width text buttons and the photo strip beside it
+     (flex:1; min-width:0) was squeezed to a ~15px sliver. The note now lives
+     here, a sibling BELOW the buttons+strip row: it spans the item's own
+     width, wraps inside it (min-width:0 + overflow-wrap), and can no longer
+     take width from the buttons or the photos. The buttons column keeps its
+     natural, fixed size on both sides. --}}
+<div x-show="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"
+     class="text-xs rir-note-callout"
+     style="min-width:0; max-width:100%; overflow-wrap:anywhere;"
+     :class="'rir-note-callout-' + noteCalloutTone(conditionForInspection({{ $inspectionJs }}, item.id)?.condition)"
+     x-text="conditionForInspection({{ $inspectionJs }}, item.id)?.notes"></div>
+@endif

@@ -67,23 +67,23 @@
                             <p class="text-sm mb-2" style="color: var(--text-secondary);">This agent currently owns:</p>
                             <ul class="space-y-1.5 text-sm" style="color: var(--text-primary);">
                                 <li class="flex items-center gap-2">
-                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_primary"></span>
+                                    <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_primary"></span>
                                     properties as primary agent
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_secondary"></span>
+                                    <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.properties_secondary"></span>
                                     properties as secondary agent
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.contacts"></span>
+                                    <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.contacts"></span>
                                     contacts
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.calendar_events"></span>
+                                    <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.calendar_events"></span>
                                     calendar events <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
                                 </li>
                                 <li class="flex items-center gap-2">
-                                    <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.command_tasks"></span>
+                                    <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); white-space: nowrap;" x-text="counts.command_tasks"></span>
                                     tasks <span class="text-xs" style="color: var(--text-muted);">(will be deleted)</span>
                                 </li>
                             </ul>
@@ -198,7 +198,7 @@
                     <legend class="px-1 text-xs font-medium" style="color: var(--text-secondary);">Deals</legend>
                     <p class="text-sm mb-2" style="color: var(--text-secondary);">
                         This agent is on
-                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.deals"></span>
+                        <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon); white-space: nowrap;" x-text="counts.deals"></span>
                         deals, including any commission &amp; settlement allocations.
                     </p>
                     <label class="flex items-start gap-2 text-sm cursor-pointer py-1" style="color: var(--text-primary);">

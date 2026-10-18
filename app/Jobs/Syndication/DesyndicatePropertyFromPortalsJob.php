@@ -89,7 +89,23 @@ class DesyndicatePropertyFromPortalsJob implements ShouldQueue
 
     public function handle(): void
     {
-        $property = $this->property;
+        // Johan's ruling (2026-10-06): portal presence follows property STATUS. This job was
+        // queued when the status went off-market, but it can run seconds-to-minutes (or a
+        // retry backoff) later — if the property has since been flipped back on market, a
+        // late withdraw would pull a listing that should now be live. Re-read the CURRENT
+        // row (not the dispatch-time copy) and stand down unless it is still off-market.
+        // A soft-deleted property is never "back on market", so it still proceeds.
+        $property = Property::withoutGlobalScopes()->find($this->property->getKey()) ?? $this->property;
+        if (! $property->trashed() && ! Property::matchesOffMarketStatus((string) $property->status)) {
+            Log::info("DesyndicatePropertyFromPortalsJob: skipped for property #{$property->id} — back on market (status '{$property->status}'), no withdraw sent", [
+                'property_id'         => $property->id,
+                'current_status'      => $property->status,
+                'dispatched_status'   => $this->property->status,
+                'remove_from_website' => $this->removeFromWebsite,
+            ]);
+            return;
+        }
+
         $failures = [];
 
         $this->delistProperty24($property, $failures);

@@ -14,13 +14,36 @@
     so drafts/withdrawn listings are never shared. Spec: .ai/specs/listing-share-link.md
 
     Expects: $property
+    Optional: $fromCoreMatches (bool, default false) — see 2026-09-30 note below.
+
+    2026-09-30 (Johan) — the Core Matches status allow-list (c54eb654f,
+    2026-09-29, Johan's own ruling) deliberately widened which properties
+    can appear as a Core Match to include expired and Other Agency Stock
+    listings — ClientMatchResolver only ever returns a property that already
+    passed the agency's OWN Core Matches allow-list. This partial's
+    $shareableStatuses list below was never part of that change and was never
+    updated to match, so a property newly eligible to appear as a match (say,
+    an expired listing, or OAS) silently lost its Share button the moment
+    c54eb654f shipped — not a deliberate gate, an oversight in a DIFFERENT,
+    independently-maintained status list that just never tracked the new one.
+    Johan's correction, verbatim in effect: "the whole point of importing
+    Other Agency Stock is to share it with clients... Restore the Share
+    button for every listing that appears in the results, OAS included."
+    That instruction is general, not OAS-only — every status Core Matches can
+    show, this partial must let through too. When $fromCoreMatches is true,
+    the status gate is skipped entirely: trust ClientMatchResolver's own
+    allow-list check rather than re-deriving a second, independently-drifting
+    list here. The permission check still applies either way. Property show
+    page / Live Preview (the other two call sites) are untouched — they never
+    pass $fromCoreMatches, so their existing, narrower behaviour is unchanged.
 --}}
 @php
     $shareUser = auth()->user();
     $shareableStatuses = ['active', 'newlisting', 'new_listing', 'new listing', 'reduced'];
     $canShare = $shareUser
         && $shareUser->hasPermission('properties.share')
-        && in_array(strtolower((string) ($property->status ?? '')), $shareableStatuses, true);
+        && (($fromCoreMatches ?? false)
+            || in_array(strtolower((string) ($property->status ?? '')), $shareableStatuses, true));
 @endphp
 
 @if($canShare)

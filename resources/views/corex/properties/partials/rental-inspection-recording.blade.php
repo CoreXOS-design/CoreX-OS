@@ -156,6 +156,9 @@
        compute and nothing for it to land on top of. */
     .rir-strip-row { position:absolute; top:0; left:0; right:0; bottom:0; height:100%; overflow-x:auto; overflow-y:hidden; display:flex; flex-wrap:nowrap; align-items:flex-start; gap:6px; }
     .rir-strip-tile { flex:none; width:86px; height:64px; overflow:hidden; background:var(--surface-3); box-sizing:border-box; }
+    /* §45.3 (Build I-1) — when the photo was taken (or, honestly, only uploaded), laid over the bottom of a
+       tile. Informational only: pointer-events none so it never steals the tile's own click/drag. */
+    .rir-photo-time { position:absolute; left:0; right:0; bottom:0; padding:1px 3px; background:rgba(0,0,0,0.6); color:#fff; font-size:8.5px; line-height:1.3; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; text-align:center; z-index:1; pointer-events:none; }
     .rir-strip-badge { position:absolute; top:2px; left:2px; min-width:16px; height:16px; padding:0 3px; border-radius:8px; background:rgba(0,0,0,0.65); color:#fff; font-size:10px; font-weight:700; line-height:16px; text-align:center; z-index:1; pointer-events:none; }
     /* §41, 2026-09-29 — a small, clickable indicator on a tile whose photo
        already belongs to an active match group (manual OR auto-paired —
@@ -308,9 +311,9 @@
 <template x-if="!currentInspection({{ $sectionJs }})">
     <div class="space-y-2">
         <div x-show="startError[{{ $sectionJs }}]" x-cloak class="text-xs" style="color:#ef4444;" x-text="startError[{{ $sectionJs }}]"></div>
-        <button type="button" :disabled="startBusy[{{ $sectionJs }}]" @click="startInspection({{ $sectionJs }})"
+        <button type="button" :disabled="isStartBusy({{ $sectionJs }})" @click="startInspection({{ $sectionJs }})"
                 class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                x-text="startBusy[{{ $sectionJs }}] ? 'Starting…' : 'Start {{ ucfirst($section) }}-Inspection'"></button>
+                x-text="isStartBusy({{ $sectionJs }}) ? 'Starting…' : 'Start {{ ucfirst($section) }}-Inspection'"></button>
     </div>
 </template>
 
@@ -445,10 +448,15 @@
              with nothing above it, which read as the button doing nothing.
              Point back at where items are actually added rather than
              rendering silently. --}}
-        <p x-show="!activeItems().length" class="text-xs" style="color:var(--text-muted);">
-            This property has no inspection items yet. Add rooms and meters under
-            Inspection Items above, then come back here to record them.
-        </p>
+        <div x-show="!activeItems().length" class="space-y-2" data-qa="recording-no-rooms">
+            <p class="text-xs" style="color:var(--text-muted);">
+                This property has no rooms yet. Build them from your standard checklist for this kind of property in one
+                press, or add rooms and meters by hand under Inspection Items above, then record them here.
+            </p>
+            <button type="button" :disabled="seedBusy" @click="seedFromStandard()"
+                    class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                    x-text="seedBusy ? 'Building…' : 'Build rooms from the standard checklist'"></button>
+        </div>
 
         {{-- Item 5/7, 2026-09-22 — overall progress + the whole-inspection
              "All Good" bulk-fill, sitting above the room list so it's the
@@ -562,14 +570,15 @@
                                  class="rounded-md cursor-pointer rir-tray-tile"
                                  :class="trayTileSize === 'large' ? 'rir-tray-tile-lg' : ''"
                                  :style="photoUploader({{ $sectionJs }}).isSelected(photo.id) ? 'outline:2px solid var(--brand-icon,#0ea5e9);' : ''">
-                                <img :src="photo.storage_path" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
+                                <img :src="photo.storage_path" :title="photo.taken_caption" class="rounded-md object-cover" style="display:block; width:100%; height:100%;" alt="">
+                                <span class="rir-photo-time" x-show="trayTileSize === 'large'" x-text="photo.taken_caption_short"></span>
                                 {{-- Standards — a removed photo is archived
                                      (RentalInspectionPhoto::archive(), a real
                                      deleted_at, §20.13.1) never hard-deleted.
                                      Screened out of the tray BEFORE filing,
                                      the most common real case (a duplicate or
                                      blurry shot). --}}
-                                <button type="button" @click.stop="if (confirm('Archive this photo?')) photoUploader({{ $sectionJs }}).archivePhoto(photo.id)"
+                                <button type="button" @click.stop="window.corexConfirm({ message: 'Archive this photo?', confirmLabel: 'Archive', danger: true }).then((yes) => { if (yes) photoUploader({{ $sectionJs }}).archivePhoto(photo.id) })"
                                         class="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
                                         style="background:var(--ds-crimson); color:#fff; line-height:1;" title="Archive">&times;</button>
                             </div>
@@ -613,14 +622,14 @@
         <div class="rir-compare-headers" style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
             <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
                 <template x-if="{{ $predecessorJs }}">
-                    <span x-text="(({{ $predecessorJs }}.type === 'out' ? 'Out' : ({{ $predecessorJs }}.type === 'in' ? 'In' : 'Routine')) + '-inspection · ' + ({{ $predecessorJs }}.completed_at || {{ $predecessorJs }}.scheduled_for || {{ $predecessorJs }}.created_at || '').slice(0, 10) + ' · ' + {{ $predecessorJs }}.status.replace('_',' '))"></span>
+                    <span x-text="(inspectionTypeName({{ $predecessorJs }}.type) + ' · ' + ({{ $predecessorJs }}.completed_at || {{ $predecessorJs }}.scheduled_for || {{ $predecessorJs }}.created_at || '').slice(0, 10) + ' · ' + {{ $predecessorJs }}.status.replace('_',' '))"></span>
                 </template>
                 <template x-if="!{{ $predecessorJs }}">
                     <span style="color:var(--text-muted); font-weight:normal; text-transform:none;">First inspection in this chain — nothing yet to compare against.</span>
                 </template>
             </div>
             <div class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">
-                <span x-text="(({{ $sectionJs }} === 'out' ? 'Out' : ({{ $sectionJs }} === 'in' ? 'In' : 'Routine')) + '-inspection · ' + (currentInspection({{ $sectionJs }}).completed_at || currentInspection({{ $sectionJs }}).scheduled_for || currentInspection({{ $sectionJs }}).created_at || '').slice(0, 10) + ' · ' + currentInspection({{ $sectionJs }}).status.replace('_',' '))"></span>
+                <span x-text="(inspectionTypeName({{ $sectionJs }}) + ' · ' + (currentInspection({{ $sectionJs }}).completed_at || currentInspection({{ $sectionJs }}).scheduled_for || currentInspection({{ $sectionJs }}).created_at || '').slice(0, 10) + ' · ' + currentInspection({{ $sectionJs }}).status.replace('_',' '))"></span>
             </div>
         </div>
 
@@ -987,9 +996,14 @@
 
         {{-- Johan's ruling — a filter that matches nothing must say so in
              words, never render a blank panel with no explanation. --}}
-        <p class="text-xs rounded-md p-3" style="background:var(--surface-2); color:var(--text-muted);"
-           x-show="activeItems().length && filterMode !== 'all' && !hasAnyFilterMatch({{ $sectionJs }})"
-           x-text="filteredEmptyMessage()"></p>
+        {{-- 13 Oct 2026 (Sherry walk): the filter is remembered per agent, so a finished inspection could open on "Needs
+             attention" with nothing to show and look as if it had vanished - the way back is one press away. --}}
+        <div class="text-xs rounded-md p-3 flex flex-wrap items-center justify-between gap-2" style="background:var(--surface-2); color:var(--text-muted);"
+             data-qa="filter-empty"
+             x-show="activeItems().length && filterMode !== 'all' && !hasAnyFilterMatch({{ $sectionJs }})">
+            <span x-text="filteredEmptyMessage()"></span>
+            <button type="button" class="font-semibold underline" style="color:var(--text-primary);" @click="setFilterMode('all')" data-qa="filter-show-all">Show every room and item</button>
+        </div>
 
         {{-- 2026-09-21, Johan on property 5792 — same room-heading grouping
              as the Inspection Items panel above, applied here so a walkthrough
@@ -1172,8 +1186,9 @@
                                          side only; there is no predecessor-side room
                                          gallery in this file), so chainTail is the correct
                                          inspection object, same as the tail item cell. --}}
-                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer"
+                                    <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" :title="photo.taken_caption"
                                          @click="openCompareViewer(photo, chainTail)" alt="">
+                                    <span class="rir-photo-time" data-qa="insp-photo-time" x-text="photo.taken_caption_short"></span>
 @unless($tailReadOnly)
                                     {{-- Multi-select toggle — one tap/click, no modifier
                                          key, so it works identically at phone width. Feeds
@@ -1390,7 +1405,148 @@
                       class="prop-input w-full text-xs"></textarea>
         </div>
 
-        <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
+        {{-- §45.5 (Build I-3) — who attended, in what capacity, and what the invitation trail says about each
+             party. Facts only: the screen never says what attendance means for anyone's rights (§45.11). Each
+             expected party (every lease tenant, each invited landlord, the inspector) needs an outcome before
+             the inspection can complete; anyone else who was in the room is added underneath. A correction
+             writes a new record and keeps the old one; Withdraw keeps it on file marked withdrawn. --}}
+        <div id="attendance-panel" data-qa="attendance-panel" class="space-y-2 pt-2 rounded-md"
+             x-show="currentInspection({{ $sectionJs }}).status !== 'cancelled'"
+             x-init="ensureAttendanceBoard({{ $sectionJs }})"
+             :style="attendanceAttention ? 'outline:2px solid #ef4444; outline-offset:4px;' : ''"
+             style="border-top:1px solid var(--border);">
+            <div class="flex items-center justify-between gap-2">
+                <label class="block text-xs font-bold uppercase tracking-wide" style="color:var(--text-secondary);">Attendance</label>
+                <span class="text-xs" style="color:var(--text-muted);" x-text="attendanceSummary({{ $sectionJs }})"></span>
+            </div>
+            <div x-show="attendanceError" x-cloak class="text-xs" style="color:#ef4444;" x-text="attendanceError"></div>
+            <div x-show="!attendanceBoard({{ $sectionJs }})" class="text-xs" style="color:var(--text-muted);">Loading attendance…</div>
+
+            <template x-for="row in attendanceRows({{ $sectionJs }})" :key="row.key">
+                <div class="py-1.5" style="border-bottom:1px solid var(--border);">
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <span class="text-sm" style="color:var(--text-primary);">
+                            <span x-text="row.name || 'Unnamed'"></span>
+                            <span class="text-xs" style="color:var(--text-muted);" x-text="'(' + attendanceRoleLabel(row.party_role) + ')'"></span>
+                        </span>
+                        <span class="flex items-center gap-2 flex-wrap">
+                            <template x-if="row.attendance">
+                                <span class="flex items-center gap-2">
+                                    <span class="text-xs font-semibold" style="color:var(--text-primary);" x-text="attendanceOutcomeText(row.attendance)"></span>
+                                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})"
+                                            @click="attFormFor(row.key).open = !attFormFor(row.key).open">Change</button>
+                                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})"
+                                            @click="withdrawAttendance({{ $sectionJs }}, row.attendance.id)">Withdraw</button>
+                                </span>
+                            </template>
+                            <template x-if="!row.attendance && attendanceEditable({{ $sectionJs }})">
+                                <span class="flex items-center gap-2">
+                                    <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'attended', false)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Attended</button>
+                                    <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'did_not_attend', false)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Did not attend</button>
+                                    <button type="button" @click="attFormFor(row.key).open = !attFormFor(row.key).open"
+                                            class="text-xs underline" style="color:var(--text-secondary);">Someone attended on their behalf</button>
+                                </span>
+                            </template>
+                        </span>
+                    </div>
+                    <div x-show="attFormFor(row.key).open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2 mt-1.5">
+                        <input type="text" x-model="attFormFor(row.key).name" maxlength="191" placeholder="Name of the person who attended on their behalf"
+                               class="prop-input text-xs" style="min-width:16rem;">
+                        <input type="time" x-model="attFormFor(row.key).arrived" class="prop-input text-xs" title="Arrival time (optional)">
+                        <button type="button" :disabled="attendanceBusy || !attFormFor(row.key).name.trim()" @click="recordAttendance({{ $sectionJs }}, row, 'attended', true)"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Save</button>
+                        <button type="button" :disabled="attendanceBusy" @click="recordAttendance({{ $sectionJs }}, row, 'attended', false)"
+                                class="text-xs underline" style="color:var(--text-secondary);">They attended themselves</button>
+                    </div>
+                    <div class="text-xs mt-1" style="color:var(--text-muted);" data-qa="attendance-invitation"
+                         x-text="row.invitation.lines.map(l => l.text).join(' · ')"></div>
+                    <div class="mt-1" x-show="attendanceEditable({{ $sectionJs }})">
+                        <button type="button" class="text-xs underline" style="color:var(--text-secondary);"
+                                @click="invFormFor(row.key).open = !invFormFor(row.key).open">Record an invitation given</button>
+                    </div>
+                    <div x-show="invFormFor(row.key).open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2 mt-1.5">
+                        <input type="text" x-model="invFormFor(row.key).method" maxlength="60" list="attendance-invitation-methods" placeholder="How (for example a phone call)"
+                               class="prop-input text-xs" style="min-width:14rem;">
+                        <input type="datetime-local" x-model="invFormFor(row.key).at" class="prop-input text-xs" title="When it was given (leave empty for now)">
+                        <button type="button" :disabled="attendanceBusy || !invFormFor(row.key).method.trim()" @click="recordInvitationGiven({{ $sectionJs }}, row)"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Save</button>
+                    </div>
+                </div>
+            </template>
+            <datalist id="attendance-invitation-methods">
+                <template x-for="m in invitationMethods" :key="m"><option :value="m"></option></template>
+            </datalist>
+
+            <template x-for="other in attendanceOthers({{ $sectionJs }})" :key="other.id">
+                <div class="flex items-center justify-between gap-2 py-1" style="border-bottom:1px solid var(--border);">
+                    <span class="text-sm" style="color:var(--text-primary);">
+                        <span x-text="other.attendee_name || 'Unnamed'"></span>
+                        <span class="text-xs" style="color:var(--text-muted);" x-text="'(' + (attendedAsLabels[other.attended_as] || other.attended_as) + ')'"></span>
+                    </span>
+                    <button type="button" class="text-xs underline" style="color:var(--text-secondary);" x-show="attendanceEditable({{ $sectionJs }})" @click="withdrawAttendance({{ $sectionJs }}, other.id)">Withdraw</button>
+                </div>
+            </template>
+            <div x-show="attendanceEditable({{ $sectionJs }})">
+                <button type="button" class="text-xs underline" style="color:var(--text-secondary);" @click="otherForm.open = !otherForm.open">Add someone else who attended</button>
+            </div>
+            <div x-show="otherForm.open && attendanceEditable({{ $sectionJs }})" x-cloak class="flex flex-wrap items-end gap-2">
+                <input type="text" x-model="otherForm.name" maxlength="191" placeholder="Name" class="prop-input text-xs" style="min-width:12rem;">
+                <select x-model="otherForm.as" class="prop-input text-xs">
+                    <option value="co_occupant" x-text="attendedAsLabels.co_occupant"></option>
+                    <option value="other" x-text="attendedAsLabels.other"></option>
+                </select>
+                <input type="time" x-model="otherForm.arrived" class="prop-input text-xs" title="Arrival time (optional)">
+                <button type="button" :disabled="attendanceBusy || !otherForm.name.trim()" @click="addOtherAttendee({{ $sectionJs }})"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--brand-button,#0ea5e9); color:#fff;">Add</button>
+            </div>
+        </div>
+
+        {{-- 13 Oct 2026 (Johan, Sherry demo) - the signing controls live where the agent FINISHES, not below eleven rooms:
+             a bar pinned to the foot of the screen with the one-line state and the next step (Ready to sign / Complete); "Signing"
+             opens everything about signing (links, QR, sign on this device, the signature rows) above it. --}}
+        {{-- .prop-section clips its overflow, which makes it the (non-scrolling) scrollport a sticky child sticks inside - the bar would sit
+             at the end of the page. `clip` keeps the clipping without becoming a scroll container, so the bar sticks to the tab panel. --}}
+        <style>.prop-section:has([data-qa="signoff-bar"]) { overflow: clip !important; }</style>
+        <div x-data="{ signOpen: false, openedOnce: false }"
+             x-effect="if (!openedOnce && currentInspection({{ $sectionJs }}).status === 'awaiting_signature') { signOpen = true; openedOnce = true; }"
+             @signing-open.window="signOpen = true"
+             data-qa="signoff-bar" class="sticky bottom-0 rounded-md" style="z-index:30; background:var(--surface); border:1px solid var(--border); box-shadow:0 -8px 20px rgba(0,0,0,.08);">
+            <div x-show="signOpen" x-cloak class="px-3 pt-2 space-y-2" style="max-height:60vh; overflow-y:auto; border-bottom:1px solid var(--border);" data-qa="signoff-drawer">
+        {{-- Conductor brief 2026-09-29 — "print for signature": the same
+             report, plus blank signature blocks for every outstanding
+             party, to print and send/hand for a wet-ink signature. Not
+             gated on status !== 'awaiting_signature' the way the signing
+             block below is — an agent may want a printout before ANY
+             party has signed anything. --}}
+        <template x-if="!['completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+            <div class="flex justify-end pt-1">
+                <a :href="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/print-for-signature'"
+                   target="_blank" rel="noopener"
+                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
+                    Print for signature
+                </a>
+            </div>
+        </template>
+
+        {{-- §46 — "Sign by link": each party's personal signing link, its status, and the ways to get it to them (email,
+             WhatsApp, copy, full-screen QR, sign on this device). Shown for any open inspection (a party can read the report
+             before it is ready to sign); the panel hides itself when the agency has signing by link switched off or the
+             inspection is of a kind that is not signed. The host screen refreshes its signatures when someone signs. --}}
+        <template x-if="!['completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+            <div @signing-links-changed="refreshInspectionData()" class="space-y-2">
+                {{-- §47 — a signed report is locked; "Edit report" clears every signature. --}}
+                @include('corex.rental-inspections.partials._report-lock', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+                @include('corex.rental-inspections.partials._signing-links', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+            </div>
+        </template>
+        {{-- §47 — a completed report has been SENT: never editable, by anyone. The only way forward is "Start new inspection". --}}
+        <template x-if="currentInspection({{ $sectionJs }}).status === 'completed'">
+            <div @signing-links-changed="refreshInspectionData()">
+                @include('corex.rental-inspections.partials._report-lock', ['inspectionIdJs' => "currentInspection({$sectionJs}).id", 'reloadOnChange' => false])
+            </div>
+        </template>
 
         {{-- §15 (2026-09-20) — one shared signing block for both sections:
              per-tenant rows, the landlord row (if Property::
@@ -1404,18 +1560,13 @@
              agent alone has no refusal option. markCompleted() does not
              yet require any of this on either type (Stage 5) — Complete
              still works unsigned/undispositioned in the meantime. --}}
-        <template x-if="currentInspection({{ $sectionJs }}).status !== 'awaiting_signature'">
-            <div class="flex justify-end pt-1">
-                <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})"
-                        class="px-4 py-2 rounded-md text-sm font-semibold"
-                        :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
-                    Ready to sign
-                </button>
-            </div>
-        </template>
 
         <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
             <div class="space-y-2 pt-1" style="border-top:1px solid var(--border);">
+                {{-- §52 — the signing window: days left, or how long ago it closed, and how many still have to sign. --}}
+                <p x-show="currentInspection({{ $sectionJs }}).signing_window" x-cloak data-qa="signing-window" class="text-xs font-semibold"
+                   :style="currentInspection({{ $sectionJs }}).signing_window?.closed ? 'color:#b45309;' : 'color:var(--text-secondary);'"
+                   x-text="currentInspection({{ $sectionJs }}).signing_window?.label"></p>
                 <template x-for="tenant in inspectionTenants({{ $sectionJs }})" :key="tenant.contact_id">
                     <div class="py-1.5" style="border-bottom:1px solid var(--border);">
                         <div class="flex items-center justify-between gap-3">
@@ -1423,10 +1574,11 @@
                             <template x-if="tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
                                 <span class="flex items-center gap-2">
                                     <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                          x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></span>
-                                    <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
+                                          x-text="dispositionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id), {{ $sectionJs }})"></span>
+                                    <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, tenantDisposition({{ $sectionJs }}, tenant.contact_id))"
                                             @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
-                                            class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                            class="text-xs font-medium underline" style="color:var(--text-secondary);"
+                                            x-text="wetInkActionLabel(tenantDisposition({{ $sectionJs }}, tenant.contact_id))"></button>
                                 </span>
                             </template>
                             <template x-if="!tenantDisposition({{ $sectionJs }}, tenant.contact_id)">
@@ -1435,6 +1587,8 @@
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
                                     <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
+                                    <button type="button" @click="sendTenantForWetInk({{ $sectionJs }}, tenant)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Send for wet-ink</button>
                                     <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_tenant_' + tenant.contact_id)"
                                             class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                 </div>
@@ -1468,10 +1622,11 @@
                                 <template x-if="landlordDisposition({{ $sectionJs }})">
                                     <span class="flex items-center gap-2">
                                         <span class="text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);"
-                                              x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}))"></span>
-                                        <button type="button" x-show="canReplaceWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
+                                              x-text="dispositionLabel(landlordDisposition({{ $sectionJs }}), {{ $sectionJs }})"></span>
+                                        <button type="button" x-show="canActOnWetInk({{ $sectionJs }}, landlordDisposition({{ $sectionJs }}))"
                                                 @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
-                                                class="text-xs font-medium underline" style="color:var(--text-secondary);">Replace</button>
+                                                class="text-xs font-medium underline" style="color:var(--text-secondary);"
+                                                x-text="wetInkActionLabel(landlordDisposition({{ $sectionJs }}))"></button>
                                     </span>
                                 </template>
                                 <template x-if="!landlordDisposition({{ $sectionJs }})">
@@ -1480,6 +1635,8 @@
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Sign</button>
                                         <button type="button" @click="openWetInkFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Wet ink</button>
+                                        <button type="button" @click="sendLandlordForWetInk({{ $sectionJs }})"
+                                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Send for wet-ink</button>
                                         <button type="button" @click="openRefusalFor({{ $sectionJs }} + '_landlord')"
                                                 class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Refuses</button>
                                     </div>
@@ -1529,7 +1686,10 @@
                         </template>
                     </div>
                     <template x-if="!agentDisposition({{ $sectionJs }}) && allRequiredPartiesDispositioned({{ $sectionJs }})">
-                        <div class="pt-2" x-data="signaturePlacer({ context: 'rental-inspection:' + currentInspection({{ $sectionJs }}).id })" x-init="init()">
+                        {{-- 13 Oct 2026 (Sherry walk): the PIN is the agent's act of signing - the signature is saved the moment it unlocks
+                         (the "Confirm & save" press below stays as the retry if that save was refused). --}}
+                    <div class="pt-2" x-data="signaturePlacer({ context: 'rental-inspection:' + currentInspection({{ $sectionJs }}).id })" x-init="init()"
+                         x-effect="if (signatureImg && !$root.dataset.autosaved) { $root.dataset.autosaved = '1'; saveAgentSignatureFor({{ $sectionJs }}, signatureImg); }">
                             <template x-if="!signatureImg">
                                 <button type="button" @click="ensureUnlocked()"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Sign with PIN</button>
@@ -1538,7 +1698,7 @@
                                 <div class="space-y-2">
                                     <img :src="signatureImg" alt="Your saved signature" class="rounded-md" style="height:70px; background:#fff; border:1px solid var(--border); padding:4px;">
                                     <div class="flex items-center gap-2">
-                                        <button type="button" @click="signatureImg = null; unlocked = false;" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Not you? Unlock again</button>
+                                        <button type="button" @click="signatureImg = null; unlocked = false; $root.dataset.autosaved = '';" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);">Not you? Unlock again</button>
                                         <button type="button" @click="saveAgentSignatureFor({{ $sectionJs }}, signatureImg)" class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Confirm &amp; save signature</button>
                                     </div>
                                 </div>
@@ -1548,15 +1708,63 @@
                     </template>
                 </div>
 
-                <div class="flex justify-end pt-1">
-                    <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})"
-                            class="px-4 py-2 rounded-md text-sm font-semibold"
-                            :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
-                        Complete
-                    </button>
-                </div>
             </div>
         </template>
+            </div>
+            <div class="px-3 py-2 space-y-1.5">
+        <div x-show="lifecycleError" x-cloak class="text-xs" style="color:#ef4444;" x-text="lifecycleError"></div>
+
+        {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
+             signature) was refused because items are ungraded. Each room name jumps to that room. --}}
+        <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
+             style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
+            <div class="flex items-center justify-between gap-2">
+                <span class="font-semibold" style="color:#ef4444;" x-text="'Still to record: ' + ungradedItems.length + (ungradedItems.length === 1 ? ' item' : ' items') + ' (Not applicable counts as recorded)'"></span>
+                <button type="button" class="underline font-semibold" @click="setFilterMode('unrecorded')">Show only what is left</button>
+            </div>
+            <template x-for="g in ungradedRoomGroups()" :key="g.key">
+                <div>
+                    <button type="button" class="font-semibold underline" @click="jumpToUngradedRoom({{ $sectionJs }}, g.roomId)" x-text="g.label + ' (' + g.items.length + ')'"></button>
+                    <span x-text="': ' + g.items.join(', ')"></span>
+                </div>
+            </template>
+        </div>
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div class="flex items-center gap-2 flex-wrap min-w-0">
+                        <span class="text-sm font-semibold" style="color:var(--text-primary);" data-qa="signoff-summary" x-text="signSummary({{ $sectionJs }})"></span>
+                        <span x-show="(currentInspection({{ $sectionJs }}).items_without_photo || []).length" x-cloak data-qa="items-without-photo"
+                              class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #d97706 14%, transparent); color:#b45309;"
+                              :title="(currentInspection({{ $sectionJs }}).items_without_photo || []).map(i => (i.room ? i.room + ' — ' : '') + i.label).join('\n')"
+                              x-text="(currentInspection({{ $sectionJs }}).items_without_photo || []).length + ((currentInspection({{ $sectionJs }}).items_without_photo || []).length === 1 ? ' item has' : ' items have') + ' no photo'"></span>
+                        <span x-show="readyToComplete({{ $sectionJs }})" x-cloak data-qa="ready-to-complete"
+                              class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="signOpen = !signOpen" data-qa="signoff-toggle"
+                                class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);"
+                                x-text="signOpen ? 'Hide signing' : 'Signing'"></button>
+                        <template x-if="!['awaiting_signature', 'completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">
+                            <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="startAwaitingSignature({{ $sectionJs }})" data-qa="ready-to-sign"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    :style="hasUnresolvedDiscrepancy({{ $sectionJs }}) ? 'background:var(--surface-2); color:var(--text-muted);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                                Ready to sign
+                            </button>
+                        </template>
+                        <template x-if="currentInspection({{ $sectionJs }}).status === 'awaiting_signature'">
+                            {{-- 13 Oct 2026 (Sherry walk): live-looking with a signature still outstanding, and the refusal read as nothing
+                                 happening. Greyed until the signing summary says it is ready; still pressable, so the plain reason shows
+                                 in the line above ("Cannot complete: ... has neither signed nor been marked as refusing"). --}}
+                            <button type="button" :disabled="hasUnresolvedDiscrepancy({{ $sectionJs }})" @click="completeInspection({{ $sectionJs }})" data-qa="complete"
+                                    :title="readyToComplete({{ $sectionJs }}) ? '' : 'Not everyone has signed yet - press to see what is still needed'"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold"
+                                    :style="(hasUnresolvedDiscrepancy({{ $sectionJs }}) || !readyToComplete({{ $sectionJs }})) ? 'background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);' : 'background:var(--brand-button,#0ea5e9); color:#fff;'">
+                                Complete
+                            </button>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
         @endunless
     </div>
 </template>

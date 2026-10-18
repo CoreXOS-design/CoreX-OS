@@ -45,33 +45,39 @@
         </form>
     </div>
 
-    <form method="GET" action="{{ route('corex.settings.rental-applications.checklist.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $q }}" placeholder="Section or item name" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.settings.rental-applications.checklist.index') }}" class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $q }}" placeholder="Section or item name" class="list-header-filter text-sm {{ filled($q) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
                 <option value="all" @selected($status === 'all')>All</option>
             </select>
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Sort</label>
-            <select name="sort" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Sort</label>
+            <select name="sort" class="list-header-filter text-sm {{ $sort !== 'sort_order' ? 'is-active' : '' }}">
                 <option value="sort_order" @selected($sort === 'sort_order')>Order (default)</option>
                 <option value="name" @selected($sort === 'name')>Name</option>
                 <option value="created_at" @selected($sort === 'created_at')>Created</option>
             </select>
         </div>
         <input type="hidden" name="direction" value="{{ $direction }}">
-        <button type="submit" class="corex-btn-primary text-xs">Apply</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Apply</button>
         @if($q || $status !== 'active')
-            <a href="{{ route('corex.settings.rental-applications.checklist.index') }}" class="text-xs" style="color: var(--text-muted);">Clear</a>
+            <a href="{{ route('corex.settings.rental-applications.checklist.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
+            <div class="flex-1"></div>
+        <span class="ds-badge ds-badge-pill ds-badge-info">
+            {{ number_format($sections->count()) }} {{ \Illuminate\Support\Str::plural('section', $sections->count()) }}
+        </span>
     </form>
+    </div>
 
     @forelse($sections as $section)
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
@@ -94,7 +100,7 @@
                         <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.move', [$section, 'down']) }}">@csrf<button type="submit" style="color: var(--text-secondary);" title="Move down">&darr;</button></form>
                         <button type="button" style="color: var(--ds-blue, #2563eb);" @click="editSectionId = (editSectionId === {{ $section->id }} ? null : {{ $section->id }})">Rename</button>
                         <button type="button" style="color: var(--ds-blue, #2563eb);" @click="addItemForSectionId = (addItemForSectionId === {{ $section->id }} ? null : {{ $section->id }})">+ Add item</button>
-                        <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.archive', $section) }}" onsubmit="return confirm('Archive this section and every item inside it?');">
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.sections.archive', $section) }}" data-confirm="Archive this section and every item inside it?" data-confirm-danger data-confirm-label="Archive">
                             @csrf
                             <button type="submit" style="color: var(--ds-red, #dc2626);">Archive</button>
                         </form>
@@ -142,17 +148,17 @@
 
             <div class="divide-y" style="border-color: var(--border);">
                 @forelse($section->items as $item)
-                    <div class="px-4 py-2 flex items-center justify-between gap-3" style="border-color: var(--border);">
+                    <div class="list-row-hover px-4 py-3 flex items-center justify-between gap-3" style="border-color: var(--border);">
                         <div class="min-w-0">
                             <span class="text-sm" style="color: var(--text-primary);">{{ $item->name }}</span>
                             @if($item->is_derived)
-                                <span class="ds-badge ds-badge-info" style="font-size: 9px;" title="Ticks itself off the lease — cannot be turned into a manual item.">Derived from lease</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-info" style="font-size: 9px;" title="Ticks itself off the lease — cannot be turned into a manual item.">Derived from lease</span>
                             @endif
                             @if($item->note_required)
-                                <span class="ds-badge ds-badge-muted" style="font-size: 9px;">Note required</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-muted" style="font-size: 9px;">Note required</span>
                             @endif
                             @if($item->document_required)
-                                <span class="ds-badge ds-badge-muted" style="font-size: 9px;">Document required</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-muted" style="font-size: 9px;">Document required</span>
                             @endif
                             @if($item->trashed())
                                 <span class="ds-badge ds-badge-muted">Archived</span>
@@ -170,7 +176,7 @@
                                 @unless($item->is_derived)
                                     <button type="button" style="color: var(--ds-blue, #2563eb);" @click="editItemId = (editItemId === {{ $item->id }} ? null : {{ $item->id }})">Edit</button>
                                 @endunless
-                                <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.items.archive', $item) }}" onsubmit="return confirm('Archive this checklist item?');">
+                                <form method="POST" action="{{ route('corex.settings.rental-applications.checklist.items.archive', $item) }}" data-confirm="Archive this checklist item?" data-confirm-danger data-confirm-label="Archive">
                                     @csrf
                                     <button type="submit" style="color: var(--ds-red, #dc2626);">Archive</button>
                                 </form>

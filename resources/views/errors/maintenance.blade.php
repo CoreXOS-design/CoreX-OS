@@ -13,7 +13,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="noindex, nofollow">
-    <title>CoreX OS — Down for maintenance</title>
+    <title>Down for maintenance</title>
     <style>
         :root {
             --navy: #0b2a4a;
@@ -93,7 +93,7 @@
         .owner-link:hover { color: var(--ink); border-color: rgba(14, 165, 233, 0.6); }
     </style>
 </head>
-<body data-page="corex-maintenance">
+<body data-page="maintenance">
     <main class="card">
         <div class="mark" aria-hidden="true">
             {{-- Simple wrench / maintenance glyph, inline so it needs no asset. --}}
@@ -103,19 +103,13 @@
             </svg>
         </div>
 
-        <div class="wordmark">CoreX&nbsp;OS</div>
-
         <h1>We&rsquo;re down for maintenance</h1>
-        <p>CoreX is being updated to serve you better. We&rsquo;ll be back online shortly — thank you for your patience.</p>
+        <p>We&rsquo;re updating the system to serve you better. We&rsquo;ll be back online shortly — thank you for your patience.</p>
 
         @php($note = $meta['message'] ?? null)
         @if(!empty($note))
             <p style="margin-top:10px;">{{ $note }}</p>
         @endif
-
-        <div class="divider" aria-hidden="true"></div>
-
-        <p style="font-size:14px;">{{ config('app.name') }} &middot; KZN South Coast</p>
 
         {{-- Owners can still sign in to run go-live checks. The blocked user is
              ALREADY authenticated (the gate only fires for a logged-in

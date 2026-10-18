@@ -28,6 +28,9 @@ final class QueueHealthcheckFailedJobsGrowthTest extends TestCase
     {
         parent::setUp();
         Cache::flush();
+        // The growth alert EMAIL is held off by default (Johan, 2026-08-23 — config/queue_alerting.php); the
+        // critical log is not. Switch the email on for the tests that assert it.
+        config(['queue_alerting.failure_digest_emails_enabled' => true]);
     }
 
     private function insertFailedJobs(int $count): void

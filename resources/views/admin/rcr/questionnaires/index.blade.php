@@ -1,48 +1,58 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width:1100px;margin:0 auto;padding:0 20px;">
-
-    <div style="margin-bottom:14px;">
-        <h1 style="font-size:1.25rem;font-weight:600;margin:0;">RCR Questionnaires (admin)</h1>
-        <p style="font-size:0.8125rem;color:var(--text-muted);margin:4px 0 0 0;">
-            Manage the FIC questionnaire templates. Upload the FIC's question PDF as CSV to populate the full question set.
-        </p>
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">RCR Questionnaires (admin)</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Manage the FIC questionnaire templates. Upload the FIC's question PDF as CSV to populate the full question set.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            </div>
+        </div>
     </div>
 
     @if (session('status'))
-        <div style="background:#d1fae5;color:#065f46;border:1px solid #6ee7b7;border-radius:6px;padding:10px 14px;font-size:0.8125rem;margin-bottom:14px;">{{ session('status') }}</div>
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('status') }}</div>
     @endif
 
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;overflow:hidden;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.8125rem;">
-            <thead>
-                <tr style="background:var(--surface-2);color:var(--text-muted);font-size:0.6875rem;text-transform:uppercase;letter-spacing:0.04em;">
-                    <th style="text-align:left;padding:10px 12px;">Key</th>
-                    <th style="text-align:left;padding:10px 12px;">Title</th>
-                    <th style="text-align:left;padding:10px 12px;">Directive</th>
-                    <th style="text-align:right;padding:10px 12px;">Sections</th>
-                    <th style="text-align:right;padding:10px 12px;">Questions</th>
-                    <th style="text-align:left;padding:10px 12px;">Deadline</th>
-                    <th style="text-align:right;padding:10px 12px;"></th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach($questionnaires as $q)
-                    <tr style="border-top:1px solid var(--border);">
-                        <td style="padding:10px 12px;color:var(--text-muted);font-family:monospace;font-size:0.75rem;">{{ $q->key }}</td>
-                        <td style="padding:10px 12px;color:var(--text-primary);font-weight:500;">{{ $q->title }}</td>
-                        <td style="padding:10px 12px;color:var(--text-secondary);font-size:0.75rem;">{{ $q->directive_reference }}</td>
-                        <td style="padding:10px 12px;text-align:right;">{{ $q->sections_count }}</td>
-                        <td style="padding:10px 12px;text-align:right;">{{ $q->questions_count }}</td>
-                        <td style="padding:10px 12px;color:var(--text-secondary);font-size:0.75rem;">{{ $q->submission_deadline->format('j M Y') }}</td>
-                        <td style="padding:10px 12px;text-align:right;">
-                            <a href="{{ route('corex.admin.rcr.questionnaires.show', $q->id) }}" style="font-size:0.6875rem;color:var(--brand-button);text-decoration:none;">Open →</a>
-                        </td>
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Key</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Title</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Directive</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Sections</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Questions</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Deadline</th>
+                        <th class="px-4 py-2.5"></th>
                     </tr>
-                @endforeach
-            </tbody>
-        </table>
+                </thead>
+                <tbody>
+                    @forelse($questionnaires as $q)
+                        <tr>
+                            <td class="px-4 py-3 text-xs font-mono" style="color: var(--text-muted);">{{ $q->key }}</td>
+                            <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $q->title }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $q->directive_reference }}</td>
+                            <td class="px-4 py-3 text-right">{{ $q->sections_count }}</td>
+                            <td class="px-4 py-3 text-right">{{ $q->questions_count }}</td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $q->submission_deadline->format('j M Y') }}</td>
+                            <td class="px-4 py-3 text-right">
+                                <a href="{{ route('corex.admin.rcr.questionnaires.show', $q->id) }}" class="text-xs font-semibold" style="color: var(--brand-icon);">Open &rarr;</a>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">No questionnaires yet.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 
 </div>

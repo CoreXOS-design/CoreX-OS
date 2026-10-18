@@ -227,10 +227,11 @@ final class WaSessionWebhookTest extends TestCase
                 'Info'    => ['SenderAlt' => '27734445555@s.whatsapp.net', 'PushName' => 'Private', 'IsGroup' => false, 'IsFromMe' => false],
                 'Message' => ['conversation' => 'confidential'],
             ],
-        ]))->assertOk();
+        ]))->assertOk()->assertJson(['result' => 'dropped']);
 
-        $comm = Communication::where('agency_id', $this->agencyId)->latest('id')->first();
-        $this->assertNull($comm->body_text, 'explicit opt-out still withholds the body on a self-linked device');
+        // AT-183 — an explicit opt-out is a POPIA exclusion: the message is dropped BEFORE any storage
+        // (no envelope, no row, never stored-then-hidden), and a self-linked device cannot re-enable it.
+        $this->assertSame(0, Communication::where('agency_id', $this->agencyId)->count(), 'explicit opt-out drops the message entirely on a self-linked device');
         $this->assertDatabaseHas('agent_capture_consent', [
             'contact_id' => $fresh->id, 'status' => AgentCaptureConsent::STATUS_OPTED_OUT,
         ]);

@@ -152,9 +152,40 @@ return [
     */
     'non_production_redirect' => env('MAIL_NON_PRODUCTION_REDIRECT'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Outbound mail guard — local sink (App\Support\OutboundMailGuard)
+    |--------------------------------------------------------------------------
+    | Read through config() on purpose: app code calling env() directly gets null
+    | once `config:cache` is on (it is, on Staging/QA), which silently changed
+    | the sink and would have hidden a real MAIL_HOST from the boot-time check.
+    */
+    'guard' => [
+        // The ONE server-side flag that says "this is the real live server". Set by hand in the live .env
+        // (OUTBOUND_MAIL_REAL_SEND=1), absent everywhere else - a copy of live's code, database or even its
+        // APP_ENV/APP_URL cannot carry it by accident. Without it nothing sends, whatever APP_ENV says.
+        'real_send' => filter_var(env('OUTBOUND_MAIL_REAL_SEND', false), FILTER_VALIDATE_BOOLEAN),
+        'sink_host' => env('MAIL_GUARD_SINK_HOST', env('MAIL_HOST', '127.0.0.1')),
+        'sink_port' => env('MAIL_GUARD_SINK_PORT', env('MAIL_PORT', 1025)),
+        'sink_address' => env('MAIL_GUARD_SINK_ADDRESS', 'outbound-guard@localhost.test'),
+    ],
+
+    /*
+    | The web address of this environment's test-mail catcher (Mailpit), shown as "Open Mailpit" in the QA banner.
+    | One catcher per box, reached through its own host name; each environment sets MAILPIT_UI_URL to ITS OWN box's catcher.
+    | There is deliberately no default: unset means the banner shows no link, so no environment can ever point at another box's inbox.
+    */
+    'mailpit_ui_url' => env('MAILPIT_UI_URL', ''),
+
     'from' => [
         'address' => env('MAIL_FROM_ADDRESS', 'hello@example.com'),
         'name' => env('MAIL_FROM_NAME', 'Example'),
+    ],
+
+    // The platform's neutral sender for agency mail that has no mailbox of its own to send through (see App\Support\PlatformSender).
+    // Optional: when unset, MAIL_FROM_ADDRESS is used - and skipped if its domain belongs to an agency. Never an agency's domain.
+    'platform_from' => [
+        'address' => env('MAIL_PLATFORM_FROM_ADDRESS'),
     ],
 
 ];

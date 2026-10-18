@@ -161,13 +161,14 @@ class Wave3bBackfillTest extends TestCase
     // The trait's "console/seeder fallback" only fires when exactly one
     // agency row exists in the DB. With multiple agencies and no auth user,
     // it MUST NOT guess — that would be the very cross-agency leak we are
-    // hardening against. The test DB ships with a pre-seeded HFC Coastal
-    // agency and setUp() adds one more, so we already have multiple
-    // agencies for the "must not fire" assertion below.
+    // hardening against. setUp() creates one agency and the test below adds a
+    // second, so there are multiple agencies for the "must not fire" assertion.
 
     public function test_single_agency_fallback_does_not_fire_when_multiple_agencies_exist(): void
     {
-        // Ensure 2+ agencies exist (test-DB baseline already gives us this).
+        // The scenario needs 2+ agencies. setUp() creates one; the test DB no longer ships a
+        // pre-seeded HFC agency, so create the second here instead of relying on the baseline.
+        Agency::create(['name' => 'B', 'slug' => 'b']);
         $this->assertGreaterThanOrEqual(2, Agency::count(),
             'Test fixture invariant: multiple agencies must exist for this scenario.');
 

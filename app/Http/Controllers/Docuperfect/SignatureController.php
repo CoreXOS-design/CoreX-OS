@@ -221,6 +221,9 @@ class SignatureController extends Controller
      */
     public function setup(Request $request, Document $document)
     {
+        // The document's own agency decides the letterhead / agency wording it renders (see DocumentAgencyContext).
+        \App\Support\Docuperfect\DocumentAgencyContext::enter($document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
+
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
@@ -309,7 +312,7 @@ class SignatureController extends Controller
                 $webTemplateHtml = $webTemplateData['merged_html'];
                 $pageCount = count($webTemplateData['template_ids'] ?? [1]);
                 $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
-                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml, $document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
             } else {
                 // Single template — render blade view normally (no merged_html yet).
                 $viewData = $webTemplateData;
@@ -328,7 +331,7 @@ class SignatureController extends Controller
                 $webTemplateHtml = $styles . $bodyHtml;
                 $pageCount = 1;
                 $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
-                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml, $document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
             }
         } else {
             $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
@@ -878,6 +881,9 @@ class SignatureController extends Controller
      */
     public function sign(Request $request, Document $document)
     {
+        // The document's own agency decides the letterhead / agency wording it renders (see DocumentAgencyContext).
+        \App\Support\Docuperfect\DocumentAgencyContext::enter($document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
+
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
@@ -1015,7 +1021,7 @@ class SignatureController extends Controller
             // surfaces + the resolved letterhead (composed once, no re-render).
             if (trim($canonicalHtml) === '') {
                 $webTemplateHtml = SignatureSurfaceNormalizer::normalize($webTemplateHtml);
-                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml);
+                $webTemplateHtml = LetterheadRefresher::refresh($webTemplateHtml, $document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
             }
         } else {
             $pageCount = $hasFlattened ? count($flattenedPages) : ($docTemplate ? $docTemplate->page_count : 0);
@@ -2814,6 +2820,9 @@ class SignatureController extends Controller
      */
     public function review(Request $request, Document $document)
     {
+        // The document's own agency decides the letterhead / agency wording it renders (see DocumentAgencyContext).
+        \App\Support\Docuperfect\DocumentAgencyContext::enter($document->agency_id ? (int) $document->agency_id : null, $document->branch_id ? (int) $document->branch_id : null);
+
         $user = $request->user();
         $this->authorizeDocument($user, $document);
 
@@ -4056,6 +4065,15 @@ class SignatureController extends Controller
                 'reason' => $request->rejection_reason,
                 'action' => $request->action,
             ]
+        );
+
+        // leases.md §15.15 (Build L3b) — tell a lease whose agreement this is that it did not get signed. A
+        // "revise" ends this envelope and clones the document into a new one with no envelope of its own; the lease
+        // follows the ended one (declined, "returned for revision") and the agent prepares it again from the lease.
+        $this->signatureService->announceEnvelope(
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            $template,
+            ($request->action === 'revise' ? 'Returned for revision' : 'Rejected') . ' — ' . $request->rejection_reason,
         );
 
         // 4. If "Create revised version" — clone the document

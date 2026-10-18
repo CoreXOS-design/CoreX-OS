@@ -205,7 +205,7 @@ class DemoConnectorTest extends TestCase
         $this->actingAs($this->owner)
             ->get(route('admin.demo-access.index'))
             ->assertOk()
-            ->assertSee('not set up');
+            ->assertSee('Not set up');
     }
 
     // ── The DEMO connection page ─────────────────────────────────────────────

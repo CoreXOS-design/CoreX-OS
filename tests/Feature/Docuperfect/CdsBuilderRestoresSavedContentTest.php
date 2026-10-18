@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect;
 
+use App\Models\Agency;
 use App\Models\Docuperfect\CdsDraft;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
 use App\Models\User;
@@ -150,13 +151,16 @@ final class CdsBuilderRestoresSavedContentTest extends TestCase
             'updated_at' => now(),
         ]);
         \App\Models\Role::clearCache();
+        // A real agency row: users.agency_id is a foreign key, and the schema snapshot
+        // carries tables, not rows — a hard-coded agency_id of 1 does not exist here.
+        $agency = Agency::create(['name' => 'Builder Test Agency', 'slug' => 'builder-test-' . Str::random(8)]);
         $userId = (int) DB::table('users')->insertGetId([
             'name' => 'Agent Tester',
             'email' => 't-' . Str::random(8) . '@x.test',
             'password' => bcrypt('p'),
             'role' => 'test_template_owner',
             'is_admin' => 1,
-            'agency_id' => 1,
+            'agency_id' => $agency->id,
             'created_at' => now(),
             'updated_at' => now(),
         ]);

@@ -49,7 +49,10 @@ final class ProspectingListingVisibilityScopeTest extends TestCase
         // importer, not the agent it's actually relevant to.
         $this->makeListing($agencyId, $b1, $importer->id, 'P24-BulkImported');
         $this->makeListing($agencyId, $b1, $agentB->id, 'P24-B');
-        $this->makeListing($agencyId, $b2, $importer->id, 'P24-OtherBranch');
+        // A listing's branch follows the account that captured it (branch_id is not mass-assignable
+        // on the listing), so the other branch's row must be captured by someone in that branch.
+        $otherBranchImporter = $this->makeUser($agencyId, $b2, 'admin');
+        $this->makeListing($agencyId, $b2, $otherBranchImporter->id, 'P24-OtherBranch');
 
         $this->assertSame('own', PermissionService::marketIntelligenceScope($agentA));
 

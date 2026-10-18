@@ -31,6 +31,7 @@ class PresentationReadinessServiceTest extends TestCase
         $this->user   = User::factory()->create(['role' => 'agent', 'branch_id' => $this->branch->id]);
 
         $this->presentation = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $this->branch->id,
             'created_by_user_id' => $this->user->id,
             'title'              => 'Readiness Test',
@@ -206,6 +207,8 @@ class PresentationReadinessServiceTest extends TestCase
     {
         config()->set('features.presentation_blueprint', true);
         config()->set('features.presentation_readiness_check', false);
+        // The compile endpoint's PDF readiness gate needs a prior version with an Executive Summary.
+        $this->seedSummarisedVersion();
 
         $this->actingAs($this->user);
 
@@ -213,7 +216,8 @@ class PresentationReadinessServiceTest extends TestCase
 
         $response->assertRedirect(route('presentations.show', $this->presentation));
         $response->assertSessionHas('success');
-        $this->assertSame(1, \App\Models\PresentationVersion::count());
+        // the seeded version + the one this compile created
+        $this->assertSame(2, \App\Models\PresentationVersion::count());
     }
 
     public function test_admin_can_force_compile_despite_missing_required(): void
@@ -222,6 +226,9 @@ class PresentationReadinessServiceTest extends TestCase
         config()->set('features.presentation_readiness_check', true);
 
         $admin = User::factory()->create(['role' => 'admin', 'branch_id' => $this->branch->id]);
+        // The compile endpoint's PDF readiness gate needs a prior version with an Executive Summary.
+        $this->seedSummarisedVersion();
+
         $this->actingAs($admin);
 
         $response = $this->post(
@@ -231,6 +238,21 @@ class PresentationReadinessServiceTest extends TestCase
 
         $response->assertRedirect(route('presentations.show', $this->presentation));
         $response->assertSessionHas('success');
-        $this->assertSame(1, \App\Models\PresentationVersion::count());
+        // the seeded version + the one this forced compile created
+        $this->assertSame(2, \App\Models\PresentationVersion::count());
+    }
+
+    /** A prior version that already has its Executive Summary — what the compile gate requires. */
+    private function seedSummarisedVersion(): \App\Models\PresentationVersion
+    {
+        return \App\Models\PresentationVersion::create([
+            'agency_id'          => $this->presentation->agency_id,
+            'presentation_id'    => $this->presentation->id,
+            'compiled_by'        => $this->user->id,
+            'blueprint_version'  => 'v1',
+            'data_snapshot_json' => json_encode(['sections' => []]),
+            'compiled_at'        => now()->subMinute(),
+            'ai_summary_text'    => 'Seeded executive summary.',
+        ]);
     }
 }

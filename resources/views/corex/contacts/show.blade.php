@@ -93,7 +93,7 @@
                 ['key'=>'viewings','label'=>'Viewings &amp; Feedback <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($viewingsCount ?? 0) .'</span>'],
                 ['key'=>'notes','label'=>'Notes &amp; Testimonials <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contact->contactNotes->count() + $contact->testimonials->count()) .'</span>'],
                 ['key'=>'drive','label'=>'Drive <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $contact->documents->count() .'</span>'],
-                ['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $rentalApplicationsTotalCount .'</span>'],
+                ...(feature('rentals') ? [['key'=>'rental','label'=>'Rental Applications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. $rentalApplicationsTotalCount .'</span>']] : []),
                 ['key'=>'fica','label'=>'FICA Compliance ' . $ficaIcon],
                 ['key'=>'consent','label'=>'Consent'],
                 ['key'=>'communications','label'=>'Communications <span class="ml-1 text-xs px-1.5 py-0.5 rounded-md" style="background:var(--surface-2);">'. ($contactThreads ?? collect())->count() .'</span>'],
@@ -582,7 +582,7 @@
                         <template x-if="contactKind === 'natural_person'">
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                            <input type="text" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
+                            <input type="text" id="id_number" name="id_number" value="{{ old('id_number', $contact->id_number) }}"
                                    :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 9001010000000'"
                                    :maxlength="idKind === 'passport' ? 50 : 13"
                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -605,7 +605,7 @@
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Address <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
                             <input type="text" name="address" value="{{ old('address', $contact->address) }}"
-                                   placeholder="e.g. 21 Dee Road, Uvongo"
+                                   placeholder="e.g. 12 Main Road, Suburb"
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
@@ -658,7 +658,7 @@
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Branch Name</label>
                                 <input type="text" name="bank_branch_name" value="{{ old('bank_branch_name', $contact->bank_branch_name) }}"
-                                       placeholder="e.g. Margate"
+                                       placeholder="e.g. Town name"
                                        class="w-full rounded-md px-3 py-2 text-sm"
                                        style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
@@ -1002,6 +1002,9 @@
              ════════════════════════════ --}}
         <div x-show="activeTab === 'properties'" x-cloak class="p-6 space-y-6">
 
+            {{-- rentals-faults-work-orders.md section 21.3 - this owner's default "Who looks at faults first" for all their rental properties. --}}
+            @include('corex.contacts._first-responders')
+
             @include('corex.contacts._linked-properties')
 
             @include('corex.contacts._linked-deals')
@@ -1013,7 +1016,7 @@
 
                 <div class="relative mb-3">
                     <input type="text" x-model="propSearch" @input.debounce.300ms="searchProps()"
-                           placeholder="e.g. 21 Dee Road, Uvongo…"
+                           placeholder="e.g. 12 Main Road, Suburb…"
                            class="w-full rounded-md px-3 py-2 text-sm pr-10"
                            style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                     <div x-show="propLoading" class="absolute right-3 top-2.5">
@@ -1089,7 +1092,7 @@
                         <div class="flex items-start gap-2">
                             <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" style="color:var(--ds-amber, #f59e0b);"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
                             <div class="text-xs leading-relaxed" style="color:var(--text-primary);">
-                                <strong>HFC already has this property on its books</strong> — <span x-text="held && held.label"></span>.
+                                <strong>Your agency already has this property on its books</strong> — <span x-text="held && held.label"></span>.
                                 <template x-if="held && held.address"><span> (<span x-text="held.address"></span>)</span></template>
                                 <div class="mt-1" style="color:var(--text-secondary);">
                                     Check the existing record before canvassing the owner —
@@ -1473,7 +1476,9 @@
                             <div class="flex items-center justify-between text-xs py-1" style="border-bottom: 1px solid var(--border);">
                                 <span>{{ $inv->property?->buildDisplayAddress() ?? 'Unknown property' }}</span>
                                 <span class="ds-badge {{ $__invStatusBadgeClass($inv->status) }}">{{ ucfirst(str_replace('_', ' ', $inv->status)) }}</span>
+                                @feature('rental-inspections')
                                 <a href="{{ route('corex.rental-inventories.show', $inv) }}" class="corex-btn-outline text-xs">View</a>
+                                @endfeature
                             </div>
                         @endforeach
                     </div>

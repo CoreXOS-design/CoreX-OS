@@ -3,6 +3,7 @@
 namespace App\Services\Docuperfect;
 
 use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -70,6 +71,10 @@ class ClaudeVisionParserService
             Log::warning("ClaudeVisionParser: Image not found: {$imagePath}");
             return [];
         }
+
+        // AI Spend Safety (AT-456 §A.3) — per page, so a cut-out stops a long
+        // document mid-way. Same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
 
         $imageData = base64_encode(file_get_contents($imagePath));
 

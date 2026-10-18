@@ -72,6 +72,20 @@
         {{-- Phase 3g — head stack for per-page assets that must load before
              body inline scripts (e.g. Leaflet on /corex/map). Pages opt in
              via push('head'); pages that don't push produce nothing here. --}}
+        {{-- Page transition (AT-455, option 1): moving between CoreX pages fades the old page out and the
+             new one in. The sidebar is named so it stays still while the page changes. Browsers without
+             cross-page view transitions simply navigate as before. --}}
+        <style>
+            @view-transition { navigation: auto; }
+            ::view-transition-old(root) { animation: corex-page-out 240ms ease-in both; }
+            ::view-transition-new(root) { animation: corex-page-in 320ms ease-out both; }
+            @keyframes corex-page-out { to { opacity: 0; } }
+            @keyframes corex-page-in { from { opacity: 0; } }
+            @media (prefers-reduced-motion: reduce) {
+                ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+            }
+        </style>
+
         @stack('head')
     </head>
     <body class="font-sans antialiased corex-ui-v2">
@@ -107,6 +121,8 @@
 
             {{-- Main area --}}
             <div class="flex-1 flex flex-col overflow-hidden min-w-0">
+                {{-- AT-451 — one-line warning when this user has every alert switched off --}}
+                @include('layouts.partials._alerts-off-bar')
                 {{-- Header --}}
                 <div class="flex items-center lg:hidden px-4 py-2" style="background:var(--surface, #fff); border-bottom:1px solid var(--border, rgba(0,0,0,0.07))">
                     <button @click="sidebarOpen = true" type="button" style="color:var(--text-secondary, #4b5563)">
@@ -176,6 +192,8 @@
         {{-- Portal Leads real-time toast (P24 + PP). Spec: .ai/specs/portal-leads.md --}}
         @include('components.portal-lead-toast')
         @include('components.reminder-toast')
+        {{-- AT-451 — live popup for a new alert, same shared include as layouts/corex. This layout has no toast of its own, so it brings one (without turning session flash into toasts). --}}
+        @include('layouts.partials._staff-alerts', ['withToast' => true])
 
         {{-- In-page PDF / image viewer behind every "View" button in a CoreX drive.
              Spec: .ai/specs/document-inline-view.md --}}
@@ -193,6 +211,9 @@
         @include('layouts._scroll-restore')
 
         {{-- Partial-pushed scripts (e.g. P24 location pickers via push('scripts')) --}}
+        {{-- The app's own confirm / notice dialog (no browser confirm()). --}}
+        @include('partials.corex-confirm')
+
         @stack('scripts')
     </body>
 </html>

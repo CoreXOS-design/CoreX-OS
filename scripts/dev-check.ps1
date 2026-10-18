@@ -374,6 +374,42 @@ if ($SkipPipelineGate) {
     }
 }
 
+# 10. Schema snapshot completeness (database/schema/mysql-schema.sql)
+#
+# a5194c9a1 committed a half-written snapshot (345 of 616 tables, cut mid-column)
+# that failed every lane's first fresh-schema run. `artisan schema:dump` appends
+# the `migrations` INSERT rows LAST, so a complete snapshot has at least one
+# CREATE TABLE and ends with a terminated `INSERT INTO `migrations` ...;` line.
+# Same rule as scripts/check-schema-snapshot.sh -- keep the two in step.
+# Always runs (not covered by -SkipPipelineGate): a truncated snapshot is never
+# a follow-up-cleanup situation.
+Write-Host ''
+Write-Host '10. Schema snapshot completeness' -ForegroundColor Yellow
+
+$snapshotPath = 'database/schema/mysql-schema.sql'
+if (-not (Test-Path $snapshotPath)) {
+    Write-Host "   $snapshotPath not found -- skipped" -ForegroundColor DarkGray
+} else {
+    $snapshotReason = $null
+    if ((Get-Item $snapshotPath).Length -eq 0) {
+        $snapshotReason = 'file is empty'
+    } elseif (-not (Select-String -Path $snapshotPath -Pattern '^CREATE TABLE ' -Quiet)) {
+        $snapshotReason = 'no CREATE TABLE statements'
+    } else {
+        $snapshotLast = Get-Content $snapshotPath -Tail 20 | Where-Object { $_.Trim() -ne '' } | Select-Object -Last 1
+        if ($snapshotLast -notmatch '^INSERT INTO `migrations` .*;\s*$') {
+            $snapshotReason = "does not end with a complete migrations INSERT (last line: '$snapshotLast')"
+        }
+    }
+    if ($snapshotReason) {
+        Write-Host "   FAIL: $snapshotPath is truncated/incomplete -- $snapshotReason" -ForegroundColor Red
+        Write-Host '   Fix: merge origin/QA1 (carries the repaired snapshot) or regenerate with scripts/schema-dump.sh.' -ForegroundColor Red
+        $failed = $true
+    } else {
+        Write-Host '   Snapshot complete (ends with the migrations INSERT block)' -ForegroundColor Green
+    }
+}
+
 # -- Result --
 Write-Host ''
 if ($failed) {

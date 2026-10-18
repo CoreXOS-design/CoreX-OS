@@ -136,11 +136,21 @@ class TrainingController extends Controller
     }
 
     // ── Admin ──
+    // 2026-09-30 (urgent, Johan) — every method in this section used to
+    // abort_unless($user->isOwnerRole() || $user->effectiveRole() === 'super_admin'),
+    // a hardcoded role check that never consulted training.manage — the
+    // dedicated, Role-Manager-settable permission this feature already
+    // exposes (config/corex-permissions.php:323) and already grants to
+    // 'admin' on agency 1. Johan's own admin account 403'd here despite
+    // Role Manager showing him with access, because nothing in this
+    // controller ever looked at that grant. hasPermission() already
+    // bypasses for owners/super_admin (PermissionService::userHasPermission()),
+    // so this is a strict widening, not a narrowing, of who can reach these.
 
     public function manage()
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $agencyId = (int) ($user->effectiveAgencyId() ?: 0);   // AT-253 Rule 17
         $courses = TrainingCourse::where('agency_id', $agencyId)
@@ -154,7 +164,7 @@ class TrainingController extends Controller
     public function createCourse()
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         return view('training.course-form', ['course' => null]);
     }
@@ -162,7 +172,7 @@ class TrainingController extends Controller
     public function storeCourse(Request $request)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -197,7 +207,7 @@ class TrainingController extends Controller
     public function editCourse($id)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $course = TrainingCourse::findOrFail($id);
 
@@ -207,7 +217,7 @@ class TrainingController extends Controller
     public function updateCourse($id, Request $request)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $course = TrainingCourse::findOrFail($id);
 
@@ -234,7 +244,7 @@ class TrainingController extends Controller
     public function createLesson($courseId)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $course = TrainingCourse::findOrFail($courseId);
 
@@ -244,7 +254,7 @@ class TrainingController extends Controller
     public function storeLesson($courseId, Request $request)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $course = TrainingCourse::findOrFail($courseId);
 
@@ -281,7 +291,7 @@ class TrainingController extends Controller
     public function editLesson($lessonId)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $lesson = TrainingLesson::with('course')->findOrFail($lessonId);
 
@@ -291,7 +301,7 @@ class TrainingController extends Controller
     public function updateLesson($lessonId, Request $request)
     {
         $user = auth()->user();
-        abort_unless($user?->isOwnerRole() || $user?->effectiveRole() === 'super_admin', 403);
+        abort_unless($user?->hasPermission('training.manage'), 403);
 
         $lesson = TrainingLesson::findOrFail($lessonId);
 

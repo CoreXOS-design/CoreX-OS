@@ -17,7 +17,7 @@
                 <tr>
                     <td style="padding:24px 32px 8px 32px;border-bottom:1px solid #e2e8f0;">
                         <div style="font-size:1.25rem;font-weight:700;letter-spacing:-0.01em;color:#0f172a;">
-                            {{ $agencyName ?? 'CoreX OS' }}
+                            {{ $agencyName ?? \App\Support\ClientBrand::NEUTRAL }}
                         </div>
                     </td>
                 </tr>
@@ -34,10 +34,7 @@
                             <div style="margin-bottom:8px;">{!! nl2br(e($agencyDisclaimer)) !!}</div>
                         @endif
                         <div>
-                            This email was sent by {{ $agencyName ?? 'CoreX OS' }}@if($agentName) on behalf of {{ $agentName }}@endif.
-                        </div>
-                        <div style="margin-top:6px;">
-                            Powered by <strong style="color:#0f172a;">CoreX OS</strong>
+                            This email was sent by {{ $agencyName ?? \App\Support\ClientBrand::NEUTRAL }}@if($agentName) on behalf of {{ $agentName }}@endif.
                         </div>
                     </td>
                 </tr>

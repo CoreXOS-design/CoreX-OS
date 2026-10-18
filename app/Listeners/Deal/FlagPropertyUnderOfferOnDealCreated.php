@@ -48,7 +48,7 @@ class FlagPropertyUnderOfferOnDealCreated
                     $current = (string) ($property->status ?? '');
                     // Only flag an ON-MARKET listing; never move an off-market (sold/withdrawn/…)
                     // or already-under-offer property.
-                    if ($current === 'under_offer' || in_array($current, Property::OFF_MARKET_STATUSES, true)) {
+                    if ($current === 'under_offer' || ! $property->isOnMarket()) {
                         continue;
                     }
 

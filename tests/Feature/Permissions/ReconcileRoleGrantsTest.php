@@ -20,7 +20,8 @@ class ReconcileRoleGrantsTest extends TestCase
 
     /** Legit agent keys (present in config agent.include) vs. drift keys (absent). */
     private const LEGIT = ['view_deals', 'deals.view'];
-    private const OVER  = ['settle_deals', 'create_deals', 'manage_targets'];
+    // Johan 14 Oct: create_deals / manage_targets are now agent defaults (HFC's agent holds them); drift is what is still NOT.
+    private const OVER  = ['settle_deals', 'manage_agency_switching', 'reveal_backup_password'];
 
     private function seedAgentGrants(): void
     {

@@ -79,7 +79,8 @@ final class FicaQuestionsAnswersReviewTest extends TestCase
         $this->admin      = $mk('admin', $this->branchA);
         $this->primaryCo  = $mk('super_admin', $this->branchA);
         $this->mlro       = $mk('super_admin', $this->branchA);
-        $this->plainAgent = $mk('agent', $this->branchA);
+        // A user whose role carries no compliance grants (Johan 14 Oct: the default AGENT role now holds everything HFC's agent does).
+        $this->plainAgent = $mk('plain_unprivileged', $this->branchA);
 
         $this->appoint($this->primaryCo, FicaOfficerAppointment::ROLE_PRIMARY);
         $this->appoint($this->mlro, FicaOfficerAppointment::ROLE_MLRO);
@@ -408,7 +409,7 @@ final class FicaQuestionsAnswersReviewTest extends TestCase
 
     // ── NO NEW ACCESS: permissions and scope exactly as before ──────────
 
-    public function test_the_default_agent_role_still_cannot_open_either_screen(): void
+    public function test_a_role_without_compliance_grants_still_cannot_open_either_screen(): void
     {
         $s = $this->submission($this->naturalAnswers(), 'natural', [], null, $this->plainAgent);
 

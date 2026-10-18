@@ -8,7 +8,8 @@
 #                                                                 # against an OLD deploy.sh
 #
 # HOW: each scenario copies deploy.sh into a throwaway sandbox, rewrites ONLY its
-# four absolute paths (DIR, LOG_FILE, DEPLOY_ENV_FILE, BACKUP_DIR) to sandbox
+# absolute paths (DIR, LOG_FILE, DEPLOY_ENV_FILE, BACKUP_FALLBACK_DIR, and the data
+# volume, pointed at a path that does not exist so the fallback is used) to sandbox
 # paths, and runs the real script text with fake `git php composer npm sudo
 # supervisorctl systemctl mysqldump …` first on PATH. The fakes keep a state file
 # (maintenance on/off, supervisor program states) the assertions read back.
@@ -22,6 +23,7 @@
 # real artisan/composer/npm behaviour.
 # =============================================================================
 set -uo pipefail
+unset BACKUP_DIR   # an operator-exported BACKUP_DIR must never redirect the sandbox
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPT_UNDER_TEST="${DEPLOY_UNDER_TEST:-$HERE/../deploy.sh}"   # DEPLOY_UNDER_TEST=<file> runs the suite against another copy (negative control)
@@ -61,10 +63,11 @@ make_sandbox() { # name
     sed -e "s#^    DIR=\"/corex-staging\"#    DIR=\"$SB/app\"#" \
         -e "s#^LOG_FILE=\"/var/log/hfc-deploys.log\"#LOG_FILE=\"$SB/deploys.log\"#" \
         -e "s#^DEPLOY_ENV_FILE=\"/etc/hfc-deploy.env\"#DEPLOY_ENV_FILE=\"$SB/hfc-deploy.env\"#" \
-        -e "s#^BACKUP_DIR=\"/var/backups/hfc\"#BACKUP_DIR=\"$SB/backups\"#" \
+        -e "s#^BACKUP_FALLBACK_DIR=\"/var/backups/hfc\"#BACKUP_FALLBACK_DIR=\"$SB/backups\"#" \
+        -e "s#^BACKUP_DATA_VOLUME=.*#BACKUP_DATA_VOLUME=\"$SB/no-data-volume\"#" \
         "$SCRIPT_UNDER_TEST" > "$SB/deploy-under-test.sh"
     local c
-    for c in 'DIR="'"$SB"'/app"' 'LOG_FILE="'"$SB"'/deploys.log"' 'DEPLOY_ENV_FILE="'"$SB"'/hfc-deploy.env"' 'BACKUP_DIR="'"$SB"'/backups"'; do
+    for c in 'DIR="'"$SB"'/app"' 'LOG_FILE="'"$SB"'/deploys.log"' 'DEPLOY_ENV_FILE="'"$SB"'/hfc-deploy.env"' 'BACKUP_FALLBACK_DIR="'"$SB"'/backups"' 'BACKUP_DATA_VOLUME="'"$SB"'/no-data-volume"'; do
         grep -qF -- "$c" "$SB/deploy-under-test.sh" || { echo "HARNESS ERROR: path rewrite missing: $c"; exit 99; }
     done
 }

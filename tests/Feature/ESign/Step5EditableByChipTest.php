@@ -41,8 +41,10 @@ final class Step5EditableByChipTest extends TestCase
         $this->assertCount(1, $entries);
         $this->assertSame(['owner_party', 'agent'], $entries[0]['editableBy'],
             'editable_by array must pass through intact');
-        $this->assertSame('owner_party', $entries[0]['assignedTo'],
-            'assignedTo keeps legacy single-string contract = first element');
+        // assignedTo stays a single string (legacy contract) and is the single prep-filler: 'agent' wins
+        // when the agent is one of the parties (a seller+agent field stays agent-prepped), else the first.
+        $this->assertSame('agent', $entries[0]['assignedTo'],
+            'assignedTo keeps the legacy single-string contract; the agent is the prep-filler when present');
     }
 
     public function test_single_string_editable_by_normalises_to_one_element_array(): void

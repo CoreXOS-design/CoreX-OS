@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ProformaSettingsController;
 use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
+use App\Http\Controllers\CoreX\AgencyTypeController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -82,11 +83,22 @@ return [
         ],
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateAgency'],
+            // Runs after updateAgency; writes only when the step posted `agency_type` (§6.1).
+            ['controller' => AgencyTypeController::class, 'method' => 'update'],
         ],
         'controls' => [
+            ['key' => 'agency_type', 'source' => 'agency', 'type' => 'select', 'default' => 'both',
+             // Same three values/labels as config/agency-types.php (a test keeps the two identical).
+             'options' => ['both' => 'Sales and rentals', 'sales' => 'Sales only', 'rentals' => 'Rentals only'],
+             'label' => 'What does your agency do?',
+             'explain' => 'Whether you sell property, rent it out for landlords, or do both. CoreX uses this to switch on the tools that fit — a rentals agency is not given the sales toolkit, and a sales agency is not given the Rentals area.',
+             'affects' => 'Which features start switched on in the next step. Rentals only turns the sales tools off (buyers, prospecting, presentations, deal tracking); sales only turns the Rentals area off. You can still switch any feature on or off yourself on the Features page.'],
             ['key' => 'trading_name', 'source' => 'agency', 'type' => 'text', 'label' => 'Trading name',
              'explain' => 'The name your agency trades under. If you trade as something different to your registered company name, put the trading name here.',
              'affects' => 'The name printed at the top of every document, in agent email signatures, and on your public property pages.'],
+            ['key' => 'short_code', 'source' => 'agency', 'type' => 'text', 'label' => 'Short code',
+             'explain' => 'Two to ten letters or numbers that stand for your agency, for example CTR for Cape Town Rentals. We worked one out from your name — change it if you prefer other letters.',
+             'affects' => 'The letters your document numbers start with — payslips read CTR-202610-001. Changing it later only affects numbers issued from then on; numbers already issued stay as they are.'],
             ['key' => 'tagline', 'source' => 'agency', 'type' => 'text', 'label' => 'Tagline',
              'explain' => 'A short strapline that sits under your agency name — for example "The Mandate Company".',
              'affects' => 'Appears beneath your name on letterheads and your public profile. Leave blank if you don\'t use one.'],
@@ -105,6 +117,15 @@ return [
             ['key' => 'vat_no', 'source' => 'agency', 'type' => 'text', 'label' => 'VAT number',
              'explain' => 'Your SARS VAT registration number. Leave blank if your agency is not VAT registered.',
              'affects' => 'Printed on invoices and commission documents. Commission in CoreX is always captured including VAT and calculated excluding it, so this number is what appears on the paperwork.'],
+            ['key' => 'vat_registered', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'VAT registered',
+             'explain' => 'Whether this agency is registered for VAT with SARS.',
+             'affects' => 'Whether VAT appears at all on rental job cards and quotes sent to landlords — off, job cards show no VAT anywhere. The VAT rate itself is set under Company Settings → Performance.'],
+            ['key' => 'vat_capture_mode', 'source' => 'agency', 'type' => 'select', 'default' => 'excl',
+             'options' => ['excl' => 'Excluding VAT', 'incl' => 'Including VAT'],
+             'label' => 'Prices I capture are',
+             'explain' => 'Whether prices your agents type in (job card lines, the parts & labour catalogue) are excl. or incl. VAT.',
+             'affects' => 'How CoreX works out the VAT amount on a job card line from the price typed in. Existing prices are never converted when you change this.'],
             ['key' => 'ffc_no', 'source' => 'agency', 'type' => 'text', 'label' => 'Agency Fidelity Fund Certificate (FFC) number',
              'explain' => 'The FFC issued to your agency by the PPRA. Every agency and every practitioner must hold a valid one to trade legally.',
              'affects' => 'Printed on mandates and compliance documents, and used by CoreX to flag when your certificate is approaching expiry.'],
@@ -404,7 +425,17 @@ return [
         // owner's ruling 2026-09-30, moved IN from the "Pending" list in
         // agency-onboarding-setup.md §5.1. Each list posts its own *_submitted
         // marker and saves through RentalListsWizardSaver / the canonical savers.
-        'partial' => ['agency-setup.steps.rentals-field-config', 'agency-setup.steps.rentals-inspection-lists'],
+        'partial' => [
+            'agency-setup.steps.rentals-field-config',
+            'agency-setup.steps.rentals-inspection-lists',
+            // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): an information row with a link — the agency's
+            // own lease agreement. It has no saver and posts no field, so there is nothing for a partial-step
+            // post to wipe (agency-onboarding-setup.md §6.1 is satisfied by absence).
+            'agency-setup.steps.rentals-lease-agreement',
+            // LEASE-AGREEMENT END
+            // Rentals front-half decision D6: the decline reasons (a link row, no saver - the decline email wording is below).
+            'agency-setup.steps.rentals-decline-templates',
+        ],
         'savers' => [
             // Johan, 2026-09-22 (property 4283) — update() now also carries
             // default_deposit_months (§6.1: nullable + has()-guarded, NOT
@@ -421,6 +452,15 @@ return [
             // (a checkbox, never has()-guarded on its own field — see that
             // saver's own docblock).
             ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateAutoSendReportEnabled'],
+            // §45.6 (Build I-4) — the report's extra copy recipients; own narrow, has()-guarded saver.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateReportCopies'],
+            // §43 (2026-10-05) — schedule/reschedule/cancel notifications:
+            // which parties, which channel(s), minimum notice, reminder
+            // offset. Own narrow saver, same _submitted-marker discipline
+            // as updateAutoSendReportEnabled above.
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateScheduleNotifications'],
+            // §45.7 (Build I-5) — due-date settings; one narrow, has()/filled()-guarded saver (see its own docblock).
+            ['controller' => RentalInspectionSettingsController::class, 'method' => 'updateDueDates'],
             // §41-follow-up (Job 3, 2026-09-28) — the same toggle, mirrored
             // onto Inventory's own signed-report distribution. Its own
             // narrow saver, same discipline as the Inspections one directly
@@ -431,6 +471,36 @@ return [
             // threshold, plus completion_requires_photo/overdue_reminder_days
             // (has()-guarded in the saver). Never merged into either saver above.
             ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'update'],
+            // AT-442 — own narrow saver, same has()-guarded checkbox
+            // discipline as RentalInspectionSettingsController's own
+            // auto_pair_photos_enabled/auto_send_report_enabled toggles —
+            // never folded into update() above (that saver's own
+            // required-numeric validation would reject a request that
+            // omits the threshold).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateCapturePricesOnJobCards'],
+            // Conductor's ruling, AT-442 follow-up — own narrow saver, same
+            // discipline as the one directly above; the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateShowCostsOnPrintedJobCard'],
+            // §17.21.1 — each maintenance-flow build adds ITS savers (own narrow saver per setting, has()-guarded) between its markers.
+            // BUILD 1 BEGIN — pricing savers (default markups, estimate term)
+            // §17.14 / §17.11 — own narrow savers, has()-guarded (a key absent from this step's POST is never touched).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateDefaultMarkups'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class, 'method' => 'updateQuoteEstimateTerm'],
+            // BUILD 1 END
+            // BUILD 2 BEGIN — approvals savers (external-quote fee)
+            // §17.14 — ONE narrow saver for the approvals controls below; every field is has()-guarded in it, so a wizard step that posts
+            // only a subset can never reset a setting it did not render (agency-onboarding-setup.md §6.1).
+            ['controller' => RentalWorkOrderSettingsController::class, 'method' => 'updateApprovals'],
+            // BUILD 2 END
+            // BUILD 3 BEGIN — completion-check savers (enabled, window, dispute mail, notify crew)
+            // ONE narrow saver for the four tenant-completion-check settings: each field is written only when it is present
+            // in the request (has()-guarded; the toggles post a hidden "0" companion), so a wizard step that renders a subset
+            // can never wipe the others (onboarding spec §6.1). It refuses 403 itself without rental_work_orders.manage_settings.
+            ['controller' => \App\Http\Controllers\CoreX\RentalCompletionSettingsController::class, 'method' => 'update'],
+            // BUILD 3 END
+            // §17.31 — the two supplier-invoice limits; each written only when present in the request (has()-guarded).
+            ['controller' => \App\Http\Controllers\CoreX\RentalWorkOrderInvoiceSettingsController::class, 'method' => 'update'],
             // Owner's ruling 2026-09-30 — the four rental settings + three lists that
             // were "Pending Johan's ruling" are now in this step. Scalars use
             // has()-guarded canonical savers (credit bureau / tenanted label /
@@ -441,6 +511,14 @@ return [
             // marker was posted, then straight to the canonical saver.
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionConditionStates'],
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionPhotoNoteClassifications'],
+            // §45.4 item 3 (Build I-2) — the agency's own room types; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionCustomRoomTypes'],
+            // §55 - the standard room list per kind of property (house / flat / townhouse / other); no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionRoomTemplates'],
+            // §45.5 (Build I-3) — the agency's own words for how someone attended an inspection; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionAttendedAsLabels'],
+            // §45.14 — the agency's own words for the three move-out classifications; no-op unless this step's marker was posted.
+            ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inspectionMoveOutClassificationLabels'],
             ['controller' => \App\Http\Controllers\CoreX\RentalListsWizardSaver::class, 'method' => 'inventoryConditionStates'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateCreditBureau'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantedLabel'],
@@ -450,6 +528,9 @@ return [
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFieldDisplayConfig'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequiredFields'],
             // The 5 scalar rental-application controls below.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateFrontHalfDefaults'],
+            // Rentals front-half decision D6: the decline email's subject and body (has()-guarded; the settings page keeps its own saver).
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateDeclineEmailWording'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updatePropertyLock'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateTenantTagging'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireFicaBeforeAuthorisation'],
@@ -461,21 +542,131 @@ return [
             // require_checklist_complete is has()-guarded like every other
             // toggle above.
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
+            // Johan, 2026-10-07 — lease rent above the approved amount. has()-guarded on its own field.
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRentAboveApprovedMode'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
+            // AT-445 — .ai/specs/rental-portal-access.md §7. One narrow saver
+            // per toggle, same has()-guarded discipline as every other
+            // checkbox on this step; the numeric expiry gets its own saver
+            // too, same shape as RentalWorkOrderSettingsController::update().
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'update'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateTenantPortalEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateLandlordPortalEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateContractorLinksEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnDecisionNeeded'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyTenantOnStatusChange'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateAutoPortalAccessOnSigning'],
+            // .ai/specs/rental-work-orders.md §14.27.3 / §14.28 — crew links (Build 1's five). Each saver is
+            // has()-guarded (onboarding §6.1) — an absent field leaves the saved value alone.
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinksEnabled'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewJobLinkExpiryDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkShowCosts'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkShowTenantContact'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateNotifyLandlordOnCrewCompletion'],
+            // rental-work-orders.md §14.27.3 — Build 2. Narrow, has()-guarded saver.
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPhotosVisibleToClients'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewStandingLinkExpiryDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageRecentCompletedDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewPageUpcomingDays'],
+            // .ai/specs/rental-portal-access.md §22 — fault photo limits and the portal Home FAQ wording. Each saver has()-guards its own field(s).
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxCount'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultPhotoMaxMb'],
+            // rentals-faults-work-orders.md §18 (AT-452) — has()-guarded toggle.
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateTenantSeesAgentMarks'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateCrewLinkAutoSendOnFaultJob'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaultRecurrenceWindowDays'],
+            ['controller' => \App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'method' => 'updateFaqTexts'],
         ],
         'controls' => [
             ['key' => 'expiry_notice_window_days', 'source' => 'leases', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
              'label' => 'Warn me this many days before a lease expires',
              'explain' => 'The number of days before a lease\'s end date that CoreX should treat it as approaching expiry.',
              'affects' => 'When a lease starts showing as due for attention. 60 days suits most agencies — change it to match your own notice practice.'],
+            // .ai/specs/rental-renewals.md §2 — AT-444. Same saver (LeaseSettingsController::update,
+            // already registered above) — one more has()-guarded field on the same step.
+            ['key' => 'tenant_notice_period_days', 'source' => 'leases', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Notice a tenant gives (length)',
+             'explain' => 'How much notice a tenant gives before moving out — the length; the unit is the next control. Every new lease starts with this and you can change it on each lease. A sensible South African convention, not a legal minimum CoreX enforces.',
+             'affects' => 'The notice period written onto each new lease (and onto old leases when you run the back-fill), shown to tenants and owners in the portal and used on the lease agreement when your agreement carries it. 30 days suits most agencies — change it to match your own lease wording.'],
+            // .ai/specs/leases.md §18.2 — same saver (LeaseSettingsController::update), each field has()-guarded there (§6.1).
+            ['key' => 'tenant_notice_period_unit', 'source' => 'leases', 'type' => 'select', 'default' => 'days',
+             'options' => ['days' => 'Days', 'weeks' => 'Weeks', 'months' => 'Months'],
+             'label' => 'Notice a tenant gives (unit)',
+             'explain' => 'Whether the notice length above counts days, weeks or months.',
+             'affects' => 'How the notice period reads on a new lease and in the portal (for example "30 days" or "1 month") and how its dates are worked out. Days suits most agencies.'],
+            // lease-notices.md §7 - same saver (LeaseSettingsController::update), has()-guarded there (§6.1).
+            ['key' => 'cpa_early_cancel_business_days', 'source' => 'leases', 'type' => 'number', 'default' => 20, 'min' => 1, 'max' => 365,
+             'label' => 'Business days\' notice a tenant may cancel a fixed term on',
+             'explain' => 'The law (the Consumer Protection Act) lets a tenant cancel a fixed-term lease early on this many business days\' written notice. 20 is the figure in the Act; change it only if your legal advice says otherwise.',
+             'affects' => 'When a tenant gives notice to end a fixed-term lease early, the notice review checks the end date against this many business days (weekends and public holidays do not count) and flags it when it is shorter.'],
+            // rental-notices.md §5 - same saver, has()-guarded there (§6.1).
+            ['key' => 'breach_remedy_business_days', 'source' => 'leases', 'type' => 'number', 'default' => 20, 'min' => 1, 'max' => 365,
+             'label' => 'Business days a tenant has to put a breach right',
+             'explain' => 'When you issue a breach notice, this is how many business days the tenant has to put the breach right before a notice to vacate may be issued. 20 business days is the period the Consumer Protection Act uses; change it only if your legal advice says otherwise.',
+             'affects' => 'The deadline printed on the lease screen and in the breach notice, and when "Notice to vacate" becomes available for a breach that has not been remedied.'],
+            ['key' => 'default_earliest_notice_months', 'source' => 'leases', 'type' => 'number', 'default' => null, 'min' => 0, 'max' => 60,
+             'label' => 'Notice may not be given before (months into the lease)',
+             'explain' => 'Some leases do not allow notice during the first months. Fill in how many months in; leave blank when notice may be given from the start.',
+             'affects' => 'Each new lease\'s "earliest date notice may be given" is its start date plus this many months. Blank means no such rule.'],
+            ['key' => 'default_early_cancellation_allowed', 'source' => 'leases', 'type' => 'select', 'default' => 'yes',
+             'options' => ['yes' => 'Allowed', 'no' => 'Not allowed'],
+             'label' => 'Early cancellation of a fixed term is',
+             'explain' => 'Whether your leases let a tenant cancel a fixed term before it ends (with notice). Each lease can differ.',
+             'affects' => 'What a new lease starts with, and what the tenant and owner portal FAQ says about cancelling early. Change it if your leases do not allow it.'],
+            ['key' => 'default_early_cancellation_notice', 'source' => 'leases', 'type' => 'number', 'default' => null, 'min' => 1, 'max' => 999,
+             'label' => 'Notice needed to cancel early (length)',
+             'explain' => 'The notice a tenant must give to cancel a fixed term early. Leave blank to use the ordinary notice period.',
+             'affects' => 'The early-cancellation notice written onto each new lease and shown in the portal.'],
+            ['key' => 'default_early_cancellation_notice_unit', 'source' => 'leases', 'type' => 'select', 'default' => 'days',
+             'options' => ['days' => 'Days', 'weeks' => 'Weeks', 'months' => 'Months'],
+             'label' => 'Notice needed to cancel early (unit)',
+             'explain' => 'Whether the early-cancellation notice counts days, weeks or months.',
+             'affects' => 'How the early-cancellation notice reads on a lease and in the portal.'],
+            ['key' => 'default_early_cancellation_penalty', 'source' => 'leases', 'type' => 'textarea', 'default' => '',
+             'label' => 'Early-cancellation penalty (wording)',
+             'explain' => 'The penalty wording for cancelling early, exactly as your lease states it (for example a number of months\' rent). Leave blank for none.',
+             'affects' => 'Copied onto each new lease and shown to the tenant and owner in the portal FAQ. Each lease can carry its own wording.'],
+            // Johan, 7 Oct 2026 (leases.md §5.3) — same saver (LeaseSettingsController::update), has()-guarded there (§6.1).
+            ['key' => 'month_to_month_after_end_days', 'source' => 'leases', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 365,
+             'label' => 'Days after a lease\'s end date before it goes month-to-month',
+             'explain' => 'When a lease reaches its end date and there is no notice to vacate and no renewal on record, CoreX switches it to month-to-month by itself, logs it on the lease and tells the agent.',
+             'affects' => 'How long after the end date a lease is left alone before it switches. 1 means the day after the end date; a higher number gives agents more time to record a renewal or a notice first. A notice or a renewal, even one still out for signing, always stops the switch.'],
+            // Rentals front-half decisions (8 Oct 2026) - same saver (LeaseSettingsController::update), has()-guarded (§6.1).
+            ['key' => 'require_end_or_month_to_month_for_signing', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Ask for an end date (or month-to-month) before "prepare for signing"',
+             'explain' => 'A lease sent for signing should say how long it runs. When this is on, "Create lease & prepare for signing" needs either an end date or the month-to-month box ticked.',
+             'affects' => 'Whether an agent can send a lease for signing with no end date at all. Off lets it through (the agreement then prints no term); "Create lease only" is never blocked either way.'],
+            ['key' => 'restore_end_date_on_leaving_month_to_month', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the original end date back when month-to-month is reversed',
+             'explain' => 'Switching a lease to month-to-month clears its end date. Reversing the switch can bring the original end date back, where it is on record.',
+             'affects' => 'What a lease shows after "Reverse month-to-month": its original end date (on) or no end date until the agent types one (off).'],
+            // Property status follows the lease (rental-renewals.md) - same saver, has()-guarded (§6.1). The fourth setting,
+            // default_pre_let_status, is a pick from the agency's OWN statuses (not a static list), so it lives on the
+            // Settings page only - recorded in agency-onboarding-setup.md section 5.1.
+            ['key' => 'auto_readvertise_on_notice', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when notice is recorded',
+             'explain' => 'When a tenant (or the landlord) gives notice, the agent is asked whether to put the property back on the market for the date after move-out. This sets whether that box arrives ticked.',
+             'affects' => 'Whether a recorded notice re-advertises the property by default (on) or leaves it as let out until the agent ticks the box (off). The agent can always change it for a single notice.'],
+            ['key' => 'auto_restore_status_on_lease_ended', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when the move-out inspection confirms it is empty',
+             'explain' => 'When a move-out inspection confirms the property is vacant, CoreX can return it to the status it had before it was let, and the agent who owns the listing is told it is free again.',
+             'affects' => 'On: a vacant property goes back on the market in CoreX by itself and the agent gets an in-app alert; nothing is pushed to Property24 or Private Property - the agent checks the rent and re-lists it on the portals. Off: it stays "let out" until an agent changes it.'],
+            ['key' => 'auto_restore_status_on_lease_cancelled', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Put the property back on the market when a lease is cancelled',
+             'explain' => 'When an active lease is cancelled, CoreX can return the property to the status it had before it was let.',
+             'affects' => 'On: a cancelled lease puts the property back on the market from the cancellation date. Off: the property stays "let out" until an agent changes it.'],
+            ['key' => 'signed_copy_not_live_note', 'source' => 'leases', 'type' => 'textarea', 'default' => 'Your signed lease is attached. It is not active on our system yet - your agent will confirm when it is.',
+             'label' => 'Sentence in the signed-copy email when the lease cannot go live yet',
+             'explain' => 'Everyone still gets their signed copy. When the lease cannot become active straight away (for example another lease is still running on the property), this one sentence tells the tenant so.',
+             'affects' => 'The extra line in the tenant\'s signed-copy email in that situation only. Leave empty to add nothing.'],
             ['key' => 'fault_report_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 90,
              'label' => 'Days a tenant has to report a fault after moving in',
              'explain' => 'After the move-in inspection, a tenant can report anything missed without it counting against them, for this many days.',
              'affects' => 'How long the "report a fault" window stays open on a new tenancy. 7 days suits most agencies — a report after this window still reaches the agent, it is just their call whether to accept it.'],
             ['key' => 'out_inspection_signing_window_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 60,
-             'label' => 'Days a tenant has to sign the out-inspection',
-             'explain' => 'Once an out-inspection is ready to sign, the tenant has this many days before an agent may sign on their behalf (with a note recording that they were unreachable or declined).',
-             'affects' => 'How long CoreX waits for the tenant\'s own signature before allowing an agent to close it out on their behalf. 7 days suits most agencies.'],
+             'label' => 'Days a tenant has to sign an inspection',
+             'explain' => 'Once any inspection (In, Routine, Interim or Out) is ready to sign, the tenant has this many days to sign. The inspection shows how many days are left, and the agent is reminded when the window is about to close with someone still outstanding.',
+             'affects' => 'The "days left" the agent sees on a report waiting for signatures, and when the reminder goes out. Nothing happens automatically when it passes. 7 days suits most agencies.'],
             // 2026-09-23 — same saver as the two window fields above
             // (RentalInspectionSettingsController::update() — registered
             // once, above); nullable + has()-guarded there, so this control
@@ -484,6 +675,47 @@ return [
              'label' => 'Days the public inspection-report link stays live',
              'explain' => 'A completed inspection\'s PDF carries a link a tenant or landlord can open with no CoreX login. This many days after it is issued, the link stops working.',
              'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
+            // §46 — signing an inspection by a personal link. Same saver as the controls above
+            // (RentalInspectionSettingsController::update(), registered once) — both has()-guarded there.
+            ['key' => 'signing_link_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let tenants and landlords sign an inspection from a personal link',
+             'explain' => 'The agent can send each tenant and the landlord a personal link by email or WhatsApp, or show a QR code on their own phone. The person opens the full inspection report on their own phone, reads it, and signs from there — CoreX records the signature, the time and the device it was signed on.',
+             'affects' => 'Whether the agent sees the "Sign by link" controls on an inspection. Off means signing stays on the agent\'s own screen, on paper, or on the agent\'s device. On by default.'],
+            ['key' => 'signing_link_expiry_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days a personal signing link stays live',
+             'explain' => 'Each person\'s signing link stops working this many days after the agent issues it, and also as soon as the agent revokes it.',
+             'affects' => 'How long a tenant or landlord has to open their link and sign. 30 days suits most agencies — the agent can issue a fresh link from the inspection at any time.'],
+            // §49 — Johan, 8 Oct 2026: are the three signatures (every tenant, the landlord, the agent) needed before an
+            // inspection of each type can be completed? Same saver as the controls above
+            // (RentalInspectionSettingsController::update(), registered once) — all four has()-guarded there.
+            // §52 — the 8 Oct 2026 walk's rules, generated from ONE list (RentalInspectionSetting::INSPECTION_RULES) so the
+            // settings page, the saver and this step cannot drift. Same saver as above, every field has()-guarded there.
+            ...array_values(array_map(
+                fn (string $column, array $rule) => ['key' => $column, 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => $rule[0] ? 1 : 0,
+                    'label' => $rule[1], 'explain' => $rule[2], 'affects' => $rule[3]],
+                array_keys(\App\Models\RentalInspectionSetting::INSPECTION_RULES),
+                \App\Models\RentalInspectionSetting::INSPECTION_RULES,
+            )),
+            ['key' => 'signing_reminder_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 2, 'min' => 0, 'max' => 30,
+             'label' => 'Days before the signing window closes that the first reminder goes out',
+             'explain' => 'If someone still has not signed, the agent is reminded this many days before the signing window closes (and once more after it has closed).',
+             'affects' => 'How early the agent is nudged. 0 means only once the window has closed. 2 days suits most agencies.'],
+            ['key' => 'signatures_required_in', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before a move-in (In) inspection can be completed',
+             'explain' => 'The tenant(s), the landlord and the agent each sign the In-inspection report. With this on, CoreX will not let the agent complete the inspection until all of them have signed (or a refusal is on record).',
+             'affects' => 'Whether an In-inspection can be completed without the three signatures. On by default — the move-in condition is the document a deposit dispute turns on.'],
+            ['key' => 'signatures_required_out', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before a move-out (Out) inspection can be completed',
+             'explain' => 'The tenant(s), the landlord and the agent each sign the Out-inspection report. With this on, CoreX will not let the agent complete the inspection until all of them have signed (or a refusal is on record).',
+             'affects' => 'Whether an Out-inspection can be completed without the three signatures. On by default.'],
+            ['key' => 'signatures_required_interim', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every signature before an Interim (planned, mid-tenancy) inspection can be completed',
+             'explain' => 'An Interim inspection is a planned check during the tenancy, booked from a date your agency loaded. With this on, it cannot be completed until the tenant(s), the landlord and the agent have signed (or a refusal is on record).',
+             'affects' => 'Whether an Interim inspection can be completed without the three signatures. On by default.'],
+            ['key' => 'signatures_required_routine', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Require every signature before a Routine (unplanned, mid-tenancy) inspection can be completed',
+             'explain' => 'A Routine inspection is an unplanned check during the tenancy. With this off, the agent can complete it without signatures; with it on, it needs the tenant(s), the landlord and the agent to sign like the other types.',
+             'affects' => 'Whether a Routine inspection can be completed without signatures. Off by default — signatures can still be collected on a Routine inspection whenever the agent wants them.'],
             // §24.5/§24.7 (AT-433 Part B), Johan's ruling 2026-09-26 —
             // defaults ON.
             ['key' => 'auto_pair_photos_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
@@ -495,6 +727,74 @@ return [
              'label' => 'Email the signed inspection report automatically on completion',
              'explain' => 'The moment an inspection completes (every required party has signed or been dispositioned), CoreX emails the signed report to the tenant(s) and landlord from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inspection and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
+            // §45.6 (Build I-4) — who else is copied on the completed report. All three on ONE narrow saver
+            // (RentalInspectionSettingsController::updateReportCopies, registered in 'savers' above) — every field has()-guarded.
+            ['key' => 'report_agency_copy_emails', 'source' => 'rental_inspections', 'type' => 'text', 'default' => '',
+             'label' => 'Agency copy address(es) for completed inspection reports',
+             'explain' => 'An address your agency wants a copy of every completed inspection report to land in, e.g. a shared rentals mailbox. Separate several with commas; leave empty for none. The tenant(s) and landlord(s) always receive the report regardless.',
+             'affects' => 'Whether your agency keeps its own emailed copy of each signed report, separate from the property\'s filed copy. Empty by default — nothing is assumed.'],
+            ['key' => 'report_copy_inspector', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send a copy of the report to the inspector',
+             'explain' => 'The agent who actually ran the inspection (who may not be whoever created it) is emailed the signed report along with the tenant(s) and landlord(s).',
+             'affects' => 'Whether the inspector receives their own copy. The report is also sent from the inspector\'s mailbox. On by default.'],
+            ['key' => 'report_copy_creator', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send a copy of the report to the agent who created the inspection',
+             'explain' => 'The agent who first set the inspection up is emailed the signed report too, when that is a different person from the inspector.',
+             'affects' => 'Whether the creating agent receives their own copy. On by default.'],
+            // §43 (2026-10-05) — schedule/reschedule/cancel notifications.
+            // All seven on the SAME saver (updateScheduleNotifications) —
+            // see that method's own docblock for why none of them is
+            // force-defaulted when this step is the one being saved.
+            ['key' => 'notify_tenant_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the tenant(s) when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the tenant(s) on the lease are told when an inspection affecting their tenancy is booked, moved, or called off.',
+             'affects' => 'Whether a tenant ever hears about an inspection before the agent arrives. On by default.'],
+            ['key' => 'notify_landlord_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the landlord when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the property\'s landlord (resolved the same way the rest of CoreX resolves a landlord — never a guess at "the only contact on file") is told when an inspection is booked, moved, or called off.',
+             'affects' => 'Whether a landlord ever hears about an inspection before it happens. On by default.'],
+            ['key' => 'notify_inspector_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Notify the inspector when an inspection is scheduled, rescheduled or cancelled',
+             'explain' => 'Whether the agent actually booked to do the inspection (who may not be whoever booked it) is sent their own notification.',
+             'affects' => 'Whether an inspector is told directly, or only ever finds out by opening the Scheduled Inspections list. On by default.'],
+            ['key' => 'notify_via_mail_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send schedule notifications by email',
+             'explain' => 'Sent from the booking agent\'s own mailbox where one is configured, the shared CoreX mailer otherwise — the same sending mechanism as every other outbound CoreX email.',
+             'affects' => 'Whether any of the parties above receive an actual email. On by default.'],
+            ['key' => 'notify_via_whatsapp_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send schedule notifications by WhatsApp',
+             'explain' => 'There is no automated WhatsApp sending in CoreX today. Turning this on logs a ready-to-send message on the inspection itself for an agent to send by hand — it does not send anything on its own.',
+             'affects' => 'Whether a WhatsApp message is prepared and logged for an agent to action, or this channel is skipped entirely. Off by default, since it does not actually send without a person.'],
+            ['key' => 'minimum_notice_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 90,
+             'label' => 'Usual notice period for booking an inspection (days)',
+             'explain' => 'How much advance notice an inspection would normally be booked with.',
+             'affects' => 'An agent booking inside this window still succeeds — they just see a flag that it\'s shorter notice than usual. Never blocks. 1 day suits most agencies.'],
+            ['key' => 'remind_tenant_by_email', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Also email the tenant(s) the day-before reminder',
+             'explain' => 'The reminder (sent the number of days before the inspection set below) always goes to the inspector. This also sends it to the tenant(s) on the lease. The booking, change and cancellation notices above are separate and are not affected.',
+             'affects' => 'Whether a tenant gets a reminder email shortly before the inspector arrives. Off until you turn it on - tenants are never reminded by surprise.'],
+            ['key' => 'remind_landlord_by_email', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Also email the landlord the day-before reminder',
+             'explain' => 'Same as the tenant reminder, for the property\'s landlord. The booking, change and cancellation notices above are separate and are not affected.',
+             'affects' => 'Whether a landlord gets a reminder email shortly before the inspection. Off until you turn it on - landlords are never reminded by surprise.'],
+            ['key' => 'reminder_days_before', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 30,
+             'label' => 'Send a reminder this many days before a scheduled inspection',
+             'explain' => 'A reminder notification this many days before the booked date. It always goes to the inspector; tenants and landlords get it only if you tick their reminder boxes above.',
+             'affects' => 'Whether anyone is reminded ahead of the inspection, and how far ahead. 0 turns the reminder off entirely. 1 day suits most agencies.'],
+            // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates. All three on ONE narrow saver
+            // (RentalInspectionSettingsController::updateDueDates, registered above) — every field has()/filled()-guarded.
+            ['key' => 'raise_due_inspections_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Remind the agent when a move-in or move-out inspection is due',
+             'explain' => 'CoreX works out from each active lease when its move-in inspection (the lease start, if none has been completed) and its move-out inspection (the move-out date, or the end of a fixed term) fall due, and reminds the agent responsible for the property.',
+             'affects' => 'Whether that agent gets an in-CoreX reminder and an email for a due or overdue move-in/move-out inspection. The Due tab and the Command Centre show them either way; tenants and landlords are never contacted by these reminders. On by default.'],
+            ['key' => 'planned_date_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 14, 'min' => 0, 'max' => 90,
+             'label' => 'Remind the agent this many days before an interim inspection date',
+             'explain' => 'CoreX never schedules interim inspections for you — your agency loads the dates it wants on the Due tab. This is how early the responsible agent is first reminded about a date you loaded (they are reminded again on the day and the day after).',
+             'affects' => 'How far ahead an agent is warned about a loaded interim date. 0 reminds on the day only. 14 days suits most agencies. Agencies that do no interim inspections never see a reminder.'],
+            ['key' => 'out_due_lead_days', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 90,
+             'label' => 'Show a move-out inspection as due this many days before the tenant leaves',
+             'explain' => 'How long before the move-out date (or the end of a fixed term) the move-out inspection starts showing as due and the agent is first reminded.',
+             'affects' => 'When a move-out inspection moves from "upcoming" to "due" on the Due tab and the Command Centre, and when its first reminder goes out. 0 means only from the day itself. 7 days suits most agencies.'],
             // §41-follow-up (Job 3, 2026-09-28) — same ruling, mirrored onto
             // Inventory's own signed report. Key deliberately distinct from
             // 'auto_send_report_enabled' above — see
@@ -505,9 +805,163 @@ return [
              'explain' => 'The moment an inventory completes (every required party has signed or been dispositioned), CoreX emails the signed report to the seller/landlord (and tenant(s), when the inventory has a lease) from the completing agent\'s own mailbox, with a Sent Items copy and the agent CC\'d, and files it to the property.',
              'affects' => 'Whether that email goes out on its own, or an agent has to open the completed inventory and click "Resend report" themselves. Filing to the property happens either way — this toggle only governs the automatic email. On by default.'],
             ['key' => 'no_approval_spend_threshold', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 500, 'min' => 0, 'max' => 99999999.99,
-             'label' => 'No-approval spend threshold (R)',
+             'label' => 'Suggested repair limit (R)',
              'explain' => 'Below this amount, an agent can proceed with a repair without getting the owner\'s written approval first.',
              'affects' => 'Whether the owner-approval step is required at all for a given repair. R500 is a conservative default — raise it to match how much discretion you give your agents. A specific property can be set higher or lower on the property itself.'],
+            // AT-442 — whether prices are used at all on internal job cards.
+            ['key' => 'capture_prices_on_job_cards', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Capture prices on job cards',
+             'explain' => 'When your own maintenance team works a job (not an outside supplier), their job card can record a unit price and total for each part/labour line, or just the quantities with no money attached.',
+             'affects' => 'Whether price and total columns appear anywhere on an internal job card. On by default — turn it off if you\'d rather job cards stayed a pure work record with no pricing.'],
+            // Conductor's ruling, AT-442 follow-up — the worker's printed
+            // copy and the owner's quote PDF are not the same audience.
+            ['key' => 'show_costs_on_printed_job_card', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show costs on the printed job card',
+             'explain' => 'The job card your maintenance worker takes on site can print with or without the cost of each part and job showing next to the parts and labour lines. It never shows the price you charge the owner.',
+             'affects' => 'Whether the printed copy a worker carries shows what things cost, or just tasks, parts and quantities. Off by default — the quote you send the owner always shows the selling price either way, this only affects the worker\'s own printed copy.'],
+            // AT-445 — .ai/specs/rental-portal-access.md §7. Defaults ON —
+            // the whole point of this stage is that the portal works out of
+            // the box; an agency that genuinely doesn't want it switches it off.
+            ['key' => 'tenant_portal_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tenant portal access',
+             'explain' => 'Lets a tenant log in (same passwordless email code the buyer/seller portal already uses) and see their own lease, documents, and faults.',
+             'affects' => 'Whether a tenant can reach the rentals portal at all. On by default.'],
+            ['key' => 'landlord_portal_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Landlord portal access',
+             'explain' => 'Lets a landlord log in and see their properties, approve/decline repair decisions, and view inspection reports.',
+             'affects' => 'Whether a landlord can reach the rentals portal at all. On by default.'],
+            ['key' => 'auto_portal_access_on_signing', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Give tenant and landlord portal access automatically when a lease is signed',
+             'explain' => 'When a lease is signed, CoreX sets up the portal login for its tenant(s) and landlord(s) using the email on their contact, and the signed-lease email they receive carries their personal portal link. The first time they open it they confirm their email with a code and choose a password.',
+             'affects' => 'Whether your agents have to set up portal access by hand for every lease, or it is simply there when the lease is signed. Has no effect if tenant or landlord portal access above is switched off. On by default.'],
+            ['key' => 'contractor_links_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Contractor secure links',
+             'explain' => 'Lets an agent send a contractor a per-job link (no login) to upload a quote, upload after photos, and mark a job done.',
+             'affects' => 'Whether contractor links can be issued at all. On by default.'],
+            ['key' => 'contractor_secure_link_expiry_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'Contractor link expiry (days)',
+             'explain' => 'A contractor\'s secure link stops working after this many days, when revoked, or once the job is marked done — whichever comes first.',
+             'affects' => 'How long an unused contractor link stays valid. 14 days suits most agencies — an agent can always regenerate a fresh link from the work order.'],
+            // .ai/specs/rental-work-orders.md §14.27.3 — crew links. Inserted directly after the contractor rows (§14.30).
+            ['key' => 'crew_links_enabled', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Crew links (master switch)',
+             'explain' => 'Lets an agent share a job card with the maintenance crew as a private link they open on their phone — no login — to see the tasks and materials, tick tasks off, add photos and mark the work completed.',
+             'affects' => 'Whether any crew link works at all. Turning it off makes every crew link stop opening immediately, including ones already sent. On by default.'],
+            ['key' => 'crew_job_link_expiry_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'Crew job link expiry (days)',
+             'explain' => 'A crew\'s link to one job card stops working after this many days. It also stops the moment the job card is completed, cancelled or archived — whichever comes first.',
+             'affects' => 'How long a job link stays valid for a job that drags on. 14 days suits most agencies — an agent can always create a fresh link from the job card.'],
+            ['key' => 'crew_link_show_costs', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show costs on the crew\'s job view',
+             'explain' => 'Whether the crew also sees the cost figures your office entered against the parts and labour on the job they open from a link, or only the tasks, parts and quantities. The crew never sees the price you charge the owner.',
+             'affects' => 'What the crew can read on their phone. Off by default — a worker usually needs what to do and what to load, not what it costs. (Whenever a crew adds a part from their link they can always type what it cost.)'],
+            ['key' => 'crew_link_show_tenant_contact', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show the tenant\'s name and phone to the crew',
+             'explain' => 'Whether the crew sees the tenant\'s name and phone number on the job, so they can call ahead before arriving.',
+             'affects' => 'Whether tenant contact details reach the crew\'s phone. Off by default — the crew sees the access notes only, and the agency stays the go-between.'],
+            ['key' => 'notify_landlord_on_crew_completion', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the landlord when the crew marks the work completed',
+             'explain' => 'When the crew signs that the work is done (on their link, or from the signed paper copy you upload), CoreX emails the landlord from the responsible agent\'s own mailbox.',
+             'affects' => 'Whether the landlord hears the work is done straight away, or only after your agent has checked and closed the job card. The job card is never closed by the crew either way. On by default.'],
+            ['key' => 'notify_landlord_on_decision_needed', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the landlord when a decision is needed',
+             'explain' => 'When a repair needs the owner\'s approval, or a quote comes in over the spend limit, CoreX emails the landlord that a decision is waiting in their portal.',
+             'affects' => 'Whether the landlord gets an email prompt, or only finds out by checking the portal themselves. On by default.'],
+            ['key' => 'notify_tenant_on_status_change', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the tenant when a fault\'s status changes',
+             'explain' => 'When a fault report the tenant raised is approved, declined, or resolved, CoreX emails them the update.',
+             'affects' => 'Whether the tenant gets an email on each status change, or only finds out by checking the portal themselves. On by default.'],
+            // rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility). Appended after the last
+            // rental_portal control so it never collides with the per-job crew-link controls (§14.30).
+            ['key' => 'crew_photos_visible_to_clients', 'source' => 'rental_portal', 'type' => 'select', 'default' => 'in_progress_and_completed',
+             'options' => ['in_progress_and_completed' => 'Work-in-progress and completed photos', 'completed_only' => 'Completed photos only'],
+             'label' => 'Crew photos tenants and landlords can see',
+             'explain' => 'When your maintenance crew photographs a job, those photos can show on the job in the tenant\'s and the landlord\'s portal so they can see the work is being done.',
+             'affects' => 'Whether a tenant or landlord sees the photos taken while the crew is working as well as the finished-job photos, or only the finished-job photos. The photos taken when a problem was first reported are never shown to either of them.'],
+            ['key' => 'crew_standing_link_expiry_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => null, 'min' => 1, 'max' => 365,
+             'label' => 'Crew page link lasts (days — blank = until revoked)',
+             'explain' => 'Each maintenance crew gets one standing link to a page listing the jobs booked for them. Leave this blank and the link keeps working until you revoke or regenerate it; fill it in to make a crew link stop after that many days.',
+             'affects' => 'How long a crew\'s jobs-page link stays valid after you create it. Blank suits most agencies — a crew bookmarks the page and uses it for months; an agent can revoke or regenerate the link at any time from the crew\'s screen.'],
+            ['key' => 'crew_page_recent_completed_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 7, 'min' => 0, 'max' => 30,
+             'label' => 'Show completed jobs on the crew page for (days)',
+             'explain' => 'After the office closes a job it drops off the crew\'s jobs page. This keeps it listed (read-only) for a few days so the crew can look back at what was just done.',
+             'affects' => 'How many days a finished job stays visible on the crew page. 7 days suits most agencies; set 0 to hide the finished-jobs list entirely.'],
+            ['key' => 'crew_page_upcoming_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 60,
+             'label' => 'Crew page "upcoming" reaches (days ahead)',
+             'explain' => 'The crew page shows today\'s jobs, then the jobs booked over the next few days, and adds up the parts they need to load for all of them.',
+             'affects' => 'How far ahead the crew can see booked jobs, and which jobs count towards the "what to load" list. 14 days suits most agencies — a longer window means loading for more jobs at once.'],
+            // rental-portal-access.md §22 — fault photos from the tenant / owner portal.
+            ['key' => 'fault_photo_max_count', 'source' => 'rental_portal', 'type' => 'number', 'default' => 6, 'min' => 1, 'max' => 10,
+             'label' => 'Photos per fault report',
+             'explain' => 'When a tenant or owner reports a fault from their portal link they can add several photos, from the camera or the phone gallery. This is the most they can add to one report.',
+             'affects' => 'How many photos your agents see on a portal-reported fault. 6 suits most agencies — enough to show the problem from a few angles without a long upload on a phone.'],
+            ['key' => 'fault_photo_max_mb', 'source' => 'rental_portal', 'type' => 'number', 'default' => 8, 'min' => 1, 'max' => 15,
+             'label' => 'Largest fault photo (MB)',
+             'explain' => 'The portal shrinks each phone photo before it is sent (a typical photo arrives well under 1 MB). A photo that is still larger than this when it arrives is refused with a clear message.',
+             'affects' => 'Only matters for unusually large images. 8 MB suits most agencies.'],
+            // rentals-faults-work-orders.md §19 (AT-452 round 2) - the crew's job link goes out by itself.
+            ['key' => 'crew_link_auto_send_on_fault_job', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Send the crew their job link automatically when a fault becomes a job',
+             'explain' => 'When the owner has approved a repair and your agent chooses "our own maintenance crew", CoreX can email the crew their private job link straight away (and prepare a WhatsApp for you to open and send), instead of waiting for someone to remember. If the crew has no email or mobile on file, or no crew is chosen yet, the job card says so plainly.',
+             'affects' => 'Whether the crew hears about a new job the moment the job card is created. On by default; the "Email to crew" button on the job card still works as Resend either way.'],
+            // rentals-faults-work-orders.md §19.7 (AT-452 round 2) - "reported before" on a repeat fault.
+            ['key' => 'fault_recurrence_window_days', 'source' => 'rental_portal', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 730,
+             'label' => '"Reported before" window (days)',
+             'explain' => 'When a tenant fixes a fault themselves with the suggested step and the same kind of fault is reported again on that property, your agent and the owner are shown a line saying it was reported before and the tenant resolved it then. This is how many days that link lasts.',
+             'affects' => 'Whether a repeat fault is flagged as a repeat. 90 days suits most agencies - shorter hides older repeats, longer flags more of them.'],
+            // rentals-faults-work-orders.md §18 (AT-452) — agent marks on fault photos.
+            ['key' => 'tenant_sees_agent_marks', 'source' => 'rental_portal', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show the tenant my agents\' marks and notes on their photos',
+             'explain' => 'Your agents can draw a circle or an arrow on a fault photo and write a short note about it. The owner sees these on the photos your agent chooses to share. This decides whether the tenant sees them too, on the photos the tenant sent.',
+             'affects' => 'Whether a tenant opening their own fault photo also sees what your agent marked on it. Off by default — the tenant sees the photo exactly as they sent it.'],
+            ['key' => 'faq_tenant_notice_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_notice_question'],
+             'label' => 'Tenant FAQ: question 1',
+             'explain' => 'The first question on a tenant’s portal Home page, about giving notice.',
+             'affects' => 'The heading of the first FAQ the tenant reads. It only appears when the tenant’s lease has a notice or cancellation term on record.'],
+            ['key' => 'faq_tenant_notice_answer', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_notice_answer'],
+             'label' => 'Tenant FAQ: answer 1',
+             'explain' => 'Your wording for the answer, with the lease’s own values merged in: {notice_days}, {earliest_termination_date}, {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. Put a piece in [[double square brackets]] and it is left out whenever the lease does not have that value.',
+             'affects' => 'What a tenant is told about giving notice. A lease with no notice or cancellation terms shows no FAQ at all — CoreX never guesses a figure.'],
+            ['key' => 'faq_tenant_early_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_early_question'],
+             'label' => 'Tenant FAQ: question 2',
+             'explain' => 'The second question on a tenant’s portal Home page, about giving notice before the lease expires.',
+             'affects' => 'The heading of the second FAQ on the tenant’s Home page.'],
+            ['key' => 'faq_tenant_early_answer', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_early_answer'],
+             'label' => 'Tenant FAQ: answer 2',
+             'explain' => 'Your wording for what happens when notice is given before the lease expires. The same {values} and [[pieces]] as above.',
+             'affects' => 'What a tenant is told about leaving early. Shown only when the lease has an earliest-termination date or early-cancellation terms on record.'],
+            ['key' => 'faq_landlord_notice_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_notice_question'],
+             'label' => 'Owner FAQ: question 1',
+             'explain' => 'The first question on an owner’s portal Home page, about the tenant giving notice.',
+             'affects' => 'The heading of the first FAQ on the owner’s Home page.'],
+            ['key' => 'faq_landlord_notice_answer', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_notice_answer'],
+             'label' => 'Owner FAQ: answer 1',
+             'explain' => 'Your wording for the answer an owner reads. The same {values} and [[pieces]] as the tenant’s.',
+             'affects' => 'What an owner is told about the tenant giving notice.'],
+            ['key' => 'faq_landlord_early_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_early_question'],
+             'label' => 'Owner FAQ: question 2',
+             'explain' => 'The second question on an owner’s portal Home page.',
+             'affects' => 'The heading of the second FAQ on the owner’s Home page.'],
+            ['key' => 'faq_landlord_early_answer', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_early_answer'],
+             'label' => 'Owner FAQ: answer 2',
+             'explain' => 'Your wording for what happens when the tenant gives notice before the lease expires. The same {values} and [[pieces]].',
+             'affects' => 'What an owner is told about the tenant leaving early.'],
+            ['key' => 'faq_tenant_cancel_yes', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_cancel_yes'],
+             'label' => 'Tenant FAQ: when early cancellation is allowed',
+             'explain' => 'The sentence a tenant reads when their lease says early cancellation is allowed. Merge {early_cancellation_notice} and {early_cancellation_penalty}; a [[piece]] is left out when the lease does not have that value.',
+             'affects' => 'What a tenant is told about cancelling early.'],
+            ['key' => 'faq_tenant_cancel_no', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_cancel_no'],
+             'label' => 'Tenant FAQ: when it is not allowed',
+             'explain' => 'The sentence a tenant reads when their lease says early cancellation is not allowed.',
+             'affects' => 'What a tenant is told when the lease forbids cancelling early.'],
+            ['key' => 'faq_landlord_cancel_yes', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_cancel_yes'],
+             'label' => 'Owner FAQ: when early cancellation is allowed',
+             'explain' => 'The sentence an owner reads when the lease allows the tenant to cancel early.',
+             'affects' => 'What an owner is told about the tenant cancelling early.'],
+            ['key' => 'faq_landlord_cancel_no', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_landlord_cancel_no'],
+             'label' => 'Owner FAQ: when it is not allowed',
+             'explain' => 'The sentence an owner reads when the lease does not allow the tenant to cancel early.',
+             'affects' => 'What an owner is told when the lease forbids cancelling early.'],
             // Johan, 2026-09-22 (property 4283) — "when a property has no
             // deposit amount, default it to a configurable multiple of the
             // monthly rent." Saved by LeaseSettingsController::update()
@@ -529,6 +983,64 @@ return [
              'label' => 'Overdue work order reminder (days)',
              'explain' => 'How many days a work order can sit with no progress before CoreX reminds the responsible agent that it is overdue.',
              'affects' => 'How quickly stalled repairs are flagged. 3 days is the default — lower it to chase contractors harder, raise it if your jobs routinely take longer.'],
+            // §17.21.1 — each maintenance-flow build adds ITS controls (explain + affects) between its markers.
+            // BUILD 1 BEGIN — pricing controls
+            ['key' => 'default_parts_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on parts (%)',
+             'explain' => 'When your crew or office records what a part actually cost you, CoreX adds this percentage on top to arrive at the price the owner is charged — unless the office sets a price or a different markup for that line or for the whole job.',
+             'affects' => 'The price an owner sees for every part on a quote. 0 % (the default) charges the owner exactly what the part cost you; for example 20 % turns a R100 part into R120. Each job card can still override it.'],
+            ['key' => 'default_labour_markup_percent', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 1000, 'step' => 0.5,
+             'label' => 'Default markup on labour (%)',
+             'explain' => 'The same idea for labour: the percentage added on top of what the work cost you to arrive at the price the owner is charged, unless the office sets something else for that line or job.',
+             'affects' => 'The price an owner sees for every labour line on a quote. 0 % (the default) charges the owner exactly what the labour cost you; each job card can still override it.'],
+            ['key' => 'quote_estimate_term', 'source' => 'rental_work_orders', 'type' => 'textarea', 'default' => '',
+             'label' => 'Estimate wording on owner quotes',
+             'explain' => 'The short paragraph printed on every quote sent to an owner, telling them the quote is an estimate and what happens if the real cost turns out different. Leave it as it is to use the standard wording, or rewrite it in your own words.',
+             'affects' => 'The wording the owner reads at the bottom of the quote PDF and in the quote email. The wording in force on the day a quote is sent is kept with that quote, so changing it later never alters a quote already sent.'],
+            // BUILD 1 END
+            // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
+            ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
+             'options' => ['percent' => 'A percentage of the contractor\'s quote', 'amount' => 'A fixed amount (R)'],
+             'label' => 'Your fee on an outside contractor\'s quote — how it is worked out',
+             'explain' => 'If your agency adds its own fee on top of an outside contractor\'s quote, choose whether it is a percentage of the quote or a fixed amount.',
+             'affects' => 'How the figure below is applied. It does nothing while the fee is 0.'],
+            ['key' => 'external_quote_markup_value', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 0, 'min' => 0, 'step' => 0.01,
+             'label' => 'Your fee on an outside contractor\'s quote (0 = no fee)',
+             'explain' => 'The fee your agency adds to an outside contractor\'s quote before it goes to the owner. The owner sees one total; your office sees the contractor\'s quote, your fee and the total. A single work order can override it.',
+             'affects' => 'The amount the owner is asked to approve for outside work. 0 (the default) means the owner is asked to approve exactly what the contractor quoted.'],
+            // BUILD 2 END
+            // BUILD 3 BEGIN — completion-check controls (.ai/specs/rental-work-orders.md §17.10, §17.14)
+            ['key' => 'tenant_completion_check_enabled', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Ask the tenant to check finished work',
+             'explain' => 'When your crew (or a contractor) reports a repair job done, CoreX emails the tenant a link to say whether the work is done, or still wrong — with photos if it is wrong. The tenant can answer from the email or from the tenant portal.',
+             'affects' => 'Whether tenants are asked at all. On: a tenant who says the work is not complete raises a "Tenant says not fixed" item for your office; it never stops you closing the job and never reopens it by itself. Off: nobody is asked. On by default.'],
+            ['key' => 'completion_response_window_days', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 5, 'min' => 1, 'max' => 30, 'step' => 1,
+             'label' => 'Days the tenant\'s email link stays open',
+             'explain' => 'How long the link in the tenant\'s email works (plus a week of grace). A tenant\'s answer is optional and never holds a job up; they can always answer from the tenant portal.',
+             'affects' => 'Only how long the emailed link keeps working; nothing is ever accepted or closed because a tenant stayed silent. 5 days suits most agencies.'],
+            ['key' => 'internal_team_label', 'source' => 'rental_work_orders', 'type' => 'text', 'default' => 'Our maintenance team', 'maxlength' => 60,
+             'label' => 'What tenants and owners read for your own maintenance team',
+             'explain' => 'When your own crew does a repair, tenants and owners are told the job is with this team - using the wording you choose here. A crew member\'s own name is never shown to them.',
+             'affects' => 'The wording on the tenant\'s and owner\'s portal and in the "please check the work" email for jobs done by your own crew, for example "Our maintenance team" or "Ramsgate Maintenance". Blank keeps the neutral default.'],
+            ['key' => 'notify_landlord_on_dispute', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Email the owner when a tenant says work is not complete',
+             'explain' => 'When a tenant tells you finished work is still wrong, CoreX can email the property owner the tenant\'s words and photos, and tell them your office is arranging a fix.',
+             'affects' => 'Whether the owner hears about a dispute straight away, or only when your agent tells them. On by default — owners usually prefer to hear it from you first.'],
+            ['key' => 'dispute_notify_crew_immediately', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Send a disputed job straight back to the crew',
+             'explain' => 'When a tenant says work is not complete, the office normally looks at the complaint first and presses "Send back to crew". Switch this on and CoreX emails your crew a fresh job link, with the tenant\'s note and photos, the moment the tenant disputes the work.',
+             'affects' => 'Whether a disputed job reaches the crew automatically or waits for an office decision. Off by default so no one is sent back on a complaint the office has not read. A contractor is always sent back by the office, never automatically.'],
+            // BUILD 3 END
+            // §17.31 — supplier invoice upload limits (own narrow saver, has()-guarded, registered in the step's savers above).
+            ['key' => 'invoice_max_file_mb', 'source' => 'rental_work_orders', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 50, 'step' => 1,
+             'label' => 'Largest supplier invoice file (MB)',
+             'explain' => 'When your office files a supplier\'s invoice against a work order, the file can be at most this many megabytes.',
+             'affects' => 'Whether a large scan or photo is accepted when an invoice is uploaded; a bigger file is refused with a plain message. 10 MB suits most invoices. The most you can set is 50 MB.'],
+            ['key' => 'invoice_allowed_file_types', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'pdf_images',
+             'options' => ['pdf' => 'PDF only', 'pdf_images' => 'PDF and photos (JPG, PNG, WebP)', 'pdf_images_heic' => 'PDF and photos, including iPhone HEIC'],
+             'label' => 'File types allowed for a supplier invoice',
+             'explain' => 'Which kinds of file your office can upload as a supplier invoice. Most suppliers send a PDF; some send a phone photo of a paper invoice.',
+             'affects' => 'What the invoice upload on a work order accepts. Choosing "PDF only" refuses photos; "including iPhone HEIC" also accepts photos taken straight from an iPhone.'],
             // Owner's ruling 2026-09-30 — moved in from the §5.1 "Pending" list.
             ['key' => 'show_lease_type_field', 'source' => 'leases', 'type' => 'toggle', 'default' => 0,
              'label' => 'Show the lease type field on a lease',
@@ -538,6 +1050,10 @@ return [
              'label' => 'Stop an inspection moving on while a required note is missing',
              'explain' => 'When an item is graded with a rating that needs a reason, an agent must type a note. This decides whether a missing note is a hard stop or only a warning.',
              'affects' => 'On: an inspection cannot be sent for signature or completed until every required note is written. Off: agents still see which rooms and items are missing notes, but can carry on.'],
+            ['key' => 'all_items_required_to_complete', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Require every checklist item to be recorded before an inspection is signed or completed',
+             'explain' => 'An incoming or outgoing inspection walks every room and every item on the property\'s checklist. This decides whether an agent may send the inspection for signature, or complete it, while some items have not been recorded yet. "Not applicable" counts as recorded.',
+             'affects' => 'On: the agent is shown exactly which rooms and items are still unrecorded and cannot carry on until each has a condition (or "Not applicable"). Off: an inspection can be signed and completed with items left unrecorded. On by default.'],
             ['key' => 'omr_mark_threshold', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 0.35, 'min' => 0.05, 'max' => 0.95, 'step' => 0.05,
              'label' => 'Scanned inspection form: tick-box sensitivity',
              'explain' => 'If you print the paper inspection form and scan it back in, CoreX reads the tick boxes. This is the share of a box that must be dark before it counts as ticked. Most agencies never need to change it.',
@@ -561,6 +1077,39 @@ return [
              'label' => 'Lock the property link once an application is submitted',
              'explain' => 'Once an applicant submits, CoreX can stop the same application link from being used to apply for a different property.',
              'affects' => 'Whether an applicant\'s link stays tied to the one property they applied for, or can be reused for another listing.'],
+            // Rentals front-half decisions (8 Oct 2026) - one has()-guarded saver (RentalApplicationSettingsController::updateFrontHalfDefaults).
+            ['key' => 'allow_manual_link_share', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Let agents hand an applicant their link themselves',
+             'explain' => 'An applicant normally gets their application link by email. For a tenant with no email, the agent can instead press "Share the link myself" and give them the link on WhatsApp or in person.',
+             'affects' => 'Whether the "Share the link myself" button appears on an application. Off means an application can only be sent by email.'],
+            ['key' => 'notify_agents_on_application_returned', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the property\'s and lease\'s agents when a tenant submits an application',
+             'explain' => 'The agent who created the application is always emailed. This adds an in-app note for the property\'s agent and, where the property is let, the lease\'s owner-side and tenant-side agents.',
+             'affects' => 'Who sees a note in the app when an application comes back. Each person can still switch their own notifications off.'],
+            ['key' => 'notify_authoriser_on_hand_over', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Tell the authoriser when an application is handed to them',
+             'explain' => 'When an agent hands an application to the authorisers, the people chosen as reviewers are told, in the app and by email, instead of having to find it in the queue.',
+             'affects' => 'Whether reviewers get a notification at hand-over. Each person can still switch their own notifications off.'],
+            ['key' => 'invite_policy_sentence', 'source' => 'rental_application', 'type' => 'textarea', 'default' => '', 'rows' => 2,
+             'label' => 'Your sentence in the applicant\'s email and PDF',
+             'explain' => 'One sentence of your own at the top of the application email and PDF, for example how your agency screens tenants. Type {agency} where your agency name should appear. Leave empty to say nothing.',
+             'affects' => 'The wording an applicant reads before they start. Nothing is added if you leave it empty.'],
+            ['key' => 'prefill_lease_from_application', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Suggest the lease start date and term from the application',
+             'explain' => 'When an agent creates a lease from an approved application, the date and term the applicant asked for are filled in as a suggestion.',
+             'affects' => 'What the lease screen starts with. The agent can change both before saving.'],
+            ['key' => 'allow_withdraw_after_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Allow an approved application with no lease yet to be withdrawn',
+             'explain' => 'If the tenant walks away after being approved and before a lease exists, the agent can withdraw the application with a note.',
+             'affects' => 'Whether the Withdraw action is offered on an approved application. It is logged either way; a decided application with a lease can never be withdrawn this way.'],
+            ['key' => 'decline_email_subject', 'source' => 'rental_application', 'type' => 'text', 'default' => 'Your rental application - {{agency_name}}',
+             'label' => 'Decline email - subject',
+             'explain' => 'The subject line of the email an applicant gets when their application is declined. {{agency_name}} becomes your agency name. Leave it as it is to use the suggested wording.',
+             'affects' => 'What an applicant sees in their inbox when declined. Nothing changes for applications already declined.'],
+            ['key' => 'decline_email_body', 'source' => 'rental_application', 'type' => 'textarea', 'default' => '', 'rows' => 8,
+             'label' => 'Decline email - wording',
+             'explain' => 'The email an applicant gets when their application is declined, in your own words. Placeholders such as {{applicant_name}}, {{agency_name}} and {{decline_guidance}} are filled in for each applicant. It starts with a suggested, respectful default; edit it freely.',
+             'affects' => 'The tone and content of every decline email your agency sends from now on. Clear it back to the suggested default on the Rental applications settings page.'],
             ['key' => 'tag_contact_as_tenant_on_approval', 'source' => 'rental_application', 'type' => 'toggle', 'default' => 1,
              'label' => 'Tag the contact as Tenant when an application is approved',
              'explain' => 'When an agent approves a rental application, CoreX can automatically add "Tenant" to that person\'s contact record.',
@@ -587,6 +1136,12 @@ return [
              'label' => 'Application approval',
              'explain' => 'Two step keeps the existing hand-off to a second authoriser. One step lets an agent who is already configured as a Reviewer or Override user approve or decline an application directly, without a separate hand-off — for agencies where the same person handles and decides applications.',
              'affects' => 'Whether the review screen shows "Submit for approval" (two step) or "Approve application"/"Decline application" directly (one step) to an agent who is also a configured Reviewer or Override user. Someone who is neither still always sees "Submit for approval".'],
+            // Johan, 2026-10-07 — QA1 rentals test: a tenant approved for R10,000 was leased at R11,400 unnoticed.
+            ['key' => 'rent_above_approved_mode', 'source' => 'rental_application', 'type' => 'select', 'default' => 'warn',
+             'options' => ['warn' => 'Warn and confirm — the agent confirms with a reason, which is logged', 'block' => 'Block — the lease cannot be above the approved amount'],
+             'label' => 'Lease rent above the approved amount',
+             'explain' => 'When a lease is created from an approved application, CoreX compares the lease rent to the amount the tenant was approved for. This decides what happens when the lease rent is higher.',
+             'affects' => 'Whether the agent can still create the lease after confirming a reason (logged on the lease history and the application audit trail), or CoreX refuses to create a lease above the approved amount.'],
             // AT-430 §3.6 — Johan: "the checklist does not block approval by
             // default." Off (default): the checklist (link below) stays a
             // working aid.
@@ -852,14 +1407,14 @@ return [
 
     'presentations' => [
         'title' => 'Presentations & CMA',
-        'intro' => 'These settings decide how CoreX builds the valuation you put in front of a seller.',
+        'intro' => 'These settings decide how CoreX builds the evaluation you put in front of a seller.',
         'what' => [
             'title' => 'What a CMA is',
             'body'  => 'A CMA — Comparative Market Analysis — is how you justify a price to a seller. CoreX finds '
                 . 'recent sales of similar properties near theirs ("comparables", or comps), and uses them to '
                 . 'produce a defensible price range. The settings below tell it how far to look, how far back to '
                 . 'go, and how many comparables it needs before it will call the evidence strong. More comps means '
-                . 'a more confident valuation — but search too wide and you start comparing a beachfront house to '
+                . 'a more confident evaluation — but search too wide and you start comparing a beachfront house to '
                 . 'one three suburbs inland.',
         ],
         'savers' => [
@@ -868,7 +1423,7 @@ return [
         'controls' => [
             ['key' => 'presentations_coverage_rich_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 12, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "strong evidence"',
-             'explain' => 'Find at least this many comparable sales and CoreX marks the valuation as strongly evidenced. Must be the highest of the three thresholds.',
+             'explain' => 'Find at least this many comparable sales and CoreX marks the evaluation as strongly evidenced. Must be the highest of the three thresholds.',
              'affects' => 'The confidence badge your seller sees on the presentation. A "strong" badge is the one that wins mandates.'],
             ['key' => 'presentations_coverage_moderate_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 6, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "moderate evidence"',
@@ -877,11 +1432,11 @@ return [
             ['key' => 'presentations_coverage_thin_threshold', 'source' => 'agency', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 999,
              'label' => 'Comparables needed for "thin evidence"',
              'explain' => 'The floor. Below this, CoreX warns you there is not enough recent evidence to price confidently. Must be less than or equal to the moderate threshold.',
-             'affects' => 'When CoreX warns an agent that a valuation is under-evidenced before they present it to a seller.'],
+             'affects' => 'When CoreX warns an agent that an evaluation is under-evidenced before they present it to a seller.'],
             ['key' => 'presentations_default_period_months', 'source' => 'agency', 'type' => 'number', 'default' => 12, 'min' => 1, 'max' => 60,
              'label' => 'How far back to look (months)',
              'explain' => 'Only sales concluded within this many months count as comparables. Twelve months suits most markets; stretch it in a quiet suburb where little sells, shorten it in a fast-moving one.',
-             'affects' => 'Which past sales are allowed into the valuation. Too long and you are pricing off a different market.'],
+             'affects' => 'Which past sales are allowed into the evaluation. Too long and you are pricing off a different market.'],
             ['key' => 'presentations_default_comp_scope', 'source' => 'agency', 'type' => 'select', 'default' => 'radius_all',
              'options' => ['radius_all' => 'A radius around the property', 'suburb_only' => 'The same suburb only'],
              'label' => 'Where to look for comparables',
@@ -977,6 +1532,94 @@ return [
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],
 
+    // AT-454 — Road to Sold. Gated on the road-to-sold feature (which itself depends on prospecting).
+    // Spec: .ai/specs/road-to-sold.md section 4. One saver (SettingsController@saveFromWizard) writes
+    // through the same path as the settings page and only touches the fields this step posts (spec 6.1).
+    'road_to_sold' => [
+        'title' => 'Road to Sold',
+        'intro' => 'Road to Sold gives every agent a daily list of properties to phone to win stock, measured against a target for each day of the week. Set the ground rules now - you can change them later.',
+        'what' => [
+            'title' => 'What Road to Sold is',
+            'body'  => 'Every morning each agent opens one page: the properties to phone today, how many they should get through, '
+                . 'and a bar showing whether they are on track for the month. CoreX builds the list for them from the prospecting '
+                . 'data it already holds - buyers who want stock, price drops, new and long-standing listings, owners it already knows, '
+                . 'and the agent\'s own expired or slow-moving stock - starting with the suburbs you give that agent. '
+                . 'The agent logs what happened on each call, and managers see the results. The numbers below set the standard week; '
+                . 'you can give individual agents their own numbers, and their own suburbs, afterwards under Settings -> Road to Sold. '
+                . 'Your agency\'s suburbs are not chosen here: they come from the stock you hold and the Market Intelligence you capture, and update by themselves.',
+        ],
+        'savers' => [
+            ['controller' => \App\Http\Controllers\RoadToSold\SettingsController::class, 'method' => 'saveFromWizard'],
+        ],
+        'controls' => [
+            ['key' => 'default_target_1', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Monday target',
+             'explain' => 'How many properties an agent should work on a Monday. Use 0 for a day nobody works.',
+             'affects' => 'The number shown on every agent\'s Road to Sold page on Mondays, and how many properties are added to their list. An agent can be given their own number later.'],
+            ['key' => 'default_target_2', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Tuesday target',
+             'explain' => 'How many properties an agent should work on a Tuesday.',
+             'affects' => 'The Tuesday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_3', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Wednesday target',
+             'explain' => 'How many properties an agent should work on a Wednesday.',
+             'affects' => 'The Wednesday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_4', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Thursday target',
+             'explain' => 'How many properties an agent should work on a Thursday.',
+             'affects' => 'The Thursday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_5', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 5, 'min' => 0, 'max' => 200,
+             'label' => 'Friday target',
+             'explain' => 'How many properties an agent should work on a Friday.',
+             'affects' => 'The Friday number on every agent\'s page and list, unless that agent has their own.'],
+            ['key' => 'default_target_6', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 200,
+             'label' => 'Saturday target',
+             'explain' => 'How many properties an agent should work on a Saturday. The standard is 0 - no Saturday list.',
+             'affects' => 'Whether agents get a Saturday list and a Saturday target. At 0 they do not, and Saturdays add nothing to the month\'s target.'],
+            ['key' => 'default_target_7', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 0, 'min' => 0, 'max' => 200,
+             'label' => 'Sunday target',
+             'explain' => 'How many properties an agent should work on a Sunday. The standard is 0 - no Sunday list.',
+             'affects' => 'Whether agents get a Sunday list and a Sunday target. At 0 they do not, and Sundays add nothing to the month\'s target.'],
+            ['key' => 'half_day_leave_halves_target', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Half-day leave halves the target',
+             'explain' => 'Public holidays and whole days of approved leave never carry a target. This decides what happens on an approved half day of leave: off means the agent still owes the full day\'s number, on means it is halved.',
+             'affects' => 'An agent\'s target and their month-to-date figure on days they are on half-day leave.'],
+            ['key' => 'lock_agents_to_areas', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Lock agents to their areas',
+             'explain' => 'Each agent can be given their own suburbs. Off (recommended): their suburbs come first, then the list carries on into the rest of your agency\'s suburbs if the day is not full. On: they only ever get properties from their own suburbs.',
+             'affects' => 'Whether an agent can be sent to a suburb they have not been assigned. With this on, an agent who has no suburbs gets no call list at all.'],
+            ['key' => 'min_area_properties', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 1, 'min' => 1, 'max' => 1000,
+             'label' => 'A suburb counts as a working area from (properties)',
+             'explain' => 'Your working suburbs are worked out from your own stock and the Market Intelligence adverts captured for your agency. A suburb with only a stray advert or two can be left out by raising this number.',
+             'affects' => 'Which suburbs appear on the Areas screen, can be given to an agent, and are used to build call lists. At 1, every suburb you hold stock in or have captured anything for appears.'],
+            ['key' => 'refresh_portal_p24', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 1,
+             'label' => 'We capture from Property24',
+             'explain' => 'Road to Sold only asks for a refresh of a portal your agency actually captures from. Leave this on if you capture Property24 listings.',
+             'affects' => 'Whether a suburb is flagged "Needs a refresh" when nothing has been captured from Property24 for it recently, and whether the Areas screen shows Property24 dates. At least one portal must stay on.'],
+            ['key' => 'refresh_portal_pp', 'source' => 'road_to_sold', 'type' => 'toggle', 'default' => 1,
+             'label' => 'We capture from Private Property',
+             'explain' => 'Switch this off if your agency does not capture Private Property listings, so suburbs are never flagged for a portal you do not use.',
+             'affects' => 'Whether a suburb is flagged "Needs a refresh" when nothing has been captured from Private Property for it recently, and whether the Areas screen shows Private Property dates.'],
+            ['key' => 'area_refresh_warn_days', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 7, 'min' => 1, 'max' => 365,
+             'label' => 'Ask for a refresh after (days)',
+             'explain' => 'Road to Sold can only suggest what CoreX has captured. When nothing has been captured for a suburb in this many days, it shows "Needs a refresh" so someone re-captures it.',
+             'affects' => 'When a suburb is flagged as stale on the Areas screen. Refreshing stays a manual job.'],
+            ['key' => 'missed_items_mode', 'source' => 'road_to_sold', 'type' => 'select', 'default' => 'show_missed',
+             'options' => ['show_missed' => 'Show them as missed', 'roll_over' => 'Roll them over to the next working day'],
+             'label' => 'Properties an agent did not get to',
+             'explain' => 'At the end of the day, any property still not worked is either shown as missed on that day, or moved onto the agent\'s next working day.',
+             'affects' => 'Whether missed properties count against the day they were meant for, or are carried forward and worked later.'],
+            ['key' => 'no_answer_drop_after', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 3, 'min' => 1, 'max' => 20,
+             'label' => 'No-answers in a row before a property drops off',
+             'explain' => 'When an agent phones an owner and gets no answer this many times in a row, the property drops off their list and shows on the manager\'s report instead.',
+             'affects' => 'How long an agent keeps chasing a number that never answers before the property is handed to the manager\'s attention.'],
+            ['key' => 'hold_days', 'source' => 'road_to_sold', 'type' => 'number', 'default' => 30, 'min' => 1, 'max' => 365,
+             'label' => 'Days an agent keeps a property after a call',
+             'explain' => 'Once an agent logs an outcome on a property, it is theirs for this many days and is not suggested to other agents. Each new outcome restarts the clock.',
+             'affects' => 'How long a property stays reserved for the agent who last worked it, so two agents do not phone the same owner.'],
+        ],
+    ],
+
     'contacts' => [
         'title' => 'Contacts',
         'intro' => 'Your contacts are the people behind every deal — buyers, sellers, landlords, '
@@ -988,14 +1631,24 @@ return [
                 . 'eventually asks: which of our marketing is actually producing business? Add the channels you '
                 . 'genuinely use; a short honest list beats a long aspirational one.',
         ],
+        // Lead response time (Johan, 2026-10-07; .ai/specs/lead-response-time.md) — the counting hours per
+        // weekday render through this partial (a repeating 7-row control the generic loop cannot express); the
+        // target is the generic number control below. Both post `lead_response_present` and save through the
+        // one narrow, has()-guarded saver (spec §6.1) — the same saver Settings → Lead response uses.
+        'partial' => 'agency-setup.steps.lead-response-hours',
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateContactsPerPage'],
+            ['controller' => \App\Http\Controllers\CommandCenter\ContactGovernanceController::class, 'method' => 'updateLeadResponse'],
         ],
         'controls' => [
             ['key' => 'contacts_per_page', 'source' => 'perf', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 200,
              'label' => 'Contacts per page',
              'explain' => 'How many contacts load at a time on the Contacts page.',
              'affects' => 'How far an agent scrolls before paging to the next set of contacts.'],
+            ['key' => 'lead_response_target_minutes', 'source' => 'lead_response', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 10080,
+             'label' => 'Respond to a new enquiry within (minutes)',
+             'explain' => 'The time your agency aims to make first contact with someone who enquires through a portal, your website or a shared link. Only the hours chosen above count towards it.',
+             'affects' => 'Whether an enquiry shows as answered "in target" or "late" on the Lead Response report (Reports menu), and when a waiting enquiry is flagged as past target.'],
         ],
         'aux_partial' => 'agency-setup.steps.contacts-collections',
     ],
@@ -1020,9 +1673,6 @@ return [
             // spec §5.1. Guarded internally by the 'fica_referral_settings_present'
             // hidden marker (§6.1) — the partial always renders it.
             ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveReferralSettings'],
-            // Quick Links W1 — FICA link life + "expiring" threshold (quick-links.md §8-4). Plain number inputs that are
-            // only written when posted (§6.1), so a subset post can never wipe the other value.
-            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveRequestSettings'],
             // PPRA Inspection Pack Phase E — item (j), .ai/specs/ppra-inspection-pack.md
             // §6.7/§10a. A required <select> always posts a value, so no §6.1
             // has()-guard is needed here (that rule protects optional checkboxes only).
@@ -1030,6 +1680,8 @@ return [
             // PPRA FFC Employment Letter — .ai/specs/ppra-ffc-employment-letter.md §11.
             // The saver is has()-guarded (§6.1), so a post without the field leaves it alone.
             ['controller' => SettingsController::class, 'method' => 'savePpraEmploymentLetterSettings'],
+            // Rentals cross-cut — FICA time windows; has()-guarded per field (§6.1).
+            ['controller' => FicaOfficerAppointmentsController::class, 'method' => 'saveWindowSettings'],
         ],
         'controls' => [
             ['key' => 'financial_year_start_month', 'source' => 'agency', 'type' => 'select', 'default' => 3,
@@ -1038,14 +1690,6 @@ return [
              'label' => 'Financial year starts in',
              'explain' => 'The month your agency\'s financial year begins — used by the PPRA Inspection Pack to bound its "current financial year" sales and rentals list.',
              'affects' => 'Which sales and rentals count as "this financial year" on the PPRA Inspection Pack (Admin → PPRA Inspection Pack). Does not affect any other report.'],
-            ['key' => 'fica_link_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
-             'label' => 'FICA link is valid for (days)',
-             'explain' => 'When an agent sends a client a FICA form by email, the secure link in that email stops working after this many days.',
-             'affects' => 'How long a client has to fill in a FICA form before the agent has to resend it. Links already sent keep the life they were sent with.'],
-            ['key' => 'fica_expiring_after_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
-             'label' => 'Show FICA as "expiring" after (months)',
-             'explain' => 'How many months after a FICA is approved before CoreX starts showing that contact\'s FICA as expiring.',
-             'affects' => 'When the FICA chip on a contact turns amber and prompts the agent to send a new FICA form.'],
             // PPRA Inspection Pack Phase F — .ai/specs/ppra-inspection-pack.md
             // §4.6a/§6.8a. Plain number inputs always post a value, so no §6.1
             // has()-guard is needed here either.
@@ -1079,6 +1723,28 @@ return [
              'label' => 'PPRA employment letter — who it is addressed to',
              'explain' => 'Each agent needs a signed "Confirmation of Employment" letter from you to renew their Fidelity Fund Certificate. This is the address block at the top of that letter (the "RE:" line). Leave it blank to use the Property Practitioners Regulatory Board\'s own published address — change it only if your agency writes to a different PPRA office.',
              'affects' => 'The addressee printed at the top of every PPRA employment letter your agents and admins generate (My Portal → Documents, and Admin → PPRA Employment Letters). Letters already printed keep what they were printed with.'],
+            // Rentals cross-cut (8 Oct 2026) — the FICA time windows that were literals in code. Plain number inputs; the saver is has()-guarded (§6.1).
+            ['key' => 'fica_link_expiry_days', 'source' => 'agency', 'type' => 'number', 'default' => 14, 'min' => 1, 'max' => 90,
+             'label' => 'FICA link stays valid for (days)',
+             'explain' => 'How long the FICA link emailed to a client works before it expires and has to be re-sent.',
+             'affects' => 'The expiry date printed in the FICA request email and the day the client\'s link stops working.'],
+            ['key' => 'fica_current_months', 'source' => 'agency', 'type' => 'number', 'default' => 11, 'min' => 1, 'max' => 60,
+             'label' => 'An approved FICA counts as current for (months)',
+             'explain' => 'How long an approved FICA is treated as up to date before CoreX flags it as expiring.',
+             'affects' => 'When a contact\'s FICA badge turns to "Expiring", and when a repeat rental applicant is asked for FICA again.'],
+            ['key' => 'fica_validity_months', 'source' => 'agency', 'type' => 'number', 'default' => 24, 'min' => 1, 'max' => 120,
+             'label' => 'An approval is valid for (months)',
+             'explain' => 'The expiry date CoreX stamps on a FICA when your compliance officer approves it.',
+             'affects' => 'The expiry date shown on approved FICA records and on the compliance calendar.'],
+            ['key' => 'fica_expiring_soon_days', 'source' => 'agency', 'type' => 'number', 'default' => 60, 'min' => 1, 'max' => 365,
+             'label' => '"Expiring soon" looks ahead (days)',
+             'explain' => 'How far ahead the "expiring soon" list looks for FICA approvals about to lapse.',
+             'affects' => 'Which FICA approvals appear under "Expiring soon" in document filing.'],
+            // Trust account name on the FICA form's payment guidance (was one agency's name in the wording). Text, has()-guarded by saveWindowSettings (§6.1).
+            ['key' => 'rental_trust_account_name', 'source' => 'agency', 'type' => 'text', 'placeholder' => 'e.g. Smith Property Trust Account',
+             'label' => 'Trust account name (rent and deposits)',
+             'explain' => 'How your clients should refer to the trust account their rent and deposit are paid into. Tenants and landlords see it in the payment guidance on the FICA form. Leave it blank and the form says "the agency\'s trust account".',
+             'affects' => 'The wording of the payment hints on the FICA form your tenants and landlords fill in, e.g. "paid via EFT to the Smith Property Trust Account".'],
         ],
     ],
 
@@ -1157,6 +1823,13 @@ return [
         'savers' => [
             ['controller' => SettingsController::class, 'method' => 'updateDashboardMode'],
             ['controller' => SettingsController::class, 'method' => 'updateAgencyDashboardSettings'],
+        ],
+        // AT-451 follow-up (14 Oct 2026) - written through updateAgencyDashboardSettings, which only touches the field when this step posts it.
+        'controls' => [
+            ['key' => 'alert_catchup_minutes', 'source' => 'alert_settings', 'type' => 'number', 'default' => 10, 'min' => 1, 'max' => 240,
+             'label' => 'Show alerts still unread from the last (minutes)',
+             'explain' => 'When someone opens CoreX in a new tab or signs in, any alert that arrived in this many minutes and has not been read pops up on screen, so a fault reported a moment before is not missed.',
+             'affects' => 'How far back a freshly opened CoreX screen looks for unread alerts to pop up. A short time suits a busy office; a longer one suits people who open CoreX only now and then.'],
         ],
     ],
 

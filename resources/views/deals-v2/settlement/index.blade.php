@@ -69,7 +69,7 @@
                                 <span class="text-xs ml-2 font-mono" style="color: var(--text-muted);">Pool: R {{ number_format($pool, 2) }}</span>
                             </div>
                             @if($isExternal)
-                                <span class="text-xs px-2 py-0.5 rounded" style="background: rgba(245,158,11,0.15); color: #fbbf24;">External — {{ $deal->{$side . '_external_agency'} ?? 'Unknown' }}</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-warning">External — {{ $deal->{$side . '_external_agency'} ?? 'Unknown' }}</span>
                             @endif
                         </div>
 

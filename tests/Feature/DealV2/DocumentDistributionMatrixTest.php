@@ -121,10 +121,11 @@ class DocumentDistributionMatrixTest extends TestCase
 
     public function test_locked_example_defaults_seeder(): void
     {
-        // Rename my test types to the canonical slugs the seeder expects.
-        DocumentType::where('id', $this->otp)->update(['slug' => 'otp']);
-        DocumentType::where('id', $this->ids)->update(['slug' => 'ids']);
-        DocumentType::where('id', $this->por)->update(['slug' => 'por']);
+        // The seeder looks the canonical slugs up; the schema snapshot already carries otp / ids / por
+        // (slug is unique, so they cannot be re-created) — use those rows instead of my test types.
+        $this->otp = (int) DocumentType::where('slug', 'otp')->value('id');
+        $this->ids = (int) DocumentType::where('slug', 'ids')->value('id');
+        $this->por = (int) DocumentType::where('slug', 'por')->value('id');
         $a = $this->agency();
 
         (new DocumentDistributionMatrixSeeder())->run();

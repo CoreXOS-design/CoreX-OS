@@ -243,12 +243,13 @@ agency, so the visible count is ≤ 13.
 | 3 | `branding` | Logo & agency colours | `agencies` (`logo_path`, `sidebar_color`, `icon_color`, `default_color`, `button_color`, `ncc_registration_number` — AT-234, added 2026-08-04) |
 | 4 | `branches` | Branches / offices | `branches` (the `split_branches_enabled` master moved to step 2) |
 | 5 | `commission` | Commission & revenue share | `commission_settings` |
-| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04) |
+| 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04); `agencies.other_agency_stock_visible_roles` + `other_agency_stock_consent_wording` (Other Agency Stock — 2026-10-07, new `role_multiselect` control type, `other_agency_stock` source, saver `SettingsController@updateOtherAgencyStock`); `title_deed_settings` (all 17 Title Deed Register settings (round 4 adds the "Reference prefix" text control under the heading "Reference numbers") — AT-450, 2026-10-13, round 3 2026-10-14: the four "required" ticks became Required / Optional / Not used selects and the booleans Yes / No selects with the SAME wording as Settings -> Title Deeds, `spec title-deed-register.md` §15; source `title_deeds` resolved by `TitleDeedSetting::{camelKey}For`, saver `TitleDeedSettingsController@save`, every field `has()`-guarded; spec `title-deed-register.md` §9) |
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
+| 8b | `road_to_sold` | Road to Sold | `rts_settings` (AT-454, 2026-10-13, spec `road-to-sold.md` §4): the agency default weekday targets (`default_target_1`..`7` -> `default_weekday_targets`), `half_day_leave_halves_target`, `lock_agents_to_areas`, `area_refresh_warn_days`, `missed_items_mode`, `no_answer_drop_after`, `hold_days`; source `road_to_sold` (explicit per-key arm in `currentValues`, read through `SettingsService`); saver `RoadToSold\SettingsController@saveFromWizard` (maps `default_target_N` onto the settings saver, every field `has()`-guarded, 403 before any write) — **gated on the `road-to-sold` feature** (which depends on `prospecting`) | **13 Oct 2026 16:03 (Johan):** the agency’s suburbs are no longer chosen anywhere - they are derived from its stock and Market Intelligence data (road-to-sold.md section 13); the step now carries `min_area_properties` (a suburb counts as a working area from N properties, default 1) beside Lock agents to their areas.
 | 9 | `contacts` | Contacts | `performance_settings` (`contacts_per_page`), `contact_sources` |
-| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`); `agencies.fica_link_days` / `agencies.fica_expiring_after_months` (FICA request link life + "expiring" threshold — 2026-10-12, Quick Links W1, saver `FicaOfficerAppointmentsController@saveRequestSettings`, has()-guarded per field) |
-| 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting`, `agencies.dashboard_settings_mode` |
+| 10 | `compliance` | Compliance | whistleblow columns on `agencies`; `agencies.fica_referral_enabled` / `fica_referral_recipient_user_id` (AT-236, added 2026-08-04 — was flagged 2026-07-14 as a deliberate-omission candidate pending Johan's call; resolved to include rather than exclude); `agencies.ppra_employment_letter_address_block` (PPRA employment letter addressee — 2026-10-07, saver `SettingsController@savePpraEmploymentLetterSettings`); `agencies.rental_trust_account_name` (the name of the trust account the FICA form tells tenants and landlords to pay rent and deposit into — 14 Oct 2026, text control, saved by `FicaOfficerAppointmentsController@saveWindowSettings` beside the FICA time windows, `has()`-guarded, blank = the neutral "the agency's trust account"; spec `compliance.md`) |
+| 11 | `notifications` | Notifications & dashboard | `AgencyDashboardSetting` (incl. `alert_catchup_minutes` — how far back a freshly opened screen looks for unread alerts to pop up, default 10, 1 to 240, added 14 Oct 2026, a `controls` entry with source `alert_settings` read by `AlertSwitchService::catchupMinutesFor`, saved by the same `updateAgencyDashboardSettings`; and `alert_poll_seconds` — how often screens check for a new alert to pop up, default 30, min 15, added 2026-10-12 AT-451; saver `updateAgencyDashboardSettings` only touches it when `$request->has('alert_poll_seconds')`), `agencies.dashboard_settings_mode` |
 | 12 | `roles` | How roles & permissions work (explainer) | — (explainer only; no savers) |
 | 13 | `access` | Access & finish | `agencies.require_external_access_authorization`; review summary; mark complete |
 
@@ -256,6 +257,26 @@ agency, so the visible count is ≤ 13.
 
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
+
+- **`ai_template_max_failed_per_day` - how many paid-but-failed AI design attempts an agency may have per day** (2026-10-18, audit-fix-ai-spend, Johan's decision D-M2). A PLATFORM setting (Dev Settings -> AI Spend Safety, beside the alert / switch-off thresholds), not an agency one: it protects the platform's AI bill, so an agency never configures it and it has no place in onboarding. Default 5.
+
+- **Notice templates (breach notice - payment, breach notice - other, notice to vacate, and any other the agency adds)** (2026-10-14, qa1, `rental-notices.md` §3; **recorded for Johan**). They are the agency's OWN uploaded documents (Word, with placeholders), managed on their own screen (Settings -> Rental Notice Templates) like every other template - CoreX seeds none and they are not a switch to set once. The settings that came with notices ARE in the wizard (Leases step): `lease_settings.cpa_early_cancel_business_days` and `lease_settings.breach_remedy_business_days`.
+
+- **"Who normally pays" defaults on a fault type (`rental_fault_type_causes`)** (2026-10-13, qa1 AT-452 stage 4; **recorded for Johan**). It is fault-catalogue DATA (a short list of self-checks and causes per fault type, like the first-aid steps, which are not wizard controls either), seeded neutral for every agency and edited on the fault type's own screen - not an agency switch. Spec `rentals-faults-work-orders.md` §22.13.7.
+
+- **"Who looks at faults first" (per-property / per-owner first responders, `rental_first_responders`)** (2026-10-12, qa1 AT-452 family; **recorded for Johan**). It is per-property and per-owner DATA with a change log - like the owner's work terms, which are not wizard controls either - not an agency setting, so there is nothing to switch on in onboarding. Spec `rentals-faults-work-orders.md` §21.4.
+
+- **`lease_settings.allow_advance_as_of_date` - "run a lease's date checks as if today were another day"** (2026-10-14, qa1; the brief itself says the
+  setting is hidden unless APP_ENV is not production). A testing aid for QA / Staging boxes that have no scheduler
+  (rental-renewals.md §22.1). The wizard is what a NEW agency on the live system walks through, and the control does not exist
+  there, so it cannot be a wizard step. Default off.
+
+- **`lease_settings.default_pre_let_status` — "the status that means back on the market"** (2026-10-08, qa1-cc2, **pending
+  Johan's confirmation**). It is a pick from the agency's OWN property statuses, which a wizard control cannot list (wizard
+  `options` are static config; a closure would break `config:cache`). It is on Settings → Leases, default `active`, valid for
+  every agency. Its three sibling switches (`auto_readvertise_on_notice`, `auto_restore_status_on_lease_ended`,
+  `auto_restore_status_on_lease_cancelled`) ARE in the `leases` step. If Johan wants the status in the wizard too, the step
+  needs a dynamic `options` source.
 
 - **Portal credentials (P24 / Private Property) and advanced portal settings.** Not an
   onboarding concern. They stay on the agency-edit page. The narrow
@@ -279,8 +300,11 @@ by oversight — do not reinstate them without asking:
   save). Stays on `Admin\AgencyApiKeyController@toggleWebsite`, reachable from the
   agency's website-settings page. `agencies.website_enabled` and
   `config/corex-features.php`'s `public-website` registry row both still default `false`.
+- **Buyer-notes visibility (`buyer_notes.view`, 2026-10-07).** A per-role Role Manager data scope (Own / Branch / Agency), not an agency setting — the wizard does not configure the role matrix. Recorded as a decision, not an oversight.
+
 - **E-sign legal warning flag (`document_types.esign_warning_required`, 2026-10-08).** Which document types ask the admin to acknowledge a legal warning when e-signing is switched on for a template. `document_types` is a platform-wide table shared by every agency (no `agency_id`), switched only by a CoreX owner-role user on Document Types settings — not an agency setting, so the wizard cannot configure it. Recorded as a decision for Johan to confirm (§10a makes the call his, not the lane's). Spec `ESIGN-CANON.md` §7.
 
+- **Address-matching strictness (`address_match_settings`, 2026-10-07).** Expert thresholds for "is this the same property?" (which exact rules are on, how many columns must agree for a possible match, how neighbouring suburbs count, the GPS radius, how a missing unit counts). Safe defaults; admin-only page `/corex/settings/prospecting/address-matching`. Johan's decision (conductor's brief, 2026-10-07: "system settings with sensible defaults, admin-only, not in the Setup Wizard") — recorded as a decision, not an oversight. Spec `structured-address-matching.md` §9.
 
 - **MIC tile-count cache window** (`suggested_action_thresholds.mic_counts_cache_fresh_seconds` /
   `.mic_counts_cache_stale_seconds`, added 2026-08-27). An internal cache-tuning knob, not a
@@ -291,10 +315,11 @@ by oversight — do not reinstate them without asking:
   Settings → Prospecting Setup → Stale-claim rules. **Pending Johan's confirmation** — §10a makes
   the keep-it-out call his, not the lane's.
 
-- **PPRA employment letter addressee — IN the wizard (2026-10-07).** It was shipped with a recorded
-  "not in the wizard" omission (the feature's own spec, written by the lane, not by Johan — §10a makes that
-  call his) and a staging-plan audit found it never reached onboarding. Now surfaced, no new setting, no
-  behaviour change, same saver as the settings page (one source of truth):
+- **PPRA employment letter + Other Agency Stock — IN the wizard (2026-10-07).** Both were shipped
+  with a recorded "not in the wizard" omission (their own specs, written by the lane, not by Johan —
+  §10a makes that call his) and a staging-plan audit (`/tmp/staging-plan-noteonly-ppra-oas-2026-10-07.md`)
+  found neither reached onboarding. Now surfaced, no new settings, no behaviour change, same saver as the
+  settings page (one source of truth):
   - **Compliance step:** `agencies.ppra_employment_letter_address_block` — textarea, blank = the PPRA's own
     published address (`PpraEmploymentLetter::DEFAULT_PPRA_ADDRESS_BLOCK`, shown as the greyed placeholder,
     never pre-filled as a value so a save cannot freeze the default into the agency). Saver
@@ -303,9 +328,15 @@ by oversight — do not reinstate them without asking:
     agency's PPRA registration number and trading name the letter prints are already controls on the
     Identity step; the Role-Manager "can receive a letter" permission is a role setting, not an agency
     control (Role Manager screen; the Roles explainer step already points there).
+  - **Properties step:** `agencies.other_agency_stock_visible_roles` (a tick-list of THIS agency's own
+    roles — new `role_multiselect` control type; every role ticked = stored NULL = visible to everyone,
+    the default) and `agencies.other_agency_stock_consent_wording` (textarea, blank = the standard
+    wording as placeholder). Saver `SettingsController@updateOtherAgencyStock` (already guarded: roles by
+    their `_submitted` marker, wording by `has()`); the roles list is the same `Role::allRoles()` list
+    Company Settings offers.
   - New generic view features on `text`/`textarea` controls: optional `placeholder`, and `rows` for
-    textarea.
-  Tests: `tests/Feature/Onboarding/AgencySetupWizardPpraTest.php`.
+    textarea. Current-value source `other_agency_stock` is an explicit per-key match (§6.2).
+  Tests: `tests/Feature/Onboarding/AgencySetupWizardPpraOasTest.php`.
 
 - **Portal-listing stale window — IN the wizard (2026-10-07).** `suggested_action_thresholds.listing_off_market_days`
   (days a portal listing may go un-sighted before it is presumed off the market; default 90, Johan: "a
@@ -325,7 +356,9 @@ by oversight — do not reinstate them without asking:
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
     guarded fields), and also added to the Rental Inspection Settings page so the two never drift.
   - The repeater lists — refusal reasons, inspection condition states (+ "All Good" baseline),
-    photo-note classifications, inventory condition states — rendered by the
+    photo-note classifications, inventory condition states (plus, in the same partial: how someone
+    attended, own room types, the standard room list per kind of property (14 Oct 2026, `rental-inspections.md` §55, saver `inspectionRoomTemplates`, marker `room_templates_submitted`), and — 7 Oct 2026, `rental-inspections.md` §45.14 — the agency's words for
+    the three move-out classifications, saver `inspectionMoveOutClassificationLabels`) — rendered by the
     `agency-setup.steps.rentals-inspection-lists` partial (the same repeater markup as the settings
     screens; the step's `partial` key now accepts a list). Each list posts its own `*_submitted`
     marker and saves through `RentalListsWizardSaver`, which is a no-op when the marker is absent and
@@ -352,6 +385,17 @@ by oversight — do not reinstate them without asking:
   (whether approving a rental application adds "Tenant" to the contact's types), not a signup-time
   decision. Configured on Settings → Rental Applications → "Tag Contact as Tenant on Approval".
 
+- **The owner's work terms per rental property** (`properties.rental_no_approval_spend_threshold` and
+  `properties.rental_variation_tolerance_percent`, maintenance-flow Build 2, 6 Oct 2026 —
+  `.ai/specs/rental-work-orders.md` §17.6.2 / §17.14). Per-owner agreements, edited on the property's
+  Rental tab ("Work terms agreed with the owner", own permission, append-only history) — not an
+  agency-wide onboarding choice (same ruling as the other per-property overrides). The **agency
+  defaults** they inherit ARE in the wizard (Rentals step: the fee on an outside contractor's quote — type and
+  value; saver `RentalWorkOrderSettingsController::updateApprovals`, every field `has()`-guarded).
+  **13 Oct 2026 (AT-452, Johan): the variation tolerance % and the owner email on an auto-approved extra were
+  REMOVED from the wizard and from Settings** - the authorised amount is a hard lock
+  (`rentals-faults-work-orders.md` §22.6), nothing reads either value any more. Stored data is kept.
+
 **From the feature switchboard (spec `.ai/specs/agency-onboarding-feature-switchboard.md` §3.5):**
 
 - **P24 / Private Property portal *credentials* and the `p24_enabled` / `pp_enabled` /
@@ -377,6 +421,9 @@ by oversight — do not reinstate them without asking:
   something an agency configures about how CoreX behaves for them, so it is not a wizard control — same
   as the existing per-user `show_on_website` / `exclude_from_p24` switches, which are not in the wizard
   either. Recorded here so the omission is on the record rather than unnoticed (CLAUDE.md 10a).
+
+- **Road to Sold - the nine call-list sources (order, on/off), their limits and look-back windows, the colour lines and the on-track bar's steps** (2026-10-13, AT-454; **Johan's call on 13 Oct: "main settings in the wizard, selection order and colour limits on the settings page only"**). Expert knobs an agency tunes once it has seen the list working; they sit on Settings -> Road to Sold with standard defaults that work. Also not wizard controls: each agent's own suburbs and own weekday numbers - those are per-person records with their own screens, not an agency setting. Spec `road-to-sold.md` §4/§8.
+- **Road to Sold - public-holiday country, the match rules and list sizes** (2026-10-13, AT-454 audit; **recorded for Johan - pending his confirmation**). `public_holiday_country` has exactly one real value today (only South African holidays are loaded), so a wizard control would offer a one-item list; it is on Settings -> Road to Sold, default ZA, and becomes a wizard control the day a second country's holidays are loaded. The list-builder values (which buyer matches and buyer states count, which statuses mean "on the market", the add-to-day ceiling, the scan window size, the three hot-pocket weights) are expert knobs like the limits above, with standard defaults that work. Spec `road-to-sold.md` §9.11.
 
 ### 5.2 Commission step — the mentor programme is optional (2026-07-11)
 
@@ -440,6 +487,49 @@ Guarded by `test_every_step_explains_itself_before_asking_for_config` (asserts e
 `STEPS` has a `what` block and renders it).
 
 ---
+
+### 5.3 What the agency does — sales, rentals or both (2026-10-14, Johan; cc3's new-agency walk)
+
+**The defect.** A brand-new agency was handed syndication, payroll and every sales tool switched on, whatever it does — and the
+syndication/marketing switches were not even its own: with no row of its own the agency read the platform-wide row, which holds
+Home Finders Coastal's choices.
+
+**The setting.** `agencies.agency_type` (`sales` | `rentals` | `both`, **default `both`**; existing agencies become `both` and keep
+every switch exactly as it is — the migration writes no feature rows). Lists live in `config/agency-types.php`
+(`sales_features` = off for rentals-only, `rentals_features` = off for sales-only, `opt_in_features` = off for every new agency).
+Cascading children (Road to Sold, Commission, Leave, every `rental-*` module) switch off with their parent.
+
+**Where it is asked.** (1) The owner's **Create Agency** form ("What does this agency do?"). (2) The wizard's **identity** step
+(control `agency_type`, saver `AgencyTypeController@update` after `updateAgency`) — so the capabilities step that follows already
+shows the right switches. (3) The **Features** page (own small form, same saver). One saver, three homes; §6.1 holds: it writes
+only when the form posted `agency_type`, and saving the same type changes nothing.
+
+**What it does.** `AgencyTypeFeatureSeeder::seedNewAgency()` (creation only): writes the type's switches, switches the opt-in
+list off, and pins every switchboard setting that lives in `performance_settings` (marketing, syndication, core matches) to a row of
+the agency's OWN at the neutral registry default — it can never fall back to another agency's platform-wide row.
+`applyType()` (an admin changing the type later, on purpose) re-applies ONLY the type's own lists; every other switch stays as the
+admin set it, and each real change emits `AgencyFeatureToggled`. The admin can still switch any feature on or off.
+
+**Wizard savers are called through the container** (`app()->call`), so a saver may type-hint a service. Before 14 Oct the loop
+called every saver with the request alone and `ProformaSettingsController@update` / `StaleRulesController@updateListingWindow`
+crashed with `ArgumentCountError` on first save for every agency. Test: `AgencySetupEveryStepSavesTest`.
+
+Tests: `tests/Feature/Features/AgencyTypeFeatureSeedTest.php`, `tests/Feature/Onboarding/AgencySetupEveryStepSavesTest.php`.
+
+### 5.4 Short code - the letters on the agency's document numbers (2026-10-14, Johan)
+
+`agencies.short_code` (2-10 letters/numbers, upper-case, unique across agencies). Payslips were numbered with a literal `HFC-`; they now
+start with the agency's own code (`CTR-202610-001`). **Where it is set:** the Setup Wizard identity step (control `short_code`, saved by
+`SettingsController@updateAgency` - written only when the step posted it, §6.1), Company Settings, `/settings` (agency details) and Admin >
+Agencies (create/edit). **Default:** worked out from the name when the agency is created (`App\Support\AgencyShortCode::fromName`: first
+letter of each real word, up to three - "Home Finders Coastal" -> HFC, "Cape Town Rentals" -> CTR, one word -> first three letters; a clash
+with another agency gets a number added). A blank box keeps the code the agency has - it is never emptied, and renaming the agency does
+not change it. Changing the code only affects numbers issued from then on; numbers already issued never change. The migration gave every
+existing agency a code from its name, oldest first, so Home Finders Coastal is `HFC` and its numbering is unchanged.
+
+Other document numbers were checked in the same sweep and are NOT agency-lettered: `LV-` (leave application), `DL-` (deal reference) and
+`WO-` are document-type codes with no agency in them; the proforma prefix (`AgencyProformaSettings.number_prefix`) and the title-deed prefix
+(`TitleDeedSetting`) are already per-agency settings. Test: `tests/Feature/Agencies/AgencyShortCodeTest.php`.
 
 ## 6. Save-path map — every step reuses the settings page's write path
 
@@ -563,7 +653,7 @@ landing under that same source later.
 1. **Generic** — resolves any key via a real column/method-name lookup (`perf`, `deal_sync`,
    `proforma`, `mailbox`, `rental_application`, and the bare `agency` default). A new control here
    just works, provided its key matches a real column/resolver name — no match-arm edit needed.
-2. **Explicit per-key** (`leases`, `rental_work_orders`, `rental_inspections`, `rental_inventories`) —
+2. **Explicit per-key** (`leases`, `rental_work_orders`, `rental_inspections`, `rental_inventories`, `rental_portal`, `other_agency_stock`) —
    an inner `match ($key) { ... }` naming every control under that source individually. **Adding a
    new control under one of these sources MUST add its key to that same inner match** — the exact
    step this bug skipped, twice. Never write a source's arm as a single hardcoded call regardless of

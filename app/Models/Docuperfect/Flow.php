@@ -30,6 +30,7 @@ class Flow extends Model
         'flow_sequence',
         'parent_flow_id',
         'pack_status',
+        'lease_id', // LEASE-AGREEMENT (leases.md §15.10 M3 — Build L1)
     ];
 
     protected $casts = [

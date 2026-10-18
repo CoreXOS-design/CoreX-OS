@@ -43,9 +43,14 @@ class ClientPortalController extends Controller
 
         $agencies = $this->service->agenciesFor($client);
 
+        // Which contact is "you" depends on the side on screen: ?as=tenant|owner picks that side's contact, and the contact a link named
+        // (X-Portal-Contact) wins among the login's own. With neither it is the lowest-id contact, exactly as before.
+        $identity = app(\App\Services\Rentals\PortalIdentityService::class);
+        $hint = \App\Services\Rentals\PortalIdentityService::hintFrom($request);
         $contact = $client->current_agency_id
-            ? $this->service->contactForAgency($client, $client->current_agency_id)
+            ? $identity->contactFor($client, (int) $client->current_agency_id, $request->query('as'), $hint)
             : null;
+        $sideContacts = $client->current_agency_id ? $identity->contactsBySide($client, (int) $client->current_agency_id, $hint) : [];
 
         $agent = $contact ? $this->resolveAssignedAgent($contact) : null;
 
@@ -62,6 +67,13 @@ class ClientPortalController extends Controller
             ],
             'agencies' => $agencies,
             'contact'  => $contact ? $this->shapeContact($contact) : null,
+            // does the contact the link named (X-Portal-Contact) belong to this login? null when the link named nobody
+            'owns_linked_contact' => $hint ? $identity->ownsContact($client, $hint) : null,
+            // the person's name on each side they hold (the portal header shows the one for the side on screen)
+            'side_contacts' => [
+                'tenant'   => ($sideContacts['tenant'] ?? null) ? $this->shapeContact($sideContacts['tenant']) : null,
+                'landlord' => ($sideContacts['landlord'] ?? null) ? $this->shapeContact($sideContacts['landlord']) : null,
+            ],
         ];
 
         // Sibling of `contact`: the client's assigned agent in the current

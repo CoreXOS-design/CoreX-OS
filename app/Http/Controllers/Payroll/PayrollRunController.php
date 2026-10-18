@@ -241,6 +241,7 @@ class PayrollRunController extends Controller
             $employees = $employees->concat($autoTerminated);
 
             $payslipSeq = 0;
+            $payslipPrefix = \App\Support\AgencyShortCode::forAgencyId((int) $agencyId);
             $totals = [
                 'gross' => '0.00', 'paye' => '0.00',
                 'uif_employee' => '0.00', 'uif_employer' => '0.00',
@@ -284,8 +285,8 @@ class PayrollRunController extends Controller
                 // Calculate (with pre-tax adjustments for unpaid leave + the run cut date)
                 $calc = $calculator->calculatePayslip($emp, $periodMonth, null, $preTaxAdjustments, $cutDate);
 
-                // Generate payslip number
-                $payslipNumber = 'HFC-' . $periodMonth->format('Ym') . '-' . str_pad($payslipSeq, 3, '0', STR_PAD_LEFT);
+                // Generate payslip number: the agency's own short code, never another agency's letters
+                $payslipNumber = $payslipPrefix . '-' . $periodMonth->format('Ym') . '-' . str_pad($payslipSeq, 3, '0', STR_PAD_LEFT);
 
                 // Create payslip
                 $payslip = PayrollPayslip::create([

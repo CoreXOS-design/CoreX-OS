@@ -98,10 +98,12 @@ final class SigningGroupCheckpointTest extends TestCase
     }
 
     /**
-     * THE REGRESSION GUARD. An UNGROUPED ceremony must behave exactly as it does today: the agent is
-     * asked to approve after the first external party, and the second party is NOT released.
+     * ESIGN-WETINK Ruling #1 (Elize flow optimisation) superseded the old "agent checkpoint after every
+     * party": a CLEAN accept (no flag, no strikeout/amendment) flows STRAIGHT to the next recipient — the
+     * agent is only pulled back in by a pending amendment, or to approve the FINAL release (AT-322).
+     * So an UNGROUPED ceremony now releases the second party straight away.
      */
-    public function test_ungrouped_parties_still_checkpoint_after_every_party(): void
+    public function test_ungrouped_parties_flow_straight_on_after_a_clean_accept(): void
     {
         $template = $this->ceremony();
         $seller1 = $this->party($template, 'seller', 'Nomsa Dlamini', 1, group: null, status: SignatureRequest::STATUS_PENDING);
@@ -109,10 +111,10 @@ final class SigningGroupCheckpointTest extends TestCase
 
         $this->service->handlePartyCompletion($template, 'seller', $seller1);
 
-        $this->assertSame(SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, $template->fresh()->status,
-            'With no groups, the agent checkpoint must still fire after the first party — as it does today.');
-        $this->assertSame(SignatureRequest::STATUS_WAITING, $seller2->fresh()->status,
-            'The second party must NOT have been released without the agent.');
+        $this->assertNotSame(SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, $template->fresh()->status,
+            'A clean accept must not stop at an agent checkpoint (Ruling #1).');
+        $this->assertSame(SignatureRequest::STATUS_PENDING, $seller2->fresh()->status,
+            'The second party must have been released straight away.');
     }
 
     /** Joint sellers in ONE group: seller 1 hands straight to seller 2, with no agent in between. */
@@ -144,17 +146,19 @@ final class SigningGroupCheckpointTest extends TestCase
             'The group is finished — now the agent checkpoints.');
     }
 
-    /** A group of one behaves like an ungrouped party: it checkpoints on its own. */
-    public function test_a_group_of_one_checkpoints_on_its_own(): void
+    /** A group of one behaves like an ungrouped party: a clean accept flows straight to the next group (Ruling #1). */
+    public function test_a_group_of_one_flows_straight_to_the_next_group_after_a_clean_accept(): void
     {
         $template = $this->ceremony();
         $seller = $this->party($template, 'seller', 'Refilwe Mabaso', 1, group: 1, status: SignatureRequest::STATUS_PENDING);
-        $this->party($template, 'buyer', 'Pieter van Niekerk', 2, group: 2);   // a DIFFERENT group
+        $buyer = $this->party($template, 'buyer', 'Pieter van Niekerk', 2, group: 2);   // a DIFFERENT group
 
         $this->service->handlePartyCompletion($template, 'seller', $seller);
 
-        $this->assertSame(SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, $template->fresh()->status,
-            'The next party is in another group, so the agent checkpoints between them.');
+        $this->assertNotSame(SignatureTemplate::STATUS_PENDING_AGENT_APPROVAL, $template->fresh()->status,
+            'A clean accept does not checkpoint between groups any more.');
+        $this->assertSame(SignatureRequest::STATUS_PENDING, $buyer->fresh()->status,
+            'The next group\'s party is released straight away.');
     }
 
     /** The hand-off inside a group is recorded — the evidence timeline must show who held the pen. */

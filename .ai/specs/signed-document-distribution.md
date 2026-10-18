@@ -120,6 +120,42 @@ own consumer; this one already covers you.
   copy — it reads recipients client-side from data already in the page's own payload (no extra
   round-trip needed if your module's own tab payload already eager-loads the same relations).
 
+## One-off filings with no natural distributable object — `FileableDocumentAdapter`
+
+Conductor brief 2026-09-29 — the wet-ink build (rental-inventory.md §21 / rental-inspections.md §39)
+needed to file a per-PARTY wet-ink scan to the property's Document store, not the module's whole signed
+report. Filing a single evidence file has no natural "distributable" domain object the way a completed
+inspection/inventory does — building a full `SignedDocumentDistributable` implementation on
+`RentalInspectionSignature`/`RentalInventorySignature` themselves would mean stubbing out
+`distributionRecipients()`/`distributionAgent()`/`distributionSubject()`/the public-link methods with no
+real meaning at the per-signature level.
+
+`App\Support\Distribution\FileableDocumentAdapter` (new) is a minimal, generic, reusable
+`SignedDocumentDistributable` for exactly this case — **use it whenever you need `fileToProperty()` and
+nothing else from this service** (no email, no public link):
+
+```php
+$adapter = new FileableDocumentAdapter($property, 'your_source_type', $sourceId);
+$document = $distributionService->fileToProperty($adapter, $pdfBytes, $filename);
+```
+
+`fileToProperty()` only ever calls `distributionProperty()`, `distributionSourceType()`, and
+`distributionSourceId()` on the object it's handed — confirmed by reading the method itself, not assumed
+— so the adapter's other interface methods (`distributionRecipients()` returns `[]`,
+`distributionAgent()` returns `null`, `generatePublicLink()` throws) are safe, inert stand-ins, never
+meant to be called through this adapter. **Do not use `FileableDocumentAdapter` for anything that emails
+parties or generates a public share link** — build a real distributable object (or extend an existing
+one) for that; this adapter exists only for the narrow "file this PDF, keyed on this source_type/id"
+case.
+
+`fileToProperty()` itself still has no way to set `document_type_id` — the caller sets it on the returned
+`Document` directly, after the call, only if not already set (idempotent — a second call for the same
+source_type/id returns the same Document, so this never double-writes). See
+`RentalInventoryRecordingController::fileInventoryWetInkScan()` (or its inspections-side sibling
+`fileInspectionWetInkScan()`) for the full worked pattern, including wrapping a non-PDF upload
+(`fileToProperty()` always writes `mime_type: 'application/pdf'`) into a one-page PDF first via
+`resources/views/corex/rental-signatures/wet-ink-scan-pdf.blade.php`.
+
 ## Files, so cc2 doesn't have to grep for them
 
 | Piece | File |
@@ -130,8 +166,10 @@ own consumer; this one already covers you.
 | Email view | `resources/views/emails/distribution/signed-document.blade.php` |
 | Audit log model | `app/Models/SignedDocumentDistributionLog.php` |
 | Audit log migration | `database/migrations/2026_10_04_100000_create_signed_document_distribution_logs_table.php` |
+| One-off filing adapter (2026-09-29) | `app/Support/Distribution/FileableDocumentAdapter.php` — see above |
 | Reference consumer (model) | `app/Models/RentalInspection.php` — `// ── SignedDocumentDistributable ──` section |
 | Reference consumer (controller) | `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — `complete()`, `resendReport()`, `fileAndMaybeEmailReport()` |
 | Reference consumer (backfill command) | `app/Console/Commands/BackfillRentalInspectionReportFiling.php` |
 | Reference consumer (settings) | `app/Models/RentalInspectionSetting.php` — `auto_send_report_enabled` / `autoSendReportEnabledFor()` |
 | Reference consumer (UI) | `resources/views/corex/properties/show.blade.php` — the "Resend report" popover, and `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` for where it's anchored |
+| One-off filing consumer (2026-09-29) | `RentalInventoryRecordingController::fileInventoryWetInkScan()` / `RentalInspectionRecordingController::fileInspectionWetInkScan()` — per-party wet-ink scan filing, via `FileableDocumentAdapter` |

@@ -59,6 +59,20 @@ final class LegalController extends Controller
         ]);
     }
 
+    /**
+     * Chrome Web Store listing requires a privacy-policy URL — see
+     * .ai/specs/chrome-web-store-listing.md. Covers the CoreX Chrome
+     * extension specifically (portal-capture), distinct from the platform-
+     * wide privacy() page above.
+     */
+    public function extensionPrivacy()
+    {
+        return view('public.legal.extension-privacy', [
+            'contactEmail' => self::CONTACT_EMAIL,
+            'lastUpdated'  => '29 September 2026',
+        ]);
+    }
+
     // ── CoreX Subscription Agreement — Parts B, C, D (spec §11.14) ─────────
 
     /** The Parts that are published. Never Part A (the signed form), the cover or the debit order mandate. */

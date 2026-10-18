@@ -60,6 +60,18 @@ use Illuminate\Support\Facades\DB;
  */
 class BuyersReportScopeResolver
 {
+    /**
+     * Scope-report fix (2026-10-07) — $module is the Role Manager module whose
+     * `{module}.view` scope row sets the ceiling. Defaults to 'buyers_report'
+     * (this report, unchanged); the Performance & ROI report builds one with
+     * 'performance_report' via PerformanceReportScopeResolver so the two reports
+     * share ONE ceiling/ownership implementation but each reads its OWN key —
+     * a role's Buyers Report breadth never silently governs the ROI report.
+     */
+    public function __construct(private readonly string $module = 'buyers_report')
+    {
+    }
+
     private const CEILING_RANK = [
         BuyersReportScope::LEVEL_OWN    => 0,
         BuyersReportScope::LEVEL_BRANCH => 1,
@@ -175,8 +187,8 @@ class BuyersReportScopeResolver
         };
     }
 
-    /** The widest level this user's role is permitted to reach — independent of what was requested. */
-    private function ceilingFor(User $user, int $agencyId): string
+    /** The widest level this user's role is permitted to reach — independent of what was requested. Public for PerformanceReportScopeResolver. */
+    public function ceilingFor(User $user, int $agencyId): string
     {
         if (method_exists($user, 'isOwnerRole') && $user->isOwnerRole()) {
             return BuyersReportScope::LEVEL_AGENCY;
@@ -194,12 +206,18 @@ class BuyersReportScopeResolver
         // exactly like deals.view/targets.view/presentations.view elsewhere
         // in this app. 'all'/null -> agency; 'branch' -> branch; anything
         // else (including 'own') -> own.
-        $scope = \App\Services\PermissionService::getDataScope($user, 'buyers_report');
+        $scope = \App\Services\PermissionService::getDataScope($user, $this->module);
 
+        // 2026-10-07 — a null scope (no `{module}.view` row for this role) now
+        // FAILS CLOSED to 'own'. It used to map to agency-wide, so a role that
+        // held the access gate but no scope row saw the whole agency
+        // (audit 2026-10-07, defect 7). PermissionService itself reads null as
+        // "no rows"; 'own' is the narrowest level that still lets the viewer
+        // see their own figures.
         return match ($scope) {
-            'all', null => BuyersReportScope::LEVEL_AGENCY,
-            'branch'    => BuyersReportScope::LEVEL_BRANCH,
-            default     => BuyersReportScope::LEVEL_OWN,
+            'all'    => BuyersReportScope::LEVEL_AGENCY,
+            'branch' => BuyersReportScope::LEVEL_BRANCH,
+            default  => BuyersReportScope::LEVEL_OWN,
         };
     }
 

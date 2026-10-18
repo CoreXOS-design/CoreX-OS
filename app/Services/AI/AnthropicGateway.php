@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace App\Services\AI;
 
-use App\Events\AI\AgencyAiBudgetCapped;
-use App\Events\AI\AgencyAiBudgetWarning;
 use App\Events\AI\AINarrativeFailedFallback;
 use App\Events\AI\AINarrativeGenerated;
+use App\Exceptions\AI\AiPausedException;
 use App\Exceptions\AI\AnthropicApiException;
 use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Exceptions\AI\NarrativeGenerationException;
 use App\Models\AI\AINarrativeCache;
 use App\Models\AI\AiUsageEvent;
-use App\Models\Agency;
 use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\AI\DTOs\NarrativeResponse;
 use Carbon\Carbon;
@@ -50,6 +48,7 @@ final class AnthropicGateway
     public function __construct(
         private readonly AiUsageRecorder $usageRecorder,
         private readonly AiCostCalculator $costCalculator,
+        private readonly AiSpendGuard $spendGuard,
     ) {
     }
 
@@ -58,8 +57,170 @@ final class AnthropicGateway
      *
      * @throws InvalidNarrativeRequestException Bad request shape / missing config.
      * @throws NarrativeGenerationException     API failure with no fallback.
+     * @throws AiPausedException                AI paused for the agency and no fallback.
      */
     public function generate(NarrativeRequest $request): NarrativeResponse
+    {
+        $prepared = $this->prepareCall($request);
+        if ($prepared instanceof NarrativeResponse) {
+            return $prepared; // feature flag / cache hit / no key / paused: answered without an API call
+        }
+
+        try {
+            $response = $this->callApi($prepared['endpoint'], $prepared['apiKey'], $prepared['payload'], $request->timeoutSeconds);
+        } catch (Throwable $e) {
+            return $this->handleApiFailure($request, $prepared['inputHash'], $e);
+        }
+
+        return $this->finishCall($request, $prepared, $response);
+    }
+
+    /**
+     * Several independent requests at the same time (AT-456 §B.10: one AI call per ticked property type).
+     *
+     * Every request goes through exactly the same checks and bookkeeping as generate() - feature flag, cache,
+     * model, key, spend-guard pause, ledger row, cache row, failure handling - so a paused agency still causes no
+     * HTTP call and every call is still its own ledger line. Only the waiting is shared: the HTTP calls are made
+     * as one concurrent pool instead of one after another.
+     *
+     * Differences from generate(), by design: no automatic retry inside a call (the pool cannot retry one call
+     * in isolation - the caller decides what to re-ask), and one call failing never stops the others.
+     *
+     * @param  array<string|int, NarrativeRequest> $requests keyed by the caller's own key
+     * @return array<string|int, NarrativeResponse|Throwable> same keys; a Throwable is that call's failure
+     */
+    public function generateMany(array $requests): array
+    {
+        $results  = [];
+        $prepared = [];
+
+        foreach ($requests as $key => $request) {
+            try {
+                $prep = $this->prepareCall($request);
+            } catch (Throwable $e) {
+                $results[$key] = $e;
+                continue;
+            }
+            if ($prep instanceof NarrativeResponse) {
+                $results[$key] = $prep;
+            } else {
+                $prepared[$key] = $prep;
+            }
+        }
+
+        // Hold the batch to the cut-out BEFORE any call starts (AT-456 audit D-M3). Per bucket: window spend +
+        // what other batches have reserved + this batch's worst case must stay under the cut-out, or that
+        // bucket's part of the batch is refused through the usual "AI paused" path and nothing is sent.
+        $reservations = []; // list of [bucket, token]
+        foreach ($this->groupByBucket($prepared, $requests) as $group) {
+            if (count($group['keys']) < 2) {
+                continue; // one call is not a batch: it behaves exactly like generate() (overshoot of one in-flight call)
+            }
+            try {
+                $reservations[] = [$group['bucket'], $this->spendGuard->reserveBatch($group['bucket'], $group['max'], $group['hold'])];
+            } catch (AiPausedException) {
+                foreach ($group['keys'] as $key) {
+                    try {
+                        $results[$key] = $this->pausedResponse($requests[$key], $prepared[$key]['inputHash'], $group['bucket']);
+                    } catch (Throwable $t) {
+                        $results[$key] = $t;
+                    }
+                    unset($prepared[$key]);
+                }
+            }
+        }
+
+        try {
+            if ($prepared !== []) {
+                $this->runPool($prepared, $requests, $results);
+            }
+        } finally {
+            // The calls are in the ledger by now (or failed): the reservations are no longer needed.
+            foreach ($reservations as [$bucket, $token]) {
+                $this->spendGuard->releaseBatch($bucket, $token);
+            }
+        }
+
+        // Hand the results back in the order the requests were given.
+        $ordered = [];
+        foreach (array_keys($requests) as $key) {
+            $ordered[$key] = $results[$key];
+        }
+
+        return $ordered;
+    }
+
+    /**
+     * The HTTP pool for the calls that were cleared to go, then each call's own bookkeeping.
+     *
+     * @param array<string|int, array<string, mixed>>   $prepared
+     * @param array<string|int, NarrativeRequest>       $requests
+     * @param array<string|int, NarrativeResponse|Throwable> $results filled in place
+     */
+    private function runPool(array $prepared, array $requests, array &$results): void
+    {
+        $responses = Http::pool(function ($pool) use ($prepared, $requests) {
+            $calls = [];
+            foreach ($prepared as $key => $prep) {
+                $calls[] = $pool->as((string) $key)->withHeaders([
+                        'x-api-key'         => $prep['apiKey'],
+                        'anthropic-version' => self::API_VERSION_HEADER,
+                        'content-type'      => 'application/json',
+                    ])
+                    ->timeout($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30))
+                    ->post($prep['endpoint'], $prep['payload']);
+            }
+
+            return $calls;
+        });
+
+        foreach ($prepared as $key => $prep) {
+            $response = $responses[(string) $key] ?? null;
+            try {
+                if ($response instanceof Response) {
+                    $results[$key] = $this->finishCall($requests[$key], $prep, $response);
+                } else {
+                    $error = $response instanceof Throwable ? $response : new AnthropicApiException('No response from the AI service', 0, '');
+                    $results[$key] = $this->handleApiFailure($requests[$key], $prep['inputHash'], $error);
+                }
+            } catch (Throwable $e) {
+                $results[$key] = $e;
+            }
+        }
+    }
+
+    /**
+     * The prepared calls grouped by the spend bucket they charge, with each group's worst-case cost and how long
+     * a reservation for it must be held.
+     *
+     * @param  array<string|int, array<string, mixed>> $prepared
+     * @param  array<string|int, NarrativeRequest>     $requests
+     * @return array<string, array{bucket: int|null, keys: array<int, string|int>, max: float, hold: int}>
+     */
+    private function groupByBucket(array $prepared, array $requests): array
+    {
+        $groups = [];
+        foreach ($prepared as $key => $prep) {
+            $bucket = $this->spendGuard->resolveAgencyId($requests[$key]->agencyId, $requests[$key]->system);
+            $id     = (string) ($bucket ?? 'system');
+            $groups[$id] ??= ['bucket' => $bucket, 'keys' => [], 'max' => 0.0, 'hold' => 0];
+            $groups[$id]['keys'][] = $key;
+            $groups[$id]['max']   += $this->estimateMaxCostZar($prep);
+            $groups[$id]['hold']   = max($groups[$id]['hold'], ($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30)) + 60);
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Everything generate() does BEFORE the HTTP call.
+     *
+     * @return NarrativeResponse|array{model:string, apiKey:string, payload:array<string, mixed>, endpoint:string, inputHash:string}
+     *         A response when the request is answered without an API call (flag off, cache hit, no key, AI paused);
+     *         otherwise what is needed to make the call.
+     * @throws InvalidNarrativeRequestException|AiPausedException|NarrativeGenerationException
+     */
+    private function prepareCall(NarrativeRequest $request): NarrativeResponse|array
     {
         $enabled = (bool) config('services.anthropic.enabled', true);
         $inputHash = $request->inputHash();
@@ -109,21 +270,17 @@ final class AnthropicGateway
             );
         }
 
-        // ── 3b. Per-agency budget cap (MIC Phase B2) ───────────────────────
-        // Agency-scoped calls are blocked once monthly spend ≥ hard_cap_pct
-        // and overage is not allowed. Global calls (agencyId === null) are
-        // not gated here — they're governed by ANTHROPIC_ENABLED only.
-        $cappedAgency = $this->loadCappedAgency($request);
-        if ($cappedAgency !== null) {
-            $this->fireBudgetCappedEvent($cappedAgency);
-            return $this->emitFallback(
-                $request,
-                $inputHash,
-                'agency_budget_capped',
-            );
+        // ── 3b. AI Spend Safety (AT-456 §A.3) ──────────────────────────────
+        // Paused bucket (agency, or the system bucket for agency-less calls)
+        // → no spend. Cache hits above still serve: they cost nothing. With a
+        // fallback the surface degrades to its templated text; without one the
+        // caller gets the plain "AI is paused" message.
+        $bucket = $this->spendGuard->resolveAgencyId($request->agencyId, $request->system);
+        if ($this->spendGuard->isPaused($bucket)) {
+            return $this->pausedResponse($request, $inputHash, $bucket);
         }
 
-        // ── 4. Compose payload + call ──────────────────────────────────────
+        // ── 4. Compose payload ─────────────────────────────────────────────
         // ES-6.1: when the request carries documents (PDF / images), emit
         // multipart messages.content[] in the Anthropic format. Otherwise
         // keep the original string-content shape so existing surfaces are
@@ -143,27 +300,70 @@ final class AnthropicGateway
         $endpoint = rtrim((string) config('services.anthropic.api_base', 'https://api.anthropic.com'), '/')
             . '/v1/messages';
 
-        try {
-            $response = $this->callApi($endpoint, $apiKey, $payload);
-        } catch (Throwable $e) {
-            return $this->handleApiFailure($request, $inputHash, $e);
-        }
+        return [
+            'model'     => $model,
+            'apiKey'    => $apiKey,
+            'payload'   => $payload,
+            'endpoint'  => $endpoint,
+            'inputHash' => $inputHash,
+        ];
+    }
 
+    /**
+     * The answer for a request that is refused because AI is paused (or a batch would cross the cut-out):
+     * without a fallback the caller gets AiPausedException; with one it degrades to its templated text.
+     *
+     * @throws AiPausedException
+     */
+    private function pausedResponse(NarrativeRequest $request, string $inputHash, ?int $bucket): NarrativeResponse
+    {
+        if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
+            throw new AiPausedException($bucket);
+        }
+        // The reason becomes the response's errorMessage, which surfaces like
+        // the AI summary panel show verbatim — so it is the plain sentence.
+        // persist: false — a pause is not an API failure. Writing the fallback to the
+        // cache would (a) overwrite a GOOD cached narrative when forceRefresh is set and
+        // (b) leave a "(fallback)" row that keeps being served after the owner resumes.
+        return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE, persist: false);
+    }
+
+    /**
+     * Conservative worst-case ZAR cost of one prepared call: the whole prompt (about 3 characters a token, which
+     * over-counts) as input, and every allowed output token used. Used only to hold a batch to the cut-out.
+     *
+     * @param array{model:string, payload:array<string, mixed>} $prepared
+     */
+    private function estimateMaxCostZar(array $prepared): float
+    {
+        $inputTokens  = (int) ceil(strlen((string) json_encode($prepared['payload'])) / 3);
+        $outputTokens = (int) ($prepared['payload']['max_tokens'] ?? 0);
+
+        return $this->costCalculator->zar($prepared['model'], $inputTokens, $outputTokens);
+    }
+
+    /**
+     * Everything generate() does AFTER the HTTP call: failure handling, cost, cache row, ledger row.
+     *
+     * @param array{model:string, apiKey:string, payload:array<string, mixed>, endpoint:string, inputHash:string} $prepared
+     */
+    private function finishCall(NarrativeRequest $request, array $prepared, Response $response): NarrativeResponse
+    {
         if (!$response->successful()) {
             return $this->handleApiFailure(
                 $request,
-                $inputHash,
+                $prepared['inputHash'],
                 new AnthropicApiException(
                     message: 'Anthropic API returned ' . $response->status(),
                     statusCode: $response->status(),
                     upstreamBody: $response->body(),
-                    requestUrl: $endpoint,
+                    requestUrl: $prepared['endpoint'],
                 ),
             );
         }
 
         // ── 5. Parse + cost + cache + event ────────────────────────────────
-        return $this->handleApiSuccess($request, $inputHash, $model, $response);
+        return $this->handleApiSuccess($request, $prepared['inputHash'], $prepared['model'], $response);
     }
 
     /**
@@ -182,23 +382,9 @@ final class AnthropicGateway
             . $schemaJson . "\n\n"
             . "No markdown code fences. No preamble. No commentary. JSON only.";
 
-        // Rebuild the request with the augmented system prompt — DTOs are
-        // immutable, so we clone via constructor.
-        $augmented = new NarrativeRequest(
-            narrativeType:    $request->narrativeType,
-            cacheKey:         $request->cacheKey,
-            modelAlias:       $request->modelAlias,
-            systemPrompt:     $augmentedSystem,
-            userPrompt:       $request->userPrompt,
-            inputData:        $request->inputData,
-            maxTokens:        $request->maxTokens,
-            temperature:      $request->temperature,
-            cacheTtlMinutes:  $request->cacheTtlMinutes,
-            agencyId:         $request->agencyId,
-            fallbackData:     $request->fallbackData,
-            forceRefresh:     $request->forceRefresh,
-            promptVersion:    $request->promptVersion,
-        );
+        // DTOs are immutable — withSystemPrompt() copies EVERY field (documents,
+        // source, timeout, system flag, ...), so a new field can never be dropped here.
+        $augmented = $request->withSystemPrompt($augmentedSystem);
 
         $response = $this->generate($augmented);
 
@@ -286,9 +472,13 @@ final class AnthropicGateway
         return $content;
     }
 
-    private function callApi(string $endpoint, string $apiKey, array $payload): Response
-    {
-        $timeout    = (int) config('services.anthropic.timeout', 30);
+    private function callApi(
+        string $endpoint,
+        string $apiKey,
+        array $payload,
+        ?int $timeoutSeconds = null,
+    ): Response {
+        $timeout    = $timeoutSeconds ?? (int) config('services.anthropic.timeout', 30);
         $maxRetries = (int) config('services.anthropic.max_retries', 3);
 
         return Http::withHeaders([
@@ -300,13 +490,30 @@ final class AnthropicGateway
             // Retry only on connection errors and 5xx. 4xx (invalid request,
             // auth, etc.) is a fail-fast — retrying won't help and burns budget.
             ->retry($maxRetries, 250, function ($exception) {
-                if ($exception instanceof ConnectionException) return true;
+                if ($exception instanceof ConnectionException) {
+                    // A TIMEOUT means the client gave up waiting, not that the provider stopped:
+                    // the upstream may well have processed - and billed - the call already, and
+                    // none of the re-sends would be recorded in the ledger, so the AI Spend Safety
+                    // guard could not see that spend. Re-sending also multiplies the cost for an
+                    // answer we would likely time out on again. So a timeout is NEVER retried, for
+                    // any request (AT-456 audit D-M1). Only a fast connection failure (nothing was
+                    // sent) is safe to retry.
+                    return ! $this->isTimeout($exception);
+                }
                 if (method_exists($exception, 'response') && $exception->response) {
                     return $exception->response->serverError();
                 }
                 return false;
             }, throw: false)
             ->post($endpoint, $payload);
+    }
+
+    private function isTimeout(ConnectionException $e): bool
+    {
+        $m = strtolower($e->getMessage());
+
+        return str_contains($m, 'curl error 28')
+            || str_contains($m, 'timed out') || str_contains($m, 'timeout');
     }
 
     private function handleApiSuccess(
@@ -365,27 +572,14 @@ final class AnthropicGateway
 
         // Cost ledger — one row per API call (spec ai-cost-ledger.md §4.3).
         $this->usageRecorder->record(
-            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            source:       $request->source,
             model:        $model,
             inputTokens:  $inputTokens,
             outputTokens: $outputTokens,
             agencyId:     $request->agencyId,
             surfaceRef:   $request->cacheKey,
+            system:       $request->system,
         );
-
-        // Budget warning detection — fire AgencyAiBudgetWarning once per month
-        // when usage first crosses 80%/95%/100% of the monthly cap. Failures
-        // here MUST NOT break the AI call, so wrap defensively.
-        if ($request->agencyId !== null) {
-            try {
-                $this->detectBudgetWarningCrossing($request->agencyId);
-            } catch (Throwable $e) {
-                Log::warning('AnthropicGateway: budget warning detection failed', [
-                    'agency_id' => $request->agencyId,
-                    'error'     => $e->getMessage(),
-                ]);
-            }
-        }
 
         return new NarrativeResponse(
             outputText:    $outputText,
@@ -414,9 +608,24 @@ final class AnthropicGateway
             'model_alias'    => $request->modelAlias,
             'error'          => mb_substr($reason, 0, 500),
             'exception'      => $e::class,
+            'timed_out'      => $e instanceof ConnectionException && $this->isTimeout($e),
         ]);
 
         if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
+            // Audit trail (AT-456 audit D-M1): a failed call with no fallback used to leave nothing in
+            // the ledger. Record it as a degraded call - tokens 0, cost 0 (we do not know what the
+            // provider billed, and we do not invent a figure) - so the usage page shows the failure.
+            $this->usageRecorder->record(
+                source:       $request->source,
+                model:        (string) config("services.anthropic.models.{$request->modelAlias}", 'unknown'),
+                inputTokens:  0,
+                outputTokens: 0,
+                agencyId:     $request->agencyId,
+                surfaceRef:   $request->cacheKey,
+                fallback:     true,
+                system:       $request->system,
+            );
+
             throw new NarrativeGenerationException(
                 message: 'Narrative generation failed and no fallback was provided.',
                 cacheKey: $request->cacheKey,
@@ -433,8 +642,12 @@ final class AnthropicGateway
      * disabled, the key is missing, or the API call failed. Caches with a
      * SHORT TTL (5 min) so the next request retries soon.
      */
-    private function emitFallback(NarrativeRequest $request, string $inputHash, string $reason): NarrativeResponse
-    {
+    private function emitFallback(
+        NarrativeRequest $request,
+        string $inputHash,
+        string $reason,
+        bool $persist = true,
+    ): NarrativeResponse {
         $model = config("services.anthropic.models.{$request->modelAlias}", 'unknown');
         $now   = Carbon::now();
 
@@ -452,23 +665,27 @@ final class AnthropicGateway
             : null;
 
         // Persist short-TTL cache row so concurrent renders don't all degrade.
-        AINarrativeCache::updateOrCreate(
-            ['cache_key' => $request->cacheKey],
-            [
-                'agency_id'      => $request->agencyId,
-                'narrative_type' => $request->narrativeType,
-                'input_hash'     => $inputHash,
-                'prompt_version' => $request->promptVersion,
-                'model'          => $model . ' (fallback)',
-                'input_tokens'   => 0,
-                'output_tokens'  => 0,
-                'cost_zar'       => 0,
-                'output_text'    => $fallbackText,
-                'output_json'    => $fallbackJson,
-                'generated_at'   => $now,
-                'expires_at'     => $now->copy()->addMinutes(self::FALLBACK_CACHE_TTL_MINUTES),
-            ]
-        );
+        // (Skipped while AI is paused — see generate(); the pause check is per request
+        // and costs one cheap lookup, so there is nothing to protect with a cache row.)
+        if ($persist) {
+            AINarrativeCache::updateOrCreate(
+                ['cache_key' => $request->cacheKey],
+                [
+                    'agency_id'      => $request->agencyId,
+                    'narrative_type' => $request->narrativeType,
+                    'input_hash'     => $inputHash,
+                    'prompt_version' => $request->promptVersion,
+                    'model'          => $model . ' (fallback)',
+                    'input_tokens'   => 0,
+                    'output_tokens'  => 0,
+                    'cost_zar'       => 0,
+                    'output_text'    => $fallbackText,
+                    'output_json'    => $fallbackJson,
+                    'generated_at'   => $now,
+                    'expires_at'     => $now->copy()->addMinutes(self::FALLBACK_CACHE_TTL_MINUTES),
+                ]
+            );
+        }
 
         event(new AINarrativeFailedFallback(
             agencyIdValue: $request->agencyId,
@@ -481,13 +698,14 @@ final class AnthropicGateway
         // Cost ledger — log the degraded call (cost 0) so the dashboard shows
         // fallbacks, not silent gaps (spec ai-cost-ledger.md §4.3).
         $this->usageRecorder->record(
-            source:       AiUsageEvent::SOURCE_MIC_NARRATIVE,
+            source:       $request->source,
             model:        (string) $model,
             inputTokens:  0,
             outputTokens: 0,
             agencyId:     $request->agencyId,
             surfaceRef:   $request->cacheKey,
             fallback:     true,
+            system:       $request->system,
         );
 
         return new NarrativeResponse(
@@ -542,113 +760,6 @@ final class AnthropicGateway
     }
 
     /**
-     * Load the Agency if the request is agency-scoped AND the agency has
-     * exhausted its monthly AI budget. Returns null when no budget check
-     * applies (global call, agency missing, or agency still has headroom).
-     *
-     * Defensive: any exception during the lookup degrades to "no cap" so a
-     * broken budgeting subsystem never blocks AI calls.
-     */
-    private function loadCappedAgency(NarrativeRequest $request): ?Agency
-    {
-        if ($request->agencyId === null) {
-            return null;
-        }
-        try {
-            $agency = Agency::query()->find($request->agencyId);
-            if ($agency === null) return null;
-            if ($agency->canMakeAiCall()) return null;
-            return $agency;
-        } catch (Throwable $e) {
-            Log::warning('AnthropicGateway: budget cap check failed', [
-                'agency_id' => $request->agencyId,
-                'error'     => $e->getMessage(),
-            ]);
-            return null;
-        }
-    }
-
-    /**
-     * One-shot per month: fire AgencyAiBudgetCapped when a call is first
-     * refused. Subsequent refusals in the same month do NOT re-fire — the
-     * `ai_budget_last_hard_stopped_at` column gates the event.
-     */
-    private function fireBudgetCappedEvent(Agency $agency): void
-    {
-        try {
-            $now            = Carbon::now();
-            $lastHardStop   = $agency->ai_budget_last_hard_stopped_at;
-            $alreadyFired   = $lastHardStop !== null
-                && $lastHardStop->copy()->startOfMonth()->equalTo($now->copy()->startOfMonth());
-            if ($alreadyFired) return;
-
-            $usedZar   = $agency->aiBudgetUsedZar($now);
-            $budgetZar = (float) ($agency->ai_monthly_budget_zar ?? 0);
-            $usedPct   = $agency->aiBudgetUsedPct($now);
-
-            $agency->ai_budget_last_hard_stopped_at = $now;
-            $agency->save();
-
-            event(new AgencyAiBudgetCapped(
-                agency:    $agency,
-                usedZar:   $usedZar,
-                budgetZar: $budgetZar,
-                usedPct:   $usedPct,
-            ));
-        } catch (Throwable $e) {
-            Log::warning('AnthropicGateway: failed to fire AgencyAiBudgetCapped', [
-                'agency_id' => $agency->id,
-                'error'     => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * Fire AgencyAiBudgetWarning once per month when usage first crosses an
-     * 80%/95%/100% threshold. Uses `ai_budget_last_warned_at` as a per-month
-     * gate so we only emit one warning per agency per month (at the highest
-     * threshold breached when first detected). Subsequent escalations within
-     * the same month do not re-fire — a finer per-threshold counter can be
-     * added later if needed.
-     */
-    private function detectBudgetWarningCrossing(int $agencyId): void
-    {
-        $agency = Agency::query()->find($agencyId);
-        if ($agency === null) return;
-
-        $budgetZar = (float) ($agency->ai_monthly_budget_zar ?? 0);
-        if ($budgetZar <= 0) return;
-
-        $now           = Carbon::now();
-        $lastWarnedAt  = $agency->ai_budget_last_warned_at;
-        $alreadyWarned = $lastWarnedAt !== null
-            && $lastWarnedAt->copy()->startOfMonth()->equalTo($now->copy()->startOfMonth());
-        if ($alreadyWarned) return;
-
-        $usedPct = $agency->aiBudgetUsedPct($now);
-        $threshold = match (true) {
-            $usedPct >= 100 => 100,
-            $usedPct >= 95  => 95,
-            $usedPct >= (int) ($agency->ai_budget_warning_pct ?? 80) => (int) ($agency->ai_budget_warning_pct ?? 80),
-            default => 0,
-        };
-        if ($threshold === 0) return;
-
-        $usedZar = $agency->aiBudgetUsedZar($now);
-
-        $agency->ai_budget_last_warned_at = $now;
-        $agency->save();
-
-        event(new AgencyAiBudgetWarning(
-            agency:       $agency,
-            thresholdPct: $threshold,
-            usedZar:      $usedZar,
-            budgetZar:    $budgetZar,
-            usedPct:      $usedPct,
-        ));
-    }
-
-    /**
      * One-shot JSON parse + auto-repair.
      */
     private function tryParseJson(string $text): ?array
@@ -662,14 +773,16 @@ final class AnthropicGateway
         if (is_array($parsed)) return $parsed;
 
         // Final fallback: snip from first '{' or '[' to last '}' or ']'.
-        $start = min(
-            ...array_filter([strpos($text, '{'), strpos($text, '[')], fn ($v) => $v !== false) ?: [PHP_INT_MAX]
-        );
-        $end = max(strrpos($text, '}'), strrpos($text, ']'));
-        if ($start !== PHP_INT_MAX && $end !== false && $end > $start) {
-            $candidate = substr($text, $start, $end - $start + 1);
-            $parsed = json_decode($candidate, true);
-            if (is_array($parsed)) return $parsed;
+        // (min() of a single value is a TypeError, so gather the positions first - a text with no bracket at all,
+        // or only one kind, must come back as "unreadable" (null), not as an exception. AT-456 audit D-L2.)
+        $starts = array_filter([strpos($text, '{'), strpos($text, '[')], fn ($v) => $v !== false);
+        $end    = max((int) strrpos($text, '}'), (int) strrpos($text, ']'));
+        if ($starts !== []) {
+            $start = min($starts);
+            if ($end > $start) {
+                $parsed = json_decode(substr($text, $start, $end - $start + 1), true);
+                if (is_array($parsed)) return $parsed;
+            }
         }
 
         return null;

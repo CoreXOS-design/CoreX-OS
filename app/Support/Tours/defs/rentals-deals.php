@@ -1,213 +1,24 @@
 <?php
 
 /**
- * AT-41 guided-tour pack — Rentals division + Deals v2 (create + detail).
+ * AT-41 guided-tour pack — Deals v2 (create + detail).
  *
  * Each entry is pure DATA merged by App\Support\Tours\TourRegistry::all().
  * Every `element` selector anchors a dedicated data-tour="…" attribute added to
  * the real DOM of the page, so a markup refactor never silently drops a step.
  *
  * NOTE: deals-v2.index is covered by a SEPARATE pack — not touched here.
+ *
+ * AT-439 (2026-10-05) — the 5 Rentals-division tour entries this file used to
+ * carry (rent-dashboard, rent-active-leases, rent-expired-leases,
+ * rent-signatures, rent-stock) are removed: every route they anchored on
+ * (rental.dashboard/.active-leases/.expired-leases/.signatures, rentals.index)
+ * is retired and now redirects instantly, so none of their `element` selectors
+ * could ever be found on screen again. Superseded by the Lease Hub and the
+ * Rental Command Centre, neither of which has a tour pack of its own yet.
  */
 
 return [
-
-    // ── Rentals division dashboard ───────────────────────────────────────────
-    'rent-dashboard' => [
-        'key'         => 'rent-dashboard',
-        'title'       => 'Rental Division at a glance',
-        'description' => 'Read the rental dashboard — what each tile counts and where each shortcut takes you.',
-        'route'       => 'rental.dashboard',
-        'permission'  => 'view_rentals',
-        'setup'       => [
-            ['action' => 'scrollTop'],
-        ],
-        'steps' => [
-            [
-                'element' => '[data-tour="rent-dashboard-intro"]',
-                'section' => 'Reading the tiles',
-                'title'   => 'Your rental home base',
-                'body'    => 'This is the Rental Division dashboard — one place to see where every lease stands. Sales deals live elsewhere; this screen is just rentals.',
-            ],
-            [
-                'element' => '[data-tour="rent-dashboard-tiles"]',
-                'title'   => 'The number tiles',
-                'body'    => 'Each tile is a live count: leases that Need Approval, Drafts, ones Ready to Sign, those Awaiting Signatures, Completed, Active Leases, and any Expiring in the next 90 days. Tap a tile to jump straight to that list.',
-            ],
-            [
-                'element' => '[data-tour="rent-dashboard-signatures"]',
-                'section' => 'Sending leases for signing',
-                'do'      => ['action' => 'click', 'say' => 'Click Electronic Signatures to send a lease or check who has signed — or press Skip this step.'],
-                'title'   => 'Electronic Signatures',
-                'body'    => 'This is where you send a lease out for signing and watch each party sign. It is the busiest screen in the division.',
-            ],
-            [
-                'element' => '[data-tour="rent-dashboard-actions"]',
-                'section' => 'Opening your leases',
-                'do'      => ['action' => 'click', 'say' => 'Click Active Leases or Expired Leases to open that list.'],
-                'title'   => 'Quick actions',
-                'body'    => 'Three shortcuts to the work you do most: signing workflows, active leases, and expired leases. Close this and tap a tile to see your leases.',
-            ],
-        ],
-    ],
-
-    // ── Active leases ────────────────────────────────────────────────────────
-    'rent-active-leases' => [
-        'key'         => 'rent-active-leases',
-        'title'       => 'Working active leases',
-        'description' => 'See every signed, in-force lease — and renew or check the history of each one.',
-        'route'       => 'rental.active-leases',
-        'permission'  => 'view_rentals',
-        'setup'       => [
-            ['action' => 'scrollTop'],
-        ],
-        'steps' => [
-            [
-                'element' => '[data-tour="rent-active-leases-intro"]',
-                'section' => 'Reading your rent roll',
-                'title'   => 'Active leases',
-                'body'    => 'Every lease here is signed and currently in force. This is your live rent roll.',
-            ],
-            [
-                'element' => '[data-tour="rent-active-leases-upload"]',
-                'section' => 'Sending a new lease',
-                'do'      => ['action' => 'click', 'say' => 'Click Upload & Send Lease to send a new lease for signing — or press Skip this step to work an existing one.'],
-                'title'   => 'Upload & Send a lease',
-                'body'    => 'Already have a lease document ready? Use this to upload it and send it out for electronic signing in one step.',
-            ],
-            [
-                'element' => '[data-tour="rent-active-leases-list"]',
-                'section' => 'Renewing a lease',
-                'title'   => 'The lease cards',
-                'body'    => 'Each card shows the property, tenant, landlord and monthly rental in Rands. The coloured badge is the warning level: green "Active" is healthy, amber "Nd left" means it expires within 90 days, red "Expired" needs action. Close this and open the one expiring soonest to renew it.',
-            ],
-            [
-                // `click` on the whole list so Renew on ANY card counts (it submits
-                // and reloads the page). Renew keeps the parties and starts a new term.
-                'element'       => '[data-tour="rent-active-leases-list"]',
-                'advanced_only' => true,
-                'do'            => ['action' => 'click', 'say' => 'Click Renew Lease on the lease the tenant is staying on, then confirm — this starts a new 12-month term with the same parties.'],
-                'title'         => 'Renew the lease',
-                'body'          => 'Renew creates the next lease term straight away, with the same property, tenant, landlord and rental. CoreX asks you to confirm first. History on each card shows every earlier term.',
-            ],
-        ],
-    ],
-
-    // ── Expired leases ───────────────────────────────────────────────────────
-    'rent-expired-leases' => [
-        'key'         => 'rent-expired-leases',
-        'title'       => 'Reviewing expired leases',
-        'description' => 'Review leases that have ended or been terminated — and renew the ones still worth saving.',
-        'route'       => 'rental.expired-leases',
-        'permission'  => 'view_rentals',
-        'setup'       => [
-            ['action' => 'scrollTop'],
-        ],
-        'steps' => [
-            [
-                'element' => '[data-tour="rent-expired-leases-intro"]',
-                'section' => 'Reading ended leases',
-                'title'   => 'Expired leases',
-                'body'    => 'These leases have run their full term or been terminated early. Nothing here is in force — it is your record of what has ended.',
-            ],
-            [
-                'element' => '[data-tour="rent-expired-leases-list"]',
-                'title'   => 'What the badges mean',
-                'body'    => 'A red "Expired" badge means the term simply ran out. A grey "Terminated" badge means the lease was ended early. Each card still shows the property, tenant, landlord and rental for your records.',
-            ],
-            [
-                'element' => '[data-tour="rent-expired-leases-actions"]',
-                'section' => 'Renewing a lease',
-                'title'   => 'What you can still do',
-                'body'    => 'Even on an ended lease you can pull the signed Audit trail, download the PDF, view the History, or hit Renew Lease to start a fresh term with the same parties. Close this and renew any lease the tenant is staying on.',
-            ],
-            [
-                // `click` on the whole list so Renew on ANY card counts, not only the
-                // first card's action column highlighted above.
-                'element'       => '[data-tour="rent-expired-leases-list"]',
-                'advanced_only' => true,
-                'do'            => ['action' => 'click', 'say' => 'Click Renew Lease on an expired lease the tenant is staying on, then confirm — this starts a new 12-month term with the same parties.'],
-                'title'         => 'Renew the lease',
-                'body'          => 'Renew creates the next lease term straight away, with the same property, tenant, landlord and rental. CoreX asks you to confirm first.',
-            ],
-        ],
-    ],
-
-    // ── Electronic signatures (rental) — POINT-ONLY (live signing status) ─────
-    'rent-signatures' => [
-        'key'         => 'rent-signatures',
-        'title'       => 'Rental signing workflow',
-        'description' => 'Follow a rental lease from draft to fully signed — and read each party\'s live signing status.',
-        'route'       => 'rental.signatures',
-        'permission'  => 'view_rentals',
-        // POINT-ONLY: this screen shows live, in-flight signing status. No setup
-        // clicks, no state changes — we only spotlight and explain.
-        'steps' => [
-            [
-                'element' => '[data-tour="rent-signatures-intro"]',
-                'section' => 'Tracking signing',
-                'title'   => 'Electronic Signatures',
-                'body'    => 'This screen runs every rental lease through signing — and shows you exactly where each one is, right now, in real time.',
-            ],
-            [
-                'element' => '[data-tour="rent-signatures-cards"]',
-                'do'      => ['action' => 'click', 'say' => 'Click a stage to jump to the leases in it.'],
-                'title'   => 'The stages of signing',
-                'body'    => 'A lease moves left to right: Draft (fields still being filled), Ready to Sign, Awaiting Signatures (out with the tenant or landlord), then Completed. "Needs Approval" means a signed copy is waiting for you to check it. Tap any card to scroll to that group.',
-            ],
-            [
-                'element' => '[data-tour="rent-signatures-upload"]',
-                'section' => 'Sending a lease',
-                'do'      => ['action' => 'click', 'say' => 'Click Upload & Send for Signing to upload a lease and choose who signs.'],
-                'title'   => 'Send a lease for signing',
-                'body'    => 'Start a new signing run here — upload the lease, choose who signs, and CoreX emails each party their turn. Close this when you are ready to send your first lease.',
-            ],
-        ],
-    ],
-
-    // ── Rental stock register ────────────────────────────────────────────────
-    'rent-stock' => [
-        'key'         => 'rent-stock',
-        'title'       => 'The rentals register',
-        'description' => 'Read the rentals register — total rentals, commission, the per-agent split, and every rental row.',
-        'route'       => 'rentals.index',
-        'permission'  => 'view_rentals',
-        'setup'       => [
-            ['action' => 'scrollTop'],
-        ],
-        'steps' => [
-            [
-                'element' => '[data-tour="rent-stock-intro"]',
-                'section' => 'Reading the register',
-                'title'   => 'Rentals Register',
-                'body'    => 'This is the full register of every rental assigned to the agency — not a monthly view, but the complete list you can work from.',
-            ],
-            [
-                'element' => '[data-tour="rent-stock-new"]',
-                'section' => 'Capturing a rental',
-                'do'      => ['action' => 'click', 'say' => 'Click New Rental to capture a rental — or press Skip this step to read the register.'],
-                'title'   => 'Capture a new rental',
-                'body'    => 'Use this to record a new rental — the property, the lease dates and the commission split. It then appears in the table below.',
-            ],
-            [
-                'element' => '[data-tour="rent-stock-summary"]',
-                'section' => 'Reading your totals',
-                'title'   => 'The two headline numbers',
-                'body'    => 'At a glance: how many rentals you hold in total, and the total commission earned excluding VAT, shown in Rands.',
-            ],
-            [
-                'element' => '[data-tour="rent-stock-per-agent"]',
-                'title'   => 'Per-agent breakdown',
-                'body'    => 'This breaks the register down by agent — how many rentals each one carries and the commission attached. Useful for splits and for seeing who is carrying the rent roll.',
-            ],
-            [
-                'element' => '[data-tour="rent-stock-table"]',
-                'do'      => ['action' => 'click', 'say' => 'Click Edit on a rental to open and update it.'],
-                'title'   => 'The rental rows',
-                'body'    => 'Every rental, one per row: address, lease start and end, whether it is month-to-month, whether it is still active, and the commission excluding VAT. Close this and capture a rental to add your first row.',
-            ],
-        ],
-    ],
 
     // ── New-deal wizard (deals v2) ───────────────────────────────────────────
     'deals-create' => [

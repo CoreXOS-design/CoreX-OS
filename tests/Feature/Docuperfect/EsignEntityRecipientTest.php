@@ -30,12 +30,13 @@ class EsignEntityRecipientTest extends TestCase
         return [$agency, $branchId];
     }
 
-    private function entityWithReps(int $agencyId, int $branchId, int $reps, ?int $proxyIdx = null): array
+    /** $withIds gives each representative a real id_number — the override/no-overwrite tests need one on file to prove anything. */
+    private function entityWithReps(int $agencyId, int $branchId, int $reps, ?int $proxyIdx = null, bool $withIds = false): array
     {
         $entity = Contact::create(['agency_id' => $agencyId, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_ENTITY, 'entity_name' => 'Estate Late John Smith', 'entity_reg_no' => 'EST-1', 'first_name' => 'Estate Late John Smith', 'last_name' => '']);
         $repModels = [];
         for ($i = 0; $i < $reps; $i++) {
-            $r = Contact::create(['agency_id' => $agencyId, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Rep' . $i, 'last_name' => 'Person', 'email' => "rep{$i}@x.test"]);
+            $r = Contact::create(['agency_id' => $agencyId, 'branch_id' => $branchId, 'contact_kind' => Contact::TYPE_NATURAL_PERSON, 'first_name' => 'Rep' . $i, 'last_name' => 'Person', 'email' => "rep{$i}@x.test"] + ($withIds ? ['id_number' => '700101580008' . $i] : []));
             ContactRepresentative::create([
                 'entity_contact_id' => $entity->id, 'representative_contact_id' => $r->id,
                 'capacity' => 'Executor', 'signs_as_proxy' => ($proxyIdx === $i),
@@ -45,11 +46,16 @@ class EsignEntityRecipientTest extends TestCase
         return [$entity->fresh(), $repModels];
     }
 
-    private function expand(array $recipients, User $user): array
+    /**
+     * $signersOnly = false is the DISPLAY expansion (every representative — the controller's
+     * default); true is the SIGNING expansion the SignatureRequest-creation loop and the
+     * Signing Order list use (narrowed to the proxy / sole signer).
+     */
+    private function expand(array $recipients, User $user, bool $signersOnly = false): array
     {
         $m = new ReflectionMethod(ESignWizardController::class, 'expandEntityRecipients');
         $m->setAccessible(true);
-        return $m->invoke(app(ESignWizardController::class), $recipients, $user);
+        return $m->invoke(app(ESignWizardController::class), $recipients, $user, $signersOnly);
     }
 
     private function callPrivate(string $method, array $args)
@@ -175,7 +181,7 @@ class EsignEntityRecipientTest extends TestCase
         $user = User::factory()->create(['agency_id' => $agency->id]);
         [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 4, proxyIdx: 1);
 
-        $out = $this->expand([['role' => 'seller', '_contact_id' => $entity->id]], $user);
+        $out = $this->expand([['role' => 'seller', '_contact_id' => $entity->id]], $user, signersOnly: true);
 
         // SIGNING: only the proxy gets a row — Johan's rule, "only the proxy
         // needs to sign" — this was already correct and must stay so.
@@ -345,7 +351,7 @@ class EsignEntityRecipientTest extends TestCase
     {
         [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2, withIds: true);
 
         $recipients = [[
             'role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id,
@@ -403,7 +409,7 @@ class EsignEntityRecipientTest extends TestCase
         // own edit already behaves (backfillContactIdNumber(), fill-if-blank
         // ONLY, id_number ONLY). This test locks that answer in.
         [$agency, $branchId] = $this->makeAgencyWithBranch();
-        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 1);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 1, withIds: true);
         $rep = $reps[0];
         $this->assertNotSame('', trim((string) $rep->id_number), 'Fixture sanity: the rep must start with a real id_number for the no-overwrite half of this test to mean anything.');
         $originalIdNumber = $rep->id_number;
@@ -431,7 +437,7 @@ class EsignEntityRecipientTest extends TestCase
     {
         [$agency, $branchId] = $this->makeAgencyWithBranch();
         $user = User::factory()->create(['agency_id' => $agency->id]);
-        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2);
+        [$entity, $reps] = $this->entityWithReps($agency->id, $branchId, 2, withIds: true);
 
         $recipients = [[
             'role' => 'seller', 'name' => $entity->entity_name, '_contact_id' => $entity->id,

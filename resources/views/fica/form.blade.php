@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>FICA Verification — {{ $agency->name ?? config('app.name') }}</title>
+    <title>FICA Verification — {{ $agency->name ?? \App\Support\ClientBrand::NEUTRAL }}</title>
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=plus-jakarta-sans:400,500,600,700" rel="stylesheet">
     @vite(['resources/css/app.css'])
@@ -13,6 +13,11 @@
         [x-cloak] { display: none !important; }
 
         .fica-card { background: #fff; border: 1px solid #e2e8f0; padding: 2rem; margin-bottom: 1.5rem; }
+        /* Section numbers are automatic: a CSS counter counts only the sections actually shown for this entity type
+           (hidden ones generate no box, so they are skipped) — hand-typed numbers left a gap (no 3) for a person. */
+        #ficaForm { counter-reset: ficasec; }
+        .fica-section-title { counter-increment: ficasec; }
+        .fica-section-title::before { content: counter(ficasec) ". "; }
         .fica-section-title { font-size: 1.125rem; font-weight: 700; color: var(--text-primary, #111827); margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #0d9488; }
         .fica-subsection-title { font-size: 0.9375rem; font-weight: 700; color: var(--text-primary, #111827); margin: 1.25rem 0 0.75rem; padding-bottom: 0.375rem; border-bottom: 1px solid #e2e8f0; }
         .fica-label { display: block; font-weight: 600; font-size: 0.875rem; color: #334155; margin-bottom: 0.25rem; }
@@ -100,7 +105,7 @@
 
             {{-- ═══════════ SECTION 1 — ENTITY TYPE ═══════════ --}}
             <div class="fica-card">
-                <h2 class="fica-section-title">1. Entity Type</h2>
+                <h2 class="fica-section-title">Entity Type</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;">Select the type of entity completing this FICA form. All subsequent sections adapt based on this selection.</p>
                 <div style="display: grid; gap: 0.625rem;">
                     <label class="fica-radio-label"><input type="radio" name="entity_type" value="natural" required x-model="entityType"> Natural Person (Individual)</label>
@@ -112,7 +117,7 @@
 
             {{-- ═══════════ SECTION 2 — PERSON COMPLETING THE FORM ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title">2. Person Completing This Form</h2>
+                <h2 class="fica-section-title">Person Completing This Form</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;" x-show="entityType === 'natural'">Your personal details as the client.</p>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 1rem;" x-show="entityType !== 'natural'" x-cloak>Details of the person acting on behalf of the entity.</p>
 
@@ -123,7 +128,16 @@
                     </div>
                     <div class="fica-grid-full">
                         <label class="fica-label">SA Identity Number / Foreign Passport Number <span class="req">*</span></label>
-                        <input type="text" name="personal[id_number]" class="fica-input" required x-model="personal.id_number">
+                        {{-- The number on file is shown masked (****1234) and kept as it is unless they choose to change it: Edit clears the box so the
+                             full number is typed again. Nothing but the last four characters ever reaches this page. --}}
+                        <input type="hidden" name="personal[id_number_keep]" value="1" x-bind:disabled="!personal.id_number_kept">
+                        <div style="display:flex; gap:0.5rem; align-items:center;">
+                            <input type="text" name="personal[id_number]" class="fica-input" required x-model="personal.id_number" x-bind:readonly="personal.id_number_kept"
+                                   x-bind:style="personal.id_number_kept ? 'background:#f8fafc; flex:1;' : 'flex:1;'" autocomplete="off" data-qa="fica-id-number">
+                            <button type="button" x-show="personal.id_number_kept" x-cloak data-qa="fica-id-edit" style="padding:0.5rem 1rem; border:1px solid #cbd5e1; border-radius:6px; background:#fff; color:#334155; font-weight:600; cursor:pointer;"
+                                    @click="personal.id_number_kept = false; personal.id_number = ''; $nextTick(() => $el.parentElement.querySelector('input').focus())">Edit</button>
+                        </div>
+                        <p class="fica-hint" x-show="personal.id_number_kept" x-cloak>This is the number we have on file, shown in part. Press Edit only if it needs to change - then type the full number.</p>
                         <p class="fica-hint">Your SA ID or foreign passport must be inspected and a copy will be required</p>
                     </div>
                     <div class="fica-grid-full">
@@ -155,7 +169,7 @@
 
             {{-- ═══════════ SECTION 3A — COMPANY / CC ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'company'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Company / Close Corporation Details</h2>
+                <h2 class="fica-section-title">Company / Close Corporation Details</h2>
 
                 <div class="fica-grid">
                     <div>
@@ -250,7 +264,7 @@
 
             {{-- ═══════════ SECTION 3B — TRUST ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'trust'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Trust Details</h2>
+                <h2 class="fica-section-title">Trust Details</h2>
 
                 <div class="fica-grid">
                     <div>
@@ -370,7 +384,7 @@
 
             {{-- ═══════════ SECTION 3C — PARTNERSHIP ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'partnership'" x-cloak x-transition>
-                <h2 class="fica-section-title">3. Partnership Details</h2>
+                <h2 class="fica-section-title">Partnership Details</h2>
 
                 <div class="fica-grid">
                     <div class="fica-grid-full">
@@ -452,7 +466,7 @@
 
             {{-- ═══════════ SECTION 4 — PRINCIPAL (Natural Person ONLY) ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'natural'" x-cloak x-transition>
-                <h2 class="fica-section-title">4. Principal</h2>
+                <h2 class="fica-section-title">Principal</h2>
                 <div style="margin-bottom: 1rem;">
                     <label class="fica-label">Are you dealing with us on behalf of another person? <span class="req">*</span></label>
                     <div class="fica-radio-group">
@@ -506,7 +520,7 @@
 
             {{-- ═══════════ SECTION 5 — REPRESENTATIVE (Natural Person ONLY) ═══════════ --}}
             <div class="fica-card" x-show="entityType === 'natural'" x-cloak x-transition>
-                <h2 class="fica-section-title">5. Representative</h2>
+                <h2 class="fica-section-title">Representative</h2>
                 <div style="margin-bottom: 1rem;">
                     <label class="fica-label">Will someone else deal with us on your behalf going forward? <span class="req">*</span></label>
                     <div class="fica-radio-group">
@@ -535,7 +549,7 @@
 
             {{-- ═══════════ SECTION 6 — SERVICE & PAYMENT ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '6' : '4'"></span>. Service & Payment</h2>
+                <h2 class="fica-section-title">Service & Payment</h2>
 
                 <div style="margin-bottom: 1.25rem;">
                     <label class="fica-label">Purpose of Transaction <span class="req">*</span></label>
@@ -575,7 +589,7 @@
 
             {{-- ═══════════ SECTION 7 — POLITICALLY EXPOSED PERSON ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '7' : '5'"></span>. Politically Exposed Person (PEP)</h2>
+                <h2 class="fica-section-title">Politically Exposed Person (PEP)</h2>
 
                 {{-- a) Foreign PEP --}}
                 <div style="margin-bottom: 1.25rem;">
@@ -650,7 +664,7 @@
 
             {{-- ═══════════ SECTION 8 — DOCUMENT UPLOADS ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '8' : '6'"></span>. Document Uploads</h2>
+                <h2 class="fica-section-title">Document Uploads</h2>
                 <p class="fica-hint" style="margin-top: -0.75rem; margin-bottom: 0.5rem;">PDF, JPG, PNG, or HEIC. Maximum 10MB per file.</p>
                 <p class="fica-hint" style="margin-bottom: 1rem; color: #64748b; font-style: italic;">Upload if available — your agent may already have these on file.</p>
 
@@ -695,7 +709,7 @@
 
             {{-- ═══════════ SECTION 9 — DECLARATION & SIGNATURE ═══════════ --}}
             <div class="fica-card" x-show="entityType" x-cloak x-transition>
-                <h2 class="fica-section-title"><span x-text="entityType === 'natural' ? '9' : '7'"></span>. Declaration & Signature</h2>
+                <h2 class="fica-section-title">Declaration & Signature</h2>
 
                 <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.875rem; color: #334155; line-height: 1.7;">
                     I hereby declare that the information provided above is true, correct and complete. I understand that providing false or misleading information may constitute a criminal offence under the Financial Intelligence Centre Act (Act 38 of 2001) as amended.
@@ -704,7 +718,7 @@
                 <div class="fica-grid" style="margin-bottom: 1.25rem;">
                     <div>
                         <label class="fica-label">Signed at (location) <span class="req">*</span></label>
-                        <input type="text" name="declaration[signed_at_location]" class="fica-input" required x-model="declaration.signed_at_location" placeholder="e.g. Durban, South Africa">
+                        <input type="text" name="declaration[signed_at_location]" class="fica-input" required x-model="declaration.signed_at_location" placeholder="e.g. City, Country">
                     </div>
                     <div>
                         <label class="fica-label">Date</label>
@@ -748,17 +762,10 @@
             --}}
             uploads: {{ Js::from($existingDocuments) }},
 
-            entityType: '',
+            // Opens filled in from the contact CoreX already holds (App\Services\Compliance\FicaFormPrefill); all of it stays editable.
+            entityType: {{ Js::from($prefill['entity_type'] ?? '') }},
 
-            personal: {
-                full_name: '',
-                id_number: '',
-                sa_citizen: '',
-                residential_address: '',
-                phone: '',
-                email: '',
-                tax_number: '',
-            },
+            personal: {{ Js::from($prefill['personal'] ?? ['full_name' => '', 'id_number' => '', 'id_number_kept' => false, 'sa_citizen' => '', 'residential_address' => '', 'phone' => '', 'email' => '', 'tax_number' => '']) }},
 
             entity: {
                 company_name: '', company_reg_number: '', company_sa_presence: '',
@@ -811,6 +818,9 @@
 
             declaration: { signed_at_location: '' },
 
+            // How this agency names the trust account rent and deposits go into (its own setting; neutral wording when unset).
+            trustAccount: @json($trustPhrase ?? \App\Services\Compliance\FicaTrustAccount::NEUTRAL_PHRASE),
+
             get paymentTooltip() {
                 switch (this.service.transaction_purpose) {
                     case 'sell':
@@ -818,11 +828,11 @@
                     case 'purchase':
                         return 'Describe how the purchase price will be funded. Examples: \'Mortgage bond through [bank name]\', \'Own funds transferred via EFT from savings/investments\', \'Combination of mortgage bond and own funds via EFT\', \'Proceeds from sale of existing property (handled by transferring attorney)\'. Note: Even if you are paying the full amount without a bond (often called a \'cash purchase\'), this is not considered \'cash\' under FICA — it is an electronic funds transfer.';
                     case 'let_out':
-                        return 'As a landlord, agency management fees are deducted from your rental income managed through the Reos trust account — you do not pay the agency directly. A typical answer would be: \'Agency fees are deducted from rental income managed through Reos.\'';
+                        return 'As a landlord, agency management fees are deducted from your rental income managed through ' + this.trustAccount + ' — you do not pay the agency directly. A typical answer would be: \'Agency fees are deducted from rental income managed through ' + this.trustAccount + '.\'';
                     case 'rent':
-                        return 'As a tenant, your deposit and monthly rental are paid via EFT to the Reos trust account — cash is never accepted. A typical answer would be: \'Deposit and monthly rental paid via EFT to the Reos trust account.\'';
+                        return 'As a tenant, your deposit and monthly rental are paid via EFT to ' + this.trustAccount + ' — cash is never accepted. A typical answer would be: \'Deposit and monthly rental paid via EFT to ' + this.trustAccount + '.\'';
                     default:
-                        return 'Describe how any payments related to this transaction will be financed. This agency does not accept cash — all funds are processed through the transferring attorney (sales) or Reos trust account (rentals).';
+                        return 'Describe how any payments related to this transaction will be financed. This agency does not accept cash — all funds are processed through the transferring attorney (sales) or ' + this.trustAccount + ' (rentals).';
                 }
             },
 
@@ -830,11 +840,11 @@
                 switch (this.service.transaction_purpose) {
                     case 'sell':
                     case 'let_out':
-                        return 'As a seller/landlord, you do not make payments to the agency or buyer/tenant directly. All funds flow through the transferring attorney or Reos. The answer is almost certainly \'No\'.';
+                        return 'As a seller/landlord, you do not make payments to the agency or buyer/tenant directly. All funds flow through the transferring attorney or ' + this.trustAccount + '. The answer is almost certainly \'No\'.';
                     case 'purchase':
                         return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT or bank transfers. Will any part of the purchase price be paid in physical cash exceeding R50,000? If paying via bond or EFT, the answer is \'No\'.';
                     case 'rent':
-                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. This agency does not accept cash payments. All deposits and rent are paid via EFT to the Reos trust account. The answer is almost certainly \'No\'.';
+                        return 'Cash means physical paper money, coins, or traveller\'s cheques — NOT EFT. This agency does not accept cash payments. All deposits and rent are paid via EFT to ' + this.trustAccount + '. The answer is almost certainly \'No\'.';
                     default:
                         return 'Cash means physical paper money, coins, or traveller\'s cheques only. EFT/bank transfers are NOT cash. This agency does not accept physical cash — if unsure, answer \'No\'.';
                 }

@@ -96,7 +96,7 @@
                     <div class="flex-shrink-0 w-64 rounded-md" style="background: var(--surface-2, #f0f2f8); border: 1px solid var(--border, #e5e7eb);">
                         <div class="px-3 py-2 flex items-center justify-between" style="border-bottom: 1px solid var(--border, #e5e7eb);">
                             <span class="text-sm font-semibold truncate" style="color: var(--text-primary, #111827);">{{ $milestone }}</span>
-                            <span class="text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface, #fff); color: var(--text-muted, #6b7280);">{{ number_format($deals->count()) }}</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-default">{{ number_format($deals->count()) }}</span>
                         </div>
                         <div class="p-2 space-y-2" style="max-height: 60vh; overflow-y: auto;">
                             @foreach($deals as $d)

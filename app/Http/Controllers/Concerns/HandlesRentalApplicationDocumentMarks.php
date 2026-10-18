@@ -242,6 +242,8 @@ trait HandlesRentalApplicationDocumentMarks
         $validHighlighterIds = RentalApplicationHighlighter::pickerFor((int) $rentalApplication->agency_id, $this->markAuthorRole())
             ->pluck('id')->all();
 
+        $this->sanitiseLedgerEntryAmount($request);
+
         $validated = $request->validate([
             'mark_uid' => ['required', 'string', 'max:64'],
             'page' => ['required', 'integer', 'min:0'],
@@ -259,10 +261,10 @@ trait HandlesRentalApplicationDocumentMarks
             'width' => ['required', 'numeric', 'min:4', 'max:120'],
             'highlighter_id' => ['required', 'integer', Rule::in($validHighlighterIds)],
             'entry_type' => ['required', Rule::in(RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)],
-            'entry_date' => ['nullable', 'date'],
+            'entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'entry_description' => ['nullable', 'string', 'max:255'],
             'entry_amount' => ['required', 'numeric'],
-        ]);
+        ], $this->ledgerEntryMessages());
 
         // cc2's finding, 2026-09-13 — the client decides which capture
         // chip to open (income vs expense) by reading the SAME
@@ -322,6 +324,27 @@ trait HandlesRentalApplicationDocumentMarks
     }
 
     /**
+     * The ledger amount is typed into a TEXT box (a native number box eats the "." mid-
+     * typing, Round 11) so it arrives as the raw string — run it through the one money
+     * sanitizer every other rand field on this feature uses before validation.
+     */
+    private function sanitiseLedgerEntryAmount(Request $request): void
+    {
+        $request->merge(RentalApplication::sanitizeNumericInput($request->only(['entry_amount']), ['entry_amount']));
+    }
+
+    /** Plain-language refusals for the ledger fields (shown verbatim under the entry box). */
+    private function ledgerEntryMessages(): array
+    {
+        return [
+            'entry_date.before_or_equal' => 'A ledger entry cannot be dated in the future — use the date on the statement.',
+            'entry_date.date' => 'Enter a valid date for this entry.',
+            'entry_amount.required' => 'Enter an amount.',
+            'entry_amount.numeric' => 'Enter the amount as a number, like 15000 or 15 000.50.',
+        ];
+    }
+
+    /**
      * Stage 3, 2026-09-11 — "Add line manually," for a figure with nothing
      * to highlight. Same record as captureEntryCreate() above, but
      * UNANCHORED (document_id/page/type/points/width/highlighter_id all
@@ -338,13 +361,15 @@ trait HandlesRentalApplicationDocumentMarks
             return $locked;
         }
 
+        $this->sanitiseLedgerEntryAmount($request);
+
         $validated = $request->validate([
             'mark_uid' => ['required', 'string', 'max:64'],
             'entry_type' => ['required', Rule::in(RentalApplicationDocumentMark::LEDGER_ENTRY_TYPES)],
-            'entry_date' => ['nullable', 'date'],
+            'entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'entry_description' => ['nullable', 'string', 'max:255'],
             'entry_amount' => ['required', 'numeric'],
-        ]);
+        ], $this->ledgerEntryMessages());
 
         if (RentalApplicationDocumentMark::where('rental_application_id', $rentalApplication->id)->where('mark_uid', $validated['mark_uid'])->exists()) {
             return response()->json(['error' => 'This entry has already been saved.'], 409);
@@ -390,11 +415,13 @@ trait HandlesRentalApplicationDocumentMarks
 
         $this->guardCaptureEntryOwnership($mark, $request->user());
 
+        $this->sanitiseLedgerEntryAmount($request);
+
         $validated = $request->validate([
-            'entry_date' => ['nullable', 'date'],
+            'entry_date' => ['nullable', 'date', 'before_or_equal:today'],
             'entry_description' => ['nullable', 'string', 'max:255'],
             'entry_amount' => ['required', 'numeric'],
-        ]);
+        ], $this->ledgerEntryMessages());
 
         $mark->update($validated);
 

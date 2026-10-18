@@ -1,0 +1,41 @@
+@php($template = $template ?? null)
+<div>
+    <label class="prop-label">Name</label>
+    <input type="text" name="name" value="{{ old('name', $template?->name) }}" required class="prop-input">
+</div>
+<div>
+    <label class="prop-label">Notice type</label>
+    <select name="notice_type" required class="prop-input">
+        @foreach(\App\Models\RentalNoticeTemplate::TYPES as $t)
+            <option value="{{ $t }}" @selected(old('notice_type', $template?->notice_type ?? request('notice_type')) === $t)>{{ \App\Models\RentalNoticeTemplate::labelFor($t) }}</option>
+        @endforeach
+    </select>
+</div>
+<div data-qa="template-upload">
+    <label class="prop-label">Upload your document (Word, .docx)</label>
+    <p class="text-xs mb-1" style="color: var(--text-muted);">Your own breach notice / notice to vacate. Write the placeholders in the document as @{{tenant_name}}, @{{amount}} and so on (listed below). It is converted to the text below, which you can still edit.
+        @if($template?->source_file_name) Made from: <strong>{{ $template->source_file_name }}</strong>. @endif</p>
+    <input type="file" name="document" accept=".docx" class="text-xs">
+    @error('document')<p class="text-xs mt-1" style="color:#b91c1c;">{{ $message }}</p>@enderror
+</div>
+<div>
+    <label class="prop-label">Body (HTML) - or type it here instead of uploading</label>
+    {{-- AT-445 regression (2026-10-05, 6b14f9e4c, same commit/bug class as
+         the Property Rental tab fix) — {{ '}}' }} contains a literal "}}"
+         INSIDE the quoted string meant to escape it, so Blade's own {{ }}
+         echo matcher (non-greedy, stops at the first "}}" it finds) closed
+         early on the string's own closing brace-pair, leaving the rest as
+         broken literal text in every placeholder example on this line.
+         @{{ }} is Blade's own built-in escape for "output this literally,
+         don't evaluate it" — no quoted-string workaround needed at all. --}}
+    <p class="text-xs mb-1" style="color: var(--text-muted);">Use @{{token}} placeholders — e.g. @{{tenant_name}}, @{{arrears_amount}}, @{{vacate_by_date}}, @{{breach_description}}. The ones listed below are filled in from the lease and the notice automatically; any other is typed by the agent when sending.</p>
+    <details class="text-xs mb-2" style="color: var(--text-muted);"><summary class="cursor-pointer">Placeholders filled in automatically</summary>
+        <ul class="list-disc list-inside">@foreach(\App\Services\Rentals\RentalNoticeService::PLACEHOLDERS as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>
+    </details>
+    <textarea name="body_html" rows="12" class="prop-input" style="font-family: monospace;">{{ old('body_html', $template?->body_html) }}</textarea>
+</div>
+<label class="flex items-center gap-2 text-sm">
+    <input type="hidden" name="is_active" value="0">
+    <input type="checkbox" name="is_active" value="1" @checked(old('is_active', $template?->is_active ?? true))>
+    Active (selectable when sending a notice)
+</label>

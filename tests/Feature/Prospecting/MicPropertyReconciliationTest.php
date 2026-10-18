@@ -43,6 +43,8 @@ final class MicPropertyReconciliationTest extends TestCase
     {
         return Property::create([
             'agency_id' => $this->agencyId,
+            'branch_id' => \App\Models\Branch::firstOrCreate(['agency_id' => $this->agencyId, 'name' => 'Recon Branch'])->id,
+            'agent_id' => \App\Models\User::factory()->create(['agency_id' => $this->agencyId])->id,
             'external_id' => (string) Str::uuid(),
             'title' => $address, 'address' => $address, 'suburb' => $suburb,
             'street_number' => '12', 'street_name' => 'Marine Drive',
@@ -112,7 +114,7 @@ final class MicPropertyReconciliationTest extends TestCase
         // An UNPROMOTED duplicate twin of the same asset (erf+suburb), inserted with a LOWER id so a
         // naive first-match returns it.
         DB::table('tracked_properties')->insert([
-            'agency_id' => $this->agencyId, 'erf_number' => '659',
+            'agency_id' => $this->agencyId, 'external_id' => (string) Str::uuid(), 'erf_number' => '659',
             'street_number' => '12', 'street_name' => 'Marine Drive',
             'suburb' => 'Margate', 'suburb_normalised' => $promoted->suburb_normalised,
             'status' => TrackedProperty::STATUS_ACTIVE, 'created_at' => now(), 'updated_at' => now(),

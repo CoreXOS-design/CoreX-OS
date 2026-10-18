@@ -347,7 +347,7 @@ class P24LeadService
                 ?? ContactType::query()->where('name', 'Lead')->value('id'))
             : (ContactType::query()->where('name', 'Buyer')->value('id')
                 ?? ContactType::query()->where('name', 'Lead')->value('id'));
-        $sourceId    = ContactSource::query()->where('name', 'Property24')->value('id');
+        $sourceId    = ContactSource::idForAgencyByName((int) $agencyId, 'Property24'); // this agency's row — see ContactSource::idForAgencyByName()
 
         [$first, $last] = $this->splitName($name);
 

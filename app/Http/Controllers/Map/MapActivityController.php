@@ -492,7 +492,7 @@ final class MapActivityController extends Controller
                 return [
                     'redirect_url'  => $propertyId ? route('corex.properties.show', ['property' => $propertyId]) : null,
                     'error'         => 'pitch_blocked_held',
-                    'error_message' => "Already on HFC's books — opened the property record instead.",
+                    'error_message' => "Already on our books — opened the property record instead.",
                     'collision'     => $status,
                 ];
             case 'own_draft':

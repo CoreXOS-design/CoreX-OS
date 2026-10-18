@@ -1,0 +1,72 @@
+# Lease notices - notice received, agent review, send to the other party
+
+**Status:** built on QA1, 14 Oct 2026 (written BEFORE the code; **re-scoped the same day** - see section 6). Sits beside `leases.md` (notice terms §18, tenancy log §12.10), `rental-renewals.md` §14-19 (what accepting a notice does to the lease and the property) and `rental-portal-access.md` §8 (notice templates and the portal documents list).
+
+## 1. Johan's ruling (14 Oct 2026, verbatim)
+
+"tenant or landlord gives notice -> flows to the agent -> agent has to first work with it -> then can distribute to the other party. Agent must always ensure notices are legal in terms of law and the contract."
+
+So a notice is a **case with a life**, not a one-click record:
+
+`received` -> the agent reviews it (the contract's terms and the law's rules beside it, with flags) -> `accepted` (as given, or with a corrected date) or `rejected` (with a reason) -> only after acceptance can the agent **send the final notice to the other party** from a template. **Nothing reaches the other party before that.** The lease's move-out date is set **only on acceptance** (it then feeds the existing lease-end date logic).
+
+## 2. Why this exists (the faults found on lease 115, 14 Oct)
+
+- "Tenant gave notice" on the lease screen recorded the notice at once and told nobody (`LeaseRenewalService::recordNotice()`, `LeaseRenewalController::recordNotice()`): no mail, no alert, no legal check, move-out date set before anyone reviewed it.
+- "Send notice" (`corex.leases.notices.create`, `RentalNoticeController::create()`) dead-ended on "No active notice templates yet": templates were never seeded (`rental_notice_templates` is agency content that nobody had created).
+- Neither the tenant nor the owner could give notice from the portal at all.
+
+## 3. Data model
+
+**`lease_notices`** (new; one row per notice given; agency-scoped with `BelongsToAgency`; soft delete only):
+`agency_id`, `branch_id` (the lease's), `lease_id`, `given_by` (`tenant` | `landlord`), `via` (`portal` | `agent`), `given_by_contact_id` (the portal person, nullable), `recorded_by_user_id` (the agent who recorded it on their behalf, nullable), `notice_date` (date given), `intended_end_date` (the move-out / end date as given), `reason` (text, nullable), `attachment_path/name/mime/size` (private `local` disk, optional), `status` (`received` | `accepted` | `rejected` | `withdrawn`), `accepted_end_date`, `decision_kind` (`as_given` | `corrected` | `rejected`), `decision_note`, `decided_by_user_id`, `decided_at`, `property_outcome` + `show_available_from_on_portals` (the three-way choice the existing notice dialog asked, Johan 5 Oct 2026 - now asked at acceptance), `flags` (json snapshot of what the review showed when the agent decided), `other_party_told_at`, timestamps, `deleted_at`.
+**`lease_settings`** gains `cpa_early_cancel_business_days` (nullable = the default 20). (The breach register's table and columns are in `rental-notices.md`.)
+Audit trail: every step writes a `lease_events` row (`notice_received`, `notice_decided`, `notice_sent`) on the lease's tenancy log, with who and when; accepting also writes the existing `notice_recorded` row (it IS the existing `recordNotice()`).
+
+## 4. Pillars and events
+
+Property (the lease's property; the outcome choice re-advertises / withdraws / leaves it - existing rules), Contact (who gave it; the other party), Deal/lease (the notice and move-out date), Agent (the two lease agents are told: `LeaseAgentService::recipientsForEvent()`, the actor excluded). Notification event `lease_notice.received` ("Notice received - needs review") registered in `notification_event_types`; fired in-app per agent (the normal alert popup) plus a direct email each (same pattern as `RentalOwnerHoldService::tellAgents`).
+
+## 5. Flow, step by step
+
+1. **Give notice.** (a) Portal: tenant or owner, "Notices" tab -> "Give notice": lease (when more than one), date given (default today), intended move-out / end date, reason, optional attachment (PDF / image / Word, 10 MB). (b) Agent, on the lease screen: the existing **Tenant gave notice** / **Landlord not renewing** menu items now open a dialog with the same four fields and create a notice **on their behalf** (`via = agent`); they are taken straight to its review. Nothing is sent to anyone else.
+2. **Agent is told.** In-app alert popup + email to both lease agents (the recording agent excluded); a **"Notice received - needs review"** tile on the Rentals Command Centre and a row in its needs-action queue; the lease screen shows a **Notice panel** (status, who, dates, link to the review).
+3. **Review screen** (`/corex/lease-notices/{id}`): the notice on the left; the **lease's notice terms** on the right (term and end date, month-to-month, notice period, earliest date notice may be given, early cancellation allowed / notice / penalty, whether the terms were confirmed against the signed lease, the agency's CPA business-day setting). **Flags** (computed, never blocking by themselves):
+   - *Notice period shorter than the contract allows* (given date + the lease's notice period is later than the intended end date) - names the earliest end date the contract allows and offers it as the corrected date;
+   - *Notice given too early* (before the lease's earliest notice date);
+   - *CPA early cancellation* (tenant cancelling before a fixed term ends): the Consumer Protection Act lets a tenant cancel a fixed-term lease on **20 business days'** written notice (the agency's setting, default 20); flagged with the earliest end date that satisfies it, any contract early-cancellation notice that is longer, and the contract's penalty; if the contract disallows early cancellation that is flagged too;
+   - *Landlord ending a fixed term early* (not allowed without breach);
+   - *Wrong date* (intended end in the past, before the date given, given date in the future, before the lease started, or more than two years away);
+   - *Terms not confirmed* (the lease's notice terms are agency defaults, not read off the signed lease).
+   The agent decides: **Accept** (the move-out date prefilled with the date given; change it = "accepted with corrected date", a note is required; choose what happens to the property, as before), or **Reject** (a reason, required). **Accepting while any warning flag is raised needs a note** saying why it is fine - the agent must always be able to show the notice is lawful and in line with the contract. Rejecting emails and portal-notifies the person who gave it, with the reason (the other party is told nothing).
+4. **Accept** runs `LeaseRenewalService::recordNotice()` (sets `notice_date`, `notice_given_by`, `move_out_date`, `notice_outcome`, applies the property outcome, logs `notice_recorded`) and marks the case `accepted`. A lease with an active accepted notice must have it reversed first (the existing **Reverse notice**, which now also marks the case `withdrawn`).
+5. **The other party is told on acceptance** (`LeaseNoticeService::tellOtherParty`): an agency-branded email **from the accepting agent's own mailbox** (`RentalMailDispatcher`, `LeaseNoticeAcceptedMail`) to each contact of the other side that has an email - the dates only, never the reason given - and the notice appears in their portal **Notices** tab ("Your landlord gave notice on ... The lease ends on ..."). Logged on the lease. A rejected notice tells the giver, never the other party.
+
+## 6. Re-scope (Johan, 14 Oct 2026) - NO seeded templates
+
+Notice templates are **agency documents** (they relate to the agency's own lease agreement); CoreX seeds none and no longer sends the notice from a template here. Acceptance tells the other party with a plain mail (above). Breach notices and notices to vacate - the agency's own uploaded templates - are `rental-notices.md`. The older **Send notice** screen (`corex.leases.notices.create`) answers "No active notice templates yet" with a real empty state that links to Settings -> Rental Notice Templates, where the agency uploads its own (Word document with placeholders - `rental-notices.md` §3). Setup Wizard: the one setting that came with notices (`cpa_early_cancel_business_days`) is in the Leases step; template documents are agency content on their own screen and are not wizard controls (recorded in `agency-onboarding-setup.md` §5.1).
+
+## 7. Settings (per agency, with defaults)
+
+Notice period default: existing `tenant_notice_period_days` + `_unit` (default 30 days). Early-cancellation defaults: existing `default_early_cancellation_*`. **New: `cpa_early_cancel_business_days`** (default 20; the number of business days' notice the law gives a tenant to cancel a fixed term; weekends and South African public holidays do not count). On Settings -> Leases and in the Setup Wizard's Leases step (`LeaseSettingsController@update`, `has()`-guarded). The notice terms of each lease keep their own screen and permission (`lease_notice_terms.edit`).
+
+## 8. Screens (design standard: CRUD, search, sort, filter, pagination, empty state, scoping)
+
+- **Lease notices list** `/corex/lease-notices` (nav: Rentals -> Notices received). Search: tenant / owner name, property address, reason. Sort: date given, intended end date, status, property (default newest first). Filter: status (default "needs review"), given by, date range, archived. Pagination 25. Real empty state. Visibility: own / branch / agency through `Lease::visibleTo()` - a notice is exactly as visible as its lease; direct URL by id is 403 for anyone who cannot see the lease.
+- **Review / case screen** (read, decide, edit while `received`, archive and restore). Equal-size, aligned buttons.
+- **Create:** the dialogs on the lease screen (agent) and the portal form. **Update:** the agent may correct a `received` notice's dates / reason (logged). **Archive / restore:** soft delete only, logged; an archived case is out of the list unless the archived filter is on.
+- **Portal:** a **Notices** tab for the tenant and for the owner: give notice, and the person's own notices with their status ("with your agent", "accepted - move-out date ...", "not accepted - reason ..."); an owner sees only leases on their own properties, a tenant only their own lease; the final notices sent to them are in **Documents**.
+- **Permissions:** `rental_notices.review` (view, record, decide, send, archive; added to the roles that can renew leases). Portal endpoints are scoped by the same portal-person rules as every other portal call (`RentalPortalScopeService`).
+
+## 9. Not changed / reported
+
+- The existing **Send notice** screen (`corex.leases.notices.create`) stays for notices that are not a reply to a received notice (rent increase, breach, landlord notice) and now has the default templates and the same auto-filled placeholders, with a preview.
+- Lease notice terms (`LeaseNoticeTermsService`) are read, never edited, by the review.
+- Business days use weekdays less `PublicHoliday` rows for ZA (seeded by the leave module); a year with no holidays seeded counts weekdays only, and the review says so.
+
+## 10. Tests
+
+`tests/Feature/LeaseNotices/`: flags (every rule, a second agency's settings), give notice from the portal for tenant and owner (scoping, attachment, nothing sent to the other party), agent on behalf, alert + mail to agents with the actor excluded, command-centre tile and queue row, review screen content, accept as given / corrected / reject, move-out date set only on acceptance, reverse marks withdrawn, send (template, preview refuses unfilled placeholders, rendered mail agency-branded, PDF filed, both portals list it, the other party's portal does not before sending), default templates (per agency, idempotent, archived stay archived, no HFC text), list search / sort / filter / scope, archive / restore, wizard + settings saver for the CPA days. All mail is faked and rendered.
+
+## Audit fix 2026-10-18 (A-M8)
+`POST /api/v1/leases/{lease}/renewal/tenant-notice` and `/landlord-notice` now go through `LeaseNoticeService::give(..., VIA_AGENT, ...)` exactly like the web action, so the review step applies. **Backward compatible:** the original mobile payload still works - `move_out_date` maps to `intended_end_date`, `note` to `reason`, `notice_date` defaults to today, `notice_outcome` / `show_available_from_on_portals` are accepted and ignored (the reviewer picks the outcome on acceptance). **Deprecated:** the old field names and the ignored outcome; new clients send `notice_date`, `intended_end_date`, `reason`, `attachment`. The response keeps `lease` and adds `notice`. Test: `LeaseNoticeStaffFlowTest`.

@@ -3,7 +3,7 @@
 namespace Tests\Unit\PrivateProperty;
 
 use App\Services\PrivateProperty\PrivatePropertyListingMapper;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase; // needs the app container: base_path() / the Schema facade
 
 /**
  * PP60 — PP rejects a listing that carries a Unit Number without a

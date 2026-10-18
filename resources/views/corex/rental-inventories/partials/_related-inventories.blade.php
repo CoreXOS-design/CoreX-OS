@@ -10,8 +10,14 @@
     three re-implementations of "which property is this."
 
     Required var:
-      $property — the property this section is for.
+      $property — the property this section is for. May be null, or a
+      soft-deleted (archived) Property — several callers now pass a
+      withTrashed() relation (deleted-related-record rule,
+      .ai/BUILD_STANDARD.md §4). An archived property's own inventory
+      route 404s under default route-model binding, so this section is
+      skipped entirely rather than offering a dead-end link.
 --}}
+@if($property && !$property->trashed())
 <div class="prop-section">
     <a href="{{ route('corex.properties.inventory.show', $property) }}" class="prop-section-toggle" style="display:flex;">
         <h3 class="prop-section-heading">
@@ -20,3 +26,4 @@
         <svg class="prop-section-chevron" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
     </a>
 </div>
+@endif

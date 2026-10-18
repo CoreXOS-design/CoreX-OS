@@ -126,8 +126,8 @@
                        name="{{ $searchName }}"
                        value="{{ $searchValue }}"
                        placeholder="{{ $searchPlaceholder }}"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                       class="list-header-filter w-full {{ $searchValue !== '' ? 'is-active' : '' }}"
+                       style="padding-left: 2.25rem;">
             </div>
 
             @if(isset($filters))
@@ -150,8 +150,8 @@
                 <input type="text"
                        x-model.debounce.300ms="{{ $searchModel }}"
                        placeholder="{{ $searchPlaceholder }}"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md focus:outline-none transition-all duration-300"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                       class="list-header-filter w-full"
+                       style="padding-left: 2.25rem;">
             </div>
 
             @if(isset($filters))

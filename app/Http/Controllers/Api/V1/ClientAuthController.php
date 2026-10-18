@@ -4,9 +4,14 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\ClientUser;
+use App\Models\Contact;
 use App\Services\ClientAuthService;
+use App\Services\PortalTabSession;
+use App\Support\PortalDemoSigninGate;
+use App\Support\PortalLink;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rules\Password;
@@ -18,7 +23,7 @@ use Illuminate\Validation\Rules\Password;
  */
 class ClientAuthController extends Controller
 {
-    public function __construct(private readonly ClientAuthService $service) {}
+    public function __construct(private readonly ClientAuthService $service, private readonly PortalTabSession $tabs) {}
 
     /**
      * POST /api/v1/client-auth/lookup
@@ -156,13 +161,17 @@ class ClientAuthController extends Controller
     /**
      * POST /api/v1/client-auth/password/set
      * Auth: activation token (ability 'client-activation') OR an authenticated
-     * client whose password_must_change=true.
+     * client whose password_must_change=true - both only as a REAL personal access token.
+     * A cookie-session user (Sanctum's TransientToken, whose can() is always true) is neither:
+     * they must give their current password, exactly as changePassword requires (audit 2026-10-18 A-M1).
      */
     public function setPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
             'password'              => ['required', 'confirmed', Password::min(8)],
+            'current_password'      => 'sometimes|nullable|string',
             'device_name'           => 'sometimes|string|max:120',
+            'tab'                   => 'sometimes|boolean',
         ]);
 
         $tokenable = $request->user();
@@ -171,12 +180,22 @@ class ClientAuthController extends Controller
         }
 
         $token = $tokenable->currentAccessToken();
-        $isActivation = $token && method_exists($token, 'can') && $token->can('client-activation');
-        $isMustChange = $token && method_exists($token, 'can') && $token->can('client') && $tokenable->password_must_change;
+        $isRealToken = $token instanceof \Laravel\Sanctum\PersonalAccessToken;
+        $isActivation = $isRealToken && $token->can('client-activation');
+        $isMustChange = $isRealToken && $token->can('client') && $tokenable->password_must_change;
+        $isSession = ! $isRealToken && $request->hasSession();
 
-        if (!$isActivation && !$isMustChange) {
+        if ($isSession && ! $isActivation && ! $isMustChange) {
+            // a signed-in browser (cookie session) changing its password proves it knows the current one
+            if (! $tokenable->hasPassword() || ! Hash::check((string) ($data['current_password'] ?? ''), (string) $tokenable->password)) {
+                return response()->json(['message' => 'Current password is incorrect.'], 422);
+            }
+        } elseif (!$isActivation && !$isMustChange) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
+
+        // a person who may be remembered on this browser now (checked BEFORE the password changes the fingerprint its entry is bound to)
+        $wasRemembered = in_array((int) $tokenable->id, $this->tabs->rememberedIds($request), true);
 
         $tokenable->forceFill([
             'password'             => Hash::make($data['password']),
@@ -188,13 +207,32 @@ class ClientAuthController extends Controller
         $this->service->log($tokenable, null, null, $event, $request);
 
         // Revoke the activation token (single-use).
-        if ($isActivation && $token) {
+        if ($isActivation && $isRealToken) {
             $token->delete();
         }
+        // a new password ends every web-portal tab login of this person (A-L1); the tab signing in below gets a fresh one
+        $this->tabs->revokeTabTokens($tokenable, $isRealToken && ! $isActivation ? (int) $token->id : null);
 
-        // Auto-issue a long-lived sanctum token so client lands signed-in.
-        $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
-        $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
+        // AT-445 — a stateful (same-origin browser) request establishes a
+        // session instead of receiving a bearer token: the web portal never
+        // sees a token value at all, so there is nothing for an XSS to
+        // steal. Mobile (never stateful) is completely unchanged.
+        $sessionToken = null;
+        if ($this->wantsTabToken($request)) {
+            // §28.5 - a web portal TAB signs in as a token of its own: the browser's shared session cookie is never touched, so another tab
+            // (another person) is not signed out.
+            $sessionToken = $this->tabs->issue($tokenable);
+            $this->tabs->remember($request, $tokenable);
+        } elseif ($this->isStatefulRequest($request)) {
+            // a staff page open in this browser keeps its CSRF token (StaffSafeSession)
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $tokenable);
+            if ($wasRemembered) {
+                $this->tabs->remember($request, $tokenable);   // this browser keeps remembering them, under the NEW password
+            }
+        } else {
+            $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
+            $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
+        }
 
         if (!$tokenable->first_login_at) {
             $tokenable->forceFill(['first_login_at' => now()])->save();
@@ -220,11 +258,12 @@ class ClientAuthController extends Controller
             $tokenable->forceFill(['current_agency_id' => $agencyId])->save();
         }
 
-        return response()->json([
-            'token'    => $sessionToken,
-            'agencies' => $agencies,
-            'client'   => $this->summarise($tokenable),
-        ]);
+        $payload = ['agencies' => $agencies, 'client' => $this->summarise($tokenable)];
+        if ($sessionToken !== null) {
+            $payload['token'] = $sessionToken;
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -237,6 +276,7 @@ class ClientAuthController extends Controller
             'password'    => 'required|string',
             'device_name' => 'sometimes|string|max:120',
             'agency_id'   => 'sometimes|integer',
+            'tab'         => 'sometimes|boolean',
         ]);
 
         $key = 'clientauth.login:' . $request->ip() . ':' . strtolower($data['email']);
@@ -260,8 +300,21 @@ class ClientAuthController extends Controller
         // Lazy-link any new contacts that have appeared since.
         $this->service->findOrCreateClientUser($email);
 
-        $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
-        $token = $this->service->issueSanctumToken($clientUser, $deviceName);
+        // AT-445 — same stateful/session branch as setPassword() above.
+        $stateful = $this->isStatefulRequest($request);
+        $token = null;
+        $deviceName = 'Web portal (session)';
+        if ($this->wantsTabToken($request)) {
+            // §28.5 - this tab's own login (see setPassword)
+            $deviceName = 'Web portal (tab)';
+            $token = $this->tabs->issue($clientUser);
+            $this->tabs->remember($request, $clientUser);
+        } elseif ($stateful) {
+            \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $clientUser);
+        } else {
+            $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
+            $token = $this->service->issueSanctumToken($clientUser, $deviceName);
+        }
 
         $agencies = $this->service->agenciesFor($clientUser);
 
@@ -288,12 +341,16 @@ class ClientAuthController extends Controller
 
         $this->service->log($clientUser, $agencyId, null, 'password_login_success', $request, [], $deviceName);
 
-        return response()->json([
-            'token'    => $token,
+        $payload = [
             'agencies' => $agencies,
             'client'   => $this->summarise($clientUser),
             'must_change_password' => $clientUser->password_must_change,
-        ]);
+        ];
+        if ($token !== null) {
+            $payload['token'] = $token;
+        }
+
+        return response()->json($payload);
     }
 
     /**
@@ -347,6 +404,8 @@ class ClientAuthController extends Controller
 
         /** @var ClientUser $clientUser */
         $clientUser = $request->user();
+        $token = $clientUser->currentAccessToken();
+        $wasRemembered = in_array((int) $clientUser->id, $this->tabs->rememberedIds($request), true);
 
         if (!$clientUser->password_must_change) {
             if (!Hash::check($data['current_password'] ?? '', $clientUser->password ?? '')) {
@@ -361,6 +420,13 @@ class ClientAuthController extends Controller
         ])->save();
 
         $this->service->log($clientUser, $clientUser->current_agency_id, null, 'password_changed', $request);
+
+        // a new password ends every web-portal tab login of this person (A-L1) except the tab making the change; this browser keeps
+        // remembering them under the new password
+        $this->tabs->revokeTabTokens($clientUser, $token instanceof \Laravel\Sanctum\PersonalAccessToken ? (int) $token->id : null);
+        if ($wasRemembered) {
+            $this->tabs->remember($request, $clientUser);
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -449,10 +515,7 @@ class ClientAuthController extends Controller
 
         $clientUser->delete();
 
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
+        $this->endPortalSession($request);
 
         return response()->json(['ok' => true, 'message' => 'Your account has been deleted.']);
     }
@@ -470,23 +533,150 @@ class ClientAuthController extends Controller
             'token_id' => $token?->id ?? null,
         ]);
 
+        // §28.5 - a portal TAB signing out ends that tab's own login only: the token goes, this person is no longer remembered for NEW tabs on
+        // this browser, and the browser's session cookie (which may hold somebody else, or a staff user) is left alone. Other tabs keep working.
+        if ($token instanceof \Laravel\Sanctum\PersonalAccessToken && $token->name === PortalTabSession::tokenName()) {
+            $token->delete();
+            $this->tabs->forget($request, $clientUser);
+
+            return response()->json(['ok' => true]);
+        }
+
         // Delete by id where possible (currentAccessToken may return a TransientToken under
         // stateful Sanctum, which has no real DB row and a no-op delete()).
         if ($token instanceof \Laravel\Sanctum\PersonalAccessToken) {
             $token->delete();
         } else {
-            // Defensive fallback: nuke every token for this client user.
-            $clientUser->tokens()->delete();
+            // Defensive fallback: every token of this client user EXCEPT the ones other portal tabs are using right now.
+            $clientUser->tokens()->where('name', '!=', PortalTabSession::tokenName())->delete();
         }
 
         // Stateful Sanctum may have established a session cookie; clear it so a
         // follow-up request with the same cookie can't authenticate as this user.
-        if ($request->hasSession()) {
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-        }
+        $this->endPortalSession($request);
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * POST /api/v1/client-auth/tab-token  (§28.5)
+     * A portal tab with no token of its own asks for one. It gets one only for a person who has ALREADY signed in on this browser
+     * (the encrypted "logins remembered here" cookie, or a portal session cookie from before per-tab sign-in): the link's person when the
+     * link names one, otherwise the most recent. Anyone else must sign in.
+     */
+    public function tabToken(Request $request): JsonResponse
+    {
+        $data = $request->validate(['email' => 'nullable|email|max:255', 'contact_id' => 'nullable|integer|min:1', 'probe' => 'nullable|boolean']);
+
+        $pool = $this->tabs->rememberedIds($request);
+        $legacy = $request->hasSession() ? Auth::guard('client-web')->user() : null;
+        if ($legacy instanceof ClientUser && ! in_array((int) $legacy->id, $pool, true)) {
+            $pool[] = (int) $legacy->id;
+        }
+
+        $named = ! empty($data['contact_id']) || ! empty($data['email']);
+        $target = null;
+        if (! empty($data['contact_id'])) {
+            $target = Contact::withoutGlobalScopes()->whereNull('deleted_at')->whereKey((int) $data['contact_id'])->value('client_user_id');
+        }
+        if (! $target && ! empty($data['email'])) {
+            $target = ClientUser::where('email', strtolower(trim($data['email'])))->value('id');
+        }
+
+        $id = $named ? ($target && in_array((int) $target, $pool, true) ? (int) $target : null) : (end($pool) ?: null);
+        $login = $id ? ClientUser::find($id) : null;
+        if (! $login) {
+            // The portal page asks on EVERY open "is anyone already signed in on this browser?" - for a fresh browser the honest answer is "no", and a
+            // 401 for that shows as a red console error on every first open. With `probe` the answer is a plain 200 + needs_signin (no token); without
+            // it (any other caller) it stays the 401 it always was.
+            if (! empty($data['probe'])) {
+                return response()->json(['token' => null, 'needs_signin' => true]);
+            }
+
+            return response()->json(['message' => 'Sign in to continue.', 'needs_signin' => true], 401);
+        }
+
+        $token = $this->tabs->issue($login);
+        // reusing the browser's memory is not a new sign-in: it keeps its original (absolute-age) start; a legacy session cookie is a sign-in
+        $this->tabs->remember($request, $login, ! in_array((int) $login->id, $this->tabs->rememberedIds($request), true));
+
+        return response()->json(['token' => $token, 'client' => $this->summarise($login)]);
+    }
+
+    /**
+     * POST /api/v1/client-auth/qa-link-signin  (QA1 ONLY - the route exists only when PortalDemoSigninGate::open(); 404 everywhere else)
+     * An emailed portal link signs its tab straight in as the person the link was written for: no emailed code, no password. The link's
+     * signed recipient reference is the only thing trusted - an unsigned or edited link signs nobody in.
+     */
+    public function qaLinkSignin(Request $request): JsonResponse
+    {
+        abort_unless(PortalDemoSigninGate::open(), 404);
+
+        $data = $request->validate(['r' => 'required|string|max:600']);
+        $ref = PortalLink::parse($data['r']);
+        if (! $ref) {
+            return response()->json(['message' => 'This link could not be read.'], 422);
+        }
+
+        $contact = $ref['contact_id'] > 0 ? Contact::withoutGlobalScopes()->whereNull('deleted_at')->find($ref['contact_id']) : null;
+        $login = $contact && $contact->client_user_id ? ClientUser::find($contact->client_user_id) : null;
+        $login ??= $this->service->findOrCreateClientUser($ref['email']);
+
+        if (! $login->current_agency_id) {
+            $agencies = $this->service->agenciesFor($login);
+            $agencyId = $login->locked_to_agency_id ?: ($contact?->agency_id ?: (count($agencies) === 1 ? $agencies[0]['id'] : null));
+            if ($agencyId) {
+                $login->forceFill(['current_agency_id' => $agencyId])->save();
+            }
+        }
+
+        $this->service->log($login, (int) ($contact?->agency_id ?? $login->current_agency_id), $contact?->id, 'qa_link_signin', $request, ['email' => $ref['email']]);
+        $token = $this->tabs->issue($login);
+        $this->tabs->remember($request, $login);
+
+        return response()->json(['token' => $token, 'client' => $this->summarise($login)]);
+    }
+
+    /** §28.5 - the web portal page asks for a token of its own (`tab`); only a same-origin browser request can have one (never a different caller). */
+    private function wantsTabToken(Request $request): bool
+    {
+        return $request->boolean('tab') && $this->isStatefulRequest($request);
+    }
+
+    /**
+     * AT-445 — true only for a same-origin browser request that
+     * EnsureFrontendRequestsAreStateful has already promoted (set by its
+     * own inline pipeline closure). Mobile bearer-token requests never set
+     * this, on any route — they don't carry a matching Origin/Referer.
+     */
+    /**
+     * End the PORTAL login in the browser session. A browser can hold a STAFF login in the same session (the `web` and
+     * `client-web` guards keep separate keys), and invalidating the whole session used to sign that staff user out too.
+     * Only the portal login leaves; the session itself is destroyed only when no staff user is in it.
+     * Spec: .ai/specs/rental-portal-access.md §17.
+     */
+    private function endPortalSession(Request $request): void
+    {
+        if (! $request->hasSession()) {
+            return;
+        }
+
+        // Forget the portal login in the session directly rather than SessionGuard::logout(): that fires the global
+        // Logout event, whose staff-only listeners (e.g. RevokeCommsGrantsOnLogout) are typed for App\Models\User and
+        // 500 on a ClientUser — the same trap the Login listener already had to be scoped around.
+        $guard = Auth::guard('client-web');
+        $request->session()->forget($guard->getName());
+        $guard->forgetUser();
+        if (! Auth::guard('web')->check()) {
+            $request->session()->invalidate();
+        }
+        // A staff page open in this browser keeps its CSRF token (StaffSafeSession).
+        \App\Support\StaffSafeSession::rotateToken($request);
+    }
+
+    private function isStatefulRequest(Request $request): bool
+    {
+        return (bool) $request->attributes->get('sanctum', false);
     }
 
     private function summarise(ClientUser $clientUser): array

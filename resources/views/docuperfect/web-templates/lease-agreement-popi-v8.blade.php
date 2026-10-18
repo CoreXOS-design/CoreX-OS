@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Lease Agreement — Home Finders Coastal</title>
+    <title>Lease Agreement{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Lease Agreement POPI V8 — Print-quality A4 document
@@ -272,6 +272,9 @@
         .financial-table td {
             padding: 4pt 4pt;
             vertical-align: bottom;
+            /* explicit paper colour — never inherit a row/theme background */
+            background: #fff;
+            color: #1a1a1a;
         }
 
         .financial-table td:first-child {
@@ -408,11 +411,11 @@
         <div class="sub-clause">2.2 The Rental: being the amount referred to in 4.1 or 5.2.2 as escalated
             in terms of 4.2.</div>
 
-        <div class="sub-clause">2.3 The Estate Agent being: The firm: Home Finders Coastal</div>
+        <div class="sub-clause">2.3 The Estate Agent being: The firm: {{ $docAgency['name'] }}</div>
 
         <div class="sub-clause">2.4 The Deposit: as referred to in clause 6.</div>
 
-        <div class="sub-clause">2.5 Home Finders Coastal is the Agent, not the Landlord, and can only act
+        <div class="sub-clause">2.5 {{ $docAgency['name'] }} is the Agent, not the Landlord, and can only act
             on the instructions of the Landlord.</div>
 
         <div class="sub-clause">2.6 The LANDLORD remains the responsible party for any concerns, disputes
@@ -509,6 +512,33 @@
             this lease has been signed and agreed to by the Lessee, Lessor and or
             Agency. Please refer to clause 17 on how the termination of a lease
             agreement works.</div>
+
+        {{-- leases.md §18.8 — the lease's own notice / early-cancellation terms, printed from the same values the lease record and the
+             tenant / owner portal hold (system-filled; not editable by a signer). Prints nothing when the lease holds none. --}}
+        @if(!empty($notice_period ?? '') || !empty($earliest_notice_date ?? '') || !empty($early_cancellation_allowed ?? ''))
+        <div class="sub-clause">5.5 The notice and early cancellation terms recorded for this lease are:
+            @if(!empty($notice_period ?? ''))
+            <div class="sub-sub-clause">5.5.1 The notice period is <span class="field field-short" data-field="notice_period">{{ $notice_period ?? '' }}</span> <span class="field field-short" data-field="notice_period_unit">{{ $notice_period_unit ?? '' }}</span>.</div>
+            @endif
+            @if(!empty($earliest_notice_date ?? ''))
+            <div class="sub-sub-clause">5.5.2 Notice may be given from <span class="field field-medium" data-field="earliest_notice_date">{{ $earliest_notice_date ?? '' }}</span>.</div>
+            @endif
+            @if(!empty($early_cancellation_allowed ?? ''))
+            @php
+                // Built here, not as back-to-back inline if/endif directives: Blade only compiles a directive
+                // that is not glued to a word character, so those left literal directive text in the printed
+                // lease. Same HTML as before; no whitespace is added.
+                $earlyCancellationNoticeHtml = ! empty($early_cancellation_notice ?? '')
+                    ? ', on <span class="field field-short" data-field="early_cancellation_notice">' . e($early_cancellation_notice ?? '') . '</span> <span class="field field-short" data-field="early_cancellation_notice_unit">' . e($early_cancellation_notice_unit ?? '') . '</span> written notice'
+                    : '';
+                $earlyCancellationPenaltyHtml = ! empty($early_cancellation_penalty ?? '')
+                    ? ', subject to: <span class="field field-medium" data-field="early_cancellation_penalty">' . e($early_cancellation_penalty ?? '') . '</span>'
+                    : '';
+            @endphp
+            <div class="sub-sub-clause">5.5.3 Cancellation by the Lessee before the end of the lease is permitted: <span class="field field-short" data-field="early_cancellation_allowed">{{ $early_cancellation_allowed ?? '' }}</span>{!! $earlyCancellationNoticeHtml !!}{!! $earlyCancellationPenaltyHtml !!}.</div>
+            @endif
+        </div>
+        @endif
     </div>
 
     <div class="initials-row">
@@ -1010,7 +1040,7 @@
     </div>
 
     {{-- Section 21: Sale of the Property --}}
-    <div class="section-heading">21. Sale of the Property / Lease of Property Not Through Home Finders Coastal</div>
+    <div class="section-heading">21. Sale of the Property / Lease of Property Not Through {{ $docAgency['name'] }}</div>
 
     <div class="clause">
         <div class="sub-clause">21.1 Should the Lessee or nominee enter into an agreement to purchase the
@@ -1025,7 +1055,7 @@
             terminated.)</div>
 
         <div class="sub-clause">21.3 Should the Lessor attempt to sell or rent the property during the
-            duration of this lease, it is agreed that Home Finders Coastal will
+            duration of this lease, it is agreed that {{ $docAgency['name'] }} will
             have the Sole Mandate to market and/or rent the property.</div>
 
         <div class="sub-clause">21.4 The Lessee hereby confirms having been made aware that the Lessor may

@@ -153,7 +153,15 @@
          where free, else the next letter actually IN that label, else a
          number — see that method's own comment for the full rule and why
          it sorts by id, never display order). --}}
-    <div class="flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: 0;"
+    {{-- QA1, 2026-10-07 — pins BELOW the document's sticky "N marks / Save"
+         bar (review.blade.php .rr-doc-save-bar, same scroll box, higher
+         z-index), never under it: top is that bar's own fixed height. On a
+         short window the rail scrolls inside its own space instead of
+         running off the bottom (max-height = the scroll box's own height minus the bar),
+         so every pen stays reachable at any laptop height. The 4px padding
+         keeps the active-pen tick (top:-4px) from being clipped by that
+         scroll. --}}
+    <div class="rr-pen-rail flex-shrink-0 space-y-1.5" style="width: 44px; position: sticky; top: var(--rr-save-bar-h, 0px); max-height: calc(var(--rr-panel-h, calc(100vh - 160px)) - var(--rr-save-bar-h, 0px) - 8px); overflow-y: auto; overflow-x: hidden; padding: 4px 0;"
          :style="{ opacity: reviewLocked ? '0.4' : '1', pointerEvents: reviewLocked ? 'none' : 'auto' }"
          :title="reviewLocked ? 'Read-only — this application is with the authoriser' : ''">
         {{-- Capture pens (Income/Expense) — "the highlighter mark IS the
@@ -309,7 +317,7 @@
                 </div>
                 <div>
                     <label class="text-[11px] font-medium block mb-0.5" style="color: var(--text-secondary);">Amount</label>
-                    <input type="number" step="0.01" data-capture-chip-amount class="corex-input text-xs w-full" x-model="captureChip.amount">
+                    <input type="text" inputmode="decimal" autocomplete="off" data-capture-chip-amount class="corex-input text-xs w-full" x-model="captureChip.amount">
                 </div>
                 <p class="text-[11px]" style="color: var(--ds-crimson, #dc2626);" x-show="captureChip.error" x-text="captureChip.error"></p>
                 <div class="flex items-center justify-between gap-2 pt-1">

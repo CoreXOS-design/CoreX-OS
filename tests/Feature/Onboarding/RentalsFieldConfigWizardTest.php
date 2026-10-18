@@ -39,6 +39,8 @@ use Tests\TestCase;
 final class RentalsFieldConfigWizardTest extends TestCase
 {
     use RefreshDatabase;
+    // A real browser's full POST as the baseline; each test's hand-written fields override it (see the trait's docblock).
+    use \Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 
     private function admin(Agency $agency): User
     {
@@ -69,7 +71,7 @@ final class RentalsFieldConfigWizardTest extends TestCase
         $required = ['id_number'];
 
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'shown_field_keys' => $shown,
                 'required_field_keys' => $required,
                 'field_display_submitted' => '1',
@@ -89,11 +91,11 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 // everything above, same shared-step-payload discipline as every
                 // other cross-domain field here.
                 'no_approval_spend_threshold' => 500,
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
-        $this->assertSame(['spouse_name'], RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agency->id));
+        $this->assertSame(['spouse_name'],RentalApplicationQualifyingSetting::hiddenFieldKeysFor($agency->id));
         $this->assertSame(['id_number'], RentalApplicationQualifyingSetting::requiredFieldKeysFor($agency->id));
     }
 
@@ -120,7 +122,7 @@ final class RentalsFieldConfigWizardTest extends TestCase
         $shown = array_values(array_diff($allKeys, ['tpn_consent_signature']));
 
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'shown_field_keys' => $shown,
                 'required_field_keys' => ['full_name', 'id_number'],
                 'field_display_submitted' => '1',
@@ -145,7 +147,7 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 // everything above, same shared-step-payload discipline as every
                 // other cross-domain field here.
                 'no_approval_spend_threshold' => 500,
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
@@ -177,7 +179,7 @@ final class RentalsFieldConfigWizardTest extends TestCase
         $admin = $this->admin($agency);
 
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'shown_field_keys' => collect(RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
                 'required_field_keys' => [],
                 'field_display_submitted' => '1',
@@ -197,7 +199,7 @@ final class RentalsFieldConfigWizardTest extends TestCase
                 // everything above, same shared-step-payload discipline as every
                 // other cross-domain field here.
                 'no_approval_spend_threshold' => 500,
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 

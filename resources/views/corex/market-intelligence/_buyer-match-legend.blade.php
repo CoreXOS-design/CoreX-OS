@@ -50,4 +50,9 @@
        title="Open Prospecting Setup → Buyer Match Tiers to adjust the score cutoffs that decide tier membership.">
         tune ↗
     </a>
+    <button type="button" x-data @click="$dispatch('mic-intro-toggle')"
+            style="background: none; border: 0; padding: 0; cursor: pointer; color: var(--text-muted, #9ca3af); font-size: inherit; text-decoration: underline;"
+            title="What this page is and how to read the buyer dots.">
+        About this page
+    </button>
 </div>

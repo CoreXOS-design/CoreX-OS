@@ -87,7 +87,7 @@ class MobileGalleryTaggingTest extends TestCase
 
         // The regression: this key did not exist, so a photo with no room tag
         // was on the property but on no screen.
-        $res->assertJsonCount(1, 'gallery_categories.unsorted');
+        $res->assertJsonCount(1, 'property.gallery_categories.unsorted');
     }
 
     public function test_an_uploaded_photo_can_be_filed_under_a_room_afterwards(): void

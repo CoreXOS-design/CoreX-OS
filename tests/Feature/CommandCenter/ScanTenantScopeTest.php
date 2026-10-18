@@ -169,8 +169,7 @@ final class ScanTenantScopeTest extends TestCase
 
     private function makeBirthdayType(): NotificationEventType
     {
-        return NotificationEventType::create([
-            'key'               => 'contact.birthday',
+        return NotificationEventType::updateOrCreate(['key' => 'contact.birthday'], [
             'pillar'            => 'contact',
             'group_label'       => 'Activity',
             'label'             => 'Contact birthday today',
@@ -191,8 +190,7 @@ final class ScanTenantScopeTest extends TestCase
 
     private function makeDocsMissingType(): NotificationEventType
     {
-        return NotificationEventType::create([
-            'key'               => 'property.documents_missing',
+        return NotificationEventType::updateOrCreate(['key' => 'property.documents_missing'], [
             'pillar'            => 'property',
             'group_label'       => 'Documents',
             'label'             => 'Documents not uploaded after listing',

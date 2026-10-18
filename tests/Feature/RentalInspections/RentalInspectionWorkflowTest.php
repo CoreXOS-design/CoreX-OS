@@ -27,6 +27,7 @@ use Tests\TestCase;
 final class RentalInspectionWorkflowTest extends TestCase
 {
     use RefreshDatabase;
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
 
     private Agency $agency;
     private Branch $branch;
@@ -41,6 +42,8 @@ final class RentalInspectionWorkflowTest extends TestCase
 
         $this->agency = Agency::create(['name' => 'RI Workflow Agency', 'slug' => 'ri-workflow-' . uniqid()]);
         $this->branch = Branch::forceCreate(['name' => 'Main', 'agency_id' => $this->agency->id]);
+        // These fixtures have no checklist; the "empty checklist cannot be signed" and "Routine follows the full checks" rules (spec §52) have their own tests.
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['empty_checklist_blocks_signing' => false, 'routine_follows_full_checks' => false]);
         $this->agent = User::factory()->create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent',
         ]);
@@ -113,6 +116,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->status);
@@ -128,12 +132,13 @@ final class RentalInspectionWorkflowTest extends TestCase
 
     public function test_completing_an_in_inspection_honours_a_custom_fault_report_window(): void
     {
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'fault_report_window_days' => 14]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['fault_report_window_days' => 14]);
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
         RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertEqualsWithDelta(
@@ -160,14 +165,15 @@ final class RentalInspectionWorkflowTest extends TestCase
         $inspection->markCompleted();
     }
 
-    public function test_starting_the_signing_window_is_not_valid_for_an_ad_hoc_inspection(): void
+    public function test_starting_the_signing_window_is_valid_for_a_routine_inspection(): void
     {
-        // §15.3 (2026-09-20) — widened to BOTH in and out; TYPE_AD_HOC stays
-        // excluded, matching its existing lighter-weight lifecycle.
+        // 7 Oct 2026 (Johan): EVERY inspection type can be marked ready to sign and signed. §15.3 had excluded
+        // TYPE_AD_HOC (shown to people as "Routine"); that restriction is gone.
         $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
 
-        $this->expectException(\LogicException::class);
         $adHoc->startAwaitingSignature();
+
+        $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $adHoc->fresh()->status);
     }
 
     public function test_an_in_inspection_can_now_start_its_own_signing_window(): void
@@ -185,7 +191,7 @@ final class RentalInspectionWorkflowTest extends TestCase
 
     public function test_starting_the_signing_window_sets_the_deadline_from_settings(): void
     {
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'out_inspection_signing_window_days' => 10]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['out_inspection_signing_window_days' => 10]);
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
 
         $outIns->startAwaitingSignature();
@@ -236,6 +242,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/agent.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->status);
@@ -285,6 +292,7 @@ final class RentalInspectionWorkflowTest extends TestCase
             'party_signature_path' => 'signatures/test.png',
         ]);
 
+        $this->recordAttendanceForEveryParty($outIns);
         $outIns->markCompleted();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
@@ -320,6 +328,7 @@ final class RentalInspectionWorkflowTest extends TestCase
         RentalInspectionSignature::capture($outIns, RentalInspectionSignature::PARTY_AGENT, RentalInspectionSignature::DISPOSITION_SIGNED, [
             'party_signature_path' => 'signatures/agent.png',
         ]);
+        $this->recordAttendanceForEveryParty($outIns);
         $outIns->markCompleted();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $outIns->status);
     }
@@ -488,7 +497,7 @@ final class RentalInspectionWorkflowTest extends TestCase
     /** The agency setting: require_notes_blocks_progression=false — same missing note, no exception. */
     public function test_an_agency_set_to_warn_only_is_never_blocked(): void
     {
-        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'require_notes_blocks_progression' => false]);
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['require_notes_blocks_progression' => false]);
         $item = $this->makeItem('Walls');
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
         RentalInspectionObservation::record([
@@ -509,8 +518,7 @@ final class RentalInspectionWorkflowTest extends TestCase
     /** An agency that has removed a condition from its own requires-note list is honoured. */
     public function test_an_agency_that_removed_a_condition_from_the_requires_note_list_is_honoured(): void
     {
-        RentalInspectionSetting::create([
-            'agency_id' => $this->agency->id,
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'condition_states' => [
                 ['key' => 'good', 'label' => 'Good', 'requires_notes' => false],
                 // This agency decided Damaged does not need a note — its own configured list, not the default.

@@ -4,10 +4,12 @@
      hand-copied second block that can drift. --}}
 <div class="flex items-center justify-between mb-4">
     <h3 class="text-base font-semibold" style="color:var(--text-primary);">Notes — {{ $contact->full_name }}</h3>
+    @if($canOpenContact ?? true)
     <a href="{{ route('corex.contacts.show', $contact) }}?tab=notes"
        class="text-xs font-medium no-underline" style="color:var(--brand-icon,#0ea5e9);">
         Open full contact record →
     </a>
+    @endif
 </div>
 
 @if($notes->isEmpty())

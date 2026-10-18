@@ -154,9 +154,15 @@ final class ContactPropertyLinkerTest extends TestCase
         ContactPropertyLinker::link($this->contact->id, $this->property->id, 'owner');
         ContactPropertyLinker::link($otherContact->id, $this->property->id, 'tenant');
 
-        $removed = ContactPropertyLinker::unlink($this->contact->id, $this->property->id, 'tenant');
-
-        $this->assertNull($removed, 'wrong role for this contact, must not remove the owner link');
+        // Conductor's ruling, 2026-09-13: the expected role is an ASSERTION, not a filter. Asking to unlink this
+        // contact as a 'tenant' when their link is 'owner' THROWS instead of silently matching nothing (a silent
+        // no-op is how a tenant stays attached to a property they moved out of) — and removes nothing.
+        try {
+            ContactPropertyLinker::unlink($this->contact->id, $this->property->id, 'tenant');
+            $this->fail('a role mismatch must throw ContactPropertyRoleMismatchException');
+        } catch (\App\Exceptions\Property\ContactPropertyRoleMismatchException $e) {
+            $this->assertStringContainsString("'owner'", $e->getMessage());
+        }
         $this->assertTrue($this->contact->properties()->where('properties.id', $this->property->id)->exists());
         $this->assertTrue($otherContact->properties()->where('properties.id', $this->property->id)->exists());
     }

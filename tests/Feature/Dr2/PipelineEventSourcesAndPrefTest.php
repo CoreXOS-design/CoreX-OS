@@ -65,6 +65,8 @@ final class PipelineEventSourcesAndPrefTest extends TestCase
         CommunicationLink::create([
             'agency_id' => $this->agencyId, 'communication_id' => $comm->id,
             'linkable_type' => DealV2::class, 'linkable_id' => 4242,
+            // CX-108: only a VERIFIED (confirmed) link feeds the pipeline — a provisional one never does.
+            'confirmed_at' => now(),
         ]);
 
         $events = app(PipelineEventService::class)->eventsForDeal($deal);
@@ -115,8 +117,9 @@ final class PipelineEventSourcesAndPrefTest extends TestCase
         $this->get(route('deals-dr2.pipeline.view', $deal))
             ->assertRedirect(route('deals-dr2.pipeline.timeline', $deal));
 
+        // The board view is retired (Johan, 2026-07-27): a remembered 'board' preference lands on the Timeline.
         PipelineUserPreference::setViewForUser($this->admin->id, 'board');
         $this->get(route('deals-dr2.pipeline.view', $deal))
-            ->assertRedirect(route('deals-dr2.pipeline', $deal));
+            ->assertRedirect(route('deals-dr2.pipeline.timeline', $deal));
     }
 }

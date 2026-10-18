@@ -5,7 +5,10 @@ namespace App\Services;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
 use App\Models\RentalInspectionItemFinding;
+use App\Models\PropertyRoom;
 use App\Models\RentalInspectionObservation;
+use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInspectionSetting;
 use Illuminate\Support\Collection;
 
 /**
@@ -55,8 +58,59 @@ class RentalInspectionComparisonService
     public const IMPROVED = 'improved';
     public const DECLINED = 'declined';
 
-    /** Classifications an agent may record a wear-and-tear/flagged judgement against. */
-    public const REVIEWABLE_CLASSIFICATIONS = [self::DECLINED];
+    /**
+     * Classifications an agent may record a judgement against — every row that DIFFERS from the move-in (§45.7a item 4:
+     * "a finding can now be recorded on any marked row", not only a declined one).
+     */
+    public const REVIEWABLE_CLASSIFICATIONS = [self::DECLINED, self::NA_MISMATCH, self::ONLY_AT_IN, self::ONLY_AT_OUT];
+
+    // §45.7a — the read-time difference keys the Move-out comparison screen marks rows with. Derived, never stored.
+    public const DIFF_WORSE = 'worse';
+    public const DIFF_DIFFERENT = 'different';
+    public const DIFF_SAME = 'same';
+    public const DIFF_BETTER = 'better';
+    public const DIFF_NEW_ITEM = 'new_item';
+    public const DIFF_NOT_AT_OUT = 'not_at_move_out';
+
+    /** Rows an agent should look at: the outgoing state is not simply the move-in state. */
+    public const MARKED_DIFFERENCES = [self::DIFF_WORSE, self::DIFF_DIFFERENT, self::DIFF_NEW_ITEM, self::DIFF_NOT_AT_OUT];
+
+    public const DIFFERENCE_LABELS = [
+        self::DIFF_WORSE => 'Worse than move-in',
+        self::DIFF_DIFFERENT => 'Different from move-in',
+        self::DIFF_SAME => 'Same as move-in',
+        self::DIFF_BETTER => 'Better',
+        self::DIFF_NEW_ITEM => 'New item',
+        self::DIFF_NOT_AT_OUT => 'Not at move-out',
+    ];
+
+    /** @var array<int|string, array<string, array{label: string, severity: string}>> agency id => condition key => label/severity, read once per agency per service instance */
+    private array $vocabulary = [];
+
+    /** One read of the agency's condition vocabulary per service instance — never a query per row (§45.7a, a screen of hundreds of rows). */
+    private function stateFor(?int $agencyId, string $conditionKey): ?array
+    {
+        $cacheKey = $agencyId ?? 0;
+        if (! isset($this->vocabulary[$cacheKey])) {
+            $this->vocabulary[$cacheKey] = collect(RentalInspectionSetting::conditionStatesFor($agencyId))
+                ->mapWithKeys(fn ($s) => [$s['key'] => [
+                    'label' => $s['label'],
+                    // Same default RentalInspectionSetting::conditionSeverityFor() uses: an unrecognised severity reads as red.
+                    'severity' => in_array($s['severity'] ?? 'red', array_keys(RentalInspectionSetting::SEVERITY_COLORS), true) ? ($s['severity'] ?? 'red') : 'red',
+                ]])->all();
+        }
+
+        return $this->vocabulary[$cacheKey][$conditionKey] ?? null;
+    }
+
+    /** The agency's severity bucket for a condition key; an unknown key is red (the cautious default shared with the colour logic). */
+    private function severityFor(?int $agencyId, string $conditionKey): string
+    {
+        return $this->stateFor($agencyId, $conditionKey)['severity'] ?? 'red';
+    }
+
+    /** Severity bucket -> rank (green < amber < red). A neutral custom state sits with the calm ones. */
+    private const SEVERITY_RANK = ['blue' => 0, 'grey' => 0, 'amber' => 1, 'red' => 2];
 
     /**
      * The matching lease's in-inspection for this out-inspection, if one
@@ -85,12 +139,53 @@ class RentalInspectionComparisonService
      */
     public function matchingInInspection(RentalInspection $outInspection): ?RentalInspection
     {
-        $base = RentalInspection::withTrashed()
-            ->where('lease_id', $outInspection->lease_id)
-            ->where('type', RentalInspection::TYPE_IN);
+        // §45.7a (Build I-7) — "outgoing vs incoming": the baseline is the tenancy's completed In, found along the
+        // previous_lease_id chain (nearest lease first), so a renewed tenancy still compares against the move-in done on
+        // an earlier term. Interim inspections and fault reports are context, never the baseline.
+        $leaseIds = $this->tenancyLeaseIds($outInspection);
 
-        return (clone $base)->where('status', RentalInspection::STATUS_COMPLETED)->latest('id')->first()
-            ?? $base->latest('id')->first();
+        $completed = RentalInspection::withTrashed()
+            ->whereIn('lease_id', $leaseIds)
+            ->where('type', RentalInspection::TYPE_IN)
+            ->where('status', RentalInspection::STATUS_COMPLETED)
+            ->get();
+        if ($completed->isNotEmpty()) {
+            foreach ($leaseIds as $leaseId) {
+                $hit = $completed->where('lease_id', $leaseId)->sortByDesc('id')->first();
+                if ($hit) {
+                    return $hit;
+                }
+            }
+        }
+
+        return RentalInspection::withTrashed()
+            ->whereIn('lease_id', $leaseIds)
+            ->where('type', RentalInspection::TYPE_IN)
+            ->get()
+            ->sortByDesc(fn (RentalInspection $i) => [-array_search($i->lease_id, $leaseIds, true), $i->id])
+            ->first();
+    }
+
+    /**
+     * §45.7a — this out-inspection's lease first, then each previous_lease_id behind it (nearest first). Depth- and
+     * cycle-guarded, the same walk RentalInspectionDueService uses.
+     *
+     * @return array<int, int>
+     */
+    public function tenancyLeaseIds(RentalInspection $outInspection): array
+    {
+        $chain = [(int) $outInspection->lease_id];
+        $cursor = (int) $outInspection->lease_id;
+        while (count($chain) < 25) {
+            $previous = \App\Models\Lease::withoutGlobalScopes()->withTrashed()->where('id', $cursor)->value('previous_lease_id');
+            if (! $previous || in_array((int) $previous, $chain, true)) {
+                break;
+            }
+            $cursor = (int) $previous;
+            $chain[] = $cursor;
+        }
+
+        return $chain;
     }
 
     /**
@@ -163,14 +258,14 @@ class RentalInspectionComparisonService
             ->get()
             ->keyBy('rental_inspection_item_id');
 
-        return $itemIds->map(function ($itemId) use ($items, $inObservations, $outObservations, $findings) {
+        return $itemIds->map(function ($itemId) use ($items, $inObservations, $outObservations, $findings, $outInspection) {
             $item = $items->get($itemId);
             $inObs = $inObservations->get($itemId);
             $outObs = $outObservations->get($itemId);
 
             return [
                 'item' => $item,
-                'classification' => $this->classify($inObs, $outObs),
+                'classification' => $this->classify($inObs, $outObs, $outInspection->agency_id),
                 'in_observation' => $inObs,
                 'out_observation' => $outObs,
                 'finding' => $findings->get($itemId),
@@ -184,7 +279,7 @@ class RentalInspectionComparisonService
             ->values();
     }
 
-    private function classify(?RentalInspectionObservation $in, ?RentalInspectionObservation $out): string
+    private function classify(?RentalInspectionObservation $in, ?RentalInspectionObservation $out, ?int $agencyId = null): string
     {
         if (! $in && ! $out) {
             // Cannot happen given compareItems()'s own item-id union, kept
@@ -207,22 +302,438 @@ class RentalInspectionComparisonService
         if ($inGradeable !== $outGradeable) {
             return self::NA_MISMATCH;
         }
-        if ($in->condition === $out->condition) {
-            return self::UNCHANGED;
-        }
-        if ($out->condition === RentalInspectionObservation::CONDITION_GOOD) {
-            return self::IMPROVED;
+
+        // §45.7a — the old test hard-coded the literal 'good' ("improved" = moved TO good), though the baseline state is
+        // agency-configurable (RentalInspectionSetting::baselineConditionKeyFor, an agency may have no 'good' at all). It now
+        // reads the agency's own severity buckets. The three legacy labels map onto the new read-time difference:
+        // worse AND different both stay DECLINED ("surfaced for the agent, never silently dropped"), better = IMPROVED.
+        return match ($this->differenceFor($in, $out, $agencyId)['key']) {
+            self::DIFF_SAME => self::UNCHANGED,
+            self::DIFF_BETTER => self::IMPROVED,
+            default => self::DECLINED,
+        };
+    }
+
+    /**
+     * §45.7a item 2 — the read-time difference between the move-in and the move-out state of ONE item, derived from the
+     * agency's own configured severity buckets (RentalInspectionSetting::conditionSeverityFor(): green/blue < amber < red),
+     * never from a stored flag and never from the literal 'good'.
+     *
+     *  worse     — the outgoing bucket is higher than the move-in bucket
+     *  better    — lower
+     *  different — same bucket, a different state (never auto-called worse: damaged -> missing is a change to look at,
+     *              not a ranking the agency has ever expressed)
+     *  same      — the same state on both sides
+     *  not_at_move_out / new_item — recorded on one side only, or N/A on one side (it was here and is not, or the reverse)
+     *  null key 'na_both' — N/A on both sides is not a row at all
+     *
+     * @return array{key: string, marked: bool}
+     */
+    public function differenceFor(?RentalInspectionObservation $in, ?RentalInspectionObservation $out, ?int $agencyId): array
+    {
+        $key = match (true) {
+            ! $in && ! $out => 'na_both',
+            ! $in => self::DIFF_NEW_ITEM,
+            ! $out => self::DIFF_NOT_AT_OUT,
+            $in->condition === self::CONDITION_NA && $out->condition === self::CONDITION_NA => 'na_both',
+            $in->condition === self::CONDITION_NA => self::DIFF_NEW_ITEM,
+            $out->condition === self::CONDITION_NA => self::DIFF_NOT_AT_OUT,
+            default => $this->gradedDifference($in->condition, $out->condition, $agencyId),
+        };
+
+        return ['key' => $key, 'marked' => in_array($key, self::MARKED_DIFFERENCES, true)];
+    }
+
+    private function gradedDifference(string $inCondition, string $outCondition, ?int $agencyId): string
+    {
+        if ($inCondition === $outCondition) {
+            return self::DIFF_SAME;
         }
 
-        // Covers "was good, now isn't" AND "was already not-good, now a
-        // DIFFERENT not-good value" (e.g. damaged -> missing). The enum has
-        // no reliable severity ordering beyond good/not-good, so any real
-        // value change that isn't a move TO good is surfaced as a
-        // candidate for the agent to look at directly — never silently
-        // dropped. The agent sees both raw conditions, both notes, and
-        // both photo sets; this label is a filter to route their
-        // attention, not a verdict.
-        return self::DECLINED;
+        $rank = fn (string $c) => self::SEVERITY_RANK[$this->severityFor($agencyId, $c)] ?? 2;
+        $inRank = $rank($inCondition);
+        $outRank = $rank($outCondition);
+
+        return $outRank > $inRank ? self::DIFF_WORSE : ($outRank < $inRank ? self::DIFF_BETTER : self::DIFF_DIFFERENT);
+    }
+
+    /**
+     * §45.7a (Build I-7) — the Move-out comparison: ONE screen, both photo sets, differences marked at read time,
+     * classified by the agent. The baseline is the tenancy's completed In (matchingInInspection(), chain-aware); every row
+     * is derived — nothing here is stored except the agent's own judgement (RentalInspectionItemFinding).
+     *
+     * Rooms come back in the agency's walking order (PropertyRoom.sort_order, then id — the same order the property tab
+     * uses), items in their own order within a room, items without a room last under "General". Photos are loaded once per
+     * inspection (never per row) and paired by the existing photo match groups, paired ones first.
+     *
+     * $filters (all optional, all applied here so the screen and any export agree): q (item/room text), room (room id or
+     * 'general'), difference (one of the DIFF_* keys), classification ('none' | 'any' | a finding disposition),
+     * differences_only (bool), sort ('walking' default | 'severity').
+     *
+     * @param  array{q?: ?string, room?: ?string, difference?: ?string, classification?: ?string, differences_only?: bool, sort?: ?string}  $filters
+     * @return array{
+     *   baseline: ?RentalInspection, baseline_completed: bool, rooms: array<int, array<string, mixed>>,
+     *   counts: array<string, int>, total_rows: int, shown_rows: int, header_facts: array, viewer: array<string, array<string, mixed>>
+     * }
+     */
+    public function moveOutComparison(RentalInspection $out, array $filters = []): array
+    {
+        $agencyId = $out->agency_id;
+        $in = $this->matchingInInspection($out);
+        $leaseIds = $this->tenancyLeaseIds($out);
+
+        $inObs = $in ? $this->latestRecordedByItem($in) : collect();
+        $outObs = $this->latestRecordedByItem($out);
+
+        $itemIds = $inObs->keys()->merge($outObs->keys())->unique()->values();
+        $items = $itemIds->isEmpty()
+            ? collect()
+            : RentalInspectionItem::whereIn('id', $itemIds)->with('room')->get()->keyBy('id');
+
+        $findings = RentalInspectionItemFinding::where('rental_inspection_id', $out->id)
+            ->whereNull('superseded_at')->whereIn('rental_inspection_item_id', $itemIds)
+            ->with('recordedBy')->get()->keyBy('rental_inspection_item_id');
+
+        // Photos: two queries in total, never per row.
+        $inPhotos = $in ? $this->photosByTarget($in) : ['items' => collect(), 'rooms' => collect()];
+        $outPhotos = $this->photosByTarget($out);
+        $allPhotoIds = collect([$inPhotos, $outPhotos])->flatMap(fn ($p) => $p['items']->flatten(1)->merge($p['rooms']->flatten(1)))->pluck('id');
+        $groupOf = $allPhotoIds->isEmpty() ? collect() : \App\Models\RentalInspectionPhotoMatchGroupMember::whereIn('rental_inspection_photo_id', $allPhotoIds)
+            ->pluck('rental_inspection_photo_match_group_id', 'rental_inspection_photo_id');
+
+        // ── rows ──
+        $rows = [];
+        foreach ($itemIds as $itemId) {
+            $item = $items->get($itemId);
+            if (! $item) {
+                continue;
+            }
+            $inO = $inObs->get($itemId);
+            $outO = $outObs->get($itemId);
+            $difference = $this->differenceFor($inO, $outO, $agencyId);
+            if ($difference['key'] === 'na_both') {
+                continue; // N/A on both sides is not a finding at all
+            }
+
+            $pairs = $this->pairPhotos($inPhotos['items']->get($itemId, collect()), $outPhotos['items']->get($itemId, collect()), $groupOf);
+            $rows[] = [
+                'key' => 'item-' . $itemId,
+                'item' => $item,
+                'room_id' => $item->property_room_id,
+                'in' => $this->sideFor($inO, $agencyId),
+                'out' => $this->sideFor($outO, $agencyId),
+                'difference' => $difference['key'],
+                'difference_label' => $this->differenceLabel($difference['key'], $inO, $outO, $agencyId),
+                'marked' => $difference['marked'],
+                'severity_rank' => $this->severityOrder($difference['key']),
+                'finding' => $findings->get($itemId),
+                'pairs' => $pairs,
+                'context' => [],
+            ];
+        }
+
+        // ── context timeline, marked rows only (one query per source, not per row) ──
+        $markedItemIds = collect($rows)->where('marked', true)->pluck('item.id')->all();
+        if ($markedItemIds !== []) {
+            $context = $this->contextFor($markedItemIds, $leaseIds, [$in?->id, $out->id]);
+            foreach ($rows as &$row) {
+                if ($row['marked']) {
+                    $row['context'] = $context[$row['item']->id] ?? [];
+                }
+            }
+            unset($row);
+        }
+
+        $total = count($rows);
+        $counts = array_fill_keys(array_keys(self::DIFFERENCE_LABELS), 0);
+        foreach ($rows as $r) {
+            $counts[$r['difference']]++;
+        }
+
+        $rows = array_values(array_filter($rows, fn (array $r) => $this->rowPasses($r, $filters)));
+
+        // ── group into rooms, walking order ──
+        $roomIds = collect($rows)->pluck('room_id')->merge($inPhotos['rooms']->keys())->merge($outPhotos['rooms']->keys())->filter()->unique();
+        $rooms = $roomIds->isEmpty() ? collect() : PropertyRoom::whereIn('id', $roomIds)->get()->keyBy('id');
+
+        $buckets = [];
+        foreach ($rows as $r) {
+            $buckets[$r['room_id'] ?: 0]['rows'][] = $r;
+        }
+        foreach ($roomIds as $rid) {
+            if (! isset($buckets[$rid]) && $this->roomMatchesFilters($rooms->get($rid), $filters) && empty($filters['differences_only']) && ! $this->hasRowFilter($filters)) {
+                $buckets[$rid]['rows'] = [];
+            }
+        }
+
+        $roomList = [];
+        foreach ($buckets as $rid => $bucket) {
+            $room = $rid ? $rooms->get($rid) : null;
+            $bucketRows = $bucket['rows'];
+            usort($bucketRows, fn ($a, $b) => (($filters['sort'] ?? 'walking') === 'severity' ? $a['severity_rank'] <=> $b['severity_rank'] : 0)
+                ?: (($a['item']->sort_order ?? 0) <=> ($b['item']->sort_order ?? 0)) ?: ($a['item']->id <=> $b['item']->id));
+
+            $roomPairs = $rid ? $this->pairPhotos($inPhotos['rooms']->get($rid, collect()), $outPhotos['rooms']->get($rid, collect()), $groupOf) : [];
+            $roomList[] = [
+                'key' => 'room-' . ($rid ?: 'general'),
+                'room_id' => $rid ?: null,
+                'label' => $room?->label ?? 'General',
+                'sort' => $room ? [(int) $room->sort_order, (int) $room->id] : [PHP_INT_MAX, PHP_INT_MAX],
+                'rows' => $bucketRows,
+                'room_pairs' => $roomPairs,
+                'marked' => count(array_filter($bucketRows, fn ($r) => $r['marked'])),
+                'worst' => $bucketRows === [] ? 99 : min(array_column($bucketRows, 'severity_rank')),
+            ];
+        }
+        usort($roomList, fn ($a, $b) => (($filters['sort'] ?? 'walking') === 'severity' ? ($a['worst'] <=> $b['worst']) : 0) ?: ($a['sort'] <=> $b['sort']));
+
+        // ── the paired-photo viewer's data, one entry per row/room that has any photo ──
+        $viewer = [];
+        foreach ($roomList as $room) {
+            if ($room['room_pairs'] !== []) {
+                $viewer[$room['key']] = ['label' => $room['label'] . ' — room photos', 'pairs' => $room['room_pairs']];
+            }
+            foreach ($room['rows'] as $r) {
+                if ($r['pairs'] !== []) {
+                    $viewer[$r['key']] = ['label' => $room['label'] . ' — ' . $r['item']->label, 'pairs' => $r['pairs']];
+                }
+            }
+        }
+
+        return [
+            'baseline' => $in,
+            'baseline_completed' => $in?->status === RentalInspection::STATUS_COMPLETED,
+            'rooms' => $roomList,
+            'counts' => $counts,
+            'total_rows' => $total,
+            'shown_rows' => array_sum(array_map(fn ($r) => count($r['rows']), $roomList)),
+            'header_facts' => $this->compareHeaderFacts($in, $out),
+            'viewer' => $viewer,
+        ];
+    }
+
+    /** @return Collection<int, RentalInspectionObservation> the latest RECORDED observation per item (photo-anchor rows excluded). */
+    private function latestRecordedByItem(RentalInspection $inspection): Collection
+    {
+        return RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $inspection->id)
+            ->latest('created_at')->latest('id')
+            ->get()
+            ->unique('rental_inspection_item_id')
+            ->keyBy('rental_inspection_item_id');
+    }
+
+    /** One side of a row: the agency's own LABEL for the condition (never the raw key), the note, and the severity bucket. */
+    private function sideFor(?RentalInspectionObservation $obs, ?int $agencyId): ?array
+    {
+        if (! $obs) {
+            return null;
+        }
+        $state = $this->stateFor($agencyId, $obs->condition);
+
+        return [
+            'condition' => $obs->condition,
+            'label' => $state['label'] ?? ucfirst(str_replace('_', ' ', $obs->condition)),
+            'severity' => $obs->condition === self::CONDITION_NA ? 'grey' : $this->severityFor($agencyId, $obs->condition),
+            'note' => $obs->notes,
+            'recorded_at' => $obs->created_at,
+        ];
+    }
+
+    private function differenceLabel(string $key, ?RentalInspectionObservation $in, ?RentalInspectionObservation $out, ?int $agencyId): string
+    {
+        // An unchanged DEFECT is the one "same" row an agent must not mistake for something the tenant did.
+        if ($key === self::DIFF_SAME && $out && in_array($this->severityFor($agencyId, $out->condition), ['red', 'amber'], true)) {
+            return self::DIFFERENCE_LABELS[self::DIFF_SAME] . ' (already present)';
+        }
+
+        return self::DIFFERENCE_LABELS[$key] ?? ucfirst(str_replace('_', ' ', $key));
+    }
+
+    /** Sort rank for "severity" ordering: worst first. */
+    private function severityOrder(string $difference): int
+    {
+        return [self::DIFF_WORSE => 0, self::DIFF_DIFFERENT => 1, self::DIFF_NOT_AT_OUT => 2, self::DIFF_NEW_ITEM => 3, self::DIFF_BETTER => 4, self::DIFF_SAME => 5][$difference] ?? 6;
+    }
+
+    private function hasRowFilter(array $filters): bool
+    {
+        return trim((string) ($filters['q'] ?? '')) !== '' || ! empty($filters['difference']) || ! empty($filters['classification']);
+    }
+
+    private function roomMatchesFilters(?PropertyRoom $room, array $filters): bool
+    {
+        $roomFilter = $filters['room'] ?? null;
+
+        return ! $roomFilter || ($room && (string) $room->id === (string) $roomFilter);
+    }
+
+    /** @param array<string, mixed> $r */
+    private function rowPasses(array $r, array $filters): bool
+    {
+        if (! empty($filters['differences_only']) && ! $r['marked']) {
+            return false;
+        }
+        if (! empty($filters['difference']) && $r['difference'] !== $filters['difference']) {
+            return false;
+        }
+        if ($room = ($filters['room'] ?? null)) {
+            if ($room === 'general' ? $r['room_id'] !== null : (string) $r['room_id'] !== (string) $room) {
+                return false;
+            }
+        }
+        if ($classification = ($filters['classification'] ?? null)) {
+            $disposition = $r['finding']?->disposition;
+            $ok = match ($classification) {
+                'none' => $r['marked'] && $disposition === null,
+                'any' => $disposition !== null,
+                default => $disposition === $classification,
+            };
+            if (! $ok) {
+                return false;
+            }
+        }
+        if (($q = mb_strtolower(trim((string) ($filters['q'] ?? '')))) !== '') {
+            $hay = mb_strtolower(($r['item']->label ?? '') . ' ' . ($r['item']->room?->label ?? '') . ' ' . ($r['in']['note'] ?? '') . ' ' . ($r['out']['note'] ?? ''));
+            if (! str_contains($hay, $q)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * Every live photo of one inspection, split into item photos (through their observation) and room-level general
+     * photos — loaded once, serialised for the screen and the viewer (capture caption from I-1, the photo's own note).
+     *
+     * @return array{items: Collection<int, Collection>, rooms: Collection<int, Collection>}
+     */
+    private function photosByTarget(RentalInspection $inspection): array
+    {
+        $photos = RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)
+            ->with(['note', 'observation:id,rental_inspection_item_id'])
+            ->orderBy('id')
+            ->get();
+
+        $serialise = fn (RentalInspectionPhoto $p) => [
+            'id' => $p->id,
+            'url' => $p->storage_path,
+            'caption' => $p->taken_caption,
+            'short' => $p->taken_caption_short,
+            'note' => $p->note?->note,
+        ];
+
+        $items = $photos->filter(fn ($p) => $p->observation?->rental_inspection_item_id)
+            ->groupBy(fn ($p) => $p->observation->rental_inspection_item_id)
+            ->map(fn ($g) => $g->map($serialise)->values());
+        $rooms = $photos->filter(fn ($p) => ! $p->rental_inspection_observation_id && $p->property_room_id)
+            ->groupBy('property_room_id')
+            ->map(fn ($g) => $g->map($serialise)->values());
+
+        return ['items' => $items, 'rooms' => $rooms];
+    }
+
+    /**
+     * Pair move-in and move-out photos by their match group (RentalInspectionPhotoMatchGroup — the same links the
+     * property tab's viewer shows), paired ones first in the outgoing photo order, then whatever is left on either
+     * side. Never invents a pair: an unmatched photo stays alone.
+     *
+     * @return array<int, array{in: ?array, out: ?array}>
+     */
+    private function pairPhotos(Collection $inList, Collection $outList, Collection $groupOf): array
+    {
+        $inLeft = $inList->values()->all();
+        $pairs = [];
+        $unpairedOut = [];
+
+        foreach ($outList as $outPhoto) {
+            $group = $groupOf->get($outPhoto['id']);
+            $matchIndex = $group === null ? null : collect($inLeft)->search(fn ($p) => $groupOf->get($p['id']) === $group);
+            if ($matchIndex !== null && $matchIndex !== false) {
+                $pairs[] = ['in' => $inLeft[$matchIndex], 'out' => $outPhoto];
+                unset($inLeft[$matchIndex]);
+                $inLeft = array_values($inLeft);
+            } else {
+                $unpairedOut[] = $outPhoto;
+            }
+        }
+        foreach ($unpairedOut as $outPhoto) {
+            $pairs[] = ['in' => null, 'out' => $outPhoto];
+        }
+        foreach ($inLeft as $inPhoto) {
+            $pairs[] = ['in' => $inPhoto, 'out' => null];
+        }
+
+        return $pairs;
+    }
+
+    /**
+     * §45.7a item 3 — what happened to an item between the move-in and the move-out, as one compact timeline per marked
+     * row: observations from the tenancy's OTHER inspections (a tenant's fault report, an interim or ad-hoc check) and every
+     * fault report and work order raised against the item (status, closed date, who did it). Money is deliberately absent —
+     * the finance build owns money.
+     *
+     * @param  array<int, int>  $itemIds
+     * @param  array<int, int>  $leaseIds
+     * @param  array<int, ?int>  $excludeInspectionIds the baseline and this out-inspection themselves
+     * @return array<int, array<int, array{when: ?\Carbon\CarbonInterface, kind: string, text: string, url: ?string}>>
+     */
+    private function contextFor(array $itemIds, array $leaseIds, array $excludeInspectionIds): array
+    {
+        $timeline = [];
+        $exclude = array_filter($excludeInspectionIds);
+
+        $observations = RentalInspectionObservation::recorded()
+            ->whereIn('rental_inspection_item_id', $itemIds)
+            ->whereIn('source', [RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT, RentalInspectionObservation::SOURCE_AD_HOC])
+            ->whereIn('rental_inspection_id', RentalInspection::withTrashed()->whereIn('lease_id', $leaseIds)->select('id'))
+            ->when($exclude !== [], fn ($q) => $q->whereNotIn('rental_inspection_id', $exclude))
+            ->with(['inspection:id,type'])
+            ->orderBy('created_at')->get();
+        foreach ($observations as $o) {
+            $who = $o->source === RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT
+                ? 'Reported by the tenant'
+                : (($o->inspection?->type === RentalInspection::TYPE_INTERIM ? 'Interim inspection' : 'Check during the tenancy'));
+            $condition = $this->stateFor($o->agency_id, $o->condition)['label'] ?? ucfirst(str_replace('_', ' ', $o->condition));
+            $timeline[$o->rental_inspection_item_id][] = [
+                'when' => $o->created_at, 'kind' => 'observation',
+                'text' => "{$who}: {$condition}" . ($o->notes ? ' — ' . $o->notes : ''),
+                'url' => null,
+            ];
+        }
+
+        foreach (\App\Models\RentalFaultReport::whereIn('lease_id', $leaseIds)->whereIn('rental_inspection_item_id', $itemIds)->orderBy('reported_at')->get() as $f) {
+            $text = 'Fault report: ' . $f->title . ' (' . ucfirst(str_replace('_', ' ', $f->status)) . ')';
+            if ($f->resolved_at) {
+                $text .= ' — closed ' . $f->resolved_at->format('j M Y');
+            }
+            $timeline[$f->rental_inspection_item_id][] = [
+                'when' => $f->reported_at ?? $f->created_at, 'kind' => 'fault_report', 'text' => $text,
+                'url' => route('corex.rental-fault-reports.show', $f),
+            ];
+        }
+
+        foreach (\App\Models\RentalWorkOrder::whereIn('lease_id', $leaseIds)->whereIn('rental_inspection_item_id', $itemIds)->with('supplier')->orderBy('reported_at')->get() as $w) {
+            $who = $w->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL ? 'our team' : ($w->supplier?->name ?? 'a supplier not yet appointed');
+            $text = 'Work order: ' . $w->title . ' (' . ucfirst(str_replace('_', ' ', $w->status)) . ')';
+            if ($w->completed_at) {
+                $text .= ' — completed ' . $w->completed_at->format('j M Y') . ' by ' . $who;
+            } elseif ($w->status !== \App\Models\RentalWorkOrder::STATUS_REPORTED) {
+                $text .= ' — with ' . $who;
+            }
+            $timeline[$w->rental_inspection_item_id][] = [
+                'when' => $w->reported_at ?? $w->created_at, 'kind' => 'work_order', 'text' => $text,
+                'url' => route('corex.rental-work-orders.show', $w),
+            ];
+        }
+
+        foreach ($timeline as &$entries) {
+            usort($entries, fn ($a, $b) => ($a['when']?->timestamp ?? 0) <=> ($b['when']?->timestamp ?? 0));
+        }
+        unset($entries);
+
+        return $timeline;
     }
 
     /**

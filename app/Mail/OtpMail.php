@@ -2,6 +2,7 @@
 
 namespace App\Mail;
 
+use App\Models\Agency;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Address;
@@ -17,6 +18,10 @@ use Illuminate\Queue\SerializesModels;
  *
  * Sender is the 'otp' mailer's From address (sender-only); the DESTINATION is
  * set by the caller via ->to() in OtpService — never fixed here.
+ *
+ * CLIENT-FACING codes (an applicant, a tenant, an owner) pass the agency: the email is then the agency's
+ * own — its logo/name on top, its name and contact details at the bottom, its name as the sender — and says
+ * nothing about CoreX. Without an agency (staff sign-in, platform codes) it stays the CoreX email.
  */
 class OtpMail extends Mailable
 {
@@ -27,25 +32,38 @@ class OtpMail extends Mailable
         public int $expiresMinutes = 10,
         public string $heading = 'Your verification code',
         public ?string $subjectLine = null,
+        public ?Agency $agency = null,
     ) {}
 
     public function envelope(): Envelope
     {
+        $agencyName = $this->agency ? Agency::displayNameFor($this->agency) : null;
+        $replyTo = $this->agency && filter_var((string) $this->agency->email, FILTER_VALIDATE_EMAIL)
+            ? [new Address((string) $this->agency->email, $agencyName)]
+            : [];
+
         return new Envelope(
             from: new Address(
                 env('MAIL_OTP_FROM_ADDRESS', 'Otp@corexos.co.za'),
-                env('MAIL_OTP_FROM_NAME', 'CoreX OS')
+                $agencyName ?? \App\Support\ClientBrand::NEUTRAL
             ),
-            subject: $this->subjectLine ?? ('Your CoreX code: ' . $this->code),
+            replyTo: $replyTo,
+            subject: $this->subjectLine ?? ($agencyName ? ('Your verification code — ' . $agencyName) : ('Your verification code: ' . $this->code)),
         );
     }
 
     public function content(): Content
     {
+        $branding = $this->agency ? Agency::publicBrandingFor((int) $this->agency->id) : null;
+
         return new Content(view: 'emails.otp', with: [
             'code'           => $this->code,
             'expiresMinutes' => $this->expiresMinutes,
             'heading'        => $this->heading,
+            'agency'         => $this->agency,
+            'agencyName'     => $this->agency ? Agency::displayNameFor($this->agency) : null,
+            'agencyLogoUrl'  => $branding['logoUrl'] ?? null,
+            'agencyColor'    => $branding['colors']['default'] ?? '#0b2a4a',
         ]);
     }
 }

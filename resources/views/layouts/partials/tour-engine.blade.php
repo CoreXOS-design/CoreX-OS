@@ -504,7 +504,8 @@
             _explicit: false,
             _suppressWritten: false,
             _watch: null,        // { timer, listeners[] } for the live step
-            _runId: 0,           // bumps on every step change; stale async work checks it
+            _runId: 0,
+            _passed: new Set(),           // step indexes walked past because their box is not on this screen
             _engaged: false,     // the agent has acted on the live step (see _arm)
             _btn: null,          // the "?" button — kept directly: once it moves into the
                                  // page header it is outside this component, so $refs can't reach it
@@ -677,6 +678,7 @@
                 this._mode = mode;
                 this._section = mode === 'spot' ? section : null;
                 this._explicit = explicit;
+                this._passed = new Set(); // indexes this run walked past because their box is not on this screen
 
                 const all = this.tour.steps || [];
                 const done = this.completedSteps || [];
@@ -745,7 +747,7 @@
                     if (step.prep && step.prep.length) await this._sleep(80);
 
                     // Already done / not applicable → skip (hands-on only).
-                    if (guiding && step.skip_if && this._visible(step.skip_if)) { i += dir; continue; }
+                    if (guiding && step.skip_if && this._visible(step.skip_if)) { this._passed.add(i); i += dir; continue; }
 
                     // A box that exists but is hidden may be about to show (a screen
                     // animating in) — wait for it. One that isn't in the page at all
@@ -758,7 +760,9 @@
                     ) && this._isVisible(this._q(step.element));
                     if (runId !== this._runId) return;
                     if (ok) break;
-                    // Never dead-end on a box that isn't on this screen.
+                    // Never dead-end on a box that isn't on this screen. A step that is not on THIS screen is not counted either, so a
+                    // page that lacks the first three targets opens at "Step 1 of N", not "Step 4 of 20".
+                    this._passed.add(i);
                     i += dir;
                 }
 
@@ -1008,7 +1012,8 @@
 
                     // Progress — "Step 3 of 9" (driver's own counter needs a step list).
                     if (popover.progress) {
-                        popover.progress.textContent = 'Step ' + (this._i + 1) + ' of ' + this._steps.length;
+                        const passedBefore = [...this._passed].filter((k) => k < this._i).length;
+                        popover.progress.textContent = 'Step ' + (this._i + 1 - passedBefore) + ' of ' + (this._steps.length - this._passed.size);
                         popover.progress.style.display = 'block';
                     }
 

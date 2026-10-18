@@ -26,6 +26,8 @@ class AgencyDashboardSetting extends Model
         'notify_in_app', 'notify_email', 'notify_push',
         'open_hours_enabled', 'open_hours_start', 'open_hours_end', 'open_hours_day_windows',
         'min_minutes_between_same',
+        'alert_poll_seconds',
+        'alert_catchup_minutes',
     ];
 
     protected $casts = [

@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 use Tests\TestCase;
 
 /**
@@ -67,6 +68,7 @@ use Tests\TestCase;
  */
 final class AgencySetupWizardCurrentValuesTest extends TestCase
 {
+    use PostsWizardStepLikeABrowser;
     use RefreshDatabase;
 
     private function admin(Agency $agency): User
@@ -92,8 +94,17 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty-' . uniqid()]);
         $admin = $this->admin($agency);
 
+        // 2026-10-06 — the baseline is what the page itself would post (every
+        // hidden/checked/typed field, serialised the way a browser does it), with
+        // the hand-written values below layered on top as explicit overrides.
+        // The hand-maintained list alone went stale each time a new toggle joined
+        // this step (the crew-link toggles were the third time): a real browser
+        // always sends every toggle — the wizard renders a hidden "0" beside each
+        // checkbox — so a payload missing one is a payload no user can produce,
+        // and the saver's has()-guard (absent = refuse, never wipe) rightly says
+        // "That did not save". Nothing below is loosened; the saver is untouched.
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'expiry_notice_window_days' => 60,
                 // The two keys this bug affects — deliberately NOT the
                 // control's own default of 7, so a fall-through to the
@@ -148,7 +159,7 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
                 // every other toggle on this step.
                 'approval_mode' => 'two_step',
                 'require_checklist_complete' => '0',
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
@@ -162,11 +173,17 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
             ->get(route('corex.agency-setup.step', ['step' => 'leases']))
             ->assertOk();
 
-        $response->assertSee('value="37"', false);
-        $response->assertSee('value="53"', false);
-        // The pre-fix bug rendered the control's own hardcoded default (7)
-        // for BOTH fields regardless of what was saved.
-        $response->assertDontSee('value="7"', false);
+        // Asserted against each control's OWN input, not the page as a whole:
+        // the pre-fix bug rendered the control's hardcoded default (7) for BOTH
+        // fields regardless of what was saved — but other controls on this
+        // shared step legitimately default to 7 too (crew page windows,
+        // reminder days), so a page-wide "no value=7 anywhere" check can only
+        // go stale as settings are added.
+        $html = $response->getContent();
+        $this->assertMatchesRegularExpression('/id="f_fault_report_window_days"[^>]*value="37"/', $html);
+        $this->assertMatchesRegularExpression('/id="f_out_inspection_signing_window_days"[^>]*value="53"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/id="f_fault_report_window_days"[^>]*value="7"/', $html);
+        $this->assertDoesNotMatchRegularExpression('/id="f_out_inspection_signing_window_days"[^>]*value="7"/', $html);
     }
 
     /**
@@ -199,6 +216,17 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         \App\Models\RentalInventorySetting::updateOrCreate(['agency_id' => $agency->id], [
             'auto_send_report_enabled' => false, // control default: 1 (true)
         ]);
+        // 2026-10-06 — the two AT-442 pricing toggles and the §43 scheduling
+        // notification settings had no arm (config declared them, the match never named them).
+        \App\Models\RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agency->id], [
+            'capture_prices_on_job_cards' => false,     // control default: 1
+            'show_costs_on_printed_job_card' => true,  // control default: 0
+        ]);
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $agency->id], [
+            'notify_tenant_enabled' => false,   // control default: on
+            'minimum_notice_days' => 5,
+            'reminder_days_before' => 4,
+        ]);
 
         $config = require config_path('agency-onboarding-copy.php');
         $controller = new \App\Http\Controllers\CoreX\AgencySetupWizardController();
@@ -212,6 +240,11 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         $this->assertFalse($values['auto_pair_photos_enabled']);
         $this->assertFalse($values['auto_send_report_enabled']);
         $this->assertFalse($values['inventory_auto_send_report_enabled']);
+        $this->assertFalse($values['capture_prices_on_job_cards']);
+        $this->assertTrue($values['show_costs_on_printed_job_card']);
+        $this->assertFalse($values['notify_tenant_enabled']);
+        $this->assertSame(5, $values['minimum_notice_days']);
+        $this->assertSame(4, $values['reminder_days_before']);
     }
 
     /**
@@ -274,7 +307,7 @@ final class AgencySetupWizardCurrentValuesTest extends TestCase
         // proforma/mailbox/rental_application) can't have this exact defect
         // (a control name typo there is a different failure mode, already
         // checked by hand in this test class's own docblock).
-        $explicitPerKeySources = ['leases', 'rental_work_orders', 'rental_inspections', 'rental_inventories', 'other_agency_stock'];
+        $explicitPerKeySources = ['leases', 'rental_work_orders', 'rental_inspections', 'rental_inventories', 'rental_portal', 'other_agency_stock'];
         foreach ($explicitPerKeySources as $source) {
             if (! isset($keysBySource[$source])) {
                 continue;

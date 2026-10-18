@@ -54,13 +54,13 @@
                     </div>
                     <div class="shrink-0">
                         @if ($agent->is_active)
-                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-green-100 text-green-700">Already on CoreX</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-success">Already on CoreX</span>
                         @elseif (blank($agent->email))
-                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">No email</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-warning">No email</span>
                         @elseif ($alreadyInvited)
-                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Invited — tick to resend</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-info">Invited — tick to resend</span>
                         @else
-                            <span class="text-[11px] px-2 py-0.5 rounded-full bg-surface-2 text-muted">Not invited yet</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-default">Not invited yet</span>
                         @endif
                     </div>
                 </div>

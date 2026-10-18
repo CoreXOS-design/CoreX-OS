@@ -1,0 +1,156 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Feature\RentalJobCards;
+
+use App\Models\Agency;
+use App\Models\Branch;
+use App\Models\Property;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
+use App\Models\RentalCrew;
+use App\Models\RentalFaultReport;
+use App\Models\RentalJobCard;
+use App\Models\RentalWorkOrderSetting;
+use App\Models\User;
+use App\Services\Rentals\RentalJobCardService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+/**
+ * Overnight re-verification (2026-10-05, cc4) — Johan's print/quote layout
+ * ask: crew + members, task lines (code/description/unit/qty/price/VAT/
+ * line total), task subtotals, grand subtotal/VAT/total, source fault/work
+ * order reference, agency letterhead. The letterhead and the line columns
+ * already existed (AT-442); this proves the three genuinely new pieces —
+ * crew on the quote PDF, task subtotals on both documents, and the source
+ * reference on both documents — render correctly, using the same
+ * view(...)->render() pattern RentalJobCardLifecycleTest already uses to
+ * assert PDF-view content without invoking dompdf itself.
+ */
+final class RentalJobCardPrintQuoteContentTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private Agency $agency;
+    private Branch $branch;
+    private User $admin;
+    private Property $property;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        \Illuminate\Support\Facades\Auth::logout();
+        $this->agency = Agency::create(['name' => 'Print Quote Agency', 'slug' => 'print-quote-' . uniqid()]);
+        $this->branch = Branch::forceCreate(['name' => 'Branch', 'agency_id' => $this->agency->id]);
+        $this->admin = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        $this->property = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '1 Print Quote Street', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        RentalCatalogueItemType::seedDefaultsFor($this->agency->id);
+        RentalCatalogueUnit::seedDefaultsFor($this->agency->id);
+        RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'capture_prices_on_job_cards' => true]);
+    }
+
+    private function noVat(): array
+    {
+        return ['registered' => false, 'pricesOn' => false, 'captureMode' => null, 'subtotalExcl' => null, 'totalVat' => null, 'totalIncl' => null, 'groups' => []];
+    }
+
+    private function renderJobCard(RentalJobCard $jobCard, string $view): string
+    {
+        $jobCard->load(['property', 'lease.tenants.contact', 'tasks.lines.vatType', 'lines.vatType', 'crew.members', 'assignedUser', 'rentalFaultReport', 'workOrder']);
+
+        // §17.4.7 — the worker print (`print`) is the COST copy and takes costsOn / costVat; the owner quote (`quote-pdf`)
+        // is the SELLING copy and takes pricesOn / vat. Passing both lets one helper render either document.
+        return view("corex.rental-job-cards.{$view}", [
+            'jobCard' => $jobCard, 'pricesOn' => true, 'vat' => $this->noVat(), 'vatNumber' => null, 'logo' => null, 'agencyName' => 'Test Agency',
+            'costsOn' => true, 'costVat' => app(\App\Services\Rentals\RentalJobCardVatService::class)->costBreakdown($jobCard),
+        ])->render();
+    }
+
+    public function test_quote_pdf_shows_the_assigned_crew_and_its_members(): void
+    {
+        $crew = RentalCrew::create(['agency_id' => $this->agency->id, 'name' => 'Quote Crew', 'created_by_user_id' => $this->admin->id]);
+        $crew->members()->create(['agency_id' => $this->agency->id, 'name' => 'Member One', 'created_by_user_id' => $this->admin->id]);
+        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+        $jobCard->assignCrew($crew, $this->admin);
+
+        $html = $this->renderJobCard($jobCard, 'quote-pdf');
+
+        $this->assertStringContainsString('Quote Crew', $html);
+        $this->assertStringContainsString('Member One', $html);
+    }
+
+    public function test_a_card_created_directly_shows_its_own_work_order_as_the_source(): void
+    {
+        // §17.3.1 — a job card never exists without its work order any more (createStandalone makes it up front), so a card made with
+        // no fault report still has a source: the work order. It must not claim "No source".
+        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+
+        foreach (['print', 'quote-pdf'] as $view) {
+            $html = $this->renderJobCard($jobCard, $view);
+            $this->assertStringContainsString('Work order #' . $jobCard->rental_work_order_id, $html);
+            $this->assertStringNotContainsString('No source', $html);
+            $this->assertStringNotContainsString('Fault report #', $html);
+        }
+    }
+
+    public function test_an_older_card_with_neither_fault_report_nor_work_order_still_says_no_source(): void
+    {
+        // Rows from before §17.3.1 can still have no work order at all.
+        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+        $jobCard->forceFill(['rental_work_order_id' => null])->save();
+
+        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard->fresh(), 'print'));
+        $this->assertStringContainsString('No source — created directly.', $this->renderJobCard($jobCard->fresh(), 'quote-pdf'));
+    }
+
+    public function test_print_and_quote_show_the_fault_report_source_reference(): void
+    {
+        $faultReport = RentalFaultReport::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
+            'reported_channel' => RentalFaultReport::CHANNEL_IN_PERSON, 'captured_by_user_id' => $this->admin->id,
+            'title' => 'Blocked drain', 'description' => 'Kitchen drain blocked.', 'status' => RentalFaultReport::STATUS_REPORTED,
+            'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+        ]);
+        // Section 22: nobody is sent to a fault until someone has authorised it - here the owner's approval, recorded by the agent.
+        $faultReport->saveOwnerVersion(['owner_title' => 'Blocked drain', 'owner_description' => 'Kitchen drain blocked.'], $this->admin);
+        $faultReport->fresh()->requestApproval($this->admin);
+        $faultReport->fresh()->recordApproval($this->admin, ['decision' => 'approved', 'approval_route' => 'agency_appoints', 'evidence_type' => 'verbal_note', 'evidence_text' => 'Owner agreed.']);
+        $jobCard = app(RentalJobCardService::class)->createStandalone([
+            'property_id' => $this->property->id, 'fault_report_id' => $faultReport->id, 'title' => 'Blocked drain',
+        ], $this->admin);
+
+        $printHtml = $this->renderJobCard($jobCard, 'print');
+        $quoteHtml = $this->renderJobCard($jobCard, 'quote-pdf');
+
+        $this->assertStringContainsString("Fault report #{$faultReport->id}", $printHtml);
+        $this->assertStringContainsString('Blocked drain', $printHtml);
+        $this->assertStringContainsString("Fault report #{$faultReport->id}", $quoteHtml);
+    }
+
+    public function test_print_and_quote_show_a_task_subtotal_distinct_from_the_grand_total(): void
+    {
+        $jobCard = app(RentalJobCardService::class)->createStandalone(['property_id' => $this->property->id, 'title' => 'Job'], $this->admin);
+        $service = app(RentalJobCardService::class);
+        $task = $service->addTask($jobCard, 'Task one', $this->admin);
+        // §17.4.5 — the worker print shows COST (never selling), so the lines carry a cost and a DIFFERENT selling price.
+        $service->addLine($jobCard, ['description' => 'Line A', 'quantity' => 1, 'unit_cost' => 100, 'unit_price' => 120], $this->admin, $task);
+        $service->addLine($jobCard, ['description' => 'Line B', 'quantity' => 1, 'unit_cost' => 50, 'unit_price' => 60], $this->admin, $task);
+        $jobCard->refresh();
+
+        $printHtml = $this->renderJobCard($jobCard, 'print');
+
+        // The task's own cost subtotal (100 + 50 = 150) distinct from the lines'
+        // own individual costs (R100.00 / R50.00) already on the page.
+        $this->assertStringContainsString('Cost subtotal', $printHtml);
+        $this->assertStringContainsString('R150.00', $printHtml);
+        // …and the owner's selling figures (120 + 60 = 180) never reach the worker's copy.
+        $this->assertStringNotContainsString('R180.00', $printHtml);
+        $this->assertStringNotContainsString('R120.00', $printHtml);
+    }
+}

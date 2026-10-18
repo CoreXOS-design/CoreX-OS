@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign Document — {{ $template->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Sign Document — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }}</title>
     <meta name="csrf-token" content="{{ csrf_token() }}">
     @vite(['resources/css/app.css', 'resources/js/app.js', 'resources/js/esign-signature-pad.js'])
     <link href="https://fonts.googleapis.com/css2?family=Dancing+Script:wght@400;700&display=swap" rel="stylesheet">
@@ -286,7 +286,7 @@
             <div>
                 <h1 class="text-xl font-bold text-white leading-tight">{{ $document->name }}</h1>
                 <div class="text-sm text-white/60 mt-1">
-                    Sent by {{ $template->creator->name ?? ($template->creator?->agency?->name ?? 'Agency') }}
+                    Sent by {{ $template->creator->name ?? (\App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? ($template->creator?->agency?->name ?? 'Agency')) }}
                     @if($request->sent_at)
                         on {{ $request->sent_at->format('d M Y') }}
                     @endif
@@ -1403,7 +1403,7 @@
 
     {{-- Footer --}}
     <div class="text-center text-xs text-slate-400 pb-6">
-        {{ $template->creator?->agency?->name ?? 'Agency' }} &mdash; Secure Document Signing
+        {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $template->creator?->agency?->name ?? 'Agency' }} &mdash; Secure Document Signing
     </div>
 
 </div>
@@ -2344,7 +2344,7 @@ function externalSign() {
                         input.placeholder = (originalName || fieldName).replace(/_/g, ' ');
                         // ESIGN-WETINK BUG2 — recipient-editable inputs GROW to their
                         // content. A bare <input type="text"> has a fixed default
-                        // width, so a long value ("{{ config('app.name') }}, shop 5, The
+                        // width, so a long value ("Acme Realty, shop 5, The
                         // emporium, …") was visually CLIPPED even though the full
                         // value is present. Auto-size via the `size` attribute (in
                         // characters), floored so short fields still look like a field,

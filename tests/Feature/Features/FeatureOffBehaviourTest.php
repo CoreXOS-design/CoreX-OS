@@ -210,8 +210,8 @@ final class FeatureOffBehaviourTest extends TestCase
     public function test_a_route_with_several_permissions_is_closed_only_when_all_of_them_are_blocked(): void
     {
         $this->setFeature('rentals', false);
-        $this->assertSame(404, $this->gate($this->admin, 'view_rentals', 'manage_rentals'), 'both keys belong to the off feature');
-        $this->assertSame(200, $this->gate($this->admin, 'view_rentals', 'access_properties'), 'one live key keeps the route open');
+        $this->assertSame(404, $this->gate($this->admin, 'rentals.view', 'manage_rentals'), 'both keys belong to the off feature');
+        $this->assertSame(200, $this->gate($this->admin, 'rentals.view', 'access_properties'), 'one live key keeps the route open');
     }
 
     public function test_core_permissions_are_never_blocked_by_any_feature_switch(): void
@@ -234,7 +234,7 @@ final class FeatureOffBehaviourTest extends TestCase
         $this->setFeature('rentals', true);
 
         $this->assertSame($before, RolePermission::where('agency_id', $this->agency->id)->count(), 'no grant rows added or removed');
-        $this->assertSame(403, $this->gate($this->agent, 'rentals.archive'), 'a feature being ON never grants a permission the role lacks');
+        $this->assertSame(403, $this->gate($this->agent, 'leases.cancel'), 'a feature being ON never grants a permission the role lacks');
     }
 
     // ── Role Manager ────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ final class FeatureOffBehaviourTest extends TestCase
     {
         $role = 'agent';
         $agencyId = $this->agency->id;
-        $rentalKey = 'view_rentals';
+        $rentalKey = 'rentals.view';
 
         // Give the agent a rentals grant while rentals is ON, then switch rentals off.
         RolePermission::updateOrCreate(['role' => $role, 'permission_key' => $rentalKey, 'agency_id' => $agencyId], ['scope' => null]);
@@ -276,7 +276,7 @@ final class FeatureOffBehaviourTest extends TestCase
         $this->actAs($this->admin);
         app(RoleManagerController::class)->savePermissions(Request::create('/x', 'POST', [
             'role'        => $role,
-            'permissions' => array_fill_keys(array_merge($visible, ['rentals.archive']), '1'),   // rentals.archive = crafted
+            'permissions' => array_fill_keys(array_merge($visible, ['leases.cancel']), '1'),   // leases.cancel = crafted
         ]));
 
         $this->assertTrue(
@@ -284,7 +284,7 @@ final class FeatureOffBehaviourTest extends TestCase
             'the hidden grant must survive a save of the role'
         );
         $this->assertFalse(
-            RolePermission::where('role', $role)->where('agency_id', $agencyId)->where('permission_key', 'rentals.archive')->exists(),
+            RolePermission::where('role', $role)->where('agency_id', $agencyId)->where('permission_key', 'leases.cancel')->exists(),
             'a crafted post cannot grant a frozen permission'
         );
 
@@ -297,8 +297,8 @@ final class FeatureOffBehaviourTest extends TestCase
     public function test_copy_permissions_leaves_a_targets_frozen_grants_alone(): void
     {
         $agencyId = $this->agency->id;
-        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'view_rentals', 'agency_id' => $agencyId], ['scope' => null]);
-        RolePermission::where('role', 'admin')->where('agency_id', $agencyId)->where('permission_key', 'view_rentals')->forceDelete();
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'rentals.view', 'agency_id' => $agencyId], ['scope' => null]);
+        RolePermission::where('role', 'admin')->where('agency_id', $agencyId)->where('permission_key', 'rentals.view')->forceDelete();
         $this->setFeature('rentals', false);
 
         $this->actAs($this->admin);
@@ -307,7 +307,7 @@ final class FeatureOffBehaviourTest extends TestCase
         ]));
 
         $this->assertTrue(
-            RolePermission::where('role', 'agent')->where('agency_id', $agencyId)->where('permission_key', 'view_rentals')->exists(),
+            RolePermission::where('role', 'agent')->where('agency_id', $agencyId)->where('permission_key', 'rentals.view')->exists(),
             "copying admin's (visible) permissions must not strip the agent's frozen rentals grant"
         );
     }

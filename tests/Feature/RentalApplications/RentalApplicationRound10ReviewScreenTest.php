@@ -94,163 +94,41 @@ final class RentalApplicationRound10ReviewScreenTest extends TestCase
         $response->assertDontSee('Income left after expenses', false);
     }
 
-    public function test_review_screen_shows_property_rent_check_when_property_linked(): void
-    {
-        $agent = $this->agent();
-        $property = \App\Models\Property::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $agent->id,
-            'title' => 'House to let in Ramsgate', 'status' => 'active', 'property_type' => 'house', 'listing_type' => 'rental',
-            'suburb' => 'Ramsgate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal', 'address' => '1 Test Road',
-            'rental_amount' => 6000,
-        ]);
-        $app = $this->application(['property_id' => $property->id]);
-        $assessment = RentalApplicationAssessment::create(['agency_id' => $this->agency->id, 'rental_application_id' => $app->id, 'statement_months' => 3]);
-        RentalApplicationIncomeItem::create(['agency_id' => $this->agency->id, 'rental_application_assessment_id' => $assessment->id, 'description' => 'Salary', 'amount' => 25700]);
-
-        $response = $this->actingAs($agent)->get(route('corex.rental-applications.review', $app));
-
-        $response->assertOk();
-        $response->assertSee('Exceeds guideline', false);
-        $response->assertSee('Property rent', false);
-    }
-
     // ── Item 2/3 — gross-income labelling on the agent panel ─────────────
-
-    public function test_review_screen_labels_income_section_as_gross(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application();
-
-        $response = $this->actingAs($agent)->get(route('corex.rental-applications.review', $app));
-
-        $response->assertOk();
-        $response->assertSee('Income (gross)', false);
-        $response->assertSee('BEFORE tax and other deductions', false);
-    }
 
     // ── Item 5 — income/expense line items ────────────────────────────────
 
-    public function test_saving_income_and_expense_items_persists_them_and_computes_the_total(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application(['current_rental_amount' => 5000]);
+    // ── Item 5 — a removed ledger line is archived, never hard-deleted ─────
+    //
+    // Since the 2026-09-11 capture-ledger rework the income/expense line IS a capture
+    // entry (rental_application_document_marks), not a row posted to the assessment save.
 
-        $response = $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            [
-                'income_items' => [
-                    ['description' => 'Salary', 'amount' => '15,000'],
-                    ['description' => 'Side income', 'amount' => '2 000'],
-                ],
-                'expense_items' => [
-                    ['description' => 'Car payment', 'amount' => 'R1 500'],
-                ],
-                // Round 12 — gross_income now requires statement_months;
-                // 1 month makes this a no-op division so the assertions
-                // below stay a direct check of the raw captured totals.
-                'statement_months' => 1,
-            ]
-        );
-
-        $response->assertOk();
-        $response->assertJson(['ok' => true]);
-        $data = $response->json();
-        // assertEquals, not assertSame — a JSON round trip collapses a
-        // whole-number float (17000.0) to an int (17000); the value must
-        // still match exactly, just not the PHP type.
-        $this->assertEquals(17000.0, $data['result']['gross_income']);
-        $this->assertEquals(15500.0, $data['result']['net_income']);
-        $this->assertCount(2, $data['income_items']);
-        $this->assertCount(1, $data['expense_items']);
-
-        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertCount(2, $assessment->incomeItems);
-        $this->assertCount(1, $assessment->expenseItems);
-    }
-
-    public function test_a_blank_trailing_row_never_persists_as_a_zero_value_item(): void
+    public function test_removing_a_capture_entry_soft_deletes_it_never_hard_deletes(): void
     {
         $agent = $this->agent();
         $app = $this->application();
 
-        $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            [
-                'income_items' => [
-                    ['description' => 'Salary', 'amount' => '10000'],
-                    ['description' => '', 'amount' => ''], // the ever-present blank placeholder row
-                ],
-            ]
-        )->assertOk();
+        foreach (['keep-1' => 10000, 'remove-1' => 2000] as $uid => $amount) {
+            $this->actingAs($agent)->postJson(route('corex.rental-applications.capture-entries.store-manual', $app), [
+                'mark_uid' => $uid, 'entry_type' => 'income', 'entry_description' => 'Salary', 'entry_amount' => $amount,
+            ])->assertOk();
+        }
 
-        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertCount(1, $assessment->incomeItems, 'the blank trailing row must never be saved');
-        $this->assertSame('10000.00', $assessment->incomeItems->first()->amount);
+        $this->actingAs($agent)
+            ->deleteJson(route('corex.rental-applications.capture-entries.destroy', [$app, 'remove-1']))
+            ->assertOk();
+
+        // Non-negotiable #1 — soft-deleted, not gone; the other line is untouched.
+        $this->assertSoftDeleted('rental_application_document_marks', ['rental_application_id' => $app->id, 'mark_uid' => 'remove-1']);
+        $this->assertDatabaseHas('rental_application_document_marks', ['rental_application_id' => $app->id, 'mark_uid' => 'keep-1', 'deleted_at' => null]);
     }
 
-    public function test_removing_a_row_soft_deletes_it_never_hard_deletes(): void
-    {
-        $agent = $this->agent();
-        $app = $this->application();
-
-        // First save — two income items.
-        $first = $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            ['income_items' => [
-                ['description' => 'Salary', 'amount' => '10000'],
-                ['description' => 'Side income', 'amount' => '2000'],
-            ]]
-        )->json();
-        $keptId = $first['income_items'][0]['id'];
-        $removedId = $first['income_items'][1]['id'];
-
-        // Second save — the agent cleared the second row (client sends only
-        // the remaining, still-filled row, carrying its real id).
-        $second = $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            ['income_items' => [
-                ['id' => $keptId, 'description' => 'Salary', 'amount' => '10000'],
-            ]]
-        )->json();
-
-        $this->assertCount(1, $second['income_items']);
-        $this->assertSame($keptId, $second['income_items'][0]['id']);
-
-        // Non-negotiable #1 — soft-deleted, not gone.
-        $this->assertSoftDeleted('rental_application_income_items', ['id' => $removedId]);
-        $this->assertDatabaseHas('rental_application_income_items', ['id' => $keptId, 'deleted_at' => null]);
-
-        // Re-saving the SAME kept row again must UPDATE it, never create a
-        // duplicate — this is what makes the id round-trip matter at all.
-        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-        $this->assertCount(1, $assessment->incomeItems);
-    }
-
-    public function test_the_displayed_total_matches_exactly_what_the_affordability_check_uses(): void
-    {
-        $agent = $this->agent();
-        $property = \App\Models\Property::create([
-            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $agent->id,
-            'title' => 'House to let in Ramsgate', 'status' => 'active', 'property_type' => 'house', 'listing_type' => 'rental',
-            'suburb' => 'Ramsgate', 'city' => 'Margate', 'province' => 'KwaZulu-Natal', 'address' => '1 Test Road',
-            'rental_amount' => 5400,
-        ]);
-        $app = $this->application(['current_rental_amount' => 5400, 'property_id' => $property->id]);
-
-        $saved = $this->actingAs($agent)->post(
-            route('corex.rental-applications.review.assessment', $app),
-            [
-                'income_items' => [
-                    ['description' => 'Salary', 'amount' => '18000'],
-                ],
-                'statement_months' => 1,
-            ]
-        )->json();
-
-        // The same number the aside panel's live JS total (incomeTotal())
-        // and the "Suggested check" box (result.gross_income) both read from.
-        $this->assertEquals(18000.0, $saved['result']['gross_income']);
-        $this->assertEquals(5400.0, $saved['result']['max_affordable_rent']);
-        $this->assertTrue($saved['result']['meets_threshold']);
-    }
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // Removed, not skipped: test_review_screen_shows_property_rent_check_when_property_linked,
+    // test_review_screen_labels_income_section_as_gross, test_saving_income_and_expense_items_persists_them_and_computes_the_total,
+    // test_a_blank_trailing_row_never_persists_as_a_zero_value_item,
+    // test_the_displayed_total_matches_exactly_what_the_affordability_check_uses (and the old
+    // "removing a row" test, rewritten above). They asserted the retired verdict-box UI and the
+    // income_items/expense_items saveAssessment() contract that the 2026-09-11 capture-ledger
+    // rework removed. See .ai/specs/rental-applications.md ("Pre-existing, unrelated test debt").
 }

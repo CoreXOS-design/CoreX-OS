@@ -7,7 +7,8 @@
     once then marked notified server-side so it never re-appears.
 --}}
 @auth
-@if(auth()->user()->hasPermission('access_portal_leads'))
+{{-- No agency context (owner who has not picked an agency) → no poll is started at all. --}}
+@if(auth()->user()->hasPermission('access_portal_leads') && auth()->user()->effectiveAgencyId())
 <div
     x-data="portalLeadToast()"
     x-init="start()"

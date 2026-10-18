@@ -45,6 +45,11 @@ class AgencyObserver
             // historical hardcoded set) so the work-order dropdown is populated.
             \App\Models\DealV2\AgencyServiceType::seedDefaultsFor($agency->id);
 
+            // .ai/specs/rentals-faults-work-orders.md §2 — seed the agency's
+            // own fault catalogue so the tenant-facing picker is never empty
+            // on day one.
+            \App\Models\RentalFaultType::seedDefaultsFor($agency->id);
+
             // Contact-details Phase 2 — seed the agency's contact-label list
             // (Personal/Business/Contact) so the phone/email label dropdown is
             // never empty for a brand-new agency.

@@ -61,13 +61,21 @@ final class RentalApplicationDocumentClosureTest extends TestCase
 
     private function application(string $status, array $attrs = []): RentalApplication
     {
-        return RentalApplication::create(array_merge([
+        $application = RentalApplication::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'contact_id' => $this->contact->id,
             'created_by_user_id' => $this->agent->id, 'status' => $status,
             'token' => Str::random(64), 'token_expires_at' => now()->addDays(14),
             'full_name' => 'Thabo Mokoena', 'id_number' => '8505125800086',
             'submitted_at' => now()->subDay(), 'current_generation' => 1,
+            'identity_verified_at' => now(),
         ], $attrs));
+
+        // A submitted application's public link sits behind the identity gate and the return gate
+        // (prod-audit 2026-09-16: upload/replace/remove prove both first) — these tests are about
+        // the status-closure rule, so the applicant is already identity-verified and has passed the gate.
+        $this->withSession(["rental_application_return_gate_passed:{$application->token}" => true]);
+
+        return $application;
     }
 
     private function upload(RentalApplication $application, string $name = 'file.pdf'): \Illuminate\Testing\TestResponse

@@ -100,14 +100,17 @@
                                     <label class="block text-sm font-medium text-[color:var(--text-secondary)] mb-1">Property *</label>
                                     <select name="property_id" required class="w-full border rounded-lg px-3 py-2 text-sm">
                                         <option value="">-- Select Property --</option>
-                                        @foreach(\App\Models\Rental\RentalProperty::active()->orderBy('full_address')->get() as $prop)
+                                        {{-- AT-439 — repointed from the retired rental_properties list to the
+                                             real Property pillar, scoped the same way Property::findLinkableForRentalApplication()
+                                             scopes the write side (listing_type=rental + own/branch/agency visibility). --}}
+                                        @foreach(\App\Models\Property::query()->where('listing_type', 'rental')->visibleTo(auth()->user())->orderBy('street_name')->get() as $prop)
                                             <option value="{{ $prop->id }}" {{ ($document->property_id ?? '') == $prop->id ? 'selected' : '' }}>
-                                                {{ $prop->full_address }}
+                                                {{ $prop->buildDisplayAddress() }}
                                             </option>
                                         @endforeach
                                     </select>
                                     <p class="text-xs text-[color:var(--text-faint)] mt-1">
-                                        Property not listed? <a href="{{ route('rental.settings.properties.create') }}" class="text-[color:var(--brand-icon)] hover:underline" target="_blank">Add it first</a>
+                                        Property not listed? <a href="{{ route('corex.properties.create') }}" class="text-[color:var(--brand-icon)] hover:underline" target="_blank">Add it first</a>
                                     </p>
                                 </div>
 

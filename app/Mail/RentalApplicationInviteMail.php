@@ -32,14 +32,20 @@ class RentalApplicationInviteMail extends BaseSignatureMail implements ShouldQue
     public string $onlineUrl;
     public string $downloadUrl;
     public string $expiresAt;
+    /** The agency's own sentence ('' = none), {agency} already replaced. Agency setting `invite_policy_sentence`. */
+    public string $policySentence;
+    /** The property the application is for, when one is linked ('' otherwise). */
+    public string $propertyAddress;
 
     public function __construct(public RentalApplication $application)
     {
         $this->contactName = $application->contact->full_name ?: 'there';
-        $this->agencyName  = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName  = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         $this->onlineUrl   = route('rental-applications.public.show', $application->token);
         $this->downloadUrl = route('rental-applications.public.pdf', $application->token);
         $this->expiresAt   = $application->token_expires_at->format('d M Y');
+        $this->policySentence = \App\Models\RentalApplicationQualifyingSetting::renderedInvitePolicySentenceFor($application->agency_id, $application->agency->name ?? null);
+        $this->propertyAddress = (string) ($application->property?->buildDisplayAddress() ?? '');
     }
 
     public function envelope(): Envelope

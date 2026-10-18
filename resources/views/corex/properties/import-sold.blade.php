@@ -79,13 +79,13 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="background:var(--surface-2);color:var(--text-muted);">
-                            <th class="text-left px-3 py-2 font-semibold">#</th>
-                            <th class="text-left px-3 py-2 font-semibold">Listing</th>
-                            <th class="text-left px-3 py-2 font-semibold">Suburb</th>
-                            <th class="text-right px-3 py-2 font-semibold">Price</th>
-                            <th class="text-left px-3 py-2 font-semibold">From file</th>
-                            <th class="text-left px-3 py-2 font-semibold">Assigned agent</th>
-                            <th class="text-center px-3 py-2 font-semibold">Photo</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">#</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Listing</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Suburb</th>
+                            <th class="text-right px-3 py-2 font-semibold text-xs uppercase tracking-wide">Price</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">From file</th>
+                            <th class="text-left px-3 py-2 font-semibold text-xs uppercase tracking-wide">Assigned agent</th>
+                            <th class="text-center px-3 py-2 font-semibold text-xs uppercase tracking-wide">Photo</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -95,7 +95,7 @@
                                 <td class="px-3 py-2" style="color:var(--text-primary);">
                                     {{ $r['title'] }}
                                     @if (!empty($r['already_exists']))
-                                        <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded" style="background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);">update</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-default ml-1">update</span>
                                     @endif
                                 </td>
                                 <td class="px-3 py-2" style="color:var(--text-muted);">{{ $r['suburb'] }}</td>

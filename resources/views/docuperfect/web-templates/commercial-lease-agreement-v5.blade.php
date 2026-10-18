@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Commercial Lease Agreement — Home Finders Coastal</title>
+    <title>Commercial Lease Agreement{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Commercial Lease Agreement V5 — Print-quality A4 document
@@ -410,11 +410,11 @@
         <div class="sub-clause">2.2 The Rental: being the amount referred to in 4.1 or, 5.2.2 as escalated
             in terms of 4.2.</div>
 
-        <div class="sub-clause">2.3 The Estate Agent being: The firm: HOME FINDERS COASTAL</div>
+        <div class="sub-clause">2.3 The Estate Agent being: The firm: {{ $docAgency['name_upper'] }}</div>
 
         <div class="sub-clause">2.4 The Deposit: as referred to in clause 6.</div>
 
-        <div class="sub-clause">2.5 HOME FINDERS COASTAL is the Agent, not the LANDLORD, and can only act
+        <div class="sub-clause">2.5 {{ $docAgency['name_upper'] }} is the Agent, not the LANDLORD, and can only act
             on the Instructions of the LANDLORD.</div>
 
         <div class="sub-clause">2.6 The LANDLORD remains the responsible party for any concerns, disputes
@@ -462,10 +462,10 @@
             (<span class="field" data-field="rental_in_words">{{ $rental_in_words ?? '' }}</span> Rand) per month,
             subject to 4.2 and shall be paid monthly in advance on the 1st day of
             each month, free of any set-off, by means of bank/internet transfer of
-            cash deposits into the HOME FINDERS COASTAL banking account. The LESSEE
+            cash deposits into the {{ $docAgency['name_upper'] }} banking account. The LESSEE
             must ensure that the AGENT receives in their account, on or before the
             due date, all payments due. The LESSEE must make allowance for bank
-            transfer delays. HOME FINDERS COASTAL is required to report all cash
+            transfer delays. {{ $docAgency['name_upper'] }} is required to report all cash
             deposits over R50 000 to FICA. The LESSEE acknowledges that all cash
             deposit fees charged by the bank will be for the account of the LESSEE.</div>
 
@@ -606,8 +606,7 @@
             TENANT, or deteriorate in a manner not commensurate with ordinary wear
             and tear. It is recorded that all curtains, blinds and carpets on the
             PREMISES are to be professionally steam cleaned by the TENANT prior to
-            his vacation of the PREMISES and proof of such to be handed to HOME
-            FINDERS COASTAL or the LANDLORD.</div>
+            his vacation of the PREMISES and proof of such to be handed to {{ $docAgency['name_upper'] }} or the LANDLORD.</div>
 
         <div class="sub-clause">8.5 All goods brought onto the premises by the Lessee shall be at the
             sole risk of the Lessee.</div>
@@ -846,20 +845,17 @@
         <div class="sub-clause">15.4 In the event of this Lease Agreement being cancelled during the fixed
             or any Renewal Periods of the Lease by the Lessee, a Lease
             cancellation fee amounting to 10% (Ten percent) of the monthly
-            rental for the remaining periods of the Lease, payable to Home
-            Finders Coastal, which amount is agreed as a reasonable consideration
-            for the consequent administrative costs incurred by Home Finders
-            Coastal. Payment of a Lease cancellation fee does not constitute a
+            rental for the remaining periods of the Lease, payable to {{ $docAgency['name'] }}, which amount is agreed as a reasonable consideration
+            for the consequent administrative costs incurred by {{ $docAgency['name'] }}. Payment of a Lease cancellation fee does not constitute a
             waiver of the LANDLORD&rsquo;s rights to institute a damaged claim in
             respect of a breach of this Lease Agreement by the TENANT which shall
             include and not be limited to commission payable by the LANDLORD,
-            which would otherwise have accrued to Home Finders Coastal up to the
+            which would otherwise have accrued to {{ $docAgency['name'] }} up to the
             expiry of the Lease Agreement. It is agreed that this damages claim
             can be settled against the damage deposit.</div>
 
         <div class="sub-clause">15.5 In the event of the Lease Agreement being cancelled during the fixed
-            or any Renewal Periods of the Lease by the Lessee, Home Finders
-            Coastal will have a 30 day sole mandate to find a suitable tenant.</div>
+            or any Renewal Periods of the Lease by the Lessee, {{ $docAgency['name'] }} will have a 30 day sole mandate to find a suitable tenant.</div>
     </div>
 
     {{-- Section 16: Termination --}}

@@ -125,7 +125,7 @@ final class PipelineListReorderTest extends TestCase
     {
         $this->withoutVite();
         $this->get(route('deals-dr2.pipeline.list', $this->deal))
-            ->assertOk()->assertSee('Pipeline list');
+            ->assertOk()->assertSee('Deal Pipeline')->assertSee('dr2-ph-stage', false); // the phased two-panel list
     }
 
     private function dealWithGraph(): Deal

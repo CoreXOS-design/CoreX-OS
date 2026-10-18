@@ -89,8 +89,7 @@
                                 <div class="font-medium text-sm truncate" style="color: var(--text-primary);">
                                     {{ $buyer->display_name ?: 'Unknown buyer' }}
                                 </div>
-                                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0"
-                                      style="background: color-mix(in srgb, {{ $tierMeta[$tierKey]['color'] }} 18%, transparent); color: {{ $tierMeta[$tierKey]['color'] }};">
+                                <span class="ds-badge ds-badge-pill flex-shrink-0" style="--ds-badge-c: {{ $tierMeta[$tierKey]['color'] }};">
                                     {{ $buyer->score }}%
                                 </span>
                             </div>

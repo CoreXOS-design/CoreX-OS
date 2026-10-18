@@ -4,10 +4,10 @@ namespace App\Services;
 
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventFeedback;
-use App\Models\Contact;
 use App\Models\ContactNote;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Buyers\BuyerNotesAccess;
 use App\Services\Matching\MatchingService;
 use App\Services\Presentations\PresentationRecommendedPrice;
 use Illuminate\Support\Collection;
@@ -232,26 +232,18 @@ class PropertyIntelligenceService
      * How many notes each signal buyer's contact carries — for the agent-facing
      * "Notes (n)" control on the Buyer Interest Signals list (view only).
      *
-     * A buyer appears in the result ONLY if the viewing user may see that contact
-     * under the contact's own visibility rules (AgencyScope + ContactScope, applied
-     * by the plain Contact query below). A buyer the viewer cannot see is absent,
-     * so the row shows no Notes control and the notes fragment route would 404 for
-     * them anyway. Notes have no visibility flag of their own: whoever can see the
-     * contact can read all of its (non-deleted) notes — same as the contact screen
-     * and the Core Matches popup. Agent-facing only; the seller live link never
-     * calls this.
+     * A buyer appears in the result ONLY if the viewing user may read that buyer's notes under
+     * the Role Manager scope `buyer_notes.view` (own / branch / agency — BuyerNotesAccess, the
+     * one rule shared with Core Matches). A buyer outside it is absent, so the row shows no
+     * Notes control and the notes address would 404 for them anyway. Agent-facing only; the
+     * seller live link never calls this.
      *
      * @param  Collection<int,array{id:int}>  $signals  rows from getBuyerInterestSignals()
-     * @return array<int,int>  contact_id => number of notes (0 for a visible buyer with none)
+     * @return array<int,int>  contact_id => number of notes (0 for a readable buyer with none)
      */
     public function getBuyerNoteCounts(Collection $signals): array
     {
-        $ids = $signals->pluck('id')->filter()->unique()->values()->all();
-        if ($ids === []) {
-            return [];
-        }
-
-        $visibleIds = Contact::query()->whereIn('id', $ids)->pluck('id')->all();
+        $visibleIds = app(BuyerNotesAccess::class)->visibleContactIds(auth()->user(), $signals->pluck('id'));
         if ($visibleIds === []) {
             return [];
         }

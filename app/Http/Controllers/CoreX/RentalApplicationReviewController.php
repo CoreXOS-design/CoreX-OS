@@ -142,7 +142,9 @@ class RentalApplicationReviewController extends Controller
         $newPropertyId = $newProperty?->id;
 
         if ($oldPropertyId === $newPropertyId) {
-            return back();
+            return $request->expectsJson()
+                ? response()->json(['ok' => true, 'label' => $newProperty?->buildDisplayAddress(), 'updated_at' => $rentalApplication->updated_at?->timestamp])
+                : back();
         }
 
         abort_if(
@@ -169,6 +171,16 @@ class RentalApplicationReviewController extends Controller
                     : 'Cleared the linked property',
             );
         });
+
+        // The staff application page links/changes the property in place (fetch), so unsaved edits in its form
+        // are not lost to a reload — and it needs the new updated_at to keep its own save's staleness check true.
+        if ($request->expectsJson()) {
+            return response()->json([
+                'ok' => true,
+                'label' => $newProperty?->buildDisplayAddress(),
+                'updated_at' => $rentalApplication->fresh()->updated_at?->timestamp,
+            ]);
+        }
 
         return back()->with('success', $newProperty ? 'Property linked.' : 'Property link cleared.');
     }
@@ -475,13 +487,21 @@ class RentalApplicationReviewController extends Controller
         // will actually accept; the server checks are what actually decide).
         $user = $request->user();
         $selfCreatedBlocked = (int) $rentalApplication->created_by_user_id === (int) $user->id
-            && ! $user->isRentalApplicationOverrideTier($agencyId);
+            && ! $user->mayDecideOwnRentalApplication($agencyId);
         $showSubmitOrApprove = ! in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true)
             && ! $rentalApplication->isPendingAuthorisation();
         $canApproveDirectly = $showSubmitOrApprove
             && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
             && $user->isRentalApplicationAuthoriser($agencyId)
             && ! $selfCreatedBlocked;
+        // One step is on but this user still gets "Submit for approval": say why, in one line, instead of silently handing the
+        // application to somebody else.
+        $oneStepNote = null;
+        if ($showSubmitOrApprove && ! $canApproveDirectly && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step') {
+            $oneStepNote = ! $user->isRentalApplicationAuthoriser($agencyId)
+                ? 'One step is on, but you are not ticked as a Reviewer or Override approver in Settings - so this goes to an approver.'
+                : 'You created this application and your agency has other approvers - another approver must approve it.';
+        }
         // Only needed to populate the Decline modal's reason picker when the
         // one-step buttons can actually render — same source the authoriser
         // screen's own Decline modal already reads from.
@@ -537,7 +557,7 @@ class RentalApplicationReviewController extends Controller
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'oneStepNote', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -559,6 +579,12 @@ class RentalApplicationReviewController extends Controller
 
         if (! $rentalApplication->token) {
             return response()->json(['error' => 'This application has no applicant link yet — send it first.'], 422);
+        }
+
+        // A request for more information only makes sense while the applicant's link can still take documents
+        // (declined / withdrawn kill it): the mail would otherwise point at a dead page.
+        if (! $rentalApplication->documentUploadsOpen()) {
+            return response()->json(['error' => $rentalApplication->documentUploadsClosedMessage() ?: 'The applicant\'s link is closed, so there is nowhere for them to add more.'], 422);
         }
 
         $sent = $mailer->sendMoreInfoRequest($rentalApplication, $validated['note']);
@@ -646,7 +672,15 @@ class RentalApplicationReviewController extends Controller
                 ->with('error', 'The applicant has already been sent this approval.');
         }
 
-        $properties = $matcher->forApproval($rentalApplication);
+        // Same guard sendDecline() has: no address on file means nothing can be sent, and "Approval sent" with
+        // applicant_notified_at stamped would tell the agency the applicant knows when they do not.
+        if (! $rentalApplication->recipientEmail()) {
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'This application has no email address on file - there is nowhere to send this. Add one to the application before sending.');
+        }
+
+        // An application for a NAMED property is approved for that property: no list of other listings goes with it.
+        $properties = $rentalApplication->property_id ? collect() : $matcher->forApproval($rentalApplication);
 
         $sent = $mailer->sendApproved($rentalApplication, $properties);
 
@@ -794,6 +828,9 @@ class RentalApplicationReviewController extends Controller
         $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor((int) $rentalApplication->agency_id);
 
         $rentalApplication->status = 'reopened';
+        // The previous decision is history: the applicant must be told the NEXT one, and the file is not "pending" any more.
+        $rentalApplication->applicant_notified_at = null;
+        $rentalApplication->submitted_for_approval_at = null;
         $rentalApplication->reopened_at = now();
         $rentalApplication->reopened_by_user_id = $request->user()->id;
         $rentalApplication->reopened_note = $validated['note'];
@@ -878,7 +915,9 @@ class RentalApplicationReviewController extends Controller
     {
         $this->guardRentalApplication($rentalApplication);
 
-        abort_unless(in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true), 422);
+        // Only from returned / under_assessment: an approved, declined or withdrawn application is a final call and
+        // cannot be dragged back into the authoriser's queue by a crafted POST (the way back is Reopen).
+        abort_unless(in_array($rentalApplication->status, RentalApplication::HAND_OFF_STATUSES, true), 422);
 
         // Idempotency guard (2026-09-13, QA1 item 3 investigation, fixed on
         // Johan's go) — proven live: two raw concurrent POSTs at an
@@ -925,18 +964,9 @@ class RentalApplicationReviewController extends Controller
         // agent can attach freely and start working immediately; this is
         // the one point that refuses to hand off an untyped PDF. Same test
         // as the review screen's "Split & File" trigger visibility.
-        $unsplitCount = $rentalApplication->documents()
-            ->whereNull('document_type_id')
-            ->where('mime_type', 'application/pdf')
-            ->count();
-        if ($unsplitCount > 0) {
-            return response()->json([
-                'error' => $unsplitCount === 1
-                    ? 'One supporting document hasn\'t been sorted into document types yet — split it before submitting for authorisation.'
-                    : "{$unsplitCount} supporting documents haven't been sorted into document types yet — split them before submitting for authorisation.",
-                'reason' => 'unsplit_documents',
-                'unsplit_count' => $unsplitCount,
-            ], 422);
+        $handOffRefusal = \App\Services\RentalApplications\AuthorisationHandOffGate::refusal($rentalApplication);
+        if ($handOffRefusal !== null && $handOffRefusal['reason'] === 'unsplit_documents') {
+            return response()->json(['error' => $handOffRefusal['error'], 'reason' => $handOffRefusal['reason']] + $handOffRefusal['extra'], 422);
         }
 
         // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
@@ -944,33 +974,42 @@ class RentalApplicationReviewController extends Controller
         // not fica." Agency-configurable (default required, matching
         // Johan's own stated answer for HFC) — never blocks the
         // application's own receipt, only this hand-off to the authoriser.
-        // Reads the SAME status the Contact page's own FICA badge already
-        // shows (RentalApplication::ficaOutstanding()) — an agent walk-in
-        // verification (FicaController::agentApprove()) moves this exactly
-        // like an online one would, since both write to the same table.
-        if (RentalApplicationQualifyingSetting::requireFicaBeforeAuthorisationFor((int) $rentalApplication->agency_id)
-            && $rentalApplication->ficaOutstanding()) {
-            return response()->json([
-                'error' => 'FICA verification is still outstanding for this applicant — it must be complete before this can go to the authoriser.',
-                'reason' => 'fica_outstanding',
-            ], 422);
+        //
+        // 2026-10-08, Johan's ruling (relayed by the conductor): the FICA gate lifts on SUBMITTED. This asks the
+        // one shared gate (RentalApplication::ficaGateOpen() → FicaGate, the
+        // same rule sales' signer gate uses): an applicant who has SUBMITTED
+        // FICA no longer holds this up — only an applicant who has not
+        // submitted does, and only for an agency that switched the hard stop
+        // on. Otherwise the hand-off goes ahead and the response carries a
+        // plain warning with the link to request/complete FICA.
+        if ($handOffRefusal !== null) {
+            return response()->json(['error' => $handOffRefusal['error'], 'reason' => $handOffRefusal['reason']] + $handOffRefusal['extra'], 422);
         }
+        $ficaGate = $rentalApplication->ficaGateDescribe();
 
+        // History records the REAL from-status (it was written after the overwrite, so it always read "from = to").
+        $fromStatus = $rentalApplication->status;
         $rentalApplication->status = 'under_assessment';
         $rentalApplication->submitted_for_approval_at = now();
         $rentalApplication->save();
 
         RentalApplicationStatusHistory::record(
             $rentalApplication,
-            $rentalApplication->status,
-            $rentalApplication->status,
+            $fromStatus,
+            'under_assessment',
             $request->user(),
             'Submitted for authorisation.',
         );
 
+        // Rentals front-half decision D4: tell the authoriser(s) (agency setting, default on); never part of the hand-off's success.
+        app(\App\Services\RentalApplications\RentalApplicationNotifier::class)->notifyAuthorisersOfHandOver($rentalApplication, $request->user());
+
         return response()->json([
             'ok' => true,
             'submitted_for_approval_at' => $rentalApplication->submitted_for_approval_at->toIso8601String(),
+            // A warning, never a stop: set only while the applicant has not submitted FICA.
+            'fica_warning' => $ficaGate['warning'],
+            'fica_url' => $ficaGate['url'],
         ]);
     }
 

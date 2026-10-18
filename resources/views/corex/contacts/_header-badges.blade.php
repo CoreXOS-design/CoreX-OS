@@ -12,7 +12,7 @@
 <div class="flex items-center gap-2 flex-wrap {{ $justify ?? '' }}">
     {{-- Every pill here is the one shared <x-pill> (same size, font, colour); only the small dot carries a state. --}}
     @forelse($contact->parentTypes as $pt)
-    <x-pill :label="$pt->name" />
+    <x-pill :label="\App\Models\ContactType::displayName($pt->esign_role, $pt->name)" />
     @empty
     @if($contact->type)
     <x-pill :label="$contact->type->name" />

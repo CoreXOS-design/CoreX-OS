@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -19,7 +21,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RentalWorkOrder extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const REPORTED_BY_TENANT = 'tenant';
     public const REPORTED_BY_AGENT_NOTICED = 'agent_noticed';
@@ -32,6 +34,32 @@ class RentalWorkOrder extends Model
     public const STATUS_IN_PROGRESS = 'in_progress';
     public const STATUS_COMPLETED = 'completed';
     public const STATUS_CANCELLED = 'cancelled';
+    /**
+     * .ai/specs/rental-work-orders.md §17.12 — a tenant reported finished work as
+     * not complete (§17.10). An OPEN state: the final close is refused while a work
+     * order is disputed (RentalCloseGuards::assertNotDisputed).
+     */
+    public const STATUS_DISPUTED = 'disputed';
+
+    /**
+     * §17.2 / §17.6.4 — which term the CURRENT approval relied on. Always paired
+     * with a rental_approval_decisions row that cites the term and its value.
+     */
+    public const BASIS_NO_APPROVAL_LIMIT = 'no_approval_limit';
+    public const BASIS_OWNER_DECISION = 'owner_decision';
+    public const BASIS_VARIATION_TOLERANCE = 'variation_tolerance';
+    public const BASIS_EMERGENCY = 'emergency_owner_agreed';
+    /** Section 22.6 (stage 2): the agent authorised the cost under the owner's repair limit / emergency limit (the authorisation record carries the rest). */
+    public const BASIS_AGENT_REPAIR_LIMIT = 'agent_repair_limit';
+    public const BASIS_AGENT_EMERGENCY_LIMIT = 'agent_emergency_limit';
+    /** Work already under way when §17 was deployed — never blocked by the new guard (§17.6.5). */
+    public const BASIS_LEGACY_GRANDFATHERED = 'legacy_grandfathered';
+
+    /** AT-442 — "who does the work" is the FIRST choice on every work order. */
+    public const ASSIGNMENT_OUTSIDE_SUPPLIER = 'outside_supplier';
+    public const ASSIGNMENT_INTERNAL = 'internal';
+    /** W3 (8 Oct 2026) - the owner's own contractor (optional name + phone): the owner arranges and pays, the agency coordinates. */
+    public const ASSIGNMENT_OWNER_CONTRACTOR = 'owner_contractor';
 
     public const APPROVAL_NOT_REQUIRED = 'not_required';
     public const APPROVAL_PENDING = 'pending';
@@ -50,6 +78,22 @@ class RentalWorkOrder extends Model
     public const PHOTO_REPORTED = 'reported';
     public const PHOTO_IN_PROGRESS = 'in_progress';
     public const PHOTO_COMPLETED = 'completed';
+    /**
+     * §17.10.4 — a tenant's "not complete" photo. NOT a crew-visible gallery photo and never a client
+     * "work done" photo: Build 3 must exclude it from the readers that show `photo_type != reported`
+     * (CrewJobService::payload(), RentalJobCardClientViewService) and show it only inside the dispute panel.
+     */
+    public const PHOTO_DISPUTE = 'dispute';
+
+    /**
+     * AT-442 — matches the DB column default so a just-created instance
+     * reads correctly in the SAME request without a fresh() reload (a
+     * row loaded from the database always gets this right regardless;
+     * this only matters for the moment right after ::create()).
+     */
+    protected $attributes = [
+        'assignment_type' => self::ASSIGNMENT_OUTSIDE_SUPPLIER,
+    ];
 
     protected $fillable = [
         'agency_id',
@@ -58,7 +102,16 @@ class RentalWorkOrder extends Model
         'lease_id',
         'rental_inspection_item_id',
         'agency_service_provider_id',
+        'contractor_name',
+        'contractor_phone',
+        'appointment_at',
+        'appointment_note',
+        'appointment_contractor_note',
+        'appointment_set_at',
+        'appointment_set_by_user_id',
+        'appointment_set_by_contact_id',
         'owner_approval_status',
+        'assignment_type',
         'trade_type',
         'title',
         'description',
@@ -79,14 +132,45 @@ class RentalWorkOrder extends Model
         'paid_by',
         'cost_amount',
         'created_by_user_id',
+        // AT-445 — .ai/specs/rental-portal-access.md §2. Tenant's own
+        // 'fixed'/'not fixed' sign-off, contact-attributed.
+        'tenant_confirmed_at',
+        'tenant_confirmed_fixed',
+        'tenant_confirmed_by_contact_id',
+        'tenant_confirmation_note',
+        // §17.6 — the amount the owner (or the no-approval limit) covered, and the term relied on.
+        'approved_amount',
+        'approval_basis',
+        'emergency_approval_id',
+        // §17.9.1a — per-work-order override of the agency's external-quote fee (null = inherit).
+        'external_markup_type',
+        'external_markup_value',
+        // spec section 22.13 - the report-back (what was found / the cause) and the current "Who pays" ruling's payer.
+        'found_text',
+        'cause_id',
+        'cause_label',
+        'cause_note',
+        'reported_back_at',
+        'reported_back_by',
+        'who_pays',
+        'who_pays_ruling_id',
     ];
 
     protected $casts = [
         'reported_at' => 'datetime',
         'ordered_at' => 'datetime',
+        'appointment_at' => 'datetime',
+        'appointment_set_at' => 'datetime',
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
+        // NAMING TRAP (§17.13): this is the OWNER-FACING (selling) final amount for an internal job and
+        // the contractor's final invoice for an external one — never the agency's own cost.
         'cost_amount' => 'decimal:2',
+        'approved_amount' => 'decimal:2',
+        'external_markup_value' => 'decimal:2',
+        'tenant_confirmed_at' => 'datetime',
+        'tenant_confirmed_fixed' => 'boolean',
+        'reported_back_at' => 'datetime',
     ];
 
     public function property(): BelongsTo
@@ -103,9 +187,10 @@ class RentalWorkOrder extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function inspectionItem(): BelongsTo
@@ -113,14 +198,78 @@ class RentalWorkOrder extends Model
         return $this->belongsTo(RentalInspectionItem::class, 'rental_inspection_item_id');
     }
 
-    public function supplier(): BelongsTo
+    /** Same reasoning as property() above — a soft-deleted supplier must not vanish from work-order history. */
+    public function isOwnerContractor(): bool
     {
-        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id');
+        return $this->assignment_type === self::ASSIGNMENT_OWNER_CONTRACTOR;
     }
 
+    /** W3 - who does the work, in plain words (agent wording; the portal adds its own, see RentalWorkOrderClientViewService). */
+    public function whoLabel(): string
+    {
+        return match ($this->assignment_type) {
+            self::ASSIGNMENT_INTERNAL => 'Our maintenance team',
+            self::ASSIGNMENT_OWNER_CONTRACTOR => "Owner's own contractor",
+            default => 'Agency contractor',
+        };
+    }
+
+    /** The plain stage key (config/rental-work-order-stages.php) and its label for an audience: 'agent' | 'owner' | 'tenant'. */
+    public function stageKey(): string
+    {
+        return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageKey($this);
+    }
+
+    /**
+     * THE contractor of this work order, from ONE place (Johan, 8 Oct 2026: the header said "Supplier: -" while the selected quote named one lower
+     * down): the owner's own contractor; else the supplier the work order was assigned to; else the supplier of the SELECTED quote (assigned
+     * only when the work order is sent). Null when nobody is chosen yet.
+     */
+    public function contractorLabel(): ?string
+    {
+        if ($this->isOwnerContractor()) {
+            return $this->contractor_name ?: null;
+        }
+        // Q3 (Johan, 9 Oct 2026): once a quote is selected the contractor IS that quote's supplier (selectQuote() also keeps the assigned supplier in step
+        // while the work order has not gone out); before that, whoever was chosen when the work order was created.
+        $selected = $this->relationLoaded('quotes') ? $this->quotes->firstWhere('is_selected', true) : $this->quotes()->where('is_selected', true)->first();
+        if ($selected?->supplier) {
+            return $selected->supplier->name;
+        }
+
+        return $this->supplier?->name;
+    }
+
+    /** This work order's status in plain words - on the owner's-own-contractor route "ordered" is "Owner arranges" (nothing is sent to anyone). */
+    public function statusLabel(): string
+    {
+        return $this->isOwnerContractor() && $this->status === self::STATUS_ORDERED ? 'Owner arranges' : (string) static::statusWord($this->status);
+    }
+
+    /** One name for a raw status wherever it is printed (history, tooltips) - config/rental-work-order-stages.php `status_words`. */
+    public static function statusWord(?string $status): ?string
+    {
+        if ($status === null || $status === '') {
+            return null;
+        }
+
+        return (string) (config("rental-work-order-stages.status_words.{$status}") ?? ucfirst(str_replace('_', ' ', $status)));
+    }
+
+    public function stageLabel(string $audience = 'agent'): string
+    {
+        return app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->stageLabel($this, $audience === 'agent' ? 'agent' : $audience);
+    }
+
+    public function supplier(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
+    }
+
+    /** Same reasoning as property() above. */
     public function reportedByContact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class, 'reported_by_contact_id');
+        return $this->belongsTo(Contact::class, 'reported_by_contact_id')->withTrashed();
     }
 
     public function reportedByUser(): BelongsTo
@@ -169,6 +318,164 @@ class RentalWorkOrder extends Model
         return $this->hasMany(RentalWorkOrderQuote::class)->orderByDesc('quote_date');
     }
 
+    /** §17.31 — the supplier's invoice documents filed against this work order (live ones; archived via onlyTrashed()). */
+    public function invoices(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderInvoice::class)->orderByDesc('invoice_date')->orderByDesc('id');
+    }
+
+    /** AT-442 — present only when assignment_type='internal'; §14. */
+    /** Spec section 22.13 - the list/CSV text for "Who pays (ruling)": the current ruling's payer, or empty. */
+    public function whoPaysLabel(): string
+    {
+        return $this->who_pays ? RentalPayerRuling::payerLabel($this->who_pays) : '';
+    }
+
+    /** Spec section 22.13 - the list/CSV text for "Cause": the picked label plus any words, or empty. */
+    public function causeSummary(): string
+    {
+        $label = trim((string) $this->cause_label);
+        $note = trim((string) $this->cause_note);
+
+        return $label !== '' && $note !== '' ? "{$label} - {$note}" : ($label !== '' ? $label : $note);
+    }
+
+    /** Spec section 22.13 - every "Who pays" ruling made on this work order, oldest first (the newest un-superseded one is current). */
+    public function payerRulings(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(RentalPayerRuling::class, 'rental_work_order_id')->withoutGlobalScopes()->orderBy('id');
+    }
+
+    public function jobCard(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(RentalJobCard::class, 'rental_work_order_id');
+    }
+
+    /** §17.6.4 — every decision the system (or the owner) made, citing the term relied on. Newest first. */
+    public function approvalDecisions(): HasMany
+    {
+        return $this->hasMany(RentalApprovalDecision::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** §17.8 — emergency approvals, newest first (voided ones included; see activeEmergencyApproval()). */
+    public function emergencyApprovals(): HasMany
+    {
+        return $this->hasMany(RentalEmergencyApproval::class)->orderByDesc('created_at')->orderByDesc('id');
+    }
+
+    /** §17.7 — variations, newest first. */
+    public function variations(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrderVariation::class)->orderByDesc('raised_at')->orderByDesc('id');
+    }
+
+    /** §17.10 — one row per "work reported done", oldest first (round 1, 2, 3…). */
+    public function completionRounds(): HasMany
+    {
+        return $this->hasMany(RentalWorkCompletionRound::class)->orderBy('round_no');
+    }
+
+    /** §17.8 — the one un-voided emergency approval, if any. */
+    public function activeEmergencyApproval(): ?RentalEmergencyApproval
+    {
+        return $this->emergencyApprovals()->whereNull('voided_at')->first();
+    }
+
+    /** §17.12 — an OPEN dispute is a work order whose status is `disputed`. */
+    public function hasOpenDispute(): bool
+    {
+        return $this->status === self::STATUS_DISPUTED;
+    }
+
+    /** T1 (9 Oct 2026): the tenant said "not fixed" and nobody has acted on it yet (sent it back, or marked it seen). Never blocks closing. */
+    public function hasUnresolvedTenantDispute(): bool
+    {
+        $round = $this->latestCompletionRound();
+
+        return $this->hasOpenDispute()
+            || ($round && $round->outcome === RentalWorkCompletionRound::OUTCOME_DISPUTED && $round->dispute_resolved_at === null);
+    }
+
+    /** §17.7 / §17.9.4 — the owner already approved an amount for this work order (never true of emergency work). */
+    public function hasApprovedBaseline(): bool
+    {
+        return $this->approved_amount !== null && $this->approval_basis !== self::BASIS_EMERGENCY;
+    }
+
+    /** §17.7.2 — the one variation still waiting on the owner, if any. */
+    public function openVariation(): ?RentalWorkOrderVariation
+    {
+        return $this->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->first();
+    }
+
+    /** §17.6.4 — the latest decision row, for the "Why was this approved?" line. */
+    public function latestApprovalDecision(): ?RentalApprovalDecision
+    {
+        return $this->approvalDecisions()->first();
+    }
+
+    /**
+     * §17.28 — the label in front of the latest decision's note. The note is the reason for the CURRENT state, so the
+     * label must say which state that is: "Why was this approved?" on a job still waiting for the owner (or declined,
+     * or with no decision at all) claims an approval that does not exist.
+     */
+    public function approvalReasonLabel(): string
+    {
+        return match (true) {
+            $this->owner_approval_status === self::APPROVAL_PENDING => 'Why is the owner\'s approval needed?',
+            $this->owner_approval_status === self::APPROVAL_DECLINED => 'Why was this declined?',
+            $this->approvalBasisLabel() !== null => 'Why was this approved?',
+            default => 'Approval decision:',
+        };
+    }
+
+    /** §17.8.3 — "Approved as emergency work on {date}" for statements and quote PDFs; null unless an un-voided emergency approval stands. */
+    public function emergencyBanner(): ?string
+    {
+        $approval = $this->activeEmergencyApproval();
+
+        return $approval ? 'Approved as emergency work on ' . $approval->approved_at->format('j M Y') : null;
+    }
+
+    /**
+     * §17.9.5 — the line the contractor's work order carries: "Owner approval: approved on {date} — {basis in words}".
+     * Never names the owner or gives their contact details.
+     */
+    public function ownerApprovalLine(): string
+    {
+        $decision = $this->approvalDecisions()
+            ->whereNull('rental_work_order_variation_id')
+            ->whereIn('decision', [RentalApprovalDecision::DECISION_APPROVED, RentalApprovalDecision::DECISION_AUTO_APPROVED, RentalApprovalDecision::DECISION_EMERGENCY_COVERED])
+            ->reorder()->orderByDesc('created_at')->orderByDesc('id')->first();
+
+        $words = match ($decision?->basis ?? $this->approval_basis) {
+            self::BASIS_OWNER_DECISION => 'the owner approved the quote',
+            self::BASIS_NO_APPROVAL_LIMIT => "approved under the owner's old no-approval limit, before costs were authorised one by one",
+            self::BASIS_VARIATION_TOLERANCE => "within the owner's agreed tolerance",
+            self::BASIS_EMERGENCY => 'emergency work agreed by the owner',
+            self::BASIS_AGENT_REPAIR_LIMIT => "the agent authorised it under the owner's repair limit",
+            self::BASIS_AGENT_EMERGENCY_LIMIT => "the agent authorised it as an emergency under the owner's emergency limit",
+            default => 'the owner\'s approval is on file',
+        };
+
+        return 'Owner approval: approved' . ($decision ? ' on ' . $decision->created_at->format('j M Y') : '') . ' — ' . $words;
+    }
+
+    /** §17.6.4 — plain-words label of the current approval basis (null when none recorded yet). */
+    public function approvalBasisLabel(): ?string
+    {
+        return match ($this->approval_basis) {
+            self::BASIS_NO_APPROVAL_LIMIT => "Approved under the old no-approval limit (before costs were authorised one by one)",
+            self::BASIS_OWNER_DECISION => 'Approved by the owner',
+            self::BASIS_VARIATION_TOLERANCE => "Within the owner's agreed tolerance",
+            self::BASIS_EMERGENCY => 'Approved as emergency work',
+            self::BASIS_AGENT_REPAIR_LIMIT => "Authorised by the agent under the owner's repair limit",
+            self::BASIS_AGENT_EMERGENCY_LIMIT => "Authorised by the agent under the owner's emergency limit",
+            self::BASIS_LEGACY_GRANDFATHERED => 'Already under way before approvals were recorded',
+            default => null,
+        };
+    }
+
     /**
      * A single, plain, chronological history — every state-changing action
      * on this record, actor + action + from/to + note + when, oldest first.
@@ -201,18 +508,23 @@ class RentalWorkOrder extends Model
                 'action' => match ($update->update_type) {
                     'supplier_assigned' => 'Supplier assigned',
                     'supplier_changed' => 'Supplier changed',
+                    'appointment_set' => 'Appointment set',
+                    'appointment_changed' => 'Appointment changed',
+                    'owner_progress' => 'Progress reported by the owner',
                     'status_change' => 'Status changed',
                     'note' => 'Note added',
                     'quote_captured' => 'Quote captured',
                     'quote_selected' => 'Quote selected',
                     'quote_archived' => 'Quote archived',
                     'quote_restored' => 'Quote restored',
+                    'quote_declined' => 'Quote declined by the owner',
                     'approval_rederived' => 'Approval requirement re-derived',
                     'approval_superseded' => 'Recorded decision superseded',
                     default => ucfirst(str_replace('_', ' ', $update->update_type)),
                 },
-                'from' => $update->from_status ? ucfirst(str_replace('_', ' ', $update->from_status)) : null,
-                'to' => $update->to_status ? ucfirst(str_replace('_', ' ', $update->to_status)) : null,
+                // O2: on the owner's-own-contractor route nothing is ever "sent to the contractor" - the owner arranges it.
+                'from' => $this->isOwnerContractor() && $update->from_status === self::STATUS_ORDERED ? 'Owner arranges' : static::statusWord($update->from_status),
+                'to' => $this->isOwnerContractor() && $update->to_status === self::STATUS_ORDERED ? 'Owner arranges' : static::statusWord($update->to_status),
                 'note' => $update->note,
             ]);
         }
@@ -277,13 +589,26 @@ class RentalWorkOrder extends Model
      * recorded before any quote exists) leaves all three columns null —
      * correctly, there is nothing to snapshot.
      */
-    public function recordApproval(User $recordedBy, array $attributes): RentalApproval
+    /**
+     * AT-445 — $recordedBy widened to `User|Contact`, same reasoning as
+     * RentalFaultReport::recordApproval(): a landlord approving/declining a
+     * quote directly through the portal is evidence_type 'portal', no
+     * agent transcription. Existing `User` callers are unchanged.
+     */
+    public function recordApproval(User|\App\Models\Contact $recordedBy, array $attributes): RentalApproval
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
+        if ($recordedBy instanceof User) {   // section 22.7 - an agent cannot approve while the owner has it on hold (the owner's own press is not blocked)
+            app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);
+        }
 
         $decision = $attributes['decision'];
+        // Q4 (Johan, 9 Oct 2026): a decline always carries the reason - from the owner on the portal, from the agent recording it, same as on a fault.
+        if ($decision === self::APPROVAL_DECLINED && trim((string) ($attributes['evidence_text'] ?? '')) === '') {
+            throw new \InvalidArgumentException('A reason is required when a quote is declined.');
+        }
         $selectedQuote = $this->quotes()->where('is_selected', true)->first();
 
         $approval = $this->approvals()->create([
@@ -294,7 +619,8 @@ class RentalWorkOrder extends Model
             'evidence_text' => $attributes['evidence_text'] ?? null,
             'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
             'decided_at' => $attributes['decided_at'] ?? now(),
-            'recorded_by_user_id' => $recordedBy->id,
+            'recorded_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+            'recorded_by_contact_id' => $recordedBy instanceof \App\Models\Contact ? $recordedBy->id : null,
             'quote_id_at_decision' => $selectedQuote?->id,
             'quote_amount_at_decision' => $selectedQuote?->amount,
             'quote_supplier_name_at_decision' => $selectedQuote?->supplier?->name,
@@ -303,6 +629,28 @@ class RentalWorkOrder extends Model
         $this->forceFill([
             'owner_approval_status' => $decision === self::APPROVAL_APPROVED ? self::APPROVAL_APPROVED : self::APPROVAL_DECLINED,
         ])->save();
+
+        // Q2 (Johan, 9 Oct 2026): the declined quote is marked DECLINED (with the reason) and stops being the selected one - the work order is not
+        // left pointing at a dead quote. The agent's way forward: capture / choose another quote and put it to the owner, or cancel the work order.
+        if ($decision === self::APPROVAL_DECLINED && $selectedQuote) {
+            $selectedQuote->forceFill([
+                'is_selected' => false, 'declined_at' => $approval->decided_at ?? now(), 'decline_reason' => trim((string) $attributes['evidence_text']),
+            ])->save();
+            $this->updates()->create([
+                'agency_id' => $this->agency_id, 'update_type' => 'quote_declined', 'created_by_user_id' => $recordedBy instanceof User ? $recordedBy->id : null,
+                'note' => $this->describeQuote($selectedQuote) . ' declined by the owner: ' . trim((string) $attributes['evidence_text']),
+            ]);
+        }
+
+        // §17.6.4 — the owner's decision is a decision row too, and (when it is an approval) sets the baseline that
+        // later variations are measured against: the selected quote's OWNER-FACING amount.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->recordOwnerDecision(
+            $this, $decision === self::APPROVAL_APPROVED, $recordedBy, (string) $attributes['evidence_type'], $selectedQuote, $approval->decided_at,
+            [
+                'owner_contact_id' => $attributes['owner_contact_id'] ?? null, 'approved_up_to' => $attributes['approved_up_to'] ?? null,
+                'evidence_text' => $attributes['evidence_text'] ?? null, 'evidence_file_path' => $attributes['evidence_file_path'] ?? null,
+            ],
+        );
 
         return $approval;
     }
@@ -314,20 +662,27 @@ class RentalWorkOrder extends Model
      * owner_approval_status; that only happens when a quote is SELECTED
      * (selectQuote(), below).
      */
-    public function recordQuote(array $attributes, User $by): RentalWorkOrderQuote
+    /**
+     * AT-445 — $by widened to nullable: a contractor submitting a quote
+     * through their no-login secure link has neither a User nor a Contact
+     * actor at all. $viaNote lets that caller say "via contractor link" in
+     * the history entry instead of silently looking agent-captured.
+     */
+    public function recordQuote(array $attributes, ?User $by = null, ?string $viaNote = null): RentalWorkOrderQuote
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
 
-        $quote = $this->quotes()->create(array_merge($attributes, [
+        $quote = $this->quotes()->create(array_merge($attributes, RentalWorkOrderQuote::feeAttributes($this, (float) ($attributes['amount'] ?? 0), ! empty($attributes['rental_job_card_id'])), [
             'agency_id' => $this->agency_id,
-            'captured_by_user_id' => $by->id,
+            'captured_by_user_id' => $by?->id,
         ]));
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'quote_captured',
-            'note' => $this->describeQuote($quote), 'created_by_user_id' => $by->id,
+            'note' => $this->describeQuote($quote) . ($viaNote ? " ({$viaNote})" : ''),
+            'created_by_user_id' => $by?->id,
         ]);
 
         return $quote;
@@ -349,6 +704,12 @@ class RentalWorkOrder extends Model
         if ($quote->rental_work_order_id !== $this->id) {
             throw new \LogicException('This quote does not belong to this work order.');
         }
+        // §14.21 — a job card quote revision that a later re-send replaced is
+        // history only; selecting it again would resurrect an acceptance that
+        // belonged to figures the owner is no longer being asked to approve.
+        if ($quote->isSuperseded()) {
+            throw new \LogicException('This quote revision has been superseded by a newer one and cannot be selected.');
+        }
 
         // 2026-09-22, Johan — a real recorded decision (approved/declined) is
         // about to be overwritten below, unconditionally, same as it always
@@ -365,17 +726,61 @@ class RentalWorkOrder extends Model
         // deliberate case where a recorded approval is dropped and
         // re-approval is required, because the owner approved a different
         // price/supplier than the one now on the quote.
-        $wasRecordedDecision = in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
+        // The gate decides on what the DATABASE says now (an emergency approval or an owner decision recorded a moment ago by another
+        // request must not be missed because this instance was loaded earlier).
+        $this->refresh();
+        $gate = app(\App\Services\Rentals\RentalApprovalGateService::class);
+        $emergency = $gate->isEmergency($this);
+
+        // §17.9.4 — a work order the owner already approved an amount for keeps that approval: a HIGHER quote selected
+        // now opens a variation, a lower or equal one changes nothing. (Older rows approved before approved_amount
+        // existed take the amount their approval was recorded against as the baseline, when it was recorded.)
+        $hasBaseline = ! $emergency && in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_NOT_REQUIRED], true)
+            && $this->approved_amount !== null;
+        if (! $emergency && ! $hasBaseline && $this->owner_approval_status === self::APPROVAL_APPROVED) {
+            $recordedAgainst = $this->approvals()->first()?->quote_amount_at_decision;
+            if ($recordedAgainst !== null) {
+                $this->forceFill(['approved_amount' => $recordedAgainst, 'approval_basis' => $this->approval_basis ?? self::BASIS_OWNER_DECISION])->save();
+                $hasBaseline = true;
+            }
+        }
+
+        // 2026-09-22, Johan — a real recorded decision (approved/declined) is about to be overwritten below when
+        // there is no approved baseline to keep (a declined quote, or an approval recorded before any quote existed).
+        // What is new is telling the agency it happened: log what the prior decision had been recorded against, using
+        // its own snapshot if one exists — an approval from before quote_id_at_decision existed has none, and says so
+        // plainly rather than guessing.
+        $wasRecordedDecision = ! $emergency && ! $hasBaseline
+            && in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true);
         $priorApproval       = $wasRecordedDecision ? $this->approvals()->first() : null;
         $oldStatus            = $this->owner_approval_status;
 
         $this->quotes()->where('id', '!=', $quote->id)->update(['is_selected' => false]);
-        $quote->forceFill(['is_selected' => true])->save();
+        $quote->forceFill(['is_selected' => true, 'declined_at' => null, 'decline_reason' => null])->save();
 
-        $threshold = $this->spendThreshold();
-        $this->forceFill([
-            'owner_approval_status' => (float) $quote->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING,
-        ])->save();
+        // Q3: when a contractor was already appointed (at creation) the work order's contractor follows the chosen quote - only while it has not gone out (once ordered it is the one it was sent to). With nobody appointed yet nothing is assigned here: sending it is still the agent's explicit step, and the header reads the chosen quote's supplier.
+        if ($this->assignment_type === self::ASSIGNMENT_OUTSIDE_SUPPLIER && $this->status === self::STATUS_REPORTED
+            && $this->agency_service_provider_id && $quote->agency_service_provider_id && (int) $quote->agency_service_provider_id !== (int) $this->agency_service_provider_id) {
+            $from = $this->supplier?->name;
+            $this->forceFill(['agency_service_provider_id' => $quote->agency_service_provider_id])->save();
+            $this->unsetRelation('supplier');
+            $this->updates()->create([
+                'agency_id' => $this->agency_id, 'update_type' => 'supplier_changed', 'created_by_user_id' => $by->id,
+                'note' => $from
+                    ? 'Contractor changed from ' . $from . ' to ' . ($quote->supplier?->name ?? 'the quote\'s supplier') . ' with the chosen quote.'
+                    : 'Contractor set to ' . ($quote->supplier?->name ?? 'the quote\'s supplier') . ' with the chosen quote.',
+            ]);
+        }
+
+        $variation = null;
+        if ($emergency) {
+            // §17.8.3 — emergency work is never downgraded to "pending" by a quote or statement: the quote is recorded
+            // and the owner's emergency agreement stands.
+        } elseif ($hasBaseline) {
+            $variation = $gate->assessExternalQuote($this, $quote, $by);
+        } else {
+            $gate->evaluateQuote($this, $quote->ownerFacingAmount(), $by, $quote);
+        }
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'quote_selected',
@@ -393,6 +798,14 @@ class RentalWorkOrder extends Model
                 'note' => ucfirst($oldStatus) . " decision (for {$priorFor}) no longer applies — {$this->owner_approval_status} against " . $this->describeQuote($quote),
                 'created_by_user_id' => $by->id,
             ]);
+        }
+
+        // §17.9.3 — an EXTERNAL quote over the owner's no-approval limit goes to the owner now: one mail through the
+        // agency mailbox, the contractor's document attached, the owner-facing amount and the estimate term. (A job
+        // card's own quote is mailed by RentalJobCardService::sendToOwnerAsQuote(), the same single mail.)
+        if (! $quote->rental_job_card_id && ! $emergency && ! $hasBaseline && $this->owner_approval_status === self::APPROVAL_PENDING
+            && \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($this->agency_id)) {
+            app(\App\Services\Rentals\RentalWorkOrderService::class)->sendOwnerQuote($this, $quote, $by, needsDecision: true);
         }
     }
 
@@ -435,22 +848,27 @@ class RentalWorkOrder extends Model
             'note' => ($wasSelected ? 'Was selected — ' : '') . $this->describeQuote($quote), 'created_by_user_id' => $by->id,
         ]);
 
-        if ($wasSelected && in_array($this->owner_approval_status, [self::APPROVAL_NOT_REQUIRED, self::APPROVAL_PENDING], true)) {
+        if ($wasSelected && in_array($this->owner_approval_status, [self::APPROVAL_NOT_REQUIRED, self::APPROVAL_PENDING], true)
+            && $this->approval_basis !== self::BASIS_EMERGENCY) {
             $oldStatus = $this->owner_approval_status;
 
             $nowSelected = $this->quotes()->where('id', '!=', $quote->id)->where('is_selected', true)->first();
             if ($nowSelected) {
-                $threshold = $this->spendThreshold();
-                $newStatus = (float) $nowSelected->amount <= $threshold ? self::APPROVAL_NOT_REQUIRED : self::APPROVAL_PENDING;
+                app(\App\Services\Rentals\RentalApprovalGateService::class)->evaluateQuote($this, $nowSelected->ownerFacingAmount(), $by, $nowSelected);
+                $newStatus = $this->owner_approval_status;
                 $reason    = 'now derived from ' . $this->describeQuote($nowSelected);
             } else {
+                // no quote selected: the same baseline a work order starts at — nothing approved, nothing pending
+                $this->forceFill([
+                    'owner_approval_status' => self::APPROVAL_NOT_REQUIRED,
+                    'approved_amount' => null,
+                    'approval_basis' => $this->approval_basis === self::BASIS_LEGACY_GRANDFATHERED ? self::BASIS_LEGACY_GRANDFATHERED : null,
+                ])->save();
                 $newStatus = self::APPROVAL_NOT_REQUIRED;
                 $reason    = 'no quote now selected — same baseline a work order starts at';
             }
 
             if ($newStatus !== $oldStatus) {
-                $this->forceFill(['owner_approval_status' => $newStatus])->save();
-
                 $this->updates()->create([
                     'agency_id' => $this->agency_id, 'update_type' => 'approval_rederived',
                     'from_status' => $oldStatus, 'to_status' => $newStatus,
@@ -499,17 +917,27 @@ class RentalWorkOrder extends Model
      */
     private function assertApprovalAllows(string $action, ?float $cost = null): void
     {
+        app(\App\Services\Rentals\RentalOwnerHoldService::class)->assertNotOnHold($this);   // section 22.7 - paused by the owner
         if (in_array($this->owner_approval_status, [self::APPROVAL_PENDING, self::APPROVAL_DECLINED], true)) {
             throw new \LogicException("Cannot {$action} while owner approval is pending or declined.");
         }
-        if ($cost !== null && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
+        // §17.6/§17.8 — emergency work has no threshold, and a work order with an approved amount is measured against
+        // that amount by RentalCloseGuards::assertFinalCostWithinApproval() (anything above it goes to the owner, section 22.6). This older check only guards a work order with no approved baseline at all.
+        if ($cost !== null && ! $this->isOwnerContractor() && $this->approved_amount === null && $this->approval_basis !== self::BASIS_EMERGENCY
+            && $cost > $this->spendThreshold() && $this->owner_approval_status !== self::APPROVAL_APPROVED) {
             throw new \LogicException('The cost of R' . number_format($cost, 2) . ' is above the approval threshold — record the owner\'s approval before ' . $action . '.');
         }
     }
 
     private function describeQuote(RentalWorkOrderQuote $quote): string
     {
-        return 'R' . number_format((float) $quote->amount, 2) . ' — ' . ($quote->supplier?->name ?? 'Unknown supplier');
+        // AT-442 — a quote generated from an internal job card has no
+        // named supplier at all; describe it as the maintenance team's own
+        // quote rather than the generic "Unknown supplier" fallback, which
+        // reads as a data gap rather than the deliberate internal case it is.
+        $who = $quote->supplier?->name ?? ($quote->rental_job_card_id ? 'Our maintenance team' : 'Unknown supplier');
+
+        return 'R' . number_format((float) $quote->amount, 2) . ' — ' . $who;
     }
 
     /**
@@ -527,6 +955,9 @@ class RentalWorkOrder extends Model
             throw new \LogicException('This work order is already closed.');
         }
         $this->assertApprovalAllows('assign a supplier');
+        // §17.6.5 — no work goes to a contractor without an authorisation (the owner's approval, the no-approval limit
+        // or an emergency agreement).
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
 
         // The approval rides on the selected quote — the supplier actually
         // ordered must be that quote's supplier (audit M1), otherwise the
@@ -561,20 +992,41 @@ class RentalWorkOrder extends Model
         }
     }
 
+    /**
+     * §17.12 — the job card started, so the job is in progress. The CARD already passed the authorisation gate (including the
+     * grandfathered / emergency cases), so this only mirrors the stage and logs it; it must not re-judge approval and refuse.
+     */
+    public function markStartedByJobCard(?User $by): void
+    {
+        if (! in_array($this->status, [self::STATUS_REPORTED, self::STATUS_ORDERED], true)) {
+            return;
+        }
+        $fromStatus = $this->status;
+        $this->update(['status' => self::STATUS_IN_PROGRESS]);
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'status_change',
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by?->id,
+            'note' => 'Job card started',
+        ]);
+    }
+
     /** §3.4 — optional stage; a quick fix may skip straight to completed. */
-    public function startProgress(User $by): void
+    public function startProgress(?User $by, ?string $viaNote = null): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
 
         $this->assertApprovalAllows('start work');
+        // §17.6.5 — the same authorisation guard as scheduling/starting a job card.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
 
         $fromStatus = $this->status;
         $this->update(['status' => self::STATUS_IN_PROGRESS]);
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
-            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by->id,
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_IN_PROGRESS, 'created_by_user_id' => $by?->id,
+            'note' => $viaNote,
         ]);
     }
 
@@ -585,11 +1037,19 @@ class RentalWorkOrder extends Model
      * meaningful photo, e.g. a gate motor). An agency may still turn this
      * on. paid_by is always required, no setting behind it.
      */
-    public function complete(User $by, array $attributes): void
+    /**
+     * AT-445 — $by widened to nullable, same reasoning as recordQuote():
+     * a contractor marking a job done through their secure link has no
+     * User actor. $viaNote lets that caller tag the history entry.
+     */
+    public function complete(?User $by, array $attributes, ?string $viaNote = null): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
             throw new \LogicException('This work order is already closed.');
         }
+
+        // §17.21.1 — the ONE close hook for the dispute rule (Build 3 fills it; inert in the foundation).
+        app(\App\Services\Rentals\RentalCloseGuards::class)->assertNotDisputed($this);
 
         if (RentalWorkOrderSetting::completionRequiresPhotoFor($this->agency_id)
             && $this->photos()->where('photo_type', self::PHOTO_COMPLETED)->doesntExist()) {
@@ -603,6 +1063,10 @@ class RentalWorkOrder extends Model
 
         $cost = $attributes['cost_amount'] ?? $this->cost_amount;
         $this->assertApprovalAllows('completing this work order', $cost !== null ? (float) $cost : null);
+        // section 22.6: work that nobody authorised cannot be finished either - not by the office, not by the contractor's link (cc4's walk of QA1, item 1)
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->assertAuthorised($this);
+        // §17.21.1 — the ONE close hook for "final cost vs the approved amount" (Build 2 fills it; inert in the foundation).
+        app(\App\Services\Rentals\RentalCloseGuards::class)->assertFinalCostWithinApproval($this, $cost !== null ? (float) $cost : null, $by);
 
         $fromStatus = $this->status;
         $this->forceFill([
@@ -615,9 +1079,145 @@ class RentalWorkOrder extends Model
 
         $this->updates()->create([
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
-            'from_status' => $fromStatus, 'to_status' => self::STATUS_COMPLETED, 'created_by_user_id' => $by->id,
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_COMPLETED,
+            'created_by_user_id' => $by?->id,
+            'note' => $viaNote,
+        ]);
+
+        // Johan, 8 Oct 2026: the tenant is told "work completed" (once - the fault outcome that may follow is the same step).
+        if ($this->reported_fault_report_id && ($fault = RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id))) {
+            app(\App\Services\Rentals\RentalPortalNotificationService::class)->notifyTenantStatusChanged($fault);
+        }
+
+        // §17.16 — whichever route closed it (office Complete form, job-card close, contractor link), the
+        // final-statement listener (Build 2) hears about it here. No listener is registered by the foundation.
+        \App\Events\Rentals\RentalWorkOrderClosed::dispatch($this, $by?->id);
+
+        // Johan, 8 Oct 2026: the fault resolves by itself (outcome Repaired, editable) - nobody goes back to pick an outcome by hand.
+        $this->resolveReportedFault($by);
+    }
+
+    /** The fault this work order was made from closes itself once the work order is completed (see RentalFaultReport::resolveFromCompletedWorkOrder). */
+    public function resolveReportedFault(?User $by = null): void
+    {
+        if ($this->status !== self::STATUS_COMPLETED || ! $this->reported_fault_report_id) {
+            return;
+        }
+        $fault = RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id);
+        // the ONE place every completion route ends up (office form, job card close, crew link, contractor link): the fault closes here or the reason is logged - never silently
+        if ($fault && ! $fault->resolveFromCompletedWorkOrder($this, $by) && ! in_array($fault->fresh()->status, [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED], true)) {
+            \Illuminate\Support\Facades\Log::warning('Work order completed but its fault was not resolved', ['work_order' => $this->id, 'fault' => $fault->id, 'fault_status' => $fault->status, 'fault_work_order' => $fault->rental_work_order_id]);
+        }
+    }
+
+    /**
+     * AT-445 — .ai/specs/rental-portal-access.md §2. The tenant's own
+     * "fixed"/"not fixed" sign-off on a completed job, contact-attributed
+     * (never a User — the existing job-card tenant_confirmed_by_user_id
+     * stays as the agent-recorded stand-in it already is). Mirrors onto
+     * the 1:1 job card when one exists (AT-442, assignment_type=internal)
+     * so both surfaces agree; an outside_supplier work order has no job
+     * card, so only the work order itself is updated.
+     */
+    public function confirmByTenant(\App\Models\Contact $contact, bool $fixed, ?string $note = null): void
+    {
+        if ($this->status !== self::STATUS_COMPLETED) {
+            throw new \LogicException('Only a completed work order can be confirmed by the tenant.');
+        }
+
+        $this->forceFill([
+            'tenant_confirmed_at' => now(),
+            'tenant_confirmed_fixed' => $fixed,
+            'tenant_confirmed_by_contact_id' => $contact->id,
+            'tenant_confirmation_note' => $note,
+        ])->save();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id,
+            'update_type' => 'note',
+            'note' => 'Tenant confirmed via portal: ' . ($fixed ? 'fixed' : 'not fixed') . ($note ? (' — ' . $note) : ''),
+        ]);
+
+        $jobCard = $this->jobCard;
+        if ($jobCard) {
+            $jobCard->forceFill([
+                'tenant_confirmed_at' => now(),
+                'tenant_confirmed_fixed' => $fixed,
+                'tenant_confirmed_by_contact_id' => $contact->id,
+                'tenant_confirmation_note' => $note,
+            ])->save();
+        }
+    }
+
+    // ---- BUILD 3 BEGIN — completion check & dispute (§17.10, §17.21.5): methods below are Build 3's only ----
+
+    /** §17.10 — the newest completion round (highest round_no), or null when work has never been reported done. */
+    public function latestCompletionRound(): ?RentalWorkCompletionRound
+    {
+        return $this->completionRounds()->reorder()->orderByDesc('round_no')->first();
+    }
+
+    /**
+     * §17.10.6 — a tenant said the finished work is not complete. A completed work order is reopened
+     * (`completed_at` cleared); every other open stage simply becomes `disputed`. Logged as `dispute_opened`
+     * with the tenant's note. Cancelled work orders cannot be disputed.
+     */
+    public function markDisputed(string $tenantNote): void
+    {
+        if ($this->status === self::STATUS_CANCELLED) {
+            throw new \LogicException('This work order was cancelled — it cannot be reopened.');
+        }
+
+        $fromStatus = $this->status;
+        $this->forceFill(['status' => self::STATUS_DISPUTED, 'completed_at' => null])->save();
+
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'dispute_opened',
+            'from_status' => $fromStatus, 'to_status' => self::STATUS_DISPUTED,
+            'note' => 'Tenant reported the work as not complete: ' . $tenantNote,
         ]);
     }
+
+    /** §17.10.7 — work was reported done again after a dispute: back to `in_progress`. */
+    public function returnFromDispute(): void
+    {
+        if ($this->status !== self::STATUS_DISPUTED) {
+            return;
+        }
+
+        $this->forceFill(['status' => self::STATUS_IN_PROGRESS])->save();
+        $this->updates()->create([
+            'agency_id' => $this->agency_id, 'update_type' => 'status_change',
+            'from_status' => self::STATUS_DISPUTED, 'to_status' => self::STATUS_IN_PROGRESS,
+            'note' => 'Work reported done again after a tenant dispute',
+        ]);
+    }
+
+    /**
+     * §17.10.4 — the legacy `tenant_confirmed_*` columns on the work order (and its job card) are kept as
+     * MIRRORS of the latest round's answer, so every older reader (reports, the portal alias) still agrees.
+     */
+    public function mirrorCompletionAnswer(bool $fixed, ?string $note, ?int $contactId): void
+    {
+        $this->forceFill([
+            'tenant_confirmed_at' => now(),
+            'tenant_confirmed_fixed' => $fixed,
+            'tenant_confirmed_by_contact_id' => $contactId,
+            'tenant_confirmation_note' => $note,
+        ])->save();
+
+        $jobCard = $this->jobCard;
+        if ($jobCard) {
+            $jobCard->forceFill([
+                'tenant_confirmed_at' => now(),
+                'tenant_confirmed_fixed' => $fixed,
+                'tenant_confirmed_by_contact_id' => $contactId,
+                'tenant_confirmation_note' => $note,
+            ])->save();
+        }
+    }
+
+    // ---- BUILD 3 END ----
 
     /** §3.4 — never deleted once anything has been logged against it. */
     public function cancel(User $by, string $reason): void
@@ -642,6 +1242,21 @@ class RentalWorkOrder extends Model
             'agency_id' => $this->agency_id, 'update_type' => 'status_change',
             'from_status' => $fromStatus, 'to_status' => self::STATUS_CANCELLED, 'created_by_user_id' => $by->id,
         ]);
+
+        // The fault it was made from goes back to "appoint a contractor" instead of staying pointed at this dead work order.
+        if ($this->reported_fault_report_id) {
+            RentalFaultReport::withoutGlobalScopes()->find($this->reported_fault_report_id)?->workOrderWasCancelled($this, $by);
+        }
+
+        // §17.7.2 — cancelling the work order withdraws any request still waiting on the owner.
+        app(\App\Services\Rentals\RentalApprovalGateService::class)->withdrawOpenVariations($this, 'The work order was cancelled.', $by);
+
+        // The card and its work order are one job (§17.10.9): cancelling one cancels the other, or the crew keeps a live card
+        // (and link) for a job that no longer exists. The card's own cancel() sees this work order already cancelled and stops.
+        $card = $this->jobCard;
+        if ($card && ! in_array($card->status, [RentalJobCard::STATUS_CANCELLED, RentalJobCard::STATUS_COMPLETED], true)) {
+            $card->cancel($by, $reason);
+        }
     }
 
     /** §3.4 — a free-text elaboration, not tied to a status change. */
@@ -667,13 +1282,49 @@ class RentalWorkOrder extends Model
     }
 
     /**
+     * §17.12 / §17.17 — the "Awaiting owner" list filter: the work order's quote (or approval) is out with the owner and he has
+     * not decided (`owner_approval_status = pending`). A closed (completed / cancelled) work order is no longer waiting on anyone,
+     * so it is left out — the filter lists what the office can still chase.
+     */
+    public function scopeAwaitingOwner(Builder $query): Builder
+    {
+        return $query->where('rental_work_orders.owner_approval_status', self::APPROVAL_PENDING)
+            ->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED]);
+    }
+
+    /**
+     * Ruling 14 Oct 2026 (Johan's 9 Oct rule) - the "Finished - awaiting agent check" list filter: the work was reported finished (contractor, owner,
+     * tenant) and nobody has closed it or sent it back. The SAME definition as RentalWorkOrderClientViewService::reportedFinished() - the newest
+     * completion round is not a dispute and the work order is not completed / cancelled / disputed - so the tile, the list and the badge agree.
+     */
+    public function scopeAwaitingAgentCheck(Builder $query): Builder
+    {
+        return $query->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED, self::STATUS_DISPUTED])
+            ->whereExists(function ($q) {
+                $q->select(\Illuminate\Support\Facades\DB::raw(1))->from('rental_work_completion_rounds as awc')
+                    ->whereColumn('awc.rental_work_order_id', 'rental_work_orders.id')
+                    ->where('awc.outcome', '!=', RentalWorkCompletionRound::OUTCOME_DISPUTED)
+                    ->whereRaw('awc.round_no = (select max(awc2.round_no) from rental_work_completion_rounds as awc2 where awc2.rental_work_order_id = rental_work_orders.id)');
+            });
+    }
+
+    /**
+     * §17.7 / §17.17 — the "Variation pending" list filter: extra work has been put to the owner (an open
+     * `awaiting_owner` variation) and he has not yet answered. Closed work orders are left out, as above.
+     */
+    public function scopeVariationPending(Builder $query): Builder
+    {
+        return $query->whereHas('variations', fn ($v) => $v->awaitingOwner())
+            ->whereNotIn('rental_work_orders.status', [self::STATUS_COMPLETED, self::STATUS_CANCELLED]);
+    }
+
+    /**
      * §6 — OWN/BRANCH/AGENCY scoping, same convention as
      * RentalFaultReport::scopeVisibleTo()/RentalInspection::scopeVisibleTo().
      */
     public function scopeVisibleTo(Builder $query, User $user, ?string $requestedScope = null): Builder
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_work_orders');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_work_orders', $requestedScope);
 
         if ($scope === 'all') {
             return $query;
@@ -682,9 +1333,23 @@ class RentalWorkOrder extends Model
             return $query->whereHas('property', fn (Builder $p) => $p->where('properties.branch_id', $user->effectiveBranchId()));
         }
         if ($scope === 'own') {
-            return $query->whereIn('rental_work_orders.created_by_user_id', $user->dataIdentityIds());
+            // The agents on the record are its people too (same rule as the lease and the inspections, 8 Oct 2026): the lease's tenant-side
+            // and owner-side agent, and the property's agent - not only whoever happened to create it. Otherwise an own-scoped agent is
+            // notified about a work order and then gets a 403 opening it.
+            $ids = $user->dataIdentityIds();
+
+            return $query->where(fn (Builder $q) => $q
+                ->whereIn('rental_work_orders.created_by_user_id', $ids)
+                ->orWhereHas('lease', fn (Builder $l) => $l->agentedBy($ids))
+                ->orWhereHas('property', fn (Builder $p) => $p->whereIn('properties.agent_id', $ids)));
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }

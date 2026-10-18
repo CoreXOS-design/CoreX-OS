@@ -183,7 +183,7 @@
             <div data-tour="wiz-headline">
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-1.5" style="color:var(--text-secondary);">Headline <span class="text-red-500">*</span></label>
                 <input type="text" x-model="s1.title" maxlength="200"
-                       placeholder="e.g. Stunning 3 Bed Family Home in Uvongo Beach"
+                       placeholder="e.g. Stunning 3 Bed Family Home near the Beach"
                        class="w-full px-3 py-2.5 text-sm rounded-md outline-none transition-all duration-200"
                        style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);">
                 <div class="text-[11px] mt-1" style="color:var(--text-muted);" x-text="(s1.title?.length || 0) + ' / 200'"></div>
@@ -258,7 +258,7 @@
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Street Name</label>
-                            <input type="text" x-model="s1.street_name" placeholder="e.g. Clarendon Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <input type="text" x-model="s1.street_name" placeholder="e.g. Main Road" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                     </div>
                 </div>
@@ -311,12 +311,12 @@
                             </div>
                             <div>
                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                <input type="text" x-model="s1.district" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <input type="text" x-model="s1.district" placeholder="e.g. Municipality or district" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             </div>
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                            <input type="text" x-model="s1.region" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <input type="text" x-model="s1.region" placeholder="e.g. Region or area" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
@@ -555,6 +555,10 @@
                 </div>
             </div>
 
+            <div x-show="error && step === 3" x-cloak data-qa="step3-error"
+                 class="rounded-md px-4 py-3 text-sm"
+                 style="background:color-mix(in srgb,#ef4444 10%,var(--surface));border:1px solid color-mix(in srgb,#ef4444 35%,transparent);color:var(--text-primary);"
+                 x-text="error"></div>
 
         </div>
         <footer class="px-6 py-4 flex items-center justify-between" style="background:var(--surface-2);border-top:1px solid var(--border);">
@@ -662,6 +666,8 @@ function propertyWizard(config) {
         error: null,
         resumedDraft: false,
         propertyId: config.draftId,
+        // One draft per wizard session: every step-1 save carries this, so pressing Continue twice finds the first draft.
+        wizardToken: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)),
         csrf: config.csrf,
         routes: config.routes,
         contactId: config.contactPrefill?.contact_id || null,
@@ -763,6 +769,7 @@ function propertyWizard(config) {
         canJumpTo(n) { return this.propertyId !== null && n <= Math.max(this.step, this.highestReachedStep || 1); },
 
         async submitStep1() {
+            if (this.loading) return;
             this.loading = true; this.error = null;
             try {
                 const body = new FormData();
@@ -772,6 +779,7 @@ function propertyWizard(config) {
                 // step 1), send its id so the server UPDATES it in place rather
                 // than minting a second draft.
                 if (this.propertyId) body.append('property_id', this.propertyId);
+                body.append('wizard_token', this.wizardToken);
                 body.append('_token', this.csrf);
                 const r = await fetch(this.routes.draft, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
                 const j = await r.json();
@@ -906,7 +914,7 @@ function propertyWizard(config) {
         },
 
         async submitStep3() {
-            if (!this.propertyId) return;
+            if (!this.propertyId || this.loading) return;
             this.loading = true;
             try {
                 const url = `${this.routes.photos}/${this.propertyId}/step`;
@@ -916,8 +924,13 @@ function propertyWizard(config) {
                     if (v !== null && v !== '') body.append(k, v);
                 });
                 const r = await fetch(url, { method: 'POST', headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, body });
-                if (r.ok) this.step = 4;
-            } finally { this.loading = false; }
+                if (r.ok) { this.step = 4; return; }
+                // Say why instead of sitting on step 3 as if nothing happened.
+                let msg = 'Could not save these details. Check the fields and try again.';
+                try { const j = await r.json(); msg = (j.errors && Object.values(j.errors)[0] && Object.values(j.errors)[0][0]) || j.message || msg; } catch (_) {}
+                this.error = msg;
+            } catch (e) { this.error = 'Could not save these details. Check your connection and try again.'; }
+            finally { this.loading = false; }
         },
 
         goToStep(n) { if (this.canJumpTo(n)) this.step = n; },

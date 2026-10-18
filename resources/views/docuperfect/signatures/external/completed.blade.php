@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Signing Complete — {{ $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Signing Complete — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -27,7 +27,23 @@
                 <div class="text-sm font-medium text-slate-700">{{ $request->template->document->name ?? 'Document' }}</div>
             </div>
 
-            @if($fullyComplete)
+            @php
+                // AT-322: a clean, fully signed document is HELD for the agent's final approval - nothing is filed or emailed before that.
+                $heldForApproval = $fullyComplete && ($request->template?->fresh()?->status === 'pending_agent_approval');
+            @endphp
+            @if($heldForApproval)
+                <div class="p-3 rounded-xl bg-green-50 border border-green-200 mb-4" data-qa="signed-awaiting-approval">
+                    <div class="flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span class="text-sm font-medium text-green-700">Everyone has signed.</span>
+                    </div>
+                    <p class="text-xs text-green-600 mt-1">
+                        {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'The agency' }} now approves it. The fully signed copy is emailed to you as soon as that is done.
+                    </p>
+                </div>
+            @elseif($fullyComplete)
                 <div class="p-3 rounded-xl bg-green-50 border border-green-200 mb-4">
                     <div class="flex items-center justify-center gap-2">
                         <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -54,7 +70,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            {{ $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
+            {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

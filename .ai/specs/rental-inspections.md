@@ -4243,6 +4243,8 @@ good enough, or does an agent need to manually reorder an already-paired set?**
 
 ### 24.5 Auto-pair — proposed rule, not built anywhere today
 
+> **RULING CHANGED 14 Oct 2026 — see §56.** "Exactly one photo each side, anything else proposes nothing" no longer applies to photos tagged to an ITEM: they now pair by position. The text below is the history.
+
 `grep -i "auto-pair"` across the entire spec returns zero hits before this section — confirmed nothing
 resembling this exists, on QA1 or in any prior design record.
 
@@ -6271,11 +6273,114 @@ all three signature images are genuinely embedded as raster objects in the PDF (
 four images total, three at 400×150 matching the real signature dimensions exactly, none of them
 served/streamed over HTTP at render time (base64-inlined, confirmed by inspecting the compiled Blade
 source — no `<img src="https://...">` for a signature anywhere in this file).
+
 ---
 
-## 39. Compare viewer opens with the other side empty when the clicked photo has no auto-pair match (2026-09-29, Johan, property 5294)
+## 39. Wet-ink follow-up: awaiting_wet_ink, document filing, "print for signature" — closes §17.8-adjacent gaps (2026-09-29)
 
-_Numbered §39 on Staging (its own last section is §38) — §40 on QA1, where this was built and landed first; QA1 had already independently gained its own §39 (“Wet-ink follow-up”) the same day via unrelated work not yet promoted to Staging. Same fix, same content, deliberately renumbered per branch so each branch's own spec stays internally sequential._
+Conductor brief 2026-09-29 — built alongside wet-ink signing for rental Inventory for the first time (see
+`rental-inventory.md` §21, the primary writeup — this section records what changed HERE, on the
+already-built §16/§17 inspections mechanism, kept in lockstep with Inventory's own new build). Full
+reasoning for each piece lives in `rental-inventory.md` §21.1-§21.6; not restated here.
+
+### 39.1 A new pre-state: `awaiting_wet_ink`
+
+§16/§17 only ever built a DIRECT wet-ink capture — no way to record "the paper has been sent, nothing has
+come back yet." `RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK` (new) is a tracking marker only
+— no upload, no signature image, no refusal fields — never valid for `party_role=agent`. `capture()`
+extended with a fourth branch; `disposition` widened `string(10)` → `string(20)` (17-character value).
+
+- `RentalInspection::firstAwaitingWetInkSignatory()` (new) — `markCompleted()` now refuses completion
+  while any party is still awaiting, with a plain message naming them, checked AFTER the existing
+  outstanding-signatories gate and BEFORE the agent-signature gate.
+- `RentalInspectionSignature::capture()`'s own agent branch gained the identical check — the agent cannot
+  sign while a party is still awaiting a paper signature, closing a real gap this build found: the
+  PRE-EXISTING `outstandingSignatories()->isNotEmpty()` guard never caught an awaiting party (they DO have
+  a live row), so without this fix the agent could have signed prematurely, attesting to a record with a
+  party's evidence still outstanding.
+- `RentalInspectionSignature::supersedeWetInk()` (§16.3) now accepts an existing row in EITHER `wet_ink`
+  (the original "correct a wrong upload" case) or `awaiting_wet_ink` (resolving the marker the first time
+  a scan arrives) — one mechanism, two starting points. `isAwaitingWetInk()`/`isReplaceableWetInk()`
+  helpers added alongside the existing `isWetInk()`.
+
+**The action:** "Send for wet-ink" — a new button alongside Sign/Wet ink/Refuses on
+`rental-inspection-recording.blade.php`'s tenant/landlord rows, POSTing `disposition=awaiting_wet_ink`
+through the SAME `signatures.store` endpoint (no new route). Once awaiting, the row shows "Awaiting paper
+signature" and an "Upload scan" action (the SAME wet-ink upload form, now resolving via supersede-wet-ink
+since a row already exists) in place of the four action buttons.
+
+### 39.2 The scan is now filed as a property Document (new)
+
+Previously a wet-ink upload only ever lived on the signature row itself (`wet_ink_upload_path`) — never
+separately filed to the property's Document store. Both `storeSignature()` (a direct wet_ink capture) and
+`supersedeWetInkSignature()` (resolving/correcting) now call a new private
+`fileInspectionWetInkScan()`/`wetInkScanAsPdfBytes()` pair, filing through the SHARED
+`SignedDocumentDistributionService::fileToProperty()` — never a bespoke second filing path. Keyed on
+`(source_type, source_id) = ('rental_inspection_signature_wet_ink', $signature->id)`; doc type
+`inspection_report` (the existing global catalogue slug, reused). Full mechanism — why an image gets
+wrapped in a one-page PDF first, why the source_id is always the NEW signature's own id, why a filing
+failure is absorbed rather than failing the capture — in `rental-inventory.md` §21.3 (identical on both
+modules, written up once).
+
+### 39.3 "Print for signature" (new)
+
+`GET /corex/rental-inspections/{inspection}/print-for-signature` →
+`RentalInspectionReportPdfService::generateForSignature()` — the SAME `report-pdf.blade.php` content
+`report()` already builds, plus a red "FOR SIGNATURE" banner and blank Signature/Date blocks for every
+party with no live disposition yet, or one still `awaiting_wet_ink`. Reachable from the inspection show
+page (next to "Download report (PDF)") and from the property tab's own recording panel (next to the
+"Ready to sign" control, visible any time the inspection isn't completed/cancelled — printing before
+anyone has signed anything is the normal case, not an edge case).
+
+### 39.4 Wording made consistent + the public-page bug fixed
+
+Every wet_ink display now reads **"Signed on paper — scan on file"** (was "Signed (wet-ink upload)" in
+some places) — the report PDF, the public page, the live recording screen's `dispositionLabel()`.
+`awaiting_wet_ink` reads "Awaiting paper signature" everywhere the same badge appears.
+
+**The bug this build fixes**, named exactly:
+`resources/views/rental-inspections/public/show.blade.php:234-236` rendered EVERY
+`wet_ink_upload_path` as an `<img>`, including a PDF scan — a PDF is not a browser-decodable image
+format, so it silently rendered nothing, with no visible error. Now branches on the file extension: an
+image extension (`jpg/jpeg/png/heic/heif`) keeps the existing linked-`<img>`; a PDF gets a plain "View
+uploaded scan (PDF)" link instead. Both the public page and the report PDF also now filter/branch on
+`superseded_at` so a corrected/resolved row's OLD entry never prints a second, stale line next to its
+replacement.
+
+### 39.5 Files
+
+See `rental-inventory.md` §21.8 for the full file list across both modules — this section's own new/changed
+files are the inspections-side half of that same list:
+`app/Models/RentalInspectionSignature.php`, `app/Models/RentalInspection.php`,
+`app/Http/Controllers/CoreX/RentalInspectionRecordingController.php`,
+`app/Http/Controllers/CoreX/RentalInspectionController.php`,
+`app/Services/Rentals/RentalInspectionReportPdfService.php`,
+`resources/views/corex/rental-inspections/report-pdf.blade.php`,
+`resources/views/corex/rental-inspections/show.blade.php`,
+`resources/views/corex/properties/partials/rental-inspection-recording.blade.php`,
+`resources/views/corex/properties/show.blade.php` (shared Alpine JS),
+`resources/views/rental-inspections/public/show.blade.php`,
+`database/migrations/2026_10_05_100000_widen_disposition_on_rental_signature_tables.php`,
+`tests/Feature/RentalInspections/RentalInspectionWetInkAwaitingTest.php` (new).
+
+### 39.6 Three real bugs found and fixed via the real click-through (2026-09-29)
+
+See `rental-inventory.md` §21.9 for the full writeup. Summary of what landed on this module specifically:
+the pre-existing "Save upload" button on this page's own wet-ink form (`properties/show.blade.php`,
+shipped since §16, never proven against a real browser per §17.7's own docblock) never actually enabled
+for a real click — a genuine Alpine reactivity gap in `wetInkField()`, not a logic bug (fixed); and
+`resources/views/corex/rental-inspections/show.blade.php` read the original "Signed on paper (wet-ink)"
+wording and had no branch at all for the new `awaiting_wet_ink` disposition (fell through to "Refused to
+sign" with a bogus reason) — both fixed. Verified via a real HTTP flow (mark tenant awaiting → resolve
+via supersede-wet-ink with a PDF → landlord direct wet-ink capture with a JPG → agent signs → complete)
+against a throwaway property/inspection (21074/38, agency 1, user 365 — never 5294): the report PDF,
+the public share page, and this show page all correctly read "Signed on paper — scan on file" for both
+parties, and both scans were filed as Documents (`document_type_id` resolving to the `inspection_report`
+catalogue slug).
+
+---
+
+## 40. Compare viewer opens with the other side empty when the clicked photo has no auto-pair match (2026-09-29, Johan, property 5294)
 
 Johan reported this on 5294 (read-only for this fix — never written to; reproduced instead against a
 throwaway fixture, per §35's own standing instruction): he had added real photos to BOTH the previous/old
@@ -6283,7 +6388,7 @@ inspection side and the new/current inspection side of the same item. Clicking a
 viewer, but it never showed the other side — an old photo opened showed only old, a new photo opened
 showed only new, in both directions, every time.
 
-### 39.1 Root cause
+### 40.1 Root cause
 
 `openCompareViewer(photo, insp)` (`show.blade.php`) only populates the OTHER side's `PhotoId` when the
 clicked photo already belongs to an auto-pair match group with a member on that side:
@@ -6310,7 +6415,7 @@ missing from the compare viewer's own rail/carousel, even though the strip tile 
 (`stripTilesForInspection()` / `stripTilesFor()`, both built on `itemPhotosForInspection()` /
 `itemPhotosFor()` — EVERY observation, never just the latest) showed them fine.
 
-### 39.2 The fix
+### 40.2 The fix
 
 `openCompareViewer()` now falls back to that side's first real photo (`compareViewerPhotosForSide(otherSide)[0]`)
 when there is no auto-pair match — the same fallback `compareViewerSelectItem()` (the room/item-tab
@@ -6325,7 +6430,7 @@ Neither change touches `pairedRows()`/`pairedStripRows()` (the strip's own pairi
 or the auto-pair service itself — this is purely which photo the compare viewer's OWN rails default to
 showing when nothing has been explicitly paired yet.
 
-### 39.3 Verified
+### 40.3 Verified
 
 `php -l` clean on every changed file. `tests/Feature/RentalInspections/RentalInspectionChainTest.php`:
 26/28 pass; the 2 failures (`test_comparison_row_is_a_grid_container_with_predecessor_and_tail_cells_as_siblings`,
@@ -6337,7 +6442,7 @@ section and changing the call signature); this fix never touches the `.rir-compa
 
 `scripts/rental-click-through.mjs` gained a new named check, **#27 — Compare viewer: opening a photo
 shows both sides**, run against a throwaway fixture (never 5294) with a real, servable photo on both the
-Ceiling item's predecessor and tail side (§39.4 below) — clicks the old-side tile, asserts BOTH panes
+Ceiling item's predecessor and tail side (§40.4 below) — clicks the old-side tile, asserts BOTH panes
 render a real image (`naturalWidth`/`naturalHeight` > 0); clicks the new-side tile, asserts the same in
 reverse. Run BEFORE check #26 (Auto-pair) so the fixture's photos are still genuinely unpaired when this
 check exercises the fallback.
@@ -6375,7 +6480,7 @@ the "Inspection" panel's collapsible wrapper and the onboarding tour were added.
 directly blocked proving this fix; reported to the conductor as a standing finding for whoever next
 touches this section.
 
-### 39.4 Fixture changes — real, servable photos instead of a fake path; a direct `User::create()` instead of `User::factory()`
+### 40.4 Fixture changes — real, servable photos instead of a fake path; a direct `User::create()` instead of `User::factory()`
 
 `rental-inspection-click-through-fixture.php`'s Ceiling item photos used to be a bare `storage_path`
 string (`/gate-fixture/ceiling.jpg`) pointing at nothing on disk — fine for checks that only needed a
@@ -6397,13 +6502,13 @@ dependency from this one fixture entirely.
 
 ---
 
-## 40. Manual photo linking — a button in the compare viewer, not just a drag gesture (2026-09-29, Johan)
+## 41. Manual photo linking — a button in the compare viewer, not just a drag gesture (2026-09-29, Johan)
 
 Johan's question that started this: *"where on the inspections do we link photos? Either on the
 inspections screen or the photo screen?"* Investigation found the honest answer was neither, in any
-discoverable way — see §40.1.
+discoverable way — see §41.1.
 
-### 40.1 What already existed (investigated first, file:line)
+### 41.1 What already existed (investigated first, file:line)
 
 The match-group data layer was already fully built and correct:
 
@@ -6427,7 +6532,7 @@ The match-group data layer was already fully built and correct:
   matched photo: `everTouched()` (originally lines 96-101) checks `withTrashed()` for ANY match
   membership ever, active or removed — a photo linked (or even linked-then-unlinked) once is permanently
   excluded from future auto-pair consideration. **No change needed here** — proven with a new test
-  (§40.4).
+  (§41.4).
 - **Manual endpoints — already existed, routes/web.php:4514-4522**:
   `POST /corex/properties/{property}/rental-inspection-photo-matches` →
   `RentalInspectionRecordingController::storePhotoMatch()` (line 1013 pre-this-build) — validated same
@@ -6457,7 +6562,7 @@ The match-group data layer was already fully built and correct:
   linked pair already moves together under "Move together" and steps together under carousel navigation,
   the exact same as an auto-paired one, because both are the same underlying data.
 
-### 40.2 What was built
+### 41.2 What was built
 
 **Backend — same-item/space validation** (the one real gap in the shared linking primitive, so BOTH the
 new button AND the pre-existing drag gesture get it, not just one path):
@@ -6500,12 +6605,12 @@ Back-to-room/Back-to-untagged/index, so a fifth floating badge would have collid
 itself opens the compare viewer already anchored on that exact pair (`openCompareViewer()`, unchanged —
 already resolves the matched partner via the fix in §40).
 
-### 40.3 Deliberately not changed
+### 41.3 Deliberately not changed
 
 - The drag-and-drop mechanism itself — still there, still the tail-tile-drags-onto-predecessor-tile
   gesture, now protected by the same same-item and lock checks since it shares `storePhotoMatch()`.
 - `compareViewerSelectCarouselPhoto()`/`compareViewerStep()` — confirmed already correct for manual
-  links (§40.1), not touched.
+  links (§41.1), not touched.
 - No frontend same-item check was added to the compare-viewer button specifically — structurally
   unreachable: the compare viewer's own carousels are already scoped to one room/item at a time
   (`compareViewerPhotosForSide()`), so `compareViewer.leftPhotoId`/`rightPhotoId` can never be two
@@ -6513,7 +6618,7 @@ already resolves the matched partner via the fix in §40).
   a scrollable screen) genuinely could reach it before this build — that's why the check lives in the
   shared backend primitive, not a frontend-only guard on one caller.
 
-### 40.4 Verified
+### 41.4 Verified
 
 `php -l` clean on every changed file; `php artisan view:clear` clean (confirms the new Blade/Alpine
 markup compiles). New tests in `tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`:
@@ -6531,7 +6636,7 @@ routing the cancelled check through `chainTailFor($property)` (same as completed
 because `chainTailFor()`'s own query structurally EXCLUDES cancelled inspections from ever being resolved
 as "the tail" — the moment the inspection got cancelled, `chainTailFor()` just started resolving a
 DIFFERENT (non-cancelled) inspection as the tail instead, and the lock check found nothing wrong with
-that one. Fixed by checking cancelled directly off each of the two photos' own inspections instead (§40.2
+that one. Fixed by checking cancelled directly off each of the two photos' own inspections instead (§41.2
 above reflects the corrected version) — found by the test failing (409 expected, got 200), not assumed.
 
 **Unrelated, pre-existing, confirmed not caused by this build** — 3 failures found running the full test
@@ -6550,17 +6655,16 @@ file, none of them touching photo-matching:
   against the clean QA1 baseline — fails identically, same assertion, same line. Not investigated further
   (out of scope for this build), flagged to the conductor.
 
-**A pre-existing, unrelated finding, flagged not fixed**: `app/Models/
+**A pre-existing spec-numbering collision, unrelated, flagged not fixed**: `app/Models/
 RentalInspectionSetting.php:396` carries its own `/** §41 — read-time-default resolver... */` comment,
 from commit `2fd77ff40` (2026-09-28, signed-document distribution — a different feature entirely). That
-commit's own §41 was never written as a real `## 41.` section in any branch's spec file (checked: no
-`## 41.` section existed anywhere before this build) — an orphaned code-comment reference to a spec
-section number that was reserved but never actually landed. (On QA1, where this section landed first,
-its own next-sequential number genuinely was §41, so the two briefly collided there by number; on this
-branch the same content is §40 instead, per this branch's own numbering — the collision was purely a
-QA1-numbering artifact, not something to chase here.) Not renumbered — renumbering would touch a
-different module's code comments, outside this task's scope. Flagged to the conductor/cc3 for whoever
-owns that module next.
+commit's own §41 was never written as a real `## 41.` section in this spec file (checked: `## 41.` did
+not exist anywhere in the file before this build added it) — an orphaned code-comment reference to a
+spec section number that was reserved but never actually landed. This build's own §41 (the numbering
+this file's own last-section-before-this-build, §40, made the next sequential number) is a genuine
+content collision with that comment's REFERENCE, though not with any actual spec text (there was none to
+collide with). Not renumbered here — renumbering would touch a different module's code comments, outside
+this task's scope. Flagged to the conductor/cc3 for whoever owns that module next.
 
 **Real-browser proof, headless Chromium via Puppeteer** (this repo's own established tool, not a new
 Playwright/xvfb harness — same reasoning as §40's own verification): check #28 in
@@ -6583,3 +6687,1300 @@ unrelated system behaviour, not a bug in this build. Fixed by having the fixture
 the Ceiling item genuinely unpaired on first view) get a clean starting state; check #26 (the explicit
 Auto-pair button) is unaffected either way, per that setting's own docblock ("always runs on request
 regardless of this setting").
+
+---
+
+## AT-439 (Rentals rebuild 1/7, "Foundation") — Own/Branch/All scope, 2026-10-04
+
+Built strictly from `/tmp/rentals-stage1-investigation.md` item C. Same finding and same fix as
+`leases.md` §12 and `rental-work-orders.md`'s own AT-439 addendum (one shared trait, BUILD_STANDARD
+§6 — "fix the class, not the instance"): `RentalInspectionController::index()` already called
+`->visibleTo($user, $request->get('scope'))`, with no UI control and no per-record guard on any
+other action. Fixed:
+
+- **UI**: the "Showing: Own | Branch | All" pill control now renders on
+  `corex/rental-inspections/index.blade.php`.
+- **Per-record guard**: `App\Http\Controllers\Concerns\AuthorizesRentalRecordScope::
+  guardRentalRecordScope()` now runs at the top of every `RentalInspectionController` action that
+  receives a bound `$rentalInspection` — `show`, `form`, `report`, `printForSignature`, `next`,
+  `generatePublicLink`, `revokePublicLink`, `cancel`, `destroy`, `restore` (10 routes). "Branch"
+  resolves via `$rentalInspection->property?->branch_id`, matching `RentalInspection::
+  scopeVisibleTo()`'s own `whereHas('property', ...)` check exactly.
+
+**Follow-on, same day: the four sibling controllers, brought into scope.** Originally reported
+rather than fixed (they receive a bound `RentalInspection`, or a record reached through one, with
+the identical gap), then explicitly pulled into AT-439 Part 1 as the same bug class. Same trait,
+same `property?->branch_id` branch resolution, applied to every non-public action:
+
+- **`RentalInspectionRecordingController`** (tab recording) — 20 routes: `next`, `updateDetails`,
+  `storeObservation`, `markRoomNa`, `markRoomGood`, `markAllGood`, `storeRoomNote`,
+  `updateOverallNotes`, `storePhoto`, `storePhotos`, `tagPhoto`, `tagPhotosBulk`, `untagPhoto`,
+  `archivePhoto`, `resolveDiscrepancy`, `storeSignature`, `supersedeWetInkSignature`,
+  `startAwaitingSignature`, `complete`, `resendReport`.
+- **`RentalInspectionComparisonController`** (deposit comparison) — 2 routes: `show`,
+  `recordFinding`.
+- **`RentalInspectionScanController`** (OMR scan review/download) — 5 routes: `store`, `review`,
+  `apply`, `download`, `destroy`.
+- **`RentalInspectionPhotoNoteController`** — 4 routes: `store`, `update`, `archive`, `restore`.
+
+**Deliberately left unguarded, and why**: this controller's own Property-scoped-only actions
+(`tabData`, `updateScreenPreference`, `start`, `storeItem`, `assignType`, `retireItem`,
+`restoreItem`, `renameItem`, `reorderItems`, `applyDefaultRoomOrder`, `reorderRooms`,
+`seedFromAdvertising`, `storePhotoMatch`, `destroyPhotoMatch`, `autoPairPhotoMatches`) never
+receive a bound `RentalInspection` — they take a `Property` — so they are a different concern,
+outside this specific trait's remit, and were left as-is. More importantly:
+**`App\Http\Controllers\RentalInspectionPublicController::show()` — the tenant/landlord-facing
+public inspection report link — was NOT touched and must never be.** It is a top-level (not
+`CoreX`) controller reached by someone with no CoreX session at all, looked up purely by an
+expiring public token (`RentalInspection::findByPublicToken()`, `withoutGlobalScopes()`, no
+route-model-binding at all) — `auth()->user()` is null for every request this controller serves,
+so running it through `guardRentalRecordScope()` would 403 every legitimate public viewer, not
+just an attacker. Confirmed this is the ONLY public-facing inspection route: there is no separate
+public signing-capture endpoint in this codebase — every signature/disposition
+(`storeSignature()`/`supersedeWetInkSignature()`) is captured by an AUTHENTICATED agent asserting
+it on a party's behalf (per those methods' own docblocks), never submitted directly by the tenant/
+landlord through a public link.
+
+### Files changed (AT-439)
+
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` — scope control + 10 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — 20 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionComparisonController.php` — 2 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionScanController.php` — 5 guarded routes
+- `app/Http/Controllers/CoreX/RentalInspectionPhotoNoteController.php` — 4 guarded routes
+- `resources/views/corex/rental-inspections/index.blade.php` — "Showing:" control
+
+---
+
+## 42. Inspection Follow-up — fault reports / work orders / job cards straight from a marked item (AT-447, 2026-10-05)
+
+**Cross-reference only — the full design lives in `.ai/specs/rental-work-orders.md` §15**, since the
+feature creates `rental_fault_reports`/`rental_work_orders`/`rental_job_cards` rows (that spec's own
+tables), not a new inspection-side data model. What changed on THIS spec's own screen:
+`resources/views/corex/rental-inspections/show.blade.php` gained a "Follow-up" block, rendered after
+the Observations block, listing every observation whose `condition` is not the agency's configured
+baseline (`RentalInspectionSetting::baselineConditionKeyFor()`) with a tick box and, per row, a create
+action (or the already-linked record, idempotent) for each of the three target types.
+`RentalInspectionController::show()` now also loads `observations.item.room` (previously just
+`observations.item`) so the Follow-up block's own title format (`"<Room> — <Item>: <Condition>"`)
+needs no extra per-row query, and a new `POST .../follow-up/fault-reports` route/action
+(`storeFollowUpFaultReports()`) handles the direct fault-report creation path. See
+`rental-work-orders.md` §15 for the lease/property resolution rule, the combine/batch behaviour, the
+photo-linking mechanism, and the back-links this same build added to the fault report/work order/job
+card show pages.
+
+---
+
+## 43. Scheduling, notifications, and calendar sync (2026-10-05) — approved, Section A of Johan's build; Section B (Core Matches quick-share) NOT built here
+
+Johan's approval, verbatim in substance: build Section A (inspection scheduling) now, per the
+investigation report at `/tmp/inspection-scheduling-and-corematch-share-2026-10-05.md`. Section B
+(a quick-share button on Core Matches) stayed explicitly NOT approved and is untouched by this build.
+
+That investigation found: `scheduled_for` existed as a column but had no write path anywhere in the
+app ("scheduling" meant "start now"); no notification existed at all, at any point, to any party;
+and no calendar integration existed. This section closes all three gaps.
+
+### 43.1 Schedule — a real action, distinct from the existing immediate Start
+
+`scheduled_for` (unchanged, still a `date` column) gains four new columns on `rental_inspections`:
+`scheduled_time` (nullable `time`), `scheduled_duration_minutes` (nullable `unsignedSmallInteger`),
+`inspector_user_id` (nullable FK → `users`, `nullOnDelete` — the agent actually doing the inspection,
+may differ from whoever books it), `schedule_note` (nullable text).
+
+`RentalInspection::schedule(Property $property, string $type, User $by, array $attrs): self` — a new
+static method, sibling to `start()`, sharing its two guards verbatim (active lease required; not
+already under way for this type, via the existing `currentFor()`) rather than refactoring `start()`
+itself, which stays byte-for-byte unchanged and is still what every pre-existing caller (including the
+property tab's own AJAX flow and the Lease Hub's "Start in/out-inspection" links) uses. `inspector_user_id`
+defaults to `$by->id` when not given.
+
+One endpoint, two intents: `RentalInspectionController::store()` now branches on `$request->input('intent')`.
+No `intent` (or any value other than `'schedule'`) — including every pre-existing caller — keeps the
+ORIGINAL behaviour exactly: `start()`, redirect straight into the property's Inspections tab.
+`intent=schedule` validates `scheduled_for` (required) + `scheduled_time`/`scheduled_duration_minutes`/
+`inspector_user_id`/`schedule_note` (all optional) and calls `schedule()` instead, redirecting to the
+inspection's own (read-only) show page — nothing has been recorded yet.
+
+The create form (`resources/views/corex/rental-inspections/create.blade.php`) is the SAME form for
+both — two submit buttons (`name="intent" value="start_now"` / `value="schedule"`), no JS needed. This
+is also the Lease Hub's own "Start in/out-inspection" next-step link's destination
+(`LeaseHubService::nextStep()`, untouched — `lease_id`/`type` prefilled via the existing query params),
+so the Lease Hub gets scheduling for free: **"a Schedule action on the inspections screen AND on the
+lease"** is satisfied by one shared form, not two builds.
+
+"Start" on a scheduled inspection: both the list screen's row and the inspection's own show page gained
+a "Start"/"Start recording" link to the exact same property-tab URL `store()`'s immediate path already
+redirects to (`?tab=inspections`) — shown whenever `scheduled_for` is set and the inspection is still
+recordable. The tab itself needed no change: it already resolves the property's current open
+inspection via `RentalInspection::currentFor()`, which a scheduled (status=`draft`) inspection already
+satisfies.
+
+**Reschedule** — `RentalInspection::reschedule(array $new, User $by, ?string $reason = null):
+RentalInspectionReschedule`. Guarded by the same `assertRecordable()` as `cancel()`/`markCompleted()` —
+a completed/cancelled/archived inspection can never be rescheduled. Writes one immutable history row
+FIRST (via `RentalInspectionReschedule::record()`, mirroring `ContactMatchReassignment`'s own
+append-only pattern — `SoftDeletes` from the first migration per the standing no-hard-deletes rule),
+then updates the inspection, then re-syncs its calendar event and re-notifies the parties. Route:
+`POST /corex/rental-inspections/{id}/reschedule`, gated on the existing `rental_inspections.create`
+permission (no new permission — reusing the existing create-gate, same as every other write action on
+this screen). Reason is optional (unlike cancel, which already required one before this build) — a
+reschedule is a normal operational adjustment, not something needing a justification on record the way
+cancelling is.
+
+New table `rental_inspection_reschedules`: `agency_id`, `rental_inspection_id`, `old_scheduled_for`/
+`old_scheduled_time`/`old_inspector_user_id`, `new_scheduled_for`/`new_scheduled_time`/
+`new_inspector_user_id`, `reason` (nullable), `changed_by_user_id`.
+
+**Cancel** — already existed (`cancel(User $by, string $reason)`, reason already required, soft via
+`status=cancelled` + the standard `deleted_at` floor for archiving separately) — unchanged except for
+two new one-line calls appended at the end: calendar sync (dismisses the event) and
+`RentalInspectionNotificationService::notifyCancelled()`.
+
+**Minimum notice** — `RentalInspectionSetting::minimumNoticeDaysFor($agencyId)` (default 1). Checked in
+the controller only, after a successful schedule/reschedule: **warns, never blocks** — a flash
+`warning` banner on the show page, the booking/reschedule itself always succeeds. Per Johan's own
+instruction, not enforced in the model.
+
+**List screen** (§5, extended): sortable/filterable by `inspector_id` (new query param + column +
+`leftJoin` sort, mirroring the existing `property`-sort join pattern exactly), search now also matches
+the inspector's name. The pre-existing "Scheduled (upcoming)" tile (`scheduled_for >= now()`) now
+actually populates, since `scheduled_for` finally has a write path.
+
+**Own/branch/agency scoping** — `RentalInspection::scopeVisibleTo()`'s `own` branch widened (never
+narrowed) to `created_by_user_id OR inspector_user_id IN $user->dataIdentityIds()` — an inspector
+booked by someone else (e.g. a branch manager scheduling on an agent's behalf) sees it on their own
+board too. `branch`/`agency` scopes are unaffected (already see everything in scope, inspector or
+not).
+
+### 43.2 Notify — tenant(s), landlord, inspector; mail is real, WhatsApp is honestly not
+
+`App\Services\Rentals\RentalInspectionNotificationService` — one service, four entry points
+(`notifyScheduled()`, `notifyRescheduled()`, `notifyCancelled()`, `notifyReminder()`), called from the
+model (`schedule()`/`reschedule()`/`cancel()`) and the reminder command (below).
+
+**Recipients**, each gated by its own agency setting (all default ON except WhatsApp):
+- **Tenant(s)** / **Landlord** — resolved via two new methods on
+  `RentalInspectionNotificationService` (`tenantContacts()`/`landlordContacts()`, also reused by the
+  calendar sync service for the event description, via DI, so the two can never disagree on who
+  counts) — **same semantics as the existing `Lease::tenantContacts()`/`landlordContacts()`**
+  (landlord resolution never falls back to "the only contact on file" — **Johan's explicit
+  instruction**), but NOT literal calls to those methods. Reason, found running the real test suite,
+  not assumed: `Contact` carries its own `ContactScope` (role-based `own`/`branch`/`all` READ
+  visibility keyed to the CURRENTLY ACTING user's own Contacts permission — `core-matches.md`'s own
+  "ContactScope trap" section documents the identical collision on a different screen). A booking
+  agent whose personal Contacts scope is `own`, and who didn't personally create the landlord's (or
+  even the tenant's) Contact row, got ZERO recipients back from the existing relation-based methods
+  in this build's own test run — not a missing landlord, a missing NOTIFICATION, for a system action
+  that must never depend on who happened to click the button. Fixed the same way `core-matches.md`'s
+  own "actual fix" fixed the identical trap: resolve the matching contact IDs via a fresh top-level
+  query on the plain pivot table (`lease_tenants` / `contact_property`, neither of which carries
+  `ContactScope`), then ONE fresh top-level `Contact::query()->withoutGlobalScope(ContactScope::class)`
+  — never inside a relation closure, which that investigation also proved does not reliably reach the
+  compiled SQL. `AgencyScope` is untouched either way — still a hard cross-agency boundary. Verified
+  by test: a lease with a tenant and genuinely no landlord tag logs zero landlord-role rows, never
+  substitutes the tenant; the main notify-all-three test (run as a plain `agent`-role user who did
+  NOT create the tenant/landlord Contact rows) correctly reaches all three parties.
+- **Inspector** — `RentalInspection::inspector()` (the new relation), when set.
+
+**Channels**:
+- **Mail** — a REAL, fully automated send. One new Mailable
+  (`App\Mail\Rentals\RentalInspectionNotificationMail`, extends `App\Mail\Signatures\BaseSignatureMail`
+  for the same per-agent-mailbox send infrastructure `SignedDocumentDistributionMail` already reuses),
+  sent via `SignedDocumentDistributionService::sendGenericMail()` — the existing path already built for
+  exactly this (a Mailable outside the `SignedDocumentDistributable` contract), carrying the SAME
+  non-production test-mail-redirect safety rail as every other outbound CoreX mail. No third outbound
+  mail mechanism invented.
+- **WhatsApp** — **not a real automated send, and this is stated plainly rather than faked.**
+  Investigated before building: there is no server-side WhatsApp sending API anywhere in CoreX today —
+  every existing "WhatsApp" feature (Core Matches, the Outreach Queue) opens `wa.me` in a human's own
+  browser. The Outreach Queue specifically was considered and rejected as the mechanism here: it gates
+  on marketing consent (wrong for an operational notice a tenant cannot opt out of) and has no path at
+  all for notifying a `User` (the inspector is not a `Contact`). So turning this channel on logs a
+  `queued` row carrying the composed message on the inspection's own history, for an agent to act on by
+  hand — it does not pretend to send anything on its own. Default OFF for exactly this reason.
+
+**Templates** — subject line only, via the existing `PerformanceSetting` per-agency key/value store
+(same mechanism Core Matches' own WhatsApp message template already uses,
+`matches_wa_message`/`PerformanceSetting::get()`): key `rental_inspection_notification_subject`,
+placeholders `{event}`/`{type}`/`{address}`. The email body is a fixed Blade template
+(`resources/views/emails/rentals/inspection-notification.blade.php`) — no body templating mechanism
+existed to reuse, and building a new one was out of scope for this build's time budget; flagged here,
+not silently decided, if Johan wants the body editable too.
+
+**Logging** — every attempt, every channel, every recipient, logged to a new append-only table
+`rental_inspection_notifications` (`event`, `party_role`, `recipient_contact_id`/`recipient_user_id`,
+`channel`, `recipient`, `status` — sent/failed/queued/skipped, `error`). A recipient with no
+email/phone on file logs `skipped` with a reason, never silently drops. Shown on the inspection's own
+show page (reschedule history + notification log, both read-only lists).
+
+**Settings** — seven new nullable columns on the existing `rental_inspection_settings` table (same
+"one more Core-Matches-style knob on the table that already owns the siblings" reasoning as every
+other setting on this model): `notify_tenant_enabled`, `notify_landlord_enabled`,
+`notify_inspector_enabled`, `notify_via_mail_enabled`, `notify_via_whatsapp_enabled` (all default ON
+except the last), `minimum_notice_days` (default 1), `reminder_days_before` (default 1, 0 = off). One
+new saver, `RentalInspectionSettingsController::updateScheduleNotifications()` — has()/filled()-guarded
+per field exactly like `update()`'s own established pattern on this controller, never a hard
+"submitted" marker, since this saver is also registered on the Setup Wizard step and must never
+force-default a field the wizard's own render doesn't post.
+
+**Setup Wizard** — all seven added to `config/agency-onboarding-copy.php`'s existing Rentals step
+(same step as `fault_report_window_days`/`auto_send_report_enabled`), per CLAUDE.md #10a — every
+toggle/number here fits the wizard's existing generic control types, so none of them needed the
+"editable here, NOT in the wizard" exception the condition-states/refusal-presets repeaters already
+use.
+
+### 43.3 Calendar — one event per scheduled inspection, kept in sync
+
+`App\Services\Rentals\RentalInspectionCalendarSyncService::syncForInspection(RentalInspection
+$inspection): ?CalendarEvent` — idempotent, `CalendarEvent::updateOrCreate(['source_type' =>
+RentalInspection::class, 'source_id' => $inspection->id], [...])`, the same keying
+`App\Services\CommandCenter\AutoEventService` already uses elsewhere in CoreX for exactly this
+"never duplicate, always update" reason.
+
+Only a genuinely SCHEDULED inspection gets an event — an immediate "Start Now" has no advance booking
+to put on a calendar, so `scheduled_for === null` is a deliberate no-op (verified by test). Fields:
+`user_id` = the inspector (falls back to the creator if somehow unset), `event_type='lease'`,
+`category='rental_inspection'`, `title` = `"<Type>-inspection — <property address>"`, `description` =
+every tenant/landlord contact with their phone number where on file, the schedule note if any, and a
+link back to the inspection (`route('corex.rental-inspections.show', $inspection)`), `event_date`/
+`end_date` from the new `scheduledForDateTime()`/`scheduledEndDateTime()` helpers (date + time +
+duration combined), `all_day` = true only when no time was given.
+
+**Status lifecycle**, mapped onto `CalendarEvent`'s own existing vocabulary (pending/completed/
+dismissed — no new status invented): `pending` while open, `completed` when `markCompleted()` runs
+(one new line appended there), `dismissed` (with `dismissal_reason_code='inspection_cancelled'` +
+`dismissal_reason_notes` = the cancel reason) when `cancel()` runs (one new line appended there).
+Reschedule calls the same sync method again — same `source_type`/`source_id` key, so the existing row
+is updated in place, never duplicated (verified by test).
+
+### 43.4 Portals — already true, not a gap
+
+The tenant and landlord portals (`RentalPortalScopeService::tenantInspections()`/
+`landlordInspections()`) already list every inspection for their lease/properties regardless of
+status, so a scheduled inspection's date/time is already visible there the moment it's booked — no
+change needed. Confirmed during the original investigation, not assumed here.
+
+### 43.5 Files
+
+- `database/migrations/2026_10_05_120000_add_scheduling_fields_to_rental_inspections_table.php`
+- `database/migrations/2026_10_05_120100_create_rental_inspection_reschedules_table.php`
+- `database/migrations/2026_10_05_120200_create_rental_inspection_notifications_table.php`
+- `database/migrations/2026_10_05_120300_add_schedule_notification_settings_to_rental_inspection_settings_table.php`
+- `app/Models/RentalInspection.php` — `schedule()`/`reschedule()`/`scheduledForDateTime()`/
+  `scheduledEndDateTime()`/`inspector()`/`reschedules()`/`notifications()`; `cancel()`/`markCompleted()`
+  gained the calendar-sync (+ notify, for cancel) call; `scopeVisibleTo()`'s `own` branch widened.
+- `app/Models/RentalInspectionReschedule.php`, `app/Models/RentalInspectionNotification.php` — new.
+- `app/Models/RentalInspectionSetting.php` — seven new constants + accessors.
+- `app/Services/Rentals/RentalInspectionCalendarSyncService.php`,
+  `app/Services/Rentals/RentalInspectionNotificationService.php` — new.
+- `app/Mail/Rentals/RentalInspectionNotificationMail.php` + `resources/views/emails/rentals/inspection-notification.blade.php` — new.
+- `app/Console/Commands/SendRentalInspectionReminders.php` — new; registered in `routes/console.php`
+  (`dailyAt('07:15')`).
+- `app/Http/Controllers/CoreX/RentalInspectionController.php` — `create()`/`store()` extended,
+  `storeScheduled()`/`reschedule()` new, `index()`/`filteredInspectionsQuery()` extended for inspector
+  sort/filter/search, `show()` extended for the new relations.
+- `app/Http/Controllers/CoreX/RentalInspectionSettingsController.php` — `edit()` extended,
+  `updateScheduleNotifications()` new.
+- `routes/web.php` — one new route (`.reschedule`), one new settings route
+  (`.schedule-notifications`). No new permission — reuses `rental_inspections.create`/`.view`.
+- `resources/views/corex/rental-inspections/create.blade.php` — the shared Start-now/Schedule form.
+- `resources/views/corex/rental-inspections/index.blade.php` — inspector column/filter/sort, time
+  shown alongside date, a "Start" action for a not-yet-recorded scheduled inspection.
+- `resources/views/corex/rental-inspections/show.blade.php` — scheduling block (date/time/duration/
+  inspector/note), Reschedule toggle + form, reschedule history, notification log, a warning-flash
+  banner.
+- `resources/views/corex/settings/rental-inspections.blade.php` — the new "Schedule notifications"
+  panel.
+- `config/agency-onboarding-copy.php` — seven new wizard controls + the new saver registered on the
+  existing Rentals step.
+- `tests/Feature/RentalInspections/RentalInspectionSchedulingTest.php` — schedule/reschedule/cancel,
+  notification recipients per setting (mail faked; tenant never substituted as landlord), the reminder
+  command (fires once on the configured day, never twice same day, off at 0), calendar sync (create/
+  update-not-duplicate/dismiss/never-for-an-immediate-start), own-scope-by-inspector, cross-agency
+  isolation.
+- `database/schema/mysql-schema.sql` — re-dumped, `DEFINER` clauses stripped.
+
+### 43.6 Not built here — flagged, not silently decided
+
+- **Core Matches quick-share** (Johan's Section B) — explicitly NOT approved for this build; nothing
+  in `.ai/specs/core-matches.md` touched.
+- **WhatsApp as a real automated send** — see §43.2. Would need an actual WhatsApp Business API
+  integration (none exists in CoreX today) before this channel could do more than log a queued
+  message.
+- **Email body as an agency-editable template** — only the subject line is templated
+  (`PerformanceSetting`); the body is a fixed Blade view. A body-templating mechanism was out of scope
+  for this build's time budget.
+- **Export/print-list columns** — `RentalInspectionController::export()`/`printList()` were not
+  extended to show the inspector column; only the on-screen list was.
+
+## 44. Chain tail survives the lease ending; predecessor inference is same-second-safe (2026-10-06)
+
+Two real defects behind six failing tests in `RentalInspectionRecordingControllerTest`, found by the QA1
+overnight pass (2026-10-05) and finished 2026-10-06. The other four failures were stale/mis-seeded tests, not
+app bugs (below).
+
+**1. `RentalInspection::chainTailFor()` went blind the moment an Out-inspection completed.**
+`RentalInspectionCompletionObserver` (rental-renewals.md §15, GATE 2 row 6) correctly flips the lease to
+`expired` when an Out completes. `chainTailFor()` only looked for the property's `active` lease, so at exactly
+that moment it returned null — the Inspections tab lost its current/predecessor pair and the §41 "completed —
+photos can no longer be linked or unlinked" lock (409) stopped firing, i.e. the one moment the chain matters
+most (a deposit dispute). Now: the active lease if one exists (unchanged), otherwise the property's most recent
+lease that has a non-cancelled inspection. It never looks past an ACTIVE lease, so a new tenancy with no
+inspection yet still reads "no chain" rather than showing the previous tenant's finished one.
+
+**2. `RentalInspection::inferredPredecessorFor()` found no predecessor for two inspections created in the same
+second.** It required `created_at <` strictly; `created_at` has one-second resolution, so an In and an Out made
+in the same second (batch/backfill/scheduling) tied and the Out showed "first in chain" with no photo matches.
+`id` is now the tiebreaker (it already was in the `orderBy`).
+
+**Tests that were stale, not the app** (updated, not weakened):
+- Two Bedroom checklist assertions expected the old generic 5-item fallback. Bedroom has had its own
+  transcribed-from-the-paper-form checklist since 2026-09-21 (`RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE`);
+  the tests now assert against that constant.
+- Two cross-agent tests (two agents on one inspection) need `rental_inspections.view` at `branch` scope to reach the
+  controller at all, since the 2026-10-04 Own/Branch/All ruling (AT-439, above). They now seed that, plus `.create`
+  (seeding `.view` alone switches the role to strictly-enrolled and 403s the recording routes).
+
+Files: `app/Models/RentalInspection.php` (`chainTailFor`, `inferredPredecessorFor`),
+`tests/Feature/RentalInspections/RentalInspectionRecordingControllerTest.php`.
+
+---
+
+## 44a. Public report link stops working when the inspection is archived or cancelled (2026-10-06, cc1 — BUILT, security fix)
+
+**Found while measuring the module against Johan's standard** (see the §45 gap report): an archived or
+cancelled inspection's public report link (`/rental-inspection-report/{token}` — the QR/link on the PDF and in
+the completion email) kept serving the full report (photos, signatures, tenant names, property) for the rest of
+the link's 90-day expiry. Cause: `RentalInspection::findByPublicToken()` runs `withoutGlobalScopes()` (an
+unauthenticated caller has no agency context), which also strips `SoftDeletes`, and it never looked at `status`.
+`destroy()` and `cancel()` never revoked the token.
+
+**The rule (Johan's ruling, 6 Oct):** the link must stop working the moment the inspection is **archived**
+(soft-deleted) or **cancelled**, and work again if it is **restored**; the standard "this link isn't available"
+page, never a stack trace; signed/expiry rules otherwise unchanged.
+
+**Fix — one place, deliberately not a token wipe.** `findByPublicToken()` now also requires
+`deleted_at IS NULL` and `status != 'cancelled'`. The token is NOT cleared on archive/cancel, so restoring an
+archived inspection revives the SAME link (and the QR already printed on its PDF) — clearing it would have
+broken that. Expiry, revoke (clears the token) and regenerate (replaces it) behave exactly as before; an
+expired, revoked or replaced token stays dead after a restore. The unavailable page is the existing uniform one
+(`rental-inspections.public.unavailable`): an archived/cancelled link looks identical to a wrong or expired one,
+so a stranger cannot tell which. Cancelled is terminal today (no un-cancel path exists), so "restored" applies
+to archived; the rule is status-based, so it would apply to any future un-cancel.
+
+`RentalInspection::publicLinkIsAvailable()` (new) = token unexpired AND not archived AND not cancelled, used
+only for what the agent's inspection page DISPLAYS: a cancelled inspection no longer shows "Live until …" but
+"The link is switched off while this inspection is cancelled." `publicLinkIsValid()` is deliberately left
+token-only — `SignedDocumentDistributionService::ensurePublicLink()` uses it to decide whether to generate a
+token and must never overwrite one (breaking the printed QR) merely because an inspection is archived.
+
+**Class sweep — every public/tokenised route that can expose inspection data:**
+
+| Route | Lookup | Status |
+|---|---|---|
+| `GET /rental-inspection-report/{token}` (`rental-inspections.public.show`) | `findByPublicToken()` | **Fixed** (via the shared lookup) |
+| `GET /rental-inspection-report/{token}/signatures/{signature}/{kind}` (`rental-inspections.public.signature-file`) — the only file route under the link (signature image / wet-ink scan) | `findByPublicToken()` | **Fixed** (same lookup; 404 when archived/cancelled) |
+| Contractor secure links, crew job links, crew page (`rentals.secure-link.*`, `rentals.crew-job.*`, `rentals.crew-page.*`) | own tokens | Checked: expose no inspection data (`inspection` appears only in a docblock) — nothing to change |
+| Authenticated routes (`corex.rental-inspections.*`, signature file, PDFs, scans) | route binding + guard | Not public; archived inspections already 404 through binding |
+| `GET /rental-inventory-report/{token}` (+ buyer-acceptance POST) | `RentalInventory::findByPublicToken()` | **Same defect, NOT changed (different module — reported, awaiting Johan's go)** |
+
+**Reported, not changed:**
+1. **Inventory public link has the identical gap** — `RentalInventory::findByPublicToken()` (`app/Models/RentalInventory.php:641-647`, `withoutGlobalScopes()`, no `deleted_at`/status check) and `RentalInventoryPublicController::show()`/`storeBuyerAcceptance()`; an archived inventory's report (and the unauthenticated buyer-acceptance write) stays live. The identical two-line change fixes it; it is another module, so it waits for an explicit go.
+2. **Photos on the public page are static public-disk URLs**, not served under the token (`rental-inspections/public/show.blade.php:177-181`, `storage_path`). The page stops showing them, but a photo URL someone already holds keeps working until the file is removed — they are unguessable capability URLs shared with the agent's own screens. Making them revocable needs a token-gated photo route (every photo streamed through PHP) — a design call for Johan, not done here.
+3. The unavailable page returns HTTP 200 (`RentalInspectionPublicController.php:35-44`); a dead link would be more correct as 404/410. Unchanged (behaviour change on every dead-link case).
+4. The property Inspections tab builds a share URL from the chain tail's token in JS (`properties/show.blade.php:7507-7509`); not changed.
+5. `RentalInspectionController::printForSignature()` still mints a public link on a GET for a cancelled inspection (`:642-644`, no cancelled check); the link is now dead on arrival, but the state change on GET remains.
+
+**Tests** (`tests/Feature/RentalInspections/RentalInspectionPublicLinkLifecycleTest.php`, 15 tests; the existing
+`RentalInspectionPublicLinkTest.php` still passes, 8): archived page · archived signature file · cancelled page ·
+cancelled signature file · restored page and file (same token) · archive → restore → archive again · archive and
+restore through the agent's own HTTP routes · token not cleared by archiving · expired/revoked/replaced tokens
+stay dead after a restore · archived link identical to a never-issued token (same status, same text) · agency B's
+live link unaffected by agency A's archive · agent screen no longer calls a cancelled link live. With the model fix
+reverted, 12 of the 15 fail (the 3 that still pass guard rules that did not change); with it, 23/23 pass.
+
+Files: `app/Models/RentalInspection.php` (`findByPublicToken`, `publicLinkIsAvailable`),
+`resources/views/corex/rental-inspections/show.blade.php` (link status text),
+`tests/Feature/RentalInspections/RentalInspectionPublicLinkLifecycleTest.php`. No migration, no setting, no
+permission, no route change.
+
+---
+
+## 45. Johan's inspection standard, measured — gap table, specs for the missing parts, build plan (2026-10-06, cc1, INVESTIGATE + SPEC ONLY — NO CODE)
+
+**Status: spec only. Nothing in this section is built** (the one security fix that came out of it, §44a, is). Measured against `origin/QA1` `2fac97490`; **amended 6 Oct 15:11 with Johan's rulings (§45.0).**
+Johan's ruling of 6 Oct 14:05: measure the rental inspections module against the seven-point standard
+below and build the gaps. This section is the measurement, the spec for every missing part, the open
+questions only Johan can answer, and the build plan. Evidence is file:line against that commit.
+
+### 45.0 Johan's rulings of 6 Oct 2026 15:11 — applied throughout this section
+
+Numbering below is the numbering of the question list printed to Johan on 6 Oct (it is also the numbering
+of §45.9). Status of each: **RULED** (built to it), **PARKED** (belongs to the finance build — not in the
+current plan), **OPEN** (not yet ruled).
+
+| # | Subject | Status | What was ruled | Effect on the plan |
+|---|---|---|---|---|
+| 1–4 | Deposit, deductions list, who finalises, amount charged | **PARKED** | They belong to the finance build. | **Build I-8 is PARKED until the finance side is built** and is removed from the current plan (§45.7b kept as a parked design, marked). The three older "no deductions" rulings stay in force until then. |
+| 5 | Photos required | **RULED** | **No enforcement.** Photos are uploaded per inspection and can be tagged to a room or to a section of a room (e.g. windows) — that is sufficient. | I-1 loses the "no photo" guard, the room-photo guard and their two settings. Tagging verified in code — see below. |
+| 6 | Interim inspections | **RULED** | **No automatic scheduling.** The agency loads its own interim inspection dates when it wants them (not every agency does interims); CoreX reminds from the loaded dates. Revisit when more agencies are on. | I-5 re-cut: no interval setting and no computed interim due; a "loaded dates" list with reminders instead (§45.7). |
+| 7 | Signing | **RULED** | **All parties sign every inspection — agent, tenant AND landlord — incoming, interim and outgoing alike.** It is part of the legal documentation. | I-4: interim is signed by all three, exactly as In and Out. |
+| 9 | Default checklist | **RULED (a)** | Approve the floor-to-ceiling default list **and** add the "Add missing standard items" button for existing properties. | I-2 unblocked for both. |
+| 8, 10–15 | PDF photo times · inventory · representative · non-attendee copy · portal · In-while-signing · remote signing | **OPEN** | Not yet ruled. | Kept as open questions (§45.9); each build says exactly which part waits. |
+
+**Photo tagging — confirmed in code (6 Oct): tagging to a ROOM and to a SECTION of a room both exist today; no new tagging build is needed.**
+A photo carries `property_room_id` (the room) and, through its observation, `rental_inspection_item_id` (the room's item/facet —
+e.g. "Windows", "Ceiling"); `RentalInspectionPhoto::tagTo()` sets both, `tagPhoto()` resolves the room from the item server-side
+(`RentalInspectionRecordingController.php:986-1015`), and all six moves (tray → room, tray → item, room → item, item → room, either → tray)
+are built (§22.1–§22.2). Tagging to an item that has no condition recorded yet works (§22.3c, §20.22). Anything finer than an item
+("the north window") is the photo's own note (§25). **One practical caveat, not a missing mechanism:** a room's "sections" are that room's
+checklist items, and some default lists have no Windows or Doors item (Bedroom, Kitchen and Bathroom — §19). An agent can add one
+(§21), and the ruled default-checklist build (I-2, Q9a) supplies them on new properties and, via "Add missing standard items", on existing ones.
+
+**Rules this section is written to (stated once, apply to every build below):**
+BUILD_STANDARD §1a–§1d (full CRUD incl. restore, list search/sort/filter/pagination/empty state,
+own/branch/agency scoping at the query layer, per screen — each build states them), §2–§3 (input space,
+prevent-or-absorb), CLAUDE.md #9 (multi-agency — every default neutral, every wording/threshold an agency
+setting), #10a (every new setting reaches the Setup Wizard in the same build, or is recorded as
+"Deliberately NOT in the wizard" by Johan's call), non-negotiable #1 (soft delete only). Observations and
+photos stay append-only (§3.3). Nothing here writes legal conclusions into product text: where wording
+touches rights under the Rental Housing Act the build records FACTS and the exact string is Johan's
+(§45.11).
+
+### 45.1 Gap table
+
+Legend: HAVE = works as the standard says · PARTLY = exists but misses part of the standard · MISSING.
+
+| # | Standard | Verdict | What exists (evidence) | What is missing |
+|---|---|---|---|---|
+| 1a | Room-by-room checklist, every building element "floor to ceiling" | **PARTLY** | Rooms = `property_rooms`, items = per-property `rental_inspection_items`, seeded once from the advert's Spaces/Features (`RentalInspectionFormSeeder.php:35-128`), plus hand-added rooms/items/meters (`RentalInspectionRecordingController.php:169-373`). | Default vocabulary is thin and uneven: 45 of 50 room types fall back to `Ceiling, Walls, Floors, Windows, Doors` (`RentalInspectionSetting.php:78`); only Kitchen/Bathroom/Bedroom/Garage/Yard have fuller lists (`:92-113`), and those omit windows, doors, floors, skirting, geyser, drains. Nothing forces every item to be graded before completion (`RentalInspection.php:484-540` checks discrepancies, required notes, signatures — not unrecorded items). |
+| 1b | …and every inventory item | **PARTLY** | Inventory is its own module (`rental_inventories`/`_lines`, free-text lines, own photos/dispositions/comparison), joined to inspections only by shared `property_rooms` (`rental-inventory.md` §4b). | Furniture/contents are not on the inspection checklist; inventory has no agency template (starter list) — every furnished let starts from a blank list or "copy from last". |
+| 1c | Agency-configurable room/item templates | **PARTLY** | Agency overrides item list per room type, walking order, condition vocabulary, feature allow-list at `/corex/settings/rental-inspections` (`RentalInspectionSettingsController.php:202-232`, `RentalInspectionSetting.php:506-516`). | Room TYPES are a hard-coded 50-item config list — an agency cannot add one ("Roof space", "DB board", "Pool house") (`config/property-spaces.php`; validated at `RecordingController.php:175-180`, `SettingsController.php:211-218`). Existing properties never pick up an improved template (seeded once, §19). Item lists/walking order are link-out only in the wizard (spec-ruled exemption §19). |
+| 2a | Every flaw has a written note | **HAVE** | Agency vocabulary flags which states need a note; 422 on save (`RecordingController.php:539-541`); completion blocked by default (`RentalInspection.php:269-317,500`; setting `require_notes_blocks_progression`). | — |
+| 2b | …and one or more photos | **PARTLY** | Multi-photo per item (≤10/request), room-level "general" photos, tray, immediate upload (`RecordingController.php:823-901`, §20.13, §20.22). | **No "no photo" guard anywhere** — and by Johan's ruling of 6 Oct (Q5) none is wanted: photos tagged to a room or a section of a room are sufficient. Nothing to build. |
+| 2c | Each photo time-stamped, capture time stored server-side, shown on the report | **MISSING** | Only `created_at` = server RECEIVED time (`RentalInspectionPhoto.php:63-65`); `tagged_at` is filing time. EXIF date is destroyed by `PropertyImageStorer.php:32-47` and never read. Spec §14.4/§14.5 say the app sends its captured time and the server trusts it — the code does not, and there is no mobile write API for inspections. | A `taken_at` column + source; client/EXIF/server priority; display on recording tile, compare viewer, public page, PDF. Today an offline 9am photo uploaded at 2pm reads 2pm. No view renders any photo time (`photo.created_at` has zero hits in views). |
+| 2d | General condition photos per room, on the report | **PARTLY** | Capture HAVE (room-tagged, no item). | Public report page loads only item photos (`RentalInspectionPublicController.php:60-61`); PDF has no photos by Johan's 23 Sep ruling, and no room/overall notes, no photo times. |
+| 3a | Incoming inspection before move-in | **PARTLY** | Type `in`; manual create/schedule; scheduled-inspection invitation + one reminder (`RentalInspection.php:797-874`, `SendRentalInspectionReminders.php`). Lease Hub / Command Centre show a "Start inspection" prompt (`LeaseHubService.php:108`, `RentalCommandCentreService.php:721-756`). | Nothing raises it from the lease; a human must notice the prompt. Needs an ACTIVE lease. |
+| 3b | Interim inspections on an agency interval (default 6 months), raised automatically, with reminders | **MISSING** | `ad_hoc` is the manual mid-tenancy check and is exempt from signing (`RentalInspection.php:452,502`). | No interim type; nothing creates inspections from a lease; `signing_deadline_at` and "due" are never acted on. **Ruled 6 Oct (Q6): interim inspections are NOT scheduled automatically — the agency loads its own interim dates and CoreX reminds from them (§45.7); no interval setting.** |
+| 3c | Outgoing inspection at lease end | **PARTLY** | Type `out`; hub prompt once notice is recorded (`LeaseHubService.php:104`); completed Out expires the lease (`RentalInspectionCompletionObserver`). | Nothing schedules/raises it from `move_out_date`/`end_date`; `CheckLeaseExpiry` only sends the agent a bell alert (`:146`). |
+| 4a | Signed by tenant and agent (e-sign or wet-ink upload) | **PARTLY** | In-person canvas signature for tenant/landlord, PIN signature for agent, wet-ink upload + "awaiting wet-ink", refusal with reasons, evidence-superseding (`RentalInspectionSignature.php:129-249`; §15, §17, §34, §39). Completion guard for in/out (`RentalInspection.php:503-534`). | Interim/ad-hoc checks are unsigned — **ruled 6 Oct (Q7): ALL parties (agent, tenant, landlord) sign EVERY inspection incl. interim; ad-hoc not covered, stays unsigned as today (flagged)**. No remote signing link for a party who cannot attend (§15.4 deliberately not built). `signing_deadline_at` is display-only. |
+| 4b | Copies to tenant, landlord, agency automatically on completion | **PARTLY** | "Complete" click files the signed PDF to the property and auto-emails by default (`RecordingController.php:1523-1616`; `auto_send_report_enabled` default ON; `SignedDocumentDistributionService`). | No agency recipient (the "agency copy" is a filed document + CC of the creating agent only). Recipients resolved through the acting agent's `ContactScope` + sole-contact fallback (`RentalInspection.php:1107-1127`, `Property.php:1289`) so a party can be dropped or a tenant mailed as landlord. All failures swallowed, delivery log has no reader (`RecordingController.php:1538-1545`). Sent from the creator, not the inspector. |
+| 5a | Attendance: who attended (tenant / landlord or representative / agent) | **MISSING** | Only signature dispositions. | No attendance record, arrival, capacity, or non-lease attendee (`RentalInspectionSignature.php:173-184` forces tenant = `LeaseTenant`, landlord = owner contact). |
+| 5b | Invitations sent, and when | **PARTLY** | Append-only per-recipient/per-channel log for scheduled/rescheduled/cancelled/reminder (`rental_inspection_notifications`; shown `show.blade.php:253-266`); reschedule history. | "Start now" inspections log nothing; off-system invitations (phone/WhatsApp by hand) cannot be recorded; WhatsApp is only "queued", never sent; log has no sender or content snapshot; invitation button is the generic `/portal` link. |
+| 5c | Recorded "did not attend" outcome | **PARTLY** | Only as refusal preset "Not present for the walkthrough", stored as `refused` and printed as "Refused to sign" (`show.blade.php:646-650`; `RentalInspectionSetting.php:28-33`). | Non-attendance and refusal are one stored fact. |
+| 6a | Side-by-side per room/item, both photo sets | **PARTLY** | Inspections tab shows predecessor vs current per item with photo strips + paired-photo viewer (`rental-inspection-recording.blade.php:1300-1318`, §20.15–§20.17, §40–§41). | The separate deposit-comparison page (out-inspection) shows text + a photo COUNT only, no photos (`deposit-comparison-page.blade.php:89,95`), and pairs against a different "baseline" than the tab (`RentalInspectionComparisonService.php:86-94` vs chain predecessor). |
+| 6b | Differences marked | **PARTLY** | Three unrelated marks: needs-attention (tail only), Follow-up ticks, deposit-comparison findings. | No per-row "changed since move-in" marker on the side-by-side screen; "improved" hard-codes `'good'` though the baseline is agency-configurable (`RentalInspectionComparisonService.php:213`). |
+| 6c | Deductions schedule built from marked items | **MISSING** | `rental_inspection_item_findings` (wear_and_tear / flagged + note, no amount) is the nearest thing. Deliberately stopped before money (`rental-inspection-form.md` §7.3). | Item, evidence, who bears it, amount, status. |
+| 6d | …linked to the deposit refund | **MISSING** | Only `leases.deposit_amount` (agreed amount). | No deposit-held, interest, deductions, refund. **PARKED 6 Oct — belongs to the finance build (§45.0, Q1–Q4); the three standing "no deposit ledger" rulings (`rental-work-orders.md` §5.1a, `leases.md` §3.3, `rental-inspection-form.md` §7.3) stay in force until then.** |
+| 6e | …and to a job card where repairs are needed | **PARTLY** | Follow-up raises fault report / work order / job card from a marked observation, photos linked (`rental-work-orders.md` §15; `RentalInspectionFollowUpService`). | Not driven by the comparison; nothing flows back to a deduction; Follow-up on an out-inspection lists defects that were already present at move-in (`:96-103`). `RentalJobCardService.php:685` hard-codes `paid_by=owner`, so an in-house repair can never be recorded as tenant-paid. |
+| 7a | Full CRUD, soft delete only | **PARTLY** | Create (immediate/scheduled/tab), show, header edit, reschedule, cancel, archive, restore (`RentalInspectionController.php`). | Completed, signed inspection can be archived by any agent (`:737-745`, no status guard); restore wipes `archived_by`; archive/cancel never revoke the public link (§45.8 H1). |
+| 7b | List: search/sort/filter/pagination/empty state | **HAVE** (2 defects) | Search address/tenant/creator/inspector; sort; status/type/date/inspector/discrepancy filters; 10–100 paging; 3 empty states; tiles, print, CSV/XLSX (`RentalInspectionController.php:206-352`). | Lease Hub's `?lease_id=` link is ignored (`leases/show.blade.php:500`); immediately-started inspections have NULL `scheduled_for`, sort last and can never match the date filter. |
+| 7c | Own/branch/agency scoping at query layer | **PARTLY** | `{rentalInspection}` routes: binding + guard on ~40 actions; PDFs/scans/signatures on the private disk. | Property-level tab/recording endpoints check agency only (`RecordingController.php:55,90,1108`); create picker/`store` unscoped and `inspector_user_id` accepts another agency's user (`RentalInspectionController.php:50,105,133,171`); own-scope inspector sees the row then gets 403 (`RentalInspection.php:431-433` vs `AuthorizesRentalRecordScope.php:57`). |
+| 7d | Navigation | **HAVE** | Sidebar, settings, property tab, Lease Hub, tenancy log. | — |
+| 7e | Audit trail | **PARTLY** | Per-field attribution, immutable observations, reschedule rows, notification log. | No audit log: header edits, restore, public link issue/revoke, most status changes unrecorded. |
+| 7f | Tenant/landlord portal visibility | **PARTLY** | API list (id/type/status/completed_at) (`ClientTenantRentalsController.php:92-107`, `ClientLandlordRentalsController.php:284-299`). | No portal screen, no report access, no scheduled date; the list includes draft/cancelled; invitation emails link to a portal page that shows no inspections. |
+
+### 45.2 Design principles shared by every build below (decided here, so no lane re-decides)
+
+1. **Facts, not conclusions.** Attendance, invitations, photo times and deductions are recorded as dated facts with who recorded them. No screen, PDF or email states what a fact means for anyone's rights.
+2. **Append-only where it is evidence.** New evidence tables follow the signatures/findings pattern: never edited in place, a correction supersedes (`superseded_at`, `superseded_by_id`); archived, never deleted.
+3. **Read-time derivation over stored status** (§3.1) wherever a value can be computed — due inspections, differences, refund balance preview.
+4. **One source for each concept.** Reuse `rental_inspection_signatures` for signing, `rental_inspection_notifications` for invitations, `rental_inspection_item_findings` as the source of deduction lines, `SignedDocumentDistributionService` for copies, the existing Follow-up service for repair records. No parallel second implementation (conflict-map F-1/F-3).
+5. **Agency settings, wizard in the same build.** Each new setting below carries its wizard row (control + `explain` + `affects` + `$request->has()`-guarded saver; `AgencySetupWizardController::currentValues()` arm per key).
+6. **Migrations** use the reserved prefix `2026_10_13_1000nn` (lease series is `2026_10_12_*`); one lane per day regenerates `mysql-schema.sql` via `scripts/schema-dump.sh` (DEFINER stripped), others commit migrations without it (§45.10).
+
+### 45.3 Build I-1 — Evidence: photo capture time, every item graded, report completeness (points 2a-2d, 1a guard) — amended 6 Oct: no photo enforcement (Q5)
+
+**Data.** `rental_inspection_photos` gains `taken_at` (nullable datetime, immutable once set) and `taken_at_source` (string(10): `client` | `exif` | `server`). `created_at` stays as RECEIVED time. Backfill: existing rows get `taken_at = created_at`, source `server`. `rental_inspection_settings` gains `all_items_required_to_complete` (bool, default true) — applies to `in`/`out`/`interim`, never `ad_hoc`. **No photo-requirement settings (Johan, Q5: photos are not enforced).** *The every-item-graded guard is not part of the 6 Oct rulings: it stays as proposed in this spec and is a one-line switch (the setting) if Johan wants it off.*
+
+**Capture-time rules (server-side, all upload endpoints: `storePhotos`, legacy `storePhoto`, tray, and the future mobile endpoint).**
+1. Accept optional `captured_at` (ISO-8601 with offset) per file, sent once alongside `client_idempotency_key` (retry returns the existing row unchanged — never rewrites `taken_at`).
+2. Otherwise read EXIF `DateTimeOriginal` (+ `OffsetTimeOriginal` when present, else the agency/app timezone) from the original upload BEFORE `PropertyImageStorer`/`ImageOrientationNormalizer` strip it; source `exif`.
+3. Otherwise `taken_at = now()`, source `server`.
+4. A client/EXIF time later than now + 5 minutes (clock skew) is rejected as a claim: stored as `server`, original claim written to the log, upload still succeeds (absorb, never fail an evidence upload). Both times are always visible: `created_at` is never hidden.
+5. Spec §14.4/§14.5 are brought in line: the mobile contract carries `captured_at`; Andre's endpoint (not built) must send it.
+
+**Display.** Per-photo caption `Taken 12 Aug 2026 14:03` on the recording tile, both sides of the compare viewer (per photo, replacing the inspection-date-only header `properties/show.blade.php:6640-6647`, with a fallback to `completed_at`/`created_at` for unscheduled inspections), the public report page, and the live inspection page. When `created_at` differs from `taken_at` by at least one minute the caption adds `· uploaded 16:20`; when source is `server` it reads `Uploaded 14:03` (never presented as capture time). **PDF:** photos stay out (Johan 23 Sep). Each item with a flaw prints `3 photos — taken 12 Aug 14:03 to 14:09` and each room prints its general-photo count and time range, beside the existing QR/link. Whether to go further (thumbnail appendix) is Q8 — **still open: build the capture time, the screens and the public page now; the PDF per-flaw line waits for Q8.**
+
+**Guard (completion, in/out/interim).** Every checklist item must be graded (N/A counts) when `all_items_required_to_complete` — lists the unrecorded items by room, never a bare 422 (counting follows §20.22.3: the `CONDITION_PENDING` sentinel is not "recorded"). One guard exception class (like `RentalInspectionRequiredNotesMissingException`) returns the full offender list; the Complete button shows it as a checklist with jump links. Prevent-or-absorb: prevented at completion, absorbed everywhere else (an agent can always keep recording). **There is deliberately NO photo guard of any kind** — not per flaw, not per room, not per item (Johan, 6 Oct, Q5); photos stay optional, uploaded per inspection and tagged to a room or a section of a room as today.
+
+**Report completeness (same build, evidence defects found while measuring).** Public report page also loads room-level photos and photo notes (`RentalInspectionPublicController.php:60-65`); PDF and public page print room notes and overall notes. **Needs Johan's go (reported defect, not changed here):** retired items currently vanish from a completed inspection's PDF/public page (`RentalInspectionReportPdfService.php:62-65`, `RentalInspectionPublicController.php:70-73`) — recommended fix: show an item if it has any observation in THIS inspection, retired or not.
+
+**Scoping/CRUD.** No new entity; photos keep archive (no hard delete; observations untouched). Photo endpoints keep binding+guard. **Wizard:** the one setting above. **Multi-agency:** per-agency with a neutral default.
+
+**Input space / tests.** Client time present / absent / malformed / future / ancient; EXIF present / absent / HEIC; offline retry with same key; photo moved between items (tag move must not touch `taken_at`); inspection with: no flaws, flaws with no photos (must still complete), every item N/A, unscheduled, an item left ungraded (blocked, listed), the setting off (completes). Files: migration, `RentalInspectionPhoto`, `RentalInspectionRecordingController` (upload methods + `complete`), `RentalInspection::markCompleted` + new exception, `PropertyImageStorer` (read-time seam only — shared by 5 modules, touch with care), `RentalInspectionSetting`, settings page + controller, `agency-onboarding-copy.php` + `currentValues`, report PDF service + blade, public controller + blade, recording partial + compare viewer in `properties/show.blade.php`.
+
+**I-1 — BUILT 7 Oct 2026 (QA1), branch `cc1-inspections-i1-2026-10-07`.** Migrations `2026_10_13_100100` (photos: `taken_at`, `taken_at_source`, backfilled `created_at`/`server`) and `2026_10_13_100110` (setting `all_items_required_to_complete`, nullable → read-time default ON). `mysql-schema.sql` NOT regenerated here (§45.10: one lane per day regenerates it; `lane-test.sh` applies the delta).
+- **Capture time.** `RentalInspectionPhotoCaptureTime::resolve()` is called by BOTH upload endpoints (`storePhotos` — item / room / tray — and the legacy `storePhoto`) with the ORIGINAL upload before `PropertyImageStorer::store()` (which is not touched). Order: client `captured_at` (one per file, parallel to `photos[]`, ISO-8601) → EXIF `DateTimeOriginal` (+ offset tag; PHP 8.2 exposes the offset as `UndefinedTag:0x9011`, newer builds as `OffsetTimeOriginal` — both read) → server time. Absorb, never fail: missing / malformed / non-string / pre-1970 (EXIF `0000:00:00` garbage) = no claim; a claim later than now + 5 min is stored as `server` and logged (`capture time in the future rejected`). Only JPEG EXIF is readable; HEIC/PNG/WebP with no client time honestly fall to `server`. Idempotent retry returns the existing row unchanged; `taken_at`/`taken_at_source` are immutable once set (model `updating` hook restores them; a tag move, archive or re-save cannot change them).
+- **Display.** `RentalInspectionPhoto` appends `taken_caption` (`Taken 12 Aug 2026 14:03`, `… · uploaded 16:20` when ≥ 1 min apart, `Uploaded 12 Aug 2026 14:03` for `server`) and `taken_caption_short` (`12 Aug 14:03` / `Uploaded 14:03`) so every screen shows identical wording in the app timezone. Shown: overlay on the item-strip tiles (both sides) and the room gallery, tray tiles in Large mode (tooltip on all), the compare viewer header per photo (both sides; falls back to the inspection's date, then `completed_at`/`created_at`, for an unscheduled inspection — the old blank), the public report page. The agency-level inspection page shows photo COUNTS only (Johan 23 Sep: no photos on the completed report) and is unchanged.
+- **Guard.** `RentalInspection::guardUngradedItems()` runs at `startAwaitingSignature()` AND `markCompleted()` (the same two transitions the required-notes guard already gates) for every type except `ad_hoc` (so the future `interim` type is covered automatically). An item is graded when this inspection holds a non-`CONDITION_PENDING` observation for it (N/A counts; a bare photo anchor does not; retired items are excluded) — exactly the screen's own "Not yet recorded" definition. Throws `RentalInspectionItemsUngradedException` (room-grouped list in walking order); the recording controller answers 409 `{message, ungraded_items:[{item_id,item_label,room_id,room_label}]}`; the property tab shows a panel under the Complete button (room names jump to the room; "Show only what is left" applies the Not-yet-recorded filter). Setting `all_items_required_to_complete` (settings page + Setup Wizard Rentals step + `currentValues()`; saver is the existing `RentalInspectionSettingsController::update`, `has()`-guarded so a wizard step that does not render it cannot wipe it). **Decision recorded:** the spec names "completion"; the guard also covers sending for signature, because an inspection signed while incomplete is the harm the guard exists to prevent and the required-notes guard already gates both transitions. Jump is to the ROOM (the screen has no per-item anchors).
+- **Report completeness.** Public page now loads room-level photos and photo notes (agency scope lifted ONLY — archived photos stay hidden), renders a room that has only photos/a room note and no graded item, and shows each photo's caption + note. The signed PDF now prints the overall notes and each room's note (it printed neither). **Not built — waiting:** the PDF per-flaw line (`3 photos — taken … to …`) and per-room photo count/time range wait for Q8; nothing else on the PDF changed (photos stay out). **Not built — needs Johan's go (reported defect):** retired items still vanish from a completed inspection's PDF/public page.
+- **No photo enforcement** of any kind (Q5).
+- **Tests:** `RentalInspectionI1EvidenceTest` (25 tests / 120 assertions): client/EXIF/server order and precedence, offset handling, malformed / ancient / array / empty claims absorbed, future client + EXIF claim rejected and logged, 3-minute skew accepted, retry unchanged, legacy endpoint, tag move + direct write cannot change `taken_at`, caption wording per source, caption in the tab payload, guard list + wording, N/A counts, photo anchor is not a grade, retired excluded, setting off, ad-hoc exempt, no checklist = not blocked, setting default/save/subset-post, public page room photos + times + notes + room-only section + archived photo hidden + empty inspection, PDF overall/room notes.
+
+### 45.4 Build I-2 — Checklist content: floor-to-ceiling baseline, custom room types, inventory starter lists (points 1a-1c) — baseline list and "Add missing standard items" RULED (Q9a); inventory starter lists wait for Q10
+
+1. **Neutral baseline vocabulary.** Replace the generic fallback with a floor-to-ceiling baseline per room FAMILY (living, bedroom, kitchen, bathroom/WC, garage/outbuilding, outdoor, passage/other), each covering at minimum: Ceiling, Walls, Skirting, Floor covering, Windows (frames/glass/handles/burglar bars), Doors (door/frame/handle/lock), Light fittings, Light switches, Plug sockets — plus the family's own fittings (kitchen: sink & taps, stove/hob/oven, extractor, cupboards/tops; bathroom: bath/shower/basin/toilet/taps/extractor/mirror/geyser access). **Approved by Johan 6 Oct (Q9a)** — the floor-to-ceiling default list, with the exact items in the build's first commit and the usual review at QA1. HFC's current Kitchen/Bathroom/Bedroom/Garage overrides (transcribed from Retha's form, §19) stay as HFC's own saved override; defaults never overwrite an agency override.
+2. **Existing properties — agent-triggered top-up.** Seeded properties never re-read settings (§19). Add a per-property action "Add missing standard items" on the room: shows the diff (items in the agency template the room lacks), agent confirms, adds them via `RentalInspectionItem::addToRoom()` (never reorders or retires existing items, never touches recorded observations). No bulk/automatic change of existing properties.
+3. **Agency-addable room types.** `rental_inspection_settings.custom_room_types` (JSON list of `{key, label}`; key slug auto-generated, unique per agency, never collides with the 50 config keys). Merged into the room-type picker, the item-defaults editor and the walking-order list; both validators that today reject unknown types (`RecordingController.php:175-180`, `SettingsController.php:211-218`) accept the agency's own keys. Archive (not delete) a custom type: existing rooms keep it.
+4. **Inventory starter lists.** `rental_inventory_settings` gains `room_type_starter_lines` (JSON: room type → ordered list of `{description, default_quantity}`), editable on the inventory settings screen, used only to pre-fill a NEW inventory's lines for a furnished let (agent can still add/remove; free-text stays). Inventory stays its own module — no merging of the two item models (**Q10 — still open: do not build this item until Johan rules**; items 1–3 and 5 are unblocked). A room on the inspection screen shows `Inventory: 12 items recorded` linking to that room's inventory lines.
+5. **Wizard.** Custom room types, item defaults and starter lists remain "Deliberately NOT in the wizard" only if Johan says so (today they are link-out under a §19 exemption); recommended: promote the baseline-approval and "custom room types" row to a wizard link step so a new agency is told the checklist is theirs to shape.
+
+Input space: duplicate custom label, label colliding with a standard type, empty label, 100 types, archived type still used by a room, top-up on a room with an item of the same label (match case-insensitively, skip, report). Files: `config/property-spaces.php` (read-only), `RentalInspectionSetting` (+`RentalInventorySetting`), both settings controllers/views, `RentalInspectionRecordingController` (room-type validation + top-up action), `RentalInspectionFormSeeder`, wizard config.
+
+**BUILT-STATE NOTE — Build I-2, 2026-10-07 (cc6, lane B) — landed on QA1 only; items 1, 2, 3 and 5 built, item 4 WAITING on Q10.**
+
+- **Item 1 — baseline.** `RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS` is now the nine-item floor-to-ceiling baseline (Ceiling, Walls, Skirting, Floor covering, Windows, Doors, Light fittings, Light switches, Plug sockets) and is the fallback for any type no family claims. `DEFAULT_ROOM_FAMILY_ITEMS` holds eight families (living, bedroom, kitchen, bathroom, outbuilding, covered_outdoor, outdoor, other); `ROOM_TYPE_FAMILY` maps **all 50** standard types to one (a test pins that none is forgotten); `DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE` now holds only the six types whose fittings differ from their family (Garage, Parking, Pool, Scullery, Laundry Room, Outside Toilet). `defaultItemsForType()` resolves own list → family → baseline; the agency's own saved list for a type still wins over all of it (`roomTypeItemDefaultsFor()` merges overrides last), so a default never overwrites an override. The exact item lists are in the commit and in those constants — **Johan reviews them at QA1** (the spec's "usual review").
+- **Premise correction, no effect on HFC.** This section said HFC's Kitchen/Bathroom/Bedroom/Garage lists "stay as HFC's own saved override". In the code they were the SYSTEM default (the old `DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE`), and HFC's saved row (33 types, QA1 snapshot of live) already overrides all four with its own lists — so those keep winning exactly as before. The transcribed Retha lists are no longer a system default (they were HFC-specific wording; the families replace them). Of the five types they covered, the only one HFC had NOT saved is Yard, which now takes the `outdoor` family list instead of Retha's six-item Yard list; if Johan wants the old Yard list kept for HFC it is one settings save.
+- **Item 2 — "Add missing standard items".** Per-room button on the property's inspection-items list (same row as Move up / Move down) → preview of the difference → agent unticks any item → "Add N items". `RentalInspectionItem::standardItemDiffFor()` / `addMissingStandardItems()`; endpoints `GET|POST /corex/properties/{property}/rental-inspection-rooms/{room}/missing-standard-items` (`RentalInspectionRoomChecklistController`, own file so it shares no lines with I-6a; same two scoping layers I-6a puts on property-level actions). Matching is case- and spacing-insensitive against **every** item on the room, **retired ones included** (a retired item was a decision; a top-up never undoes it) — those are reported as "already on this room". The server recomputes the difference on apply, so a stale preview or forged label adds nothing; a repeat adds nothing; new items are appended after the room's last item; existing items, order and observations are never touched. Not bulk, not automatic.
+- **Item 3 — agency room types.** `rental_inspection_settings.custom_room_types` (JSON `{key, label, archived}`; migration `2026_10_13_100020`). Key = `custom_` + slug, generated once and never changed by a rename (so rooms never orphan) and structurally unable to collide with a standard name. Archive, never delete; restore. Both validators that rejected unknown types (`storeItem`, `assignType`) now accept the agency's own **active** types; the settings item-defaults editor and walking order accept archived ones too (existing rooms must still resolve). The room-type picker (both selects on the property page) lists the 50 + the agency's own. Rules live in one pure function (`mergeCustomRoomTypes`) so the settings page and the wizard cannot differ: blank ignored, label trimmed/collapsed/cut to 60, duplicate of a standard or own type (any case/spacing, archived included) skipped and reported, remove-and-re-add in one save keeps the same type, a posted key that is not ours is never trusted, cap 200. A room of a custom type is checklisted from the generic baseline until the agency gives it items in "Room type default items".
+- **Item 5 — wizard.** "Your own room types" repeater added to the Rentals step's lists partial (control + "What it is" + "What this changes"), saved through `RentalListsWizardSaver::inspectionCustomRoomTypes` (no-op without its `custom_room_types_submitted` marker; renders ACTIVE types only; a type removed in the wizard is archived). **Johan's call recorded as built, not omitted** (§10a). Item defaults and walking order stay link-out under the §19 exemption, unchanged. A skipped duplicate is reported on the settings page; the wizard has no flash channel for it, so it is silently not added there.
+- **Item 4 — inventory starter lists and the "Inventory: N items recorded" count — NOT BUILT, waiting on Q10.** Nothing of it exists.
+- **Not done / for the record:** `mysql-schema.sql` not regenerated (one lane per day does it; the migration runs on top of the snapshot). `scripts/dev-check.ps1` cannot run on this box.
+
+### 45.5 Build I-3 — Attendance record and invitation trail (point 5)
+
+**Data (one new table, two additive columns).**
+`rental_inspection_attendances` — `id`, `agency_id`, `rental_inspection_id`, `party_role` (`tenant`|`landlord`|`agent`|`other`), `party_contact_id` (nullable), `party_user_id` (nullable, agent), `attendee_name` (nullable; required when the attendee is not the party themselves), `attended_as` (`self`|`representative`|`co_occupant`|`other` — agency-labelled vocabulary like refusal reasons), `represents_party_role` (nullable), `outcome` (`attended`|`did_not_attend`), `arrived_at` (nullable time), `note` (nullable), `authority_document_path` (nullable, private disk, optional upload), `recorded_by_user_id`, `recorded_at`, `superseded_at`, `superseded_by_id`, `created_at`. Append-only; a correction supersedes. `rental_inspection_signatures` gains nullable `signed_by_name` + `signing_capacity` (so a landlord's representative can sign on the landlord's row, tied to an attendance row of capacity `representative`; today `capture()` forces landlord = owner contact, `:179-184`). `rental_inspection_notifications` gains `sent_by_user_id`, `subject_snapshot`, `occurred_at` and a new `event = 'invitation_manual'` / `channel = 'manual'` (+ `method` free text: phone, WhatsApp by hand, in person) so an invitation given off-system can be recorded with the real time.
+
+**Behaviour.**
+- **Attendance panel** on the inspection page (and recording screen header): one row per expected party (every lease tenant, landlord contact, the inspector/agent), pre-filled from the lease; the agent records `Attended` / `Did not attend` per party, adds representatives and other attendees, optional arrival time. A party row shows its invitation facts underneath, read-only, from the notification log: `Invited by email on 2 Oct 2026 10:14` / `Reminder sent 5 Oct` / `No invitation recorded` (a fact, not an accusation) / `Invitation recorded manually by <agent>, phone, 1 Oct 16:20`. Reschedules appear in the same line.
+- **Start-now inspections** get an invitation trail the moment an attendance row is created: nothing is sent, the panel simply says no invitation was recorded and offers "Record an invitation given".
+- **Completion guard** (in/out/interim): every expected party must have an attendance outcome. This replaces today's forced conflation: the signature step still requires a disposition per party, but when the attendance outcome is `did_not_attend` the signature row is rendered "No signature — did not attend" (never "Refused to sign"). The existing `not_present` refusal preset stays for old data; a migration backfills an attendance row (`did_not_attend`, source note `from signature record`) for every existing signature with reason `not_present`, and display is switched in the same build.
+- **Where shown:** inspection page, signed PDF (a plain "Attendance" block: party · outcome · capacity · invitation facts), public report page, the distributed copy. Strings are Johan's (§45.11).
+- **Agent identity fix (reported defect, in scope here):** the report names `created_by_user_id` as the agent (`RentalInspection.php:1214-1218`, `ReportPdfService.php:59`); this build names the inspector who attended.
+- **Permissions:** `rental_inspections.record_attendance` (granted wherever `rental_inspections.create` is today); superseding another user's attendance record needs `rental_inspections.resolve_discrepancy`.
+- **List screen:** new filters on the Rental Inspections list: `attendance = incomplete | any party did not attend`; column "Attended" (e.g. `2 of 3`). Sort by it. No new list screen (attendance is a child record, archived with its inspection).
+- **Scoping:** child of `rental_inspections`; every endpoint resolves through `{rentalInspection}` binding + guard (never a bare id), authority documents on the private disk behind the same guard.
+- **Wizard:** attendance vocabulary (`attended_as` labels) as a list control in the existing inspection-lists wizard step; whether the minimum-notice figure is also recorded on the inspection as a fact when an invitation is sent is a wording/records call for Johan (§45.11 item 5), not decided here.
+
+Input space: party with no email/phone, tenant deleted after the invitation, two landlords (one signs, both invited — attendance row per invited landlord), representative without a name (prevented), `did_not_attend` then the same person turns up later (supersede), attendance recorded then inspection archived/restored, retry of the same record (idempotency key). Tests also cover create → supersede → re-record (§5a). Files: migration, 2 models, `RentalInspection` (`markCompleted`, `signatureSummaryRows`, summary rows), `RentalInspectionSignature::capture`, recording controller + routes, recording partial + show blade, PDF blade, public blade, notification service (event + sender), list controller/view, permissions config, wizard.
+
+**I-3 — BUILT 7 Oct 2026 (QA1), branch `cc1-inspections-i3-2026-10-07`.** Migrations `2026_10_13_100200` (table `rental_inspection_attendances`), `…100210` (signatures: `signed_by_name`, `signing_capacity`), `…100220` (notifications: `sent_by_user_id`, `subject_snapshot`, `occurred_at`, `method`), `…100230` (setting `attended_as_labels`), `…100240` (backfill). `mysql-schema.sql` NOT regenerated (§45.10).
+- **Attendance record.** `RentalInspectionAttendance` — append-only, one live row per EXPECTED party (each lease tenant, each invited landlord via the scheduling resolver plus the signing landlord, the inspector — falling back to the creator); extra people in the room are `party_role = other` rows. A correction writes a new row and marks the old `superseded_at`/`superseded_by_id`; **Withdraw** sets `superseded_at` with no replacement (kept on file, party returns to "not recorded"). Nothing is hard-deleted; the inspection's own archive carries the rows. `client_idempotency_key` makes a retry return the first row unchanged. All rules live in `RentalInspectionAttendanceService` (`record`, `withdraw`, `recordInvitation`, `board`, `missingParties`, list helpers). A party who did not attend is stored with no representative, name or arrival time; a representative needs a name and is recorded on the PARTY's own row (`attended_as = representative`, `represents_party_role`); an `other` person needs a name and can only have attended.
+- **Invitation trail.** The board reads `rental_inspection_notifications`: the system's own scheduled / rescheduled / reminder / cancelled mails per party, plus manually recorded invitations (`event = invitation_manual`, `channel = manual`, free-text `method`, the real `occurred_at`, `sent_by_user_id`; a future time is refused). A start-now inspection simply reads "No invitation recorded" with a "Record an invitation given" action. Each line carries `printable`: the signed PDF and the public page print only invitations actually given (e-mail sent, reschedule, manual); reminders, cancellations and failed sends show on screen only — **whether they belong on the printed record is Johan's call (§45.11 item 2)**.
+- **Completion guard** (`RentalInspection::guardAttendanceRecorded()`, in `markCompleted()` only, every type except `ad_hoc`, so `interim` is covered): every expected party needs a recorded outcome; `RentalInspectionAttendanceMissingException` → 409 `{message, missing_attendance:[{key,party_role,name}]}`; the panel is outlined and scrolled to. Deliberately not a setting (the spec gives none) — it only asks that the outcome be written down.
+- **Signatures.** `signatureSummaryRows()` now carries each party's attendance; a refused row for a party recorded as `did_not_attend` reads **"No signature — did not attend"** (agency inspection page, recording screen, signed PDF, public page); a real refusal by someone who attended still reads "Refused to sign". The `not_present` refusal preset stays for old data; the backfill migration writes a `did_not_attend` row (note `from signature record`) for every live `not_present` refusal and leaves the signature itself untouched. A landlord's/tenant's representative can sign on the party's own row: `signed_by_name` must match a LIVE attendance record of capacity `representative` for that party (else 422); stored as the attendance record spells it with `signing_capacity = representative`, shown as "Signed by X (capacity)". The agent line on the report/public page now names the inspector (creator as fallback).
+- **Screens.** Recording screen: an Attendance panel (per party: Attended / Did not attend / someone attended on their behalf + name + arrival, Change, Withdraw, the invitation line, Record an invitation given, add someone else) — read-only once completed/cancelled; each inspection in the tab payload carries `attendance_board`. Agency inspection page: read-only Attendance block + manual invitations in the "Notifications sent" log. Signed PDF: an Attendance table (party · outcome · invitation) before the rooms. Public page: an Attendance block (not shown to a logged-in user of ANOTHER agency — their scope would hide every row). Rental Inspections list: **Attended** column ("2 of 3"; "—" for ad-hoc/cancelled), sort by it, and an **Attendance** filter (Not fully recorded / Someone did not attend) on the same scoped query.
+- **Routes / permissions.** `corex.rental-inspections.attendance.{show,store,withdraw,invitations.store}` under the existing `/corex/rental-inspections/{rentalInspection}` group (binding + `guardRentalRecordScope` on every action; an attendance id from another inspection 404s). New key `rental_inspections.record_attendance` (granted wherever `.create` is); correcting or withdrawing a record someone ELSE made also needs `rental_inspections.resolve_discrepancy`. (Follows this module's existing `/corex/…` session-route pattern rather than `/api/v1`.)
+- **Wizard / settings.** The only new setting is the vocabulary: `attended_as_labels` (the four ways to attend — in person / on behalf of the party / co-occupant / other — fixed keys, agency-worded labels, neutral placeholder defaults) on Settings → Rental Inspections and in the Setup Wizard Rentals step's inspection-lists partial, saved through `RentalListsWizardSaver::inspectionAttendedAsLabels` (no-op without its `_submitted` marker, §6.1). Whether the minimum-notice figure is printed as a fact is NOT decided (§45.11 item 5).
+- **Not built — waiting:** the authority-letter upload and rule (Q11) — name + capacity are recorded now. **Not changed:** the "did not attend" signature disposition still has to be recorded in the signing step (refuse → "Not present…", an admin-only action per the existing `sign_on_behalf` rule); attendance does not auto-create it.
+- **Tests:** `RentalInspectionI3AttendanceTest` (34 tests / 197 assertions): expected parties (tenants, two landlords, inspector or creator), each outcome with who/when, representative and extra-attendee validation, malformed input, party with no contact details, correction/supersede/re-record after a no-show, withdraw, idempotent retry, closed inspections refused, archive/restore, record/resolve permissions, other agency / out-of-scope / foreign-id 404s, the completion guard list and the full happy-path completion, ad-hoc exempt, no-signature wording on page/PDF/public + a real refusal unchanged, the backfill (idempotent, evidence untouched), representative signing (matches the record / refused without / cannot refuse), system + reminder + manual invitation lines (printable vs on-screen), validation of manual invitations, inspector named on the report, list column/filters/sort, wording setting (default, save, blank keeps default, no-marker no-op), tab payload board, permission key granted.
+
+### 45.6 Build I-4 — Copies to all parties on completion (point 4b) and signing roles for interim (point 4a) — interim signing RULED (Q7); non-attendee copy rule waits for Q12
+
+1. **Recipient resolution fixed at the root** (reported defect, in scope): `RentalInspection::distributionRecipients()` stops using `$leaseTenant->contact` / `sellerOwnerContact()` and uses the ContactScope-bypassing, strict resolvers `RentalInspectionNotificationService::tenantContacts()/landlordContacts()` already built for scheduling mails (§43.2) — one resolver for invitations and for copies, so they can never disagree. All landlord/lessor contacts with an email receive a copy (signing stays single-landlord). A party with no email gets a `skipped` log row with the reason, never silently dropped.
+2. **Agency copy.** `rental_inspection_settings.report_agency_copy_emails` (comma list, default empty) + toggle `report_copy_inspector` (default true) + `report_copy_creator` (default true). Recipients = tenant(s) + landlord(s) + agency copy addresses + inspector + creator, de-duplicated by address, each logged with role. Sent from the inspector's mailbox (fallback: creator, then shared mailer) — not always the creator.
+3. **Visible and retryable.** A "Copies sent" panel on the inspection page reads `signed_document_distribution_logs` (today write-only): party · address · sent/failed/skipped · when. A failed or skipped recipient raises an in-app alert to the inspector and a per-recipient **Resend**. `complete()` still never fails the completion because of mail, but it no longer swallows silently (`RecordingController.php:1538-1545`).
+4. **Trigger unchanged by design.** Completion stays an agent's deliberate click (auto-completing on the last signature would remove the review step); when every signature/attendance is in, the Complete button is highlighted with "Ready to complete". The auto-send fires once, on completion.
+5. **Signing roles for `interim` — RULED 6 Oct (Q7): all parties sign every inspection.** The agent, the tenant(s) AND the landlord sign incoming, interim and outgoing alike, because it is part of the legal documentation. Concretely the three-party completion guard (`RentalInspection.php:452,502-534`, which tests `in`/`out` today) also covers `interim`; wet-ink, refusal and attendance paths are identical to In/Out. **`ad_hoc` is not covered by the ruling** and stays exempt from signing as today — flagged here for Johan to confirm, not changed.
+6. **Remote signing link — NOT in this build (since built — §46).** A party who cannot attend signing later from their own device is I-9 (optional, §45.10); until then non-attendees follow the existing wet-ink/"awaiting wet-ink" path.
+7. **Deductions schedule seam:** `SignedDocumentDistributionService` gets an `extraAttachments()` seam so I-8 can attach the issued deductions schedule without a second send path.
+
+Wizard: copy addresses + the two toggles in the existing `auto_send_report_enabled` step row group. Scoping: copies' PDF is the private-disk file behind the guard; the public link is unchanged. Tests: tenant not created by the completing agent, landlord with no email, tenant listed also as landlord contact (one mail, correct role), two landlords, agency copy empty/one/many/duplicated, mail failure then resend, non-production redirect untouched. Files: `RentalInspection` (`distributionRecipients`, `distributionAgent`), `SignedDocumentDistributionService`, recording controller (`complete`, new `resendRecipient`), `RentalInspectionSetting` + settings + wizard, show blade panel, mail template.
+
+**I-4 — BUILT 7 Oct 2026 (QA1), branch `cc4-inspections-i4-2026-10-07`.** One migration (3 nullable settings columns, `2026_10_13_100300`), no new permission key (the existing `rental_inspections.create` gates Resend, `manage_settings` gates the settings).
+- **Recipients, fixed at the root (item 1).** `RentalInspection::distributionRecipients()` now uses `RentalInspectionNotificationService::tenantContacts()` / `landlordContacts()` — the same strict, ContactScope-bypassing resolvers the scheduling emails use — so an invitation and a copy can never disagree about who the parties are, and a tenant the completing agent's own contact scope cannot see still gets a copy. Every landlord with an email gets one (signing stays single-landlord). De-duplicated by address (one mail to a person listed twice, under the first role: tenant → landlord → agency → inspector → creator). A party with no usable address is not dropped: the new optional `App\Contracts\ReportsUnreachableRecipients` makes the shared service write a **`skipped` row with the reason** ("No email address on file") on a full send. Inventory does not implement it and is unchanged.
+- **Agency copy + toggles (item 2).** `rental_inspection_settings.report_agency_copy_emails` (comma/semicolon/space/new-line list, validated as a whole on save — one bad address saves nothing and names it; at most 10), `report_copy_inspector` (default on), `report_copy_creator` (default on). Settings page card "Who else gets a copy of the report" + Setup Wizard rows on the Rentals inspection step (`updateReportCopies`, every field `has()`-guarded so a step that omits one never wipes it; `currentValues()` arms added). Copies go out **from the inspector's mailbox** (`distributionAgent()` = inspector, then creator, then the shared mailer). The shared service no longer CCs the sending agent when that agent is already a recipient (no double copy); with both toggles off the sender is still CC'd, per the standing §41 ruling.
+- **Visible and retryable (item 3).** `App\Services\Rentals\RentalInspectionCopiesService` now owns file-and-send (the recording controller's private method is gone; `complete()` and `resendReport()` delegate). A **"Copies sent" panel** on the inspection page (`partials/_copies-sent.blade.php`, plain Blade) shows the latest outcome per recipient — who, address, sent / failed / skipped with the reason, when, automatic or manual — read from `signed_document_distribution_logs`. A failed or skipped copy shows a per-recipient **Resend** (`POST …/resend-recipient`, `RentalInspectionCopiesController`) that resolves the recipient on the server from a delivery-log row of THIS inspection (never from a posted address) and mails only that person. Any failed/skipped copy — or the whole send failing — raises an in-app alert to the inspector (`RentalInspectionCopiesNotDelivered`, database channel only; the inspector falls back to the creator). `complete()` still never fails because of mail. The Inspections tab's "Resend report" popover is untouched; its JSON response keeps `results` (one line per address) and now also returns `skipped` separately.
+- **Copies-sent names (13 Oct 2026, demo-prep fix).** A copy that went to someone who is not a contact reads "<name> (<role>)": the agent who created the inspection and the inspector show their own name, the agency copy shows the agency name; with nobody on file the address is shown. A role label is never used as the name (it used to read "Agent who created it (Agent who created it)"). `RentalInspectionCopiesService::panelFor()`.
+- **Trigger unchanged (item 4)** — completion stays the agent's deliberate click; the auto-send fires once, on completion.
+- **Interim signing (item 5)** — already in place from I-5 (`markCompleted()` / the signing window cover `interim`); this build proves it (interim cannot complete without tenant, landlord AND agent; `ad_hoc` stays unsigned) and its report goes out like any other.
+- **Non-attendee copy (Q12)** — unchanged: every party still gets the copy. One-rule change when ruled.
+- **NOT built, and why:** (a) the "Ready to complete" highlight on the Complete button (item 4) — it lives in the recording screen's Alpine, the exact file cc1's I-3 is rewriting, and the "every attendance is in" half depends on I-3's attendance record; build it with or after I-3. (b) the `extraAttachments()` seam (item 7) — its only consumer is the parked I-8; adding an unused hook now would be dead code. (c) Remote signing link (Q15/I-9) — as specced.
+- **I-4 top-up — "Ready to complete" pill, BUILT 7 Oct 2026 (cc1, branch `cc1-inspections-i4-topup-2026-10-07`)** — the one item (a) above that was deferred. A green **Ready to complete** pill beside the Complete button (recording screen, an inspection awaiting signature) once every party has a signing outcome and none is still waiting for a paper scan (`awaiting_wet_ink`), the agent has signed, and the attendance board is complete (I-3). It is `readyToComplete(section)` in the property page's recording component — client-side on purpose, so it reacts the moment the agent signs or records attendance, before any reload — and display-only: the server re-checks everything on Complete, and the pill deliberately does NOT claim unrecorded items (I-1) or required notes are done, because only the server decides those. Test: `RentalInspectionReadyToCompletePillTest` (the pill and the five facts its rule reads are on the page); live behaviour verified in a real browser on QA1. (b) the `extraAttachments()` seam remains unbuilt (parked I-8's only consumer).
+- **Files:** migration `2026_10_13_100300_…`; `RentalInspectionSetting` (3 columns, resolvers, `parseEmailList`); `RentalInspection` (recipients, unreachable, agent); `SignedDocumentDistributionService` (`onlyEmails`, skipped rows, CC de-dupe); `Contracts/ReportsUnreachableRecipients`; `RentalInspectionCopiesService`; `RentalInspectionCopiesController`; `Notifications/RentalInspectionCopiesNotDelivered`; `RentalInspectionRecordingController` (`complete`, `resendReport` delegate); `RentalInspectionSettingsController` (`updateReportCopies`); `AgencySetupWizardController::currentValues`; `config/agency-onboarding-copy.php`; `routes/web.php`; views `corex/rental-inspections/partials/_copies-sent`, `show` (one include), `corex/settings/rental-inspections`.
+- **Tests:** `tests/Feature/RentalInspections/RentalInspectionI4CopiesTest.php` — recipients (hidden-from-agent tenant, several tenants/landlords, no email, tenant-also-landlord, agency copy none/one/many/duplicated/mixed case, inspector/creator toggles and dedupe), completion mail + log + panel, auto-send off, skipped party + alert, failed send + alert + per-recipient resend, refused/foreign/unknown/uncompleted resend targets, a later-added email, the tab endpoint shape, interim signing all three, ad-hoc unsigned, settings save/normalise/clear/reject/never-wipe/defaults, cross-agency refusal. Mail is always `Mail::fake()` with the redirect set to the one permitted test address.
+
+### 45.7 Build I-5 — Due dates: In/Out raised from the lease, Interim from dates the AGENCY loads (points 3a-3c) — re-cut 6 Oct (Q6)
+
+**Johan's ruling (6 Oct, Q6): NO automatic scheduling of interim inspections.** Not every agency does interims. The agency loads its
+own interim inspection dates when it wants them and CoreX reminds from the loaded dates. Revisit when more agencies are on. This
+**removes** the interim interval setting (`interim_interval_months`, default 6) and the computed interim due from the earlier design; nothing
+in CoreX creates, proposes or computes an interim date. **In and Out are not touched by the ruling** and stay as designed below
+(a computed due list with agent reminders — still no tenant e-mail and no pre-created drafts).
+
+**Design decision (unchanged): computed/loaded due list + reminders, not pre-created drafts.** Pre-creating future inspection rows would inflate the Command Centre "Inspections due" tile (`RentalCommandCentreService.php:243,339`), break the one-live-tail rule (`previous_inspection_id` UNIQUE, `tabPayloadFor`) and invite tenants to a date nobody chose.
+
+1. **New type `interim`** (`rental_inspections.type` is `string(10)`, no schema change). It joins the chain between In and Out (`startNext()` accepts it), is signed by all three parties like In/Out (§45.6 item 5, Q7), and compares against the previous inspection. `ad_hoc` stays for unplanned checks.
+2. **Loaded interim dates — `rental_inspection_planned_dates` (new, full CRUD).** `id`, `agency_id`, `lease_id`, `property_id` (denormalised as on inspections), `type` (`interim`; room for others later), `planned_on` (date, required), `note`, `status` (`planned` | `booked` | `done` | `skipped`), `skipped_reason`, `rental_inspection_id` (nullable — set when the agent books/starts the inspection from it; `done` when that inspection completes), `created_by_user_id`, timestamps, `deleted_at` + `archived_by_user_id` (archive/restore, never hard delete). An agent adds a date (or several at once) against a lease; edits (moves) it; marks it skipped with a reason; archives and restores it. **Book from this date** opens the existing Schedule action (§43) prefilled with the date. Loading is always a deliberate agency action — there is no generator, no "every N months" helper and no import in this build (a CSV load of many leases' dates is a possible later addition if Johan wants it; not specced here).
+3. **Reminders from loaded dates only — daily command `rentals:send-planned-inspection-reminders`.** For each `planned`/`booked` date it writes one append-only `rental_inspection_planned_date_notices` row per milestone (`planned_date_id`, `milestone` = `lead` | `due` | `overdue`, `recipient_user_id`, `channel`, `status`, `created_at`; unique per date+milestone → idempotent, and a missed cron tick is caught up, unlike the exact-day match in `SendRentalInspectionReminders.php:52-55`) and sends the responsible agent (`properties.agent_id`, falling back to the lease creator) an in-app notification + e-mail: "Interim inspection due 3 Dec 2026 — 14 Jackson St". **It never e-mails a tenant or landlord** — the tenant is invited when the agent books, through the existing §43 flow. Dates loaded in the past are shown as overdue on the list but not e-mailed in bulk (go-live safety: loading a backlog never floods an agent).
+4. **In and Out (unchanged): `RentalInspectionDueService` (read-time, no table), now In and Out only.** For each ACTIVE lease returns `{type, due_on, reason}`: `in` — no completed In on the property's tenancy chain (`previous_lease_id` walk, so a renewal never re-prompts In — fixes `LeaseHubService.php:28,108`), due on `start_date`; `out` — when `move_out_date` is set (or `end_date` for fixed terms), due that date; month-to-month with no notice has no Out due. An already-open inspection of that type satisfies "due". The same daily scan writes append-only `rental_inspection_due_notices` (`lease_id`, `type`, `due_on`, `milestone`, `recipient_user_id`, `channel`, `status`, `created_at`; unique per lease+type+due_on+milestone) and reminds the agent only. It scans ACTIVE leases, so it needs no "lease became active" hook (activation happens in five places and has no event) and does not depend on the lease e-sign builds.
+5. **Where it shows.** One new "Due" tab on the Rental Inspections list combining In/Out due items and loaded interim dates (type, due date, lease, agent, status; row actions Schedule/Start/Book prefilled); Command Centre: the existing `start_inspection` rule becomes the In rule plus new Out and loaded-interim rules (tile counts only due-within-lead or overdue, never future); the Lease Hub next-step card is **deferred until the lease hub lane (L3a) lands** (to avoid editing `LeaseHubService::nextStep()` concurrently), and loaded dates are managed from the Rental Inspections module screens, not from `corex/leases/show.blade.php`, for the same reason.
+6. **Settings (`RentalInspectionSetting`, agency, wizard row each):** `planned_date_lead_days` (default 14), `out_due_lead_days` (default 7), `raise_due_inspections_enabled` (In/Out only; default true). **No interval setting.** Permission `rental_inspections.manage_planned_dates`, granted wherever `rental_inspections.create` is today.
+7. **`start()`/`schedule()` guards** still require an ACTIVE lease (`RentalInspection.php:799,845`). With the lease e-sign builds a lease becomes active on acceptance, normally before `start_date`, so an In can be booked before move-in; if Johan wants an In booked while the lease is still "out for signing" these guards must change — **open question Q14; until ruled, the guards stay as they are.**
+8. **List/CRUD standard — "Planned dates" and the "Due" tab:** search (property address, tenant, agent, note), sort (date ascending default, property, type, status, days overdue), filter (type, status planned/booked/done/skipped/overdue, date range, agent, own/branch/agency pill), pagination 25/50/100, empty states ("no dates loaded yet — add one" vs "no match"), CSV/print export on the same scoped query, archive/restore with who/when. Scoping at the query layer through lease → property exactly as the inspections list does (`visibleTo`); every show/edit/archive/book action resolves the date through route binding + the shared guard — a direct URL by id to another agent's/branch's/agency's date is refused, not merely unlinked.
+
+Input space: lease with no start date, month-to-month, take-on lease, lease renewed after dates were loaded (dates stay attached to the lease they were loaded on; the list shows the tenancy), a date loaded on a lease that is then cancelled/expired (shown as "lease ended", never mailed), the same date loaded twice (rejected with a plain message), a date in the past, an inspection booked from a date then cancelled (date returns to `planned`), property without an agent, agent deactivated, two leases on one property (draft renewal + active). Files: `RentalInspection` (const + `startNext`), new `rental_inspection_planned_dates` + notices tables/models/controller/views/migration, `RentalInspectionDueService` (In/Out only), the two daily commands + one line each in `routes/console.php`, `RentalCommandCentreService`, list controller/view ("Due" tab), `RentalInspectionSetting` + settings + wizard, permissions config, notification service labels (`interim`).
+
+**BUILT-STATE NOTE — Build I-5, 2026-10-07 (cc6, lane B) — landed on QA1 only; everything in §45.7 built except the one waiting guard (Q14).**
+
+- **Interim type.** `RentalInspection::TYPE_INTERIM = 'interim'`; `startNext()` accepts it; it joins the chain. **Signing:** the two in/out signing checks (`startAwaitingSignature`, `markCompleted`) now include interim, because §45.7 item 1 says interim is signed by all three parties and leaving it out would let an interim complete with no signatures at all. This is the same one-token change §45.6 item 5 describes for I-4 — lane A (cc1) will find it already in when I-4 lands; ad-hoc is untouched (still unsigned, flagged as before). The booking forms, the list type filter and the create/next validators accept `interim`; observations recorded on an interim carry source `ad_hoc` (the existing default branch), the recording screen labels it "Routine-inspection" (the property tab's label map has no interim entry — left alone, that partial is lane A's; reported).
+- **Loaded dates.** `rental_inspection_planned_dates` (full CRUD: load one or several at once, move while still planned, skip with a required reason + reopen, archive/restore with who/when — soft delete only), `…_planned_date_notices`, `rental_inspection_due_notices` (append-only, unique per milestone). A repeat date on the same tenancy is refused with a plain message; an archived twin is restored instead of colliding (create → archive → load again proven). A booked date can only have its note edited; a date on an ended lease is shown "Lease ended" and never mailed. **Nothing computes an interim date** — no interval setting, no generator, no CSV load.
+- **Due tab** `/corex/rental-inspections/due` (tab switch on both the list and the Due page): In/Out items from `RentalInspectionDueService` + the loaded dates. Search (property address, tenant, agent, note), sort (due date default, property, type, status, days overdue), filter (type, status incl. overdue/due now/upcoming/booked/done/skipped/lease ended, due-date range, agent, own/branch/agency pill, archived), pages 25/50/100, two real empty states, print + CSV/XLSX on the same rows. Row actions: **Book from this date** / **Schedule / Start** open the ordinary start/schedule form prefilled (type, date, `planned_date_id`); the server re-checks the id (same visible date, still planned, same lease and type) and ignores anything else.
+- **Scoping.** Loaded dates: `RentalInspectionPlannedDate::scopeVisibleTo()` + route binding through it (a colleague's/another agency's date by id is a 404) under the `rental_inspections` data scope — own = a date the user loaded or one on a property they are the agent on; branch = the property's branch. In/Out items: the same ceiling applied to the lease query. Command Centre: same.
+- **Due service.** In = ACTIVE lease, no completed In anywhere on its `previous_lease_id` chain (fixes the old single-lease check: a renewal no longer re-prompts In), none already open; due on `start_date`. Out = a move-out date, else a fixed term's end date; month-to-month with no notice has none; none already open or completed. States: overdue / due (within the lead window; In has no lead) / upcoming.
+- **Reminders** (agent only — the property's agent, else the lease creator; never a tenant or landlord): `rentals:send-planned-inspection-reminders` 07:20 and `rentals:send-due-inspection-reminders` 07:25 (`routes/console.php`, inside an I-5 marker). In-app + email (`RentalInspectionDueReminder`; subject e.g. "Interim inspection due 3 Dec 2026 — 14 Jackson St"). One notice row per milestone (lead/due/overdue), unique, so a re-run or a missed tick is harmless; catch-up sends only the latest reached milestone (earlier ones recorded as skipped). **Go-live safety:** a loaded date only mails for milestones AFTER the day it was loaded (a backlog loaded today is overdue on the list but never a flood of mails); a computed In/Out item whose milestone is more than 3 days old when reminders first reach it is recorded as skipped, not sent. The 3-day figure is an operational go-live guard, not an agency setting — flagged.
+- **Status follow-through** (`RentalInspectionPlannedDateObserver`, one `AppServiceProvider` line in an I-5 marker): booked inspection completes → date **done**; cancelled or archived → date back to **planned** (and reminded again).
+- **Command Centre.** The old `start_inspection` rule is now the In rule (chain-aware) plus a move-out rule (`start_out_inspection`) and a loaded-date rule (`interim_inspection_due`), all from the one service, only for items within their lead window or overdue — never future; the "inspections due" tile and its list use the same property set (`dueNowPropertyIds`).
+- **Settings + wizard** (`planned_date_lead_days` 14, `out_due_lead_days` 7, `raise_due_inspections_enabled` on; one narrow `updateDueDates` saver, every field has()/filled()-guarded; settings section "Due inspections and reminders"; three wizard controls each with explain + affects; `currentValues` arms). Permission `rental_inspections.manage_planned_dates` (granted wherever `.create` is: branch managers and agents; admin has all).
+- **Waiting, not built:** Q14 — an In booked while the lease is still out for signing. `start()`/`schedule()` still require an ACTIVE lease, unchanged.
+- **Reported, not changed:** the Lease Hub next-step card and any block on `corex/leases/show.blade.php` stay deferred until lease-hub lane L3a lands, as this section says; interim has no label on the property tab's recording screen (above); one open interim per tenancy at a time (the existing "already under way for this tenancy" rule), so a second loaded date can only be booked after the first inspection is completed or cancelled.
+
+### 45.7a Build I-7 — The move-out comparison: one screen, both photo sets, differences marked, classified (points 6a-6b, no money)
+
+**One screen, not three.** The out-inspection's "Deposit comparison" page (`/corex/rental-inspections/{id}/deposit-comparison`) is rebuilt as the **Move-out comparison**; the property tab keeps its "vs previous" view for day-to-day walking. Baseline for the comparison page = the tenancy's completed **In** inspection (the standard says "outgoing vs incoming"), resolved along the `previous_lease_id` chain; interim inspections and fault reports appear as context between the two, never as the baseline. (Today the page picks "this lease's latest completed In" while the tab uses the chain predecessor, so they can disagree once interims exist — `RentalInspectionComparisonService.php:86-94`.)
+
+1. **Side-by-side per room, per item** — one row per item: baseline cell | outgoing cell, each with condition (agency LABEL, not the raw key `ucfirst()` the page prints today, `deposit-comparison-page.blade.php:86-94`), note, photo strip with capture times (I-1), photo notes. The same match groups and viewer as the tab (`openCompareViewer`) — photos open paired, not as a count. Room-level general photos shown per room, both sides. Rooms in walking order; collapse per room; "Differences only" toggle.
+2. **Differences marked — derived at read time, never stored.** A row is marked when the outgoing condition's severity bucket (`RentalInspectionSetting::conditionSeverityFor()`, agency-configured — replacing the hard-coded `'good'` test at `RentalInspectionComparisonService.php:213`) is worse than the baseline's (green → amber → red), or the bucket is the same but the state differs (marked *Different*, never auto-called worse), or the item exists on one side only, or one side is N/A. Labels: *Worse than move-in* · *Different from move-in* · *Same as move-in (already present)* · *Better* · *New item* · *Not at move-out*. Keys, remotes and meter readings keep their header diff.
+3. **Context on the same row** (fixes "damp wall reported, never repaired"): every observation of source `tenant_fault_report`/interim/ad-hoc on that item, every fault report and work order raised against the item (status, closed date, who did it) — one compact timeline per marked row. Money figures are NOT shown here (I-8 owns money).
+4. **Classification (a human judgement, append-only).** `rental_inspection_item_findings.disposition` is `string(20)` (`2026_09_21_120000…:40`) so no schema change: existing `wear_and_tear` and `flagged` stay valid; new values `pre_existing`, `landlord_cost`, `charge_tenant` (all ≤20 chars). Note stays required on every finding; supersede chain unchanged. A finding can now be recorded on any marked row (today only on `declined`, `RentalInspectionComparisonService.php:297-305`). `charge_tenant` rows are recorded as the agent's judgement and are the intended SOURCE of deduction lines when the finance build (parked I-8, §45.0) is built; nothing in the current plan turns them into money.
+5. **Follow-up becomes comparison-aware:** on an out-inspection the Follow-up list (`RentalInspectionFollowUpService.php:96-103`) shows items that are worse than move-in first and labels already-present defects "Already present at move-in", preselected off — raising a repair record for an old defect stays possible but is deliberate (Q to be confirmed with the build prompt; low risk).
+6. **Inventory comparison** stays its own page (`RentalInventoryComparisonService`); this screen links to it (the finance build can pull both into one schedule later).
+
+**List/CRUD/scoping.** Child screen of an inspection: no list of its own. Search within the page (item/room text), filter (room, difference type, classification state), sort (walking order default, severity), nothing to paginate beyond collapsed rooms (page loads per room beyond 150 items — N+1 on photos fixed with eager-loading, `RentalInspectionComparisonController.php:42`). Read through `{rentalInspection}` binding + guard; the baseline inspection is resolved from the same lease chain, never from a posted id. Findings recorded with `rental_inspections.review_deposit_comparison` (existing). Archive of a finding = supersede with a note (no hard delete). **Wizard:** none (no new setting). **Tests:** In only/Out only, no baseline at all (first inspection ever), baseline archived, agency with a non-`good` baseline state, item retired after In, renamed room, 0/1/many photos each side, finding superseded twice, tenant fault report between. Files: `RentalInspectionComparisonService`, `RentalInspectionComparisonController`, comparison view + partials, `RentalInspectionItemFinding`, `RentalInspectionFollowUpService` (ordering/label only), compare-viewer include in `properties/show.blade.php`.
+
+**BUILT-STATE NOTE — Build I-7, 2026-10-07 (cc6, lane B) — landed on QA1 only; everything in §45.7a built, with ONE deliberate deviation (the photo viewer, below).**
+
+- **One screen.** `/corex/rental-inspections/{id}/deposit-comparison` (route name unchanged) is now the **Move-out comparison**; the property tab keeps its own "vs previous" view. Baseline = the tenancy's completed In, found along `previous_lease_id` (nearest lease first; the old single-lease lookup is replaced; archived and not-completed Ins still serve as before). Interim inspections and fault reports are row context only. The baseline is worked out from the lease — never from an id in the request.
+- **Differences, read time, never stored** (`RentalInspectionComparisonService::differenceFor()`): the agency's own severity buckets (`conditionSeverityFor`: blue/grey < amber < red; an unmapped state ranks red, the same cautious default the colours use) — higher outgoing bucket = **Worse than move-in**; lower = **Better**; same bucket but a different state = **Different from move-in** (never auto-called worse); identical = **Same as move-in** (an unchanged defect reads **Same as move-in (already present)**); recorded at move-in only, or N/A at move-out = **Not at move-out**; recorded at move-out only, or N/A at move-in = **New item**; N/A on both sides is not a row. Marked rows = worse, different, new, not-at-move-out. This replaces the hard-coded `'good'` test; the old `compareItems()` labels now follow the same rule (worse and different stay DECLINED, better = IMPROVED). **Consequence, by design of the rule:** fair → good (both calm) used to read "improved" and now reads "different"; one existing test was updated and a new one pins it.
+- **Rows.** Rooms in the property's room order (`sort_order`, then id), items in their own order, items without a room last under "General"; each condition is the agency's LABEL on a chip in its severity colour; the note; the photo strip with capture times (I-1 captions) and the photo's own note; room-level general photos per room, both sides; each room collapses; "Differences only"; count chips that filter. Search (item, room, note), filters (room, difference, classification state), sort (walking order or worst first). Keys/remotes/meters keep their header diff.
+- **Context on a marked row** ("What happened in between"): observations from the tenancy's other inspections of source tenant fault report or ad-hoc/interim, every fault report and work order raised against the item (status, closed date, "by <supplier>" or "by our team"), linked. **No money anywhere.**
+- **Classification** (append-only, a note is required, supersede chain unchanged): the existing `wear_and_tear` and `flagged` plus `pre_existing`, `landlord_cost`, `charge_tenant` (`disposition` is string(20) — no schema change), recordable on ANY marked row. Screen words: Fair wear and tear · Flagged as a genuine difference · Pre-existing · Landlord's responsibility · Charge to tenant — the last three follow this section's wording and are **provisional until Johan approves the exact strings (§45.11 item 4)**. `charge_tenant` is a recorded judgement and the intended source of deduction lines for the parked finance build; nothing here turns it into money.
+- **Follow-up is comparison-aware** (`RentalInspectionFollowUpService`, ordering and label only): on an out-inspection the list shows what got worse since move-in first, then different/new, and a defect that was already present at move-in last, labelled **Already present at move-in**; nothing is preselected and every item keeps every action. In-inspections are untouched.
+- **Inventory** has its own comparison; this screen links to it when the lease has a completed inventory.
+- **DEVIATION — the photo viewer (reported, needs a decision).** §45.7a item 1 says to reuse the property tab's `openCompareViewer`. That viewer is bound to the property page's own state (`chainTail`/`chainPredecessor`, the page's item/photo/match arrays, tag and note panels, its mutation endpoints) — reusing it on a separate screen means embedding the whole property page's Alpine app, or deep-linking into the tab (which would pair predecessor-vs-current, not In-vs-Out, the very disagreement §45.7a exists to remove once interims exist), and either needs edits inside the 11,000-line shared `properties/show.blade.php`. I built a small paired viewer ON the comparison screen instead: move-in beside move-out for the row you clicked, photos linked by the existing photo match groups first, then the unmatched ones, with each photo's capture time and note; arrows or buttons step through, Esc closes. It reads the same match groups, so a pair made on the property tab shows paired here. It has no tagging, noting or linking controls (those stay on the tab). If Johan wants the tab's viewer itself, say so — that is a separate, larger piece of work in lane A's file.
+- **Not changed / reported:** `RentalInspectionComparisonService::compareItems()` stays as the legacy API (used by `recordFinding()` and its tests). The comparison builds the vocabulary lookup once per service instance, so a 40-item inspection costs a bounded handful of queries (a test pins it).
+
+### 45.7b Build I-8 — Deposit settlement and deductions schedule (points 6c-6e). **PARKED 6 Oct 2026 — belongs to the finance build; REMOVED from the current plan (§45.0, Q1–Q4).**
+
+> **PARKED.** Johan, 6 Oct 15:11: deposit, the deductions list, who finalises it and the amount charged belong to the finance build and are not to be built now. Everything below is kept only as the starting design for that build; none of it is scheduled, and the "no deposit ledger" rulings it would amend (`rental-work-orders.md` §5.1a, `leases.md` §3.3, `rental-inspection-form.md` §7.3) remain in force. Question numbers inside this subsection use the OLD numbering (old Q9–Q12 = printed Q1–Q4). **Revisit when the finance side is built.**
+
+**Scope as recommended (Q9b): record facts, move no money.** This is a record of the deposit settlement, not a trust ledger. It amends (in the same commit as the build) the three standing rulings — `rental-work-orders.md` §5.1a, `leases.md` §3.3, `rental-inspection-form.md` §7.3/§7.4 — and notes in `rental-money.md` that a deposit refund is a payment out that spec does not model.
+
+**Data (two new tables keyed by `lease_id`; no column added to `leases`, so lease e-sign M2 is never touched).**
+- `rental_deposit_settlements` — `id`, `agency_id`, `lease_id` (unique per tenancy term), `out_inspection_id` (nullable), `agreed_deposit_amount` (copied from `leases.deposit_amount` for reference, never edited here), `deposit_held_amount` (decimal(12,2), entered; prefilled from the agreed amount and labelled "agreed — confirm what was actually held"), `interest_amount` (decimal(12,2) nullable, entered; a "Use the deposit interest calculator" prefill links the existing `DepositInterestCalculatorService`, never auto-applied), `status` (`draft` | `issued` | `settled`), `issued_at`, `issued_by_user_id`, `approved_by_user_id` (Q12), `refund_due_snapshot` (frozen at issue), `refund_paid_on` (nullable date), `refund_reference` (free text), `refund_recorded_by_user_id`, `note`, `created_by_user_id`, timestamps, `deleted_at` + `archived_by_user_id`. Refund balance = held + interest − sum(active lines), computed live in draft, frozen at issue.
+- `rental_deposit_deduction_lines` — `id`, `agency_id`, `settlement_id`, `source` (`finding` | `inventory` | `keys_meters` | `repair` | `manual`), `rental_inspection_id`, `rental_inspection_item_id` (nullable), `finding_id` (nullable), `inventory_line_id` (nullable), `rental_work_order_id` / `rental_job_card_id` (nullable), `description` (required), `amount` (decimal(10,2), required, ≥0), `amount_basis` (`estimate` | `quote` | `invoice` | `actual`), `suggested_amount` (nullable, what the system pre-filled and from where — Q10), `bearer` (`tenant`; reserved for later), `status` (`proposed` | `included` | `waived`), `waived_reason`, `created_by_user_id`, `superseded_at`, `superseded_by_id`, timestamps, `deleted_at`. Issued settlements are immutable: a change supersedes lines/versions and re-issues; nothing is edited in place.
+
+**Behaviour.**
+1. **Build from marked items.** "Start deductions schedule" on an out-inspection (or its comparison page) creates the settlement and offers every `charge_tenant` finding (I-7), inventory shortfalls/damage (`rental_inventory_line_dispositions`), and keys/remotes/meter differences as `proposed` lines; the agent includes, edits or waives each with a reason. Manual line allowed (cleaning, arrears are out of scope until Rental Money). Pre-existing/fair-wear/landlord-cost findings never create lines.
+2. **Repairs link to job cards both ways.** On a line (or a marked comparison row) **Raise repair** uses the existing Follow-up creation (`RentalInspectionFollowUpService`, `rental-work-orders.md` §15) with the item FKs — fault report, work order or job card; the line stores the created `work_order_id`/`job_card_id`. Conversely, `RentalWorkOrderClosed` (dispatched at `RentalWorkOrder.php:788`) lets a listener offer "Add to deductions schedule" on a closed repair linked to this lease/item — an offer only, never an automatic charge. The pre-filled amount follows Q10 (default: the owner-facing total) and the agent confirms. **I-8 never edits `paid_by`, `RentalCloseGuards`, `RentalJobCardService::complete()` or `RentalReportService::workOrders()`** (maintenance Build 3's files); the deduction line, not `paid_by`, records who ultimately bears a cost.
+3. **Issue.** Per Q12 a manager/principal approves; issuing freezes the schedule, generates a PDF (schedule + the evidence links/QR already used by the inspection report, attendance block from I-3), files it to the property documents via `SignedDocumentDistributionService` and sends it as a copy to tenant(s), landlord(s) and the agency via the I-4 seam (Q11b tenant visibility; landlord always). Recording **refund paid** (date, reference) moves it to `settled`. Neither step moves money.
+4. **Written exception to "tenants never see a price":** the *issued* settlement is the only money a tenant sees — never job-card cost, markup or selling lines; the exception is stated in this section and covered by a test in the style of `CrewPayloadNeverCarriesSellingTest`.
+5. **Tenancy log:** settlement events appear in the Lease Hub tenancy log through existing `LeaseEvent` rows (not an edit to `LeaseTimelineService`, which maintenance Build 3 owns).
+
+**List screen (new): Deposit settlements** — nav entry under Rentals (same-day), `rental_deposit_settlements.view`. **Search:** property address, tenant name, lease reference, agent name, refund reference. **Sort:** move-out date (default newest first), property, status, refund due, issued date. **Filters:** status (draft/issued/settled), move-out date range, agent, "refund unpaid for more than N days" (N from a new agency setting `deposit_refund_reminder_days`, default 7, 0 = off, with a due-notice mirroring I-5), branch/own/agency pill. **Pagination** 25/50/100; **empty states** (no settlements yet vs no match); **archive/restore** (soft delete; archived rows show who/when; issued settlements can only be archived by `rental_deposit_settlements.archive_issued`). Print/CSV export of the filtered list, same scoping.
+**Scoping:** `BelongsToAgency` on both tables; own = lease's property agent or creator, branch = property branch, agency = all, resolved at the query layer through `lease → property` exactly as inspections do; show/edit/issue/PDF/export re-check via guard; no public token.
+**Permissions (new, `config/corex-permissions.php`):** `rental_deposit_settlements.view`, `.manage` (draft lines), `.issue`, `.record_refund`, `.archive_issued`; defaults: agents view + manage, managers/principals issue.
+**Wizard:** `deposit_refund_reminder_days`, `deposit_settlement_requires_approval` (Q12, default true), `tenant_sees_issued_settlement` (Q11, default true) — rows with explain/affects, `has()`-guarded saver, `currentValues()` arm.
+**Input space / tests:** deposit never captured (`deposit_amount` null → prompt, never 500), held ≠ agreed, deductions exceed deposit (refund balance negative → shown as "shortfall", never hidden or clamped), zero lines (full refund), line with no amount, work order closed with no cost, repair raised twice for one item (idempotent per item+inspection), finding superseded after line created (line shows "finding changed", agent re-confirms), lease renewed (settlement stays on the old term), settlement for a lease with no out-inspection (manual), create → archive → recreate on the unique `lease_id` (§5a: `withTrashed()`+restore), issue → supersede → re-issue, tenant sees only issued, other-agency id by URL. Files: 2 migrations + models, settlement service, controllers + routes, 4 views (list, draft/edit, PDF, portal block), listener on `RentalWorkOrderClosed` (one `AppServiceProvider` line in the inspections marker), `SignedDocumentDistributionService` seam (I-4), permissions, wizard, nav.
+
+### 45.8 Build I-6 — Scoping, audit, permissions, portal (point 7). I-6a is a security fix and should go first. (H1 below is already BUILT — §44a; H2–H4 remain. The portal part waits for Q13.)
+
+**I-6a — security (small, standalone, recommended before everything else):**
+- **H1 public link outlives archive/cancel — BUILT and deployed 6 Oct (§44a for inspections, `rental-inventory.md` §25 for inventory), by refusing archived/cancelled records in the one public lookup rather than by revoking the token (so a restore revives the same link). The text below is the original finding.**  — `findByPublicToken()` ignores soft deletes (`RentalInspection.php:1076-1082`); `destroy()`/`cancel()` never revoke. Fix: `findByPublicToken` honours `deleted_at`/`cancelled`; archive and cancel call `revokePublicLink()`; restore does not re-issue silently.
+- **H2 property-level endpoints** (`RecordingController.php:55,90,169-442,1108,1189,1230`) apply own/branch/agency via `authorizeProperty()` + the inspection scope before returning or changing anything.
+- **H3 create/store** — property picker and `store` use `Property::visibleTo`; `inspector_user_id` validated with an agency-scoped `Rule::exists('users')->where('agency_id', …)` (a cross-agency user can today be emailed schedule details and given a calendar event, `NotificationService.php:123-131`).
+- **H4 own-scope parity** — guard accepts the inspector as well as the creator, matching `scopeVisibleTo` (`AuthorizesRentalRecordScope.php:57` vs `RentalInspection.php:431-433`); add the missing inspector test.
+Tests: direct-URL-by-ID for each, every role, archived/cancelled token, cross-agency inspector id.
+
+**I-6a H2–H4 — BUILT 7 Oct 2026 (QA1), branch `cc1-inspections-i6a-2026-10-07`.** No migration, no setting, no route, no permission key, no view.
+- **H2.** `RentalInspectionRecordingController` now uses `AuthorizesPropertyAccess` and calls one private guard, `authorizePropertyForInspections()`, as the FIRST statement of all 15 property-level actions: `tabData` (view breadth), `start`, `next`, `storeItem`, `assignType`, `retireItem`, `restoreItem`, `renameItem`, `reorderItems`, `applyDefaultRoomOrder`, `reorderRooms`, `seedFromAdvertising`, `storePhotoMatch`, `destroyPhotoMatch`, `autoPairPhotoMatches` (mutation breadth). The guard = (1) `authorizeProperty()` — the property's own/branch/agency scope, i.e. exactly the rule the property page itself applies — AND (2) the `rental_inspections` scope ceiling: `branch` requires the property to be in the user's branch; `own` adds nothing at property level (own = creator/inspector, enforced per inspection); no scope = 403. The three photo-match actions additionally call `guardRentalRecordScope()` on the property's CURRENT inspection (the chain tail), deliberately NOT on the predecessor (comparing against a colleague's finished inspection is the point of the chain). `next` keeps its existing inspection guard on top.
+- **H3.** `RentalInspectionController::create()` picker adds `->visibleTo($user)`; `store()` resolves the property through `Property::query()->visibleTo($user)->find()` (never a bare `findOrFail`) and answers 403 + a warning log when it is outside the user's scope (a nonexistent id is still the ordinary validation error). `inspector_user_id` is validated with `Rule::exists('users','id')->where('agency_id', <the inspection's agency>)` in BOTH places an inspector can be set — `storeScheduled()` and `reschedule()` (the same defect on a second line, fixed as the class, §6).
+- **H4.** `AuthorizesRentalRecordScope::guardRentalRecordScope()` — for a `RentalInspection` under `own` scope — now accepts `inspector_user_id` as well as the creator, matching `scopeVisibleTo()`. (The shared trait; the change is one `instanceof RentalInspection` block, nothing for Lease/fault-report/work-order.)
+- **Tests:** `tests/Feature/RentalInspections/RentalInspectionI6aScopingTest.php`, 15 tests / 117 assertions — every property-level endpoint refused (403/404, nothing written) for a same-branch own-scoped colleague, a branch manager of another branch and another agency's admin; property agent / branch manager / admin still work; an inspections scope of `branch` under a properties scope of `all` is a real ceiling; photo matching refused on a colleague's tail under `own`; inspector can work an inspection they did not create, a stranger cannot, the guard itself refuses when the binding is bypassed; picker offers only in-scope properties (agent, BM, admin offered; colleague, other-branch BM, other agency not); `store` refuses out-of-scope (3 users) and still starts/schedules in scope; cross-agency inspector refused on schedule and reschedule (booking untouched, no mail), same-agency and empty inspector accepted. With the app changes reverted 11 of the 15 fail. One existing test (`RentalInspectionRecordingControllerTest::test_screen_preference_is_scoped_per_user_not_shared`) had a same-branch own-scoped colleague read the agent's property tab; it now uses a branch manager, because that read is exactly what H2 refuses.
+- **Not changed, for Johan (business question):** the property tab still lists EVERY inspection on a property the user may open. A role whose properties scope is wider than its inspections scope (e.g. sees all properties, only its own inspections) therefore sees colleagues' inspections of that property on the tab. Filtering the tab's chain by inspection scope would change how the "current/previous inspection" chain behaves, so it is not done here.
+
+**I-6b — audit, permissions, portal, list fixes:**
+- **Audit log:** `rental_inspection_audit_log` (`rental_inspection_id`, `agency_id`, `event`, `user_id`, `before` json, `after` json, `created_at`; append-only, pattern of `RentalApplicationAuditLog`). Events: header edit, status change, archive, restore (and keep `archived_by` history), public link issued/revoked, attendance/signature/finding supersede, settings-driven auto actions (copies sent, due notice). A "History" panel on the inspection page (who/what/when, newest first, filter by event).
+- **Permission keys split** (today all use `.create`): `rental_inspections.edit_details`, `.archive`, `.restore`, `.cancel`, `.reschedule`, `.public_link`, `.export`, plus `.archive_completed` (completed + signed inspections are evidence: archiving needs it; default managers/principals). Existing roles are granted the equivalents in the migration so nobody loses an action they have today except archiving a completed inspection.
+- **Portal (tenant and landlord):** a portal Inspections region (web shell + `GET /api/v1/client/rentals/inspections/{id}`): upcoming (date, time, inspector, what to bring — no internal notes), completed with the signed report and photo gallery (via a portal-authenticated route, never the public token), draft/cancelled hidden (`RentalPortalScopeService.php:168-176,320-328` gain a status filter), no deductions schedule (finance build, parked). Invitation emails deep-link to the inspection, not `/portal`.
+- **List defects:** `lease_id` filter honoured; date filter/sort use `COALESCE(scheduled_for, created_at)`; export row cap with a clear message; inspector dropdown scoped to the viewer.
+- **Wizard:** none of the above are settings except the permission grants; the portal toggle (`portal_show_inspections`, default true) gets a wizard row.
+
+**I-6b — BUILT 7 Oct 2026 (QA1), branch `cc1-inspections-i6b-2026-10-07`** (portal region NOT built — waits on Q13). Migrations `2026_10_13_100400` (table `rental_inspection_audit_log`) and `…100410` (permission grants). No new setting, so nothing for the Setup Wizard (§10a) — the portal toggle waits with the portal.
+- **History.** `RentalInspectionAuditLog` — append-only (an update or delete of a row throws), `user_id` null = the system acted, `before`/`after` carry only the changed fields, `summary` is the one plain line the panel prints. Hooked on the MODEL so every path leaves the same trail: created, status changed, **cancelled (with the reason)**, **archived**, **restored (naming who had archived it — a restore clears `archived_by_user_id`, so the log is now the only lasting record)**, header details edited (changed fields only; a save that changes nothing leaves no row), rescheduled, public link issued (never the token) / revoked, attendance recorded / corrected / withdrawn, invitation recorded (I-3), paper signature replaced, finding replaced (I-7), and the automatic report mailing's outcome counts (a settings-driven action). Not logged: the due-notice reminders (I-5) — they are per lease, not per inspection, and have their own notice table. A failure to write a row never breaks the action and is logged at ERROR. Agency inspection page: a **History** panel (`#history`) — who · what · when, newest first, before → after for edits, filter by event kind (only kinds that occur, with counts), 200 most recent.
+- **Permission split.** `rental_inspections.edit_details | archive | restore | cancel | reschedule | public_link | export` plus `archive_completed`. Routes re-gated (details update, destroy, restore, cancel, reschedule, public-link generate/revoke, export, print-list); every button on the inspection and list pages follows its own key. **Nobody loses an action:** migration `…100410` grants the six write keys to every agency/role that holds `.create` (scope copied), `.export` to every role that holds `.view`, and `archive_completed` only to roles that hold `.resolve_discrepancy` (the managerial tier). The one deliberate loss — as ruled — is archiving a COMPLETED or signed inspection (`RentalInspection::isEvidenceRecord()`: completed, or any live signed / paper-signed signature): needs `archive` AND `archive_completed`, checked server-side in `destroy()` (a plain draft stays archivable with `archive` alone). Role defaults updated for the branch-manager and agent lists. Existing `.create` keeps start / record / next / scans.
+- **List fixes.** (1) `?lease_id=` (the Lease Hub link) is honoured on the same own/branch/agency-scoped query, with a visible "Showing inspections for …" chip and Show all; junk ids are ignored, unknown/unseen ones match nothing. (2) Date range filters and the default sort use `COALESCE(scheduled_for, created_at)` so a start-now inspection is found by the day it was started and no longer always sorts last; the Scheduled column shows "(started)" for those. (3) Print / export refuse a list larger than `config('rental-inspections.export_row_cap', 5000)` with a plain "narrow it" message instead of building it, and use the same newest-first order as the screen. (4) The inspector filter offers only people inside the viewer's reach (own → themselves, branch → their branch, all → the agency; never another agency).
+- **Not built — waiting:** the tenant/landlord portal Inspections region (Q13). **Reported, not changed:** other per-record guards that accept only the creator under `own` (Lease / fault reports / work orders) may share I-6a's H4 gap — not checked.
+- **Tests:** `RentalInspectionI6bTest` (22 tests / 189 assertions): every history event with who/what, before/after, no-op edit writes nothing, token never logged, append-only refusal, system actor, a failing log write never breaks the action (and is logged loudly), the panel (newest first, filter, empty state, edit diff), another agency refused; each action refused without its own key and `.create` alone opens none of them; one key opens exactly one action; archiving completed/signed needs `archive_completed` (draft doesn\'t); buttons follow permissions; the grant migration (every action kept, view-only roles get only export, managers only get archive_completed, scope copied, idempotent); the eight keys defined and defaulted; lease filter + chip + junk/unknown/out-of-scope ids; start-now placed by creation date in filters and both sort directions; export/print cap refusal with message and narrowing; screen order in print; inspector options by scope. **Test-hygiene fix:** BelongsToAgency forces a record created while an ordinary user is logged in into THAT user\'s agency, so "another agency" users must be created with nobody logged in; the I-3 test\'s outsider had silently been a same-agency colleague and now really is another agency.
+
+### 45.9 Open questions for Johan — business only (numbering = the list printed to Johan on 6 Oct; statuses after his 15:11 rulings)
+
+| # | Question | Status | Ruling, or options → recommendation | Blocks |
+|---|---|---|---|---|
+| 1 | Deposit and deductions — how far should CoreX go? | **PARKED** — finance build | — | I-8 (parked) |
+| 2 | Does the tenant see the deductions list? | **PARKED** — finance build | — | I-8 (parked) |
+| 3 | Who may finalise a deductions list? | **PARKED** — finance build | — | I-8 (parked) |
+| 4 | Amount for a repair charged to the tenant | **PARKED** — finance build | — | I-8 (parked) |
+| 5 | How strict on photos? | **RULED 6 Oct: no enforcement** | Photos are uploaded per inspection and tagged to a room or a section of a room (e.g. windows) — sufficient. Tagging to room AND section confirmed built (§45.0). | I-1 (photo guards removed) |
+| 6 | Interim inspections — automatic? | **RULED 6 Oct: no automatic scheduling** | The agency loads its own interim dates; CoreX reminds from them. Revisit when more agencies are on. | I-5 (re-cut, §45.7) |
+| 7 | Who signs an interim inspection? | **RULED 6 Oct: all parties, every inspection** | Agent, tenant and landlord sign incoming, interim and outgoing alike — legal documentation. (Ad-hoc checks not covered — stay unsigned as today; flagged.) | I-4 |
+| 8 | PDF report and photo times (PDF stays photo-free per the 23 Sep ruling) | **OPEN** | (a) per flaw "3 photos, taken 12 Aug 14:03–14:09" + the QR link, with times on every photo in the gallery; (b) also a thumbnail appendix of flaw photos; (c) leave as is. **Recommend (a).** | I-1 — the PDF line only; capture time, screens and public page proceed |
+| 9 | Default checklist | **RULED 6 Oct: (a)** | Approve the floor-to-ceiling default list AND add the "Add missing standard items" button on existing properties. | I-2 (unblocked) |
+| 10 | Furniture and contents | **OPEN** | (a) keep in Inventory with an agency starter list per room, show the count on each room; (b) merge into the inspection checklist. **Recommend (a).** | I-2 — inventory starter lists only |
+| 11 | Someone attends on behalf of a tenant or landlord — what do we record? | **OPEN** | (a) name and who they represent; (b) plus optional authority letter; (c) plus mandatory letter. **Recommend (b).** | I-3 — the authority-letter part only (name + capacity can be recorded now) |
+| 12 | Does a party who did not attend still get the completion copy? | **OPEN** | (a) yes, outcome shown as a fact; (b) no. **Recommend (a).** Until ruled, today's behaviour (every party gets the copy) stands. | I-4 — that one rule only |
+| 13 | Portal: tenants/landlords see their completed report, photos and upcoming bookings (not drafts)? | **OPEN** | (a) yes, default on, agency can switch off; (b) agency opts in. **Recommend (a).** | I-6b — the portal part only |
+| 14 | Book an incoming inspection while the lease is still out for signing? | **OPEN** | (a) only once the lease is live; (b) also while signing. **Recommend (a).** Until ruled, only once live. | I-5 — that one guard only |
+| 15 | Remote signing link for someone who could not attend | **OPEN** | (a) later, after attendance exists; (b) now. **Recommend (a).** | None of I-1…I-7 (optional I-9 only) |
+
+### 45.10 Build plan — lane-sized builds, order, conflict map (re-cut 6 Oct 2026 after Johan's rulings)
+
+**Builds (each = one lane, one Jira ticket, one cleared lane per task):**
+
+| Build | Scope (as ruled) | Migration? | Depends on | Status |
+|---|---|---|---|---|
+| **I-6a** | Security fixes **H2–H4** (property-page scoping, create/inspector scope, own-scope parity). **H1 (public link) is DONE — §44a / inventory §25.** | none | — | **BUILT 7 Oct on QA1 — see §45.8** |
+| **I-1** | Photo capture time (stored, shown on screens/public page); every-item-graded completion guard; report completeness. **No photo enforcement (Q5).** PDF per-flaw time line waits for Q8. | yes (photos, 1 setting) | I-6a merged (shares the recording controller) | **BUILT 7 Oct on QA1 — see §45.3** (PDF line waits Q8) |
+| **I-2** | Floor-to-ceiling default list + "Add missing standard items" (Q9a RULED) + agency custom room types. Inventory starter lists wait for Q10. | yes (settings JSON) | — | **BUILT on QA1 2026-10-07** (cc6) — inventory starter lists still wait Q10 |
+| **I-3** | Attendance record + invitation trail (incl. manually recorded invitations); "did not attend" as its own outcome. Representative: name + capacity now; authority-letter handling waits Q11. | yes | I-1 (report/PDF + viewer files) | **BUILT 7 Oct on QA1 — see §45.5** (letter part waits Q11) |
+| **I-4** | Copies to tenant, landlord, agency address, inspector, creator; visible delivery + resend; **all three parties sign interim (Q7 RULED)**. Non-attendee copy rule: today's behaviour until Q12. | yes (settings) | I-3 (recipients/attendance in the report); the `interim` type constant from I-5 | **BUILT 7 Oct on QA1 — see §45.6** (non-attendee copy rule waits Q12; "Ready to complete" pill BUILT in the I-4 top-up — see below) |
+| **I-5** | **Re-cut (Q6 RULED):** interim = dates the agency LOADS + reminders from them (no interval, no automatic scheduling); In/Out computed due list + agent reminders unchanged. | yes (planned dates, 2 notices tables, settings) | none of the lease e-sign builds | **BUILT on QA1 2026-10-07** (cc6) — guard on In-while-signing stays until Q14 |
+| **I-7** | Move-out comparison: both photo sets with times, differences marked, classified; mid-tenancy context; no money. | yes (findings dispositions only, no column) | I-1 (viewer captions), I-5 (interim in the chain) | **BUILT on QA1 2026-10-07** (cc6) — paired viewer is a purpose-built one on the screen, not the tab's `openCompareViewer` (see the built-state note) |
+| **I-6b** | Audit log, permission split, list fixes; portal inspections region waits Q13. | yes (audit log, permission migration) | I-3 (audit events) | **BUILT 7 Oct on QA1 — see §45.8** (portal part waits Q13) |
+| ~~I-8~~ | ~~Deposit settlement + deductions schedule + job-card links + issue + copies~~ | — | **PARKED 6 Oct (Q1–Q4) — belongs to the finance build; removed from the current plan.** Revisit when the finance side is built. | **PARKED** |
+| I-9 (optional) | Remote signing link | yes | I-3; Q15 | Open question |
+
+**Now unblocked (can be given to lanes today):** I-6a, I-1, I-2, I-3, I-4, I-5, I-7, and I-6b (all except the named waiting parts). **Waiting on an open question — only these parts:** I-1's PDF per-flaw time line (Q8), I-2's inventory starter lists (Q10), I-3's authority-letter handling (Q11), I-4's non-attendee copy rule (Q12), I-6b's portal region (Q13), I-5's In-booked-while-signing guard (Q14), I-9 (Q15). **Parked:** I-8.
+
+**Two lanes at a time (usage rule), one kept clear.** Lane X (touches `RentalInspection.php`, the recording controller, report PDF, show blade — must be sequential): I-6a → I-1 → I-3 → I-4 → I-6b. Lane Y (settings/wizard/lease-adjacent): I-2 → I-5 → I-7. I-7 starts only after I-1 has merged (shared compare-viewer file). Parallel-safe today: I-2 alongside I-6a/I-1.
+
+**Conflict map — maintenance §17 (rental-work-orders.md) Builds 1–3.** §17 Foundation is on QA1 (migrations `2026_10_11_*`, in the snapshot); Builds 1–3 add no migrations and no permission keys. Verified against §17.21 exclusive-file lists:
+- **I-1…I-7 and I-6a/b: no shared file with Builds 1–3** except append-only shared files — `routes/web.php`, `routes/api.php`, `config/agency-onboarding-copy.php`, `AgencySetupWizardController::currentValues`, `config/corex-permissions.php`, `AppServiceProvider` — each build appends only inside its own `// INSPECTIONS BEGIN/END` marker. Different outbound mail path (inspections: `SignedDocumentDistributionService`; maintenance: `RentalMailDispatcher`) — do not mix.
+- **I-8 was the only real collision and is now PARKED**, which removes the whole inspections-vs-maintenance collision from the current plan. (When the finance build is scheduled, its design note stands: link to job cards/work orders only through the existing keys and read-only services; never edit `paid_by`, `RentalCloseGuards`, `RentalJobCardService::complete()` — hard-codes `paid_by=owner` at `:685` — `RentalReportService::workOrders()`, `LeaseTimelineService` or the tenant Jobs tab, all maintenance Build 3's; schedule it after Builds 1 and 3, and re-test Follow-up after Build 3.)
+- **Rental Money (AT-446, spec only)** models Deposit as a charge with inbound payments only — relevant to the finance build, not to the current plan.
+
+**Conflict map — lease e-sign series (`leases.md` §15, spec only; merged to QA1 as spec).** It changes only `.ai/specs/leases.md` and touches no inspection code.
+- **I-5 is independent of the lease builds:** it scans ACTIVE leases daily (In/Out due) and reads its own loaded-dates table (interim), so it needs no activation hook and edits none of L1–L3's files (`Lease.php`, `LeaseController`, `LeaseHubService`, `corex/leases/show.blade.php`); the Lease Hub card and any lease-page block wait for L3a.
+- **I-4's interim signing** extends the in/out signing guard in `RentalInspection.php` — an inspections file, not a lease file.
+- **Shared mechanics:** `database/schema/mysql-schema.sql` (76 commits in 3 weeks) — one regenerating lane per day (`scripts/schema-dump.sh`, DEFINER stripped), prefix `2026_10_13_*` for inspection migrations; `routes/console.php` (L3b adds `leases:reconcile-signing` near `:35`; I-5 adds its two commands beside `:48`) — textual only; `config/agency-onboarding-copy.php` — different arms (leases step vs inspections `:504-540`).
+- **Other unlanded branches that touch the same hot files** (AT-432 Auctions, PPRA letter, fault-routing slice 3, platform e-sign): textual only for `routes/web.php`/`properties/show.blade.php`/permissions; fault-routing slice 3 rewrites `RentalWorkOrder::selectQuote()` (also Build 2's) — not an inspections file, reported for the Build 2 owner.
+
+### 45.11 Wording flagged for Johan (strings I have NOT written — facts only until approved)
+
+1. Attendance outcome labels and the printed attendance line (today a non-attendee prints "Refused to sign — Reason: Not present for the walkthrough", `show.blade.php:646-650`): attended / did not attend / attended on behalf of … — exact wording and any sentence about what attendance means for deposit rights under the Rental Housing Act. **Not drafted.**
+2. Invitation fact line: "Invited by email to <name> on <date, time>" — confirm; whether failed sends and reminders appear on the printed record.
+3. ~~Deductions-schedule headings, status words and the replacement footer sentence~~ — **parked with I-8**; the existing comparison-page footer ("This is a proposal for review, not a deduction…", `deposit-comparison-page.blade.php:125`) stays as it is.
+4. Comparison page buttons: "Fair wear and tear", "Flag as a genuine difference", "Difference — needs review" (`:106-119,:25`) and the new classification words (pre-existing, landlord's responsibility, charge to tenant) — **the three classification words are now an AGENCY SETTING (§45.14, Johan 7 Oct), defaults unchanged; no approval needed for them any more.**
+5. Whether the minimum-notice figure (`RentalInspectionSetting.php:842`, warn-only today) is printed on the record as a fact.
+6. The completion email subject/body (an ad-hoc inspection currently reads "Ad_hoc-inspection report", `RentalInspection.php:1140`).
+
+### 45.12 Reported, not changed (found while measuring)
+
+Already listed against the builds above where a build fixes them; all remain UNCHANGED until Johan's go. Beyond those: ~~retired items disappear from a completed report~~ (FIXED 7 Oct, §45.13) · compare viewer shows a blank date for unscheduled inspections (`properties/show.blade.php:6642`, I-1) · `signing_deadline_at` is display-only (`RentalInspection.php:462`) · reminder command matches only the exact day and has no per-row try/catch (`SendRentalInspectionReminders.php:52-65`; I-5's due notices do not use it, the existing reminder is untouched) · `printForSignature()`/`form()` change state on GET (`RentalInspectionController.php:633-649,583-594`) · export/print list unbounded (`:395,:408`) · "improved" hard-codes `good` (`RentalInspectionComparisonService.php:213`; fixed in I-7) · invitation recipients (all landlords) ≠ signing landlord (one) (`NotificationService.php:165-185` vs `RentalInspection.php:350`) · Follow-up on an out-inspection lists defects already present at move-in (`RentalInspectionFollowUpService.php:96-103`; fixed in I-7) · `RentalJobCardService.php:685` hard-codes `paid_by=owner` (Build 3's file; I-8 works around it) · spec/code drift: `rental-inspection-form.md` §7.1/§7.4 describe a photo-showing comparison page the code does not have; `rental-renewals.md` header still says "SPEC ONLY"; §17.1 "what exists today" is partly superseded by §17.24 · two lease models still written (`Lease`, legacy `Docuperfect\LeaseRecord`, `SignatureService.php:5297-5396`) · name collisions to keep out of prompts: "Inspection Pack" (PPRA compliance, not rental), "completion" (inspection / maintenance round / job card), "distribution" (signed-document service vs deal distributions), "deductions" (also payroll).
+
+### 45.13 Inspections bug-fix batch — 7 Oct 2026 (cc1; Johan's go on the four reported defects) — BUILT
+
+1. **Archived item photos stay off the public report link.** `RentalInspectionPublicController` loaded `observations.photos` with every global scope lifted, which also lifted the soft-delete ("archived") filter. It now lifts only the AGENCY scope (the same as the room photos added in I-1), so an archived photo — e.g. one removed as "wrong property" — never reaches the tenant/landlord link. Rule: on the public page, never lift the soft-delete scope on anything.
+2. **A report is a record of what was inspected at the time.** Retiring an item later no longer removes it from that inspection's reports. `RentalInspectionItem::scopeListedOnReportOf($inspectionId)` = every live item PLUS any retired item with a **recorded** (not photo-anchor-only) observation in THAT inspection. Used by the three report builders: the public link, the signed PDF (`RentalInspectionReportPdfService`) and the comparison on the inspection page (`RentalInspectionController::buildComparisonRows`). A retired item the inspection never assessed stays out; a later inspection (made after the retirement) does not list it either. The blank form PDF and the recording screen are unchanged (a retired item is not asked again).
+3. **Interim reads "Interim" on the property's Inspections tab.** One helper (`inspectionTypeLabel`, in the property page's Alpine component) now names the type for the tab's header line and both compare-viewer headers (previously: anything not in/out printed "Routine-inspection"). Ad-hoc keeps its existing "Routine" wording there — not part of this fix.
+4. **cc4's I-4 "another agency is refused" test used a same-agency user** — the same blind spot as I-3's: `BelongsToAgency` forces a newly created `User` into the *acting* user's agency, so a "stranger" created while the agent is logged in is silently a colleague. Fixed in `RentalInspectionI4CopiesTest` (log out first; assert the stranger's `agency_id`). **Test-writing rule for every inspections test: create the other-agency user with nobody logged in, then assert its `agency_id`.**
+
+Tests: `RentalInspectionReportRecordTest` (new) + the corrected `RentalInspectionI4CopiesTest`.
+
+### 45.14 Move-out classification wording is an agency setting — 7 Oct 2026 (cc1; Johan's instruction) — BUILT
+
+**What:** the three classifications an agent can record against a marked row on the move-out comparison — *Pre-existing*, *Landlord's responsibility*, *Charge to tenant* — are worded per agency. The current three are the defaults, so an agency that never opens the setting sees no change.
+
+- **Keys are fixed, logic never reads wording.** `pre_existing`, `landlord_cost`, `charge_tenant` (`RentalInspectionItemFinding::DISPOSITION_*`) are what is stored, validated (`in:` the keys), filtered (`classification=` the key) and compared. The labels are display only. Tested with the nastiest case: two labels swapped onto each other's default wording changes nothing the code does. The two older judgements (*Fair wear and tear*, *Flagged as a genuine difference*) are not agency-worded (not asked).
+- **Storage:** `rental_inspection_settings.move_out_classification_labels` (nullable JSON key → label; migration `2026_10_13_100500`). Read time: `RentalInspectionSetting::moveOutClassificationLabelsFor($agencyId)` (always all three keys; a blank/missing label falls back to the default; max 60 characters; unknown keys ignored). `dispositionLabelsFor($agencyId)` = the five keys in their fixed order with this agency's wording — what the comparison screen shows.
+- **Where it is set:** Settings → Rental Inspections → *Move-out classifications* (`corex.settings.rental-inspections.move-out-classification-labels`, permission `rental_inspections.manage_settings`) and the Setup Wizard Rentals step (same control, "What it is" + "What this changes", saver `RentalListsWizardSaver::inspectionMoveOutClassificationLabels` — a no-op unless its `_submitted` marker was posted, so a wizard step that never rendered it cannot wipe it; the canonical saver refuses a post without the marker). Clearing every box returns the agency to the defaults (stored as null).
+- **Where the wording shows:** the classification dropdown, the Classification filter and the "Classified … by …" line on the move-out comparison screen — nowhere else. A reworded label applies to the screen from then on, including findings recorded earlier (the stored key is unchanged).
+- **Reports and PDFs already produced keep their wording — and today none of them carries these words.** The signed PDF and the public report link do not print classifications (asserted by a test: they contain neither the default nor the agency wording). So nothing already produced can change. **Rule for the parked I-8 (deductions schedule) and anything else that will print a classification: write the wording used AT PRODUCTION TIME into the produced document (a snapshot string stored with it); never re-read the setting when re-rendering an already-produced document.**
+- **Second agency:** each agency has its own row; another agency sees the defaults until it saves its own (tested).
+
+Tests: `RentalInspectionMoveOutLabelsTest`.
+
+---
+
+## 46. Signing an inspection by personal link, QR code, or on the agent's device — 7 Oct 2026 (cc6; Johan's instruction) — BUILT on QA1; the held part (§46.8) is now ruled and built as §47
+
+**Why.** Johan: *"get the report on a link that can be sent to all parties; they can peruse it and, when happy, sign electronically from the link and we record it. The agent is at the property and opened the link on their phone to do the inspection; the agent can share to the tenant who is at the property and they sign on their own phone, or sign on the agent's phone. Also: give the agent a QR code for the owner and for the tenant; the tenant scans it, the report opens and they can sign off."* This is what §45.6 item 6 / Q15 / I-9 called the remote signing link; Johan has now asked for it, so it is built. The signing rules of §15/§16/§45.5–45.6 are unchanged: agent, tenant(s) and landlord sign every in / interim / out inspection; attendance and "not present" are untouched; wet-ink is untouched.
+
+### 46.1 What existed before (measured, file:line on QA1 `e05e1dfb8`)
+
+| Question | Answer |
+|---|---|
+| Who signs, where | Tenants on the lease, the landlord (`Property::sellerOwnerContact()`), the agent — only on the agent's logged-in screen: a canvas pad for tenant/landlord, the PIN signature for the agent (§34). `RentalInspectionRecordingController::storeSignature` (`:1391`). |
+| How a signature is captured and stored | One `rental_inspection_signatures` row per party via `RentalInspectionSignature::capture()` (`:129-250`): disposition signed / refused / wet_ink / awaiting_wet_ink, PNG on the private disk (`storeCanvasImage()`), `recorded_by_user_id`. A correction supersedes the old row. It stored **no IP, device, typed name or "which link"**. |
+| Public report link | One token per inspection (`rental_inspections.public_token`, `RentalInspection.php:1202-1275`), shared by everyone, read-only, no sign step, expiry setting `public_link_expiry_days` (default 90), already dead when archived/cancelled (§44a). |
+| Per-party tokens | None. |
+| Completion and "copies sent" | A deliberate agent click on **Complete** (`markCompleted()`, then `RentalInspectionRecordingController::complete()` calls `RentalInspectionCopiesService::fileAndSend(autoOnly: true)`); the **Copies sent** panel reads the delivery log. |
+| Wet-ink | A scan is uploaded, or the party is marked "awaiting wet-ink" and the scan arrives later (`supersedeWetInk()`); Complete is refused while anyone is still awaiting paper. |
+
+### 46.2 The rules (decided here)
+
+- **One personal link per party**, per inspection: each tenant, the landlord, the agent. An unguessable 48-character token (`Str::random(48)`, unique index), stored as issued so the screen can show the same link again (copy / QR / WhatsApp) without sending a new one each time. Table `rental_inspection_signing_links` (migration `2026_10_14_100000`). A link is never deleted: revoking stamps `revoked_at`; replacing revokes the old row and issues a new one, so who-was-sent-what survives.
+- **A link shows only its own inspection.** The page is the SAME read-only report as the general public link (rooms, items, conditions, notes, photos, attendance, signatures) — `RentalInspectionPublicController::reportData()` is the single builder, so the two can never disagree — plus a **Sign** step at the end.
+- **When a party can sign.** Only while the inspection is **ready to sign** (`awaiting_signature` — exactly where the recording screen offers signing today), the agency has the setting on, the inspection is an in / interim / out (ad-hoc is not signed), the link is live (not revoked, not expired), the link has not already been used, and the party has no live signing outcome recorded another way (an agent who recorded a paper refusal first wins; a link then answers "already recorded"). Before ready-to-sign the party can read the report; the page says signing opens when the agent finishes. After completion a link stays a read-only view of the signed report until it expires or is revoked; it accepts nothing.
+- **The Sign step.** Type full name, draw signature, tick *I have read this inspection report*, optional comment. Or **decline / dispute** — which reuses the agency's own refusal reasons (§15.6: "Disputes the recorded condition", "Not present for the walkthrough", "Refused outright, no reason given", "Other" — or whatever the agency edited them to; "Other" needs a note); nothing new is invented. A decline is a `refused` disposition, a first-class outcome (§15.5), never an error.
+- **What is recorded** (columns on `rental_inspection_signatures`, migration `2026_10_14_100010`, all nullable so older rows read exactly as before): `signed_via` (`link` = the party's own phone; `agent_device` = signed on the agent's logged-in device), `signing_link_id`, `signed_on_device_by_user_id` (the agent), `signed_typed_name`, `read_confirmed_at`, `signer_comment`, `signed_ip`, `signed_user_agent`, `signed_report_fingerprint` (§46.8), plus the existing `disposition_recorded_at` as the date/time. Signing goes through `RentalInspectionSignature::capture()` itself, so every invariant (one disposition per party, a real PNG, never after completion) holds for a link signature too. The web report page (the general public link and the party links) shows "signed from their own link as <name>" / "signed on the agent's device as <name>" and the comment; the signed PDF is not changed (reported in §46.9).
+- **Signing twice is impossible**: the link row is locked inside the transaction; the second attempt is refused ("already used") and exactly one signature exists. A refused attempt (no signature drawn, box not ticked, bad image, name missing) records nothing and does not use the link up.
+- **The agent's link** opens the report read-only. The agent does **not** sign through a token: an unauthenticated link that signs *as the agent* would bypass the PIN that §34 deliberately requires. The page says so and offers "Open this inspection in CoreX"; the agent signs there as today (and only after every other party has an outcome — §15.2a unchanged). Flagged for Johan below.
+- **Completion is unchanged.** Link signatures do not complete the inspection; the agent still signs and presses **Complete**, `markCompleted()` still requires every tenant, the landlord and the agent, attendance is still required, and the completion copies go out exactly as today (`RentalInspectionCopiesService`). The "Ready to complete" pill now also turns green when a party signs from their phone, because the recording screen refreshes its signatures when the panel sees a change.
+- **A non-attendee can sign from a link.** Attendance is untouched (a party recorded "did not attend" still reads that way on the report); the signature row says it was signed from their own link. This is the remote signing Johan has asked for; it does not auto-record anything about attendance.
+- **Expiry** is an agency setting (default 30 days from the day the link is issued). Wrong, revoked, expired, archived and cancelled all give the one uniform "This link isn't available" page (§44a) — a stranger cannot tell which. Restoring an archived inspection revives its live links.
+
+### 46.3 Sending (agent side)
+
+`CoreX\RentalInspectionSigningLinkController`, all under `/corex/rental-inspections/{inspection}/signing-links` (the existing inspection route group — the module's own convention, like attendance and copies; not a new `/api/v1` namespace):
+
+| Action | Route | Permission |
+|---|---|---|
+| Panel (per-party status) | `GET …/signing-links` (`corex.rental-inspections.signing-links.index`) | `rental_inspections.view` + own/branch/agency scope |
+| Issue / copy / WhatsApp / QR / device marker | `POST …/signing-links` (`.issue`) | `rental_inspections.public_link` |
+| Email everyone | `POST …/signing-links/send-all` (`.send-all`) | `rental_inspections.public_link` |
+| Email (or resend) one | `POST …/signing-links/{link}/email` (`.email`) | `rental_inspections.public_link` |
+| Revoke | `POST …/signing-links/{link}/revoke` (`.revoke`) | `rental_inspections.public_link` |
+| QR (data URI of the link) | `GET …/signing-links/{link}/qr` (`.qr`) | `rental_inspections.public_link` |
+| Sign on this device | `GET`/`POST …/signing-links/{link}/device` (`.device`, `.device-submit`) | `rental_inspections.create` |
+
+No new permission key: sharing a signing link is the same act as sharing the public report link (`.public_link`), and signing on the agent's device is the same act as recording a signature (`.create`). Every action is scoped through `guardRentalRecordScope()` and a link must belong to the inspection in the URL (404 otherwise); another agency's user gets 403/404 and nothing is sent.
+
+- **Email** uses the agent's own mailbox through `SignedDocumentDistributionService::sendGenericMail()` — the same path as the scheduling mails — so in every non-production environment it is redirected to the configured test address (QA1: `can.assurance@gmail.com`). Neutral wording; the agency name and the agent's details come from the agent footer. A party with no email address is **skipped with a reason**, never silently dropped. **Email everyone** issues and emails every tenant and the landlord (not the agent), and reports per person.
+- **WhatsApp** opens `wa.me` with the link in the message (number normalised by the existing `WhatsAppNumberFormatter` with the contact's own dial code — not the SA-only normaliser); with no number it still opens so the agent can pick the chat. There is no server-side WhatsApp send in CoreX, so this is honest: it counts as "sent" when the agent opens it. **Copy link** likewise.
+- **Status per party** (chip + detail line): *Not sent* · *Sent* (by email to …, or WhatsApp/copied/QR) · *Opened* (first-opened time; an agent previewing while logged in does not count) · *Signed* (with time and how) · *Declined / disputed* · *Expired* · *Revoked*, with "Email failed: …" / "No email address on file." shown when relevant. A party recorded by another route (paper, in person) shows that outcome instead.
+- **Show QR** — next to each tenant/landlord: a full-screen white overlay on the agent's phone with that party's link as a large QR code; the tenant or owner scans it and the report opens on their own phone. The image encodes the link's URL and nothing else (asserted byte-for-byte in the tests). It sits on the **inspection page** and on the **property Inspections tab recording screen** (the phone screen), shown for any open inspection and hidden when the agency has the setting off or the inspection is ad-hoc.
+- **Sign on this device** — the agent hands over their own logged-in phone; the party sees the same report and Sign step; the submit goes through the agent's session (CSRF-protected, `.create`), so the record says `agent_device` and carries the agent's user id (also on the History row). Enabled only when the inspection is ready to sign.
+- **Live refresh.** The panel re-reads every 15 s while visible; when someone's outcome changes it tells the host screen (the recording screen re-fetches its data; the inspection page reloads), so a tenant signing on their own phone shows up on the agent's screen without a refresh.
+- **History.** New events: *Signing link sent*, *Signing link revoked*, *Signed from a link* (never the token).
+
+### 46.4 Public routes
+
+`/rental-inspection-sign/{token}` (page), `POST …/submit` (CSRF-exempt like the other token-gated public POSTs — the token is the credential and a lapsed session must not turn a signature into "this link has expired"; the agent's own device POST is **not** exempt), `GET …/report.pdf` (the same PDF the completion copies carry — "Download the report"), `GET …/signatures/{signature}/{kind}` (the token-authorised signature image, only for that link's own inspection). Rate limits: reading 60/min per link, the signing POST 10/min per link and address. `X-Robots-Tag`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer` as on the public report.
+
+### 46.5 Settings (agency, with defaults, also in the Setup Wizard — CLAUDE.md #10a)
+
+`rental_inspection_settings.signing_link_enabled` (default **on**) and `signing_link_expiry_days` (default **30**) — migration `2026_10_14_100020`, nullable read-time-default pattern (`RentalInspectionSetting::signingLinkEnabledFor()` / `signingLinkExpiryDaysFor()`). Edited at Settings → Rental Inspections (the existing shared `update()` saver, both `has()`-guarded so a wizard step that renders only one cannot wipe the other) and in the Setup Wizard Rentals step (`config/agency-onboarding-copy.php`, each with "What it is" and "What this changes", values in `AgencySetupWizardController::currentValues()`).
+
+### 46.6 Screens and scoping (BUILD_STANDARD §1a)
+
+This is a panel on existing screens, not a new list screen or entity: no new list (so no new search/sort/filter), no new entity to archive (a link is revoked, never deleted — non-negotiable #1), and every endpoint enforces own/branch/agency at the query layer as above; a direct-URL id from another agency is refused, not merely unlinked.
+
+### 46.7 Files
+
+`database/migrations/2026_10_14_100000_create_rental_inspection_signing_links_table.php`, `…100010_add_link_signing_evidence_to_rental_inspection_signatures_table.php`, `…100020_add_signing_link_settings_to_rental_inspection_settings_table.php`; `app/Models/RentalInspectionSigningLink.php`; `app/Services/Rentals/RentalInspectionSigningLinkService.php`; `app/Exceptions/RentalInspectionSigningLinkException.php`; `app/Mail/Rentals/RentalInspectionSigningLinkMail.php` + `resources/views/emails/rentals/inspection-signing-link.blade.php`; `app/Http/Controllers/RentalInspectionSigningController.php` (public) and `CoreX/RentalInspectionSigningLinkController.php` (agent); `RentalInspectionPublicController` (report data extracted to `reportData()` — behaviour unchanged); `resources/views/rental-inspections/public/show.blade.php` + `partials/sign-section.blade.php`; `resources/views/corex/rental-inspections/partials/_signing-links.blade.php` + `resources/js/rental-inspection-signing.js` (imported in `app.js`); `corex/rental-inspections/show.blade.php` and `corex/properties/partials/rental-inspection-recording.blade.php` (one include each); `RentalInspection` (`reportFingerprint()`), `RentalInspectionSignature` (fillable/casts/constants), `RentalInspectionSetting`, `RentalInspectionAuditLog` (3 events); routes in `routes/web.php`; CSRF exception in `bootstrap/app.php`; two rate limiters in `AppServiceProvider`; settings page + `RentalInspectionSettingsController` + wizard config/values.
+
+### 46.8 (was HELD — now ruled by Johan and built: see §47) "edited after a party signed" — spec was silent, Johan asked to be asked
+
+Johan: *"If the report is edited after a party signed, that party's signature is flagged as given on an earlier version and the agent is told (follow what the spec already says about edits after signing; if it is silent, stop and ask me)."* **The spec is silent**: §33 (`:5903`) records that an inspection in `awaiting_signature` renders and behaves exactly like draft — items, conditions, notes and photos stay editable — and says "whether an inspection should still be editable once `awaiting_signature` … is a real, separate product question, not raised or ruled on". Nothing in §15/§16/§45 ties a signature to a version of the report. So the flag is **not built**, and the question is put to Johan in the build report.
+
+What IS built so the answer can be applied without losing anything: every link signature stores `signed_report_fingerprint` — a SHA-256 of the report's content at that moment (every observation with its condition and note, every live photo, every room note, the overall notes; `RentalInspection::reportFingerprint()`). Whichever rule Johan picks, a signature already given can be checked against it; nothing is lost by waiting. The two business options are in the report.
+
+### 46.9 Reported, not changed
+
+- The general public link (`/rental-inspection-report/{token}`) remains read-only with no Sign step; party links are separate (a party link is revocable per person; the general link is one shared token).
+- The property tab's own in-person Sign buttons (canvas on the agent's device with no report view) are untouched; "Sign on this device" is the new, fuller version that shows the report first. Whether to retire the old buttons is Johan's call.
+- Photos on both public pages remain static public-disk URLs (§44a item 2) — unchanged.
+- The signed PDF's signature block does not print "signed from a link as <name>" or a signer's comment — only the web report page does. Not asked for; say if the PDF should carry it.
+
+### 46.10 Tests
+
+`tests/Feature/RentalInspections/RentalInspectionSigningLinkTest.php` — see the build report for the run.
+
+
+---
+
+### 46.11 The drawing pad is independent of everything else on the form — 14 Oct 2026 (Johan: "pad does not accept drawing on load, ticking the read box off and on makes it work")
+
+On the party's signing page and the agent's "sign on this device" page (one shared partial, `sign-section.blade.php`) the drawing pad is built once, as soon as the page can draw on it, and kept in step with the canvas's real size for the life of the page: on load, `pageshow`, window resize / phone rotation, and whenever the canvas itself changes size (a `ResizeObserver`). If the signature library or the canvas size is not ready yet, one watcher waits for it instead of giving up. Strokes already drawn are kept when the pad is re-fitted. `init()` runs once (Alpine calls it itself; the extra `x-init` ran it twice and bound two pads to one canvas). The "I have read this inspection report" box only enables the "Sign the report" button; it never touches the pad. Proven in headless Chromium (touch and mouse, device page and link page, drawn before the box is ticked, then ticked and submitted) and by `RentalInspectionSigningLinkTest`.
+
+## 47. Every type is signed · a signed report is locked · a sent report is final — 7 Oct 2026 (cc6; Johan's rulings) — BUILT on QA1
+
+### 47.1 The bug that started it (property 6069)
+
+Johan clicked **Ready to sign** on inspection #90 and was told "Only an in-, interim or out-inspection has a signing window." #90 was a **Routine** inspection — chosen from the *Next inspection* picker, stored as `ad_hoc`. `RentalInspection::startAwaitingSignature()` refused every type except in / out / interim (§15.3 had left `ad_hoc` out; §45.6 flagged it "for Johan to confirm"). Johan has now ruled: **every inspection type can be marked ready to sign and signed — by link, QR, on the agent's device and in CoreX.**
+
+- The type check is gone from `startAwaitingSignature()`; the link service's own type list (`SIGNED_TYPES`, `NOT_SIGNABLE_TYPE`) is gone too. Nothing in the UI restricted it (the recording screen shows **Ready to sign** for whatever the tail is).
+- **Signing-window length** stays the agency's own setting, one setting for every type (`out_inspection_signing_window_days`, default 7 — the column keeps its old name; the label now says "Days a tenant has to sign an inspection", in Settings and the Setup Wizard).
+- **Not changed, reported (§47.8):** signing is now *allowed* for Routine; Complete is not newly *tied* to it — a Routine inspection still completes without signatures, as before, unless Johan says otherwise.
+
+### 47.2 Routine vs Interim — two real types, one word each
+
+`ad_hoc` and `interim` are **two different stored types**, not one under two names, so they are NOT merged:
+
+| Shown as | Stored as | What it is | Where it comes from |
+|---|---|---|---|
+| **Routine** | `ad_hoc` | an unplanned mid-tenancy check | the *Next inspection* picker (Routine / Interim / Out) and the new-inspection form |
+| **Interim** | `interim` | a planned mid-tenancy inspection, booked from a date the agency loaded (Due tab → *Book from this date*) | the Due tab, the new-inspection form, and now also the *Next inspection* picker |
+
+What differs in the code today: Interim is tied to the agency's loaded dates (a booked date follows its inspection — §45.7) and carries the full completion checks (every item recorded, required notes, attendance, three signatures); Routine is the light-weight check (no every-item rule, no attendance rule, no signature requirement to complete). With signing open to every type, the *signing* difference is gone; the checks above remain (§47.8).
+
+**One word per type everywhere** (screens, messages, mails, PDFs, history, calendar, list, filters, settings, wizard): `RentalInspection::typeLabel()` → In / Out / Routine / Interim, `typeName()` → "In-inspection", "Out-inspection", "Routine inspection", "Interim inspection". It replaces every `ucfirst(str_replace('_','-',$type))` that used to print "Ad_hoc-inspection" / "Ad-hoc" (the list filter and new-inspection form said "Ad-hoc", the picker said "Routine", the history said "Ad_hoc-inspection created"). No data or enum rename. The *Next inspection* pickers on the inspection page and the property tab now offer Routine, Interim and Out (the property-tab `next` endpoint accepts `interim`).
+
+### 47.3 A signed report is locked (Johan: replaces options A/B)
+
+"A signed report is locked." **Locked** = at least one live **signed** or **paper (wet-ink)** signature exists (`RentalInspection::isSignedLocked()`); voided / superseded signatures never count. A refusal or a "paper sent" marker alone does not lock — nobody has attested to the report. This applies to **every type and every way of signing** (link, QR, the agent's device, CoreX, the agent's PIN — they all end in the same signature row).
+
+Enforced server-side on every **content** write path through one guard, `RentalInspection::assertContentEditable()` (recordable AND not signed-locked → else `RentalInspectionSignedLockedException`, HTTP 409, `reason: signed_locked`, message: *"This report has been signed, so it is locked. To change it, press "Edit report" — that clears ALL signatures and everyone must sign again."*):
+
+observations (store, room N/A, room all-good, everything all-good) · room notes · overall notes · header details (a real change; the autosave that posts back what is already there is a no-op) · photo uploads (tray and item) · photo tag / bulk tag / untag / archive · photo notes (create, edit, archive, restore) · discrepancy resolution · scan apply · photo pairing by hand and auto-pair · the property's checklist while the open tail is signed (add item, rename, retire, restore, re-type, seed from advertising, add missing standard items). **Signing itself, attendance, link management and resend stay open** — more people can still sign a locked report. (Attendance and invitation records are append-only supersede records about who was present, not report content — reported in §47.8.)
+
+### 47.4 "Edit report" — the one way to change a signed report
+
+`POST /corex/rental-inspections/{inspection}/reopen` (`corex.rental-inspections.reopen`), permission **`rental_inspections.edit_details`** (the existing inspection-edit key — no new key; `.create` alone is not enough), own/branch/agency scoped. The screen (inspection page and the phone recording screen) shows **Edit report** on a locked report; pressing it shows, in red: ***"Editing clears ALL signatures. Everyone must sign again."***, asks **why** (required, 3–1000 characters) and only then acts. One transaction (`RentalInspectionReopenService::reopen()`), row-locked:
+
+1. **Every** live signature — each tenant, the landlord, the agent, however given — is voided: marked superseded (so it never counts, never prints as a signature, exactly like a corrected wet-ink upload) and pointed at the reopen (`voided_by_reopen_id`). **Nothing is deleted.**
+2. A `rental_inspection_reopens` row (append-only: an update or delete throws) records **who, when, why, the previous status, the report exactly as the signers saw it** (`report_snapshot` + `report_fingerprint` — the report is locked from the first signature to this moment, so its state now *is* what they signed), the list of voided signatures (who, role, when, how, the fingerprint on each) and the revoked link ids. Every signature, by any route, now stores `signed_report_fingerprint` (set in `RentalInspectionSignature::capture()`).
+3. **All** outstanding signing links of the inspection are revoked (`revoked_reason = 'reopened'`), signed ones too — an old link must not keep showing a stale "you signed" over a changed report.
+4. The report goes back to the not-signed state (`draft`, signing deadline cleared). **One report** — no second copy; the same inspection id.
+5. History: *"Report reopened for editing by <name>: <reason> — N signature(s) voided, M signing link(s) revoked. Everyone must sign again."*, with the voided signatures listed. The inspection page lists each voided signature as history ("Voided … when <name> reopened the report: “<reason>”") — no image, never labelled Signed.
+
+**Then:** the agent edits and presses **Ready to sign** again (the usual completeness checks run again). That issues **fresh links** to every party whose link the reopen revoked (issued, **not sent**; the response says how many). **Nobody is emailed automatically.** The agent sees a standing notice ("This report was edited after people signed … resend each person their link") until every voided signer has been sent theirs or has signed again. When the agent resends, a person who had signed gets the email subject *"Changed report — please sign again"* and a paragraph saying the report changed and their earlier signature no longer counts; their new link page shows the same notice. Everyone then signs again; completion is exactly as before.
+
+### 47.5 DISTRIBUTED — the moment copies are sent — is final (Johan's second ruling)
+
+**Definition.** A report is **distributed** from the moment copies are sent. In the code today that moment is the agent pressing **Complete**: `markCompleted()` flips the status, then `RentalInspectionRecordingController::complete()` calls `RentalInspectionCopiesService::fileAndSend()` — it files the signed PDF to the property and emails every party (the email only when the agency's auto-send setting is on; a later **Resend** is a second send of the same, already-distributed report). `RentalInspection::isDistributed()` is therefore **true when the status is `completed`** (whether or not the agency's auto-send was on) **or when any email copy to a tenant or landlord has been logged as sent** (`signed_document_distribution_log`; a copy to the inspector, creator or the agency's own address does not count). There is no way back from it.
+
+**Rule.** A distributed report can **never** be edited or reopened — by anyone, in any role (an edit after the tenant received it would be a Rental Housing Tribunal tampering claim). Server-side, on every write path: all the content paths of §47.3 (the shared `assertRecordable()` already refuses a completed inspection — its message now says *"…It has been sent to the parties, so the only way to correct it is a new inspection that replaces it."*), signatures (store, wet-ink correction, link signing, device signing), attendance and invitations, link issue / email, ready-to-sign, complete, photo pairing (including **auto-pair, which had no completed-lock until this build**), discrepancy resolution, scan apply, header details (now answers 409 with the same message instead of 400), and **reopen**, which refuses with *"This report has been sent to the parties, so it can never be edited or reopened — by anyone. To correct it, start a new inspection that replaces it."* — in the controller **and** in the service (called directly it refuses too). Archiving and the existing tenant fault-report carve-out are separate matters (§47.8).
+
+**The only way forward — "Start new inspection".** The screens (inspection page and recording screen) say it plainly — *"This report has been sent to the parties, so it can never be changed — by anyone. If something in it is wrong, the only way forward is a new inspection that replaces it. This one stays exactly as it was sent."* — with a **Start new inspection** button (`POST …/replace`, `corex.rental-inspections.replace`, `.create`): a NEW inspection for the same property, lease and type, status draft. `rental_inspections.replaces_inspection_id` points at the old one; "replaced by" is its inverse. The new inspection joins the chain **after the old tail** (so the replacement compares against what was recorded and nothing forks); the tail must be closed (another open inspection on the tenancy is finished or cancelled first); an inspection can be replaced once. The old inspection is not touched in any way — its report, signatures, public link and PDF stay as sent — and **both histories carry a line** ("Replaced by … #N" / "Replaces … #M"), and both inspection pages link to each other.
+
+### 47.6 Files
+
+Migrations `2026_10_14_200000` (`rental_inspection_reopens`), `…200010` (`voided_by_reopen_id` on signatures, `revoked_reason` on links), `…200020` (`replaces_inspection_id`). `RentalInspection` (`typeLabel`/`typeName`, `isSignedLocked`, `assertContentEditable`, `canBeReopened`, `isDistributed`, `reportSnapshot`, `startReplacement`, `replaces`/`replacedBy`/`reopens`, `updateDetails` lock, the type restriction removed), `RentalInspectionReopen`, `RentalInspectionSignedLockedException` (extends `RentalInspectionNotRecordableException`, no longer `final`), `RentalInspectionReopenService`, `RentalInspectionSigningLinkService` (lock/reopened state, re-sign flag, no type list), `RentalInspectionRecordingController` (content guard on every write path, `reopen`, `replace`, fresh links after ready-to-sign, photo-pairing locks), `RentalInspectionRoomChecklistController`, `RentalInspectionPhotoNote`/`…Controller`, `RentalInspectionScanController`, `RentalInspectionSignature` (fingerprint at every signing), `RentalInspectionSigningLinkMail` + view + the party page (re-sign notice), `_report-lock.blade.php` + `rental-inspection-signing.js`, the inspection page (voided signatures, replaces / replaced by), the recording screen and property tab (lock include, the voided-agent-signature fix, Interim in the picker), label sweep (notifications, calendar, timeline, PDFs, list, filters, history, settings, wizard).
+
+### 47.7 Tests
+
+`RentalInspectionAllTypesSigningTest` (29), `RentalInspectionSignedLockTest` (35) and the updated `RentalInspectionSigningLinkTest`, `RentalInspectionWorkflowTest`, `RentalInspectionDueDatesTest`. Every write path above is exercised against a signed report and against a completed (distributed) one, for each type where it matters, asserting HTTP 409 **and** that nothing changed.
+
+### 47.8 Reported, not decided (questions for Johan)
+
+**Where a copy can leave CoreX before "distributed" (today these are all NOT treated as distribution — listed, not decided):**
+1. A tenant or landlord who signed from their link can **download the report PDF** (`/rental-inspection-sign/{token}/report.pdf`) the moment they sign — before the agent completes it; and every link shows them the full report page, which has a Print button.
+2. The agent's own **Print / PDF** of an unfinished report (`…/report`, `…/print-for-signature`, `…/form`) and the **general public report link** (`/rental-inspection-report/{token}`), which can be generated before completion.
+3. **Paper copies** printed for a wet-ink signature, and the **signing-link email/WhatsApp itself** (it carries a link to the full report, not an attachment).
+4. **Portal:** the tenant and landlord client API lists every inspection of their lease with id, type and status — including ones not completed — but no report content; the Inspections region of the portal (Q13) is not built.
+5. Once a report is *signed* the parties have in practice already seen it; the lock plus "Edit report" (which voids their signatures and tells them) is what covers that window.
+
+**Write paths that still touch a distributed inspection, left as they are:** (a) a **tenant fault report** filed inside the fault-report window appends an observation to the completed In-inspection (§3.5 — a deliberate legal mechanism: the tenant's own addition); (b) **move-out comparison findings** (the agent's classification of a difference on a completed Out, §45.14) are separate append-only records that the PDF and public page do not print; (c) **archiving** a completed inspection (needs `archive_completed`) hides it, it does not change it; (d) **renaming or retiring a property checklist item** changes how an already-sent report reads when re-rendered (the report is rebuilt from the live checklist — the standing "retired items vanish from completed reports" question, now also covering renames); a snapshot of the item names at completion would close it; (e) **attendance and invitation records** are not locked by a signature (they are append-only "who was present" records, and a representative or a non-attendee can sign before them).
+
+**Behaviour left as it was, to confirm:** a **Routine** inspection still completes without signatures, without every-item grading, without required-note checks and without attendance (only In / Out / Interim carry those); should Routine now require the three signatures before Complete, like the others?
+
+---
+
+## 48. AT-436 + AT-437 re-verified against QA1, and the two bug CLASSES closed properly — 7 Oct 2026 (cc6; Johan's instruction)
+
+Both tickets were still "In Progress" in Jira. Checked against the QA1 code of 7 Oct (`66bb84573`), not against what the spec says happened.
+
+### 48.1 AT-436 (photos silently lost) — core ALREADY FIXED; four neighbouring silent-drop paths found and fixed now
+
+**Already fixed, by:** `b7ee63e15` (server: a photo with no condition lands on a holding observation, `CONDITION_PENDING = ''`, which never counts as recorded — §20.22) and `2cc8951f9` (screen: no staging, every pick uploads at once, the PENDING tile means "uploading now", a failed upload shows Retry — §20.23). Confirmed in today's code: `onItemPhotosSelected()` has a single path and posts immediately; `storePhotos()` resolves/creates the holding row; `roomProgress()`/`inspectionProgress()` read `.condition`. Proven again by `RentalInspectionPhotoSafetyTest::test_a_photo_added_before_any_condition_is_still_there_after_a_reload_and_the_item_stays_unrecorded` (photo-only item survives a fresh read of the page payload; the counters still read 1 of 2).
+
+**Still open in the same class — fixed now**, all in the shared uploader `public/js/corex-photo-batch-uploader.js` (used by the Inspections screen and the untagged tray / room photos):
+
+| # | How a photo was still lost | Fix |
+|---|---|---|
+| 1 | One photo over 50 MB in a selection pushed a single failed row and **returned** — every other photo picked with it was never uploaded and never reported | Each oversize file gets its own visible failed row; the rest upload normally |
+| 2 | Closing the tab / reloading / navigating while a photo was uploading **or had failed** lost it with no warning (the page's only `beforeunload` watches the property edit form) | One page-wide `beforeunload` guard over every uploader: warns while any batch is `uploading` or `failed`; silent when all landed. `window.corexUnsavedPhotoCount()` exposes the number |
+| 3 | An exception in the post-upload callback left the batch promise unresolved, so every **later** batch of the same selection was never sent | Callback wrapped; the promise always resolves (photos are already saved at that point) |
+| 4 | An aborted request fired neither `onload` nor `onerror` — the row sat on "Uploading…" forever and the queue behind it stalled | `onabort` ends it as a visible failed row with Retry |
+
+**Other recording surfaces, checked:**
+- *Phone recording screen* = the same web screen on a phone (same uploader, same fixes). The CoreX mobile app's rental-images upload (`MobileRentalImagesController::upload`) writes under a row lock, is idempotent by `client_upload_id`, and refuses to return 2xx unless the file is on disk — nothing staged, nothing to lose.
+- *Link signing / public report* (`rental-inspection-sign/*`, `rental-inspection-report/*`): read and sign only; no route accepts a photo. `test_the_link_signing_and_public_report_pages_accept_no_photo_uploads` fails if one ever does without these guarantees being added.
+
+**Known and NOT changed (reported):** the uploader mints a fresh idempotency key on every attempt, so a Retry after a network error where the server had actually saved the photos can create a duplicate photo (visible, archivable — not a loss). The header comment of the file claims the opposite. Not changed: it is a duplicate, not a drop, and outside this ticket.
+
+**Limit that cannot be engineered away:** a phone that discards a backgrounded tab mid-upload gives the page no chance to warn. What changed is that every deliberate way of leaving now warns first, and every failure is visible with a Retry.
+
+### 48.2 AT-437 (dead controls) — ALREADY FIXED; the class now has the guard it never had
+
+**Already fixed, by** `e3c615507` (27 Sep): `isMarkGoodBusy()` / `isMarkNaBusy()` / `isDiscBusy()` return `!!this.xBusy[key]`, bound in both `:disabled` and `x-text` (spec §26). Fresh sweep today of every `:disabled/:readonly/:required/:checked/:hidden/:selected` binding in `show.blade.php`, the `rental-inspection-*` partials, `corex/rental-inspections/**` and the public inspection pages: no remaining raw lookup on a lazily-populated object except the two `startBusy[...]` ("Start In/Out-Inspection") buttons, which §26.3 judged safe because they are not inside an `x-for`.
+
+**Done now:** those two were converted too (`isStartBusy(section)`, same pattern) so the rule has **no exceptions** and can be enforced mechanically: `RentalInspectionPhotoSafetyTest::test_no_boolean_attribute_binding_on_an_inspection_screen_reads_a_lazy_object_by_raw_bracket_lookup` scans every inspection Blade file and fails the build on any boolean-attribute binding that reads `obj[key]` unless the lookup is negated (`!obj[key]`). A self-test (`test_the_lint_itself_catches_the_exact_shapes_that_shipped_dead`) feeds it the four dead shapes and the safe shapes so the lint cannot rot into a pass-everything. A third test pins that the five coercing methods exist and are actually bound.
+
+**Not proven in a browser** (instruction for this task: no browser harness). The statement "an agent can click All Good" rests on: the binding now returns a real boolean; the lint; and the click-through checks #21–#23 that §26.5 added to `scripts/rental-click-through.mjs`, which were never run end to end. **Open point worth knowing:** Alpine 3.15.3's `bindAttribute` (the version QA1 bundles) *removes* `disabled` for `undefined` — the code does not show the "undefined disables the button" mechanism the ticket and §26.1 describe. The fix is the proven `isObsBusy` pattern and is harmless, but if Johan still finds a dead control on this screen, the cause is something other than the one named in AT-437 and the click-through gate (`node scripts/rental-click-through.mjs`) is the tool to find it.
+
+### 48.3 Files
+
+`public/js/corex-photo-batch-uploader.js` (4 fixes + guard) · `resources/views/corex/properties/show.blade.php` (`isStartBusy`, one button) · `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` (the other Start button) · `tests/js/photo-batch-uploader.mjs` (new — 25 checks against the real uploader in a node sandbox; the QA1-tip uploader fails 3 of them and crashes on a 4th) · `tests/Feature/RentalInspections/RentalInspectionPhotoSafetyTest.php` (new). No migration, no backend change, no change to the signing/lock rules (§46/§47).
+
+### 48.4 Verification (7 Oct 2026)
+
+`php -l` clean · `node --check` clean · `view:clear` · `bash scripts/lane-test.sh`: `RentalInspectionPhotoSafetyTest` 7 passed (46 assertions); `RentalInspectionRecordingControllerTest` 110 passed (292 assertions, includes the §20.22 backend cases) · `node tests/js/photo-batch-uploader.mjs` 25/25 (against the QA1-tip uploader: 3 fail, 1 crashes).
+
+---
+
+## 49. Johan's rulings of 8 Oct 2026 — downloads only once everyone has signed · DRAFT stamp · signatures per type · all four types everywhere · added-after-sent · checklist wording fixed (cc6) — BUILT on QA1
+
+Answers the open questions of §47.8 and the "Behaviour left as it was" line there. QA1 only; nothing on Staging or live; no data repaired.
+
+### 49.1 What "everyone has signed", "sent", "final" and "locked" mean (the vocabulary these rules share)
+
+| Word | Defined by | Meaning |
+|---|---|---|
+| **Fully signed** | `RentalInspection::isFullySigned()` | Every tenant on the lease, the landlord (when the property resolves one) and the agent each hold a LIVE drawn / link / PIN signature or a paper signature on file. A refusal, a "paper sent" marker and a voided signature are not signatures. |
+| **Distributed / sent** | `isDistributed()` — **unchanged (§47.5)** | Completed, with the copies sent (or an email copy to a tenant/landlord logged as sent). **A party's own signature does not make a report "sent".** |
+| **All required parties signed** | `allRequiredPartiesSigned()` | `! signaturesRequired() || isFullySigned()` — honours the agency's per-type setting (§49.4): where signatures are optional (Routine by default) nothing is outstanding; where required, every party must hold a live signature. A refusal never counts. |
+| **Party copy available** | `partyCopyAvailable()` | `allRequiredPartiesSigned() && (isDistributed() || isFullySigned())`; never for a cancelled or archived inspection. So a required-type report with a refusal on record never opens a party-side PDF, even once completed. |
+| **Final report** | `isFinalReport()` | Completed. (Completion itself requires the agency's signatures for the type — §49.4 — so a completed report is final.) |
+| **Locked** | §47.3 / §47.5 — **unchanged** | A signed report's content is locked (changed only by "Edit report"); a sent report can never be edited or reopened. |
+
+**Held for Johan (§49.9 Q1):** the ruling reads "a party's own signature does not lock the report". Read as "a party's own signature is not what *sends* the report — sending stays Complete + copies sent", which is what is built. §47.3's "a signed report is locked" (his ruling of 7 Oct) was NOT removed.
+
+### 49.2 Rule 1 — a tenant's / landlord's PDF exists only once EVERYONE has signed (and stays after)
+
+Every path a party can take a copy of the report by, server-side (the button is hidden too, but the server refuses):
+
+| Path | Before everyone has signed | Once fully signed / after completion |
+|---|---|---|
+| Signing link PDF — `GET /rental-inspection-sign/{token}/report.pdf` (`RentalInspectionSigningController::pdf`) | **403** with the plain page `public/download-not-ready` ("The PDF isn't ready yet…"), nothing generated | the PDF, as before |
+| Signing page (`public/show` + `partials/sign-section` + `partials/download-link`) | the report is on screen; the "Download the report (PDF)" button is replaced by "A PDF copy … becomes available once everyone has signed it…" (also under the party's own "Thank you, your signature is recorded" confirmation) | the button |
+| Browser Print / Save-as-PDF on the signing page and on the general public link (`/rental-inspection-report/{token}`) | the Print button is replaced by "Printing and the PDF open once everyone has signed"; a `@media print` rule prints only "This report can only be printed … once everyone has signed it" instead of the report | the Print button and the report print |
+| Agent's "Sign on this device" page | same page, same rule (it shares `reportData()` and `signingContext()`) | same |
+| Portal Documents (tenant / owner) — `RentalPortalDocumentService::inspectionIsShareable()` | not listed — offered only when the report has been **sent** (`isDistributed()`) **and** `allRequiredPartiesSigned()`; the file route 404s | listed. The portal names the type with the one shared wording (`RentalInspection::typeLabel()` / `typeName()`: In, Out, Routine, Interim — it used to say "Move-in", "Move-out" and "Ad hoc"). |
+| Emailed copy at completion / Resend (`RentalInspectionCopiesService::fileAndSend()`) | refuses a report that is neither completed nor party-copy-available (`LogicException`); the agent's Resend endpoints already refuse a non-completed inspection. The completion mail is the agency's own act and is unchanged (it also goes out when a refusal is on record — see §49.9 Q4) | sent |
+
+`public/show.blade.php` is the one page for the general link, a party's link and the agent's device, so all three agree. Wet-ink scan links on that page are a party's own paper signature and unchanged.
+
+**The agent's own Print / PDF is not governed by this rule** (§49.3). The blank capture form (`…/form`) is not a report and is untouched.
+
+### 49.3 Rule 2 — the agent may print an unfinished report; every page says "DRAFT - not final"
+
+`RentalInspectionReportPdfService::generate()` / `generateForSignature()` pass `isDraft = ! isFinalReport()` to `corex.rental-inspections.report-pdf`. When true, two `position: fixed` elements repeat on **every page** (DomPDF repeats fixed elements): a bold band in the top margin and a faint diagonal across the page body, both reading exactly **DRAFT - not final**. The stamp is absent only when the inspection is completed. So: draft, ready to sign, part signed, fully signed but not completed, cancelled → stamped; completed → clean. A party downloading after everyone has signed but before the agent presses Complete therefore receives a stamped PDF — the stamp leaves only on the completed report (Johan's wording). The emailed copy at completion is generated after the status flips to completed, so it is clean.
+
+### 49.4 Rule 3 — signatures per inspection type are an agency setting
+
+Migration `2026_10_16_100000`: four nullable booleans on `rental_inspection_settings` — `signatures_required_in`, `_out`, `_interim`, `_routine` (Routine = the stored `ad_hoc`). Read-time default (`RentalInspectionSetting::signaturesRequiredFor($agencyId, $storedType)`): **In, Out, Interim required; Routine optional**; an unknown type is treated as required. **Required** = `markCompleted()` refuses until every tenant, the landlord and the agent have an outcome and the agent has signed (the existing §15.7 gate, unchanged in content); **optional** = it completes without them. What stays by type and is NOT a setting: every-item-recorded, required notes and attendance (§45.3, §45.5) — Routine remains exempt from those (the existing `all_items_required_to_complete` setting still governs the first). Signing itself is open for every type (§47.1) whatever the setting says.
+
+Surfaced in **Settings → Rental inspections** ("Signatures needed before an inspection can be completed", four ticks) and in the **Setup Wizard** (four toggle controls with explain/affects, config/agency-onboarding-copy.php, values in `AgencySetupWizardController::currentValues()`), both through the one shared saver `RentalInspectionSettingsController::update()` — each field `has()`-guarded so a step that renders only some cannot wipe the rest (§6.1).
+
+### 49.5 Rule 4 — all four types wherever an inspection is started or scheduled
+
+One list, `RentalInspection::TYPE_PICKER` / `typePickerOptions()`: **In** — move-in condition · **Routine** — an unplanned mid-tenancy check · **Interim** — a planned mid-tenancy inspection, from a date you loaded · **Out** — move-out condition.
+
+Where only three (or one) showed, and what changed:
+
+| Place | Before | Now |
+|---|---|---|
+| Inspection page → **Next inspection** (`corex/rental-inspections/show.blade.php`) | Routine, Interim, Out — **no In** | all four |
+| Property **Inspections tab** header → **Next inspection** (also what the phone recording screen shows — it is the same tab) (`corex/properties/show.blade.php`) | Routine, Interim, Out — **no In** | all four |
+| Property **Inspections tab**, first inspection of a property | a single "Start In-Inspection" button — **only In** | a picker with all four + "Start inspection" |
+| `POST …/rental-inspections/start` (tab) | accepted In, Out, Routine — **not Interim** | accepts all four |
+| New-inspection form (`rental-inspections/create`, reached from the list, the lease hub, the command centre and the Due tab) | all four, own hand-written list | all four from the shared list |
+| List filter | all four | unchanged |
+
+**In after other inspections.** An In is offered in the Next pickers. A tenancy has one move-in condition, so `RentalInspection::startNext()` now accepts `in` when the lease has no live In-inspection (it chains after the predecessor like any link) and refuses it plainly ("This tenancy already has an In-inspection (#N)…") when it has one; the pickers grey the option out with that reason (`leaseInInspection()`, `lease_in_inspection_id` on the tab payload). Start messages now say "Routine inspection started." (they said "Ad_hoc-inspection started."). Also fixed in the same sweep: the portal Documents label "Ad hoc" → "Routine"; the PDF cover and the inspection page said "Compared against the ad_hoc-inspection".
+
+### 49.6 Rule 5 — added after the report was sent
+
+`RentalInspectionAddedAfterSentService::entriesFor()` is the one builder (inspection page, PDF, general public link, a party's link, the agent's device page). A block titled **Added after the report was sent**, boxed apart from and below the report body, says "The report above is exactly as it was sent", and lists each entry with its kind, date/time and who:
+
+* a **tenant fault report** — an observation with source `tenant_fault_report` created at or after the inspection was completed (the §3.5 window; filed through the existing observation endpoint). `RentalInspection::isAddedAfterSent()` / `bodyObservations()` keep it OUT of the body: the item's condition and notes in the body read exactly as sent. Who = the tenant when the record names one, otherwise "<agent> (recorded for the tenant)". Its photos, if any, appear in the block on the web pages and are counted in the PDF.
+* a **move-out comparison finding** — a live (not superseded) finding on a completed Out recorded at or after completion. Findings recorded before completion are not part of this block (they were never printed and still are not); a corrected finding shows only its live version. **New:** these findings are now shown on the PDF and the web report pages at all (§47.8 said the PDF and public page did not print them).
+
+Unchanged: the write paths themselves (the fault-report window; the findings screen), archiving, and attendance records. Not changed: the Inspections tab's read-only predecessor panel and the Out comparison still read a tenant fault report as the In's latest condition for an item (it is a comparison working surface, not the sent report).
+
+### 49.7 Rule 6 — a sent (or signed) report keeps the checklist wording it was sent with
+
+`rental_inspections.checklist_wording_snapshot` (JSON `{item id: label}` for every item of the property, live or retired) + `checklist_wording_snapshot_at` (migration `2026_10_16_100010`). Taken, fill-if-empty (`ensureChecklistWordingSnapshot()`), at the first live signed / paper signature (`RentalInspectionSignature::capture()` — every route funnels through it) and at completion (`markCompleted()`); **cleared by "Edit report"** (nobody's signature stands, `RentalInspectionReopenService`; what the signers saw stays in the reopen record's `report_snapshot`, which now stores the snapshot wording). Every report builder applies it in memory (`applyWordingSnapshot()` sets the label and syncs the original — nothing is ever written back to the checklist): the PDF, the public / signing / device pages, the inspection page (items, discrepancies, comparison rows), the reopen snapshot and the added-after-sent block. An item added later is simply not in the snapshot and keeps its own label; a retired item was already kept on a report that assessed it (§47 scope `listedOnReportOf`) and now also keeps its wording. A rename or a retire of the *live* checklist still works exactly as before — the checklist changes, the sent report does not.
+
+**Existing inspections on QA1 (no data repair).** The column starts empty, so every report that exists today reads from the live checklist exactly as before. Counts on QA1 at build time: **6 completed (sent) inspections** (all 6 carry signatures), **3 open inspections already carrying a live signature**; 0 retired checklist items on those properties; 0 tenant fault reports and 0 move-out findings filed after a completion. A back-fill would freeze *today's* wording, which may already differ from what was sent and cannot be proved either way — it is **not done; asked of Johan (§49.9 Q2).**
+
+### 49.8 Files
+
+Migrations `2026_10_16_100000_add_signature_requirements_to_rental_inspection_settings_table`, `2026_10_16_100010_add_checklist_wording_snapshot_to_rental_inspections_table`. `RentalInspection` (picker list; `signaturesRequired`, `isFullySigned`, `partyCopyAvailable`, `isFinalReport`, `isAddedAfterSent`, `bodyObservations`, wording snapshot methods, `leaseInInspection`, `startNext` In rule, `markCompleted` gate + snapshot, `reportSnapshot`), `RentalInspectionSetting` (signature requirement constants + `signaturesRequiredFor`), `RentalInspectionSignature::capture` (snapshot hook), `RentalInspectionReopenService` (snapshot clear), `RentalInspectionAddedAfterSentService` (new), `RentalInspectionReportPdfService` + `report-pdf.blade.php` (stamp, wording, body observations, marked block), `RentalInspectionPublicController::reportData` + `RentalInspectionSigningController` (download gate, `pdf_available`), `public/show.blade.php`, `public/partials/sign-section` + `download-link` + `public/download-not-ready` (new), `RentalInspectionController` (show: wording, marked block, `next` accepts all four), `RentalInspectionRecordingController` (`start`/`next` accept all four), `RentalInspectionCopiesService` (guard), `RentalPortalDocumentService` (gate, label), `RentalInspectionSettingsController` + settings page + `config/agency-onboarding-copy.php` + `AgencySetupWizardController::currentValues`, `corex/rental-inspections/create`, `show` and `corex/properties/show.blade.php` (pickers).
+
+### 49.9 Tests and questions
+
+Tests (one file at a time through `scripts/lane-test.sh`): `RentalInspectionRulingsDownloadsTest` (24), `RentalInspectionRulingsSettingsAndPickersTest` (39), `RentalInspectionRulingsAfterSentAndWordingTest` (20), `RentalImagesTabRendersTest` updated (its "In-only button" assertion encoded the old rule). Every download path is asserted refused in every pre-signature state for every type, opened once fully signed, and still open after completion; the stamp is asserted on EVERY page of a multi-page PDF (pdftotext) and absent on the completed report.
+
+**Questions for Johan (business, not decided):**
+
+1. *"A party's own signature does not lock the report."* Yesterday's ruling was "a signed report is locked" (Edit report voids every signature). Is the lock to stay — edits after someone has signed go through **Edit report** — or should a signature no longer block edits? If it should not block: an agent could change the report under a tenant's signature, and we would need your rule for what then happens to that signature.
+2. The 6 sent reports (and 3 signed open ones) on QA1 pre-date the wording snapshot. Back-fill them with today's wording (cannot prove it matches what was sent), or leave them reading from the live checklist as before?
+4. A tenant who **refused** to sign: the report can still be completed and the agency's completion email still goes to them, but the party-side PDF (their link, the portal) stays closed because "all parties have signed" is not true. Should the completion email also hold back the PDF for them?
+3. A Routine inspection is still exempt from "every item recorded", required notes and attendance (only the signatures became a setting). Should those follow the per-type setting too?
+
+Reported, not changed: the Inspections tab's read-only panels show the live checklist wording and a post-sent fault report as the In's latest condition (a working comparison surface); room names are not part of the wording snapshot; `…/form` (blank capture form) carries no stamp.
+
+
+---
+
+## 50. The Rentals inspections walk, 8 Oct 2026 (cc4; QA1 only) — what was found, what was fixed, what waits for Johan
+
+A walk of the whole inspection life as an agent does it (In, Interim, Routine, Out: schedule → due board → record → photos → attendance → ready to sign → sign on the device / by link / by QR → locked → edit report → distributed → final → portal → PDF) against §0–§49 and the code at QA1 `3cd6adb73`, read line by line and driven with real requests on QA1 data inside rolled-back transactions. Step table and click-by-click test script: `/tmp/qa1-cc4-inspections-walk-2026-10-08.md`. No browser harness was available; button behaviour on the recording screen was checked by route/URL existence and server-side guards only.
+
+### 50.1 Fixed (each has a test in `RentalInspectionWalkFixesTest`; all 21 fail on the QA1 tip and pass now)
+
+| # | Defect | Class | Fix |
+|---|---|---|---|
+| 1 | "Whose inspection is it" had five answers (list, planned dates, due board rows, the "Agent" column + reminders, the per-record guard) and none included the lease's **owner's agent / tenant's agent** | one rule per surface, none shared | Two small, named lease rules (`Lease::scopeAgentedBy()` / `isAgentedBy()` = owner's agent OR tenant's agent; `scopeInvolvingUsers()` = those two OR the lease creator, which `scopeVisibleTo` 'own' now uses). `RentalInspection::scopeVisibleTo` 'own', the per-record guard (`AuthorizesRentalRecordScope`) and `RentalInspectionPlannedDate::scopeVisibleTo` add the lease's AGENTS to creator/inspector (merely having created the lease still does not show a colleague's inspection — that refusal is tested and kept); the Due board's lease constraint uses the creator-inclusive rule it already had plus both agents. `RentalInspectionDueService::responsibleAgentId()` = the lease's owner's agent, else tenant's agent, else the property's agent, else the lease creator |
+| 2 | A second In-inspection could be started or scheduled on a tenancy that already had one (only `startNext` refused it); also made unlinked chain roots | several entry points, no single rule | `RentalInspection::assertTypeStartable()` — one rule used by `start()` and `schedule()` (and carried by `startNext()`) |
+| 3 | Archiving a scheduled inspection left its calendar event "pending"; restoring never revived it | side effect hooked on the caller, not the model | model `deleted`/`restored` events call the calendar sync |
+| 4 | Signing-links panel feed returned each party's live link to anyone who can merely view the inspection (a view-only user could sign as the tenant) | secret exposed by a read weaker than the write that mints it | `url` removed from `describeLink()` (the JS never used it) |
+| 5 | A link for someone no longer on the lease showed a sign form that could never work, then a raw internal sentence | link validated against the link row, not the party it names | `signability()` checks the party is still on the inspection |
+| 6 | A refused signature (double tap, party left) left its PNG on the private disk | file stored before the invariants are checked | `RentalInspectionSignature::capture()` removes the files it was handed when it refuses |
+| 7 | A link signature could land just after "Edit report" read the live signatures | lock order | `submit()` locks the inspection first, then the link (the order reopen takes) |
+| 8 | Due board print / export had no `rental_inspections.export` gate (the list's own have) | permission on one of two sibling endpoints | middleware on both routes; buttons hidden without it |
+| 9 | List search "Jane Smith" found nothing | single-column LIKE | also matches first + last name together |
+| 10 | Reminder commands could only walk every agency (no scheduler on QA1, so a hand run touched all) | | `--agency=` and `--dry-run` on `rentals:send-planned-inspection-reminders` / `rentals:send-due-inspection-reminders` |
+| 11 | Checklist reorder (items, rooms, apply default order) worked on a signed report | one guard missing from three siblings | same `refuseIfTailSigned()` as the other checklist writes |
+| 12 | "Build from advertising" burned its one shot when it built nothing | flag set unconditionally | refuses (409) and keeps the flag when no room or item was made |
+| 13 | A 70 000-character note and a key count of 99999999999 were HTTP 500s | unbounded input | `max:4000` on the note, `max:1000` on keys/remotes |
+| 14 | A discrepancy resolved twice overwrote the first decision (ruling 4: append, never overwrite) | | 409 "already resolved by … on …" |
+| 15 | The signed PDF dropped the header block (meters, keys, remotes, furnished, type, original move-in date) — the deposit evidence | two renderers of one report | "Details" block on the PDF cover, nothing when nothing recorded |
+| 16 | A tenant could appear on the signing roster as the landlord (property with only a tenant linked) | lenient "sole contact" resolver used for signing | every inspection roster/attendance/signing/PDF-form lookup uses `Property::landlordContact()` (strict); no landlord linked → the existing "Not required — no landlord linked" row |
+| 17 | The property tab's "Resend report" popover rebuilt its recipient list in the browser (wrong people) | two sources of truth | tab payload carries the server's own `distributionRecipients()` as `report_recipients` |
+| 18 | "Ready to complete" pill ignored the per-type rules (Routine, signatures setting) | display disagreed with the server | tab payload carries `signatures_required` / `attendance_required`; the pill uses them |
+| 19 | "Ad hoc" / `ad_hoc` / "Routine-inspection" stragglers: rental reports (group-by-type, lease timeline), PDF file names, the tab's JS, one permission label | label sweep missed | `typeLabel()` / `typeName()` everywhere; file name `inspection-report-routine-…` |
+| 20 | `resend-report` answered 500 when the PDF or filing failed | missing failure path | same alert as Complete, 502 with a plain message |
+| 21 | `rental-inspections:backfill-report-filing` also filed archived inspections | | live inspections only |
+| 22 | stray `"` in the create form's date input | | removed |
+
+### 50.2 Found and NOT changed (Johan's call, or outside this slice)
+
+1. **QA1 sends no inspection mail** (signing-link emails, "Email everyone", scheduling mails, completion copies): `MAIL_NON_PRODUCTION_REDIRECT` is not set in `/corex-qa1/.env`, so the guard (`SignedDocumentDistributionService`, correctly) suppresses every send. Environment, not code. See the decision list.
+2. **Deposit deductions / settlement** — PARKED by Johan on 6 Oct for the finance build. The Move-out comparison page exists and says honestly that no amount is calculated.
+3. **The 7-day signing window and the 7-day tenant fault window are only dates on screen** (`signing_deadline_at` is printed and never enforced; a tenant fault report outside the window is refused instead of "accepted and flagged"; `reported_outside_window` is never set).
+4. **Property tab access for a lease agent who is not the property's agent**: the inspection now appears in their list and they can open and record on it by id, but the Inspections TAB lives on the property page, whose own visibility is property-scoped (agent_id) and not lease-aware. Out of this slice (property visibility is a system-wide rule).
+5. **Calendar event goes on the inspector's calendar only** (default inspector = the booking user). Putting it on the other lease agent's calendar is a business choice (decision list).
+6. The due board still says "Move-in / Move-out" where every other screen says "In / Out" (the §47.2 sweep did not name it). Left as is — decision list.
+7. The mobile app's rental-images endpoints still write the old flat gallery, not inspections (§14 contract not yet consumed) — for Andre.
+8. A cancelled Out-inspection still accepts move-out classifications (low). The due/create pickers cap at 500 properties/leases (low, matters for an agency with more than 500 active tenancies). The portal copy is frozen at completion, so "added after sent" never appears there (by design; asked).
+9. The `cc4-inspections-i7-2026-10-07` worktree holds ~980 uncommitted lines of an earlier, parallel build of the move-out comparison that QA1 already has in a larger, tested form. No defect in QA1's version was found that the WIP fixes. It was not merged; diff kept in the scratchpad of this session.
+
+### 50.3 Files
+
+`app/Models/Lease.php`, `RentalInspection.php`, `RentalInspectionPlannedDate.php`, `RentalInspectionSignature.php`; `app/Http/Controllers/Concerns/AuthorizesRentalRecordScope.php`; `CoreX/RentalInspectionController.php`, `RentalInspectionDueController.php`, `RentalInspectionRecordingController.php`; `app/Services/Rentals/RentalInspectionDueService.php`, `RentalInspectionDueReminderService.php`, `RentalInspectionSigningLinkService.php`, `RentalInspectionAttendanceService.php`, `RentalInspectionFormSeeder.php`, `RentalInspectionFormPdfService.php`, `RentalInspectionReportPdfService.php`, `RentalReportService.php`; the two reminder commands and the backfill command; `routes/web.php` (two middleware); `config/corex-permissions.php` (one label); `report-pdf.blade.php`, `due.blade.php`, `create.blade.php`, `properties/show.blade.php`, `properties/partials/rental-inspection-recording.blade.php`. No migration. No new setting (so nothing new for the Setup Wizard, CLAUDE.md #10a). Tests: `RentalInspectionWalkFixesTest` (21, new); `RentalInspectionReadyToCompletePillTest` extended.
+
+
+---
+
+## 52. Decisions taken while Johan was away — the 15 questions of the §50 walk, built at their recommended defaults (cc4, QA1 only, 8 Oct 2026)
+
+Johan was offline until Sunday and instructed that the recommended default of each open question be built, consistent with his rulings of 6–8 Oct (signed report locked; Edit report wipes signatures and needs re-sign; a distributed report is final and a change is a new inspection; a signed-but-not-distributed report stays editable through Edit report; Routine is on the ready-to-sign list). **Every business rule below is an agency setting** (`rental_inspection_settings`, nullable, read at run time — `RentalInspectionSetting::INSPECTION_RULES` / `ruleFor()`), at Settings → Rental inspections AND in the Setup Wizard Rentals step (CLAUDE.md #10a; one list feeds the page, the has()-guarded saver and the wizard so they cannot drift). Switching a rule off restores the old behaviour at once; nothing is deleted. Migration `2026_10_19_100000` (9 nullable columns + `rental_inspection_signing_notices`).
+
+| # | Question | Built | Setting (default) | Undo |
+|---|---|---|---|---|
+| 1 | QA1 test mail | (§50) `MAIL_NON_PRODUCTION_REDIRECT` set on QA1 | environment | delete the line |
+| 2 | Keep the lock + Edit report | unchanged (§47) — signed ⇒ locked, Edit report voids every signature, distributed ⇒ final | not a setting (Johan's ruling) | — |
+| 3 | Signing window | the window length stays `out_inspection_signing_window_days`; the inspection page and the Inspections tab show **days left / closed N days ago and how many still have to sign** (`RentalInspection::signingWindowStatus()`); daily command `rentals:send-signing-window-reminders` (07:30; `--agency`, `--dry-run`) reminds the inspecting agent (inspector, else creator — never a tenant or landlord) N days before the closing day and the day after, once each (`rental_inspection_signing_notices`, UNIQUE per inspection+milestone), recorded on the inspection's History; milestones older than 3 days are logged skipped (go-live safety). Nothing is done automatically to the inspection | `signing_window_reminders_enabled` (on), `signing_reminder_lead_days` (2; 0 = only after it closed), `out_inspection_signing_window_days` (7) | turn off |
+| 4 | Tenant 7-day fault window (stamp inside/outside, outside waits for the agent) | **NOT built — still open.** No screen creates a `tenant_fault_report` observation (the portal fault flow is cc6's lane and does not write to the inspection); stamping needs that connection designed | — | — |
+| 5 | Lease agents' calendar | a booked inspection also goes on the calendar of the lease's owner's agent and tenant's agent (category `rental_inspection_lease_agent`, one per agent, never duplicating the inspector; follows reschedule, cancel, archive/restore; extras are dismissed, never deleted) | `calendar_include_lease_agents` (on) | turn off — extras are dismissed |
+| 6 | No landlord linked | unchanged from §50 (strict landlord; "Not required — no landlord linked") | — | — |
+| 7 | Cancelling a signed, unsent report | refused with "press Edit report first"; Edit report clears the signatures and records why, then cancel works | `cancel_signed_requires_edit` (on) | turn off |
+| 8 | Photos on everything | **the count is always shown** at Ready to sign ("N items have no photo", hover lists them; N/A items excluded); optional hard stop | `photos_required_to_sign` (off) | turn off |
+| 9 | Empty checklist | Ready to sign / Complete refused with "add the rooms and items first" while "every item recorded" is on | `empty_checklist_blocks_signing` (on) | turn off |
+| 10 | Agency identity on the report | the PDF cover and the web report open with the agency name and logo (`Agency::publicBrandingFor()` — the portal header's own source; the logo is embedded in the PDF) and the inspecting agent's name, role, phone and email | `report_shows_agency_branding` (on) | turn off |
+| 11 | Routine checks | Routine follows every-item-recorded, required notes and attendance (signatures remain their own per-type setting, Routine optional) | `routine_follows_full_checks` (on) | turn off — Routine is light again |
+| 12 | Refused signature | the completion email to the person who refused carries the link but no PDF attachment; everyone else, and the agency copy addresses, unchanged | `hold_pdf_when_refused` (on) | turn off |
+| 13 | Due board wording "Move-in/Move-out" | left as is (no recommendation to change) | — | — |
+| 14 | Property tab visibility for a lease agent who is not the property's agent | **NOT built — still open** (property visibility is a system-wide rule) | — | — |
+| 15 | Back-fill the checklist wording snapshot for the 6 already-sent reports | not done (recommended: leave) | — | — |
+
+Roles / scoping: no new permission keys — the settings saver keeps the existing settings permission; the reminder goes only to the inspecting agent; the calendar extras are scoped to the inspection's agency; every reminder is on the inspection's History (`signing_reminder`). Tests: `RentalInspectionDefaultsTest` (16). Files: `RentalInspectionSetting`, `RentalInspection` (`signingWindowStatus`, `itemsWithoutPhoto`, `reportBranding`, `isRoutineExemptFromChecks`, guards in `startAwaitingSignature`/`cancel`/`guardUngradedItems`), `RentalInspectionSigningReminderService` + `RentalInspectionSigningReminder` + `SendSigningWindowReminders` + `routes/console.php`, `RentalInspectionCalendarSyncService`, `RentalInspectionCopiesService`/`SignedDocumentDistributionService` (`withoutPdfEmails`), `report-pdf`, public report, recording partial, inspection page, settings controller/page, wizard config + values.
+## 51. Planned (interim) dates need a lease the user may act on (2026-10-08, cc1 — cc2 cross-cut audit item; QA1 only)
+Before: a loaded date was reachable by route binding if it was *visible* (loaded by the user, or on their property, or on a lease of theirs); the actions (move, skip, reopen, archive, restore) checked nothing about the lease, so a user who once loaded a date could keep changing it after the tenancy fell outside their own/branch/agency reach, and "Load interim dates" accepted only leases on a property the user is the agent of while the date list showed more.
+Now ONE definition of "a lease I may act on" (`RentalInspectionDueController::leaseReach`, under the `rental_inspections` data scope): all = the agency; branch = the property's branch; own = a property they are the agent on **or a lease they created / are the owner's or tenant's agent on**. It bounds the In/Out due items, the *Load interim dates* picker + its server-side check (active leases only), and every action on an existing date (`assertLeaseWithinReach` — another 404, same as a record they cannot see; the date is untouched). Tests in `RentalInspectionDueDatesTest` (three added).
+
+## 53. The Due board's scope guard, and a walk of the inspection screens (2026-10-09, cc4; QA1 only)
+**The test was stale, the controller was right.** `RentalListControllersNoGrantTest` called `RentalInspectionDueController::propertyScope()`, which tonight's cross-cut commit (243489088, §51) replaced with `leaseReach()`; the test was not updated. The test now calls `leaseReach()` (no scope row = 403; an `own` role gets a narrowed query). Nothing in the controller changed: the Due board already narrows at the query layer — the computed Move-in/Move-out rows through `leaseReach()` and the loaded dates through `RentalInspectionPlannedDate::scopeVisibleTo()`.
+**Proof, `RentalInspectionDueScopeTest`** (screen, print list and CSV each): an own-scope agent sees their own property's overdue Move-in and loaded date and none of a colleague's (same branch or another branch); `?scope=all` / `?scope=branch` never widens an own agent; a branch manager sees their branch and nothing of another; an agency-scope user sees every branch but never another agency's; a lease the agent created counts as theirs even on a colleague's property.
+**Walk fixes** (render-checked at 1280 / 1536 / 1920 on QA1 data): (1) the inspections list, the Due board and every inspection screen scrolled the whole page sideways at 1280px — the two tables now sit in a scrolling card with tighter cell padding, and the "Scanned forms" upload row wraps; (2) the tray photo "x" on the property Inspections tab used the browser's `confirm()` — now the app's own dialog; (3) a cancelled or archived inspection offered "Generate link" for a public link the server refuses — the button is gone and the card says why. Tests: `RentalInspectionScreenRulesTest`.
+**Needs Johan's ruling (not decided):** (a) a cancelled inspection still lists its "Follow-up" items with Create fault report / work order / job card buttons (the §48 text says "whatever its status"); (b) "Download printable form" is offered on completed and cancelled inspections although it is the blank form for capture before an inspection; (c) "Download report (PDF)" is offered on a draft that has nothing recorded yet.
+
+
+
+## 54. Handing out a link IS "ready to sign" - and the signing controls sit where the agent finishes (13 Oct 2026, cc1; the conductor's call as PM - **pending Johan's confirmation**)
+
+**What happened (Sherry demo, inspection #108).** Johan recorded 58 items and 32 photos, shared the tenant's QR, and the tenant's page said signing opens when the agent marks the inspection ready. "Sign on this device" was greyed out. The hidden step was a "Ready to sign" button at the very foot of the screen, below eleven rooms, with one small grey line as the only hint. He never pressed it - "did not allow me to sign anything".
+
+**Rule.** "Sign on this device", "Show QR", "Email everyone their link", and each tenant's / the landlord's own Email, WhatsApp, Copy link, QR and device link **make the inspection ready to sign themselves** when every item is recorded (the same guard sequence as the Ready to sign button: `RentalInspection::assertReadyToSign()` - unresolved discrepancy, unrecorded items, required notes, the agency's "photos required" rule). `RentalInspectionSigningLinkService::ensureReadyToSign()` is the one hook (called from `issue()`, `sendEmail()`, and the QR / device actions); the inspection moves to `awaiting_signature` right then and the signing window starts. The agent's own link (read only) never opens signing. If something is missing nothing is issued or sent and the refusal (409 `not_ready`, with `readiness`) says in one plain sentence how many items are still to record and in which rooms ("3 items are still to record: Kitchen (2), Bedroom 1 (1). Record them (Not applicable counts), then send the link."). Email everyone reports a blocked inspection once, not once per person. "Pending Johan's confirmation": whether the report should lock for signing at the moment the agent hands over the device / QR. Revert path: remove the `ensureReadyToSign()` calls; the Ready to sign button still works exactly as before.
+
+**Screen.** The panel's own status line replaces the old helper paragraph: `signingReadiness()` (`state` signing / ready / blocked / closed, `unrecorded`, `rooms`) is part of the panel feed, so a blocked inspection shows its sentence without anyone pressing anything, with a **Ready to sign** button right in the panel (same server action as the recording screen's) beside "Email everyone their link". The panel's buttons are one height (`sg-btn`). The recording screen's signing block is now a **bar pinned to the foot of the inspection** (`sticky bottom-0`, `data-qa="signoff-bar"`): one line of state ("33/33 recorded - ready to sign" / "Open for signing - 1 of 3 signed" / "Completed"), a **Signing** button that opens a drawer above it (print for signature, the report lock, sign by link / QR / device, each party's signature row and the agent's PIN signature) and the next step (**Ready to sign**, then **Complete**). The refusal messages and the "still to record" checklist (rooms jump) moved into the bar next to the buttons that cause them. The drawer opens by itself once signing is open. No helper paragraphs.
+
+**The party's link page before signing opens** is one line - "The agent is still recording this inspection - signing opens here by itself." - never a dead end: the page checks quietly every 15 seconds (header `X-Signing-Poll`, which is not counted as the party opening the link again) and shows the signing form the moment it opens. Existing links keep working: #108's tenant link (issued before this rule) opens for signing the moment the agent presses any sign control.
+
+**Tests.** `RentalInspectionSigningLinkTest` (11 new): link issue opens signing; blocked = nothing issued + count and rooms; panel readiness; the panel's Ready to sign is the same action; QR / device / email each open signing; blocked QR / email / device page / Email everyone; the agent's link never does; the poll is not an "open"; the same link shows the form once signing opens. Real-browser proof on QA1 on a spare lease is in the commit report.
+
+
+## Sherry walk, third batch, 13 Oct 2026 (cc1) - the inspection screens (tests in `RentalInspectionSigningLinkTest`)
+
+From cc5's walk of an incoming inspection:
+- **Blank white pills across the top of the inspection page.** The shared rental context bar painted its chips with `var(--surface-1, #fff)` - a variable that does not exist - and no text colour, so in the dark theme light text sat on white. They now use the theme's own `--surface` with `--text-primary`. The bar's **Documents (n)** chip counted the property's old attachment files; it now counts the same list as the property's Drive tab (so the signed lease shows).
+- **"Complete" looked live with a signature still outstanding.** It is grey until the signing summary says it is ready; it can still be pressed, and then the plain reason shows in the line above it ("Cannot complete: ... has neither signed nor been marked as refusing").
+- **Everything vanished after the last item was recorded.** The "Needs attention" filter is remembered per agent, so a finished inspection could open on it with nothing to show. The empty message now carries **Show every room and item**.
+- **A new rental property has no rooms.** The inspection page says so at the top, in a box, with **Add rooms and items** (to the property's Inspections tab) - not as small print at the foot. Shown only while the inspection can still be recorded and the property has no live items.
+- **Agent signing.** "Set them in My Portal first" is now a link (opens My Portal in a new tab). The PIN is the act of signing: the signature is saved the moment it unlocks; "Confirm & save signature" stays only as the retry if that save was refused.
+- **"Next inspection: Routine - Start" on the inspection itself.** The next-in-chain box is offered once this inspection is completed (or shows the existing next link), not while it is still being recorded.
+- **The agent's own email** said "ready to read" and nothing about signing; it now says the link is for reading and the agent signs inside CoreX with their own login and signing PIN.
+
+
+## 55. A new rental property starts from the agency's standard room checklist (14 Oct 2026, cc-cape2; from cc3's new-agency walk)
+
+**What was wrong.** A brand-new rental property has no rooms, so the move-in inspection could not be recorded or signed until the agent had added every room by hand.
+
+**Rule.** Each agency keeps a standard room list per kind of property - **House, Apartment / Flat, Townhouse, Any other property** - in `rental_inspection_settings.room_templates` (`{family: [{type, count}]}`, nullable: nothing saved reads as the built-in neutral defaults `DEFAULT_ROOM_TEMPLATES`, so every agency, including one created later, starts with a sensible list). A property's own type name picks the list by the words in it (`roomTemplateFamilyFor`: apartment / flat / studio -> flat, townhouse / cluster / duplex / sectional -> townhouse, house / home / cottage / villa / bungalow as whole words -> house, anything else -> other; "Warehouse" is not a house). Each room comes with the item list already kept per room type ("Room type default items"), so the item lists are not duplicated. Bedrooms, bathrooms and garages take the property's own `beds` / `baths` / `garages` when set; the list's count applies only when those are blank. A type asked for once is named by its type ("Kitchen"), more than once is numbered ("Bedroom 1", "Bedroom 2"); rooms are created in the agency's walking order. The agency's own room types can be used in a list.
+
+**Build.** `RentalInspectionFormSeeder::seedFromStandardChecklist` - only for a property with **no rooms at all** (retired rooms count) and no "form built" mark; it sets the same `rental_inspection_form_seeded_at` mark the advertising build uses, so a property's form is built once and is its own from then on. Existing properties with rooms are never touched (409 with the reason). Route `corex.properties.rental-inspection-items.seed-from-standard` (permission `rental_inspections.create`, property own/branch/agency scope + the signed-lock refusal, same as the advertising build); JSON for the property tab, a plain form post redirects back with a message.
+
+**Where it is offered automatically.** (1) The "no rooms yet" box at the top of an inspection - **Build rooms from the standard checklist** (one press) beside **Add rooms by hand**; (2) the recording panel's empty state; (3) the property's Inspection Items panel (the first button; "Build from advertising details" is still there beside it).
+
+**Settings and wizard (CLAUDE.md 10a).** Settings -> Rental Inspections -> "Standard rooms for a new property" (saver `RentalInspectionSettingsController::updateRoomTemplates`, marker `room_templates_submitted`, only the kinds posted are touched, an emptied kind posts a `_present` marker so it saves empty) and the Setup Wizard's Rentals -> inspection lists partial (saver `RentalListsWizardSaver::inspectionRoomTemplates`, no-op without the marker). Fold-in rules live in `RentalInspectionSetting::mergeRoomTemplates` so both screens apply identical ones (unknown type, blank and a repeated type in one list are dropped; counts 1-20).
+
+**Tests.** `RentalInspectionStandardRoomsTest` (16): which list a type name uses, defaults for two agencies with nothing stored, house list with items in walking order, own figures win, flat list, existing rooms untouched, pressed twice builds once, retired room counts, empty list says so, plain form post, another agency's property refused, settings change with a second agency on defaults, the agency's own type in a list, settings page, wizard saver no-op / save, wizard config.
+
+
+## 56. Photo pairing by position, the item note stops starving the photos, the Photo compare chips tell the truth (14 Oct 2026; Johan, property 21222; QA1 only)
+
+**What Johan saw (Entrance Hall > Ceiling / Walls on a move-out).** Out photos sat beside "NO MATCH" tiles although the move-in had photos on the same item; the "Auto-pair" button did nothing and said nothing; the move-in photo strip on Ceiling was a ~15 px sliver; and the Photo compare viewer read "Ceiling 0 / 0", "Walls 3 / 0".
+
+**Causes.**
+1. *No pairs existed.* `RentalInspectionPhotoAutoPairService::runFor()` only paired an item when there was **exactly one** photo on each side (§24.5's "propose nothing rather than guess"). Ceiling was 3 in / 4 out, Walls 3 in / 3 out, so nothing was ever paired; the strip (`pairedRows()`, show.blade.php) then lists every unpaired photo on its own row, in-only and out-only alternating - which is exactly "[1 NO MATCH][2 photo][3 NO MATCH][4 photo]".
+2. *Auto-pair silent.* The controller returned only `created_count`; the page ignored it. With rule 1 it created zero groups, so nothing moved and nothing was said.
+3. *Sliver.* In `rental-inspection-item-cell.blade.php` the read-only item note lived inside the `flex:none` condition-buttons column. A `flex:none` column is as wide as its widest child, so a long note widened the column (measured 502 px against the normal 185 px) and the strip beside it (`flex:1; min-width:0`) was left with 50 px. Same cause as item 4 on the same screen: the Damaged/Good buttons turning into full-width text buttons.
+4. *Viewer counts.* `compareViewerChipCounts()` read `conditionForInspection(...).photos` - only the **newest** observation of the item - for both sides (the IN Ceiling's newest observation is the photo-less "Damaged" re-assessment, so 0), and the current inspection was read from the payload as loaded with the page, so any photo uploaded after the page opened counted as 0 (Walls 3 / 0). The strips read every observation, and the tail through the live uploader cache. Same class as §40.
+
+**Rules now.**
+- **Auto-pair (explicit button and the automatic first-view run) pairs the photos of the same room+item by position** - 1st in with 1st out, 2nd with 2nd, in upload (id) order. Extras on the longer side stay unpaired and show "NO MATCH". Photos that were ever in a match, active or removed, are never reconsidered (an agent's explicit unmatch is respected; re-running is a no-op). Photos tagged to a **room but no item** keep the old cautious rule (paired only when exactly one each side) - there is nothing to say they are the same thing. Same linking primitive (`RentalInspectionPhotoMatchGroup::linkPhotos()`), same same-item guard.
+- **The button always answers.** The response now carries `created_count`, `unmatched_count` and `message`; the button shows it next to itself for 12 s: "Paired 6 photos, 1 without a match." / "No new pairs. 1 photo without a match." / "Nothing new to pair - every photo that has a twin is already paired." (`unmatched_count` = tagged photos on either inspection, in a room/item that has photos on both sides, with no active match.) The silent on-open run shows nothing.
+- **A read-only item note renders below the buttons+strip row**, spanning the item's width and wrapping (`min-width:0; overflow-wrap:anywhere`). The buttons column keeps its fixed size on both sides. The editable (out) side's "Notes (required)" input sits below the row the same way: it used to live inside the column, and its own intrinsic width (~214 px) widened the buttons beyond the in-side's 185 px the moment Damaged was tapped (strip 338 vs 367) - measured on a ZZ record, fixed by moving it.
+- **One photo resolver for the Photo compare viewer**: `compareViewerSidePhotos(side, kind, roomId, itemId)` (show.blade.php) feeds both the rails and the chip counts - the previous inspection through every observation's photos, the current inspection through `itemPhotosFor()/roomPhotosFor()` (the same source the strips use). A chip can no longer disagree with what the strip or the rail shows.
+
+**Files.** `app/Services/RentalInspectionPhotoAutoPairService.php`, `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`autoPairPhotoMatches`), `resources/views/corex/properties/show.blade.php` (`runAutoPair(explicit)`, `autoPairMessage`, `compareViewerSidePhotos`, `compareViewerChipCounts`), `resources/views/corex/properties/partials/rental-inspection-item-cell.blade.php`.
+
+**Tests.** `RentalInspectionRecordingControllerTest::test_auto_pair_pairs_the_photos_of_one_item_by_position_and_reports_the_result` (3 in / 4 out and 3 in / 3 out: pairs by position, 4th out photo unpaired, message and counts, second press is a no-op). Browser proof on a ZZ property (headless Chromium, QA1, 1600 and 1366 wide): before/after screenshots listed in the commit report.
+
+### 56a. A chain of three: the next inspection pairs with the previous one's photos even when they already have a twin (14 Oct 2026, 16:xx SAST; Johan, property 21222; QA1 only)
+
+**What Johan saw after §56 was deployed.** Ceiling: the older strip showed its photos with link icons plus an empty 4th slot; the newer strip read `[NO MATCH][NO MATCH][NO MATCH][photo]`. Walls the same. The "Auto-pair" button said nothing useful.
+
+**What was really on the screen.** Not In (127) against Out (128): the page was comparing Out 128 with a NEXT inspection (135, "Routine" / `ad_hoc`) that Johan had started from the Out draft at 15:51 with the "Next inspection: [Ad hoc] Start" control beside Auto-pair (default type `ad_hoc`). The §56 pairing of 127 with 128 was correct (groups 39-44, each In photo with the Out photo of the same position). The new pair, 128 with 135, was not.
+
+**Cause.** `RentalInspectionPhotoAutoPairService::runFor()` rejected every photo that had EVER been in any match group (`everTouched()`), on both sides. All 7 of 128's photos were already in groups with 127's photos (a group is a set of photos across any number of inspections, §20.16), so they were "taken"; 135's photos could only pair with 128's one leftover 4th Ceiling photo (group 45: 128's #4 with 135's #1 - the wrong photo), and nothing on Walls. `pairedRows()` then lists the 128 photos whose group has no 135 member as predecessor-only rows ("NO MATCH" on the new side) and appends the new photos after them.
+
+**Rule now.** Eligibility is decided per PAIR of inspections. A tail photo is up for pairing only if it has never belonged to any match (active or removed). A predecessor photo is up for pairing unless it has ever shared a group, active or removed, with a photo of THIS tail - a group with an earlier inspection does not count, and the new tail's photo joins that group (1st with 1st, 2nd with 2nd, same `linkPhotos()` primitive). An explicit unmatch on the new pair is still respected. `unmatched_count` counts, for the pair, tagged photos whose active group holds no photo of the other inspection (so an Out photo that only has an In twin counts as unmatched against the next inspection).
+
+**Not changed (reported).** The "Next inspection - Start" control sits on the same line as Auto-pair and defaults to Ad hoc; starting a whole new inspection from a draft Out is allowed (§49). Product call, left as is.
+
+**Files.** `app/Services/RentalInspectionPhotoAutoPairService.php`. **Tests.** `RentalInspectionRecordingControllerTest::test_auto_pair_in_a_chain_of_three_joins_the_groups_the_predecessor_already_has` and `..._still_respects_an_unmatch_made_on_the_new_pair`. Browser proof on a ZZ property that repeats Johan's steps (completed In, Out draft, photos through the item camera buttons, Next inspection, photos again).
+
+
+## 57. A cancelled or archived inspection drops out of the chain; stacking a "next" on an open inspection asks first (14 Oct 2026; Johan, property 21222; QA1 only)
+
+**What Johan saw.** He had started a Routine inspection (135) on top of the still-draft Out (128) by pressing "Next inspection: Start" (default Ad hoc) on the property tab. The pairing work then showed 128's strip against the empty 135. The conductor cancelled 135 so 128 could be finished — and the Inspection panel went EMPTY ("In - move-in condition [Start inspection]"), as if the property had no inspections, although In 127 was completed and Out 128 an open draft. 128's own page still said "Next in this chain: Routine inspection".
+
+**Cause.** `RentalInspection::chainTailFor()` finds the tail as the non-cancelled inspection with `whereDoesntHave('nextInChain')`, and `nextInChain()` was a plain `hasOne(previous_inspection_id)` that counted the CANCELLED row. So 128 was not the tail (it "had a next"), and the cancelled 135 was filtered out as cancelled — no tail at all, so the tab fell back to "start a new chain". The database's UNIQUE index on `previous_inspection_id` had the same blind spot: a cancelled row kept holding its predecessor's only successor slot, so no new next could ever be started from 128 either.
+
+**Rules now.**
+- **Only a LIVE inspection is "next in the chain".** `nextInChain()` ignores cancelled rows (archived rows were already hidden by SoftDeletes). `chainTailFor()` therefore returns the newest non-cancelled, non-archived inspection again, `tabPayloadFor()` (chain_tail, chain_predecessor), the agency-level "Next in this chain" line and `startReplacement()`'s tail walk all follow.
+- **A cancelled or archived inspection is spliced out.** `RentalInspection::spliceOutOfChain()` — called by `cancel()` and by the model's `deleted` hook (every archive path) — re-points whatever followed it at the inspection that came before it, so `previousInspection()` reads the right comparison everywhere (In -> Routine -> Out, Routine cancelled: Out compares against In). The cancelled/archived row keeps its own `previous_inspection_id` as history.
+- **One live successor, never a fork — in code now, not by index.** Migration `2026_11_05_100000_rental_inspections_previous_link_may_be_shared_with_a_cancelled_one` turns the unique index into a plain one (the foreign key keeps an index throughout) and back-fills earlier cancelled/archived middle links. `startNext()` takes a row lock on the predecessor and runs `assertCanFollow()` (unknown type, a second In, cancelled/archived predecessor, an existing live next) so two quick presses cannot both succeed. Restoring an archived inspection is refused while something else has since been started after its predecessor (`restoring` hook; the restore action shows the reason).
+- **Starting a next on an inspection that is still open asks first.** The property tab's `next` endpoint now answers 409 `reason: open_inspection` for a predecessor that is not completed, after the normal refusals (`assertCanFollow()` runs first, so "already has an In" etc. still show). The page asks "<Out-inspection> #128 is still open (draft) — it has not been finished. Starting another inspection now puts it on top of that one... OK = start anyway, Cancel = keep working on the open one"; OK re-sends with `confirm_stack`. Nothing is created by the warning. Finished inspections carry on with no question. The agency-level inspection page already offers "Next inspection" only once the inspection is completed.
+
+**Files.** `app/Models/RentalInspection.php` (`nextInChain`, `spliceOutOfChain`, `assertCanFollow`, `startNext`, `cancel`, boot hooks), `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`next`), `app/Http/Controllers/CoreX/RentalInspectionController.php` (`restore`), `resources/views/corex/properties/show.blade.php` (`nextInspection`), the migration above. The committed schema snapshot was NOT regenerated (it still shows the old unique index; the new migration runs on top of it).
+
+**Tests.** `RentalInspectionChainTest`: cancelling the Routine on top of a draft Out makes the Out the tail again (payload tail/predecessor, recordable, cancelled row keeps its link); a new next can be started after the cancel and a second live one is still refused; cancelling a middle inspection re-points its follower; archiving the tail and the restore refusal; the open-inspection warning (nothing created, `confirm_stack` creates) and no warning on a finished one. Browser proof on a ZZ record with Johan's exact sequence.
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F2)
+
+The day-before REMINDER email to tenants and landlords is opt-in (Johan). New nullable columns `remind_tenant_by_email` / `remind_landlord_by_email` on `rental_inspection_settings` (migration `2026_11_16_100500`); `RentalInspectionSetting::remindTenantByEmailFor()` / `remindLandlordByEmailFor()` resolve null (never saved) to OFF. `RentalInspectionNotificationService::recipientsFor()` uses ONLY these two switches for the reminder event; the scheduled / rescheduled / cancelled notices keep `notify_tenant_enabled` / `notify_landlord_enabled` and their previous defaults (on). The inspector reminder is unchanged. Surfaced on the Schedule notifications form (`updateScheduleNotifications`, `has()`-guarded) and in the Setup Wizard step `rental_inspections` (config/agency-onboarding-copy.php, with explain/affects). `rentals:send-inspection-reminders` also skips agencies with the `rental-inspections` feature off.
+
+### Signing-link tokens are hashed (audit 2026-10-18, A-L4)
+`rental_inspection_signing_links.token` no longer holds the working token. A link is found by `token_hash` (SHA-256 of the token); `token_encrypted` holds the same token encrypted with the application key so the agent's screen can still show, copy and QR the same link (a database dump or backup alone gives no working link). `RentalInspectionSigningLink` converts on set/get, so `$link->token` and `->url()` work as before. Migration `2026_11_16_100000_hash_inspection_signing_link_tokens` converts every existing row in place (idempotent), so links already sent keep working until they expire; nothing is revoked. Tests: `RentalInspectionSigningLinkTest`.

@@ -51,6 +51,9 @@ final class TrackedProperty extends Model
         'last_known_asking_price', 'last_known_sold_price', 'last_known_sold_date',
         'property_type', 'bedrooms', 'bathrooms', 'garages',
         'floor_size_m2', 'erf_size_m2',
+        // Structured address layer (.ai/specs/structured-address-matching.md §3) — derived, written by the one parser.
+        'p24_suburb_id', 'p24_city_id', 'street_core', 'street_type', 'erf_portion', 'township', 'lpi_code',
+        'address_raw', 'address_parse_status', 'address_parse_note',
         'promoted_to_property_id', 'promoted_at', 'promoted_by_user_id',
         'owner_contact_id',
         'source_chain', 'first_seen_at', 'last_enriched_at', 'last_enrichment_source',
@@ -106,12 +109,15 @@ final class TrackedProperty extends Model
             if (!empty($tp->suburb) && empty($tp->suburb_normalised)) {
                 $tp->suburb_normalised = static::normaliseSuburb($tp->suburb);
             }
+            // Structured address layer (.ai/specs/structured-address-matching.md §5).
+            app(\App\Services\Address\AddressStructurer::class)->apply($tp);
         });
 
         static::updating(function (TrackedProperty $tp) {
             if ($tp->isDirty('suburb')) {
                 $tp->suburb_normalised = static::normaliseSuburb($tp->suburb);
             }
+            app(\App\Services\Address\AddressStructurer::class)->apply($tp);
         });
     }
 
@@ -320,10 +326,21 @@ final class TrackedProperty extends Model
         return $types->contains(fn ($t) => ! str_starts_with($t, 'manual'));
     }
 
+    /**
+     * The street line every display of this property uses: house number + street, never the number twice.
+     * The structured-address layer fills `street_number` from text that is still in the raw `street_name`
+     * ("12 Beach Road" → number 12, name unchanged — the raw name is never rewritten), so a plain
+     * number + ' ' + name concatenation reads "12 12 Beach Road". Same guarded composer a Property uses.
+     */
+    public function streetLine(): string
+    {
+        return \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece($this->street_number, $this->street_name, null, null);
+    }
+
     public function displayAddress(): string
     {
         $parts = array_filter([
-            trim(($this->street_number ?? '') . ' ' . ($this->street_name ?? '')),
+            $this->streetLine(),
             $this->suburb,
         ]);
         return implode(', ', $parts) ?: '(no address)';

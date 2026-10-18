@@ -3,7 +3,7 @@
 namespace Tests\Unit\Services\Images;
 
 use App\Services\Images\ImageOrientationNormalizer;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase; // needs the app container: base_path() / the Schema facade
 
 /**
  * The "sideways photo" fix (property 6118): a phone captures a portrait shot as

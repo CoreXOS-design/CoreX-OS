@@ -13,26 +13,6 @@ class ProspectingStockMatchService
     private const POSSIBLE_MATCH_GPS_TOLERANCE_DEGREES = 0.00025;
     private const POSSIBLE_MATCH_GPS_TOLERANCE_METRES = 25.0;
     /**
-     * 2026-08-12 (Johan's ruling) — generic/non-distinguishing address tokens
-     * that must NEVER count as a "significant" street-name word in Pass 2.
-     * Unit/complex descriptors and street-TYPE suffixes appear across
-     * countless UNRELATED addresses; before this list existed they let two
-     * totally different buildings "match" purely on a shared filler word —
-     * confirmed root causes of two live false positives: property #4243
-     * ("...Flat 3") matched a PP listing ("...Holiday Flats") on "flat" as a
-     * SUBSTRING of "flats" (not even the same word), and separately several
-     * properties matched unrelated listings purely because both addresses
-     * happened to end in "Street". Suburb names are excluded per-comparison
-     * (see matchProspect()) since normalizeAddress() appends the suburb to
-     * BOTH sides, so it would otherwise always "match" trivially.
-     */
-    private const GENERIC_ADDRESS_WORDS = [
-        'unit', 'flat', 'flats', 'section', 'block', 'holiday', 'erf', 'door', 'the',
-        'street', 'road', 'drive', 'avenue', 'place', 'close', 'lane', 'way',
-        'boulevard', 'crescent', 'grove', 'view', 'park', 'gardens', 'complex',
-    ];
-
-    /**
      * Try to match a single prospect to an agency property.
      * Returns the matched Property or null.
      */
@@ -84,92 +64,39 @@ class ProspectingStockMatchService
         // for a different building 590m away; property #2654 "46 Marine
         // Drive" vs "46 Taylor Road") — both fired on a bare coincidental
         // number plus a generic/substring word match, never on real address
-        // content. See the class-level GENERIC_ADDRESS_WORDS note.
+        // content. (The generic-word list that guarded this is retired — see the scored comparison below.)
         $prospectSuburb = strtolower(trim($prospect->suburb ?? ''));
         if (!$prospectSuburb) {
             $this->clearMatch($prospect);
             return null;
         }
 
-        // The prospect's OWN structured street number. Prospecting listings
-        // carry no dedicated column — only free text. Shared parser (see
-        // ProspectingListing::parseStreetNumber) so this and the Pitch Now
-        // collision check (EntryPointController -> MapProspectStatusService)
-        // can never drift on what counts as "the number".
-        $prospectNumber = ProspectingListing::parseStreetNumber($prospect->address);
-
-        // Prospect has no readable street number at all — per Johan's ruling,
-        // Pass 2 must not fire on number alone (there IS no number to gate
-        // on), so nothing in this suburb can fuzzy-match. Belt-and-braces:
-        // Pass 1 (exact normalized match) already had first refusal above.
-        if (!$prospectNumber) {
+        // 2026-10-07 (structured address matching, step 6) — Pass 2 is now the shared scored comparison's EXACT tier,
+        // restricted to stock still on the market: the same suburb (by spelling — "Uvongo" and "Uvongo Beach" are
+        // neighbours and stay a POSSIBLE match, never the badge), the same street NUMBER and the same street name
+        // (type tolerant), with every veto the other matchers carry. The number gate Johan ruled on above stays: a
+        // prospect with no readable number never fuzzy-matches. The generic-word list this used to need is gone —
+        // the street CORE is compared, so a shared "Street" or "Flats" can never match two different addresses.
+        $facts = \App\Services\Address\AddressFacts::fromPayload(array_filter([
+            'address'   => $prospect->address,
+            'suburb'    => $prospect->suburb,
+            'latitude'  => $prospect->latitude,
+            'longitude' => $prospect->longitude,
+        ], static fn ($v) => $v !== null && $v !== ''));
+        // Prospect has no readable street number at all — per Johan's ruling Pass 2 must not fire on a street name alone
+        // (the 46 Taylor / #4243 failure mode). The one address reader decides what "readable" means, whatever the portal
+        // wrote around it ("19 Grindewald Drive, Uvongo", "5 Ss Ketamina Flats, 987 Henry Road").
+        if ($facts->streetNumber === null) {
             $this->clearMatch($prospect);
+
             return null;
         }
-
-        foreach ($properties as $prop) {
-            $propSuburb = strtolower(trim($prop->suburb ?? ''));
-            if ($propSuburb !== $prospectSuburb) {
-                continue;
-            }
-
-            // The property's STRUCTURED street number — prefer the dedicated
-            // column; most rows in this dataset have it NULL with the number
-            // written inline at the front of street_name instead ("30 Queen
-            // Street"), so fall back to that leading token only. Do NOT
-            // search for the number anywhere in property.address free text —
-            // that loose search is exactly what let a coincidental complex/
-            // unit number stand in for the real street number before.
-            $propNumber = $prop->street_number ? trim((string) $prop->street_number) : null;
-            if (!$propNumber && $prop->street_name) {
-                if (preg_match('/^(\d+)\b/', strtolower(trim($prop->street_name)), $numMatch2)) {
-                    $propNumber = $numMatch2[1];
-                }
-            }
-
-            // Neither a dedicated street_number nor a readable leading number
-            // in street_name — no real structured number to compare against.
-            // Per Johan's ruling, skip rather than guess.
-            if (!$propNumber) {
-                continue;
-            }
-
-            // FIELD-TO-FIELD equality, not "does this number appear somewhere
-            // in the other address's free text" — the exact distinction that
-            // let property #4243's street_number "14" match the unrelated
-            // "14 Dumela Holiday Flats" complex name.
-            if ($propNumber !== $prospectNumber) {
-                continue;
-            }
-
-            // Real street-name word match: word-boundary (not str_contains —
-            // "flat" must never match inside "flats"), excluding generic
-            // descriptor / street-type words AND the shared suburb name (which
-            // normalizeAddress() appends to both sides, so it would otherwise
-            // always "match" regardless of the actual street).
-            $propNameSource = $prop->street_name ?: ($prop->address ?? '');
-            $propWords = preg_split('/\s+/', preg_replace('/[^a-z\s]/', '', strtolower($propNameSource)));
-            $propWords = array_filter($propWords, fn ($w) => strlen($w) > 3
-                && !in_array($w, self::GENERIC_ADDRESS_WORDS, true)
-                && $w !== $prospectSuburb);
-
-            if (empty($propWords)) {
-                // No real distinguishing street-name word survives filtering —
-                // a bare number match alone is not enough (the exact 46
-                // Taylor / #4243 failure mode). Skip.
-                continue;
-            }
-
-            $matched = false;
-            foreach ($propWords as $word) {
-                if (preg_match('/\b' . preg_quote($word, '/') . '\b/', $prospectNorm)) {
-                    $matched = true;
-                    break;
-                }
-            }
-
-            if ($matched) {
+        $onMarketIds = $properties->pluck('id')->flip();
+        foreach (app(\App\Services\Address\AddressMatcher::class)->properties((int) $agencyId, $facts) as $h) {
+            if ($h['result']['tier'] === \App\Services\Address\AddressMatchScorer::TIER_EXACT && $onMarketIds->has($h['model']->id)) {
+                $prop = $properties->firstWhere('id', $h['model']->id);
                 $this->setMatch($prospect, $prop);
+
                 return $prop;
             }
         }

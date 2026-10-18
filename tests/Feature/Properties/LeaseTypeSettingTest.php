@@ -139,6 +139,9 @@ final class LeaseTypeSettingTest extends TestCase
 
     public function test_the_lease_create_screen_renders_the_agencys_own_list(): void
     {
+        // leases.md §15.3 (Build L2): the capture screen shows the lease type only when the agency opts in,
+        // like the lease edit panel below; this test is about the list source, not the visibility default.
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['show_lease_type_field' => true]);
         $property = $this->rentalProperty();
         PropertySettingItem::create(['agency_id' => $this->agency->id, 'group' => 'lease_type', 'name' => 'Our Custom Term', 'sort_order' => 0]);
 

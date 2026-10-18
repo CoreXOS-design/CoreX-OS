@@ -376,7 +376,7 @@ return [
                 'element' => '[data-tour="calc-deposit-interest-property"]',
                 'do'      => ['action' => 'fill', 'say' => 'Type the property address.'],
                 'title'   => 'Which property',
-                'body'    => 'Name the property the deposit relates to — for example "12 Marine Drive, Margate". It labels the result and the saved record.',
+                'body'    => 'Name the property the deposit relates to — for example "12 Main Road, Town". It labels the result and the saved record.',
             ],
             [
                 'element' => '[data-tour="calc-deposit-interest-amount"]',

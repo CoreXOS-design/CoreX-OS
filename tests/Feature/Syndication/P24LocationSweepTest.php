@@ -38,7 +38,7 @@ class P24LocationSweepTest extends TestCase
         $stale = now()->subDays(2);  // < runStart -> swept
 
         $this->province = P24Province::create([
-            'p24_id' => 4, 'p24_country_id' => 1, 'name' => 'KwaZulu Natal', 'p24_verified_at' => $seen,
+            'p24_id' => 4, 'p24_country_id' => \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa'])->id, 'name' => 'KwaZulu Natal', 'p24_verified_at' => $seen,
         ]);
         $this->freshCity = P24City::create([
             'p24_id' => 169, 'p24_province_id' => $this->province->id, 'name' => 'Durban', 'p24_verified_at' => $seen,
@@ -60,6 +60,8 @@ class P24LocationSweepTest extends TestCase
     private function sweep(int $provSeen, int $citySeen, int $subSeen): void
     {
         $cmd = new SyncP24Locations();
+        // pruneStale() reports through the console output, so the command needs one when driven directly.
+        $cmd->setOutput(new \Illuminate\Console\OutputStyle(new \Symfony\Component\Console\Input\ArrayInput([]), new \Symfony\Component\Console\Output\BufferedOutput()));
         $ref = new ReflectionClass($cmd);
 
         $rs = $ref->getProperty('runStart');

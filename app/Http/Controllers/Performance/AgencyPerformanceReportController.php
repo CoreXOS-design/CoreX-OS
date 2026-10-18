@@ -9,6 +9,7 @@ use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\Period;
 use App\Services\Performance\PeriodResolver;
 use App\Services\Performance\PerformanceDrilldownService;
+use App\Services\Performance\PerformanceReportScopeResolver;
 use App\Services\Performance\PerformanceScope;
 use App\Services\Performance\PeriodComparison;
 use App\Services\Performance\ReportPeriodComparator;
@@ -23,7 +24,7 @@ use Illuminate\Support\Facades\DB;
  */
 class AgencyPerformanceReportController extends Controller
 {
-    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, ReportPeriodComparator $comparator)
+    public function index(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, ReportPeriodComparator $comparator, PerformanceReportScopeResolver $scopes)
     {
         $user     = $request->user();
         $agencyId = $user?->effectiveAgencyId();
@@ -34,7 +35,13 @@ class AgencyPerformanceReportController extends Controller
         $branchId = $request->filled('branch_id') ? (int) $request->query('branch_id') : null;
         $userId   = $request->filled('user_id') ? (int) $request->query('user_id') : null;
 
-        $scope  = new PerformanceScope((int) $agencyId, $branchId, $userId);
+        // Scope-report fix (2026-10-07): the requested branch/agent is only a
+        // NARROWING request inside the viewer's own ceiling (own / branch /
+        // agency, from performance_report.view) — never a way past it. The
+        // ceiling travels inside $scope and is ANDed onto the agent cohort by
+        // HierarchyResolver, so the screen, the comparison period, the buyer
+        // rollup and every figure below can only ever contain entitled agents.
+        $scope  = $scopes->resolve($user, $branchId, $userId);
         $report = $service->build($scope, $period);
 
         // AT-366-E — company-level buyer-activity summary (period-scoped).
@@ -86,6 +93,8 @@ class AgencyPerformanceReportController extends Controller
             ],
             'preset' => $preset,
             'presets' => PeriodResolver::PRESETS,
+            // An 'own' viewer has no branch pages (they 403) — the view renders the branch name as plain text for them.
+            'canOpenBranchPages' => $scopes->canOpenBranchPages($user),
             'compareMode'      => $compareMode,
             'compareModes'     => PeriodResolver::COMPARE_MODES,
             'comparison'       => $comparison,
@@ -163,21 +172,35 @@ class AgencyPerformanceReportController extends Controller
      * prior-period trend + the agents attributed to it (point-in-time). The
      * {branch} segment is a numeric branch id or the 'unassigned' sentinel.
      */
-    public function branch(Request $request, string $branch, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    public function branch(Request $request, string $branch, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes)
     {
         $actor    = $request->user();
         $agencyId = $actor?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless($branch === 'unassigned' || ctype_digit($branch), 404);
 
+        // Scope-report fix (2026-10-07): a branch page is a 403 outside the
+        // viewer's ceiling (agency -> any branch, branch -> own branch only,
+        // own -> none). 'unassigned' is a company-wide bucket: agency only.
+        if ($branch === 'unassigned') {
+            abort_unless($scopes->canOpenCompanyPages($actor), 403);
+        } else {
+            abort_unless(
+                DB::table('branches')->where('id', (int) $branch)->where('agency_id', $agencyId)->exists(),
+                404
+            );
+            abort_unless($scopes->canViewBranch($actor, (int) $branch), 403);
+        }
+        $ceiling = $scopes->ceiling($actor);
+
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $report = $service->branchJourney((int) $agencyId, $branch, $period);
+        $report = $service->branchJourney((int) $agencyId, $branch, $period, $ceiling);
         abort_if($report['branch'] === null, 404);
 
         // AT-366-E — this branch's buyer-activity summary, pulled from the same
         // company rollup so it reconciles with the company total.
-        $buyerActivity = $buyers->rollup(new PerformanceScope((int) $agencyId), $period);
+        $buyerActivity = $buyers->rollup($ceiling, $period);
 
         return view('performance.agency-report.branch', [
             'report'  => $report,
@@ -194,16 +217,20 @@ class AgencyPerformanceReportController extends Controller
      * AT-366-C — one agent's journey: every metric for the period paired with its
      * prior-period value (trend). Agency-scoped; owners / out-of-agency 404.
      */
-    public function agent(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    public function agent(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes)
     {
         $actor    = $request->user();
         $agencyId = $actor?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless((int) $user->agency_id === (int) $agencyId, 404);
+        // Scope-report fix (2026-10-07): in the agency but outside the viewer's
+        // ceiling (an agent asking for a colleague, a branch manager for
+        // another branch's agent) is a 403, never the figures.
+        abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403);
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period);
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
         abort_if($journey['agent'] === null, 404);
 
         // AT-366-E — the agent's full period-scoped buyer-activity picture (Q7).
@@ -221,7 +248,7 @@ class AgencyPerformanceReportController extends Controller
      * AT-366 (cc1 frontend #8) — whole-company printable: the full report, chrome-free,
      * with a company header. Same agency-scoped build() as index(); print-optimised view.
      */
-    public function print(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    public function print(Request $request, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes)
     {
         $user     = $request->user();
         $agencyId = $user?->effectiveAgencyId();
@@ -229,7 +256,10 @@ class AgencyPerformanceReportController extends Controller
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $scope  = new PerformanceScope((int) $agencyId, null, null);
+        // Scope-report fix (2026-10-07): the printable is built from the
+        // viewer's own ceiling — an agent prints their own figures, a branch
+        // manager their branch, agency roles the whole agency.
+        $scope  = $scopes->ceiling($user);
         $report = $service->build($scope, $period);
         $buyerActivity = $buyers->rollup($scope, $period);
 
@@ -245,16 +275,17 @@ class AgencyPerformanceReportController extends Controller
      * AT-366 (cc1 frontend #8) — single-agent printable to hand an agent their own
      * figures. Agency-scoped exactly like agent(); out-of-agency users 404.
      */
-    public function agentPrint(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers)
+    public function agentPrint(Request $request, User $user, PeriodResolver $periods, AgencyPerformanceReportService $service, BuyerActivityService $buyers, PerformanceReportScopeResolver $scopes)
     {
         $actor    = $request->user();
         $agencyId = $actor?->effectiveAgencyId();
         abort_if(!$agencyId, 403, 'No agency context for the performance report.');
         abort_unless((int) $user->agency_id === (int) $agencyId, 404);
+        abort_unless($scopes->canViewAgent($actor, (int) $user->id), 403); // see agent()
 
         [$period, $preset] = $this->resolvePeriod($request, $periods);
 
-        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period);
+        $journey = $service->agentJourney((int) $agencyId, (int) $user->id, $period, $scopes->ceiling($actor));
         abort_if($journey['agent'] === null, 404);
 
         return view('performance.agency-report.print-agent', [
@@ -270,9 +301,10 @@ class AgencyPerformanceReportController extends Controller
      * GET /corex/performance/agency-report/drilldown?metric=&level=&id=&period=&start=&end=&status=
      * Returns {title,total,columns,rows} per the frontend contract. Strictly agency-scoped.
      */
-    public function drilldown(Request $request, PeriodResolver $periods, PerformanceDrilldownService $drill)
+    public function drilldown(Request $request, PeriodResolver $periods, PerformanceDrilldownService $drill, PerformanceReportScopeResolver $scopes)
     {
-        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        $actor    = $request->user();
+        $agencyId = (int) ($actor?->effectiveAgencyId() ?? 0);
         abort_if(!$agencyId, 403, 'No agency context.');
 
         // Accept BOTH the short contract aliases AND every provider/tile key shown on the report.
@@ -301,14 +333,19 @@ class AgencyPerformanceReportController extends Controller
         $agentId = null; $branchId = null;
         if ($level === 'agent') {
             abort_unless($id && DB::table('users')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Agent not in agency.');
+            // Scope-report fix (2026-10-07): a specific agent outside the viewer's ceiling is a 403.
+            abort_unless($scopes->canViewAgent($actor, $id), 403, 'Agent outside your scope.');
             $agentId = $id;
         } elseif ($level === 'branch' && $id !== null) {
             abort_unless(DB::table('branches')->where('id', $id)->where('agency_id', $agencyId)->exists(), 404, 'Branch not in agency.');
+            abort_unless($scopes->canViewBranch($actor, $id), 403, 'Branch outside your scope.');
             $branchId = $id;
         }
 
         [$period] = $this->resolvePeriod($request, $periods);
-        $cohort   = $drill->cohort($agencyId, $branchId, $agentId);
+        // The ceiling is ANDed onto the cohort too, so even the company-level
+        // drill-down (and an unknown level) can only list entitled agents' rows.
+        $cohort   = $drill->cohort($agencyId, $branchId, $agentId, $scopes->ceiling($actor));
         $res      = $drill->rows($metric, $cohort, $period, $agencyId, $metric === 'deals' ? $status : null);
 
         return response()->json([

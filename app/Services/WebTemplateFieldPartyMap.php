@@ -163,6 +163,14 @@ class WebTemplateFieldPartyMap
             // (the ONE canonical key, also used by the new CDS catalogue field) —
             // see WebTemplateDataService::resolve() for the collapse rationale.
             'rental_amount_words',
+            // Lease notice and early cancellation — system-filled from the lease's own terms, not editable by a signer, so the document can never differ from the lease record (leases.md §18.8)
+            'notice_period',
+            'notice_period_unit',
+            'earliest_notice_date',
+            'early_cancellation_allowed',
+            'early_cancellation_notice',
+            'early_cancellation_notice_unit',
+            'early_cancellation_penalty',
             'deposit_amount_words',
             'price_in_words',
             'property_full_address',

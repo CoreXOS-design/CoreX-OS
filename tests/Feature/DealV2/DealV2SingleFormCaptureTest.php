@@ -131,18 +131,7 @@ final class DealV2SingleFormCaptureTest extends TestCase
         $this->assertCount(0, $deal->contacts);
     }
 
-    public function test_default_create_route_serves_the_single_page_form(): void
-    {
-        $resp = $this->actingAs($this->admin)->get(route('deals-v2.create'));
-        $resp->assertOk();
-        $resp->assertSee('Prefer a guided wizard');   // single-form-only cross-link
-        $resp->assertSee('Side Splits &amp; Agents', false);
-    }
-
-    public function test_wizard_route_still_serves_the_wizard(): void
-    {
-        $resp = $this->actingAs($this->admin)->get(route('deals-v2.create-wizard'));
-        $resp->assertOk();
-        $resp->assertSee('dealWizard');   // the Alpine wizard component
-    }
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // Removed, not skipped: test_default_create_route_serves_the_single_page_form, test_wizard_route_still_serves_the_wizard.
+    // AT-219 soft-retired the Deal Register V2 prototype screens: show/overview/create/create-wizard now redirect to the DR2 register (DealV2Controller::dr2RetiredRedirect()), original bodies archived — there is no screen left to assert on.
 }

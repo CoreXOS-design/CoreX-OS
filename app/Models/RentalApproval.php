@@ -27,10 +27,26 @@ class RentalApproval extends Model
     public const EVIDENCE_EMAIL = 'email';
     public const EVIDENCE_VERBAL_NOTE = 'verbal_note';
 
+    /** How the owner told us, in the words a person uses ("verbal note" is what an agent's phone call is stored as). */
+    public static function evidenceLabel(?string $evidence): string
+    {
+        return match ($evidence) {
+            self::EVIDENCE_VERBAL_NOTE => 'phone call',
+            self::EVIDENCE_WHATSAPP => 'WhatsApp',
+            self::EVIDENCE_EMAIL => 'email',
+            self::EVIDENCE_PORTAL => 'their link',
+            default => str_replace('_', ' ', (string) $evidence),
+        };
+    }
+    /** AT-445 — the landlord decided directly through the portal; the click itself is the evidence. */
+    public const EVIDENCE_PORTAL = 'portal';
+
     protected $fillable = [
         'agency_id',
         'rental_fault_report_id',
         'rental_work_order_id',
+        // §17.7.3 — "exactly one of fault report / work order / variation".
+        'rental_work_order_variation_id',
         'decision',
         'approval_route',
         'evidence_type',
@@ -38,6 +54,13 @@ class RentalApproval extends Model
         'evidence_file_path',
         'decided_at',
         'recorded_by_user_id',
+        'recorded_by_contact_id', // AT-445
+        // Fault flow F3-F5: who handles the repair. 'own' = the owner's own contractor (optional name + phone);
+        // 'agency' = a supplier from the agency's list (agency_service_provider_id).
+        'contractor_source',
+        'contractor_name',
+        'contractor_phone',
+        'agency_service_provider_id',
         'created_at',
         // 2026-09-22, Johan — an unanchored "approved" says nothing about
         // what it was for. quote_id_at_decision is identity-only (never
@@ -85,5 +108,35 @@ class RentalApproval extends Model
     public function recordedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by_user_id');
+    }
+
+    public const CONTRACTOR_OWN = 'own';
+    public const CONTRACTOR_AGENCY = 'agency';
+
+    /** The agency supplier chosen on this decision (soft-deleted suppliers stay readable in history). */
+    public function contractorSupplier(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\DealV2\AgencyServiceProvider::class, 'agency_service_provider_id')->withTrashed();
+    }
+
+    /** One plain line for screens/history/PDF: "Owner's own contractor: Joe (082…)" / "Agency contractor: Acme Plumbing". */
+    public function contractorLine(): ?string
+    {
+        if ($this->contractor_source === self::CONTRACTOR_OWN) {
+            $who = trim(($this->contractor_name ?: '') . ($this->contractor_phone ? ' (' . $this->contractor_phone . ')' : ''));
+
+            return "Owner's own contractor" . ($who !== '' ? ': ' . $who : ' (details not given)');
+        }
+        if ($this->contractor_source === self::CONTRACTOR_AGENCY) {
+            return 'Agency contractor: ' . ($this->contractorSupplier?->name ?? 'supplier #' . $this->agency_service_provider_id);
+        }
+
+        return null;
+    }
+
+    /** AT-445 */
+    public function recordedByContact(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'recorded_by_contact_id');
     }
 }

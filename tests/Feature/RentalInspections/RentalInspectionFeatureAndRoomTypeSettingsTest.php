@@ -177,28 +177,57 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
     // ── Job Two: room type default items ────────────────────────────────
 
-    public function test_every_known_space_type_defaults_to_the_standard_baseline_except_the_five_with_a_real_vocabulary(): void
+    /** Build I-2 (§45.4 item 1): every one of the 50 types resolves to its own list, else its family's, else the baseline. */
+    public function test_every_known_space_type_defaults_to_its_own_list_or_its_familys(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $defaults = RentalInspectionSetting::roomTypeItemDefaultsFor($agency->id);
-        $specialCased = array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE);
 
         foreach (config('property-spaces.all_space_types', []) as $type) {
             $this->assertArrayHasKey($type, $defaults);
-            if (in_array($type, $specialCased, true)) {
-                continue;
-            }
-            $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, $defaults[$type], "space type '{$type}' must default to the standard baseline");
+            $expected = RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type]
+                ?? RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[RentalInspectionSetting::ROOM_TYPE_FAMILY[$type]];
+            $this->assertSame($expected, $defaults[$type], "space type '{$type}' must default to its own list, else its family's");
         }
     }
 
-    /** 2026-09-21 — Retha's real vocabulary, transcribed exactly, is the system default for these five. */
-    public function test_the_five_named_types_default_to_rethas_real_vocabulary(): void
+    /** No type is in the 'other' family by accident of being forgotten: all 50 are mapped, and to a real family. */
+    public function test_all_fifty_space_types_are_explicitly_mapped_to_a_real_family(): void
     {
-        $agency = $this->newAgency('Coastal Realty');
+        $types = config('property-spaces.all_space_types', []);
+        $this->assertCount(50, $types);
 
-        foreach (RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE as $type => $items) {
-            $this->assertSame($items, RentalInspectionSetting::roomTypeItemsFor($agency->id, $type), "space type '{$type}' must default to Retha's transcribed list");
+        foreach ($types as $type) {
+            $this->assertArrayHasKey($type, RentalInspectionSetting::ROOM_TYPE_FAMILY, "'{$type}' must be mapped to a family");
+            $this->assertArrayHasKey(RentalInspectionSetting::ROOM_TYPE_FAMILY[$type], RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS);
+        }
+        $this->assertEqualsCanonicalizing($types, array_keys(RentalInspectionSetting::ROOM_TYPE_FAMILY));
+        foreach (array_keys(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE) as $type) {
+            $this->assertContains($type, $types, "type-specific list for '{$type}' must be a real space type");
+        }
+    }
+
+    /** §45.4 item 1 — the floor-to-ceiling floor: every interior family carries the nine shared building elements. */
+    public function test_every_interior_family_covers_the_floor_to_ceiling_building_elements(): void
+    {
+        $core = ['Ceiling', 'Walls', 'Floor covering', 'Windows', 'Doors', 'Light fittings', 'Light switches', 'Plug sockets'];
+        foreach (['living', 'bedroom', 'kitchen', 'bathroom', 'other'] as $family) {
+            foreach ($core as $item) {
+                $this->assertContains($item, RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[$family], "{$family} must include {$item}");
+            }
+            $this->assertContains('Skirting', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS[$family]);
+        }
+        $this->assertContains('Sink and taps', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Stove, hob and oven', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Extractor', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        $this->assertContains('Cupboards and tops', RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['kitchen']);
+        foreach (['Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Extractor fan', 'Mirror', 'Geyser access'] as $fitting) {
+            $this->assertContains($fitting, RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bathroom']);
+        }
+        // No checklist ever carries the same label twice (case-insensitively).
+        foreach (config('property-spaces.all_space_types', []) as $type) {
+            $items = RentalInspectionSetting::defaultItemsForType($type);
+            $this->assertSame(count($items), count(array_unique(array_map('mb_strtolower', $items))), "'{$type}' has a duplicate default item");
         }
     }
 
@@ -206,7 +235,7 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
     {
         $agency = $this->newAgency('Coastal Realty');
 
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['living'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
         // A type that doesn't even exist in the catalog — must still seed something, never nothing.
         $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Some Future Room Type'));
     }
@@ -228,9 +257,9 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertSame(['Floors', 'Railing'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Patio'));
         // Every OTHER type is untouched by customizing one — still the standard baseline.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS, RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
-        // ...including a type with its OWN real-vocabulary system default, also untouched.
-        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE['Bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['living'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Lounge'));
+        // ...including a type with its own family baseline, also untouched.
+        $this->assertSame(RentalInspectionSetting::DEFAULT_ROOM_FAMILY_ITEMS['bedroom'], RentalInspectionSetting::roomTypeItemsFor($agency->id, 'Bedroom'));
     }
 
     /** An agency explicitly setting a type to zero items is a real, preserved state, distinguishable from "never customized." */
@@ -600,19 +629,24 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'some_key_nobody_configured'));
     }
 
-    /** Johan: N/A is "not an argument at all" — the one exception alongside Good. */
-    public function test_good_and_na_do_not_require_notes_by_default_every_other_state_does(): void
+    /**
+     * Johan's ruling (property 5792 progression-gate build; DEFAULT_CONDITION_STATES docblock): only
+     * conditions that assert something ADVERSE need a reason — Damaged, Not working, Missing, Other.
+     * Good, Fair and N/A do not. (Was: "everything but Good and N/A", which wrongly included Fair.)
+     */
+    public function test_only_adverse_states_require_notes_by_default(): void
     {
         $agency = $this->newAgency('Coastal Realty');
 
         $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'good'));
         $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'n_a'));
-        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+        $this->assertFalse(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, 'fair'));
+        foreach (['damaged', 'not_working', 'missing', 'other'] as $key) {
             $this->assertTrue(RentalInspectionSetting::conditionRequiresNotesFor($agency->id, $key), "'{$key}' should require a reason by default");
         }
     }
 
-    // ── §27.2 (recording-screen navigation, 2026-09-27) — needs_attention ──
+    // ── §27.2 needs_attention, superseded by §36 severity (2026-09-28) — needs-attention is derived from severity ──
 
     public function test_condition_needs_attention_for_an_unknown_key_defaults_to_true(): void
     {
@@ -621,20 +655,25 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'some_key_nobody_configured'));
     }
 
-    /** Johan's explicit ruling: Good and N/A off, everything else on. */
-    public function test_good_and_na_do_not_need_attention_by_default_every_other_state_does(): void
+    /**
+     * §36 (Johan, 2026-09-28): "needs attention" is derived from severity — red/amber only. Defaults:
+     * good/fair blue and n_a grey do NOT need attention; damaged/not_working/missing red and other amber do.
+     * (Was §27.2's stored needs_attention flag, under which Fair needed attention — superseded by §36.)
+     */
+    public function test_only_red_and_amber_states_need_attention_by_default(): void
     {
         $agency = $this->newAgency('Coastal Realty');
 
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'n_a'));
-        foreach (['fair', 'damaged', 'not_working', 'missing', 'other'] as $key) {
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'fair'));
+        foreach (['damaged', 'not_working', 'missing', 'other'] as $key) {
             $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, $key), "'{$key}' should need attention by default");
         }
     }
 
-    /** A row saved before needs_attention existed reads as TRUE, never silently filtered out of view. */
-    public function test_a_condition_state_saved_before_needs_attention_existed_defaults_to_true(): void
+    /** §36: a row with neither severity nor the legacy needs_attention reads as 'red' (so it still needs attention) — never silently filtered out of view. */
+    public function test_a_condition_state_saved_before_severity_existed_defaults_to_red(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         RentalInspectionSetting::create([
@@ -644,10 +683,28 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
 
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $state = collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'good');
-        $this->assertTrue($state['needs_attention']);
+        $this->assertSame('red', $state['severity']);
     }
 
-    public function test_an_agency_can_save_needs_attention_per_condition_state(): void
+    /** §36: a legacy row carrying only the old needs_attention boolean maps true -> red, false -> blue. */
+    public function test_a_legacy_needs_attention_boolean_maps_to_severity(): void
+    {
+        $agency = $this->newAgency('Coastal Realty');
+        RentalInspectionSetting::create([
+            'agency_id' => $agency->id,
+            'condition_states' => [
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => false, 'needs_attention' => false],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => true, 'needs_attention' => true],
+            ],
+        ]);
+
+        $states = collect(RentalInspectionSetting::conditionStatesFor($agency->id));
+        $this->assertSame('blue', $states->firstWhere('key', 'ok')['severity']);
+        $this->assertSame('red', $states->firstWhere('key', 'bad')['severity']);
+    }
+
+    /** §36: the settings form posts a per-state `severity`; needs-attention is derived (red/amber yes, blue/grey no). */
+    public function test_an_agency_can_save_severity_per_condition_state(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $admin = $this->admin($agency);
@@ -655,9 +712,10 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $response = $this->actingAs($admin)->post(route('corex.settings.rental-inspections.condition-states'), [
             'condition_states_submitted' => '1',
             'condition_states' => [
-                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0', 'needs_attention' => '0'],
-                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0', 'needs_attention' => '1'],
-                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1', 'needs_attention' => '1'],
+                ['key' => 'good', 'label' => 'Good', 'requires_notes' => '0', 'severity' => 'blue'],
+                ['key' => 'ok', 'label' => 'OK', 'requires_notes' => '0', 'severity' => 'amber'],
+                ['key' => 'bad', 'label' => 'Bad', 'requires_notes' => '1', 'severity' => 'red'],
+                ['key' => 'na', 'label' => 'NA', 'requires_notes' => '0', 'severity' => 'grey'],
             ],
         ]);
 
@@ -665,10 +723,12 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'ok'));
         $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'bad'));
+        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'na'));
+        $this->assertSame('amber', collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'ok')['severity']);
     }
 
-    /** The lazy-but-valid shortcut — the checkbox omitted entirely (unchecked, no hidden fallback) must not 500 or silently default wrong. */
-    public function test_a_condition_state_saved_with_needs_attention_omitted_defaults_to_false(): void
+    /** §36: severity omitted (or unrecognised) must not 500 — the saver falls back to 'red', so the state is never silently hidden from the Needs-attention filter. */
+    public function test_a_condition_state_saved_with_severity_omitted_defaults_to_red(): void
     {
         $agency = $this->newAgency('Coastal Realty');
         $admin = $this->admin($agency);
@@ -681,7 +741,8 @@ final class RentalInspectionFeatureAndRoomTypeSettingsTest extends TestCase
         ]);
 
         $response->assertSessionHasNoErrors();
-        $this->assertFalse(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
+        $this->assertSame('red', collect(RentalInspectionSetting::conditionStatesFor($agency->id))->firstWhere('key', 'good')['severity']);
+        $this->assertTrue(RentalInspectionSetting::conditionNeedsAttentionFor($agency->id, 'good'));
     }
 
     // ── Shared: the edit screen renders both sections with real state ──

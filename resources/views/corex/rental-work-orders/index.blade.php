@@ -19,116 +19,227 @@
     $statusBadgeClass = fn ($status) => match ($status) {
         'completed' => 'ds-badge-success',
         'reported', 'ordered', 'in_progress' => 'ds-badge-info',
-        'cancelled' => 'ds-badge-danger',
+        'cancelled', 'disputed' => 'ds-badge-danger',
         default => 'ds-badge-muted',
     };
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Work Orders</h1>
-        @permission('rental_work_orders.create')
-        <a href="{{ route('corex.rental-work-orders.create') }}" class="corex-btn-primary text-xs">New Work Order</a>
-        @endpermission
+@section('corex-content')
+<div class="w-full space-y-5" x-data="rentalWorkOrdersPropertyFilter({{ Js::from([
+    'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
+    'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
+]) }})">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Work Orders</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Repairs and maintenance jobs on your rental properties: who is doing the work, who pays and where each job stands.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @permission('rental_work_orders.create')
+                {{-- AT-442 fix #3 — forward the active lease_id/property_id filter
+                     (e.g. arrived here via the rental context bar's "Work orders"
+                     chip) into the create screen, same as every other "New X"
+                     button that respects an already-applied context filter. --}}
+                <a href="{{ route('corex.rental-work-orders.create', request()->only(['property_id', 'lease_id'])) }}" class="corex-btn-primary text-xs">New Work Order</a>
+                @endpermission
+            </div>
+        </div>
     </div>
 
-    {{-- §39, 2026-09-28 — summary tiles row, the same reused FICA/rental-
-         applications tab-tile pattern (compliance/fica/index.blade.php),
-         never a new design. One row, no helper text. --}}
+    {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
+         .ai/specs/rentals-rebuild.md §1.1. First tile = Total. --}}
     @php
         $currentTile = null;
-        foreach (['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s) {
+        foreach (['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s) {
             if (($filters['status'] ?? '') === $s) { $currentTile = $s; break; }
         }
-        if (!$currentTile && ($filters['overdue'] ?? false)) { $currentTile = 'overdue'; }
+        // Yes/no filters (not statuses). §17.17 added "Awaiting owner" and "Variation pending" beside "Overdue".
+        $flagKeys = ['overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check'];
+        foreach ($flagKeys as $f) {
+            if (!$currentTile && ($filters[$f] ?? false)) { $currentTile = $f; }
+        }
+        if (!$currentTile && !($filters['status'] ?? null)) { $currentTile = 'total'; }
 
         $tileDefs = [
-            'reported' => ['label' => 'Reported', 'params' => ['status' => 'reported']],
-            'ordered' => ['label' => 'Ordered', 'params' => ['status' => 'ordered']],
+            'total' => ['label' => 'Total', 'params' => []],
+            'reported' => ['label' => \App\Models\RentalWorkOrder::statusWord('reported'), 'params' => ['status' => 'reported']],
+            'ordered' => ['label' => \App\Models\RentalWorkOrder::statusWord('ordered'), 'params' => ['status' => 'ordered']],
             'in_progress' => ['label' => 'In progress', 'params' => ['status' => 'in_progress']],
             'completed' => ['label' => 'Completed', 'params' => ['status' => 'completed']],
             'cancelled' => ['label' => 'Cancelled', 'params' => ['status' => 'cancelled']],
+            // §17.10 — a tenant said finished work is not complete; the office must resolve it.
+            'disputed' => ['label' => \App\Models\RentalWorkOrder::statusWord('disputed'), 'params' => ['status' => 'disputed']],
             'overdue' => ['label' => 'Overdue', 'params' => ['overdue' => 1]],
+            // §17.17 — the owner owes an answer: the quote is out with him / extra work was put to him.
+            'awaiting_owner' => ['label' => 'Awaiting owner', 'params' => ['awaiting_owner' => 1]],
+            'variation_pending' => ['label' => 'Variation pending', 'params' => ['variation_pending' => 1]],
+            // Ruling 14 Oct 2026: reported finished, waiting for the agent to check and close
+            'awaiting_check' => ['label' => 'Finished - awaiting agent check', 'params' => ['awaiting_check' => 1]],
         ];
-        $tileClearParams = ['status' => null, 'overdue' => null, 'page' => null];
+        $tileClearParams = ['status' => null, 'overdue' => null, 'awaiting_owner' => null, 'variation_pending' => null, 'awaiting_check' => null, 'page' => null];
         $tileHref = fn ($key, $def) => route('corex.rental-work-orders.index', array_merge(
             request()->except(array_keys($tileClearParams)),
-            $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
+            $key === 'total' || $currentTile === $key ? $tileClearParams : array_merge($tileClearParams, $def['params'])
         ));
+        $tiles = collect($tileDefs)->map(fn ($def, $key) => [
+            'key' => $key,
+            'label' => $def['label'],
+            'count' => $tileCounts[$key],
+            'href' => $tileHref($key, $def),
+            'active' => $currentTile === $key,
+        ])->values()->all();
     @endphp
-    <div class="flex flex-wrap gap-1 text-sm font-medium" style="border-bottom: 1px solid var(--border);">
-        @foreach($tileDefs as $key => $def)
-            @php $active = $currentTile === $key; @endphp
-            <a href="{{ $tileHref($key, $def) }}"
-               class="px-4 py-2 transition-colors"
-               style="{{ $active
-                    ? 'color: var(--brand-icon, #0ea5e9); border-bottom: 2px solid var(--brand-icon, #0ea5e9); font-weight:600;'
-                    : 'color: var(--text-secondary); border-bottom: 2px solid transparent;' }}">
-                {{ $def['label'] }}
-                <span class="ml-1 text-xs px-1.5 py-0.5 rounded-full" style="background: var(--surface-2); color: var(--text-secondary);">{{ number_format($tileCounts[$key]) }}</span>
-            </a>
-        @endforeach
-    </div>
+    <x-rental-list-controls
+        :tiles="$tiles"
+        :scope-options="$scopeOptions"
+        :resolved-scope="$resolvedScope"
+        route-name="corex.rental-work-orders.index"
+        :per-page="$perPage"
+        :per-page-options="$perPageOptions"
+        :archivable="true"
+        :archived="$showArchived"
+        :print-url="route('corex.rental-work-orders.print-list', request()->query())"
+        :export-xlsx-url="route('corex.rental-work-orders.export', array_merge(request()->query(), ['format' => 'xlsx']))"
+        :export-csv-url="route('corex.rental-work-orders.export', array_merge(request()->query(), ['format' => 'csv']))"
+    />
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.rental-work-orders.index') }}" class="flex flex-wrap items-end gap-3">
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, supplier, title" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        @if($showArchived)
+            <input type="hidden" name="archived" value="1">
+        @endif
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property, tenant, supplier, title" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
-                @foreach(['reported', 'ordered', 'in_progress', 'completed', 'cancelled'] as $s)
-                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All statuses</option>
+                @foreach(['reported', 'ordered', 'in_progress', 'disputed', 'completed', 'cancelled'] as $s)
+                    <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ \App\Models\RentalWorkOrder::statusWord($s) }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Trade type</label><br>
-            <select name="trade_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
-                @foreach(\App\Models\DealV2\AgencyServiceType::orderBy('label')->get() as $type)
+        <div class="flex flex-col gap-1 relative">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
+            {{-- Only properties with a work order visible to this user —
+                 never every rental property (that's the create form's own
+                 job, unaffected). --}}
+            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
+                   placeholder="Search properties by address…"
+                   class="list-header-filter text-sm" :class="{ 'is-active': propertyQuery }">
+            <input type="hidden" name="property_id" x-model="selectedPropertyId">
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+                <template x-for="p in propertyResults" :key="p.id">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
+                        <span x-text="p.label"></span>
+                    </button>
+                </template>
+            </div>
+        </div>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Trade type</label>
+            <select name="trade_type" class="list-header-filter text-sm {{ filled($filters['trade_type'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All trades</option>
+                @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
                     <option value="{{ $type->code }}" @selected(($filters['trade_type'] ?? '') === $type->code)>{{ $type->label }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Priority</label><br>
-            <select name="priority" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Priority</label>
+            <select name="priority" class="list-header-filter text-sm {{ filled($filters['priority'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All priorities</option>
                 @foreach(['low', 'normal', 'urgent'] as $p)
                     <option value="{{ $p }}" @selected(($filters['priority'] ?? '') === $p)>{{ ucfirst($p) }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Paid by</label><br>
-            <select name="paid_by" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Paid by</label>
+            <select name="paid_by" class="list-header-filter text-sm {{ filled($filters['paid_by'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All payers</option>
                 @foreach(['owner', 'tenant', 'deposit_deduction', 'not_yet_paid'] as $p)
                     <option value="{{ $p }}" @selected(($filters['paid_by'] ?? '') === $p)>{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Reported from</label><br>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Who pays (ruling)</label>
+            <select name="who_pays" class="list-header-filter text-sm {{ filled($filters['who_pays'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All rulings</option>
+                @foreach(\App\Models\RentalPayerRuling::PAYERS as $p => $pl)
+                    <option value="{{ $p }}" @selected(($filters['who_pays'] ?? '') === $p)>{{ $pl }}</option>
+                @endforeach
+                <option value="none" @selected(($filters['who_pays'] ?? '') === 'none')>Not ruled yet</option>
+            </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Reported to</label><br>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Cause contains</label>
+            <input type="text" name="cause" value="{{ $filters['cause'] ?? '' }}" maxlength="100" placeholder="e.g. roots" class="list-header-filter text-sm {{ filled($filters['cause'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <label class="flex items-center gap-1 text-xs pb-2">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported from</label>
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
+        </div>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported to</label>
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
+        </div>
+        @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+            <input type="checkbox" name="open" value="1" @checked(($filters['open'] ?? false)) data-qa="wo-filter-open">
+            Open only
+        </label>
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
             <input type="checkbox" name="overdue" value="1" @checked(($filters['overdue'] ?? false))>
             Overdue only
         </label>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
-        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'paid_by', 'date_from', 'date_to', 'overdue']))
-            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-xs">Clear</a>
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+            <input type="checkbox" name="awaiting_owner" value="1" @checked(($filters['awaiting_owner'] ?? false))>
+            Awaiting owner
+        </label>
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+            <input type="checkbox" name="variation_pending" value="1" @checked(($filters['variation_pending'] ?? false))>
+            Variation pending
+        </label>
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+            <input type="checkbox" name="awaiting_check" value="1" @checked(($filters['awaiting_check'] ?? false))>
+            Finished - awaiting agent check
+        </label>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        @if(request()->hasAny(['q', 'status', 'trade_type', 'priority', 'property_id', 'paid_by', 'who_pays', 'cause', 'date_from', 'date_to', 'overdue', 'awaiting_owner', 'variation_pending', 'awaiting_check', 'open']))
+            <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
+            <div class="flex-1"></div>
+        <span class="ds-badge ds-badge-pill ds-badge-info">
+            {{ number_format($workOrders->total()) }} {{ \Illuminate\Support\Str::plural('work order', $workOrders->total()) }}
+        </span>
     </form>
+    </div>
+
+    <script>
+    function rentalWorkOrdersPropertyFilter(old) {
+        old = old || {};
+        return {
+            propertyQuery: old.propertyLabel || '', propertyResults: [],
+            selectedPropertyId: old.propertyId || '',
+            async searchProperties() {
+                if (this.propertyQuery.length < 2) { this.propertyResults = []; return; }
+                const res = await fetch('{{ route('corex.rental-work-orders.search-filter-properties', ['archived' => $showArchived ? 1 : 0]) }}&q=' + encodeURIComponent(this.propertyQuery));
+                this.propertyResults = await res.json();
+            },
+            selectProperty(p) {
+                this.selectedPropertyId = p.id;
+                this.propertyResults = [];
+                this.propertyQuery = p.label;
+            },
+        };
+    }
+    </script>
 
     {{-- §"List screen gaps" — property_id/lease_id are reached via a link
          (the property tab, a lease's own page), never a dropdown of every
@@ -147,37 +258,59 @@
     </div>
     @endif
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2">Title</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('priority') }}" style="color: var(--text-muted);">Priority{{ $sortIndicator('priority') }}</a></th>
-                    <th class="text-left px-4 py-2">Supplier</th>
-                    <th class="text-left px-4 py-2">Paid by</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('reported_at') }}" style="color: var(--text-muted);">Reported{{ $sortIndicator('reported_at') }}</a></th>
-                    <th></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Title</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('priority') }}">Priority{{ $sortIndicator('priority') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Supplier</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Paid by</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Cause</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Who pays (ruling)</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('reported_at') }}">Reported{{ $sortIndicator('reported_at') }}</a></th>
+                    <th class="px-4 py-3"></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($workOrders as $workOrder)
-                <tr style="border-bottom: 1px solid var(--border);" data-qa="work-order-row-{{ $workOrder->id }}">
-                    <td class="px-4 py-2">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}</td>
-                    <td class="px-4 py-2">{{ $workOrder->title }}</td>
-                    <td class="px-4 py-2"><span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ ucfirst(str_replace('_', ' ', $workOrder->status)) }}</span></td>
-                    <td class="px-4 py-2">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
-                    <td class="px-4 py-2">{{ $workOrder->supplier?->name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
-                    <td class="px-4 py-2">{{ $workOrder->reported_at?->format('Y-m-d') }}</td>
-                    <td class="px-4 py-2 text-right">
-                        <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs">View</a>
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="work-order-row-{{ $workOrder->id }}">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $workOrder->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $workOrder->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->title }}</td>
+                    <td class="px-4 py-3">
+                        @if($showArchived)
+                            <span class="ds-badge ds-badge-muted">Archived {{ $workOrder->deleted_at?->format('Y-m-d') }}</span>
+                        @else
+                            <span class="ds-badge {{ $statusBadgeClass($workOrder->status) }}">{{ app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder) ? 'Finished - awaiting agent check' : $workOrder->statusLabel() }}</span>
+                        @endif
+                    </td>
+                    <td class="px-4 py-3">{{ $workOrder->priority ? ucfirst($workOrder->priority) : '—' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->supplier?->displayName() ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->causeSummary() ?: '—' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->whoPaysLabel() ?: '—' }}</td>
+                    <td class="px-4 py-3">{{ $workOrder->reported_at?->format('Y-m-d') }}</td>
+                    <td class="px-4 py-3 text-right">
+                        @if($showArchived)
+                            @permission('rental_work_orders.create')
+                            <form method="POST" action="{{ route('corex.rental-work-orders.restore', $workOrder->id) }}" class="inline">
+                                @csrf
+                                <button type="submit" class="corex-btn-outline text-xs">Restore</button>
+                            </form>
+                            @endpermission
+                        @else
+                            <a href="{{ route('corex.rental-work-orders.show', $workOrder) }}" class="corex-btn-outline text-xs">View</a>
+                        @endif
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="8" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
-                    @if(!$hasAnyWorkOrders)
+                <tr><td colspan="10" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
+                    @if($showArchived)
+                        No archived work orders on this agency.
+                    @elseif(!$hasAnyWorkOrders)
                         No work orders yet on this agency. Every repair starts here — click "New Work Order" to log the first one.
                     @else
                         No work orders match this search or filter. Try clearing a filter.
@@ -187,7 +320,11 @@
             </tbody>
         </table>
     </div>
-
-    {{ $workOrders->links() }}
+        @if($workOrders->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $workOrders->links() }}
+        </div>
+        @endif
+    </div>
 </div>
 @endsection

@@ -216,34 +216,50 @@ new migration added silently doesn't exist yet in every OTHER lane's test
 runs, which reads as an unrelated, confusing test failure somewhere else
 entirely.
 
-**How, exactly** (do this in a worktree — never against `/corex-qa1`
-directly, and never point your default `DB_DATABASE` at a test schema
-permanently):
+**How, exactly (rewritten 2026-10-06 — the old recipe below this heading is gone):** run the one
+script, from your worktree root, with no arguments:
 
 ```bash
-DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan migrate:fresh --force
-DB_DATABASE=hfc_dash_test_<your lane number> php8.2 artisan schema:dump
+scripts/schema-dump.sh
 ```
 
-Then **strip the `DEFINER` clauses** — `schema:dump` bakes in whichever DB
-user happened to run it, which breaks the load for every other user (see
-non-negotiable #12a's own writeup of this exact gotcha):
+That is the ONLY sanctioned way to produce `database/schema/mysql-schema.sql`. **Never hand-edit the
+snapshot, and never run a bare `artisan schema:dump` (or `migrate:fresh` + `schema:dump`) against your own lane's
+test schema.** Both were the source of the 2026-10-06 breakage: hand edits left charset noise and a
+missing migration's tables; dumps of a lane schema picked up the lane-test bookkeeping table
+(`_corex_lane_test_fingerprint`). If a merge conflicts on the snapshot, do not merge it by hand — take
+either side, then regenerate with the script.
 
-```bash
-sed -i 's/\/\*!50017 DEFINER=`[^`]*`@`[^`]*`\*\/ //g' database/schema/mysql-schema.sql
-grep -c "DEFINER=" database/schema/mysql-schema.sql   # must print 0
-```
+What the script does that the old recipe did not (details in its own header comment):
+- Builds its OWN scratch schema on the tests-only MySQL instance (never QA1's, Staging's or any real
+  database; it refuses to run without `/root/.lanetest-mysql-credentials`) and drops it afterwards.
+- Migrates it **from scratch** (`--schema-path` points at nothing, so the old snapshot is not loaded first).
+- **Carries the reference rows the migrations insert.** `artisan schema:dump` writes structure plus the
+  `migrations` rows and NO table data, so a data-seeding migration was recorded as "already run" while
+  the rows it inserted were absent — the three 2026-10-06 failures (`AgencyTimelineTest` "defaults are
+  seeded by the migration", `AgreementFlowTest` "full flow", `PlatformEsignTest` "auto links and ticks
+  the timeline step") were exactly that. Only GLOBAL rows are carried (tables with no `agency_id`, or
+  rows where `agency_id IS NULL`); agency 1's (HFC's) backfilled rows and the `agencies` row are
+  deliberately left out, because a test creating its own agency must start from an empty tenant space.
+  `roles` and `role_permissions` are left out too: test fixtures make a user with a role NAME and no role
+  row, and populated system roles 403 them (proved: 70 `RentalCrewLinks` failures, gone when cleared).
+  The script prints the tables it carried; its `SKIP_DATA_TABLES_RE` comment lists every exclusion and why.
+  When a test fails only because a starting-data table is empty (or only because it is not), fix that
+  in the script's lists — never by editing the snapshot.
+- Strips `DEFINER` clauses (#12a) and the redundant column `CHARACTER SET` a `->change()`d enum dumps
+  with; refuses a dump containing the bookkeeping table; runs `check-schema-snapshot.sh`; writes a temp
+  file and moves it into place only on success (a failure leaves the existing snapshot untouched).
+- Takes ~20 minutes (every migration runs, one by one) and holds the tests-instance setup lock the whole
+  time, so other lanes' cold bootstraps wait for it (warm test runs do not). Needs your worktree's OWN
+  `vendor/` (`composer install` inside it — never a symlink). So run it **once per batch of merged
+  migrations, not once per migration**: migrations newer than the snapshot are applied on top by
+  `lane-test.sh` anyway, data-seeding ones included, so a snapshot a few migrations behind costs seconds,
+  not correctness.
 
-Verify the migrations you added actually landed in the dump before
-committing — `grep` for a column/table name only that migration introduces;
-don't just trust that the command ran:
-
-```bash
-grep -c "<your new column name>" database/schema/mysql-schema.sql
-```
-
-Commit `database/schema/mysql-schema.sql` in the SAME commit as the
-migration, exactly as non-negotiable #12a already says.
+After regenerating, verify what you added actually landed — `grep` for a table/column only your migration
+introduces — and commit the snapshot (alone, or with the migration). **A lane test schema built from an
+OLDER snapshot does not get the new reference rows:** after merging a regenerated snapshot, run
+`scripts/lane-test.sh --fresh <your test file>` once to rebuild your schema from it.
 
 **A slow load is not the same problem as a stale snapshot — don't confuse
 them.** Loading the snapshot via `mysql-schema.sql .......... DONE` can
@@ -969,6 +985,169 @@ floor here, not the ceiling.
 
 ---
 
+## Standard −1x — `scripts/lane-test.sh` is the ONE sanctioned way to run tests (2026-10-05, Johan, standing policy)
+
+Standard −1h recorded six-lane MySQL contention as "a known, accepted cost, do not build a fix without
+Johan's go-ahead" on 2026-09-13. This is that go-ahead. Every lane had already converged on wrapping test
+runs in `flock /tmp/corex-lane-test.lock php8.2 artisan test <files>` by hand — correct instinct, ad-hoc
+execution: no visibility into who's holding the lock or for how long, no self-healing when a lane's
+`hfc_dash_test_N` schema has been dropped (a sibling disk clean-up removed several idle ones on
+2026-10-05), and a live incident the same day showed a single stuck test (0.1% CPU, genuinely hung, not
+slow) blocking three other lanes behind the lock for 20+ minutes with zero visibility into why.
+
+**`scripts/lane-test.sh` replaces every hand-typed `flock ... artisan test ...` invocation.** It:
+
+1. Takes the same `/tmp/corex-lane-test.lock` every lane's manual invocations already used (interoperates
+   with runs already in flight — no migration needed).
+2. While waiting, prints the current holder's worktree, pid, and elapsed hold time every 5s (reads a
+   sidecar `/tmp/corex-lane-test.lock.info` the current holder writes on acquire) — so a lane stuck in the
+   queue can tell *who* is holding it and *for how long*, instead of staring at silence.
+3. Resolves this worktree's `TEST_DB_DATABASE` with the exact same precedence `tests/bootstrap.php`
+   already uses, and — new as of this standard — if that schema doesn't exist in MySQL, (re)creates it
+   and bootstraps it from `database/schema/mysql-schema.sql` before handing off to `artisan test`. A lane
+   whose schema was dropped out from under it (disk clean-up, a fresh worktree, anything) self-heals
+   instead of hard-failing with `SQLSTATE[HY000] [1049] Unknown database`.
+4. Holds the lock via an open file descriptor (fd 200), not a PID file or a manual stale-check — so a
+   `kill -9` of the wrapper, a timeout, or the test process itself hanging forever all resolve the same
+   way the kernel already guarantees: the lock is held for exactly as long as something is still actually
+   using it, and releases itself the instant nothing is. No stale-lock bookkeeping to get wrong.
+5. `scripts/lane-test.sh --status` shows the current holder (worktree, pid, elapsed) without joining the
+   queue, for exactly the "is it safe to start a run" check a lane wants before committing to wait.
+6. **Never kills, signals, or touches a process belonging to another lane/worktree.** A stuck holder
+   (verified via `--status` showing an implausible elapsed time, e.g. the 2026-10-05 `PpraEmploymentLetterTest`
+   hang) is that lane's own problem to report and resolve — this script's cleanup only ever reaches its
+   own child.
+
+**Root cause note, so staleness isn't re-investigated from scratch next time it's suspected:**
+`database/schema/mysql-schema.sql` was found current on `origin/QA1` HEAD when this was written (last
+regenerated minutes earlier, per Standard −1b's own discipline working as intended that day) — the
+mechanism in `tests/bootstrap.php` + Laravel's `MigrateCommand::loadSchemaState()` is not broken. What IS
+missing, permanently, is automation: nothing (no git hook, no CI step, no composer script) enforces
+Standard −1b's "re-dump the moment a migration lands" — it is a purely manual habit six concurrent lanes
+routinely skip, and the only thing that currently catches a stale dump is someone noticing tests got slow.
+**Measured 2026-10-05, against a fresh schema with the snapshot already current**: bootstrapping
+`hfc_dash_test_9001` from the (current, committed) dump and running
+`tests/Feature/Admin/RentalCatalogueUnitTest.php` took **276.81s** for the first test (schema bootstrap)
+and **279.76s** total for all 7 — far above the ~25s target non-negotiable #12a documents, even with a
+correct, current dump. This points at MySQL durability settings under multi-lane load (see the
+recommendations list below) as today's dominant cost, not dump staleness — the two are separate problems
+and this standard's fix only addresses the lock-visibility and schema-self-heal half of "no test
+bottlenecks," not DDL/fsync latency, which is Johan's call per the settings recommendations.
+
+---
+
+## Standard −1y — Tests run on a dedicated, tests-only MySQL instance; schemas are persistent (2026-10-05, Johan-approved, standing policy)
+
+Standard −1x fixed lock visibility and self-healing but left the real cost (MySQL durability
+settings under multi-lane load on the ONE shared instance that also serves live/Staging/QA1/QA2/
+demo) untouched — measured there at 276.81s to bootstrap a fresh schema even with a current dump.
+Johan approved a second, completely separate MySQL instance dedicated to tests, so lane tests never
+compete with live for that instance's resources and can run with durability settings that would be
+unsafe on real data. Full detail, settings, access control, and how to operate it:
+**`/root/LANETEST-MYSQL.md`**.
+
+**What changed:**
+- A Docker container, `corex-lanetest-mysql` (same `mysql:8.0.46` version as the main instance),
+  listening on `127.0.0.1:3317` only, with its own datadir
+  (`/mnt/HC_Volume_103099143/lanetest-mysql-data`) — shares nothing with the main instance's files.
+  Hard-capped at 1.5GB memory (this box runs with very little free RAM) so it can never starve the
+  host or the main instance.
+- Durability relaxed because every schema here is `hfc_dash_test_*` and always rebuildable:
+  `skip-log-bin`, `innodb_flush_log_at_trx_commit=0`, `sync_binlog=0`, `innodb_doublewrite=OFF`,
+  `performance_schema=OFF`, `innodb_buffer_pool_size=1G`. **These settings must never be applied to
+  the main instance** — it serves live.
+- A dedicated `lanetest` MySQL user, grantable ONLY on `` `hfc_dash_test_%`.* `` — verified it cannot
+  create or touch a schema outside that pattern.
+- `scripts/lane-test.sh` and `tests/bootstrap.php` both now route every test connection to this
+  instance by reading `/root/.lanetest-mysql-credentials` (root-only, never committed, never
+  echoed) — overriding DB_HOST/DB_PORT/DB_USERNAME/DB_PASSWORD regardless of what a worktree's own
+  `.env` says, so a test run on this box cannot reach the main instance even by accident. **On any
+  machine without that credentials file (any developer's own local MySQL, Windows/Laragon
+  included), both fall through to the previous behaviour unchanged** — this is additive, not a
+  universal requirement.
+- **Schemas are now PERSISTENT, never dropped at the end of a run.** `scripts/lane-test.sh` stores a
+  fingerprint (hash of `database/schema/mysql-schema.sql` + every migration file's own content) in
+  a marker row inside each lane's schema. Unchanged fingerprint → nothing rebuilt, and
+  `LANE_TEST_SCHEMA_READY=1` tells `tests/bootstrap.php` to pre-set
+  `RefreshDatabaseState::$migrated = true` so RefreshDatabase (used individually by every `*Test.php`
+  file — 978 of them, none touched) skips its own `migrate:fresh` and goes straight to wrapping each
+  test in a transaction against the already-correct schema. Changed fingerprint → a plain `artisan
+  migrate --force` for the delta, never a full rebuild. `scripts/lane-test.sh --fresh <files>` forces
+  a full rebuild — the recovery valve for a test that escapes its own wrapping transaction (raw DDL,
+  an explicit commit) and leaves residue migrate:fresh previously wiped away unconditionally. That
+  trade-off is real and stated plainly in both the script's own header comment and
+  `tests/bootstrap.php`'s.
+
+**Measured** (this instance, persistent schema): a **cold** run (schema didn't exist, full
+snapshot import) took ~197s — inflated by concurrent disk contention from other lanes still on the
+OLD instance at measurement time (host disk was at 100% util, swap fully exhausted — a real,
+diagnosed condition, not this instance's own cost). A **warm** run of the same file (fingerprint
+already matched) took **4.25s–5.48s total**, with the single test that previously cost 213–277s now
+running in under a second. That is the number that matters day to day: every run after the first on
+a given lane is this fast, not just the one measured.
+
+**Concurrency**: still behind the single shared `/tmp/corex-lane-test.lock` for now (Standard −1x) —
+not changed in this pass. With durability relaxed and each lane isolated to its own
+`hfc_dash_test_N` schema (enforced by the `lanetest` user's grant, not just convention), 2–3 lanes
+testing concurrently against this instance should no longer reproduce Standard −1h's contention (that
+was fsync/redo-log pressure from conservative durability settings, now removed on this instance) —
+recommended as a safe next step (a semaphore of ~3 instead of an exclusive lock), not yet built; this
+pass intentionally stopped at "wire the dedicated instance in and prove it's fast," per the explicit
+instruction to keep the lock as-is for this round.
+
+**MySQL-settings correction, so the wrong claim in Standard −1x's own recommendations list is not
+repeated:** `sync_binlog`, `innodb_flush_log_at_trx_commit`, and `log_bin` are GLOBAL-only on the main
+instance — there is no way to relax them "for test connections only" there, and they must never be
+changed on an instance that also serves live. The one genuinely session-scoped, safe lever
+(`SET SESSION sql_log_bin=0`) was checked directly against the main instance's test DB user
+(`corexqa1`) and confirmed NOT currently grantable without an explicit `SESSION_VARIABLES_ADMIN` (or
+legacy `SUPER`) grant — a narrow, live-safe privilege that only lets that one user skip binlogging
+its own session, never a server-wide change, but still a grant Johan would need to approve
+separately if ever wanted on the main instance. This dedicated instance makes that question moot for
+tests.
+
+---
+
+## Standard −1z — `scripts/lane-test.sh` runs up to 2 test runs at once; schema names are unique per worktree (2026-10-06, conductor's go)
+
+Standard −1y left the single exclusive lock in place and recommended "a semaphore of ~3". The lock was
+held for the WHOLE run, so one 200s+ cold schema bootstrap queued every lane even though warm runs
+take ~5s. It also protected nothing the tests still share (cache/session=array, queue=sync, no fixed
+ports, temp files are random-named, `storage/` is per-worktree) — except that **schema names were not
+unique**: 4 worktrees used `hfc_dash_test_1`, 9 used `_6`, 2 each `_9` and `_270927`, and every
+worktree with no `TEST_DB_DATABASE` silently fell back to the bare shared `hfc_dash_test`.
+
+**What a lane needs to know (nothing to do — it is automatic):**
+- **No `TEST_DB_DATABASE`? You now get your own schema.** `lane-test.sh` derives
+  `hfc_dash_test_<cksum of the worktree path>`, prints it, and exports it to PHPUnit. Setting
+  `TEST_DB_DATABASE` in your worktree `.env` still wins. The first run on a new name is a cold bootstrap (~200s, once).
+- **Per-schema lock (whole run):** two worktrees that resolve to the SAME name wait for each other
+  instead of corrupting each other's data. (Existing duplicates were deliberately NOT renamed — give
+  your worktree a unique `TEST_DB_DATABASE` to stop waiting on a namesake.)
+- **Run slots (whole run):** at most `MAX_SLOTS` (top of the script, default **2**; `LANE_TEST_MAX_SLOTS=3`
+  overrides for one run) test runs execute at once. A further run waits and prints which slots are held,
+  by which worktree, for how long.
+- **Setup lock (`/tmp/corex-lane-test.lock`) is now held ONLY while a schema is created/migrated**, then
+  released before PHPUnit starts. Bootstraps stay serial on purpose (several concurrent snapshot loads
+  thrash the tests instance's 100 MB redo log); test runs no longer queue behind them.
+- `scripts/lane-test.sh --status` lists the setup lock, every slot and every busy schema with holder info.
+- Killing a run (Ctrl-C / `kill <wrapper pid>`) takes its whole test process group down, so its slot and schema
+  free within seconds. A `kill -9` of the wrapper alone leaves phpunit running — and correctly still holding the locks.
+  Locks are `flock`s on open fds, released by the kernel; the `.info` label
+  files are cosmetic, so a stale label can never block anyone. A lane still on an OLDER copy of the script
+  holds the setup lock for its whole run — merge `origin/QA1` to get the new behaviour.
+- The truncated-snapshot guard (Standard −1x/ `check-schema-snapshot.sh`) is unchanged and runs first.
+- **Missing `node_modules` fails fast (2026-10-06).** A fresh worktree has no `node_modules`; the Word-import tests
+  shell out to mammoth and otherwise die with an opaque HTTP 500 after the whole queue + schema wait. Before any
+  lock, `lane-test.sh` now checks: if `node_modules/mammoth` is absent AND a selected test file references the
+  Word-import code (`mammoth` / `DocxParser` / `DocumentImporter` / `ImporterAi` / `CorexDocumentRenderer`), it stops with one line
+  naming the test and the fix — `ln -s /corex-qa1/node_modules node_modules` (read-only use; never `npm install` through
+  it). Runs that don't touch Word import (e.g. `tests/Feature/Platform`) are unaffected; `LANE_TEST_SKIP_NODE_CHECK=1` bypasses.
+
+Raising `MAX_SLOTS` is a one-line change; do it only while `free -g` shows real headroom (the box runs with swap full).
+
+---
+
 ## Standard 0 — Operating Principle
 
 Every standard in this file is subordinate to the CoreX Operating Principle (see CLAUDE.md). If a standard conflicts with the principle, the principle wins. If a standard would let a shortcut ship, the standard is wrong and gets revised.
@@ -997,6 +1176,20 @@ These are the non-negotiable rules for building CoreX. Every developer, every pr
 
 ### Navigation — No Orphaned Pages
 Every new page or feature must include a navigation path to reach it. A sidebar link, a button, a contextual action — something. If a user cannot navigate to a page without knowing the URL, the feature is incomplete.
+
+### Navigation — Every Sidebar Item Ships With A Features On/Off Toggle (Andre + Johan, 2026-10-07, standing rule)
+Anything added to the sidebar must be switchable on and off under **Settings → Features on/off**. A navigation entry with no switch is incomplete, exactly like a page with no navigation entry.
+
+A new sidebar item is not done until, in the SAME commit:
+1. **It has a row in `config/corex-features.php`** — label, plain-English `explain` and a concrete `affects`, `default => true` (nothing may disappear for an agency that already uses it), `depends_on` its parent module where it genuinely cannot work without it, a `category` that matches the sidebar group, and `route_names` (globs of the signed-in web routes it owns) plus `view_dirs` (its own screens). One row feeds the Settings screen AND the Setup Wizard — no second place to remember (this is also rule #10a).
+2. **The sidebar link is wrapped in `@feature('<key>')`.** A group whose children are all switched off hides itself — compute the group's visibility from the children's features, as the HR, Reports and Rentals groups do.
+3. **Its routes are refused when it is off.** `route_names` is enforced by `App\Http\Middleware\EnforceFeatureRoutes` (404, same as `feature:` middleware), so a hand-typed URL does not open it. A route matching several features' globs needs all of them on. The toggle beats the Role Manager permission.
+4. **Every other screen that links to it hides the link.** Wrap the link/button in `@feature('<key>')`; where the link sits inside a sentence, keep the text and drop the link (`@feature('k')<a …>text</a>@else text @endfeature`). Never leave a dead button on another page.
+5. **Not a duplicate switch.** If the feature already has a switch (e.g. Assistants → `agencies.assistants_enabled`), register it as a switchboard-origin key reading that store (`AgencyFeatureService::SWITCHBOARD_STORES`) — one switch, one home.
+
+Only two kinds of link may have no toggle, and both are listed explicitly in `App\Support\Navigation\SidebarFeatureCoverage`: a **core pillar page** (justified by a `'core' => true` registry key) and a **System-Owner-only** link (inside an `@if($isOwner)` block or an owner-only group). Do not add anything else there to make a test pass — add the toggle.
+
+**Enforced, not a paragraph:** `FeatureNavGuardCoverageTest` (extends the existing sidebar audit, `SidebarNavAuditor`) fails when a sidebar link sits outside every `@feature` wrap and is not exempt, when a view uses an unknown feature key (an unknown key silently resolves to OFF), when a `route_names` glob matches no route, and when a screen outside a feature's own views links to it without `@feature`. `php scripts/sidebar-nav-audit.php` lists the offenders. Spec: `.ai/specs/corex-feature-registry.md` §8.2.
 
 ### Soft Deletes — No Hard Deletes
 CoreX has a no-hard-deletes policy across the entire platform.

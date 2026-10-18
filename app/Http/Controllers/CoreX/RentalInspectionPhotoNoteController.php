@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInspectionPhotoNote;
@@ -26,17 +27,20 @@ use Illuminate\Validation\Rule;
  */
 class RentalInspectionPhotoNoteController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+
     /**
      * POST /corex/rental-inspections/{rentalInspection}/photos/{photo}/notes
      */
     public function store(Request $request, RentalInspection $rentalInspection, RentalInspectionPhoto $photo): JsonResponse
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         if (RentalInspectionPhotoNote::liveFor($photo)) {
@@ -70,11 +74,12 @@ class RentalInspectionPhotoNoteController extends Controller
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         $classifications = RentalInspectionSetting::photoNoteClassificationsFor($rentalInspection->agency_id);
@@ -98,11 +103,12 @@ class RentalInspectionPhotoNoteController extends Controller
     {
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         $note->forceFill(['archived_by_user_id' => $request->user()->id])->save();
@@ -126,11 +132,12 @@ class RentalInspectionPhotoNoteController extends Controller
         );
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         abort_if((int) $note->rental_inspection_photo_id !== (int) $photo->id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
-            return response()->json(['message' => $e->getMessage()], 409);
+            return response()->json(['message' => $e->getMessage(), 'reason' => $e instanceof \App\Exceptions\RentalInspectionSignedLockedException ? 'signed_locked' : 'not_recordable'], 409);
         }
 
         if (RentalInspectionPhotoNote::liveFor($photo)) {

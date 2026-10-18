@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Contacts;
 
 use App\Models\Contact;
+use App\Models\ContactType;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -136,6 +137,7 @@ final class ContactAgentAssignmentTest extends TestCase
             'first_name' => 'Fresh',
             'last_name'  => 'Lead',
             'phone'      => '0825559999',
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825559999')->firstOrFail();
@@ -151,6 +153,7 @@ final class ContactAgentAssignmentTest extends TestCase
             'last_name'  => 'Number',
             'phone'      => '0825554444',
             'id_number'  => '9001015030082',
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ])->assertSessionHasNoErrors();
 
         $contact = Contact::withoutGlobalScopes()->where('phone', '0825554444')->firstOrFail();
@@ -293,13 +296,25 @@ final class ContactAgentAssignmentTest extends TestCase
         ]);
     }
 
-    /** Update requires the core fields; merge in the bits under test. */
+    /**
+     * A contact must carry at least one parent contact type (store and update both
+     * require it). The schema snapshot already carries the fixed 'Owner' parent, so
+     * find it rather than inserting a second one.
+     */
+    private function ownerContactTypeId(): int
+    {
+        return (int) (ContactType::where('name', 'Owner')->whereNull('esign_role')->value('id')
+            ?? ContactType::create(['name' => 'Owner', 'esign_role' => null])->id);
+    }
+
+    /** Update requires the core fields and a contact type; merge in the bits under test. */
     private function payload(array $extra): array
     {
         return array_merge([
             'first_name' => 'Sam',
             'last_name'  => 'Buyer',
             'phone'      => '0825551111',
+            'parent_type_ids' => [$this->ownerContactTypeId()],
         ], $extra);
     }
 }

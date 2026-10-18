@@ -91,6 +91,18 @@ do not cite it as a verification gate, do not tell Johan or the conductor
 it ran, and do not wait for it. The two scripts above are its replacement
 in this environment.**
 
+**Every PHPUnit run on this box goes through `scripts/lane-test.sh <files>`
+— never `php8.2 artisan test` or `vendor/bin/phpunit` directly.** This
+script takes the shared `/tmp/corex-lane-test.lock`, shows who's holding it
+and for how long while you wait, and keeps a PERSISTENT per-lane schema on
+a dedicated tests-only MySQL instance (127.0.0.1:3317, never the shared
+instance serving live/Staging/QA1/QA2/demo — see `/root/LANETEST-MYSQL.md`),
+self-healing/updating it via a fingerprint check instead of a full rebuild
+every run. First run on a lane pays the real bootstrap cost once; every run
+after that is seconds. `scripts/lane-test.sh --fresh <files>` forces a full
+rebuild; `scripts/lane-test.sh --status` checks the queue without joining
+it. See `.ai/STANDARDS.md` Standard −1x and −1y.
+
 ---
 
 ## 0. The governing principle
@@ -457,6 +469,11 @@ sequence — QA1 for first QA, then the Staging host for final integration — n
 reload php-fpm → restart the queue worker. The reference-data step is
 non-optional: it is the only thing that carries seeder-owned GLOBAL reference
 rows across environments.
+
+**Scheduler check (every promotion):** the target must have `schedule:run` in cron (`crontab -l`,
+`/etc/cron.d`) - several date-driven rental jobs depend on it, notably `leases:advance-terms` (00:35: signed
+renewals go active, tenancies end - rental-renewals.md §22). Staging's cron was switched off on 2026-08-21; if the
+target has none, say so in the promotion report (the lease screen's admin button is the stand-in on a test box).
 
 ### Env-parity check (every promotion) — extensions AND PHP version
 

@@ -36,7 +36,7 @@ class ViewingPackCoverService
 
     /** @var array<string,string> key => label (the order shown on the settings page) */
     public const STYLES = [
-        self::STYLE_STANDARD => 'Standard (CoreX default)',
+        self::STYLE_STANDARD => 'Standard (default)',
         self::STYLE_CLASSIC  => 'Classic welcome',
     ];
 

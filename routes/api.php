@@ -17,6 +17,8 @@ use App\Http\Controllers\Api\PropertyPullController;
 use App\Http\Controllers\Api\V1\ClientAuthController;
 use App\Http\Controllers\Api\V1\ClientPortalController;
 use App\Http\Controllers\Api\V1\ClientSellerInsightsController;
+use App\Http\Controllers\Api\V1\ClientTenantRentalsController;
+use App\Http\Controllers\Api\V1\ClientLandlordRentalsController;
 use App\Http\Controllers\FaultReportController;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
@@ -143,11 +145,21 @@ Route::prefix('v1/demo')->group(function () {
 Route::get('v1/mobile/app-config', [\App\Http\Controllers\Api\V1\MobileAppConfigController::class, 'show'])
     ->name('v1.mobile.app-config');
 
-Route::prefix('v1/client-auth')->group(function () {
+// AT-445 — EnsureFrontendRequestsAreStateful is prepended here, scoped ONLY
+// to the client-auth/client groups (NOT re-added to the global 'api'
+// middleware group, which bootstrap/app.php deliberately strips it from
+// to keep the mobile app's bearer-token flow immune to Origin/Referer
+// tricks). Scoping it to exactly these two groups lets the tenant/landlord
+// WEB portal authenticate via a same-origin session cookie against the
+// SAME endpoints, while every other /api route — including the rest of
+// this mobile client API — is completely unaffected.
+Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class])->group(function () {
     Route::post('/lookup',          [ClientAuthController::class, 'lookup'])->name('client-auth.lookup');
     Route::post('/otp/send',        [ClientAuthController::class, 'sendOtp'])->name('client-auth.otp.send');
     Route::post('/otp/verify',      [ClientAuthController::class, 'verifyOtp'])->name('client-auth.otp.verify');
     Route::post('/login',           [ClientAuthController::class, 'login'])->name('client-auth.login');
+    // §28.5 - a portal tab with no token of its own asks for one (only for a person who already signed in on this browser)
+    Route::post('/tab-token',       [ClientAuthController::class, 'tabToken'])->middleware('throttle:60,1')->name('client-auth.tab-token');
     Route::post('/password/forgot', [ClientAuthController::class, 'forgotPassword'])->name('client-auth.password.forgot');
 
     // Agent QR onboarding — spec: .ai/specs/agent-qr-onboarding.md
@@ -157,12 +169,12 @@ Route::prefix('v1/client-auth')->group(function () {
         ->name('client-auth.agent-qr.register');
 
     // Activation token OR client sanctum token (both checked in controller)
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware('client.auth')->group(function () {
         Route::post('/password/set', [ClientAuthController::class, 'setPassword'])->name('client-auth.password.set');
     });
 
     // Client sanctum token only
-    Route::middleware(['auth:sanctum', 'client.ability'])->group(function () {
+    Route::middleware(['client.auth', 'client.ability', 'portal.same-login'])->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
@@ -170,7 +182,7 @@ Route::prefix('v1/client-auth')->group(function () {
     });
 });
 
-Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->group(function () {
+Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
@@ -199,6 +211,89 @@ Route::prefix('v1/client')->middleware(['auth:sanctum', 'client.ability'])->grou
     // Spec: .ai/specs/client-seller-insights.md
     Route::get('/seller-properties',                       [ClientSellerInsightsController::class, 'index'])->name('client.seller-properties.index');
     Route::get('/seller-properties/{property}/insights',   [ClientSellerInsightsController::class, 'show'])->name('client.seller-properties.insights');
+
+    // AT-445 — .ai/specs/rental-portal-access.md §9. Tenant rentals.
+    // §22 — `portal.once`: every state-changing request in the tenant / owner portal does its work once (double tap = one record).
+    Route::prefix('rentals')->name('client.rentals.')->middleware(['portal.same-login', 'portal.role', 'portal.once'])->group(function () {
+        // §22 — the agency's logo / name for the portal header (any signed-in tenant or owner).
+        Route::get('/branding', [ClientTenantRentalsController::class, 'branding'])->name('branding');
+        // §22 — a PDF / document on a fault type's first-aid panel (gated to the person's own agency's active fault types).
+        Route::get('/fault-type-documents/{document}/file', [\App\Http\Controllers\Api\V1\ClientFaultTypeDocumentController::class, 'file'])->whereNumber('document')->name('fault-type-documents.file');
+        Route::middleware('rental-portal.enabled:tenant')->group(function () {
+            // §20 — the portal home: agent contact, inspection dates, lease end / renewal status.
+            Route::get('/overview', [ClientTenantRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the tenant gives notice (it goes to the agent for review; nothing goes to the landlord)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'tenantStore'])->name('notices.store');
+            Route::get('/leases', [ClientTenantRentalsController::class, 'leases'])->name('leases.index');
+            Route::get('/leases/{lease}', [ClientTenantRentalsController::class, 'leaseShow'])->name('leases.show');
+            Route::get('/documents', [ClientTenantRentalsController::class, 'documents'])->name('documents.index');
+            // §19 — the one authorised way to open a document: only if it is in the tenant's OWN list.
+            Route::get('/documents/{document}/file', [ClientTenantRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
+            Route::get('/inspections', [ClientTenantRentalsController::class, 'inspections'])->name('inspections.index');
+            Route::get('/inventories', [ClientTenantRentalsController::class, 'inventories'])->name('inventories.index');
+            Route::get('/properties/{property}/fault-types', [ClientTenantRentalsController::class, 'faultTypes'])->name('fault-types.index');
+            Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
+            Route::get('/fault-reports', [ClientTenantRentalsController::class, 'faultReports'])->name('fault-reports.index');
+            Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
+            Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
+            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
+            // W4 (8 Oct 2026): the job card is INTERNAL - tenants and owners see the work order's progress, never the job card.
+            // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
+            // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
+            // §17.3.5 — the portal's Jobs are work orders: the tenant's list, and their answer to "is this finished?".
+            Route::get('/work-orders', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantIndex'])->name('work-orders.index');
+            Route::post('/work-orders/{workOrder}/completion-response', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'completionResponse'])->middleware('portal.photos')->name('work-orders.completion-response');
+            // spec 22.18 (Johan, 14 Oct 2026): with a tenant in the property THEY tell us the work has started / is finished / is not fixed (the owner only watches)
+            Route::post('/work-orders/{workOrder}/progress', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'tenantProgress'])->whereNumber('workOrder')->middleware('portal.photos')->name('work-orders.progress');
+            // BUILD 3 END
+        });
+
+        // Landlord rentals.
+        Route::prefix('landlord')->name('landlord.')->middleware('rental-portal.enabled:landlord')->group(function () {
+            Route::get('/overview', [ClientLandlordRentalsController::class, 'overview'])->name('overview');
+            // lease-notices.md - the owner gives notice (it goes to the agent for review; nothing goes to the tenant)
+            Route::get('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordIndex'])->name('notices.index');
+            Route::post('/notices', [\App\Http\Controllers\Api\V1\ClientRentalNoticesController::class, 'landlordStore'])->name('notices.store');
+            Route::get('/properties', [ClientLandlordRentalsController::class, 'properties'])->name('properties.index');
+            Route::get('/properties/{property}', [ClientLandlordRentalsController::class, 'propertyShow'])->name('properties.show');
+            // §15 (AT-447 follow-up) — "Request work / report a problem."
+            Route::get('/properties/{property}/fault-types', [ClientLandlordRentalsController::class, 'faultTypes'])->name('fault-types.index');
+            // rentals-faults-work-orders.md section 22 - the owner's "How I want faults handled" per property.
+            Route::get('/properties/{property}/fault-settings', [ClientLandlordRentalsController::class, 'faultSettingsShow'])->whereNumber('property')->name('fault-settings.show');
+            Route::post('/properties/{property}/fault-settings', [ClientLandlordRentalsController::class, 'faultSettingsSave'])->whereNumber('property')->name('fault-settings.save');
+            Route::post('/properties/{property}/fault-settings/change-request', [ClientLandlordRentalsController::class, 'faultSettingsChangeRequest'])->whereNumber('property')->name('fault-settings.change-request');
+            Route::post('/properties/{property}/fault-reports', [ClientLandlordRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
+            Route::get('/fault-reports', [ClientLandlordRentalsController::class, 'faultReports'])->name('fault-reports.index');
+            Route::get('/fault-reports/{faultReport}', [ClientLandlordRentalsController::class, 'faultReportShow'])->whereNumber('faultReport')->name('fault-reports.show');
+            Route::post('/fault-reports/{faultReport}/repair-request', [ClientLandlordRentalsController::class, 'faultReportRepairRequest'])->whereNumber('faultReport')->name('fault-reports.repair-request');
+            Route::post('/fault-reports/{faultReport}/query', [ClientLandlordRentalsController::class, 'faultReportQuery'])->whereNumber('faultReport')->name('fault-reports.query');
+            Route::post('/fault-reports/{faultReport}/stop', [ClientLandlordRentalsController::class, 'faultReportStop'])->whereNumber('faultReport')->name('fault-reports.stop');
+            Route::post('/fault-reports/{faultReport}/resume', [ClientLandlordRentalsController::class, 'faultReportResume'])->whereNumber('faultReport')->name('fault-reports.resume');
+            Route::post('/fault-reports/{faultReport}/decision', [ClientLandlordRentalsController::class, 'faultReportDecision'])->name('fault-reports.decision');
+            Route::get('/work-orders', [ClientLandlordRentalsController::class, 'workOrders'])->name('work-orders.index');
+            Route::post('/work-orders/{workOrder}/decision', [ClientLandlordRentalsController::class, 'workOrderDecision'])->name('work-orders.decision');
+            // W6 (8 Oct 2026): the owner may book the appointment and report progress on their work order.
+            Route::post('/work-orders/{workOrder}/appointment', [ClientLandlordRentalsController::class, 'workOrderAppointment'])->whereNumber('workOrder')->name('work-orders.appointment');
+            Route::post('/work-orders/{workOrder}/progress', [ClientLandlordRentalsController::class, 'workOrderProgress'])->whereNumber('workOrder')->name('work-orders.progress');
+            Route::get('/inspections', [ClientLandlordRentalsController::class, 'inspections'])->name('inspections.index');
+            Route::get('/documents', [ClientLandlordRentalsController::class, 'documents'])->name('documents.index');
+            Route::get('/documents/{document}/file', [ClientLandlordRentalsController::class, 'documentFile'])->whereNumber('document')->name('documents.file');
+            Route::get('/decisions', [ClientLandlordRentalsController::class, 'decisions'])->name('decisions.index');
+            // §17.21.1 — Build 2 (variation decision, decisions list) and Build 3 (work-orders/{id}) add routes only between their own markers.
+            // BUILD 2 BEGIN — landlord variation decision (.ai/specs/rental-work-orders.md §17.21.5)
+            // §17.7.4 — approve / decline extra work beyond the owner's agreed terms (body: decision, revision, note). The open ones are listed by GET decisions above.
+            Route::post('/variations/{variation}/decision', [ClientLandlordRentalsController::class, 'variationDecision'])->name('variations.decision');
+            // BUILD 2 END
+            // BUILD 3 BEGIN — landlord work-order show (.ai/specs/rental-work-orders.md §17.21.5)
+            Route::get('/work-orders/{workOrder}', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordShow'])->whereNumber('workOrder')->name('work-orders.show');
+            // §17.31 — a supplier invoice the agent has chosen to share with the owner. Tenants never reach this: the work order is resolved through the OWNER scope.
+            Route::get('/work-orders/{workOrder}/invoices/{invoice}/file', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordInvoiceFile'])->whereNumber(['workOrder', 'invoice'])->name('work-orders.invoices.file');
+            // P2 (9 Oct 2026): the owner can open the selected quote's document - only when no agency fee sits on top of it (the document shows the contractor's own total).
+            Route::get('/work-orders/{workOrder}/quote-file', [\App\Http\Controllers\Api\V1\ClientRentalWorkOrdersController::class, 'landlordQuoteFile'])->whereNumber('workOrder')->name('work-orders.quote-file');
+            // BUILD 3 END
+        });
+    });
 });
 
 // ════════════════════════════════════════════════════════════════
@@ -401,11 +496,57 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
                 ->name('v1.other-agency-stock.import');
         });
 
+        // AT-441 — .ai/specs/rental-command-centre.md §5. Mirrors the web
+        // screen exactly (same RentalCommandCentreService) — Andre's mobile
+        // app's rentals landing screen calls this.
+        Route::get('/rentals/command-centre', [\App\Http\Controllers\Api\V1\RentalCommandCentreController::class, 'index'])
+            ->middleware('permission:rental_command_centre.view')->name('v1.rentals.command-centre');
+
+        // AT-443 — .ai/specs/rentals-reports.md §7. One endpoint per report key,
+        // same RentalReportService the web screen reads from — Andre's mobile
+        // app and any future BI export call this, not a second implementation.
+        Route::get('/rentals/reports/{reportKey}', [\App\Http\Controllers\Api\V1\RentalReportController::class, 'show'])
+            ->middleware('permission:rental_reports.view')->name('v1.rentals.reports.show');
+
         // AT-366 — interactive agency Performance & ROI report backend (read-only, agency-scoped).
         Route::get('/performance/deal-breakdown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'dealBreakdown'])
             ->middleware('permission:view_performance')->name('v1.performance.deal-breakdown');
         Route::get('/performance/drilldown', [\App\Http\Controllers\Api\V1\PerformanceDrilldownController::class, 'drilldown'])
             ->middleware('permission:view_performance')->name('v1.performance.drilldown');
+
+        // .ai/specs/leases.md §12.4 — Lease Hub tenancy log. Session-authed
+        // (the Lease Hub's own panel fetches this), and the same endpoint
+        // Andre's mobile app calls for a tenant/agent mobile tenancy view.
+        // Scope-guarded the same way as the web show() route (AuthorizesLeaseAccess).
+        Route::get('/leases/{lease}/tenancy-log', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyLog'])
+            ->middleware('permission:leases.view')->name('v1.leases.tenancy-log');
+
+        // LEASE-CAPTURE BEGIN (leases.md §15.15 — Build L2): the single capture screen's JSON mirror. The mode
+        // (new lease / renewal) is read from the body (`previous_lease_id`) and its permission is checked by the
+        // request itself — leases.create for a new lease, leases.renew for a renewal.
+        Route::post('/leases/capture', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'store'])
+            ->middleware('permission:leases.view')->name('v1.leases.capture');
+        // Build L3a (§15.15): where a lease's agreement stands — status, signers in signing order, what is still missing.
+        Route::get('/leases/{lease}/signing', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'signing'])
+            ->middleware('permission:leases.view')->name('v1.leases.signing');
+        // Build L3c (§15.9, §15.15): the confirmation of the differences between the lease and its agreement.
+        Route::post('/leases/{lease}/signing/confirm', [\App\Http\Controllers\Api\V1\LeaseCaptureApiController::class, 'confirm'])
+            ->middleware('permission:leases.view')->name('v1.leases.signing.confirm');
+        // LEASE-CAPTURE END
+
+        // .ai/specs/rental-renewals.md §10 — JSON mirror of the Lease Hub's
+        // renewal/one-click-outcome web actions, for Andre's mobile app.
+        Route::middleware('permission:leases.renew')->prefix('leases/{lease}/renewal')->group(function () {
+            Route::post('/draft', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftCopyForward'])->name('v1.leases.renewal.draft');
+            Route::post('/draft-from-template', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'draftFromTemplate'])->name('v1.leases.renewal.draft-from-template');
+            Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
+            Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
+            Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
+            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
+            Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
+        });
 
         // Session-authed "who am I" — fired automatically on every page
         // via resources/js/corex-api.js (see Non-Negotiable #7).
@@ -532,6 +673,17 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
         // property already has coords (used after street_number / street_name
         // edits to overwrite stale suburb-centroid pins).
         Route::post('/properties/{property}/geocode',        [\App\Http\Controllers\CoreX\PropertyController::class, 'geocode'])->middleware('permission:access_properties')->name('v1.properties.geocode');
+
+        // .ai/specs/rental-work-orders.md §14 (AT-442 req #10) — the
+        // internal job-card mirror for Andre's app: read, tick a task,
+        // upload a photo. Same scoping as the web screen
+        // (RentalJobCard::scopeVisibleTo()), enforced in the controller.
+        Route::prefix('mobile/rental-job-cards')->group(function () {
+            Route::get('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'show'])->name('v1.mobile.rental-job-cards.show');
+            Route::put('/{rentalJobCard}', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'update'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.update');
+            Route::post('/{rentalJobCard}/tasks/{task}/tick', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'tickTask'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.tasks.tick');
+            Route::post('/{rentalJobCard}/photos', [\App\Http\Controllers\Api\MobileRentalJobCardController::class, 'storePhoto'])->middleware('permission:rental_job_cards.create')->name('v1.mobile.rental-job-cards.photos.store');
+        });
 
         // ── Mobile P24 location tree (token-authed) ──────────────────
         Route::prefix('mobile/p24')->group(function () {

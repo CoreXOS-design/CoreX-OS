@@ -335,10 +335,18 @@ final class DeedsCaptureController extends Controller
                 $strategy = $matchEvidence->strategyFor($tp);
                 $structuralCandidates = $matchEvidence->candidates($tp, $strategy, (int) $agencyId);
                 $gpsCandidates = $matchEvidence->candidates($tp, 'gps_proximity', (int) $agencyId);
+                // Decision 2 (structured address matching, 2026-10-07): properties that are only a POSSIBLE match —
+                // promote asks the agent about each, side by side, instead of silently creating beside them.
+                $possible = array_map(function ($pm) use ($tp, $matchEvidence) {
+                    $pm['panel'] = $matchEvidence->panelRows($tp, $pm['property']);
+
+                    return $pm;
+                }, $matcher->possiblePropertyMatches($tp));
                 $stockStatusByTp[$tp->id] = [
                     'state' => 'not_promoted', 'property' => null, 'already' => false, 'age' => null, 'panel' => null,
                     'ambiguousCandidates' => $structuralCandidates->count() > 1 ? $structuralCandidates : null,
                     'gpsOnlyCandidates' => $gpsCandidates->isNotEmpty() ? $gpsCandidates : null,
+                    'possibleMatches' => $possible !== [] ? $possible : null,
                 ];
             }
         }
@@ -904,6 +912,31 @@ final class DeedsCaptureController extends Controller
         // single function to change.
         $matchPreview = $matcher->previewPropertyMatch($trackedProperty);
         $forceCreate = false;
+        $linkToPropertyId = null;
+
+        // Decision 2 (structured address matching, 2026-10-07): when no property is a CONFIDENT match but one or more
+        // are only a POSSIBLE match (a neighbouring suburb, a different street type, a missing unit/portion), promote
+        // never silently creates a second property and never silently links. The agent says SAME or DIFFERENT (the
+        // screen shows both side by side); SAME names the property it is, and from here it follows the exact same
+        // path as a confident match — recorded decision, status bands and all.
+        if ($matchPreview === null) {
+            $possibleMatches = $matcher->possiblePropertyMatches($trackedProperty);
+            if ($possibleMatches !== []) {
+                if (! in_array($request->input('match_decision'), ['same', 'different'], true)) {
+                    return redirect()->route('corex.deeds-capture.index')->with('error',
+                        'A property that may be the same as this one is already on file. Choose "Same property" or "Different property" — nothing was created.');
+                }
+                $chosenId = (int) $request->input('possible_property_id', 0);
+                $chosen = collect($possibleMatches)->first(fn ($m) => (int) $m['property']->id === $chosenId)
+                    ?? (count($possibleMatches) === 1 ? $possibleMatches[0] : null);
+                if ($chosen === null) {
+                    return redirect()->route('corex.deeds-capture.index')->with('error',
+                        'More than one property may be the same as this one. Pick which one you mean, or choose "Different property".');
+                }
+                $matchPreview = $chosen['property'];
+                $linkToPropertyId = (int) $matchPreview->id;
+            }
+        }
 
         if ($matchPreview) {
             $decisionInput = $request->validate([
@@ -1017,7 +1050,7 @@ final class DeedsCaptureController extends Controller
         // inside this one (MySQL savepoints via Laravel's transaction nesting).
         $identifiers = app(ContactIdentifierService::class);
         [$property, $ownerContactIds, $tvaContactsTouched] = DB::transaction(function () use (
-            $trackedProperty, $matcher, $overrides, $agencyId, $user, $tvaInput, $identifiers, $matchPreview, $forceCreate
+            $trackedProperty, $matcher, $overrides, $agencyId, $user, $tvaInput, $identifiers, $matchPreview, $forceCreate, $linkToPropertyId
         ) {
             // No "asking price" concept on a deeds capture — Johan (2026-08-18):
             // "we cannot prefill the price - remove that... if anything, save it
@@ -1027,7 +1060,7 @@ final class DeedsCaptureController extends Controller
             // (property 6100: R420,000 from 2008-08-28). Falls through to
             // promoteToStock()'s own 0-default; the sale price is logged as a
             // PropertyNote below instead.
-            $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides, $forceCreate);
+            $property = $matcher->promoteToStock($trackedProperty->id, (int) $user->id, $overrides, $forceCreate, $forceCreate ? null : $linkToPropertyId, true);
 
             // Deeds-capture duplicate-match take rule (Johan, 2026-08-21) — a MATCH
             // onto an existing property that reached this point (not forceCreate'd

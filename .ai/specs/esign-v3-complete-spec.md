@@ -51,7 +51,7 @@ ECTA section 13 establishes that an electronic signature carries the same legal 
 
 Estate agents are accountable institutions. Every party to a property transaction must be FICA-verified before mandate execution.
 
-**Implication for CoreX:** FICA gate. No mandate can be sent for e-signature until the contact's FICA record is `STATUS_APPROVED`. System enforced.
+**Implication for CoreX:** FICA gate. The external signer's own signing page does not open until the signer has **submitted** FICA (submitted, under review, agent-approved, referred to the CO or approved — Johan's ruling of 2026-10-08, as relayed by the conductor: the gate lifts on SUBMITTED, not only on approved). The rule lives in one place, `App\Services\Compliance\FicaGate`. Everywhere else FICA warns with a link to request/complete it and does not stop the agent.
 
 ### 2.4 POPIA (Protection of Personal Information Act)
 
@@ -287,7 +287,7 @@ The 6-step flow agents follow to create and dispatch a document for signing:
 
 **Step 6: Gates & dispatch**
 
-- **FICA gate:** if `requires_fica` and contact's FICA != APPROVED, blocked with prompt to complete FICA first
+- **FICA gate:** if `requires_fica` and the contact has not SUBMITTED FICA (`FicaGate::isOpen()` false), the signer is held at the FICA page with a prompt to complete FICA; a submitted FICA (or any later review stage) lifts it
 - **CO approval gate:** if `requires_co_approval`, document enters `APPROVAL_PENDING` state, compliance officer must approve before dispatch
 - Once gates pass: document dispatched, party 1 receives signing invitation
 - Document state: `STATUS_SENT`
@@ -372,39 +372,37 @@ Run-once migration `2026_05_21_220002_classify_otp_templates.php`:
 
 ### 6.1 When the gate fires
 
-Any template with `metadata.requires_fica = true` (typically mandates, addenda) triggers the gate.
+Any signature request with `fica_required = true` (the wizard's per-recipient "FICA verification required before signing" tick, default ON; typically mandates, addenda and lease agreements) triggers the gate **on the external signer's own signing page**. It is the ONE place sales genuinely hard-stops on FICA.
 
-### 6.2 Gate logic
+### 6.2 Gate logic (as built — corrected 2026-10-08)
 
-In `SigningController::index()` and `SignWizardController::dispatch()`:
+The gate lifts on **SUBMITTED**, not only on approved (Johan's ruling of 2026-10-08, as relayed by the conductor). The rule is `App\Services\Compliance\FicaGate` — `SigningController::show()` and the wizard's FICA kick-off both call it; rentals asks the same class:
 
 ```php
-$fica = FicaSubmission::where('contact_id', $contact->id)
-    ->orderByDesc('created_at')
-    ->orderByDesc('id')  // ES-2 fix
-    ->first();
-
-if (!$fica || $fica->status !== 'approved') {
-    return redirect()->route('fica.create', [
-        'contact' => $contact->id,
-        'return_to' => $signingUrl,
-    ])->with('info', 'FICA verification required before signing.');
+if ($signingRequest->fica_required && $signingRequest->contact_id
+    && ! FicaGate::isOpen((int) $signingRequest->contact_id)) {
+    // show external.fica-gate with the link to the electronic FICA form (return_url = this signing link)
 }
 ```
 
+`FicaGate::OPEN_STATUSES` = `submitted`, `under_review`, `agent_approved`, `referred_to_co`, `approved`. Soft-deleted submissions never count; an approved submission outranks a newer unsubmitted draft.
+
 ### 6.3 The ES-2 bug
 
-Currently the orderBy is missing. When a contact has multiple `FicaSubmission` rows (common when wizard auto-creates), MySQL row order is non-deterministic. First request gets row A, refresh gets row B — status appears to "fix itself."
-
-**Fix:** Add `->orderByDesc('created_at')->orderByDesc('id')` to both query sites (`SigningController` line 106-108 + `SignWizardController` equivalent).
+(Historical.) When a contact had several `FicaSubmission` rows, MySQL row order was non-deterministic. The gate now asks "does ANY non-deleted submission of this contact sit in an open status", which has no ordering dependence; the FICA form link for the not-open case uses `orderByDesc('created_at')->orderByDesc('id')`.
 
 ### 6.4 FICA states relevant to e-sign
 
-- `pending` → blocked
-- `corrections_requested` → blocked, prompt to address corrections
-- `approved` → cleared, gate passes
-- `expired` → blocked (FICA expires 12 months after approval)
-- `rejected` → blocked
+- no submission → gate closed (signer sent to the FICA form)
+- `draft` (requested, not submitted) → gate closed
+- `corrections_requested` / `rejected` → gate closed, prompt to redo
+- `expired` → gate closed (FICA expires 12 months after approval)
+- `submitted` / `under_review` / `agent_approved` / `referred_to_co` → **gate OPEN** (the signer has done their part; staff review shows as a status)
+- `approved` → gate open
+
+### 6.5 Warn, don't stop (everywhere except the signer's page)
+
+An agent sending an application to the authoriser, approving, linking a property, creating or activating a lease, sending a lease agreement for signature, or setting up portal access is never stopped by FICA: the screen warns (plain message + link to request/complete FICA) and the agent carries on. The single opt-in exception is a rentals agency's own "FICA before authoriser" setting (OFF by default), which stops only an applicant who has not submitted. See `.ai/specs/compliance.md` §"The FICA gate".
 
 ### 6.5 A reused FICA link never dies before the link that leads to it (hotfix 2026-10-11, Johan, live)
 
@@ -2277,6 +2275,79 @@ there is no failure mode to lose input on.
 ## 23. Open Questions
 
 None at draft time. To be added as build surfaces them.
+
+---
+
+## 24. My E-Sign Documents — Status Bucket Coverage (AT-445, 2026-10-05)
+
+`ESignWizardController::myDocuments()` sorts every `SignatureTemplate` the
+agent created (`$allTemplates`) into named `$groups` buckets by `status`, and
+the Blade view renders one section per bucket. A status with no matching
+bucket does not error — it simply never appears anywhere on the page, so the
+document looks gone even though nothing was deleted. This has happened four
+times:
+
+| # | Status | Symptom when unbucketed | Bucket added |
+|---|--------|--------------------------|---------------|
+| AT-299 | `amendment_review` | Frozen ceremony invisible to the agent | `flagged` |
+| BUG-2 | `returned_to_candidate` | Candidate's own returned doc invisible | `returned` |
+| AT-373 | `amendment_chain_review` | Recipient amendment returned to agent invisible | `amendment_approval` |
+| AT-445 | `expired` | Signing-link TTL lapsed; doc vanished from the list (found via a Staging investigation of Maggie Venter's "16 Natspat" mandate — doc #562, template #76 — reported stuck/missing) | `expired` |
+
+**The class fix, not another instance fix:** `myDocuments()` now also builds
+a final `other` bucket — every template in `$allTemplates` whose id isn't
+already present in any of the status-keyed buckets above (`finalization_failed`
+and `needs_authorisation` are excluded from this id-dedup: the former is a
+cross-cutting flag on `finalization_status`, not a status bucket, and a
+template legitimately belongs there AND in its normal status bucket; the
+latter is a separate candidate-authoriser query, not sourced from
+`$allTemplates`). Any future `SignatureTemplate::STATUS_*` this page hasn't
+been taught a named bucket for degrades to a visible "Other" row (document,
+property, raw status label) instead of disappearing.
+
+**Current full bucket list** (`$groups` keys): `finalization_failed`,
+`flagged`, `returned`, `amendment_approval`, `needs_authorisation`,
+`pending_approval`, `draft`, `ready_to_sign`, `awaiting`, `completed`,
+`cancelled`, `expired`, `other`.
+
+**Expired section — what it shows and why.** Rendered collapsed, mirroring
+Cancelled: document name, property address, "Expired <updated_at>". Its
+"View" action deep-links to `docuperfect.signatures.audit` — the one
+document-level signature screen with no status gate (`SignatureController::
+audit()` only calls `authorizeDocument()` + `firstOrFail()`). The normal
+Review screen (`SignatureController::review()`) explicitly redirects any
+status outside the pending-approval set — including `expired` — with "This
+document is not pending approval", so it was never a viable link target here.
+
+**What this fix deliberately does NOT do** (scope-locked to the vanish-from-
+list bug): it does not touch `SignatureService::expireOutstandingRequests()`
+or the `ExpireSignatureRequests` command that flips a template to `expired`,
+and it adds no resend/regenerate/extend action. A future "resend/extend an
+expired document" action would need: (1) a new signing-link-reissue path on
+`SignatureRequest` that creates a fresh `token`/`token_expires_at` rather than
+mutating the expired one (preserve the expired request as audit history);
+(2) a template-level transition back out of `STATUS_EXPIRED` (e.g. to
+`STATUS_REVIVED`, already a declared-but-unused constant) once at least one
+request is reissued, mirroring how `handlePartyCompletion()` recomputes
+template status today; (3) a decision on whether reissue requires the
+original recipient to re-consent/re-view, since the original signing
+ceremony's legal chain (audit log, consent log) must stay intact and not be
+silently rewritten.
+
+**Checked for a second list with the same gap:** no admin/agency-wide
+(Own/Branch/All-scoped) e-sign document list exists anywhere in the
+codebase. `docuperfect.dashboard` (`DashboardController::index()`) lists
+`Document::active()->visibleTo($user)` with no status buckets at all (just
+pagination), so it has no analogous "real status with no bucket" exposure.
+My E-Sign Documents — scoped to `created_by = $user->id` only, with no
+Branch/All toggle — is the only status-bucketed e-sign list in CoreX.
+
+**Test:** `tests/Feature/Docuperfect/MyDocumentsStatusBucketCoverageTest.php`
+— iterates every `SignatureTemplate::STATUS_*` constant via reflection,
+creates one template per status, and asserts each lands in *some* rendered
+`$groups` bucket; a dedicated assertion pins `expired` to its own bucket
+(not the catch-all), and another pins an intentionally-unbucketed status
+(`lapsed`) into `other` specifically.
 
 ---
 

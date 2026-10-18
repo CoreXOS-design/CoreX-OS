@@ -75,7 +75,7 @@
             [
                 'label' => 'My Preferences',
                 'items' => [
-                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section', 'keywords'=>'compliance officer fica information officer reporting officers popia mlro money laundering appointment section 43 s55 s56 password change name email photo'],
+                    ['key'=>'user', 'label'=>'Profile & Account', 'type'=>'section', 'keywords'=>'fica time windows link expiry expires valid validity months expiring soon current compliance officer fica information officer reporting officers popia mlro money laundering appointment section 43 s55 s56 password change name email photo'],
                     ['key'=>'my-portal', 'label'=>'My Portal', 'type'=>'section', 'keywords'=>'api token chrome extension social media facebook instagram visibility'],
                 ],
             ],
@@ -110,19 +110,41 @@
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
                     $can('leases.manage_settings')
-                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry notice window warn days']
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out']
+                        : null,
+                    $can('rental_lease_templates.manage_settings')
+                        ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']
                         : null,
                     $can('rental_inspections.manage_settings')
-                        ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection']
+                        ? ['key'=>'rental-inspections-settings', 'label'=>'Rental Inspections', 'type'=>'link', 'href'=>route('corex.settings.rental-inspections.edit'), 'keywords'=>'inspection fault report window signing window tenant out inspection due date interim reminder report copy auto send photos room checklist walking order']
                         : null,
                     $can('rental_inventories.manage_settings')
-                        ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale']
+                        ? ['key'=>'rental-inventory-settings', 'label'=>'Inventory', 'type'=>'link', 'href'=>route('corex.settings.rental-inventory.edit'), 'keywords'=>'inventory contents furnished move-in move-out disposition present short damaged missing rental sale baseline preset']
+                        : null,
+                    $can('title_deeds.manage_settings')
+                        ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
                         : null,
                     $can('title_deeds.manage_settings')
                         ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
                         : null,
                     $can('rental_work_orders.manage_settings')
-                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault']
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
+                        : null,
+                    // AT-445 — .ai/specs/rental-portal-access.md §7.
+                    $can('rental_portal.manage_settings')
+                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help']
+                        : null,
+                    $can('rental_notice_templates.manage_settings')
+                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']
+                        : null,
+                    // AT-442 — the agency's own parts & labour catalogue consumed
+                    // by internal job cards.
+                    $can('rental_catalogue.manage') && feature('rental-catalogue')
+                        ? ['key'=>'rental-catalogue-items', 'label'=>'Parts & Labour Catalogue', 'type'=>'link', 'href'=>route('corex.rental-catalogue-items.index'), 'keywords'=>'job card labour part catalogue price unit maintenance']
+                        : null,
+                    // AT-454 — Road to Sold: areas, targets and the rules of the daily call list.
+                    (($can('road_to_sold.manage_settings') || $can('road_to_sold.manage_areas') || $can('road_to_sold.manage_targets')) && feature('road-to-sold'))
+                        ? ['key'=>'road-to-sold-settings', 'label'=>'Road to Sold', 'type'=>'link', 'href'=>route('road-to-sold.settings.index'), 'keywords'=>'road to sold daily call list stock target weekday areas suburbs agents phone prospecting no answer hold']
                         : null,
                     $can('rental_details.manage_settings')
                         ? ['key'=>'rental-details-settings', 'label'=>'Rental Details', 'type'=>'link', 'href'=>route('corex.settings.rental-details.edit'), 'keywords'=>'rental tab custom fields lets assist price type lease type advert block description']
@@ -162,6 +184,9 @@
                     $can('command_center.settings')
                         ? ['key'=>'core-matches', 'label'=>'Core Matches', 'type'=>'section', 'keywords'=>'core match core matches statuses status allow-list allowlist which statuses shown included working window gone quiet on show on auction']
                         : null,
+                    $can('command_center.settings')
+                        ? ['key'=>'lead-response', 'label'=>'Lead response', 'type'=>'section', 'keywords'=>'lead response time respond within minutes enquiry portal first contact counting hours business hours days of the week target speed']
+                        : null,
                     $can('prospecting_setup.manage')
                         ? ['key'=>'prospecting-setup', 'label'=>'Prospecting Setup', 'type'=>'section', 'keywords'=>'towns suburbs property types bedroom segments price bands prospecting buyer match tiers']
                         : null,
@@ -173,6 +198,9 @@
                         ? ['key'=>'coc-service-types', 'label'=>'COC / Service Types', 'type'=>'link', 'href'=>route('deals-v2.settings.service-types.index'), 'keywords'=>'coc certificate compliance electrical gas beetle plumbing electric fence supplier work order service type deal pipeline certificates']
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
+                    ($u && $u->hasFeature('leave') && $can('manage_leave_types'))
+                        ? ['key'=>'leave-types', 'label'=>'Leave Types', 'type'=>'section', 'keywords'=>'leave types annual sick family responsibility bcea entitlement accrual cycle public holidays']
+                        : null,
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
                     $can('ppra_inspection_pack.configure') ? ['key'=>'ppra-inspection-pack-settings', 'label'=>'PPRA Inspection Pack', 'type'=>'section', 'keywords'=>'ppra inspection pack financial year s25'] : null,
                     $can('ppra_employment_letters.manage') ? ['key'=>'ppra-employment-letter-settings', 'label'=>'PPRA FFC Employment Letter', 'type'=>'section', 'keywords'=>'ppra employment letter confirmation ffc renewal principal reminder'] : null,
@@ -296,6 +324,15 @@
                                    class="w-full rounded-md px-3 py-2 text-sm"
                                    style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
                                    placeholder="e.g. Johan and Elize Properties T/A">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Short code</label>
+                            <input type="text" name="short_code" value="{{ old('short_code', $agency->short_code) }}" maxlength="10"
+                                   class="w-full rounded-md px-3 py-2 text-sm uppercase"
+                                   style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
+                                   placeholder="e.g. CTR">
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">2 to 10 letters or numbers. Starts the numbers on your documents (payslips: CTR-202610-001). Leave blank to keep the one worked out from your name. Numbers already issued do not change.</p>
+                            @error('short_code')<p class="text-xs mt-1" style="color:#dc2626;">{{ $message }}</p>@enderror
                         </div>
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Tagline</label>
@@ -1161,6 +1198,42 @@
         @endpermission
 
         {{-- ============================================================
+             LEAD RESPONSE — target minutes + per-weekday counting hours
+             (Johan, 2026-10-07; .ai/specs/lead-response-time.md). Same
+             stored setting + same saver as the Setup Wizard's Contacts step.
+             ============================================================ --}}
+        @permission('command_center.settings')
+        <div x-show="activeSection === 'lead-response'" x-cloak class="p-6 space-y-5">
+            @if(isset($coreMatchesSettings) && $coreMatchesSettings)
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium" style="background:rgba(16,185,129,0.1); color:#059669;">{{ session('success') }}</div>
+                @endif
+                <div>
+                    <h2 class="text-base font-semibold" style="color:var(--text-primary);">Lead response</h2>
+                    <p class="text-xs mt-1" style="color:var(--text-muted);">Every enquiry from a portal, your website or a shared link starts a clock. It stops when an agent genuinely contacts the person: the "Contacted" action, a message sent, a link shared, or feedback on an appointment with them. A note on its own never counts.</p>
+                </div>
+                <form method="POST" action="{{ route('command-center.settings.lead-response.update') }}"
+                      class="p-4 rounded-md space-y-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                    @csrf @method('PUT')
+                    <div class="max-w-xs">
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Respond to a new enquiry within (minutes)</label>
+                        <input type="number" name="lead_response_target_minutes" min="1" max="10080"
+                               value="{{ old('lead_response_target_minutes', $coreMatchesSettings->leadResponseTargetMinutes()) }}"
+                               class="w-full px-3 py-2 rounded-md text-sm" style="background:var(--surface); color:var(--text-primary); border:1px solid var(--border);">
+                        @error('lead_response_target_minutes')<p class="text-xs mt-1" style="color:var(--ds-crimson);">{{ $message }}</p>@enderror
+                    </div>
+                    <div class="pt-3 border-t" style="border-color:var(--border);">
+                        @include('partials.lead-response-hours', ['hours' => $coreMatchesSettings->leadResponseHours()])
+                    </div>
+                    <div class="flex justify-end pt-2">
+                        <button type="submit" class="corex-btn-primary text-sm px-4 py-2">Save</button>
+                    </div>
+                </form>
+            @endif
+        </div>
+        @endpermission
+
+        {{-- ============================================================
              PROSPECTING SETUP — embedded Operations section
              Mirrors the standalone /settings/prospecting page by including
              the shared _panel partial inline in the hub.
@@ -1467,30 +1540,6 @@
                 </div>
             </div>
 
-            {{-- Quick Links W1 — FICA request link life + "expiring" threshold (per agency). Spec: quick-links.md §8-4. --}}
-            <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);">
-                <button type="button" @click="open = !open"
-                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
-                        style="background:var(--surface-2); color:var(--text-primary);">
-                    <span>FICA requests &mdash; link life &amp; expiry</span>
-                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5"/></svg>
-                </button>
-                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
-                    <form method="POST" action="{{ route('corex.settings.fica-request.save') }}">
-                        @csrf
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">FICA link is valid for (days)</label>
-                        <input type="number" min="1" max="90" name="fica_link_days" value="{{ $agency?->ficaLinkDays() ?? 14 }}"
-                               class="w-32 rounded-md px-3 py-2 text-sm mb-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        <p class="text-xs mb-3" style="color:var(--text-muted);">How long the secure link in a FICA request email works. After this the client has to be sent a fresh link.</p>
-                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Show FICA as &ldquo;expiring&rdquo; after (months)</label>
-                        <input type="number" min="1" max="60" name="fica_expiring_after_months" value="{{ $agency?->ficaExpiringAfterMonths() ?? 11 }}"
-                               class="w-32 rounded-md px-3 py-2 text-sm mb-1" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                        <p class="text-xs mb-3" style="color:var(--text-muted);">Months after a FICA is approved before the contact shows &ldquo;FICA expiring&rdquo; and agents are prompted to send a new form.</p>
-                        <button type="submit" class="corex-btn-primary text-xs">Save FICA Request Settings</button>
-                    </form>
-                </div>
-            </div>
-
             {{-- AT-236 — Refer-to-CO settings (feature on/off + recipient CO) --}}
             <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);">
                 <button type="button" @click="open = !open"
@@ -1520,6 +1569,43 @@
                         </select>
                         <p class="text-xs mb-3" style="color:var(--text-muted);">The recipient must be an active compliance officer; otherwise referrals fall back to the primary CO.</p>
                         <button type="submit" class="corex-btn-primary text-xs">Save Referral Settings</button>
+                    </form>
+                </div>
+            </div>
+
+            {{-- FICA time windows — were literals in code (link 14 days, current 11 months, valid 24 months, expiring-soon 60 days) --}}
+            <div x-data="{ open: false }" class="rounded-md overflow-hidden mt-3" style="border:1px solid var(--border);" data-qa="fica-windows-settings">
+                <button type="button" @click="open = !open"
+                        class="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors hover:opacity-80"
+                        style="background:var(--surface-2); color:var(--text-primary);">
+                    <span>FICA time windows</span>
+                    <svg class="w-4 h-4 transition-transform duration-150" :class="open && 'rotate-90'" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+                </button>
+                <div x-show="open" x-cloak x-transition class="p-4" style="border-top:1px solid var(--border); background:var(--surface);">
+                    <form method="POST" action="{{ route('corex.settings.fica-windows.save') }}" class="space-y-3">
+                        @csrf
+                        @foreach([
+                            'fica_link_expiry_days' => ['FICA link stays valid for (days)', 'How long the FICA link emailed to a client works before it expires and has to be re-sent.'],
+                            'fica_current_months' => ['An approved FICA counts as current for (months)', 'After this many months an approved FICA shows as "expiring" and a repeat applicant is asked for FICA again.'],
+                            'fica_validity_months' => ['An approval is valid for (months)', 'The expiry date stamped on a FICA when the compliance officer approves it.'],
+                            'fica_expiring_soon_days' => ['"Expiring soon" looks ahead (days)', 'How far ahead the document filing "expiring soon" list looks for FICA approvals about to lapse.'],
+                        ] as $fkey => [$flabel, $fhelp])
+                            @php [$fdefault, $fmin, $fmax] = \App\Services\Compliance\FicaWindows::WINDOWS[$fkey]; @endphp
+                            <div>
+                                <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);" for="{{ $fkey }}">{{ $flabel }}</label>
+                                <input type="number" id="{{ $fkey }}" name="{{ $fkey }}" min="{{ $fmin }}" max="{{ $fmax }}" value="{{ $agency->{$fkey} ?? $fdefault }}"
+                                       class="w-32 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                <span class="text-xs ml-2" style="color:var(--text-muted);">{{ $fhelp }} Standard: {{ $fdefault }}.</span>
+                            </div>
+                        @endforeach
+                        <div>
+                            <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);" for="rental_trust_account_name">Trust account name (rent and deposits)</label>
+                            <input type="text" id="rental_trust_account_name" name="rental_trust_account_name" maxlength="{{ \App\Services\Compliance\FicaTrustAccount::NAME_MAX }}"
+                                   value="{{ old('rental_trust_account_name', $agency->rental_trust_account_name) }}" placeholder="e.g. Smith Property Trust Account"
+                                   class="w-full max-w-md rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">How your clients are told to refer to the trust account their rent and deposit are paid into, on the FICA form. Leave blank to say "the agency's trust account".</p>
+                        </div>
+                        <button type="submit" class="corex-btn-primary text-xs">Save FICA settings</button>
                     </form>
                 </div>
             </div>
@@ -1842,22 +1928,9 @@
             {{-- RENTALS section --}}
             <div x-show="activeSection === 'feature-rentals'" x-cloak class="space-y-6">
 
-                {{-- Rental Properties link (has sub-pages) --}}
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Properties</h3>
-                    <a href="{{ route('rental.settings.properties.index') }}"
-                       class="flex items-center gap-3 p-3 rounded-md transition-all duration-300 no-underline hover:bg-[color:var(--surface-2)]"
-                       style="border:1px solid var(--border);">
-                        <div class="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent);">
-                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="color: var(--ds-green);" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" /></svg>
-                        </div>
-                        <div class="flex-1">
-                            <div class="text-sm font-semibold" style="color:var(--text-primary);">Rental Properties</div>
-                            <div class="text-xs" style="color:var(--text-secondary);">Add and manage rental property listings</div>
-                        </div>
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" class="w-4 h-4 flex-shrink-0" style="color:var(--border-hover);"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </a>
-                </div>
+                {{-- AT-439 — the "Rental Properties" link (legacy rental_properties
+                     table/screen) is retired per Johan's 2026-10-05 ruling. Use the
+                     real Property pillar (Properties screen) instead. --}}
 
                 {{-- Rental Document Types (inline) --}}
                 <div>
@@ -1945,134 +2018,10 @@
                     </div>
                 </div>
 
-                {{-- Rental Reminders (inline) --}}
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Email Reminders</h3>
-                    <form method="POST" action="{{ route('rental.settings.reminders.update') }}"
-                          x-data="{
-                              mode: '{{ old('mode', $rentalReminderSettings->mode) }}',
-                              enabled: {{ old('enabled', $rentalReminderSettings->enabled) ? 'true' : 'false' }}
-                          }"
-                          class="space-y-4">
-                        @csrf @method('PUT')
-
-                        <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <div class="text-sm font-semibold" style="color:var(--text-primary);">Automatic Reminders</div>
-                                    <div class="text-xs mt-0.5" style="color:var(--text-secondary);">Send automatic email reminders for unsigned documents</div>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="hidden" name="enabled" value="0">
-                                    <input type="checkbox" name="enabled" value="1" x-model="enabled" class="sr-only peer" {{ $rentalReminderSettings->enabled ? 'checked' : '' }}>
-                                    <div class="w-10 h-5 rounded-full peer after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:after:translate-x-5"
-                                         style="background:var(--border-hover);"
-                                         :style="enabled ? 'background:var(--brand-button, #0ea5e9)' : 'background:var(--border-hover)'"></div>
-                                </label>
-                            </div>
-                        </div>
-
-                        <div x-show="enabled" x-cloak class="space-y-4">
-                            <div class="p-4 rounded-md" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold mb-3" style="color:var(--text-primary);">Reminder Mode</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <label :style="mode === 'escalating' ? 'border-color:var(--brand-button, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);' : 'border-color:var(--border); background:var(--surface);'"
-                                           class="border rounded-md p-3 cursor-pointer transition">
-                                        <input type="radio" name="mode" value="escalating" x-model="mode" class="sr-only">
-                                        <div class="font-medium text-sm" style="color:var(--text-primary);">Escalating</div>
-                                        <div class="text-xs mt-1" style="color:var(--text-secondary);">Gentle → Firm → Team Alert → Final</div>
-                                    </label>
-                                    <label :style="mode === 'simple' ? 'border-color:var(--brand-button, #0ea5e9); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, transparent);' : 'border-color:var(--border); background:var(--surface);'"
-                                           class="border rounded-md p-3 cursor-pointer transition">
-                                        <input type="radio" name="mode" value="simple" x-model="mode" class="sr-only">
-                                        <div class="font-medium text-sm" style="color:var(--text-primary);">Simple Interval</div>
-                                        <div class="text-xs mt-1" style="color:var(--text-secondary);">Same reminder every N days</div>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <div x-show="mode === 'escalating'" x-cloak class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Escalation Schedule</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    @foreach([
-                                        ['key'=>'gentle_after_days','label'=>'Gentle reminder after (days)'],
-                                        ['key'=>'firm_after_days','label'=>'Firm reminder after (days)'],
-                                        ['key'=>'team_alert_after_days','label'=>'Team alert after (days)'],
-                                        ['key'=>'final_after_days','label'=>'Final reminder after (days)'],
-                                    ] as $rf)
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">{{ $rf['label'] }}</label>
-                                        <input type="number" name="{{ $rf['key'] }}"
-                                               value="{{ old($rf['key'], $rentalReminderSettings->{$rf['key']}) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                    @endforeach
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Max reminders per signer</label>
-                                        <input type="number" name="max_escalating_reminders"
-                                               value="{{ old('max_escalating_reminders', $rentalReminderSettings->max_escalating_reminders) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div x-show="mode === 'simple'" x-cloak class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Simple Interval</div>
-                                <div class="grid grid-cols-2 gap-3">
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Send every (days)</label>
-                                        <input type="number" name="interval_days"
-                                               value="{{ old('interval_days', $rentalReminderSettings->interval_days) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Max reminders per signer</label>
-                                        <input type="number" name="max_simple_reminders"
-                                               value="{{ old('max_simple_reminders', $rentalReminderSettings->max_simple_reminders) }}"
-                                               class="w-full rounded-md px-3 py-2 text-sm"
-                                               style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="p-4 rounded-md space-y-3" style="background:var(--surface-2); border:1px solid var(--border);">
-                                <div class="text-sm font-semibold" style="color:var(--text-primary);">Custom Email Template</div>
-                                <div class="flex flex-wrap gap-1 text-xs">
-                                    @foreach(['{signer_name}','{document_name}','{agent_name}','{signing_link}','{days_waiting}'] as $ph)
-                                    <code class="px-1.5 py-0.5 rounded font-mono" style="background:rgba(0,0,0,0.05); color:var(--text-secondary);">{{ $ph }}</code>
-                                    @endforeach
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Subject</label>
-                                    <input type="text" name="email_subject"
-                                           value="{{ old('email_subject', $rentalReminderSettings->email_subject) }}"
-                                           placeholder="e.g. Reminder: Please sign {document_name}"
-                                           class="w-full rounded-md px-3 py-2 text-sm"
-                                           style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-medium mb-1" style="color:var(--text-muted);">Body</label>
-                                    <textarea name="email_body" rows="5"
-                                              class="w-full rounded-md px-3 py-2 text-sm"
-                                              style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">{{ old('email_body', $rentalReminderSettings->email_body) }}</textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center gap-4">
-                            <button type="submit" class="corex-btn-primary text-sm">Save Reminder Settings</button>
-                            @if($rentalReminderSettings->updatedByUser ?? null)
-                            <span class="text-xs" style="color:var(--text-muted);">
-                                Last updated by {{ $rentalReminderSettings->updatedByUser->name }}
-                                on {{ $rentalReminderSettings->updated_at->format('d M Y H:i') }}
-                            </span>
-                            @endif
-                        </div>
-                    </form>
-                </div>
+                {{-- AT-439 — the "Email Reminders" screen (rental_reminder_settings)
+                     is retired per Johan's 2026-10-05 ruling: retire the screen and
+                     menu entry, leave the table. Nothing live consumes these
+                     settings today (CheckLeaseExpiry does not read them). --}}
 
             </div>{{-- /rentals --}}
 
@@ -3556,10 +3505,10 @@
                                      market norm (from 105 evidenced CMA reports):
                                      10% below, 13% above. --}}
                                 <div class="mt-3 pt-3" style="border-top:1px dashed var(--border);">
-                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Valuation band (recommended range around the indicated value)</div>
+                                    <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color:var(--text-secondary);">Evaluation band (recommended range around the indicated value)</div>
                                     <div class="grid grid-cols-2 gap-3">
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — below middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — below middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_lower_pct"
                                                    value="{{ number_format($cmaBandLower, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3567,7 +3516,7 @@
                                             <div class="text-[11px] mt-1" style="color:var(--text-muted);">How far the recommended price range sits below the indicated value. CMA market norm ≈ 10% below.</div>
                                         </div>
                                         <div>
-                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Valuation band — above middle (%)</label>
+                                            <label class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Evaluation band — above middle (%)</label>
                                             <input type="number" min="0" max="40" step="0.5" name="cma_band_upper_pct"
                                                    value="{{ number_format($cmaBandUpper, 2, '.', '') }}"
                                                    class="w-full rounded-md px-3 py-2 text-sm"
@@ -3674,7 +3623,7 @@
                         'market_overview'    => 'Suburb-level market trends, median pricing and absorption.',
                         'recent_sales'       => 'Comparable sales table with per-row distance, size and price.',
                         'spatial_view'       => 'Inline map showing the subject and comparable pins.',
-                        'cma_analysis'       => 'Lower / Middle / Upper valuation bands with condition adjustment.',
+                        'cma_analysis'       => 'Lower / Middle / Upper evaluation bands with condition adjustment.',
                         'active_competition' => 'Live listings competing for the same buyer pool.',
                         'inflow_absorption'  => 'New listings from P24 alerts and stock absorption rate.',
                         'holding_cost'       => 'Monthly cost of staying on market — rates, bond, levies, opportunity cost.',
@@ -4016,6 +3965,24 @@
                                         </label>
                                     </div>
                                 </div>
+
+                                {{-- AT-451 — how often a staff browser checks for a new alert to pop up. Same saver as the rest. --}}
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Check for new alerts every (seconds)</label>
+                                        <input type="number" name="alert_poll_seconds" min="15" max="600" step="1"
+                                               value="{{ old('alert_poll_seconds', $agencyDashboardSettings->alert_poll_seconds ?? 30) }}"
+                                               class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                        <p class="text-xs mt-1" style="color:var(--text-muted);">How quickly a new fault, lead or approval pops up on a screen that is already open. 30 suits most agencies; the lowest allowed is 15.</p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium mb-1" style="color:var(--text-secondary);">Show alerts still unread from the last (minutes)</label>
+                                        <input type="number" name="alert_catchup_minutes" min="1" max="240" step="1"
+                                               value="{{ old('alert_catchup_minutes', $agencyDashboardSettings->alert_catchup_minutes ?? 10) }}"
+                                               class="w-full px-3 py-2 rounded-md text-sm border" style="background:var(--surface); border-color:var(--border-default); color:var(--text-primary);">
+                                        <p class="text-xs mt-1" style="color:var(--text-muted);">When someone opens CoreX in a new tab or signs in, alerts that arrived in this many minutes and are still unread pop up, so a fault reported a moment before is not missed. 10 suits most agencies.</p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="mt-4 flex justify-end">
@@ -4027,6 +3994,30 @@
 
             </div>{{-- /dashboard --}}
 
+        </div>
+
+        {{-- ============================================================
+             LEAVE TYPES (Operations) — AT-455, moved here from Leave Management
+             ============================================================ --}}
+        <div x-show="activeSection === 'leave-types'" x-cloak class="p-6 space-y-5">
+            @if(!empty($leaveTypes))
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
+                        {{ session('success') }}
+                    </div>
+                @endif
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">Leave Types</h3>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        The kinds of leave staff can book and how each one accrues. BCEA-mandated types are system-locked; add your own for anything else.
+                        Public holidays are managed under <a href="{{ route('payroll.leave.public-holidays.index') }}" class="font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);">Leave Management → Public Holidays</a>.
+                    </p>
+                </div>
+                @include('payroll.leave.types._list', $leaveTypes)
+            @else
+                <p class="text-sm" style="color: var(--text-muted);">Leave types are managed by users who can manage leave types, with the Leave feature switched on.</p>
+            @endif
         </div>
 
         {{-- ============================================================
@@ -4394,7 +4385,7 @@
             <div class="rounded-md p-4" style="border:1px solid var(--border); background:var(--surface-2);">
                 <p class="text-xs" style="color:var(--text-secondary);">
                     The full PPRA Inspection Pack checklist, its Inspection Report, and the current-FY sales/rentals list
-                    live under <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>.
+                    live under @feature('ppra-inspection-pack')<a href="{{ route('admin.ppra-inspection-pack.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Inspection Pack</a>@else Admin → PPRA Inspection Pack @endfeature.
                 </p>
             </div>
         </div>
@@ -4427,7 +4418,7 @@
                 <p class="text-xs" style="color:var(--text-secondary);">
                     Agents start their own letter, print it, sign it and upload the signed copy from <span class="font-semibold">My Portal → Documents</span>.
                     The full register of every agency's letters lives under
-                    <a href="{{ route('admin.ppra-employment-letters.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Employment Letters</a>.
+                    @feature('ppra-employment-letters')<a href="{{ route('admin.ppra-employment-letters.index') }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Admin → PPRA Employment Letters</a>@else Admin → PPRA Employment Letters @endfeature.
                 </p>
             </div>
         </div>

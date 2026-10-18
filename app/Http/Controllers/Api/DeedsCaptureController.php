@@ -90,6 +90,12 @@ final class DeedsCaptureController extends Controller
             'captures.*.property.scheme_number'     => 'nullable|string|max:100',
             'captures.*.property.section_number'    => 'nullable|string|max:50',
             'captures.*.property.erf_number'        => 'nullable|string|max:100',
+            // Structured address layer (spec structured-address-matching.md §11) — read by label on the CMA
+            // page by extension 3.9.0; all optional, an older build simply omits them.
+            'captures.*.property.lpi_code'          => 'nullable|string|max:40',
+            'captures.*.property.cma_street_number' => 'nullable|string|max:50',
+            'captures.*.property.situated_at'       => 'nullable|string|max:200',
+            'captures.*.property.estate'            => 'nullable|string|max:200',
             'captures.*.property.address'           => 'nullable|string|max:255',
             'captures.*.property.street_number'     => 'nullable|string|max:50',
             'captures.*.property.street_name'       => 'nullable|string|max:200',
@@ -444,7 +450,7 @@ final class DeedsCaptureController extends Controller
         return $extra + [
             'source'               => 'tracked_property',
             'tracked_property_id' => $tp->id,
-            'address'              => $label ?? trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')) . ($tp->suburb ? ', ' . $tp->suburb : ''),
+            'address'              => $label ?? $tp->streetLine() . ($tp->suburb ? ', ' . $tp->suburb : ''),
             'captured_by'          => $tp->deedsCapturedBy?->name,
             'captured_at'          => $tp->deeds_captured_at?->toIso8601String(),
             'captured_at_human'    => $tp->deeds_captured_at?->diffForHumans(),
@@ -640,6 +646,9 @@ final class DeedsCaptureController extends Controller
             'latitude'              => $p['latitude'] ?? null,
             'longitude'             => $p['longitude'] ?? null,
             'erf_number'            => $p['erf_number'] ?? null,
+            // The LPI code, from the property block (extension 3.9.0) or — for every capture to date — from
+            // the source_ref "cmainfo:<lpi>" the extension has always sent. An unreadable one is simply absent.
+            'lpi_code'              => $p['lpi_code'] ?? (\App\Services\Address\LpiCode::parse($ref)['code'] ?? null),
             'title_deed_number'     => $p['title_deed_number'] ?? null,
             'erf_size_m2'           => isset($p['erf_extent_m2']) ? (string) $p['erf_extent_m2'] : null,
             'cadastral_extent'      => isset($p['cadastral_extent_m2']) ? (string) $p['cadastral_extent_m2'] : null,

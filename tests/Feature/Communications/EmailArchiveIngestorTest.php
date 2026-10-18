@@ -109,22 +109,21 @@ final class EmailArchiveIngestorTest extends TestCase
         ]);
     }
 
-    /** AT-122 — match-only: an unknown sender is DISCARDED, never stored anywhere. */
-    public function test_unknown_sender_is_discarded_and_nothing_is_written(): void
+    /**
+     * AT-122 made the archive match-only; Johan's 8 Sep 2026 ruling then revived the grace buffer for ONE case:
+     * a genuinely unknown sender who is NOT no-reply/service mail is the likeliest real new enquiry, so it is
+     * HELD for review (communication_pending) rather than silently lost. It is still never written to the
+     * archive proper. (No-reply/service senders are still dropped outright — test_never_business_sender_is_dropped.)
+     */
+    public function test_unknown_sender_is_held_for_review_never_archived(): void
     {
-        Storage::fake('local'); // fresh disk so we can assert nothing landed on it
-
         $result = $this->ingestor()->ingest($this->mailbox, $this->message(['from' => 'stranger@nowhere.test', 'counterpart' => 'stranger@nowhere.test']), Communication::DIRECTION_INBOUND);
 
-        $this->assertSame(EmailArchiveIngestor::RESULT_DROPPED, $result);
-        // Nothing in either table…
-        $this->assertSame(0, Communication::count(), 'no archive row');
-        $this->assertSame(0, CommunicationPending::count(), 'no pending row — grace buffer is gone under match-only');
-        // …and nothing written to disk (the .eml is only stored after a match).
-        $this->assertEmpty(Storage::disk('local')->allFiles(), 'no raw payload on disk for an unmatched email');
+        $this->assertSame(EmailArchiveIngestor::RESULT_PENDING, $result);
+        $this->assertSame(0, Communication::count(), 'not in the archive until an agent claims it');
+        $this->assertSame(1, CommunicationPending::count(), 'held in the grace buffer, visible on the triage screen');
     }
 
-    /** AT-122 — a never-business sender is likewise dropped (filter still classifies it). */
     public function test_never_business_sender_is_dropped(): void
     {
         $result = $this->ingestor()->ingest($this->mailbox, $this->message(['from' => 'no-reply@bank.test', 'counterpart' => 'no-reply@bank.test']), Communication::DIRECTION_INBOUND);

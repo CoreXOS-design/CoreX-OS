@@ -67,10 +67,11 @@ class DemoSidebarCurationTest extends TestCase
      */
     public function test_system_owner_seeder_refuses_to_hijack_a_tenant_user_with_the_same_email(): void
     {
+        $agencyId = \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id;
         $tenantAdmin = User::factory()->create([
             'email'     => strtolower(SystemOwnerSeeder::EMAIL), // differs only by case
             'role'      => 'admin',
-            'agency_id' => 1,
+            'agency_id' => $agencyId,
         ]);
 
         $this->expectException(\RuntimeException::class);
@@ -79,7 +80,7 @@ class DemoSidebarCurationTest extends TestCase
             (new SystemOwnerSeeder())->run();
         } finally {
             $tenantAdmin->refresh();
-            $this->assertSame(1, $tenantAdmin->agency_id, 'tenant admin must not be detached from its agency');
+            $this->assertSame($agencyId, $tenantAdmin->agency_id, 'tenant admin must not be detached from its agency');
             $this->assertSame('admin', $tenantAdmin->role, 'tenant admin must not be promoted to owner');
         }
     }

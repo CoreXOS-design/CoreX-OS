@@ -77,6 +77,10 @@ class ReconcileCalendarEvents extends Command
         $cleaned = $this->cleanupSyntheticOrphans($dry);
         $this->info("Synthetic orphans soft-deleted: {$cleaned}");
 
+        // AT-439 — one-time legacy rental-calendar cleanup. See below.
+        $legacyCleaned = $this->cleanupLegacyRentalCalendarEvents($dry);
+        $this->info("Legacy rental calendar events soft-deleted: {$legacyCleaned}" . ($dry ? ' (dry)' : ''));
+
         // Auto-task creation for missed feedback (M2.5)
         $taskCount = $this->createMissedFeedbackTasks($dry);
         $this->info("Missed-feedback tasks created: {$taskCount}" . ($dry ? ' (dry)' : ''));
@@ -163,6 +167,34 @@ class ReconcileCalendarEvents extends Command
         $query = CalendarEvent::withoutGlobalScopes()
             ->where('source_type', 'like', 'synthetic:%')
             ->where('event_date', '<', $cutoff)
+            ->whereNull('deleted_at');
+
+        if ($dry) {
+            return $query->count();
+        }
+
+        return $query->delete();
+    }
+
+    /**
+     * AT-439 — RentalCalendarSource's lease_expiry/rent_escalation/rent_due
+     * now key on Lease::class/LeaseEscalation::class instead of the retired
+     * Docuperfect\LeaseRecord::class/Rental::class. upsertEvent() only ever
+     * upserts what the CURRENT syncAll() output names — it has no "delete
+     * what a source stopped producing" step (by design: every OTHER
+     * source's rows must survive a sibling source's sync run), so rows
+     * upserted under the old source_types before this repoint are never
+     * touched again on their own. One-time, idempotent: once the legacy
+     * rows are gone, this is a permanent no-op on every future nightly run.
+     */
+    private function cleanupLegacyRentalCalendarEvents(bool $dry): int
+    {
+        $query = CalendarEvent::withoutGlobalScopes()
+            ->whereIn('source_type', [
+                \App\Models\Docuperfect\LeaseRecord::class,
+                \App\Models\Rental::class,
+            ])
+            ->whereIn('category', ['lease_expiry', 'rent_escalation', 'rent_due'])
             ->whereNull('deleted_at');
 
         if ($dry) {

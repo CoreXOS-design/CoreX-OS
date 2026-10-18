@@ -254,6 +254,7 @@ final class TrackedPropertyCommentsTest extends TestCase
         )->assertNotFound();
 
         // No leakage: Agency B never sees Agency A's comment count/content anywhere.
-        $this->assertSame(1, TrackedPropertyComment::where('tracked_property_id', $this->tpA->id)->count());
+        // Count with the agency scope off: the last acting user is agency B, whose scope (rightly) hides A's rows.
+        $this->assertSame(1, TrackedPropertyComment::withoutGlobalScopes()->where('tracked_property_id', $this->tpA->id)->count());
     }
 }

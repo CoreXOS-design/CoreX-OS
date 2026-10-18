@@ -45,6 +45,7 @@ class ListingDataQualityTest extends TestCase
         $this->normalizer     = new ListingNormalizationService();
         $this->qualityService = new PresentationDataQualityService();
         $this->presentation   = Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $branch->id,
             'created_by_user_id' => $user->id,
             'title'              => 'DQ Test Pres',

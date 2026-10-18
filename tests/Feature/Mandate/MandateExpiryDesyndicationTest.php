@@ -77,6 +77,12 @@ class MandateExpiryDesyndicationTest extends TestCase
             $m->shouldReceive('deactivateListing')->once()->andReturn(['success' => true]);
         });
 
+        // ExpireMandates flips the status to 'expired' BEFORE it fires the event. Since the 2026-10-06 ruling
+        // (portal presence follows STATUS) the job re-reads the row and stands down unless it is still off-market,
+        // so the fixture must be in the state the command leaves it in (a raw update — no observer side effects).
+        \Illuminate\Support\Facades\DB::table('properties')->where('id', $p->id)->update(['status' => 'expired']);
+        $p = $p->fresh();
+
         event(new MandateExpired(mandate: $p, agencyIdHint: $this->agency->id));
 
         // Website pivot is now disabled.

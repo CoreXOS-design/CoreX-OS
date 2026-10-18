@@ -13,9 +13,14 @@ class PublicAgencyPropertiesController extends Controller
     {
         $agency = Agency::where('slug', $agencySlug)->firstOrFail();
 
+        // 2026-09-30 — was a hard-coded status list that silently excluded
+        // Other Agency Stock (the same drift class as the preview/share-page
+        // bug). Property::coreMatchAllowedStatuses() is the one canonical
+        // list (already includes other_agency_stock) so this surface can
+        // never drift from Core Matches / the preview page again.
         $q = Property::where('agency_id', $agency->id)
             ->whereNull('deleted_at')
-            ->whereIn('status', ['Active', 'NewListing', 'Reduced', 'active', 'new_listing', 'reduced']);
+            ->whereIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), Property::coreMatchAllowedStatuses($agency->id));
 
         if ($type = $request->query('type')) {
             $q->where('listing_type', $type);

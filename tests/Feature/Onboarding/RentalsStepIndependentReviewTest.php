@@ -48,6 +48,9 @@ use Tests\TestCase;
 final class RentalsStepIndependentReviewTest extends TestCase
 {
     use RefreshDatabase;
+    // The baseline of a real browser's POST for the step (every control the page renders, incl. each maintenance-flow toggle);
+    // the hand-written fields below override it. A payload written by hand goes stale every time a control joins the step.
+    use \Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 
     private function admin(Agency $agency): User
     {
@@ -80,7 +83,7 @@ final class RentalsStepIndependentReviewTest extends TestCase
         $adminB = $this->admin($agencyB);
 
         $this->actingAs($adminB)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($adminB, 'leases'), $this->alpineListRows($agencyB), [
                 'expiry_notice_window_days' => 99,
                 'fault_report_window_days' => 88,
                 'out_inspection_signing_window_days' => 45,
@@ -100,7 +103,7 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'tag_contact_as_tenant_on_approval' => '1',
                 'require_fica_before_authorisation' => '0',
                 'document_uploads_open_after_approval' => '1',
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 
@@ -132,7 +135,7 @@ final class RentalsStepIndependentReviewTest extends TestCase
         $adminA = $this->admin($agencyA);
 
         $this->actingAs($adminA)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($adminA, 'leases'), $this->alpineListRows($agencyA), [
                 'expiry_notice_window_days' => 50,
                 'fault_report_window_days' => 60,
                 'out_inspection_signing_window_days' => 15,
@@ -151,7 +154,7 @@ final class RentalsStepIndependentReviewTest extends TestCase
                 'tag_contact_as_tenant_on_approval' => '1',
                 'require_fica_before_authorisation' => '0',
                 'document_uploads_open_after_approval' => '1',
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 

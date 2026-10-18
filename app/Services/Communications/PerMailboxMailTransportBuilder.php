@@ -90,6 +90,14 @@ class PerMailboxMailTransportBuilder
         // credentials are still validated above (blank() check) so a
         // misconfigured mailbox still surfaces as a real setup problem —
         // only the actual TCP destination changes.
+        if (OutboundMailGuard::isTripped()) {
+            // Non-production pointed at a real mail host: even the "sink" is not safe. Connect to nothing.
+            throw new OutgoingMailboxSendFailedException(
+                'blocked_by_guard',
+                'Outbound mail is refused on this environment until its mail configuration is fixed.'
+            );
+        }
+
         $sendingConfirmed = OutboundMailGuard::isSendingConfirmed();
         $connectHost = $sendingConfirmed ? (string) $mailbox->smtp_host : OutboundMailGuard::sinkHost();
         $connectPort = $sendingConfirmed ? (int) $mailbox->smtp_port : OutboundMailGuard::sinkPort();

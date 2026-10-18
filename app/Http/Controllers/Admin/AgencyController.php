@@ -86,6 +86,10 @@ class AgencyController extends Controller
             'button_color'     => 'nullable|string|max:20',
             'is_active'        => 'nullable|boolean',
             'is_demo'          => 'nullable|boolean',
+            // What the agency does — seeds its feature switches (config/agency-types.php). Blank = both.
+            'agency_type'      => 'nullable|in:sales,rentals,both',
+            // Letters the agency's document numbers start with (payslips). Blank = worked out from the name (Agency::saving).
+            'short_code'       => 'nullable|string|max:20',
             'trading_name'     => 'nullable|string|max:255',
             'tagline'          => 'nullable|string|max:255',
             'address'          => 'nullable|string|max:500',
@@ -101,7 +105,7 @@ class AgencyController extends Controller
             'p24_agency_label' => 'nullable|string|max:100',
             'p24_max_photos'        => 'nullable|integer|min:1|max:200',
             'p24_http_read_timeout' => 'nullable|integer|min:30|max:600',
-            'logo'             => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'             => ['nullable', new \App\Rules\AgencyLogoFile()],
 
             // First Admin — required for live agencies, skipped for demo agencies.
             // Email-only invite, no password captured here. See .ai/specs/agency-admin-rule.md §R1a.
@@ -118,6 +122,7 @@ class AgencyController extends Controller
             'branch_code'    => 'required|string|max:50',
         ]);
 
+        $data['short_code']    = \App\Support\AgencyShortCode::validated($data['short_code'] ?? null);
         $data['slug']          = $data['slug'] ?? Str::slug($data['name']);
         $data['sidebar_color'] = $data['sidebar_color'] ?? '#0ea5e9';
         $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
@@ -150,7 +155,12 @@ class AgencyController extends Controller
         // account.setup link mailed below.
         $adminUser = null;
         $agency = DB::transaction(function () use ($data, $adminPayload, $branchPayload, &$adminUser) {
+            $data['agency_type'] = \App\Services\Features\AgencyTypeFeatureSeeder::normalise($data['agency_type'] ?? null);
             $agency = Agency::create($data);
+
+            // The feature switches start from what the agency does — not from the platform-wide defaults,
+            // which carry Home Finders Coastal's own choices (syndication, marketing).
+            app(\App\Services\Features\AgencyTypeFeatureSeeder::class)->seedNewAgency($agency);
 
             // AT-378 — every agency's first branch, created in the same
             // transaction so an agency can never exist without one.
@@ -320,6 +330,7 @@ class AgencyController extends Controller
             'button_color'    => 'nullable|string|max:20',
             'is_active'       => 'nullable|boolean',
             'trading_name'    => 'nullable|string|max:255',
+            'short_code'      => 'nullable|string|max:20',
             'tagline'         => 'nullable|string|max:255',
             'address'         => 'nullable|string|max:500',
             'phone'           => 'nullable|string|max:255',
@@ -349,7 +360,7 @@ class AgencyController extends Controller
             'pp_image_base_url' => 'nullable|string|max:255',
             'pp_webhook_secret' => 'nullable|string|max:255',
             'pp_max_photos'     => 'nullable|integer|min:1|max:200',
-            'logo'            => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'logo'            => ['nullable', new \App\Rules\AgencyLogoFile()],
             'remove_logo'     => 'nullable|boolean',
         ]);
 
@@ -357,6 +368,12 @@ class AgencyController extends Controller
         $data['icon_color']    = $data['icon_color']    ?? '#0ea5e9';
         $data['default_color'] = $data['default_color'] ?? '#0b2a4a';
         $data['button_color']  = $data['button_color']  ?? '#0ea5e9';
+        // Blank (or not on the form) keeps the code the agency has - it is never emptied.
+        $shortCode = $request->has('short_code') ? \App\Support\AgencyShortCode::validated($data['short_code'] ?? null, (int) $agency->id) : null;
+        unset($data['short_code']);
+        if ($shortCode !== null) {
+            $data['short_code'] = $shortCode;
+        }
         $data['is_active']       = (bool) ($data['is_active'] ?? false);
         $data['p24_enabled']     = (bool) ($data['p24_enabled'] ?? false);
         $data['pp_enabled']      = (bool) ($data['pp_enabled'] ?? false);

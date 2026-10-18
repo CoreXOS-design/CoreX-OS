@@ -1,0 +1,419 @@
+<?php
+
+namespace App\Services\Rentals;
+
+use App\Models\Lease;
+use App\Models\LeaseEscalation;
+use App\Models\LeaseEvent;
+use App\Models\LeaseTenant;
+use App\Models\User;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
+
+/**
+ * .ai/specs/rental-renewals.md §1/§5/§7 — AT-444. Every lease TERM is its
+ * own row (leases.md §3.1); a renewal is a NEW Lease chained via
+ * previous_lease_id, never the same row extended in place.
+ *
+ * LeaseActivationService::activate() ALREADY closes the previous term
+ * (expires it, sets its renewed_lease_id) the moment a lease naming it as
+ * previous_lease_id is activated — this service does not duplicate that,
+ * it only builds the draft row and the one-click outcome writes, then
+ * calls the existing activation service when a term is ready to go live.
+ */
+class LeaseRenewalService
+{
+    /**
+     * rental-renewals.md §5/§7 — builds the new draft TERM for a renewal,
+     * copying property + tenants from the current lease. Used by:
+     *  - the manual-upload path (§5(c)) directly, once the agent has a
+     *    signed document in hand;
+     *  - the copy-forward e-sign path (§5(a)) as the Lease row the draft
+     *    Flow is built against (RenewalDraftService, not duplicated here).
+     *
+     * Does NOT activate — the caller decides when (immediately for the
+     * manual-upload path once the document is attached; on e-sign
+     * completion for the copy-forward/template paths, §6).
+     *
+     * @param array{start_date:string,end_date?:?string,rental_amount:float,deposit_amount?:?float,is_month_to_month?:bool,lease_type?:?string} $terms
+     */
+    public function createRenewalTerm(Lease $current, array $terms, User $user): Lease
+    {
+        if ($current->status !== Lease::STATUS_ACTIVE) {
+            throw ValidationException::withMessages([
+                'lease' => 'Only an active lease can be renewed.',
+            ]);
+        }
+
+        if ($reason = $this->renewalBlockedByNotice($current)) {
+            throw ValidationException::withMessages(['lease' => $reason]);
+        }
+
+        return DB::transaction(function () use ($current, $terms, $user) {
+            // leases.md §17 — a renewal carries both agents forward from the term it renews (the capture screen may have
+            // changed them, and says so in $terms); never reset to the property's agent on the way.
+            $carried = app(LeaseAgentService::class)->effectiveIds($current);
+
+            $newTerm = Lease::create([
+                'agency_id' => $current->agency_id,
+                'branch_id' => $current->branch_id,
+                'property_id' => $current->property_id,
+                'status' => Lease::STATUS_DRAFT,
+                'rental_amount' => $terms['rental_amount'],
+                'deposit_amount' => $terms['deposit_amount'] ?? $current->deposit_amount,
+                'start_date' => $terms['start_date'],
+                'end_date' => $terms['end_date'] ?? null,
+                'is_month_to_month' => (bool) ($terms['is_month_to_month'] ?? false),
+                'lease_type' => $terms['lease_type'] ?? $current->lease_type,
+                'source' => 'manual',
+                'previous_lease_id' => $current->id,
+                'created_by_user_id' => $user->id,
+                'owner_agent_user_id' => $terms['owner_agent_user_id'] ?? $carried['owner'],
+                'tenant_agent_user_id' => $terms['tenant_agent_user_id'] ?? $carried['tenant'],
+            ]);
+
+            foreach ($current->tenants as $tenant) {
+                LeaseTenant::create([
+                    'lease_id' => $newTerm->id,
+                    'contact_id' => $tenant->contact_id,
+                    'is_primary' => $tenant->is_primary,
+                ]);
+            }
+
+            // leases.md §18 — the notice / early-cancellation terms carry forward from the term being renewed (dates move with the new
+            // start), or start from the agency's defaults when that term held none. The capture screen may then change them.
+            $notice = app(LeaseNoticeTermsService::class);
+            [$noticeValues, $noticeSource] = $notice->forRenewal($current, \Illuminate\Support\Carbon::parse($newTerm->start_date));
+            // No screen here: the new term is confirmed only if the term it carries from was (a default stays unconfirmed).
+            $notice->save($newTerm, $noticeValues, $user, $noticeSource, false, null, $noticeSource === LeaseNoticeTermsService::SOURCE_CARRIED_FORWARD && $notice->isConfirmed($current));
+
+            $this->logEvent($current, LeaseEvent::TYPE_RENEWAL_DRAFT_CREATED, "Renewal draft created (new term #{$newTerm->id})", $user);
+
+            return $newTerm->fresh(['tenants']);
+        });
+    }
+
+    /**
+     * rental-renewals.md §7 — activates a renewal term: records the
+     * escalation on the NEW row (reusing LeaseEscalation, append-only),
+     * then calls the existing LeaseActivationService, which atomically
+     * expires the previous term and chains both pointers. Idempotent
+     * guard: refuses a term with no previous_lease_id (that is just a
+     * normal lease activation, not a renewal — callers should use
+     * LeaseActivationService directly for that case).
+     */
+    public function activateRenewalTerm(Lease $newTerm, ?User $user): Lease
+    {
+        if (!$newTerm->previous_lease_id) {
+            throw ValidationException::withMessages([
+                'lease' => 'This lease has no previous term to renew — use the normal activate action instead.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($newTerm, $user) {
+            $previous = Lease::withoutGlobalScopes()->findOrFail($newTerm->previous_lease_id);
+
+            if ((float) $previous->rental_amount !== (float) $newTerm->rental_amount) {
+                LeaseEscalation::create([
+                    'lease_id' => $newTerm->id,
+                    'effective_date' => $newTerm->start_date,
+                    'previous_rental_amount' => $previous->rental_amount,
+                    'new_rental_amount' => $newTerm->rental_amount,
+                    'escalation_rate_percent' => LeaseEscalation::computeRatePercent((float) $previous->rental_amount, (float) $newTerm->rental_amount),
+                    'note' => 'Renewal escalation',
+                    'created_by_user_id' => $user?->id,
+                ]);
+            }
+
+            $activated = app(LeaseActivationService::class)->activate($newTerm);
+
+            $this->logEvent($activated, LeaseEvent::TYPE_RENEWAL_ACTIVATED, "Renewal activated — succeeds lease #{$previous->id}", $user);
+
+            return $activated;
+        });
+    }
+
+    /**
+     * rental-command-centre.md §3.1 / leases.md — the agent explicitly
+     * cancels a renewal draft (CoreX-prepared or their own) instead of
+     * sending/activating it. Logged on BOTH leases: the draft's own
+     * cancelled_at/cancelled_by_user_id/cancel_reason columns plus a
+     * LeaseEvent on itself, AND a LeaseEvent on the previous (current) term
+     * so ITS OWN tenancy log shows the draft went away and why. Deliberately
+     * does not touch the previous lease's own status/pointers — cancelling a
+     * draft never re-opens or changes the term it was drafted from, and
+     * never deletes the draft row (soft-delete-only, kept for history).
+     */
+    public function cancelRenewalDraft(Lease $draft, string $reason, User $user): Lease
+    {
+        if ($draft->status !== Lease::STATUS_DRAFT || !$draft->previous_lease_id) {
+            throw ValidationException::withMessages([
+                'lease' => 'This lease is not a pending renewal draft.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($draft, $reason, $user) {
+            $draft->update([
+                'status' => Lease::STATUS_CANCELLED,
+                'cancelled_at' => now(),
+                'cancelled_by_user_id' => $user->id,
+                'cancel_reason' => $reason,
+            ]);
+
+            $this->logEvent($draft, LeaseEvent::TYPE_RENEWAL_DRAFT_CANCELLED, "Renewal draft cancelled — {$reason}", $user, ['reason' => $reason]);
+
+            $previous = Lease::withoutGlobalScopes()->find($draft->previous_lease_id);
+            if ($previous) {
+                $this->logEvent($previous, LeaseEvent::TYPE_RENEWAL_DRAFT_CANCELLED, "Renewal draft (lease #{$draft->id}) cancelled — {$reason}", $user, ['draft_lease_id' => $draft->id, 'reason' => $reason]);
+            }
+
+            return $draft->fresh();
+        });
+    }
+
+    /**
+     * rental-renewals.md §7 — "Month-to-month": end_date cleared, flag set.
+     * No e-sign cycle. Reversible (§7's own "all reversible by an
+     * authorised user").
+     */
+    public function recordMonthToMonth(Lease $lease, ?string $note, User $user): Lease
+    {
+        // The end date being cleared is kept on the history line, so reversing can put it back (D12, 8 Oct 2026).
+        $previousEnd = $lease->end_date?->toDateString();
+        $lease->update(['is_month_to_month' => true, 'end_date' => null]);
+
+        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_SET, 'Lease set to month-to-month' . ($note ? " — {$note}" : ''), $user, ['note' => $note, 'previous_end_date' => $previousEnd]);
+
+        return $lease->fresh();
+    }
+
+    /**
+     * Reverses month-to-month. Rentals front-half decision D12 (8 Oct 2026, agency setting
+     * `restore_end_date_on_leaving_month_to_month`, default on): the end date the lease had before it went month-to-month - kept on
+     * the switch's history line, by the agent's switch and by the automatic one alike - comes back, when there is one on record, it is
+     * still ahead, and the lease has no end date now. A lease switched before this existed has none on record and stays without an end date, as before.
+     */
+    public function reverseMonthToMonth(Lease $lease, User $user): Lease
+    {
+        $updates = ['is_month_to_month' => false];
+        $restored = null;
+
+        if (! $lease->end_date && \App\Models\LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor((int) $lease->agency_id)) {
+            $set = LeaseEvent::query()->where('lease_id', $lease->id)->where('event_type', LeaseEvent::TYPE_MONTH_TO_MONTH_SET)
+                ->orderByDesc('id')->first();
+            $previous = $set?->metadata['previous_end_date'] ?? null;
+            // Only a date still ahead: an end date already past would send the lease straight back to month-to-month tonight
+            // (the automatic switch), undoing the reversal the agent just made.
+            if ($previous && \Carbon\Carbon::parse($previous)->startOfDay()->gte(now()->startOfDay())) {
+                $updates['end_date'] = $restored = $previous;
+            }
+        }
+
+        $lease->update($updates);
+
+        $this->logEvent($lease, LeaseEvent::TYPE_MONTH_TO_MONTH_REVERSED,
+            'Month-to-month reversed' . ($restored ? ' - the original end date (' . \Carbon\Carbon::parse($restored)->format('j M Y') . ') was put back' : ''),
+            $user, $restored ? ['restored_end_date' => $restored] : []);
+
+        return $lease->fresh();
+    }
+
+    /** cc5 walk 2: no renewal while a move-out notice stands on the lease - the agent withdraws one first. Null = clear to renew. */
+    public function renewalBlockedByNotice(Lease $current): ?string
+    {
+        if (! $current->hasActiveNotice()) {
+            return null;
+        }
+
+        return 'A move-out notice is on file for this lease (move-out ' . ($current->move_out_date?->format('j M Y') ?? 'date not set') . '), so it cannot be renewed. '
+            . 'If the tenant is staying after all, reverse the notice first (Lease actions > Reverse notice), then renew.';
+    }
+
+    /** cc5 walk 2: no move-out notice while a renewal is in progress or signed - the agent cancels the renewal first. Null = clear to record the notice. */
+    public function noticeBlockedByRenewal(Lease $lease): ?string
+    {
+        $renewal = $lease->renewalDrafts()->orderBy('start_date')->first();
+        if (! $renewal) {
+            return null;
+        }
+
+        return 'A renewal starting ' . ($renewal->start_date?->format('j M Y') ?? 'on a date not set') . ($renewal->isSignedRenewalAwaitingStart() ? ' is already signed' : ' is in progress')
+            . ' for this lease, so a move-out notice cannot be recorded. If the tenant is leaving after all, cancel the renewal first, then record the notice.';
+    }
+
+    /**
+     * rental-renewals.md §7 — "Tenant gave notice" / "Landlord not
+     * renewing": same mechanism, distinguished only by $givenBy for the
+     * tenancy log and any future landlord-communication content (§7's own
+     * wording — the outcome is identical either way).
+     *
+     * §19 — Johan's ruling 2026-10-05: $outcome is the agent's explicit,
+     * every-time, nothing-pre-selected choice of what happens to the
+     * PROPERTY — one of Lease::NOTICE_OUTCOME_{READVERTISE,WITHDRAW,LEAVE}.
+     * The caller (controller) validates it is present and one of the three;
+     * this service re-validates it too so no caller can slip an invalid
+     * value through. Recorded on the lease (notice_outcome) so
+     * reverseNotice()/changeNoticeOutcome() below know exactly which
+     * property-side effect (if any) must be undone/replaced.
+     */
+    public function recordNotice(Lease $lease, string $givenBy, string $moveOutDate, ?string $note, User $user, string $outcome, ?bool $showAvailableFromOnPortals = null, ?string $noticeDate = null): Lease
+    {
+        if (!in_array($givenBy, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
+            throw ValidationException::withMessages(['notice_given_by' => 'Invalid notice source.']);
+        }
+        $this->guardNoticeOutcome($outcome);
+        if ($reason = $this->noticeBlockedByRenewal($lease)) {
+            throw ValidationException::withMessages(['move_out_date' => $reason]);
+        }
+
+        return DB::transaction(function () use ($lease, $givenBy, $moveOutDate, $note, $user, $outcome, $showAvailableFromOnPortals, $noticeDate) {
+            $lease->update([
+                // lease-notices.md: an accepted notice carries the date it was GIVEN; the one-click path (no date) keeps "today"
+                'notice_date' => $noticeDate ?: now()->toDateString(),
+                'notice_given_by' => $givenBy,
+                'move_out_date' => $moveOutDate,
+                'notice_note' => $note,
+                'notice_outcome' => $outcome,
+            ]);
+
+            $who = $givenBy === Lease::NOTICE_BY_TENANT ? 'Tenant gave notice' : 'Landlord not renewing';
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_RECORDED, "{$who} — move-out {$moveOutDate} — {$this->outcomeLabel($outcome)}" . ($note ? " — {$note}" : ''), $user, ['given_by' => $givenBy, 'move_out_date' => $moveOutDate, 'note' => $note, 'outcome' => $outcome]);
+
+            $this->applyOutcome($lease, $outcome, $moveOutDate, $user, $showAvailableFromOnPortals);
+
+            return $lease->fresh();
+        });
+    }
+
+    /**
+     * §19 — "let the agent change the choice later from the Lease actions
+     * menu while the notice is active" (Johan's ruling). Reverses whatever
+     * property-side effect the CURRENT outcome applied, then applies the
+     * new one — the lease's own notice_date/move_out_date/notice_given_by
+     * are untouched, only notice_outcome changes. A no-op (still logged,
+     * for an honest tenancy-log trail) when the new choice matches the
+     * current one.
+     */
+    public function changeNoticeOutcome(Lease $lease, string $newOutcome, User $user): Lease
+    {
+        $this->guardNoticeOutcome($newOutcome);
+        if (!$lease->hasActiveNotice()) {
+            throw ValidationException::withMessages(['notice_outcome' => 'This lease has no active notice to change.']);
+        }
+
+        return DB::transaction(function () use ($lease, $newOutcome, $user) {
+            $previousOutcome = (string) $lease->notice_outcome;
+
+            $this->reverseOutcomeEffect($lease, $previousOutcome, $user);
+            $lease->update(['notice_outcome' => $newOutcome]);
+            $this->applyOutcome($lease, $newOutcome, (string) $lease->move_out_date?->toDateString(), $user, null);
+
+            $this->logEvent(
+                $lease,
+                LeaseEvent::TYPE_NOTICE_OUTCOME_CHANGED,
+                "Notice outcome changed: {$this->outcomeLabel($previousOutcome)} → {$this->outcomeLabel($newOutcome)}",
+                $user,
+                ['from' => $previousOutcome, 'to' => $newOutcome],
+            );
+
+            return $lease->fresh();
+        });
+    }
+
+    public function reverseNotice(Lease $lease, User $user): Lease
+    {
+        return DB::transaction(function () use ($lease, $user) {
+            $outcome = (string) $lease->notice_outcome;
+
+            $lease->update([
+                'notice_date' => null,
+                'notice_given_by' => null,
+                'move_out_date' => null,
+                'notice_note' => null,
+                'notice_outcome' => null,
+            ]);
+
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_REVERSED, 'Notice reversed', $user);
+            // lease-notices.md: the accepted case this notice came from is withdrawn (kept, never erased)
+            app(LeaseNoticeService::class)->withdrawAcceptedFor($lease, $user);
+
+            $this->reverseOutcomeEffect($lease, $outcome, $user);
+
+            return $lease->fresh();
+        });
+    }
+
+    private function guardNoticeOutcome(string $outcome): void
+    {
+        if (!in_array($outcome, [Lease::NOTICE_OUTCOME_READVERTISE, Lease::NOTICE_OUTCOME_WITHDRAW, Lease::NOTICE_OUTCOME_LEAVE], true)) {
+            throw ValidationException::withMessages(['notice_outcome' => 'Choose what happens to the property.']);
+        }
+    }
+
+    private function outcomeLabel(string $outcome): string
+    {
+        return match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => 'Back on the market',
+            Lease::NOTICE_OUTCOME_WITHDRAW => 'Withdrawn',
+            Lease::NOTICE_OUTCOME_LEAVE => 'Left as is',
+            default => $outcome,
+        };
+    }
+
+    private function applyOutcome(Lease $lease, string $outcome, ?string $moveOutDate, User $user, ?bool $showAvailableFromOnPortals): void
+    {
+        match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => app(PropertyStatusFollowsLeaseService::class)->readvertiseOnNotice($lease, (string) $moveOutDate, $user, $showAvailableFromOnPortals),
+            Lease::NOTICE_OUTCOME_WITHDRAW => app(PropertyStatusFollowsLeaseService::class)->withdrawOnNotice($lease, $user),
+            Lease::NOTICE_OUTCOME_LEAVE => null,
+            default => null,
+        };
+    }
+
+    private function reverseOutcomeEffect(Lease $lease, string $outcome, User $user): void
+    {
+        match ($outcome) {
+            Lease::NOTICE_OUTCOME_READVERTISE => app(PropertyStatusFollowsLeaseService::class)->reverseReadvertise($lease, $user),
+            Lease::NOTICE_OUTCOME_WITHDRAW => app(PropertyStatusFollowsLeaseService::class)->reverseWithdraw($lease, $user),
+            default => null,
+        };
+    }
+
+    /**
+     * rental-renewals.md §22 (Johan, 14 Oct 2026) - the lease being renewed stays active until its own end date; a renewal signed ahead of its
+     * start date waits for that date (LeaseTermAdvanceService / `leases:advance-terms` activates it then).
+     */
+    public function startsLater(Lease $term): bool
+    {
+        return $term->previous_lease_id !== null
+            && $term->start_date !== null
+            && $term->start_date->toDateString() > now()->toDateString();
+    }
+
+    /**
+     * Records that a signed renewal is waiting for its start date and says so in one plain sentence. The lease keeps its draft status (shown as
+     * "Signed - starts <date>"); nothing about the running lease changes.
+     */
+    public function holdUntilStart(Lease $term, ?User $user): string
+    {
+        $when = $term->start_date->format('j M Y');
+        $this->logEvent($term, LeaseEvent::TYPE_RENEWAL_SIGNED_AWAITING_START, "Renewal signed - it starts on {$when}; the current lease stays active until then", $user, [
+            'start_date' => $term->start_date->toDateString(), 'previous_lease_id' => $term->previous_lease_id,
+        ]);
+
+        return "Signed - this renewal starts on {$when}. The current lease stays active until then.";
+    }
+
+    private function logEvent(Lease $lease, string $type, string $description, ?User $user, ?array $metadata = null): void
+    {
+        LeaseEvent::create([
+            'lease_id' => $lease->id,
+            'event_type' => $type,
+            'description' => $description,
+            'actor_user_id' => $user?->id,
+            'metadata' => $metadata,
+            'occurred_at' => now(),
+            'created_at' => now(),
+        ]);
+    }
+}

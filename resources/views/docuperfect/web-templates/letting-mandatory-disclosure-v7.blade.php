@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mandatory Disclosure — Home Finders Coastal</title>
+    <title>Mandatory Disclosure{{ !empty($docAgency['name']) ? ' — ' . $docAgency['name'] : '' }}</title>
     <style>
         /* ============================================================
            Letting Mandatory Disclosure V7 — Print-quality A4 document

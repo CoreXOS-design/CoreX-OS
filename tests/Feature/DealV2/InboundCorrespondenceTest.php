@@ -136,7 +136,12 @@ class InboundCorrespondenceTest extends TestCase
         $this->assertNull($provisional->confirmed_at, 'deal link stays provisional until first-verify');
     }
 
-    public function test_unknown_sender_still_drops_popia_scope(): void
+    /**
+     * An unknown sender is never filed to a deal or archived — but since Johan's 8 Sep 2026 ruling a
+     * genuinely unknown, non-no-reply sender is HELD for review (communication_pending) rather than
+     * silently dropped (POPIA scope is kept: no archive row, no filing suspense). No-reply senders still drop.
+     */
+    public function test_unknown_sender_is_held_for_review_never_filed_or_archived(): void
     {
         Storage::fake('local');
         $w = $this->makeWorld();
@@ -147,7 +152,7 @@ class InboundCorrespondenceTest extends TestCase
             'subject' => 'Hello (no token)',
         ]));
 
-        $this->assertSame(EmailArchiveIngestor::RESULT_DROPPED, $result);
+        $this->assertSame(EmailArchiveIngestor::RESULT_PENDING, $result);
         $this->assertSame(0, Communication::withoutGlobalScopes()->where('agency_id', $w['agency']->id)->count());
         $this->assertSame(0, CommunicationFilingSuspense::withoutGlobalScopes()->count());
     }
@@ -225,7 +230,9 @@ class InboundCorrespondenceTest extends TestCase
         $this->assertNull($provisionalLink->confirmed_at, 'the suggestion is provisional, not a filing decision');
     }
 
-    public function test_known_attorney_single_active_deal_no_token_is_medium(): void
+    // Phase 2 confidence ladder (2026-07-31) replaced the thin single-active-deal strategy: a lone party
+    // address with no token is T4 = LOW (still pre-selects the deal and carries the sender-email signal).
+    public function test_known_attorney_single_active_deal_no_token_is_a_low_suggestion(): void
     {
         Storage::fake('local');
         $w = $this->makeWorld();
@@ -234,9 +241,10 @@ class InboundCorrespondenceTest extends TestCase
         $this->assertSame(EmailArchiveIngestor::RESULT_PARKED, $result);
 
         $suspense = CommunicationFilingSuspense::withoutGlobalScopes()->first();
-        $this->assertSame(CommunicationFilingSuspense::CONF_MEDIUM, $suspense->confidence);
+        $this->assertSame(CommunicationFilingSuspense::CONF_LOW, $suspense->confidence);
         $this->assertSame($w['deal']->id, (int) $suspense->suggested_deal_id);
-        $this->assertSame(CommunicationLearnedRef::SIGNAL_SENDER_EMAIL, $suspense->matched_signal_type);
+        // The ladder picks the canonical ref to learn from (here the subject), not the bare sender address.
+        $this->assertSame(CommunicationLearnedRef::SIGNAL_SUBJECT_EXACT, $suspense->matched_signal_type);
     }
 
     public function test_reassign_withdraws_old_docs_refiles_and_corrects_learned(): void

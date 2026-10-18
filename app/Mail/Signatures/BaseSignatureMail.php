@@ -111,15 +111,15 @@ abstract class BaseSignatureMail extends Mailable
      *   themself unconditionally — the mailbox IS that domain's own outbound
      *   server, so the company-domain guard below is no longer the question.
      * - Company-domain agents (no mailbox): send directly from their address.
-     * - Personal-email agents (no mailbox): send from system with "Name via CoreX OS".
+     * - Personal-email agents (no mailbox): send from system with "Name via <their agency>".
      * - No agent: system default.
      */
     protected function getFromAddress(): Address
     {
         if (!$this->sendingAgent) {
             return new Address(
-                config('mail.from.address'),
-                config('mail.from.name', 'CoreX OS')
+                \App\Support\PlatformSender::address(),
+                \App\Support\ClientBrand::NEUTRAL
             );
         }
 
@@ -141,10 +141,12 @@ abstract class BaseSignatureMail extends Mailable
             return new Address($agentEmail, $agentName);
         }
 
-        // Personal email — send from system but show agent name
+        // Personal email — send from system but show the agent's name, "via" their own agency (never CoreX).
+        $agencyName = trim((string) $this->resolveAgencyForAgent($this->sendingAgent)?->name);
+
         return new Address(
-            config('mail.from.address'),
-            "{$agentName} via CoreX OS"
+            \App\Support\PlatformSender::address(),
+            $agencyName !== '' ? "{$agentName} via {$agencyName}" : $agentName
         );
     }
 
@@ -195,7 +197,13 @@ abstract class BaseSignatureMail extends Mailable
             return [];
         }
 
-        return [new Address($this->sendingAgent->outward_email, $this->sendingAgent->name)];
+        // Replies go to the agent; an agent with no usable address falls back to their own agency's contact email.
+        $replyTo = trim((string) $this->sendingAgent->outward_email);
+        if (!filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
+            $replyTo = trim((string) $this->resolveAgencyForAgent($this->sendingAgent)?->email);
+        }
+
+        return filter_var($replyTo, FILTER_VALIDATE_EMAIL) ? [new Address($replyTo, $this->sendingAgent->name)] : [];
     }
 
     /**
@@ -229,8 +237,8 @@ abstract class BaseSignatureMail extends Mailable
             // $agency is always null here (see the NOTE above) — no per-tenant
             // fields to show, so they render absent rather than guessing.
             return [
-                'name'             => config('mail.from.name', 'CoreX OS'),
-                'email'            => config('mail.from.address'),
+                'name'             => \App\Support\ClientBrand::NEUTRAL,
+                'email'            => \App\Support\PlatformSender::address(),
                 'phone'            => null,
                 'designation'      => null,
                 'cell'             => null,
@@ -242,7 +250,7 @@ abstract class BaseSignatureMail extends Mailable
                 'logo_url'         => null,
                 'email_disclaimer' => null,
                 'popi_url'         => null,
-                'agency_name'      => config('mail.from.name', 'CoreX OS'),
+                'agency_name'      => \App\Support\ClientBrand::NEUTRAL,
             ];
         }
 
@@ -265,7 +273,7 @@ abstract class BaseSignatureMail extends Mailable
             // $agency can be null here too — an agent with no resolvable
             // agency (e.g. a System Owner passed to fromAgent()). Falls back
             // to the platform identity rather than a specific tenant's name.
-            'agency_name'      => $agency?->name ?? config('mail.from.name', 'CoreX OS'),
+            'agency_name'      => \App\Models\Agency::displayNameFor($agency, \App\Support\ClientBrand::NEUTRAL),
         ];
     }
 }

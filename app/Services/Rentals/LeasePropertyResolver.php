@@ -30,7 +30,21 @@ class LeasePropertyResolver
             return null;
         }
 
-        $candidates = Property::withoutGlobalScopes()->searchAddress($freeTextAddress)->limit(2)->get();
+        // AT-439 §D — Property::scopeSearchAddress() tokenises on whitespace
+        // only, so a comma/slash stays glued to the adjacent token (e.g.
+        // "Alomsee 4," never matches a "4" on any field). Normalised HERE,
+        // not in the shared scope itself — that scope also drives every
+        // live property-search box across the app, and widening ITS
+        // tokeniser is a different, much larger-blast-radius change than
+        // this one legacy-lease-matching path calls for. Replacing the
+        // punctuation with a space (rather than deleting it outright) keeps
+        // the token count the same, so it can only ever turn a previously
+        // glued non-match into a separate, independently-matchable token —
+        // it never merges two tokens into one or changes what a clean
+        // address already matched.
+        $normalisedAddress = str_replace([',', '/'], ' ', $freeTextAddress);
+
+        $candidates = Property::withoutGlobalScopes()->searchAddress($normalisedAddress)->limit(2)->get();
 
         return $candidates->count() === 1 ? $candidates->first() : null;
     }

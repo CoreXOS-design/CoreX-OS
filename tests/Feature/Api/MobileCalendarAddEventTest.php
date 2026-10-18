@@ -105,11 +105,13 @@ class MobileCalendarAddEventTest extends TestCase
         $res->assertCreated();
         $eventId = $res->json('id');
 
-        // Response carries the full graph for the edit sheet.
+        // The create response is the compact calendar-tile payload; the full graph the edit sheet
+        // needs (is_editable, linked properties, attendees) comes from the event DETAIL endpoint.
         $res->assertJsonPath('priority', 'high');
-        $res->assertJsonPath('is_editable', true);
-        $this->assertCount(1, $res->json('linked_properties'));
-        $this->assertCount(2, $res->json('attendees'));
+        $detail = $this->actingAs($organizer)->getJson("/api/v1/command-center/calendar/{$eventId}")->assertOk();
+        $detail->assertJsonPath('is_editable', true);
+        $this->assertCount(1, $detail->json('linked_properties'));
+        $this->assertCount(2, $detail->json('attendees'));
 
         // Event row owned by the organizer.
         $event = CalendarEvent::find($eventId);

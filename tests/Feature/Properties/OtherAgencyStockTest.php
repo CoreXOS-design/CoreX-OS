@@ -762,15 +762,13 @@ class OtherAgencyStockTest extends TestCase
         $resp->assertDontSee('This listing is no longer available');
     }
 
-    public function test_public_agency_properties_index_never_lists_other_agency_stock(): void
+    public function test_public_agency_properties_index_includes_other_agency_stock(): void
     {
-        // Staging promotion (AT-453 scope): Other Agency Stock is another agency's listing and must never be
-        // advertised or published — so it does NOT appear on the agency's public properties page.
         $p = $this->makeOtherAgencyStock();
 
         $resp = $this->get('/' . $this->agency->slug . '/properties');
 
         $resp->assertOk();
-        $resp->assertDontSee($p->title);
+        $resp->assertSee($p->title);
     }
 }

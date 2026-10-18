@@ -46,14 +46,33 @@ class RentalInspectionPhoto extends Model
         'archived_by_user_id',
         'client_idempotency_key',
         'file_size_bytes',
+        'taken_at',
+        'taken_at_source',
         'created_at',
     ];
+
+    /**
+     * §45.3 — the caption travels with the photo everywhere it is serialised (recording tile, tray,
+     * compare viewer, tab payload), computed server-side so every screen shows the same wording in the
+     * app's timezone rather than each browser re-deriving it. `taken_caption` is the full text;
+     * `taken_caption_short` fits an 86px tile.
+     */
+    protected $appends = ['taken_caption', 'taken_caption_short'];
 
     protected $casts = [
         'created_at' => 'datetime',
         'tagged_at' => 'datetime',
+        'taken_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
+
+    /**
+     * §45.3 (Build I-1) — where `taken_at` came from. `client`/`exif` are a real capture time;
+     * `server` means only the upload time was ever known (shown as "Uploaded", never "Taken").
+     */
+    public const TAKEN_AT_CLIENT = 'client';
+    public const TAKEN_AT_EXIF = 'exif';
+    public const TAKEN_AT_SERVER = 'server';
 
     protected static function boot(): void
     {
@@ -64,6 +83,20 @@ class RentalInspectionPhoto extends Model
             }
             if (empty($photo->created_at)) {
                 $photo->created_at = now();
+            }
+            // Never leave a photo with no capture time at all: absent = only the upload time is known.
+            if (empty($photo->taken_at)) {
+                $photo->taken_at = $photo->created_at;
+                $photo->taken_at_source = self::TAKEN_AT_SERVER;
+            }
+        });
+        // §45.3 — a capture time is evidence: once set it is never rewritten (a tag move, a re-save, an
+        // archive all pass through here). Restored silently rather than throwing — "absorb, never break".
+        static::updating(function (self $photo) {
+            foreach (['taken_at', 'taken_at_source'] as $column) {
+                if ($photo->isDirty($column) && $photo->getOriginal($column) !== null) {
+                    $photo->setAttribute($column, $photo->getOriginal($column));
+                }
             }
         });
     }
@@ -103,6 +136,64 @@ class RentalInspectionPhoto extends Model
     public function note(): HasOne
     {
         return $this->hasOne(RentalInspectionPhotoNote::class, 'rental_inspection_photo_id');
+    }
+
+    /**
+     * §45.3 — the one place the "when was this photo taken" caption is decided, so the recording
+     * tile, compare viewer, public page and live page can never word it differently. A `server`
+     * time is only ever the upload time and is labelled that way — never presented as a capture
+     * time. When a real capture time differs from the upload time by a minute or more, the upload
+     * time is added.
+     *
+     * @return array{label: string, taken_at: ?string, source: string, uploaded_at: ?string}
+     */
+    public function captionParts(string $format = 'd M Y H:i', ?string $uploadedFormat = null): array
+    {
+        $takenAt = $this->taken_at ?? $this->created_at;
+        $source = $this->taken_at_source ?: self::TAKEN_AT_SERVER;
+        $uploaded = $this->created_at;
+        $uploadedFormat ??= 'H:i';
+
+        if ($takenAt === null) {
+            return ['label' => '', 'taken_at' => null, 'source' => $source, 'uploaded_at' => null];
+        }
+
+        if ($source === self::TAKEN_AT_SERVER) {
+            return ['label' => 'Uploaded ' . $takenAt->format($format), 'taken_at' => $takenAt->toIso8601String(), 'source' => $source, 'uploaded_at' => null];
+        }
+
+        $label = 'Taken ' . $takenAt->format($format);
+        $uploadedNote = null;
+        if ($uploaded !== null && abs($uploaded->getTimestamp() - $takenAt->getTimestamp()) >= 60) {
+            $label .= ' · uploaded ' . $uploaded->format($uploaded->isSameDay($takenAt) ? $uploadedFormat : $format);
+            $uploadedNote = $uploaded->toIso8601String();
+        }
+
+        return ['label' => $label, 'taken_at' => $takenAt->toIso8601String(), 'source' => $source, 'uploaded_at' => $uploadedNote];
+    }
+
+    /** The caption text only — see captionParts(). */
+    public function captionLabel(): string
+    {
+        return $this->captionParts()['label'];
+    }
+
+    public function getTakenCaptionAttribute(): string
+    {
+        return $this->captionLabel();
+    }
+
+    /** "12 Aug 14:03" for a real capture time, "Uploaded 14:03" when only the upload time is known. */
+    public function getTakenCaptionShortAttribute(): string
+    {
+        $takenAt = $this->taken_at ?? $this->created_at;
+        if ($takenAt === null) {
+            return '';
+        }
+
+        return ($this->taken_at_source ?: self::TAKEN_AT_SERVER) === self::TAKEN_AT_SERVER
+            ? 'Uploaded ' . $takenAt->format('H:i')
+            : $takenAt->format('d M H:i');
     }
 
     public function isUntagged(): bool

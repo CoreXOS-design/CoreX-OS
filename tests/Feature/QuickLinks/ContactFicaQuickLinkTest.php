@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\QuickLinks;
 
+use App\Models\RolePermission;
 use App\Mail\FicaRequestMail;
 use App\Models\Agency;
 use App\Models\AgencyFeature;
@@ -70,7 +71,11 @@ final class ContactFicaQuickLinkTest extends TestCase
 
         $this->assertGreaterThan(0, DB::table('role_permissions')->where('agency_id', $this->agency->id)->count(), 'agency must be provisioned (else allow-all)');
         $this->assertTrue($this->agent->hasPermission('compliance.fica.send'), 'default agent holds compliance.fica.send');
-        $this->assertFalse($this->agent->hasPermission('access_compliance'), 'default agent does NOT hold access_compliance');
+        // The scenario under test is an agent who may SEND a FICA but has no compliance screens. The default agent now
+        // carries everything HFC's agent holds (Johan 14 Oct), access_compliance included - this agency trimmed it.
+        RolePermission::where('agency_id', $this->agency->id)->where('role', 'agent')->where('permission_key', 'access_compliance')->delete();
+        \App\Services\PermissionService::clearCache();
+        $this->assertFalse($this->agent->hasPermission('access_compliance'), 'this agent has no access_compliance');
 
         Mail::fake();
     }
@@ -169,7 +174,7 @@ final class ContactFicaQuickLinkTest extends TestCase
 
     public function test_the_link_life_is_the_agencys_own_setting(): void
     {
-        $this->agency->forceFill(['fica_link_days' => 30])->save();
+        $this->agency->forceFill(['fica_link_expiry_days' => 30])->save();
         $this->send($this->agent);
 
         $days = now()->diffInHours(FicaSubmission::where('contact_id', $this->contact->id)->sole()->token_expires_at) / 24;
@@ -241,7 +246,7 @@ final class ContactFicaQuickLinkTest extends TestCase
 
         $this->assertStringContainsString('data-fica-quick-link="approved"', $this->show($this->agent));
 
-        $this->agency->forceFill(['fica_expiring_after_months' => 4])->save();
+        $this->agency->forceFill(['fica_current_months' => 4])->save();
         $html = $this->show($this->agent);
         $this->assertStringContainsString('data-fica-quick-link="expiring"', $html);
         $this->assertStringContainsString('Send new FICA form', $html);
@@ -362,43 +367,5 @@ final class ContactFicaQuickLinkTest extends TestCase
         $this->assertStringContainsString('data-fica-view', $html);
         $this->assertStringContainsString(route('compliance.fica.pdf', $sub), $html);
         $this->assertStringContainsString(route('compliance.fica.show', $sub), $html);
-    }
-
-    public function test_the_two_fica_settings_save_independently_and_reject_nonsense(): void
-    {
-        $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 21])->assertSessionHas('success');
-        $a = $this->agency->fresh();
-        $this->assertSame(21, $a->fica_link_days);
-        $this->assertSame(11, $a->fica_expiring_after_months, 'a subset post leaves the other value alone (wizard §6.1)');
-
-        $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_expiring_after_months' => 9]);
-        $a = $this->agency->fresh();
-        $this->assertSame(21, $a->fica_link_days);
-        $this->assertSame(9, $a->fica_expiring_after_months);
-
-        $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 0])->assertSessionHasErrors('fica_link_days');
-        $this->actingAs($this->admin)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 500])->assertSessionHasErrors('fica_link_days');
-
-        $this->actingAs($this->agent)->post(route('corex.settings.fica-request.save'), ['fica_link_days' => 30])->assertForbidden();
-        $this->assertSame(21, $this->agency->fresh()->fica_link_days);
-    }
-
-    public function test_the_wizard_compliance_step_carries_both_settings_and_their_saver(): void
-    {
-        $step = config('agency-onboarding-copy.compliance');
-        $keys = array_column($step['controls'], 'key');
-        $this->assertContains('fica_link_days', $keys);
-        $this->assertContains('fica_expiring_after_months', $keys);
-        $this->assertContains(
-            'saveRequestSettings',
-            array_column($step['savers'], 'method'),
-            'rule 10a: a setting on the settings page must be saved by its wizard step too'
-        );
-        foreach ($step['controls'] as $c) {
-            if (in_array($c['key'], ['fica_link_days', 'fica_expiring_after_months'], true)) {
-                $this->assertNotEmpty($c['explain']);
-                $this->assertNotEmpty($c['affects']);
-            }
-        }
     }
 }

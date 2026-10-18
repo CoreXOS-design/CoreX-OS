@@ -2,12 +2,18 @@
 
 namespace App\Http\Controllers\CoreX;
 
-use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
+use App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
+use App\Models\RentalFaultPhotoMark;
 use App\Models\RentalFaultReportPhoto;
+use App\Models\RentalFaultReportUpdate;
+use App\Services\Rentals\RentalFaultContractorService;
+use App\Services\Rentals\RentalFaultPhotoAnnotationService;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Rentals\RentalDocumentPdfService;
 use App\Services\Rentals\RentalFaultReportService;
@@ -26,7 +32,23 @@ use Illuminate\View\View;
  */
 class RentalFaultReportController extends Controller
 {
-    use EnforcesRecordVisibility;
+    use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
+    use SearchesQualifyingRentalProperties;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
+    /**
+     * The LIST screen's own property-filter picker — only properties that
+     * actually have a fault report visible to this user, never every
+     * rental property. Distinct from the create screen's own inline
+     * property `<select>` (rental-fault-reports/create.blade.php), which
+     * deliberately keeps offering every rental property, unchanged.
+     */
+    public function searchProperties(Request $request): JsonResponse
+    {
+        return $this->searchQualifyingRentalProperties($request, RentalFaultReport::class);
+    }
 
     /**
      * Search: property address, title/description. Sort: reported_at
@@ -39,6 +61,16 @@ class RentalFaultReportController extends Controller
     {
         $user = $request->user();
 
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index()/LeaseController::index().
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'rental_fault_reports');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
+
         $sort = $request->get('sort', 'reported_at');
         $direction = $request->get('direction', 'desc');
         $allowedSorts = ['reported_at', 'property', 'status'];
@@ -47,7 +79,92 @@ class RentalFaultReportController extends Controller
         }
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
+        $showArchived = $request->boolean('archived');
+        $query = $this->filteredFaultReportsQuery($request, $showArchived);
+
+        $propertyId = $request->get('property_id');
+        $leaseId = $request->get('lease_id');
+
+        if ($sort === 'property') {
+            $query->join('properties', 'properties.id', '=', 'rental_fault_reports.property_id')
+                ->orderBy('properties.title', $direction)
+                ->select('rental_fault_reports.*');
+        } else {
+            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        }
+
+        $hasAnyFaultReports = RentalFaultReport::query()
+            ->when($showArchived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))->exists();
+
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $faultReports = $query->paginate($perPage)->withQueryString();
+
+        // Audit 2026-10-18: filter labels come only from records the user may see.
+        $filteredProperty = $propertyId ? Property::query()->visibleTo($user)->find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::query()->visibleTo($user)->find($leaseId) : null;
+
+        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
+        // applications pattern (§39 note on RentalInspectionController).
+        // Status tiles are the real enum (RentalFaultReport::STATUS_*).
+        $frTileBase = function () use ($showArchived, $user, $request) {
+            $q = RentalFaultReport::query()
+                ->when($showArchived, fn ($q) => $q->onlyTrashed())
+                ->visibleTo($user, $request->get('scope'));
+            $this->applyListContext($q, $request);
+
+            return $q;
+        };
+        $tileCounts = [
+            'total' => $frTileBase()->count(),
+            'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
+            'under_review' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_UNDER_REVIEW)->count(),
+            'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
+            'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
+            'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
+            'work_order_raised' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_WORK_ORDER_RAISED)->count(),
+            'owner_handling' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_OWNER_HANDLING)->count(),
+            'resolved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_RESOLVED)->count(),
+            'cancelled' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_CANCELLED)->count(),
+            'open_no_work_order' => $frTileBase()
+                ->whereNotIn('rental_fault_reports.status', [
+                    RentalFaultReport::STATUS_RESOLVED,
+                    RentalFaultReport::STATUS_CANCELLED,
+                    RentalFaultReport::STATUS_DECLINED,
+                ])->whereDoesntHave('workOrder')->count(),
+        ];
+
+        return view('corex.rental-fault-reports.index', [
+            'faultReports' => $faultReports,
+            'sort' => $sort,
+            'direction' => $direction,
+            'hasAnyFaultReports' => $hasAnyFaultReports,
+            'showArchived' => $showArchived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
+            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order', 'open', 'cc_scope']),
+            'filteredProperty' => $filteredProperty,
+            'filteredLease' => $filteredLease,
+            'tileCounts' => $tileCounts,
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
+        ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export().
+     * Returns an UNSORTED, UNPAGINATED builder.
+     */
+    private function filteredFaultReportsQuery(Request $request, bool $onlyArchived = false)
+    {
+        $user = $request->user();
+
         $query = RentalFaultReport::query()
+            ->when($onlyArchived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
             ->with(['property', 'lease.tenants.contact', 'createdByUser']);
 
@@ -79,6 +196,39 @@ class RentalFaultReportController extends Controller
             ])->whereDoesntHave('workOrder');
         }
 
+        // Rentals cross-cut (8 Oct 2026) — "Open only": the SAME definition of open the rentals command centre counts
+        // (RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED), so a link from the command centre lands on exactly the
+        // faults it counted.
+        if ($request->boolean('open')) {
+            $query->whereNotIn('rental_fault_reports.status', \App\Services\Rentals\RentalCommandCentreService::FAULT_OPEN_STATUSES_EXCLUDED);
+        }
+        // The page's CONTEXT (command-centre properties, one property / lease / contact): shared with the tile counts.
+        $this->applyListContext($query, $request);
+
+        if ($dateFrom = $request->get('date_from')) {
+            $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
+        }
+        if ($dateTo = $request->get('date_to')) {
+            // Inclusive end date (a bare date compares as midnight).
+            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
+        }
+
+        return $query;
+    }
+
+    /**
+     * The page's CONTEXT - what the list was opened FOR (a command-centre tile's properties, one property, one lease, one
+     * contact) - as opposed to the ad-hoc filters (search, status, outcome, date, open). The list and its summary tiles both
+     * apply it, so a tile never counts the whole agency beside a list narrowed to one lease (go-live walk, 14 Oct 2026).
+     */
+    private function applyListContext($query, Request $request): void
+    {
+        // ...and, from the command centre's Open faults tile, only the properties that tile counted (its own/branch/all choice).
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            app(\App\Services\Rentals\RentalCommandCentreService::class)
+                ->limitToCommandCentreProperties($query, $request->user(), $request->get('cc_scope'), 'rental_fault_reports.property_id');
+        }
+
         // Navigation, 2026-09-22 — reached from a property/lease/contact's
         // own detail page (Johan: "every feature needs a navigation link
         // where the work happens"), not picked from a dropdown.
@@ -96,61 +246,77 @@ class RentalFaultReportController extends Controller
                     ->orWhereHas('property.contacts', fn ($c) => $c->where('contacts.id', $contactId));
             });
         }
+    }
 
-        if ($dateFrom = $request->get('date_from')) {
-            $query->where('rental_fault_reports.reported_at', '>=', $dateFrom);
+    private function activeFaultReportFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
         }
-        if ($dateTo = $request->get('date_to')) {
-            // Inclusive end date (a bare date compares as midnight).
-            $query->where('rental_fault_reports.reported_at', '<=', preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo . ' 23:59:59' : $dateTo);
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst(str_replace('_', ' ', $status));
         }
-
-        if ($sort === 'property') {
-            $query->join('properties', 'properties.id', '=', 'rental_fault_reports.property_id')
-                ->orderBy('properties.title', $direction)
-                ->select('rental_fault_reports.*');
-        } else {
-            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        if ($outcome = $request->get('outcome')) {
+            $out['Outcome'] = ucfirst(str_replace('_', ' ', $outcome));
         }
+        if ($request->boolean('open_no_work_order')) {
+            $out['Open, no work order'] = 'Yes';
+        }
+        if ($request->boolean('open')) {
+            $out['Open only'] = 'Yes';
+        }
+        if (in_array($request->get('cc_scope'), ['own', 'branch', 'all'], true)) {
+            $out['Rentals command centre'] = 'Only the properties its tile counted (' . $request->get('cc_scope') . ')';
+        }
+        if ($df = $request->get('date_from')) {
+            $out['Reported from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['Reported to'] = $dt;
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\Rentals\RentalDataScope::resolve($request->user(), 'rental_fault_reports', $request->get('scope')));
 
-        $hasAnyFaultReports = RentalFaultReport::query()->visibleTo($user, $request->get('scope'))->exists();
+        return $out;
+    }
 
-        $faultReports = $query->paginate(25)->withQueryString();
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    public function printList(Request $request): View
+    {
+        $faultReports = $this->filteredFaultReportsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_fault_reports.reported_at', 'desc')
+            ->get();
 
-        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
-        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
-
-        // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
-        // applications pattern (§39 note on RentalInspectionController).
-        // Status tiles are the real enum (RentalFaultReport::STATUS_*).
-        $frTileBase = fn () => RentalFaultReport::query()->visibleTo($user, $request->get('scope'));
-        $tileCounts = [
-            'reported' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_REPORTED)->count(),
-            'awaiting_approval' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_AWAITING_APPROVAL)->count(),
-            'approved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_APPROVED)->count(),
-            'declined' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_DECLINED)->count(),
-            'work_order_raised' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_WORK_ORDER_RAISED)->count(),
-            'owner_handling' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_OWNER_HANDLING)->count(),
-            'resolved' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_RESOLVED)->count(),
-            'cancelled' => $frTileBase()->where('rental_fault_reports.status', RentalFaultReport::STATUS_CANCELLED)->count(),
-            'open_no_work_order' => $frTileBase()
-                ->whereNotIn('rental_fault_reports.status', [
-                    RentalFaultReport::STATUS_RESOLVED,
-                    RentalFaultReport::STATUS_CANCELLED,
-                    RentalFaultReport::STATUS_DECLINED,
-                ])->whereDoesntHave('workOrder')->count(),
-        ];
-
-        return view('corex.rental-fault-reports.index', [
+        return view('corex.rental-fault-reports.print-list', [
             'faultReports' => $faultReports,
-            'sort' => $sort,
-            'direction' => $direction,
-            'hasAnyFaultReports' => $hasAnyFaultReports,
-            'filters' => $request->only(['q', 'status', 'outcome', 'property_id', 'lease_id', 'date_from', 'date_to', 'open_no_work_order']),
-            'filteredProperty' => $filteredProperty,
-            'filteredLease' => $filteredLease,
-            'tileCounts' => $tileCounts,
+            'printFilters' => $this->activeFaultReportFiltersSummary($request),
         ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        $faultReports = $this->filteredFaultReportsQuery($request, $request->boolean('archived'))
+            ->orderBy('rental_fault_reports.reported_at', 'desc')
+            ->get();
+
+        $headers = ['Property', 'Title', 'Status', 'Outcome', 'Reported'];
+        $rows = $faultReports->map(fn (RentalFaultReport $fr) => [
+            $fr->property?->buildDisplayAddress() ?? 'Unknown property',
+            $fr->title,
+            $fr->statusLabel(),
+            $fr->outcome ? ucfirst(str_replace('_', ' ', $fr->outcome)) : '',
+            $fr->reported_at?->format('Y-m-d') ?? '',
+        ]);
+
+        $filename = 'rental-fault-reports-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     /**
@@ -168,11 +334,38 @@ class RentalFaultReportController extends Controller
      */
     public function create(Request $request): View
     {
-        $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
-        $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
+        // Audit 2026-10-18 (A-L11): both lookups go through the user's own/branch/agency scope - an id outside it is a 404,
+        // not a form pre-filled with someone else's address, tenants and landlord.
+        $property = $request->get('property_id') ? Property::query()->visibleTo($request->user())->findOrFail($request->get('property_id')) : null;
+        $lease = $request->get('lease_id') ? Lease::query()->visibleTo($request->user())->findOrFail($request->get('lease_id')) : null;
         $lease?->load('tenants.contact');
 
+        // Opened from the list with nothing chosen (Johan, 8 Oct 2026): not a 500-line dropdown of properties with duplicates and no search, but a
+        // searchable pick of TENANCIES - only properties that have a lease, each shown with its tenant - the same entry as "report a fault" from a lease.
+        $leaseChoices = collect();
+        $leaseSearch = trim((string) $request->get('q', ''));
+        if (! $property && ! $lease) {
+            $leaseChoices = Lease::query()
+                ->visibleTo($request->user())
+                ->where('status', Lease::STATUS_ACTIVE)
+                ->whereNull('deleted_at')
+                ->whereHas('property')
+                ->when($leaseSearch !== '', function ($q) use ($leaseSearch) {
+                    $q->where(function ($w) use ($leaseSearch) {
+                        $w->whereHas('property', fn ($p) => $p->searchAddress($leaseSearch))
+                          ->orWhereHas('tenants.contact', fn ($c) => $c->where(fn ($cc) => $cc
+                              ->where('first_name', 'like', "%{$leaseSearch}%")->orWhere('last_name', 'like', "%{$leaseSearch}%")));
+                    });
+                })
+                ->with(['property', 'tenants.contact'])
+                ->orderByDesc('start_date')
+                ->limit(40)
+                ->get();
+        }
+
         return view('corex.rental-fault-reports.create', [
+            'leaseChoices' => $leaseChoices,
+            'leaseSearch' => $leaseSearch,
             'property' => $property,
             'lease' => $lease,
             'leaseTenants' => $lease ? $lease->tenants->pluck('contact')->filter()->values() : collect(),
@@ -190,6 +383,11 @@ class RentalFaultReportController extends Controller
             // Lease / inspection item must belong to THIS property (audit L2).
             'lease_id' => ['nullable', \Illuminate\Validation\Rule::exists('leases', 'id')->where('property_id', $propertyId)],
             'rental_inspection_item_id' => ['nullable', \Illuminate\Validation\Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
+            // .ai/specs/rentals-faults-work-orders.md §2.2 — optional; a
+            // report can still be free-text-only if nothing in the catalogue
+            // fits.
+            // Audit 2026-10-18 (A-L10): the type must be one of THIS agency's own (live) fault types.
+            'rental_fault_type_id' => ['nullable', \Illuminate\Validation\Rule::exists('rental_fault_types', 'id')->where('agency_id', $agencyId)->whereNull('deleted_at')],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::REPORTED_BY_TENANT,
                 RentalFaultReport::REPORTED_BY_AGENT_NOTICED,
@@ -235,17 +433,58 @@ class RentalFaultReportController extends Controller
 
     public function show(Request $request, RentalFaultReport $rentalFaultReport): View
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
         $rentalFaultReport->load([
-            'property', 'lease.tenants.contact', 'inspectionItem',
+            'property', 'lease.tenants.contact', 'inspectionItem', 'faultType',
             // 'workOrder' — added in Stage 4 once App\Models\RentalWorkOrder
             // exists (see RentalFaultReport::workOrder()'s own note).
             'reportedByContact', 'reportedByUser', 'capturedByUser', 'cancelledByUser',
             'createdByUser', 'photos.uploadedBy', 'approvals.recordedByUser', 'updates.createdByUser',
+            // §15 (AT-447) — "From inspection <type> <date>" back-link.
+            'reportedInspectionObservation.inspection',
         ]);
 
-        return view('corex.rental-fault-reports.show', ['faultReport' => $rentalFaultReport]);
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class)->optionsFor($rentalFaultReport);
+
+        return view('corex.rental-fault-reports.show', [
+            'faultReport' => $rentalFaultReport,
+            // AT-452 - the viewer's photo list (marks + notes for staff) and who may edit them.
+            'viewerPhotos' => app(RentalFaultPhotoAnnotationService::class)->payload(
+                $rentalFaultReport, $rentalFaultReport->photos, RentalFaultPhotoAnnotationService::AUDIENCE_STAFF, array_map('intval', (array) ($rentalFaultReport->owner_photo_ids ?? []))
+            ),
+            'canMarkPhotos' => $request->user()->hasPermission('rental_fault_reports.create') && ! in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_CANCELLED], true),
+            // AT-452 item 9 - the same test the owner portal's "no contractor" note uses.
+            'noContractor' => ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport),
+            'contractorClassify' => app(RentalFaultContractorService::class)->classify($rentalFaultReport),
+            'tradeCode' => app(RentalFaultContractorService::class)->tradeCodeFor($rentalFaultReport),
+            'canManageContractors' => $request->user()->hasPermission('deals_v2.manage_suppliers'),
+            // AT-452 round 2 (F-OWNER) - "Reported before on <date> ..." and, on a tenant-resolved fault, the repair asked for since.
+            'reportedBefore' => $rentalFaultReport->reportedBefore(),
+            'followUp' => $rentalFaultReport->followUps()->where('status', '!=', RentalFaultReport::STATUS_CANCELLED)->first(),
+            'followsReport' => $rentalFaultReport->followsFaultReport,
+            // Fault flow F3/F5 - the supplier list for this fault's type of work (empty = say so, offer the other routes).
+            'contractors' => $contractors,
+            'decisionSummary' => $rentalFaultReport->decisionSummary(),
+            // Create work order: every active contractor of the agency, those that suit this type of work first (searchable on the screen).
+            'contractorPicker' => app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport),
+            // section 21.3 - who looks at this fault first (property list, else the owner's default); read-only, sends nothing
+            'firstResponders' => $rentalFaultReport->property ? $rentalFaultReport->property->firstRespondersFor($rentalFaultReport->rental_fault_type_id) : collect(),
+            // the agency's active crews, for the optional "which crew" pick on the internal-crew route
+            'crewPicker' => \App\Models\RentalCrew::query()->active()->with('members')->orderBy('name')->get(),
+            // section 22 - Decision 1: for each choosable contractor, may the agent send them on their own authority (call-out rule), and the authorisation records so far
+            'inspectNotices' => app(\App\Services\Rentals\FaultInspectionService::class)->noticeMapFor(
+                $rentalFaultReport, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)
+            ),
+            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true),
+            'authorisations' => app(\App\Services\Rentals\RentalAuthorisationService::class)->rowsFor($rentalFaultReport),
+            'authorityOwners' => app(\App\Services\Rentals\RentalAuthorisationService::class)->ownersFor($rentalFaultReport),
+            'recordBlock' => app(\App\Services\Rentals\RentalAuthorisationService::class)->recordBlockReason($rentalFaultReport),
+            // section 22.7 - PAUSED BY OWNER, every stop / resume so far, and the owner's questions with the agents' answers
+            'ownerHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($rentalFaultReport),
+            'ownerHolds' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->historyFor($rentalFaultReport),
+            'ownerQueries' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->queriesFor($rentalFaultReport),
+        ]);
     }
 
     /**
@@ -254,7 +493,7 @@ class RentalFaultReportController extends Controller
      */
     public function pdf(RentalFaultReport $rentalFaultReport, RentalDocumentPdfService $service)
     {
-        $this->assertVisible(request(), $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
         $pdf = $service->faultReportPdf($rentalFaultReport);
 
@@ -271,8 +510,14 @@ class RentalFaultReportController extends Controller
      */
     public function update(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         abort_unless($rentalFaultReport->status === RentalFaultReport::STATUS_REPORTED, 409, 'This fault report has moved on and can no longer be edited here.');
+        abort_if(
+            in_array($rentalFaultReport->reported_by_type, [RentalFaultReport::REPORTED_BY_TENANT, RentalFaultReport::REPORTED_BY_LANDLORD], true),
+            409,
+            'A report made by the tenant or owner is kept as they wrote it - prepare the owner version instead.'
+        );
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:191'],
@@ -291,14 +536,64 @@ class RentalFaultReportController extends Controller
      */
     public function requestApproval(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
+        // Fault flow F2: the owner sees nothing until the agent has REVIEWED the report and prepared the owner's version.
+        if ($rentalFaultReport->owner_version_saved_at === null) {
+            return back()->withErrors(['rental_fault_report' => 'Prepare the owner version first (check the wording and photos the owner will see), then send it.']);
+        }
+
+        // AT-452 item 9 - no active contractor covers this type of work: sending stays allowed (the page asks "Send without a contractor for
+        // <type>?" in its own dialog, which posts send_without_contractor=1), and the decision is written to the history either way.
+        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);
+
         try {
             $rentalFaultReport->requestApproval($request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Marked as awaiting owner approval.');
+        if ($noContractor) {
+            $rentalFaultReport->recordHistory(
+                RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR,
+                $request->user(),
+                'Sent to the owner without a contractor for ' . $this->typeLabel($rentalFaultReport) . ($request->boolean('send_without_contractor') ? ' (confirmed in the dialog).' : ' (no contractor was loaded at the time).')
+            );
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Sent to the owner. They can now see it and decide.');
+    }
+
+    /**
+     * Fault flow F2 - save what the owner will see (the agent's sanitised version). The tenant's original title,
+     * description and photos stay exactly as reported. Allowed until the report is sent.
+     */
+    public function saveOwnerVersion(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
+        $validated = $request->validate([
+            'owner_title' => ['required', 'string', 'max:191'],
+            'owner_description' => ['nullable', 'string', 'max:5000'],
+            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
+            'owner_photo_ids' => ['nullable', 'array'],
+            'owner_photo_ids.*' => ['integer'],
+        ]);
+
+        try {
+            $rentalFaultReport->saveOwnerVersion($validated, $request->user());
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
+        }
+
+        // "Save and send" posts send_now=1: same two steps, one click, and the send step keeps its own permission.
+        if ($request->boolean('send_now')) {
+            abort_unless($request->user()->hasPermission('rental_fault_reports.send_to_owner'), 403);
+
+            return $this->requestApproval($request, $rentalFaultReport->fresh());
+        }
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Owner version saved. Nothing has been sent to the owner yet.');
     }
 
     /**
@@ -309,7 +604,8 @@ class RentalFaultReportController extends Controller
      */
     public function recordApproval(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'decision' => ['required', 'in:' . implode(',', [
                 \App\Models\RentalApproval::DECISION_APPROVED,
@@ -332,7 +628,26 @@ class RentalFaultReportController extends Controller
             // future need, not quietly bolted on as a second storage path.
             'evidence_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'decided_at' => ['nullable', 'date'],
+            // Fault flow F5: who appoints the contractor - the owner (their own: optional name + number) or the agency
+            // (a supplier from the same list the owner is offered).
+            'contractor_name' => ['nullable', 'string', 'max:191'],
+            'contractor_phone' => ['nullable', 'string', 'max:40'],
+            'agency_service_provider_id' => ['nullable', 'integer'],
+            'after' => ['nullable', 'in:create_work_order'],
         ]);
+
+        if ($validated['decision'] === \App\Models\RentalApproval::DECISION_DECLINED && trim((string) $validated['evidence_text']) === '') {
+            return back()->withErrors(['rental_fault_report' => 'A reason is required when declining.'])->withInput();
+        }
+        if ($validated['decision'] === \App\Models\RentalApproval::DECISION_APPROVED && empty($validated['approval_route'])) {
+            return back()->withErrors(['rental_fault_report' => 'Say who appoints the contractor: the owner or the agency.'])->withInput();
+        }
+        if (($validated['approval_route'] ?? null) === RentalFaultReport::ROUTE_AGENCY_APPOINTS && ! empty($validated['agency_service_provider_id'])
+            && ! app(\App\Services\Rentals\RentalFaultContractorService::class)->isOption($rentalFaultReport, (int) $validated['agency_service_provider_id'])) {
+            return back()->withErrors(['rental_fault_report' => 'Please choose a contractor from the list for this type of work.'])->withInput();
+        }
+        $afterCreateWorkOrder = ($validated['after'] ?? null) === 'create_work_order';
+        unset($validated['after']);
 
         if ($request->hasFile('evidence_file')) {
             $validated['evidence_file_path'] = $service->storeApprovalScreenshot($request->file('evidence_file'), $rentalFaultReport->property_id);
@@ -345,6 +660,19 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
+        // F6: "Save decision and create work order" only HANDS OVER to the existing work-order creation (the form on this
+        // screen, opened and pre-filled with the chosen contractor). It never creates one itself, and only when the
+        // existing rules allow a work order (not when the owner arranges the repair, not when declined).
+        if ($afterCreateWorkOrder) {
+            if ($rentalFaultReport->fresh()->workOrderBlockReason() === null) {
+                return redirect()->route('corex.rental-fault-reports.show', ['rentalFaultReport' => $rentalFaultReport, 'create_work_order' => 1])
+                    ->with('success', 'Decision saved. Confirm the work order below.');
+            }
+
+            return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)
+                ->with('success', 'Decision saved. ' . $rentalFaultReport->fresh()->workOrderBlockReason());
+        }
+
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Approval decision recorded.');
     }
 
@@ -354,7 +682,8 @@ class RentalFaultReportController extends Controller
      */
     public function setOutcome(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $validated = $request->validate([
             'outcome' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::OUTCOME_REPAIRED,
@@ -362,6 +691,9 @@ class RentalFaultReportController extends Controller
                 RentalFaultReport::OUTCOME_NOT_REPAIRED,
                 RentalFaultReport::OUTCOME_OWNER_DECLINED,
                 RentalFaultReport::OUTCOME_TENANT_LIABLE,
+                // .ai/specs/rentals-faults-work-orders.md §4.4 — still logged,
+                // for evidence, when the tenant's first-aid steps were enough.
+                RentalFaultReport::OUTCOME_RESOLVED_BY_FIRST_AID,
             ])],
             'outcome_note' => ['nullable', 'string'],
             'repaired_at' => ['nullable', 'date'],
@@ -373,39 +705,81 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        $service->notifyResolved($rentalFaultReport);
+        $service->notifyResolved($rentalFaultReport, $request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Outcome recorded.');
     }
 
     /**
-     * Stage 4 — §3a.1/§0c, the agency_appoints route. Only valid once this
-     * fault report has already been approved that way; RentalFaultReport
-     * itself has no method to reach a mandatory work order because none
-     * exists — this is one specific agency's choice to make on one
-     * specific approved report, not a required step.
+     * Johan, 8 Oct 2026: "no title, no description. choose a contractor. that should create the work order." ONE "Create work order"
+     * action on the fault. The agent only says WHO does the work - one of the agency's contractors (searchable list), the internal crew
+     * (which also makes the job card, as before), or confirms the owner's own contractor when that is what the owner decided. The title,
+     * description, photos, property, lease and the owner's decision all come from the fault ({@see RentalWorkOrderService::createFromFaultDecision()}).
+     * Allowed whenever {@see RentalFaultReport::workOrderBlockReason()} says so; permission stays `rental_fault_reports.raise_work_order`; own /
+     * branch / agency scope is the same record guard as the rest of this controller.
+     *
+     * Double-submit safe: a second press (or a second agent) finds the work order already made and is simply taken to it.
      */
     public function raiseWorkOrder(Request $request, \App\Services\Rentals\RentalWorkOrderService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
+        // Title and description are deliberately NOT inputs any more: whatever an older form posts for them is ignored.
         $validated = $request->validate([
-            'trade_type' => ['nullable', 'string', 'max:60'],
-            'title' => ['required', 'string', 'max:191'],
-            'description' => ['required', 'string'],
+            'assignment_type' => ['nullable', 'in:' . implode(',', [
+                \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+                \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+                \App\Models\RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR,
+            ])],
+            'agency_service_provider_id' => ['nullable', 'integer'],
+            // the owner's own contractor, only when the fault carries no decision to take them from
+            'contractor_name' => ['nullable', 'string', 'max:191'],
+            'contractor_phone' => ['nullable', 'string', 'max:40'],
+            // the internal crew to put on the job card (optional; checked against the agency's active crews by the service)
+            'rental_crew_id' => ['nullable', 'integer'],
         ]);
+        // A chosen contractor with no explicit "who" means the agency's contractor; nothing at all keeps the old default (internal crew).
+        $validated['assignment_type'] = $validated['assignment_type']
+            ?? (! empty($validated['agency_service_provider_id']) ? \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER : \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL);
 
         try {
-            $workOrder = $service->fromFaultReport($rentalFaultReport, $request->user(), $validated);
+            $made = $service->createFromFaultDecision($rentalFaultReport, $request->user(), $validated);
+        } catch (\LogicException $e) {
+            // Already created by an earlier press or another agent: take them to it instead of showing an error.
+            $existing = \App\Models\RentalFaultReport::withoutGlobalScopes()->find($rentalFaultReport->id);
+            if ($existing && $existing->hasLiveWorkOrder() && $existing->rental_work_order_id) {
+                $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->find($existing->rental_work_order_id);
+                if ($wo) {
+                    return redirect()->route('corex.rental-work-orders.show', $wo)->withErrors(['rental_fault_report' => 'This fault already has a work order - here it is.']);
+                }
+            }
+
+            return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
+        }
+
+        if ($made['job_card']) {
+            return redirect()->route('corex.rental-job-cards.show', $made['job_card'])->with('success', 'Work order created - job card ready for the crew.');
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $made['work_order'])->with('success', 'Work order created.');
+    }
+
+    /** AT-452 round 2 (F-OWNER) - "Have this repaired anyway": a linked new report through the existing flow; the resolved one stays resolved. */
+    public function repairAnyway(Request $request, RentalFaultReportService $service, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        try {
+            $new = $service->raiseFollowUp($rentalFaultReport, $request->user());
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order raised.');
+        return redirect()->route('corex.rental-fault-reports.show', $new)->with('success', 'A repair request was made from the tenant-resolved report. Review it, send it to the owner and appoint a contractor as usual.');
     }
 
     public function cancel(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
@@ -422,7 +796,8 @@ class RentalFaultReportController extends Controller
 
     public function destroy(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         if (!$rentalFaultReport->isDeletable()) {
             return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
         }
@@ -435,7 +810,8 @@ class RentalFaultReportController extends Controller
     public function restore(Request $request, int $rentalFaultReport): RedirectResponse
     {
         $faultReport = RentalFaultReport::withTrashed()->findOrFail($rentalFaultReport);
-        $this->assertVisible($request, $faultReport);
+        $this->guardRentalRecordScope($faultReport, 'rental_fault_reports', $faultReport->property?->branch_id);
+
         $faultReport->restoreRecord($request->user());
 
         return redirect()->route('corex.rental-fault-reports.show', $faultReport)->with('success', 'Fault report restored.');
@@ -447,7 +823,8 @@ class RentalFaultReportController extends Controller
      */
     public function storePhoto(Request $request, RentalFaultReport $rentalFaultReport): JsonResponse
     {
-        $this->assertVisible($request, $rentalFaultReport);
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+
         $request->validate([
             'photo' => 'required|file|mimes:jpg,jpeg,png,webp,heic,heif|max:51200',
             'client_idempotency_key' => 'nullable|uuid',
@@ -474,5 +851,77 @@ class RentalFaultReportController extends Controller
         ]);
 
         return response()->json($photo, 201);
+    }
+    private function typeLabel(RentalFaultReport $fault): string
+    {
+        return $fault->faultType?->name ?: 'this fault';
+    }
+
+    // ── AT-452 (rentals-faults-work-orders.md §18) - the agent's marks and per-photo notes ──────────────────────────────────
+
+    /** Same gate as every other edit on this screen: the permission is on the route, the own / branch / agency scope here, and a cancelled fault is read-only. */
+    private function guardPhotoEdit(RentalFaultReport $fault, RentalFaultReportPhoto $photo): void
+    {
+        $this->guardRentalRecordScope($fault, 'rental_fault_reports', $fault->property?->branch_id);
+        abort_if($fault->status === RentalFaultReport::STATUS_CANCELLED, 409, 'This fault report is cancelled.');
+        abort_unless((int) $photo->rental_fault_report_id === (int) $fault->id, 404);
+    }
+
+    private function markRow(RentalFaultPhotoMark $m, Request $request): array
+    {
+        return [
+            'id' => $m->id, 'shape' => $m->shape, 'geometry' => $m->geometry, 'colour' => $m->colour,
+            'by' => $request->user()->name, 'at' => $m->created_at?->toIso8601String(),
+        ];
+    }
+
+    public function storeMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $mark = app(RentalFaultPhotoAnnotationService::class)->addMark($rentalFaultReport, $photo, $request->only(['shape', 'geometry', 'colour']), $request->user());
+
+        return response()->json(['mark' => $this->markRow($mark, $request)], 201);
+    }
+
+    public function updateMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, RentalFaultPhotoMark $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $mark = app(RentalFaultPhotoAnnotationService::class)->changeMark($rentalFaultReport, $photo, $mark, $request->only(['shape', 'geometry', 'colour']), $request->user());
+
+        return response()->json(['mark' => $this->markRow($mark, $request)]);
+    }
+
+    public function destroyMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, RentalFaultPhotoMark $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        app(RentalFaultPhotoAnnotationService::class)->removeMark($rentalFaultReport, $photo, $mark, $request->user());
+
+        return response()->json(['removed' => true]);
+    }
+
+    /** Undo for a removed mark. The mark is looked up including removed ones, inside this agency and this photo only. */
+    public function restoreMark(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo, int $mark): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $row = RentalFaultPhotoMark::withTrashed()->where('rental_fault_report_photo_id', $photo->id)->findOrFail($mark);
+        $row = app(RentalFaultPhotoAnnotationService::class)->restoreMark($rentalFaultReport, $photo, $row, $request->user());
+
+        return response()->json(['mark' => $this->markRow($row, $request)]);
+    }
+
+    public function saveNote(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        $note = app(RentalFaultPhotoAnnotationService::class)->setNote($rentalFaultReport, $photo, (string) $request->input('description', ''), $request->user());
+
+        return response()->json(['note' => ['text' => $note->description, 'by' => $request->user()->name, 'at' => $note->recorded_at?->toIso8601String()]]);
+    }
+
+    public function clearNote(Request $request, RentalFaultReport $rentalFaultReport, RentalFaultReportPhoto $photo): JsonResponse
+    {
+        $this->guardPhotoEdit($rentalFaultReport, $photo);
+        app(RentalFaultPhotoAnnotationService::class)->clearNote($rentalFaultReport, $photo, $request->user());
+
+        return response()->json(['removed' => true]);
     }
 }

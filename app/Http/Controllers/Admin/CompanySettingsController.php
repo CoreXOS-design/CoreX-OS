@@ -7,6 +7,9 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\PerformanceSetting;
 use App\Models\Property;
+use App\Models\RentalCatalogueItemType;
+use App\Models\RentalCatalogueUnit;
+use App\Models\RentalVatType;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
 use App\Services\Syndication\Website\WebsiteSyndicationService;
@@ -63,8 +66,31 @@ class CompanySettingsController extends Controller
         // Agencies → API Access.
         $websiteActive = $agency?->hasActiveWebsite() ?? false;
 
+        // Agency VAT set-up — the types list (active + archived, agent sees
+        // both so they can restore) for the inline VAT block on this page.
+        $vatTypes = $agency
+            ? RentalVatType::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)->withTrashed()
+                ->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+
+        // Pastel-style enhancement, 2026-10-05 — catalogue TYPE and UNIT
+        // lists, same "active + archived, admin can restore" shape as VAT
+        // Types just above.
+        $catalogueItemTypes = $agency
+            ? RentalCatalogueItemType::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)->withTrashed()
+                ->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+        $catalogueUnits = $agency
+            ? RentalCatalogueUnit::withoutGlobalScope(AgencyScope::class)
+                ->where('agency_id', $agency->id)->withTrashed()
+                ->orderBy('sort_order')->orderBy('id')->get()
+            : collect();
+
         return view('admin.company-settings.index', compact(
-            'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale', 'websiteActive'
+            'agencies', 'agency', 'agents', 'branches', 'branchUsers', 'archivedBranches', 'vatRate', 'listingsPerSale',
+            'websiteActive', 'vatTypes', 'catalogueItemTypes', 'catalogueUnits'
         ));
     }
 
@@ -84,7 +110,11 @@ class CompanySettingsController extends Controller
             'fax'                   => ['nullable', 'string', 'max:255'],
             'email'                 => ['nullable', 'string', 'max:255'],
             'reg_no'                => ['nullable', 'string', 'max:255'],
-            'vat_no'                => ['nullable', 'string', 'max:255'],
+            'vat_no'                => ['nullable', 'string', 'max:255', 'required_if:vat_registered,1'],
+            // Agency VAT set-up — guarded on vat_registered's own presence
+            // below (CLAUDE.md §6.1 has()-guard discipline).
+            'vat_registered'        => ['nullable', 'boolean'],
+            'vat_capture_mode'      => ['nullable', 'in:excl,incl'],
             'ffc_no'                => ['nullable', 'string', 'max:255'],
             'ppra_number'           => ['nullable', 'string', 'max:32'],
             'ncc_registration_number' => ['nullable', 'string', 'max:255'],
@@ -101,7 +131,7 @@ class CompanySettingsController extends Controller
             'icon_color'            => ['nullable', 'string', 'max:20'],
             'default_color'         => ['nullable', 'string', 'max:20'],
             'button_color'          => ['nullable', 'string', 'max:20'],
-            'logo'                  => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'logo'                  => ['nullable', new \App\Rules\AgencyLogoFile()],
             // Viewing Pack cover style (.ai/specs/viewing-pack.md §14). Only the keys the
             // posting form rendered reach $data (the sibling company/website forms never post them).
             'viewing_pack_cover_style'        => ['nullable', 'string', 'in:' . implode(',', array_keys(ViewingPackCoverService::STYLES))],
@@ -173,6 +203,15 @@ class CompanySettingsController extends Controller
         }
         unset($data['outreach_live_deal_statuses_present']);
 
+        // The letters this agency's document numbers start with (payslips) - written only when the form posted the box (§6.1);
+        // blank keeps the code the agency has.
+        if ($request->has('short_code')) {
+            $shortCode = \App\Support\AgencyShortCode::validated($request->input('short_code'), (int) $agency->id);
+            if ($shortCode !== null) {
+                $data['short_code'] = $shortCode;
+            }
+        }
+
         // Part 2 — only touch the prospected-badge toggle when the company form
         // actually rendered it (hidden 0 + checkbox 1 => always present on this form,
         // absent on the website/branding forms that share update()). Guards against
@@ -222,6 +261,27 @@ class CompanySettingsController extends Controller
                 "agencies/{$agency->id}", "logo.{$ext}", 'public'
             );
             $data['logo_path'] = $path;
+        }
+
+        // Agency VAT set-up — guarded on vat_registered's own presence: it is
+        // a toggle (always posts a hidden 0 + checkbox 1 together wherever it
+        // renders), so has() is false on the Branding/other forms that share
+        // this action and never render it — they can never silently flip VAT
+        // registration off. Audit who changed it and when — only stamped when
+        // something in the block actually changed.
+        unset($data['vat_settings_present']);
+        if ($request->has('vat_registered')) {
+            $data['vat_registered'] = $request->boolean('vat_registered');
+            $data['vat_capture_mode'] = $data['vat_capture_mode'] ?? Agency::VAT_CAPTURE_EXCL;
+            $changed = (bool) $agency->vat_registered !== $data['vat_registered']
+                || $agency->vat_capture_mode !== $data['vat_capture_mode']
+                || (string) $agency->vat_no !== (string) ($data['vat_no'] ?? '');
+            if ($changed) {
+                $data['vat_settings_updated_at'] = now();
+                $data['vat_settings_updated_by_user_id'] = $request->user()->id;
+            }
+        } else {
+            unset($data['vat_registered'], $data['vat_capture_mode']);
         }
 
         // Viewing Pack cover: the style column is NOT NULL (default 'standard'), so a blank

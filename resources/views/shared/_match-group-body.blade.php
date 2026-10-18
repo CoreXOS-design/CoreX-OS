@@ -12,7 +12,7 @@
         <div>
             <h3 class="text-base font-bold" style="color: var(--text-primary);">
                 Properties found
-                <span class="ds-badge ds-badge-info ml-1.5" style="vertical-align: middle;">{{ number_format($totalCount) }}</span>
+                <span class="ds-badge ds-badge-pill ds-badge-info ml-1.5" style="vertical-align: middle;">{{ number_format($totalCount) }}</span>
             </h3>
             <p class="text-xs mt-0.5" style="color: var(--text-muted);">Tap a card to see full listing details. Tell us what you think with the reactions below each one.</p>
         </div>
@@ -158,10 +158,10 @@
                     </div>
                     @endif
                     @if($score > 0)
-                    <div class="absolute top-2 left-2 ds-badge {{ $scoreVariant }}" style="backdrop-filter: blur(6px);">{{ $score }}% match</div>
+                    <div class="absolute top-2 left-2 ds-badge ds-badge-pill {{ $scoreVariant }}" style="backdrop-filter: blur(6px);">{{ $score }}% match</div>
                     @endif
                     @if($markerLabel)
-                    <div class="absolute top-2 right-2 ds-badge {{ $markerVariant }}" style="backdrop-filter: blur(6px);">{{ $markerLabel }}</div>
+                    <div class="absolute top-2 right-2 ds-badge ds-badge-pill {{ $markerVariant }}" style="backdrop-filter: blur(6px);">{{ $markerLabel }}</div>
                     @endif
                 </div>
 
@@ -278,7 +278,7 @@
         <div>
             <label class="field-label">Suburb</label>
             <input type="text" name="suburb" value="{{ old('suburb', $filters['suburb']) }}"
-                   placeholder="e.g. Uvongo, Margate, Shelly Beach" class="field-input">
+                   placeholder="e.g. Suburb one, Suburb two" class="field-input">
         </div>
 
         {{-- Rooms --}}

@@ -49,16 +49,58 @@
          to a sensible size — this is a printed legal record, not a canvas
          viewer. --}}
     .sig-image { max-height: 50px; margin-top: 3pt; display: block; }
+    {{-- Conductor brief 2026-09-29 — "print for signature": the SAME
+         report, marked so nobody mistakes a not-yet-complete printout for
+         the finished, signed record. --}}
+    .for-signature-banner { background: #fdecec; border: 1pt solid #c41e3a; color: #c41e3a; font-weight: bold; font-size: 9pt; padding: 6pt 8pt; margin-bottom: 10pt; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .blank-sig-block { margin-top: 4pt; }
+    .blank-sig-line { border-bottom: 0.75pt solid #333; height: 18pt; margin-top: 10pt; }
+    .blank-sig-caption { font-size: 7pt; color: #666; }
+    {{-- §49 (Johan, 8 Oct 2026) — "every page is clearly stamped DRAFT - not final" until the report is completed and fully
+         signed. position:fixed repeats on EVERY page in DomPDF: a bold band in the top margin plus a faint diagonal across
+         the page body, so neither a crop nor a photocopy loses it. --}}
+    .draft-stamp-top { position: fixed; top: -30pt; left: 0; right: 0; text-align: center; color: #c41e3a; font-weight: bold; font-size: 11pt; letter-spacing: 1pt; }
+    .draft-stamp-diag { position: fixed; top: 300pt; left: 0; right: 0; text-align: center; color: #c41e3a; font-weight: bold; font-size: 58pt; opacity: 0.13; transform: rotate(-32deg); }
+    {{-- §49 — what was added after the report was sent: its own block, boxed and labelled, apart from the locked body. --}}
+    .after-sent { margin-top: 18pt; border: 1.5pt solid #b45309; padding: 8pt; }
+    .after-sent h2 { font-size: 10pt; margin: 0 0 3pt 0; color: #b45309; text-transform: uppercase; letter-spacing: 0.5pt; }
+    .after-sent table { width: 100%; border-collapse: collapse; margin-top: 4pt; }
+    .after-sent td { font-size: 8.5pt; border-top: 0.5pt solid #e5c9a0; padding: 3pt 4pt; vertical-align: top; }
 </style>
 </head>
 <body>
+    @if($isDraft)
+        <div class="draft-stamp-top">DRAFT - not final</div>
+        <div class="draft-stamp-diag">DRAFT - not final</div>
+    @endif
+    @if($forSignature)
+        <div class="for-signature-banner">For signature — this document is not yet complete</div>
+    @endif
+    @if(! empty($branding))
+        {{-- §52 — the agency's name and logo (same source as the portal header) and the inspecting agent's contact details. --}}
+        <table style="width:100%; border-collapse:collapse; margin-bottom:8pt;"><tr>
+            <td style="vertical-align:middle; width:55%;">
+                @if(! empty($branding['logo_data_uri']))
+                    <img src="{{ $branding['logo_data_uri'] }}" alt="" style="max-height:38pt; max-width:150pt; vertical-align:middle;">
+                @endif
+                <span style="font-size:11pt; font-weight:bold; vertical-align:middle; margin-left:4pt;">{{ $branding['agency_name'] }}</span>
+            </td>
+            <td style="vertical-align:middle; text-align:right; font-size:8pt; color:#444;">
+                @if(! empty($branding['agent']))
+                    <strong>{{ $branding['agent']['name'] }}</strong>@if($branding['agent']['designation']), {{ $branding['agent']['designation'] }}@endif<br>
+                    @if($branding['agent']['phone']){{ $branding['agent']['phone'] }}<br>@endif
+                    @if($branding['agent']['email']){{ $branding['agent']['email'] }}@endif
+                @endif
+            </td>
+        </tr></table>
+    @endif
     <div class="cover">
-        <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ ucfirst($inspection->type) }}-inspection report</p>
+        <p class="muted" style="text-transform:uppercase; font-size:7.5pt; letter-spacing:0.5pt;">{{ \App\Models\RentalInspection::typeName($inspection->type) }} report</p>
         <h1>{{ $inspection->property?->buildDisplayAddress() }}</h1>
         <p class="muted">
             {{ $inspection->scheduled_for?->format('d M Y') ?? $inspection->created_at->format('d M Y') }}
             @if($inspection->completed_at) &middot; Completed {{ $inspection->completed_at->format('d M Y') }} @endif
-            @if($inspection->previousInspection) &middot; Compared against the {{ $inspection->previousInspection->type }}-inspection of {{ $inspection->previousInspection->scheduled_for?->format('d M Y') ?? $inspection->previousInspection->created_at->format('d M Y') }} @endif
+            @if($inspection->previousInspection) &middot; Compared against the {{ strtolower(\App\Models\RentalInspection::typeName($inspection->previousInspection->type)) }} of {{ $inspection->previousInspection->scheduled_for?->format('d M Y') ?? $inspection->previousInspection->created_at->format('d M Y') }} @endif
         </p>
 
         @if($publicUrl)
@@ -76,10 +118,80 @@
         @endif
     </div>
 
+    {{-- Header details — the same fields the web report shows (spec §18): property type, furnished, meters, keys, remotes and,
+         on an Out, the original move-in date. They are the closing-condition evidence of a deposit dispute, so the PDF the
+         parties receive carries them. Nothing is printed when none was recorded. --}}
+    @php
+        $detailRows = array_filter([
+            'Property type' => $inspection->property_type,
+            'Furnished status' => $inspection->furnished_status,
+            'Electricity meter' => $inspection->electricity_meter_reading,
+            'Water meter' => $inspection->water_meter_reading,
+            'Keys' => ($inspection->keys_count !== null || $inspection->keys_description)
+                ? trim($inspection->keys_count . ($inspection->keys_description ? ' — ' . $inspection->keys_description : '')) : null,
+            'Remotes' => ($inspection->remotes_count !== null || $inspection->remotes_description)
+                ? trim($inspection->remotes_count . ($inspection->remotes_description ? ' — ' . $inspection->remotes_description : '')) : null,
+            'Original move-in date' => ($inspection->type === 'out' && $inspection->move_in_date_recorded) ? $inspection->move_in_date_recorded->format('d M Y') : null,
+        ], fn ($v) => $v !== null && $v !== '');
+    @endphp
+    @if($detailRows !== [])
+        <div style="margin: 6pt 0 8pt 0;">
+            <div class="room-heading">Details</div>
+            <table class="compare">
+                <tbody>
+                    @foreach($detailRows as $detailLabel => $detailValue)
+                        <tr><td style="width:35%;" class="muted">{{ $detailLabel }}</td><td>{{ $detailValue }}</td></tr>
+                    @endforeach
+                </tbody>
+            </table>
+        </div>
+    @endif
+
+    {{-- §45.5 (Build I-3) — Attendance: party · outcome · capacity · invitation. Facts only. --}}
+    <div style="margin: 6pt 0 8pt 0;">
+        <div class="room-heading">Attendance</div>
+        <table class="compare">
+            <thead><tr><th class="item-col">Party</th><th class="prev-col">Outcome</th><th class="cur-col">Invitation</th></tr></thead>
+            <tbody>
+                @foreach($attendanceBoard['rows'] as $arow)
+                    @php
+                        $att = $arow['attendance'];
+                    @endphp
+                    <tr>
+                        <td>{{ $arow['name'] ?: 'Unnamed' }} ({{ ucfirst($arow['party_role']) }})</td>
+                        <td>
+                            @if(! $att)
+                                <span class="muted">Not recorded</span>
+                            @elseif($att['outcome'] === 'did_not_attend')
+                                Did not attend
+                            @else
+                                Attended{{ $att['attended_as'] !== 'self' ? ' — ' . ($attendedAsLabels[$att['attended_as']] ?? $att['attended_as']) . ($att['attendee_name'] ? ' (' . $att['attendee_name'] . ')' : '') : '' }}{{ $att['arrived_at'] ? ', arrived ' . $att['arrived_at'] : '' }}
+                            @endif
+                        </td>
+                        <td>{{ $attendanceService->printableInvitation($arow) }}</td>
+                    </tr>
+                @endforeach
+                @foreach($attendanceBoard['others'] as $other)
+                    <tr>
+                        <td>{{ $other['attendee_name'] ?: 'Unnamed' }}</td>
+                        <td>Attended — {{ $attendedAsLabels[$other['attended_as']] ?? $other['attended_as'] }}{{ $other['arrived_at'] ? ', arrived ' . $other['arrived_at'] : '' }}</td>
+                        <td class="muted">—</td>
+                    </tr>
+                @endforeach
+            </tbody>
+        </table>
+    </div>
+
+    @if($inspection->overall_notes)
+        <div class="notes-callout notes-callout-blue" style="margin: 6pt 0 8pt 0;">
+            <strong>Overall notes:</strong> {{ $inspection->overall_notes }}
+        </div>
+    @endif
+
     @forelse($rows as $roomId => $roomRows)
-        {{-- Multi-line @endphp block form deliberately, not the inline
-             shorthand — see the agency-level show.blade.php's own comment
-             on this exact fix. --}}
+        {{-- Multi-line block form deliberately, not the inline shorthand —
+             see the agency-level show.blade.php's own comment on this
+             exact fix. --}}
         @php
             $room = $roomRows->first()->room;
         @endphp
@@ -92,8 +204,8 @@
                 <thead>
                     <tr>
                         <th class="item-col">Item</th>
-                        <th class="prev-col">Previous{{ $inspection->previousInspection ? ' (' . ucfirst($inspection->previousInspection->type) . ')' : '' }}</th>
-                        <th class="cur-col">Current ({{ ucfirst($inspection->type) }})</th>
+                        <th class="prev-col">Previous{{ $inspection->previousInspection ? ' (' . \App\Models\RentalInspection::typeLabel($inspection->previousInspection->type) . ')' : '' }}</th>
+                        <th class="cur-col">Current ({{ \App\Models\RentalInspection::typeLabel($inspection->type) }})</th>
                         <th class="history-col">Full run</th>
                     </tr>
                 </thead>
@@ -127,6 +239,9 @@
                     @endforeach
                 </tbody>
             </table>
+            @if($roomNotes->get($roomId))
+                <div class="notes-callout notes-callout-blue" style="margin-top: 3pt;"><strong>Room note:</strong> {{ $roomNotes->get($roomId)->note }}</div>
+            @endif
         </div>
     @empty
         <p class="muted">No observations recorded.</p>
@@ -141,19 +256,41 @@
     <table class="sig-table">
         <tr><td colspan="3" style="font-weight:bold; border-top:none; padding-top:0;">Signatures</td></tr>
         @foreach($signatureRows as $row)
+            @php
+                // Conductor brief 2026-09-29 — "print for signature": a
+                // party with no live disposition yet, OR one still awaiting
+                // a paper signature (nothing has arrived yet), gets a blank
+                // signature block instead of a status line — this printout
+                // is exactly what goes to them for that purpose.
+                $isBlankEligible = ! $row['not_required']
+                    && ($row['signature'] === null || $row['signature']->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK);
+            @endphp
             <tr>
                 <td>{{ $row['role'] }}{{ $row['name'] ? ' — ' . $row['name'] : '' }}</td>
                 <td>
                     @if($row['not_required'])
                         Not required
+                    @elseif($forSignature && $isBlankEligible)
+                        <div class="blank-sig-block">
+                            <div class="blank-sig-line"></div>
+                            <div class="blank-sig-caption">Signature</div>
+                            <div class="blank-sig-line" style="width:50%;"></div>
+                            <div class="blank-sig-caption">Date</div>
+                        </div>
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED && ($row['attendance']['outcome'] ?? null) === 'did_not_attend')
+                        {{-- §45.5 — a party recorded as not having attended has no signature; it is not a refusal. --}}
+                        No signature — did not attend
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_REFUSED)
                         <span class="cond-red">Refused</span> —
                         {{ $refusalReasonLabels->get($row['signature']->refusal_reason_preset, ucfirst(str_replace('_', ' ', $row['signature']->refusal_reason_preset))) }}
                         @if($row['signature']->refusal_reason_note) ({{ $row['signature']->refusal_reason_note }}) @endif
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_WET_INK)
-                        Signed (wet-ink upload)
+                        Signed on paper — scan on file
+                    @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
+                        <span class="muted">Awaiting paper signature</span>
                     @elseif($row['signature']?->disposition === \App\Models\RentalInspectionSignature::DISPOSITION_SIGNED)
                         <span class="cond-blue">Signed</span>
+                        @if($row['signature']->signed_by_name) by {{ $row['signature']->signed_by_name }} ({{ $attendedAsLabels[$row['signature']->signing_capacity] ?? $row['signature']->signing_capacity }}) @endif
                         @if($row['signature_image_data_uri'])
                             <img class="sig-image" src="{{ $row['signature_image_data_uri'] }}" alt="{{ $row['role'] }} signature">
                         @endif
@@ -165,5 +302,27 @@
             </tr>
         @endforeach
     </table>
+
+    {{-- §49 — Johan, 8 Oct 2026: after a report is sent, a tenant fault report inside the window and move-out comparison
+         findings may still be added; each is shown CLEARLY MARKED, with the date and who, apart from the locked report
+         body above. Nothing here changes a line of the body. --}}
+    @if($addedAfterSent->isNotEmpty())
+        <div class="after-sent">
+            <h2>{{ \App\Services\Rentals\RentalInspectionAddedAfterSentService::MARK }}</h2>
+            <p class="muted" style="font-size:7.5pt; margin:0;">The report above is exactly as it was sent. The entries below were added afterwards and are not part of it.</p>
+            <table>
+                @foreach($addedAfterSent as $entry)
+                    <tr>
+                        <td style="width:24%;"><strong>{{ $entry['kind_label'] }}</strong><br><span class="muted">{{ $entry['at']?->format('d M Y, H:i') }}<br>by {{ $entry['by'] }}</span></td>
+                        <td>
+                            {{ $entry['room'] ? $entry['room'] . ' — ' : '' }}{{ $entry['item'] }}: <strong>{{ $entry['headline'] }}</strong>
+                            @if($entry['note'])<div class="notes-callout notes-callout-amber">{{ $entry['note'] }}</div>@endif
+                            @if($entry['photos']->isNotEmpty())<div class="muted" style="font-size:7.5pt;">{{ $entry['photos']->count() }} photo(s) attached{{ $publicUrl ? ' — see ' . $publicUrl : '' }}</div>@endif
+                        </td>
+                    </tr>
+                @endforeach
+            </table>
+        </div>
+    @endif
 </body>
 </html>

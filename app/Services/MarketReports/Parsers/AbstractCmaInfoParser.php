@@ -528,6 +528,29 @@ abstract class AbstractCmaInfoParser implements MarketReportParser
      */
     protected function makeAddress(array $bits): array
     {
+        // Structured address layer (.ai/specs/structured-address-matching.md §5): the parsers hand over the
+        // whole printed line ("4 Garden Place   Cadastral Extent  1 605 M²") as the street name with no number.
+        // That pollution is what let four different streets merge into one tracked record (373). The ONE
+        // address reader splits it here, once, for every parser: number out, extent tail cut, type kept.
+        // A line the reader cannot read cleanly (two numbers, two streets) is passed through untouched —
+        // the save-time writer then flags it `review` for an admin instead of this guessing.
+        if (filled($bits['street_name'] ?? null)) {
+            try {
+                $read = (new \App\Services\Address\AddressParser())->parse([
+                    'street_number' => $bits['street_number'] ?? null,
+                    'street_name'   => $bits['street_name'],
+                    'suburb'        => $bits['suburb'] ?? null,
+                    'town'          => $bits['town'] ?? null,
+                ]);
+                if ($read['status'] === 'parsed' && $read['street_core'] !== null) {
+                    $bits['street_name'] = $read['street_name_clean'];
+                    $bits['street_number'] = $read['street_number'] ?? ($bits['street_number'] ?? null);
+                }
+            } catch (\Throwable $e) {
+                // never let reading an address stop a report import
+            }
+        }
+
         return array_filter([
             'street_number' => $bits['street_number'] ?? null,
             'street_name'   => $bits['street_name'] ?? null,

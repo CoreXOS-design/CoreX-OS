@@ -167,7 +167,7 @@
             @else
                 <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? 'Marketing Update' }}</div>
             @endif
-            <span class="ds-badge" style="background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2);">Live update</span>
+            <span class="ds-badge ds-badge-pill" style="background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2);">Live update</span>
         </div>
     </header>
 

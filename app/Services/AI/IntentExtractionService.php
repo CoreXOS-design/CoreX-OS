@@ -34,6 +34,9 @@ class IntentExtractionService
             return ['intent' => 'unknown', 'slots' => [], 'raw' => null];
         }
 
+        // AI Spend Safety (AT-456 §A.3) — same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
+
         $nowIso = $nowIso ?: now($timezone)->toIso8601String();
 
         $system = $this->systemPrompt($timezone, $nowIso);
@@ -97,7 +100,7 @@ Return ONLY a single JSON object, no prose, no markdown fences. Shape:
 Supported intents:
 - "schedule_event" — agent wants to create a calendar entry.
   slots: {
-    "title": string — SHORT calendar label, max ~60 chars. Format: "<EventType> — <Property short ref>" when a property is mentioned, otherwise "<EventType> — <Contact name>", otherwise just "<EventType>". EventType is one of: Viewing, Meeting, Listing presentation, Call, Valuation, Inspection, Sign mandate, Offer presentation, Follow-up. Property short ref = street number + street name only (e.g. "12 Beach Road"), drop suburb/city. Do NOT cram attendees, topics, or times into the title.
+    "title": string — SHORT calendar label, max ~60 chars. Format: "<EventType> — <Property short ref>" when a property is mentioned, otherwise "<EventType> — <Contact name>", otherwise just "<EventType>". EventType is one of: Viewing, Meeting, Listing presentation, Call, Evaluation, Inspection, Sign mandate, Offer presentation, Follow-up. Property short ref = street number + street name only (e.g. "12 Beach Road"), drop suburb/city. Do NOT cram attendees, topics, or times into the title.
     "datetime": ISO 8601 resolved against the current time above. ALWAYS express it in {$tz} local time with the literal "+02:00" offset — e.g. "2026-06-11T11:00:00+02:00". NEVER use a "Z"/UTC offset and NEVER convert the spoken hour to UTC: if the agent says "11", the datetime hour MUST read 11, not 09.,
     "understood_time": string — the wall-clock time you resolved, in plain words, e.g. "11:00 AM" or "2:00 PM". This MUST match the hour you put in "datetime". Echoed back so the agent can catch a mistake.,
     "duration_minutes": int (default 60 if unspecified),

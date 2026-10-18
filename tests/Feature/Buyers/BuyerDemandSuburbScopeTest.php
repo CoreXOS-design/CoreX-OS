@@ -47,11 +47,13 @@ class BuyerDemandSuburbScopeTest extends TestCase
 
         $matcher = app(MatchingService::class);
 
-        // The leak buyer clears the 50 floor (so it's the GATE, not the score, that drops it).
+        // 2026-08-11 ruling: the suburb gate lives INSIDE score() itself, so it is authoritative for every
+        // caller — the other-suburb buyer scores 0, not "50+ and filtered later".
+        $this->assertSame(0, $matcher->score($property, $leak), 'score() applies the suburb hard gate itself');
         $this->assertGreaterThanOrEqual(
             MatchingService::MIN_SCORE_TO_DISPLAY,
-            $matcher->score($property, $leak),
-            'the other-suburb buyer scores >= 50 — it would leak into the count without the hard suburb gate'
+            $matcher->score($property, ContactMatch::withoutGlobalScopes()->where('contact_id', $inSuburb->id)->first()),
+            'the in-suburb buyer clears the display floor'
         );
 
         // suburbCompatible — the one rule.

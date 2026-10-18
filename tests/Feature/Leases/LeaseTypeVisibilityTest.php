@@ -148,10 +148,19 @@ final class LeaseTypeVisibilityTest extends TestCase
 
         self::assertTrue(LeaseSetting::showLeaseTypeFieldFor($this->agency->id));
 
-        // Unchecking (omitted from the POST, as a real unchecked checkbox
-        // would be) actually turns it back off -- not silently ignored.
+        // A POST that does not carry the control at all is the onboarding-wizard saver (its step renders no such
+        // checkbox): an absent key means "not shown", never "off" (agency-onboarding-setup.md §6.1) -- the value stays.
         $this->actingAs($this->owner)->post(route('corex.settings.leases.update'), [
             'expiry_notice_window_days' => 60,
+        ]);
+
+        self::assertTrue(LeaseSetting::showLeaseTypeFieldFor($this->agency->id), 'a form that does not render the control must not wipe it');
+
+        // Unchecking on the real settings page posts the hidden input's 0 (resources/views/corex/settings/leases.blade.php),
+        // which actually turns it back off -- not silently ignored.
+        $this->actingAs($this->owner)->post(route('corex.settings.leases.update'), [
+            'expiry_notice_window_days' => 60,
+            'show_lease_type_field' => '0',
         ]);
 
         self::assertFalse(LeaseSetting::showLeaseTypeFieldFor($this->agency->id));

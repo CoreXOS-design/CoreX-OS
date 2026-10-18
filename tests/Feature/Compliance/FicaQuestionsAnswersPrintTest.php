@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Tests\Concerns\RequiresChromiumPdf;
 use Tests\TestCase;
 
 /**
@@ -31,6 +32,7 @@ use Tests\TestCase;
 final class FicaQuestionsAnswersPrintTest extends TestCase
 {
     use RefreshDatabase;
+    use RequiresChromiumPdf;
 
     private const SIG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
@@ -225,10 +227,7 @@ final class FicaQuestionsAnswersPrintTest extends TestCase
 
     public function test_the_download_is_a_real_pdf_with_the_right_name_the_questions_answers_page_numbers_and_the_signature(): void
     {
-        if (! is_file('/usr/bin/chromium')) {
-            self::markTestSkipped('No Chromium on this box to render the PDF.');
-        }
-        config(['services.pdf.puppeteer_browser_path' => '/usr/bin/chromium']);
+        $this->requireChromiumPdf();
         $s = $this->submission($this->naturalAnswers());
 
         $response = $this->actingAs($this->branchMgrA)->get(route('compliance.fica.questions-answers.pdf', $s));
@@ -330,10 +329,7 @@ final class FicaQuestionsAnswersPrintTest extends TestCase
 
     public function test_access_is_exactly_the_screens_and_out_of_scope_users_are_refused(): void
     {
-        if (! is_file('/usr/bin/chromium')) {
-            self::markTestSkipped('No Chromium on this box to render the PDF.');
-        }
-        config(['services.pdf.puppeteer_browser_path' => '/usr/bin/chromium']);
+        $this->requireChromiumPdf();
         $s = $this->submission($this->naturalAnswers());                       // branch A
         $otherAgencyId = (int) DB::table('agencies')->insertGetId(['name' => 'Other', 'slug' => 'other-' . Str::random(6), 'created_at' => now(), 'updated_at' => now()]);
         $otherBranch = (int) DB::table('branches')->insertGetId(['agency_id' => $otherAgencyId, 'name' => 'X', 'created_at' => now(), 'updated_at' => now()]);
@@ -354,10 +350,7 @@ final class FicaQuestionsAnswersPrintTest extends TestCase
 
     public function test_every_download_and_print_is_audited_with_who_did_it(): void
     {
-        if (! is_file('/usr/bin/chromium')) {
-            self::markTestSkipped('No Chromium on this box to render the PDF.');
-        }
-        config(['services.pdf.puppeteer_browser_path' => '/usr/bin/chromium']);
+        $this->requireChromiumPdf();
         $s = $this->submission($this->naturalAnswers());
 
         $this->actingAs($this->branchMgrA)->get(route('compliance.fica.questions-answers.pdf', $s))->assertOk();

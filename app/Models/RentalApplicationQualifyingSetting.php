@@ -249,6 +249,17 @@ class RentalApplicationQualifyingSetting extends Model
     public const APPROVAL_MODES = ['two_step', 'one_step'];
 
     /**
+     * Johan, QA1, 2026-10-07 — what happens when a lease is created from an
+     * approved application at a rent ABOVE the amount the tenant was approved
+     * for. `warn` (default): the agent sees both figures and must confirm with
+     * a reason, logged on the lease history and the application audit trail.
+     * `block`: the lease cannot be created above the approved amount.
+     */
+    public const DEFAULT_RENT_ABOVE_APPROVED_MODE = 'warn';
+
+    public const RENT_ABOVE_APPROVED_MODES = ['warn', 'block'];
+
+    /**
      * Return gate, AT-392 round 4, 2026-09-13 — Johan: "initial open is
      * not gated but if the applicant submits... after initial submission
      * we can gate on ID." Default is the applicant's own ID number
@@ -331,7 +342,24 @@ class RentalApplicationQualifyingSetting extends Model
         ['label' => 'Living together / life partner', 'implies_spouse' => false],
     ];
 
+    // Rentals front-half decisions (8 Oct 2026) - every one a per-agency setting with the recommended value as its default.
+    /** The agent may hand an applicant their link themselves (WhatsApp, in person) - the way for a tenant with no email. */
+    public const DEFAULT_ALLOW_MANUAL_LINK_SHARE = true;
+    /** The property's / lease's agents get an in-app note when a tenant submits (the creating agent's mail is unchanged). */
+    public const DEFAULT_NOTIFY_AGENTS_ON_APPLICATION_RETURNED = true;
+    /** The authoriser(s) are told (in-app + email, per their own notification settings) when an application is handed over. */
+    public const DEFAULT_NOTIFY_AUTHORISER_ON_HAND_OVER = true;
+    /** Neutral: no policy sentence in the invite / PDF unless the agency writes one. */
+    public const DEFAULT_INVITE_POLICY_SENTENCE = '';
+    public const INVITE_POLICY_SENTENCE_MAX = 500;
+    /** The lease screen suggests start date and term from what the applicant asked for. */
+    public const DEFAULT_PREFILL_LEASE_FROM_APPLICATION = true;
+    /** An approved application with no lease yet may be withdrawn (with a note). */
+    public const DEFAULT_ALLOW_WITHDRAW_AFTER_APPROVAL = true;
+
     protected $fillable = [
+        'allow_manual_link_share', 'notify_agents_on_application_returned', 'notify_authoriser_on_hand_over',
+        'invite_policy_sentence', 'prefill_lease_from_application', 'allow_withdraw_after_approval',
         'agency_id', 'max_rent_percent_of_gross_income', 'reopen_link_expiry_days',
         'lock_property_after_submission', 'tag_contact_as_tenant_on_approval',
         'autosave_debounce_seconds', 'autosave_rate_limit_max', 'autosave_rate_limit_window_minutes',
@@ -342,7 +370,7 @@ class RentalApplicationQualifyingSetting extends Model
         'pdf_rate_limit_max', 'pdf_rate_limit_window_minutes',
         'document_view_rate_limit_max', 'document_view_rate_limit_window_minutes',
         'autosave_request_rate_limit_max', 'autosave_request_rate_limit_window_minutes',
-        'require_fica_before_authorisation', 'approval_mode', 'require_checklist_complete',
+        'require_fica_before_authorisation', 'approval_mode', 'rent_above_approved_mode', 'require_checklist_complete',
         'return_gate_method', 'return_gate_attempt_max', 'return_gate_attempt_window_minutes',
         'identity_gate_enabled', 'identity_gate_otp_length', 'identity_gate_otp_expiry_minutes',
         'identity_gate_attempt_max', 'identity_gate_attempt_window_minutes', 'identity_gate_resend_cooldown_seconds',
@@ -353,6 +381,11 @@ class RentalApplicationQualifyingSetting extends Model
     ];
 
     protected $casts = [
+        'allow_manual_link_share' => 'boolean',
+        'notify_agents_on_application_returned' => 'boolean',
+        'notify_authoriser_on_hand_over' => 'boolean',
+        'prefill_lease_from_application' => 'boolean',
+        'allow_withdraw_after_approval' => 'boolean',
         'max_rent_percent_of_gross_income' => 'decimal:2',
         'reopen_link_expiry_days' => 'integer',
         'lock_property_after_submission' => 'boolean',
@@ -675,6 +708,30 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_REQUIRE_FICA_BEFORE_AUTHORISATION;
     }
 
+    /**
+     * The active users of the agency who hold a Reviewer (RO) or Override (CO) tick.
+     *
+     * @return int[]
+     */
+    public static function authoriserIds(int $agencyId): array
+    {
+        $agency = \App\Models\Agency::find($agencyId);
+        if (! $agency) {
+            return [];
+        }
+        $ids = array_values(array_unique(array_map('intval', array_merge((array) ($agency->rental_application_ro_user_ids ?? []), (array) ($agency->rental_application_co_user_ids ?? [])))));
+
+        return $ids === [] ? [] : \App\Models\User::query()->whereIn('id', $ids)->where('agency_id', $agencyId)->where('is_active', true)->pluck('id')->map(fn ($i) => (int) $i)->all();
+    }
+
+    /** The agency has exactly one approver and it is this user: there is nobody else to hand an application to. */
+    public static function isSoleAuthoriser(int $agencyId, int $userId): bool
+    {
+        $ids = self::authoriserIds($agencyId);
+
+        return count($ids) === 1 && $ids[0] === $userId;
+    }
+
     public static function approvalModeFor(?int $agencyId): string
     {
         if ($agencyId === null || $agencyId <= 0) {
@@ -688,8 +745,21 @@ class RentalApplicationQualifyingSetting extends Model
             : self::DEFAULT_APPROVAL_MODE;
     }
 
+    public static function rentAboveApprovedModeFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_RENT_ABOVE_APPROVED_MODE;
+        }
+
+        $row = static::where('agency_id', $agencyId)->first();
+
+        return $row && $row->rent_above_approved_mode !== null && in_array($row->rent_above_approved_mode, self::RENT_ABOVE_APPROVED_MODES, true)
+            ? $row->rent_above_approved_mode
+            : self::DEFAULT_RENT_ABOVE_APPROVED_MODE;
+    }
+
     /**
-     * AT-430 §3.6 — "the checklist does not block approval by default."
+     * AT-430 §3.6 — "the checklist does not block approval by default.
      * Default OFF: Sherry's checklist is a working aid, not a gate, until an
      * agency deliberately turns it into one. Consulted by
      * RentalApplicationChecklistService::isCompleteFor() at the approve
@@ -1041,5 +1111,72 @@ class RentalApplicationQualifyingSetting extends Model
         return ! in_array('id_number', $keys, true)
             && ! in_array('email', $keys, true)
             && ! in_array('contact_method', $keys, true);
+    }
+    /** One boolean from this agency's row, or the default when there is no row / the column was never set. */
+    private static function boolFor(?int $agencyId, string $column, bool $default): bool
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return $default;
+        }
+
+        $row = static::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row && $row->{$column} !== null ? (bool) $row->{$column} : $default;
+    }
+
+    public static function allowManualLinkShareFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'allow_manual_link_share', self::DEFAULT_ALLOW_MANUAL_LINK_SHARE);
+    }
+
+    public static function notifyAgentsOnApplicationReturnedFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'notify_agents_on_application_returned', self::DEFAULT_NOTIFY_AGENTS_ON_APPLICATION_RETURNED);
+    }
+
+    public static function notifyAuthoriserOnHandOverFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'notify_authoriser_on_hand_over', self::DEFAULT_NOTIFY_AUTHORISER_ON_HAND_OVER);
+    }
+
+    public static function prefillLeaseFromApplicationFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'prefill_lease_from_application', self::DEFAULT_PREFILL_LEASE_FROM_APPLICATION);
+    }
+
+    public static function allowWithdrawAfterApprovalFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'allow_withdraw_after_approval', self::DEFAULT_ALLOW_WITHDRAW_AFTER_APPROVAL);
+    }
+
+    /** The decline email subject / body as the agency has them (the suggested default until it saves its own) - for the Setup Wizard. */
+    public static function declineEmailSubjectFor(?int $agencyId): string
+    {
+        return RentalApplicationDeclineEmailSetting::forAgency($agencyId)['subject'];
+    }
+
+    public static function declineEmailBodyFor(?int $agencyId): string
+    {
+        return RentalApplicationDeclineEmailSetting::forAgency($agencyId)['body'];
+    }
+
+    /** The agency's own invite sentence (raw, with the {agency} placeholder), '' when it has none. */
+    public static function invitePolicySentenceFor(?int $agencyId): string
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return self::DEFAULT_INVITE_POLICY_SENTENCE;
+        }
+
+        $row = static::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row && $row->invite_policy_sentence !== null ? (string) $row->invite_policy_sentence : self::DEFAULT_INVITE_POLICY_SENTENCE;
+    }
+
+    /** The sentence as it prints: the {agency} placeholder replaced by the agency's name; '' when the agency has none. */
+    public static function renderedInvitePolicySentenceFor(?int $agencyId, ?string $agencyName): string
+    {
+        $raw = trim(self::invitePolicySentenceFor($agencyId));
+
+        return $raw === '' ? '' : trim(str_replace('{agency}', (string) ($agencyName ?: 'We'), $raw));
     }
 }

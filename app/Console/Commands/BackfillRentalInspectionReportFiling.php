@@ -30,7 +30,8 @@ class BackfillRentalInspectionReportFiling extends Command
 
     public function handle(RentalInspectionReportPdfService $pdfService, SignedDocumentDistributionService $distributionService): int
     {
-        $query = RentalInspection::withoutGlobalScopes()->where('status', RentalInspection::STATUS_COMPLETED);
+        // Live inspections only: an archived one is hidden on purpose and must not be filed to a property by a bulk run.
+        $query = RentalInspection::withoutGlobalScopes()->whereNull('deleted_at')->where('status', RentalInspection::STATUS_COMPLETED);
         if ($agencyId = $this->option('agency')) {
             $query->where('agency_id', $agencyId);
         }

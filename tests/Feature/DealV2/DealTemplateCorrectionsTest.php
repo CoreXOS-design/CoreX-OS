@@ -73,10 +73,13 @@ final class DealTemplateCorrectionsTest extends TestCase
             $this->assertContains($need, $depNames, "Lodgement waits on $need");
         }
 
-        // Documents Signed AND-gates on both FICA steps.
+        // AT-334 (2026-07-29): FICA is Compliance-owned, so it is NOT a pipeline step — neither FICA step
+        // exists and Documents Signed no longer AND-gates on them (it just follows its primary trigger).
+        $this->assertArrayNotHasKey('FICA Completed (Buyer)', $steps->toArray());
+        $this->assertArrayNotHasKey('FICA Completed (Seller)', $steps->toArray());
         $depNamesSign = $this->dependencyNames($steps['Documents Signed']);
-        $this->assertContains('FICA Completed (Buyer)', $depNamesSign);
-        $this->assertContains('FICA Completed (Seller)', $depNamesSign);
+        $this->assertNotContains('FICA Completed (Buyer)', $depNamesSign);
+        $this->assertNotContains('FICA Completed (Seller)', $depNamesSign);
     }
 
     public function test_cash_template_carries_the_coastal_beetle_certificate(): void

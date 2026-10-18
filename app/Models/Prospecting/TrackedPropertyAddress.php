@@ -52,6 +52,8 @@ final class TrackedPropertyAddress extends Model
         'street_number', 'street_name', 'unit_number', 'complex_name',
         'suburb', 'suburb_normalised', 'town', 'province', 'postal_code',
         'latitude', 'longitude',
+        // Structured address layer (.ai/specs/structured-address-matching.md §3).
+        'p24_suburb_id', 'street_core', 'street_type', 'address_raw',
         'source_type', 'source_ref',
         'confidence', 'is_primary',
         'verified_by_user_id', 'verified_at',
@@ -83,6 +85,8 @@ final class TrackedPropertyAddress extends Model
             if (empty($row->last_seen_at)) {
                 $row->last_seen_at = now();
             }
+            // Structured address layer (.ai/specs/structured-address-matching.md §5).
+            app(\App\Services\Address\AddressStructurer::class)->apply($row);
         });
 
         static::updating(function (TrackedPropertyAddress $row) {
@@ -125,10 +129,9 @@ final class TrackedPropertyAddress extends Model
         $parts = [];
         if (!empty($this->unit_number))   $parts[] = "Unit {$this->unit_number}";
         if (!empty($this->complex_name))  $parts[] = $this->complex_name;
-        if (!empty($this->street_number) && !empty($this->street_name)) {
-            $parts[] = "{$this->street_number} {$this->street_name}";
-        } elseif (!empty($this->street_name)) {
-            $parts[] = $this->street_name;
+        if (!empty($this->street_name)) {
+            // number + street without ever saying the number twice (see TrackedProperty::streetLine()).
+            $parts[] = \App\Services\Properties\PropertyAddressReconciler::cleanStreetPiece($this->street_number, $this->street_name, null, null);
         }
         if (!empty($this->suburb)) $parts[] = $this->suburb;
         return count($parts) > 0 ? implode(', ', $parts) : null;

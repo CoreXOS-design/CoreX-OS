@@ -5,7 +5,43 @@
 @section('corex-content')
 {{-- AT-319 — code→label map for the active service types (badges fall back to the code if archived). --}}
 @php($typeLabels = $serviceTypes->pluck('label', 'code'))
-<div class="w-full space-y-5" x-data="{ showAdd: false }">
+{{-- AT-452 item 9 - arrived from a fault report: way back, live "covered now?" check, add form opened with the matching trade ticked. --}}
+@php($rf = $returnFault ?? null)
+@php($openAdd = $rf && $rf['mode'] === 'add' && ! session('success'))
+@php($preTick = $rf && $rf['mode'] === 'add' && $rf['trade_code'] ? [$rf['trade_code']] : [])
+{{-- rentals-faults-work-orders.md section 20.8 - one line per supplier; Open expands that row's details in place (one at a time).
+     A save / validation error reloads the page, so the open row is remembered in the browser for that one reload. --}}
+@php($openInitial = (int) request()->query('open', 0) ?: (int) ($rf['provider'] ?? 0))
+<div class="w-full space-y-5" data-suppliers-page x-data="{
+        showAdd: {{ $openAdd ? 'true' : 'false' }},
+        openId: {{ $openInitial }},
+        remember(id) { try { sessionStorage.setItem('sd-open', String(id)); } catch (e) {} },
+        init() {
+            try { const s = sessionStorage.getItem('sd-open'); if (s) { this.openId = parseInt(s, 10) || 0; sessionStorage.removeItem('sd-open'); } } catch (e) {}
+            if (this.openId) { this.$nextTick(() => { const r = document.getElementById('provider-' + this.openId); if (r) { r.scrollIntoView({ block: 'center' }); } }); }
+        }
+     }">
+
+    @if($rf)
+        <div class="rounded-md px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, var(--surface)); border: 1px solid var(--ds-amber, #f59e0b); color: var(--text-primary);" data-return-to-fault>
+            <a href="{{ $rf['url'] }}" class="font-semibold underline" data-return-to-fault-link>&larr; Back to {{ $rf['label'] }}</a>
+            @if($rf['mode'] !== 'details' && $rf['covered'])
+                <span class="font-semibold" style="color: var(--ds-green);" data-fault-now-covered>&#10003; A contractor is now loaded for {{ $rf['type'] }}.</span>
+            @elseif($rf['mode'] === 'details')
+                <span>Add an email address or a mobile number under <strong>Contacts</strong> for the contractor below, then go back and press <strong>Send</strong>.</span>
+            @elseif($rf['mode'] === 'types')
+                <span>
+                    @if($rf['trade_code'])
+                        Tick <strong>{{ $rf['category'] }}</strong> on the contractor who does this work. It saves as you tick.
+                    @else
+                        None of your service types matches <strong>{{ $rf['category'] ?: $rf['type'] }}</strong> yet &mdash; add it under Settings &rarr; COC / Service Types first.
+                    @endif
+                </span>
+            @else
+                <span>Add the contractor below{{ $rf['trade_code'] ? ' (' . $rf['category'] . ' is already ticked)' : '' }}, then go back to the fault.</span>
+            @endif
+        </div>
+    @endif
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -13,8 +49,7 @@
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Supplier Directory</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
-                    Reusable service providers (electrician for the COC, entomologist, attorneys, bond originator…).
-                    Pick them on a deal, or add "the one we always use" once here for reuse.
+                    Service providers and contractors used on deals and rentals.
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
@@ -47,152 +82,150 @@
          x-transition:enter="transition ease-out duration-150" x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0"
          class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="text-lg font-semibold mb-4" style="color: var(--text-primary);">Add a provider to the directory</div>
-        <form method="POST" action="{{ route('deals-v2.suppliers.store') }}" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            @csrf
-            <div>
-                <label for="sp-name" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Name <span class="text-red-500">*</span></label>
-                <input id="sp-name" name="name" required maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                       placeholder="e.g. Sparky Electrical">
-            </div>
-            <div>
-                <label for="sp-specialty" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Specialty <span class="text-red-500">*</span></label>
-                <select id="sp-specialty" name="specialty" required
-                        class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    @foreach($specialties as $s)
-                        <option value="{{ $s }}">{{ ucwords(str_replace('_', ' ', $s)) }}</option>
-                    @endforeach
-                </select>
-            </div>
-            <div>
-                <label for="sp-company" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company</label>
-                <input id="sp-company" name="company" maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                {{-- Johan, 2026-08-26 — split from the old combined
-                     "Registration / ID Number" field. This one is the
-                     COMPANY's own registration number only — the
-                     representative's own ID number is a separate field,
-                     captured per-person on the "Add contact" form under
-                     each provider below (a supplier is one company + one
-                     or more representatives; the person's ID belongs on
-                     THEIR record, not the firm's). Never required here —
-                     required only where it actually matters: putting this
-                     supplier on a document as a representative (both this
-                     and the representative's own ID number, together). --}}
-                <label for="sp-registration-number" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Company Registration Number</label>
-                <input id="sp-registration-number" name="registration_number" maxlength="100"
-                       placeholder="e.g. 2020/778899/23"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                <label for="sp-email" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
-                <input id="sp-email" name="email" type="email" maxlength="191"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div>
-                <label for="sp-phone" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
-                <input id="sp-phone" name="phone" maxlength="50"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div class="md:col-span-3">
-                <label for="sp-address" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Address <span class="text-[11px]" style="color: var(--text-muted);">(the firm's business address — used on documents this supplier signs, e.g. as executor)</span></label>
-                <input id="sp-address" name="address" maxlength="500"
-                       placeholder="e.g. 21 Dee Road, Uvongo"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            </div>
-            <div class="flex items-end">
-                <label class="inline-flex items-center gap-2 text-sm pb-2" style="color: var(--text-secondary);">
-                    <input type="checkbox" name="is_preferred" value="1" class="rounded" style="accent-color: var(--brand-button);">
-                    Preferred for this specialty
-                </label>
-            </div>
-            {{-- AT-319 — a supplier can handle MORE THAN ONE service type. Multi-select of the
-                 agency's configurable COC/service list (Settings → COC / Service Types). The
-                 work-order panel filters its supplier picker by these. --}}
-            <div class="md:col-span-3">
-                <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Service types <span class="text-[11px]" style="color: var(--text-muted);">(the COCs / services this supplier handles — filters the work-order picker)</span></label>
-                @forelse($serviceTypes as $t)
-                    <label class="inline-flex items-center gap-1.5 text-sm mr-4 mb-1" style="color: var(--text-secondary);">
-                        <input type="checkbox" name="service_types[]" value="{{ $t->code }}" style="accent-color: var(--brand-button, #0ea5e9);">
-                        {{ $t->label }}
-                    </label>
-                @empty
-                    <div class="text-xs" style="color: var(--text-muted);">No service types configured yet — add them under Settings → COC / Service Types.</div>
-                @endforelse
-            </div>
-            <div class="md:col-span-3 flex items-center gap-2">
-                <button type="submit" class="corex-btn-primary text-sm">Save to directory</button>
-                <button type="button" @click="showAdd = false" class="corex-btn-outline text-sm">Cancel</button>
-            </div>
-        </form>
+        @include('deals-v2.suppliers._add-form', ['serviceTypes' => $serviceTypes, 'specialties' => $specialties, 'preTick' => $preTick])
     </div>
 
-    {{-- Directory table (§3.7) --}}
+    {{-- §20 - search / filters / sort (name, company, email, phone; status; call-out) --}}
+    @php($fl = $filters ?? ['q' => '', 'status' => 'all', 'kind' => '', 'callout' => 'any', 'sort' => '', 'dir' => 'asc'])
+    @php($sortUrl = fn (string $key) => request()->fullUrlWithQuery(['sort' => $key, 'dir' => ($fl['sort'] === $key && $fl['dir'] === 'asc') ? 'desc' : 'asc', 'page' => null]))
+    @php($arrow = fn (string $key) => $fl['sort'] === $key ? ($fl['dir'] === 'asc' ? ' ▲' : ' ▼') : '')
+    @php($filtered = $fl['q'] !== '' || $fl['status'] !== 'all' || $fl['callout'] !== 'any' || ($fl['kind'] ?? '') !== '')
+    <form method="GET" action="{{ route('deals-v2.suppliers.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-supplier-filters>
+        @if($fl['sort'])<input type="hidden" name="sort" value="{{ $fl['sort'] }}"><input type="hidden" name="dir" value="{{ $fl['dir'] }}">@endif
+        @if(request()->query('nav') === 'rentals')<input type="hidden" name="nav" value="rentals">@endif
+        @if($rf)<input type="hidden" name="fault" value="{{ request('fault') }}"><input type="hidden" name="mode" value="{{ request('mode') }}">@endif
+        <div class="grow" style="min-width: 14rem;">
+            <label for="sd-q" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
+            <input id="sd-q" type="search" name="q" value="{{ $fl['q'] }}" placeholder="Name, company, email or phone" class="list-header-filter w-full text-sm {{ $fl['q'] !== '' ? 'is-active' : '' }}">
+        </div>
+        <div>
+            <label for="sd-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Show</label>
+            <select id="sd-status" name="status" class="list-header-filter text-sm {{ $fl['status'] !== 'all' ? 'is-active' : '' }}">
+                <option value="all" @selected($fl['status'] === 'all')>Active and inactive</option>
+                <option value="active" @selected($fl['status'] === 'active')>Active only</option>
+                <option value="inactive" @selected($fl['status'] === 'inactive')>Inactive only</option>
+            </select>
+        </div>
+ {{-- rentals-faults-work-orders.md section 21.1 --}}
+        <div>
+            <label for="sd-kind" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind</label>
+            <select id="sd-kind" name="kind" class="list-header-filter text-sm {{ ($fl['kind'] ?? '') !== '' ? 'is-active' : '' }}">
+                <option value="">All kinds</option>
+                @foreach(($kinds ?? []) as $kk => $kl)<option value="{{ $kk }}" @selected(($fl['kind'] ?? '') === $kk)>{{ $kl }}</option>@endforeach
+            </select>
+        </div>
+        <div>
+            <label for="sd-group" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group</label>
+            <select id="sd-group" name="group" class="list-header-filter text-sm {{ ($fl['group'] ?? '') !== '' ? 'is-active' : '' }}">
+                <option value="">All groups</option>
+                @foreach(($groups ?? []) as $gr)<option value="{{ $gr->id }}" @selected(($fl['group'] ?? '') === (string) $gr->id)>{{ $gr->label }}</option>@endforeach
+            </select>
+        </div>
+        <div>
+            <label for="sd-callout" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Call-out fee</label>
+            <select id="sd-callout" name="callout" class="list-header-filter text-sm {{ $fl['callout'] !== 'any' ? 'is-active' : '' }}">
+                <option value="any" @selected($fl['callout'] === 'any')>Any call-out fee</option>
+                <option value="yes" @selected($fl['callout'] === 'yes')>Charges a call-out fee</option>
+                <option value="no" @selected($fl['callout'] === 'no')>No call-out fee</option>
+                <option value="unknown" @selected($fl['callout'] === 'unknown')>Not known</option>
+            </select>
+        </div>
+        <div class="flex items-center gap-2">
+            <button type="submit" class="corex-btn-primary text-xs" style="min-width: 6rem; height:2.25rem;">Search</button>
+            <a href="{{ route('deals-v2.suppliers.index', ($rf ? ['fault' => request('fault'), 'mode' => request('mode')] : []) + (request()->query('nav') === 'rentals' ? ['nav' => 'rentals'] : [])) }}" class="corex-btn-outline text-xs inline-flex items-center justify-center" style="min-width: 6rem;">Clear</a>
+        </div>
+    </form>
+
+    {{-- Directory table (§3.7) - ONE line per supplier (section 20.8) --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm ds-table">
+            <table class="min-w-full text-sm ds-table" data-supplier-table>
                 <thead>
                     <tr style="background: var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Name</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Specialty</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Contact</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Status</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('name') }}" class="no-underline" data-sort="name">Name{{ $arrow('name') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('kind') }}" class="no-underline" data-sort="kind">Kind{{ $arrow('kind') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('specialty') }}" class="no-underline" data-sort="specialty">Specialty{{ $arrow('specialty') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);">Contact</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><a href="{{ $sortUrl('callout') }}" class="no-underline" data-sort="callout">Call-out{{ $arrow('callout') }}</a></th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider hidden md:table-cell" style="color: var(--text-muted);"><a href="{{ $sortUrl('status') }}" class="no-underline" data-sort="status">Status{{ $arrow('status') }}</a></th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"><span class="sr-only">Actions</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse($providers as $p)
-                        <tr style="{{ $p->is_active ? '' : 'opacity:0.55;' }}">
+                        @php($mainContact = $p->serviceContacts->firstWhere('is_active', true))
+                        @php($mainName = $mainContact ? ($mainContact->attorney_name ?: $mainContact->contact_person) : null)
+                        @php($kindLabel = \App\Models\DealV2\AgencyServiceProvider::kindLabel($p->kind))
+                        @php($specialtyLabel = ($roleLabels[$p->specialty] ?? null) ?: ucwords(str_replace('_', ' ', $p->specialty)))
+                        {{-- a contractor's trade is its ticked service types (Settings -> Service types), not the old fixed list; attorneys / bond originators keep their role word --}}
+                        @php($ownTrades = collect($p->typeCodes())->map(fn ($c) => $typeLabels[$c] ?? $c)->filter()->implode(', '))
+                        @php($specialtyLabel = ($ownTrades !== '' && ! in_array($p->specialty, ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator'], true)) ? $ownTrades : $specialtyLabel)
+                        @php($contactLine2 = collect([$mainName ? $p->email : null, $p->phone])->filter()->implode(' · '))
+                        <tr id="provider-{{ $p->id }}" data-supplier-row="{{ $p->id }}" style="{{ $p->is_active ? '' : 'opacity:0.55;' }}{{ ($rf['provider'] ?? null) === $p->id ? ' outline:2px solid var(--ds-amber, #f59e0b);' : '' }}">
                             <td class="px-4 py-3">
-                                <span class="font-medium" style="color: var(--text-primary);">{{ $p->name }}</span>
+                                <span class="font-medium" style="color: var(--text-primary);" data-supplier-label>{{ $p->displayName() }}</span>
                                 @if($p->is_preferred)<span class="ds-badge ds-badge-success ml-2">Preferred</span>@endif
-                                @if($p->company)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->company }}</div>@endif
-                                @if($p->address)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->address }}</div>@endif
-                                {{-- AT-319 — the supplier's service types (labels; falls back to the stored code if archived). --}}
-                                @if($p->serviceTypes->isNotEmpty())
-                                    <div class="mt-1 flex flex-wrap gap-1">
-                                        @foreach($p->serviceTypes as $st)
-                                            <span class="ds-badge ds-badge-default text-[10px]">{{ $typeLabels[$st->service_type] ?? $st->service_type }}</span>
-                                        @endforeach
-                                    </div>
+                                {{-- phone width: the columns that fold away show as one small line under the name --}}
+                                <div class="md:hidden text-[11px]" style="color: var(--text-muted);">{{ $kindLabel }} &middot; {{ $specialtyLabel }}@unless($p->is_active) &middot; Inactive @endunless</div>
+                            </td>
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);" data-supplier-kind="{{ $p->kind }}">{{ $kindLabel }}</td>
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);">{{ $specialtyLabel }}</td>
+                            <td class="px-4 py-3 text-xs hidden md:table-cell" style="color: var(--text-secondary);" data-supplier-contact>
+                                {{ $mainName ?: ($p->email ?: '—') }}@if($contactLine2)<div class="text-[11px]" style="color: var(--text-muted);">{{ $contactLine2 }}</div>@endif
+                            </td>
+                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);" data-callout-cell="{{ $p->calloutFeeStatus() }}">
+                                @if($p->calloutFeeStatus() === 'yes')
+                                    <span class="font-medium" style="color: var(--text-primary);">{{ \App\Models\DealV2\AgencyServiceProvider::formatRand($p->calloutFeeAmount()) }}</span>
+                                    @if($p->calloutFeeNote())<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->calloutFeeNote() }}</div>@endif
+                                @elseif($p->calloutFeeStatus() === 'no')
+                                    No fee
+                                @else
+                                    <span style="color: var(--text-muted);">Not known</span>
                                 @endif
                             </td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $p->specialty)) }}</td>
-                            <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">
-                                {{ $p->email ?: '—' }}@if($p->phone)<div class="text-[11px]" style="color: var(--text-muted);">{{ $p->phone }}</div>@endif
-                            </td>
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-3 hidden md:table-cell">
                                 <span class="ds-badge {{ $p->is_active ? 'ds-badge-info' : 'ds-badge-default' }}">{{ $p->is_active ? 'Active' : 'Inactive' }}</span>
                             </td>
                             <td class="px-4 py-3 text-right whitespace-nowrap">
-                                @if($p->is_active && !$p->is_preferred)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.preferred', $p) }}" class="inline">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">Set preferred</button>
-                                    </form>
-                                @endif
                                 @if($p->is_active)
-                                    <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline ml-3"
-                                          onsubmit="return confirm('Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it.');">
-                                        @csrf<button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--ds-crimson);">Deactivate</button>
+                                    <button type="button" @click="openId = (openId === {{ $p->id }}) ? 0 : {{ $p->id }}" class="corex-btn-outline text-xs justify-center" style="min-width: 6rem;"
+                                            :aria-expanded="openId === {{ $p->id }} ? 'true' : 'false'" aria-controls="provider-{{ $p->id }}-details" data-open-supplier>
+                                        <span x-text="openId === {{ $p->id }} ? 'Close' : 'Open'">Open</span>
+                                    </button>
+                                @else
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.activate', $p) }}" class="inline">
+                                        @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 6rem;" data-restore-supplier>Restore</button>
                                     </form>
                                 @endif
                             </td>
                         </tr>
 
-                        {{-- (DR2 respec) A firm holds MULTIPLE contact persons (attorney + working
-                             contact). List them + add/remove inline. Soft-delete keeps history. --}}
+                        {{-- Details: opened in place by the Open button (DR2 respec: a firm holds MULTIPLE contact persons - list + add/remove inline; soft-delete keeps history). --}}
                         @if($p->is_active)
-                        <tr style="background: var(--surface-2);">
-                            <td colspan="5" class="px-4 py-3">
+                        <tr id="provider-{{ $p->id }}-details" x-show="openId === {{ $p->id }}" x-cloak style="background: var(--surface-2);" @submit="remember({{ $p->id }})" data-supplier-details="{{ $p->id }}">
+                            <td colspan="7" class="px-4 py-3">
+                                {{-- section 21.1 - the kind, changed here (persist-on-change, same route as before) --}}
+                                <div class="mb-4" x-data="{
+                                        kind: {{ \Illuminate\Support\Js::from($p->kind ?: 'contractor') }}, saving: false, saved: false, err: false,
+                                        async persist() {
+                                            this.saving = true; this.saved = false; this.err = false;
+                                            try {
+                                                const r = await fetch('{{ route('deals-v2.suppliers.kind', $p) }}', {method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json','X-CSRF-TOKEN':'{{ csrf_token() }}'}, credentials:'same-origin', body: JSON.stringify({kind: this.kind})});
+                                                const j = await r.json();
+                                                if (r.ok && j.ok) { this.saved = true; setTimeout(() => { this.saved = false; }, 1600); } else { this.err = true; }
+                                            } catch (e) { this.err = true; }
+                                            this.saving = false;
+                                        }
+                                     }">
+                                    <label for="sd-kind-{{ $p->id }}" class="text-[11px] font-semibold uppercase tracking-wider mb-1 flex items-center gap-2" style="color: var(--text-muted);">
+                                        <span>Kind</span>
+                                        <span x-show="saved" x-cloak class="text-[10px] normal-case" style="color:#059669;">&#10003; saved</span>
+                                        <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed &mdash; retry</span>
+                                    </label>
+                                    <select id="sd-kind-{{ $p->id }}" x-model="kind" @change="persist()" aria-label="Kind of supplier for {{ $p->name }}" data-supplier-kind-select class="rounded-md px-2 py-1 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                        @foreach(($kinds ?? \App\Models\DealV2\AgencyServiceProvider::KINDS) as $kk => $kl)<option value="{{ $kk }}">{{ $kl }}</option>@endforeach
+                                    </select>
+                                </div>
                                 {{-- AT-364 — attorney capabilities (Transfer / Bond). A firm like BBB does BOTH,
                                      so both may be ticked; the transfer-attorney and bond-attorney pickers each
                                      surface the firms that carry the matching capability. Shown only for attorney
@@ -312,11 +345,35 @@
                                         <span x-show="err" x-cloak class="text-[10px] normal-case" style="color:#b45309;">save failed — retry</span>
                                     </label>
                                     <input type="text" x-model="address" @blur="persist()" maxlength="500"
-                                           placeholder="e.g. 21 Dee Road, Uvongo"
+                                           placeholder="e.g. 12 Main Road, Suburb"
                                            class="w-full max-w-md rounded-md px-2 py-1 text-xs"
                                            style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">The firm's address — this is what appears on a document when this supplier is selected as a party (e.g. an executor).</div>
                                 </div>
+                                {{-- §20 - call-out fee editor (own route; Yes needs an amount; changes are kept below) --}}
+                                <form method="POST" action="{{ route('deals-v2.suppliers.callout-fee', $p) }}" class="mb-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-end" data-callout-editor="{{ $p->id }}">
+                                    @csrf
+                                    <div class="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                                        @include('deals-v2.suppliers._callout-fields', ['idp' => 'sp' . $p->id, 'mode' => $p->calloutFeeStatus(), 'amount' => $p->calloutFeeAmount(), 'note' => $p->calloutFeeNote()])
+                                    </div>
+                                    <div><button type="submit" class="corex-btn-primary text-xs" style="min-width: 9rem;" data-save-callout>Save call-out fee</button></div>
+                                </form>
+                                @if(($calloutHistory[$p->id] ?? collect())->isNotEmpty())
+                                    <div class="mb-3 text-[11px]" style="color: var(--text-muted);" data-callout-history>
+                                        <div class="font-semibold uppercase tracking-wider mb-1">Call-out fee changes</div>
+                                        @foreach($calloutHistory[$p->id]->take(4) as $h)
+                                            <div>{{ \Illuminate\Support\Carbon::parse($h->created_at)->format('j M Y H:i') }} &mdash; {{ $h->by ?: 'System' }}: {{ \App\Services\DealV2\SupplierCalloutFeeService::describe($h) }}</div>
+                                        @endforeach
+                                    </div>
+                                @endif
+                                @if(($providerEvents[$p->id] ?? collect())->isNotEmpty())
+                                    <div class="mb-3 text-[11px]" style="color: var(--text-muted);" data-provider-history>
+                                        <div class="font-semibold uppercase tracking-wider mb-1">Recent changes</div>
+                                        @foreach($providerEvents[$p->id]->take(4) as $ev)
+                                            <div>{{ \Illuminate\Support\Carbon::parse($ev->created_at)->format('j M Y H:i') }} &mdash; {{ $ev->note }}</div>
+                                        @endforeach
+                                    </div>
+                                @endif
                                 <div class="text-[11px] font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">Contacts at {{ $p->name }}</div>
                                 @forelse($p->serviceContacts as $c)
                                     <div class="flex items-center justify-between py-1 text-xs" style="color: var(--text-secondary);">
@@ -343,13 +400,27 @@
                                     <input type="text" name="phone" placeholder="Phone" class="text-xs rounded-md px-2 py-1" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                     <button type="submit" class="text-xs font-semibold no-underline hover:underline" style="color: var(--brand-icon);">+ Add contact</button>
                                 </form>
+
+                                {{-- section 20.8 - equal-sized buttons; Deactivate asks first and never deletes --}}
+                                <div class="mt-4 pt-3 flex flex-wrap items-center gap-2" style="border-top: 1px solid var(--border);" data-supplier-actions>
+                                    @unless($p->is_preferred)
+                                        <form method="POST" action="{{ route('deals-v2.suppliers.preferred', $p) }}" class="inline">
+                                            @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 9rem;" data-set-preferred>Set preferred</button>
+                                        </form>
+                                    @endunless
+                                    <form method="POST" action="{{ route('deals-v2.suppliers.deactivate', $p) }}" class="inline"
+                                          data-confirm="Deactivate {{ $p->name }}? Historic deals keep resolving; only new pickers hide it." data-confirm-title="Deactivate supplier" data-confirm-label="Deactivate" data-confirm-danger>
+                                        @csrf<button type="submit" class="corex-btn-outline text-xs justify-center" style="min-width: 9rem; color: var(--ds-crimson); border-color: var(--ds-crimson);" data-deactivate-supplier>Deactivate</button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                         @endif
                     @empty
                         <tr>
-                            <td colspan="5" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);">
-                                No providers yet. Add one above, or create inline while filling a deal.
+                            <td colspan="7" class="px-4 py-12 text-center text-sm" style="color: var(--text-muted);" data-suppliers-empty>
+                                @if($filtered) No suppliers match this search. <a href="{{ route('deals-v2.suppliers.index') }}" class="underline">Clear the search</a>.
+                                @else No providers yet. Add one above, or create inline while filling a deal.@endif
                             </td>
                         </tr>
                     @endforelse
@@ -357,5 +428,6 @@
             </table>
         </div>
     </div>
+    @if($providers->hasPages())<div class="px-1" data-suppliers-pages>{{ $providers->links() }}</div>@endif
 </div>
 @endsection

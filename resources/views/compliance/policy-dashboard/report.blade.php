@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <title>Policy Compliance Register — {{ $agency->name }}</title>
     <style>
-        body { font-family: 'Figtree', Arial, sans-serif; font-size: 12px; color: #334155; margin: 2rem; }
+        @page { size: A4; margin: 16mm 14mm 20mm 14mm; }
+        body { font-family: 'Figtree', Arial, sans-serif; font-size: 12px; color: #334155; margin: 0; }
         h1 { font-size: 16px; color: #0f172a; border-bottom: 2px solid #00b4d8; padding-bottom: 6px; }
         h2 { font-size: 13px; color: #0f172a; margin-top: 1.5rem; }
         table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }

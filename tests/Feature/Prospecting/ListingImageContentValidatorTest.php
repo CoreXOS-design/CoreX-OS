@@ -29,6 +29,9 @@ final class ListingImageContentValidatorTest extends TestCase
 
     private ListingImageValidator $validator;
 
+    /** @var list<string> */
+    private array $tempFiles = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -40,6 +43,9 @@ final class ListingImageContentValidatorTest extends TestCase
     private function makeListing(string $portalRef): ProspectingListing
     {
         return ProspectingListing::create([
+            'captured_by_user_id'      => \App\Models\User::factory()->create()->id,
+            'first_seen_at'            => now(),
+            'last_seen_at'             => now(),
             'portal_source'            => 'pp',
             'portal_ref'               => $portalRef,
             'address'                  => '12 Bairn Street',
@@ -50,6 +56,24 @@ final class ListingImageContentValidatorTest extends TestCase
             'thumbnail_source_url'     => null,
             'thumbnail_blocked_reason' => null,
         ]);
+    }
+
+    /** Write image bytes to a short temp path (removed at teardown) and return that path. */
+    private function imageFile(string $bytes): string
+    {
+        $path = sys_get_temp_dir() . '/corex-thumb-' . bin2hex(random_bytes(6)) . '.png';
+        file_put_contents($path, $bytes);
+        $this->tempFiles[] = $path;
+
+        return $path;
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->tempFiles as $path) {
+            @unlink($path);
+        }
+        parent::tearDown();
     }
 
     /** A flat RE/MAX-style brand card: rendered brand text + few colours. */
@@ -151,9 +175,10 @@ final class ListingImageContentValidatorTest extends TestCase
 
         $listing = $this->makeListing('PP-TEST-REMAX');
 
-        // data:// URI lets the job's file_get_contents() read our bytes without
-        // a network round-trip — the brand card stands in for a portal image.
-        $dataUri = 'data://image/png;base64,' . base64_encode($this->brandCardPng());
+        // A local file path lets the job's file_get_contents() read our bytes without a network
+        // round-trip — the brand card stands in for a portal image. (Not a data:// URI: the job
+        // persists this value into thumbnail_source_url, a varchar(255), which a base64 image overflows.)
+        $dataUri = $this->imageFile($this->brandCardPng());
 
         (new DownloadListingThumbnail($listing, $dataUri))->handle();
 
@@ -169,7 +194,7 @@ final class ListingImageContentValidatorTest extends TestCase
 
         $listing = $this->makeListing('PP-TEST-PHOTO');
 
-        $dataUri = 'data://image/png;base64,' . base64_encode($this->noisePhotoPng());
+        $dataUri = $this->imageFile($this->noisePhotoPng());
 
         (new DownloadListingThumbnail($listing, $dataUri))->handle();
 

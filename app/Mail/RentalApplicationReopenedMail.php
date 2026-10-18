@@ -35,7 +35,7 @@ class RentalApplicationReopenedMail extends BaseSignatureMail implements ShouldQ
     public function __construct(public RentalApplication $application, string $note)
     {
         $this->contactName = $application->contact->full_name ?: 'there';
-        $this->agencyName  = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName  = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         $this->onlineUrl   = route('rental-applications.public.show', $application->token);
         $this->expiresAt   = $application->token_expires_at->format('d M Y');
         $this->note        = $note;

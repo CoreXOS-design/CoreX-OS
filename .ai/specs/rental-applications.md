@@ -14842,3 +14842,149 @@ arithmetic check someone prunes later.
 Months()`), `resources/views/corex/rental-applications/review.blade.php`
 (`calculatedStatementMonths()`), `tests/Feature/RentalApplications/
 RentalApplicationRound11DecimalAndStatementMonthsTest.php` (new test).
+
+## Approval email — clickable properties, suburb, rentable-only selection (QA1, 2026-10-07)
+
+Johan, testing application 438 on QA1: the approval email listed the suggested properties as dead
+text, with no suburb, and one of them was a "1 Bedroom Commercial Property". Changes:
+
+- **Every suggested property is a link** (descriptor, and a "View this property →" line) to the
+  property's public, view-only listing page — `public.agency.properties.show`, the page the
+  listing-share-link spec names — built from the application's OWN agency slug (multi-agency: no
+  fixed slug, no HFC wording). `RentalApplicationApprovedMail::content()` builds the cards.
+- **Each line shows the suburb** (`suburb`, falling back to `town`). This amends the 2026-09-17
+  "never carries a street address" rule above only in that **suburb is now allowed**; the street
+  address (street number + name) and the town/city where different from the suburb still never
+  appear. The linked public page itself shows the listing as advertised (its headline can carry a
+  street, as flagged on 2026-09-17) — that page is the property's public face, not this email.
+- **"View all properties that match"** button → the tenant's own shared wishlist page
+  (`shared.match`), shown only when the contact has an active, countable rental wishlist
+  (`RentalApplicationPropertyMatcher::viewAllUrl()`); absent otherwise rather than pointing at an
+  unfiltered or someone else's list.
+- **Selection** (`RentalApplicationPropertyMatcher::pick()`, both the wishlist and the no-wishlist
+  branch): rental listings only, still on the market, **residential** unless the application's
+  linked property is itself non-residential (an application has no other commercial marker),
+  approved amount stays the hard ceiling, and the listing must be marketable — the page the email
+  links to refuses to show anything else. Residential = category empty/"Residential" AND property
+  type not commercial/industrial/retail/office/warehouse/farm/vacant/land/plot — both columns,
+  because 33 QA1 rental rows are filed category Residential with type "Commercial Property".
+- Photo: the email shows none today and still does not.
+- Files: `app/Mail/RentalApplicationApprovedMail.php`,
+  `resources/views/emails/rental-application-approved.blade.php`,
+  `app/Services/RentalApplications/RentalApplicationPropertyMatcher.php`; tests
+  `RentalApplicationApprovedMailLinksTest` (new) and `RentalApplicationApprovedMailAddressPrivacyTest`
+  (suburb no longer forbidden).
+
+## 7 Oct 2026 — four rentals bug fixes from the red-test sweep (QA1)
+
+Owner: cc6. Source: the red-test report (items 2–5) plus one earlier finding. Each fix has a test that
+was proven red on the old code and green on the new.
+
+1. **"Added after submission" on the read-only application screen** (`view-readonly.blade.php`).
+   The badge was gated on `uploaded_by`, so a document the **applicant** added after submitting (no
+   uploader) was never tagged. The rule stays exactly the RA-03 rule — `created_at >= submitted_at`,
+   whoever added it — identical to `show.blade.php` and `review.blade.php`. The list also carries
+   `id="supportingDocumentsList"` like the editable screen. Test: `RentalApplicationAgentControllerTest`.
+2. **Approve / decline never 500s because the decider cannot see the applicant's contact.**
+   `RentalApplication::contact()` now ignores `ContactScope` (still `withTrashed`, still agency-scoped).
+   Whether a user may open or decide an application is decided by `scopeVisibleTo()` and the authoriser
+   guards; anyone allowed to decide it necessarily sees who applied. The three `->full_name` reads
+   (approve / decline confirmation, decline-email draft) are also null-safe. A user **not** permitted to
+   decide still gets a clean 403. Test: `RentalApplicationDecisionContactVisibilityTest`.
+3. **Capture ledger refuses a future-dated entry.** `entry_date` is `before_or_equal:today` on all three
+   ledger saves (highlight capture, "Add line manually", edit), with a plain message: "A ledger entry
+   cannot be dated in the future — use the date on the statement." This is the existing rule from the
+   items screen it replaced (Round 11: "a transaction date can't be in the future"); the spec holds no
+   business reason for future-dated entries. Test: `RentalApplicationCaptureLedgerEntryRulesTest`.
+4. **Ledger amount boxes are text inputs, not browser number boxes.** The manual-entry amount
+   (`review.blade.php`) was `type="number"`; the document capture chip (`document-highlighter-pages`)
+   had the same. Both are now `type="text" inputmode="decimal"` (the Round 11 money-input rule). The raw
+   typed string goes to the server, which runs it through `RentalApplication::sanitizeNumericInput()`
+   (`40,638.40`, `40638,40`, `R40 638.40` all resolve) before validating; server messages are shown
+   under the box. Same test file as 3.
+5. **A role with no scope row is a 403, not a 500, on every rentals `scopeVisibleTo()`.**
+   `PermissionService::getDataScope()` answers null for "no access" and `clampScope()` demands a string,
+   so the scope threw a TypeError. New `App\Services\Rentals\RentalDataScope::resolve()` aborts 403 on a
+   null ceiling and otherwise clamps as before; used by `RentalInspection`, `RentalInspectionPlannedDate`,
+   `Lease`, `RentalWorkOrder`, `RentalFaultReport`, `RentalJobCard`, `RentalInventory`,
+   `RentalTakeOnImportRun`. Test: `RentalDataScopeNoGrantTest`.
+
+### 7 Oct 2026 (2) — the rentals list screens' controllers refuse a no-scope role too (cc1, QA1)
+
+Item 5 above fixed the eight model `scopeVisibleTo()`s; the **controllers** of the list screens
+still passed the null straight into `PermissionService::clampScope()` (TypeError → 500) for a role
+that clears the route check but has no scope row for the module. All twelve call sites now go through
+`App\Services\Rentals\RentalDataScope` (`ceiling()` for the index screens, `resolve()` for the printed
+"Scope" label): `LeaseController` (index, filter summary), `RentalInspectionController` (index, filter
+summary), `RentalWorkOrderController` (index, filter summary), `RentalFaultReportController` (index,
+filter summary), `RentalApplicationController::index`, `RentalInspectionDueController` (`scopes()`,
+`propertyScope()`, `baseRows()` — so the tab, its print and its export). No scope row = plain 403,
+never a 500; a role that has a row behaves exactly as before. Test: `RentalListControllersNoGrantTest`
+(calls the controllers directly, because the route permission check usually refuses first).
+
+**Policy question left open (Johan's call, nothing changed):** `RentalApplication::clampScope()` treats
+a null ceiling as `own`, so a role with no scope row for applications still sees its own applications
+instead of being refused. `RentalReportController` / `RentalReportService` / `RentalCommandCentreService`
+and `RentalJobCardListQuery::ceilingFor()` do the same (`?? 'own'`). `Rental`, `Docuperfect\LeaseRecord`
+and the eight scopes above refuse instead. Whether "no scope row" means refuse or own, rentals-wide, is
+a policy decision.
+
+## FICA — the gate lifts on SUBMITTED; sending to the authoriser follows the shared gate (8 Oct 2026, cc3)
+Johan's QA1 rentals test (7 Oct), ruling of 8 Oct (relayed by the conductor): the FICA gate lifts on **submitted**, same as sales. **Supersedes** the earlier wording in this file (and AT-392 round 3) that treated an applicant as "FICA outstanding" for the authoriser hand-off until compliance had APPROVED. `require_fica_before_authorisation` (agency setting, **OFF by default**, unchanged in the wizard and settings) now stops the hand-off only for an applicant who has **not submitted** FICA (`RentalApplication::ficaGateOpen()` → `FicaGate`); an applicant who has submitted — or whose FICA is anywhere in staff review — goes through. With the setting off (the default) nothing stops: the success response carries `fica_warning` + `fica_url` and the review screen shows them. `ficaOutstanding()` keeps its meaning ("compliance has not yet VERIFIED") and still drives "Approved, subject to FICA verification", the two FICA tiles and the Contact badge; the review header badge now reads **FICA Submitted** (amber) for a submitted-but-unverified applicant instead of red "FICA Outstanding", with a "Request / complete FICA" link whenever the gate is closed. Details, the list of intended hard stops and tests: `.ai/specs/compliance.md` §"The FICA gate".
+
+
+## Front-half walk fixes (8 Oct 2026, cc3, QA1)
+Walking apply -> review -> approve/decline -> lease found these; each is fixed and pinned (`RentalApplicationDecisionStateMachineTest`, `RentalApplicationApplicantLinkWalkTest`, `tests/js/rental-application-autosave-nesting.test.mjs`):
+* **One hand-off gate** (`AuthorisationHandOffGate`, `RentalApplication::HAND_OFF_STATUSES` = returned + under_assessment): submit-for-approval and one-step approval both check unsplit PDFs and the FICA hard-stop the same way; the history row records the real from-status.
+* **Re-decision resets:** reopen / approve / decline clear `applicant_notified_at`; reopen / withdraw / resubmit clear `submitted_for_approval_at` - so a re-decided application is notified again and never shows as stuck "pending authorisation". A decided (approved / declined) application cannot be flipped by the status dropdown; withdrawing fires `RentalApplicationWithdrawn` so the status recomputes.
+* **Send** refuses a no-recipient application before stamping it sent, and a declined / withdrawn one (link closed on purpose); an expired link is renewed on resend (same token). A draft shows "the link starts working once you send" instead of a link that opens "not available".
+* **Public PDF** follows the form's availability rules (draft / expired / withdrawn links no longer serve the applicant's personal data).
+* **Returned mail** takes the agent to the review screen. **Custom "Additional Questions" answers** now autosave from a real browser (nested `custom_field_values[key]` names are rebuilt before the JSON post).
+
+
+## Front-half decisions (8 Oct 2026, cc3, QA1 - built while Johan was away)
+Johan was offline until Sunday and told the conductor to build the recommended default of every open decision. Each is a **per-agency setting with the recommended value as its default**, **audited** (`rental_setting_audit`: who, which key, from, to, Settings page or Setup Wizard; shown as "Recent changes" on the card), reachable in the **Setup Wizard** (rule 10a), and reversible by switching it off. Permission: the existing `rental_applications.manage_settings` / `leases.manage_settings` (checked inside the saver too, because the wizard calls it directly). Tests: `RentalFrontHalfDecisionsTest`, `LeaseFrontHalfDecisionsTest`, `LeaseCaptureTest` (D8).
+
+| # | Decision (recommended default built) | Setting (default) | Where |
+|---|---|---|---|
+| D1 | The agent hands a no-email applicant the link themselves ("Share the link myself": makes sure the link exists / is renewed, draft -> sent, nothing mailed, history + audit row) | `allow_manual_link_share` (on) | Settings > Rental Applications; wizard |
+| D2 | "New rental application" on a rental property's page and on a contact's Rental tab, pre-filled (ids go through the same scoping as the save; an id the user may not see pre-fills nothing) | none (a button, gated by `rental_applications.create`) | - |
+| D3 | When a tenant submits, an in-app note to the creating agent AND the property's / lease's agents (`LeaseAgentService::faultRecipients`); the creator's e-mail is unchanged | `notify_agents_on_application_returned` (on) + each person's own notification preference (`rental_application.returned`, in-app only) | same |
+| D4 | The authoriser(s) (the RO reviewers, else the CO tier) are told in-app + by e-mail at hand-over; not the person who handed over | `notify_authoriser_on_hand_over` (on) + each person's own preference (`rental_application.handed_over`) | same |
+| D5 | The agency's own sentence in the invite e-mail and the PDF intro (`{agency}` = its name); the invite names the property. Neutral default: **no sentence** for a new agency. Agencies that had already been sending applications keep the wording they were sending (migration data step) as their own editable text | `invite_policy_sentence` (empty) | same |
+| D6 | Decline e-mail subject and wording reachable from the wizard through a has()-guarded saver (saving the suggested default stores nothing); decline reasons appear as a link row | existing decline-email settings; wizard controls `decline_email_subject` / `decline_email_body` | wizard Rentals step |
+| D14 | The lease screen suggests start date and end date (start + the applicant's asked term, minus a day) from the application; approved rows on the list get "Create lease" until a lease exists | `prefill_lease_from_application` (on) | same |
+| D15 | An approved application with **no lease yet** can be withdrawn (note required, history row); refused once any lease exists for it | `allow_withdraw_after_approval` (on) | same |
+
+Not built (kept as is): D7 who signs first / receives the signed mail stays "whoever pressed the button"; D9 leases that go live without a signature get no automatic portal login (the lease-screen button remains; the existing `auto_portal_access_on_signing` governs the signature case); D10 the tenant's Home already shows "Starts <date>" for a signed lease with a future start (a draft is not shown).
+
+
+## Sherry walk, 13 Oct 2026 (cc1) - One step for a one-person agency, and an approval email that says what is true
+
+**B. One step.** Cause of "One step is on but it still hands the application to 3 other people and the authoriser page 403s": the review screen offers Approve only to a user who is a Reviewer (RO) or Override (CO) AND did not create the application unless they are Override / administrator (`RentalApplicationReviewController` `$selfCreatedBlocked`, `RentalApplicationAuthorisationController::guardNotSelfApproving`). A one-person agency's agent who created her own application and holds only the RO tick silently fell back to "Submit for approval" (hand-off), and the server refused the direct URL with a bare 403.
+**Rule now (`User::mayDecideOwnRentalApplication()`):** a CO or administrator always may decide their own application; an RO may too when the agency is on **One step AND they are the agency's only approver** (`RentalApplicationQualifyingSetting::isSoleAuthoriser` - active users holding RO or CO). With any other approver in the agency, or on Two step, the independent-eyes rule stands. The review screen gives the only approver Approve / Decline in one action (no hand-off); anyone else on One step sees ONE line saying why they are handed on ("not ticked as a Reviewer or Override approver" / "you created this application and your agency has other approvers"); the 403 page now shows its plain reason to a signed-in user (`errors/403-app`, `bootstrap/app.php`). **What the ticks mean** (one line each on Settings -> Rental Applications): Reviewer - approves, declines or asks for more information, but not on an application they created (unless One step is on and they are the agency's only approver), and cannot change a decision once made; Override - everything a Reviewer can, plus deciding an application they created and changing a decision already made (a reason is required).
+
+**D. The approval email** (`RentalApplicationApprovedMail`, `emails/rental-application-approved`, `RentalApplicationMailer::sendApproved`): (1) FICA has three honest states - still to do (asks, with the link), SUBMITTED and being checked by compliance (says so, no "verify my identity now"; `ficaGateOpen()`), nothing outstanding; the subject follows; (2) an application for a NAMED property (`property_id`) is approved for THAT property - "your application to rent <property> ... approved ..., what happens next: your agent prepares the lease and sends it to you to sign" - with no "help you find the right property" and no other listings (`send()` does not even run the matcher); an application with no property keeps the matched list; (3) the review screen's Send approval asks first (`data-confirm`: who it goes to, the amount, the property, "It cannot be unsent."), and for a named property the wishlist step is not shown. Tests: `tests/Feature/Rentals/SherryWalkFixesTest.php`.
+
+## Go-live walk fixes — form wording, the OTP email, link a property later, one message (13 Oct 2026, cc2; cc5's full walk for Sherry's Friday go-live)
+
+- **The applicant's form is one page.** The sticky line under the progress bar used to read "Section 1 of 7": it counted the headed blocks as you scrolled, and the number changed with the optional ones (the credit-check consent), so it read like a wizard. It now names where you are ("You are on: Employment") and never a count.
+- **The FICA form numbers what it shows.** Section numbers are a CSS counter over the sections actually displayed for the chosen entity type (hand-typed numbers left "no 3" for a person, because section 3 is the company/trust/partnership block).
+- **Every client-facing email is the agency's.** `OtpMail` takes the agency: logo/name on top, the agency's address/phone/email/website at the bottom, the agency's name as the sender and in the subject, reply-to the agency's email, nothing of CoreX. Both applicant gates (return gate, submission identity gate) pass `$application->agency`. Staff/platform codes (no agency) stay the CoreX email. **Not changed, reported:** the client PORTAL sign-in code (`ClientAuthOtpMail`, subject "Your CoreX sign-in code") is still CoreX-branded — a client may belong to several agencies there (rentals front half D11 names the agency only when it is exactly one); say the word if it should follow the same rule.
+- **Link / change the property until it is with the authoriser.** The picker used to exist only on the REVIEW screen (after the applicant submits); the page that opens right after "Rental application created. Review it, then send." had a free-text address box saying "if not linked above" with nothing above it. `partials/property-link-control` on that page uses the same search and `review.link-property` endpoint (agent-visible rental stock only, audited, the agency's existing lock once the application is under assessment), by fetch so unsaved typing is not lost; the endpoint answers JSON (`label`, `updated_at`) and the page puts the new `updated_at` into the form's staleness field so the next save is not refused.
+- **One message.** The layout's toast already shows every `success`/`error`/`warning` flash; the application list, the staff application page and the read-only view each ALSO printed an inline banner of the same flash, so "Rental application created…" showed twice. The inline banners are gone; the toast is the one place.
+
+**Tests:** `tests/Feature/Leases/RentalsGoLiveWalkFixesTest.php` (14; 13 fail on the old code).
+
+
+## Review screens - Sherry walk, second batch, 13 Oct 2026 (cc1)
+
+On `/corex/rental-applications/{id}/review` (tests `SherryWalkRound2Test`):
+- **FICA chip ran off the right edge:** the title row was a single non-wrapping flex line; it now wraps, so the chips drop to a second line instead of overflowing.
+- **Affordability "None captured" although the applicant typed R42,000:** the ledger only lists marked-up document lines, and the form's stated income (`monthly_salary`) was never offered. The Income group now shows "Stated on the application: R42 000 a month - **Use this**" while no income line exists; one click creates the income line (the existing manual-entry endpoint, description "Stated on the application", today's date) - the agent confirms instead of retyping. The form states no expenses (only the current rent), so there is nothing to carry for Expenses.
+- **Audit trail "unattributed":** system events are written with that placeholder (`AuditContext`); the trail now shows "System" (existing rows too).
+- **Approve modal started at 0.00:** the monthly amount and deposit now start from the application's approved figures, else the property's rent and deposit (both approve modals: the one-step agent modal and the authoriser's).
+- **One FICA story:** the modals asked "has compliance verified?" while the header chip asked "has it been submitted?". A submitted-but-not-yet-verified applicant now reads "FICA has been submitted and is with compliance for verification - approving now records this as Approved, subject to FICA verification" in the modals and the approved box, matching the header's "FICA Submitted"; "still outstanding" is said only when nothing was submitted.
+- **Button heights:** the filled buttons had no border and the outline ones 1px, so "Approve & continue" read 28px beside 30px "Send back / Decline", and "Continue to the lease" the same. The action zone (review) and the lease-choice form (read-only view) are in a scope (`rr-equal-btns`) where both kinds are one box-sized 30px.
+
+- **14 Oct 2026 (cc5 re-walk): ONE submit button on the review screen** - the header "Submit to authoriser" (30px); the side-column "Submit for approval" twin was removed. With one-step approval the Approve / Decline pair replaces it. See `rentals-faults-work-orders.md` 22.20.

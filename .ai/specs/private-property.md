@@ -117,6 +117,10 @@ Retry policy: `call()` retries once on timeout-style faults (`Error Fetching htt
 
 **Declared decision (Johan/Andre to confirm at staging):** `sold → Inactive` (remove) is the cautious mapping AT-68's live probe left in place — it could not confirm PP keeps a Sold listing ON the portal the way P24 does. PP's read-back **does** model `'Sold'`, so `sold → Sold` (true P24 parity, keep-on-portal-as-sold) is likely achievable; **qa1 blanks PP outbound**, so the real round-trip verifies at Staging. Related: **AT-271** (Andre — the refresh *trigger* in the same files); this ticket is the PP *mapping* half.
 
+
+**Portal presence follows property status (Johan, 2026-10-06 — Fix 2).** `let_out` (and every other `Property::OFF_MARKET_STATUSES` value) is OFF Private Property; back to Active/Available is back ON for rent, **even while the current lease still runs** — an active lease blocks nothing about portals. The full-submit ("Refresh") mapper `mapPropertyStatus()` did not recognise `let_out` (its hand-kept substring list had no underscore form), so a Refresh on a let property sent `ToLet` and re-advertised it. Now ONE helper, `PrivatePropertyListingMapper::isOffMarketBase()` (sourced from `Property::OFF_MARKET_STATUSES`, underscore + space forms, substring for variants like "sold • cash"), is consulted FIRST by **both** `mapPropertyStatus()` (→ `Inactive`) and `statusFor()` (→ `Inactive`), so Refresh and the status-sync job can never disagree. Base status only: a stale on-market sub-label ("Back on Market") on a `let_out` base cannot resurrect it (same rule the P24 mapper already had). Back to on-market → the existing `SyncPpListingStatusJob` pushes `ToLet`/`ForSale` (unchanged; still needs `pp_syndication_enabled` + `pp_ref`, still honours the approval gate). Tests: `tests/Feature/Syndication/PortalPresenceFollowsStatusTest.php`.
+
+**Queued withdraw re-checks status at run time (Johan, 2026-10-06).** The PP withdraw (`DesyndicatePropertyFromPortalsJob`, queued by the off-market save) now reloads the property when it runs and only de-lists if it is STILL off-market (`Property::matchesOffMarketStatus()`); if the property has been flipped back on market meanwhile, the job is a logged no-op and PP is left alone — so a late job can no longer pull a listing the status sync has just put back to `ToLet`/`ForSale`. `SyncPpListingStatusJob` already re-read state at run time. Tests: `tests/Feature/Syndication/DesyndicateJobStatusRecheckTest.php`.
 ---
 
 ## 6. Listing Mapper (PrivatePropertyListingMapper)
@@ -672,3 +676,17 @@ integration's dedicated state store).
 
 **Files:** `app/Jobs/ProcessPrivatePropertyEventFeed.php`,
 `tests/Feature/Syndication/PrivatePropertyEventFeedTest.php`.
+
+---
+
+## 11a. Webhook idempotency and lead-source scoping (2026-10-07)
+
+**Idempotency.** PP re-delivers a webhook on any non-2xx / timeout, so the same enquiry can arrive more than once. `PpWebhookController::receive` is idempotent:
+
+- **Key:** PP's own reference for the enquiry — the payload's **`leadId`** — within the property's agency (`properties.agency_id`).
+- **Where it is recorded:** `command_tasks.metadata.pp_lead_id` on the follow-up task, and `portal_leads.lead_source_raw.__corex_lead_id` on the mirrored row (copied by `CommandTaskPortalLeadObserver`). That is the same key `PpLeadService::isDuplicate()` reads, so the webhook and the pull recognise each other's rows **if PP uses the same id in both feeds** (not verified against PP — if the ids differ, the webhook + pull both-on double-record gap from the 2026-10-07 audit remains).
+- **No `leadId` on a delivery:** fallback fingerprint = sha1(property id, lowercased email, digits of phone, message), matched against webhook tasks created in the last **10 minutes**.
+- **A duplicate** creates no contact note, no task, no `portal_leads` row, fires no `NewPortalLeadReceived` (no notification), is logged at **INFO** (`PP webhook: duplicate lead ignored`, with `leadId`, `matched_on`) and answered **200**. Two simultaneous deliveries are serialised by a 60 s cache lock keyed on agency + leadId (or fingerprint).
+- **Known limit:** a property with no agent creates no task, so nothing records the key — a repeat for it appends the contact note twice (no lead row or notification exists to duplicate).
+
+**Lead-source lookups.** Webhook/pull ingress has no logged-in user, so `BelongsToAgency` does not filter. Every lookup of the "Private Property" / "Property24" contact source goes through `ContactSource::idForAgencyByName($agencyId, $name)` (this agency's row, or `null` — never another agency's). An agency with no such source row gets `contact_source_id = null`; the row is not auto-created (the Website and Agent-QR paths do auto-create — see the report for the open question).

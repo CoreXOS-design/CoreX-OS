@@ -43,6 +43,28 @@ class RoleDefaultsResolver
     }
 
     /**
+     * True when `$def` is one of the three shapes `keysForDef()` actually
+     * understands — '*', ['exclude' => [...]], or ['include' => [...]] —
+     * regardless of what it resolves to.
+     *
+     * Needed because `keysForDef()` legitimately returns [] for TWO different
+     * reasons that callers must not conflate: a deliberately empty closed
+     * include (e.g. 'assistant' => ['include' => []] — AT-267, an identity-
+     * label role meant to carry zero config-default grants) vs. a shape it
+     * does not recognise at all (e.g. a typo'd 'inlcude' key). `empty($keys)`
+     * alone can't tell these apart; a caller that wants to flag malformed
+     * config (not legitimately-empty config) must check the shape, not the
+     * resolved result.
+     *
+     * @param  string|array  $def
+     */
+    public static function isRecognizedShape($def): bool
+    {
+        return $def === '*'
+            || (is_array($def) && (isset($def['exclude']) || isset($def['include'])));
+    }
+
+    /**
      * True only when the role's config default is a CLOSED set — an explicit
      * `include` list with no `exclude`. These are the ONLY roles whose DB grants
      * can be safely reconciled down to config: the include list is an exhaustive

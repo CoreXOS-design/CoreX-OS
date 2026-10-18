@@ -50,6 +50,16 @@ return [
         'agency-api' => [
             'driver' => 'agency-api',
         ],
+
+        // AT-445 — .ai/specs/rental-portal-access.md §9/§6. Session guard for
+        // the tenant/landlord web portal's Sanctum stateful-SPA login
+        // (cookie-based, same /api/v1/client/* endpoints the mobile app
+        // reaches with bearer tokens — see config/sanctum.php 'guard'). The
+        // mobile app never uses this guard; it only ever logs in by token.
+        'client-web' => [
+            'driver' => 'session',
+            'provider' => 'client_users',
+        ],
     ],
 
     /*
@@ -79,6 +89,12 @@ return [
         //     'driver' => 'database',
         //     'table' => 'users',
         // ],
+
+        // AT-445 — provider for the 'client-web' guard above.
+        'client_users' => [
+            'driver' => 'eloquent',
+            'model' => App\Models\ClientUser::class,
+        ],
     ],
 
     /*

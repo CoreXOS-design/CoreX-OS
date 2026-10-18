@@ -37,7 +37,7 @@ class AgencySetupWizardTest extends TestCase
         return Agency::create(['name' => $name, 'slug' => \Illuminate\Support\Str::slug($name)]);
     }
 
-    private function admin(Agency $agency): User
+    private function admin(Agency $agency, bool $neverLoggedIn = false): User
     {
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Main']);
         return User::factory()->create([
@@ -45,7 +45,9 @@ class AgencySetupWizardTest extends TestCase
             'branch_id' => $branch->id,
             'role'      => 'admin',
             'is_active' => true,
-        ]);
+        ] + ($neverLoggedIn ? ['first_login_at' => null] : []));
+        // UserFactory now defaults first_login_at to now() (Agent Activation Gate): a plain factory user is "already onboarded". The
+        // first-login tests are about an Admin who has NEVER signed in, so they ask for $neverLoggedIn (password stays 'password').
     }
 
     private function setupFor(Agency $agency, array $attrs = []): AgencyOnboardingSetup
@@ -276,8 +278,9 @@ class AgencySetupWizardTest extends TestCase
         $admin  = $this->admin($agency);
         $this->setupFor($agency);
 
-        // Every step renders inline — no "Open ... editor" deep-links anywhere.
-        foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
+        // Every step renders inline — no "Open ... editor" deep-links anywhere. (Only the steps switched on for this agency render: a step whose
+        // feature is off - e.g. Auctions, default off - is deliberately skipped by the wizard and redirects.)
+        foreach (\App\Models\AgencyOnboardingSetup::activeSteps($agency) as $step) {
             $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
                 ->assertOk()
                 ->assertDontSee('Open Commission')
@@ -354,6 +357,9 @@ class AgencySetupWizardTest extends TestCase
         foreach (\App\Models\AgencyOnboardingSetup::STEPS as $step) {
             $what = config("agency-onboarding-copy.$step.what");
             $this->assertNotEmpty($what, "Step [$step] must explain itself before asking for config.");
+            if (! \App\Models\AgencyOnboardingSetup::stepIsActive($step, $agency)) {
+                continue;   // a step whose feature is off for this agency (e.g. Auctions) is skipped by the wizard, not rendered
+            }
             $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => $step]))
                 ->assertOk()
                 ->assertSee($what['title']);
@@ -396,7 +402,9 @@ class AgencySetupWizardTest extends TestCase
 
         $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'compliance']), [
             'whistleblow_compliance_officer_email' => 'compliance@coastal.co.za',
-        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'notifications']));
+            // The step also renders the PPRA pack's financial-year select (always pre-filled in a browser), and its saver requires it.
+            'financial_year_start_month' => 3,
+        ])->assertRedirect(route('corex.agency-setup.step', ['step' => 'outgoing_mail'])); // AT-395's step now sits after compliance
 
         $agency->refresh();
         $this->assertSame('compliance@coastal.co.za', $agency->whistleblow_compliance_officer_email);
@@ -440,8 +448,10 @@ class AgencySetupWizardTest extends TestCase
         // 11 original steps + the 'roles' explainer + the 'capabilities' feature
         // switchboard inserted at position 2 (switchboard spec §5/§7), + AT-379's
         // 'proforma' (after commission), 'market_intelligence' (after matches),
-        // and 'welcome' (the new first step).
-        $this->assertSame(16, \App\Models\AgencyOnboardingSetup::totalSteps());
+        // and 'welcome' (the new first step), + AT-395's 'outgoing_mail' and the leases-spec 'leases' step = 18,
+        // + AT-432's 'auctions' step (after properties; gated on the auctions feature) = 19,
+        // + AT-454's 'road_to_sold' step (after market_intelligence; gated on the road-to-sold feature) = 20.
+        $this->assertSame(20,\App\Models\AgencyOnboardingSetup::totalSteps());
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'properties']))
             ->assertOk()
@@ -555,7 +565,7 @@ class AgencySetupWizardTest extends TestCase
     {
         Mail::fake();
         $agency = $this->agency();
-        $admin  = $this->admin($agency);
+        $admin  = $this->admin($agency, neverLoggedIn: true);
         $setup  = $this->setupFor($agency, ['admin_user_id' => $admin->id]);
 
         $this->assertNull($admin->first_login_at);
@@ -578,7 +588,7 @@ class AgencySetupWizardTest extends TestCase
     {
         Mail::fake();
         $agency = $this->agency();
-        $admin  = $this->admin($agency);
+        $admin  = $this->admin($agency, neverLoggedIn: true);
         $this->setupFor($agency, ['admin_user_id' => $admin->id]);
 
         $this->post(route('login'), ['email' => $admin->email, 'password' => 'password']);
@@ -597,7 +607,7 @@ class AgencySetupWizardTest extends TestCase
         Mail::fake();
         $owner  = $this->ownerUser();
         $agency = $this->agency();
-        $admin  = $this->admin($agency);
+        $admin  = $this->admin($agency, neverLoggedIn: true);
         $this->setupFor($agency, ['admin_user_id' => $admin->id]);
 
         $this->actingAs($owner)->post(route('impersonate.start', $admin));
@@ -621,7 +631,7 @@ class AgencySetupWizardTest extends TestCase
     {
         Mail::fake();
         $agency = $this->agency();
-        $admin  = $this->admin($agency);
+        $admin  = $this->admin($agency, neverLoggedIn: true);
         $setup  = $this->setupFor($agency, ['admin_user_id' => $admin->id]);
 
         $this->post(route('agency-setup.login', $setup->urlKey()), [
@@ -670,6 +680,9 @@ class AgencySetupWizardTest extends TestCase
         $this->actingAs($owner)->post(route('agencies.store'), [
             'name'    => 'Demo Agency',
             'is_demo' => '1',
+            // AgencyController::store now requires the first branch (name + code) with every agency.
+            'branch_name' => 'Head Office',
+            'branch_code' => 'HO',
         ])->assertRedirect(route('agencies.index'));
 
         Event::assertNotDispatched(AgencyCreated::class);

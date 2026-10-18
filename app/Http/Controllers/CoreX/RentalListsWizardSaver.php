@@ -33,6 +33,38 @@ class RentalListsWizardSaver extends Controller
         }
     }
 
+    /** §45.5 item (Build I-3) — the agency's words for how someone attended; same no-op-unless-marker discipline. */
+    public function inspectionAttendedAsLabels(Request $request): void
+    {
+        if ($request->has('attended_as_labels_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateAttendedAsLabels($request);
+        }
+    }
+
+    /** §45.14 — the agency's words for the three move-out classifications; same no-op-unless-marker discipline. */
+    public function inspectionMoveOutClassificationLabels(Request $request): void
+    {
+        if ($request->has('move_out_classification_labels_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateMoveOutClassificationLabels($request);
+        }
+    }
+
+    /** §45.4 item 3 (Build I-2) — the agency's own room types; same no-op-unless-marker discipline as the lists above. */
+    public function inspectionCustomRoomTypes(Request $request): void
+    {
+        if ($request->has('custom_room_types_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateCustomRoomTypes($request);
+        }
+    }
+
+    /** §55 - the standard room list per kind of property; same no-op-unless-marker discipline as the lists above. */
+    public function inspectionRoomTemplates(Request $request): void
+    {
+        if ($request->has('room_templates_submitted')) {
+            app(RentalInspectionSettingsController::class)->updateRoomTemplates($request);
+        }
+    }
+
     public function inventoryConditionStates(Request $request): void
     {
         if ($request->has('inventory_condition_states_submitted')) {

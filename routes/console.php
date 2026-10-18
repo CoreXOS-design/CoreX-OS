@@ -8,27 +8,6 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-Artisan::command('rentals:test-inclusion {branchId} {periodStart} {periodEnd}', function ($branchId, $periodStart, $periodEnd) {
-
-    $svc = new \App\Services\Rentals\RentalWorksheetInclusionService();
-
-    $result = $svc->calculateForBranchPeriod(
-        (int)$branchId,
-        $periodStart,
-        $periodEnd
-    );
-
-    $this->info("Rental Inclusion Test Result:");
-    $this->line("Branch ID: " . $branchId);
-    $this->line("Period: " . $periodStart . " to " . $periodEnd);
-    $this->line("");
-
-    foreach ($result as $key => $value) {
-        $this->line(str_pad($key, 30) . ": " . $value);
-    }
-
-})->purpose('Test rental worksheet inclusion service safely');
-
 // P24 alert email import — runs hourly
 Schedule::command('p24:import')->hourly();
 
@@ -54,11 +33,43 @@ Schedule::command('titledeeds:send-reminders')->dailyAt('08:30')->withoutOverlap
 // Spec: .ai/specs/webinar-registration.md §6.4
 Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 
+// .ai/specs/leases.md §5.3 — Johan, 7 Oct 2026: a lease that reached its end date with no notice to vacate and no renewal
+// on record goes month-to-month on its own. Runs BEFORE the 06:00 expiry check so a lease that has just switched is not
+// also flagged as overdue.
+Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
+// Johan's ruling, 2026-10-05: no automatic process generates leases — a
+// renewal starts ONLY when a user clicks "Renew lease". The former
+// rentals:prepare-renewal-drafts scheduled entry is retired; see
+// .ai/specs/rental-renewals.md §21.
 // Lease rent escalations recorded with a future effective date — applied once due.
 Schedule::command('leases:apply-due-escalations')->dailyAt('00:10')->withoutOverlapping();
+
+// .ai/specs/rental-renewals.md §22 - a lease term changes state on its date: a signed renewal goes active on its start date
+// (the lease it renews expires with it); a tenancy ends on its move-out date once the out-inspection is on file. Runs before
+// the 05:30 month-to-month check so a lease that has just been renewed is not switched.
+Schedule::command('leases:advance-terms')->dailyAt('00:35')->withoutOverlapping();
+
+// .ai/specs/leases.md §15.15 (Build L3b) — safety net for the lease e-sign agreement: re-reads every lease whose
+// agreement is still in flight and repairs any e-sign announcement that was missed. Agency by agency; idempotent.
+Schedule::command('leases:reconcile-signing')->dailyAt('00:20')->withoutOverlapping();
+
+// .ai/specs/rental-inspections.md §43 — scheduled-inspection reminders, N
+// days before per agency setting (default 1, 0 = off). Idempotent per
+// inspection-per-day (RentalInspectionNotification log), so an overlapping
+// or repeated run sends nothing twice.
+Schedule::command('rentals:send-inspection-reminders')->dailyAt('07:15')->withoutOverlapping();
+
+// INSPECTIONS I-5 BEGIN — .ai/specs/rental-inspections.md §45.7. Agent-only reminders: the interim dates the agency
+// LOADED, and the computed In/Out due list. One notice row per milestone, so a re-run or a missed tick is harmless.
+Schedule::command('rentals:send-planned-inspection-reminders')->dailyAt('07:20')->withoutOverlapping();
+Schedule::command('rentals:send-due-inspection-reminders')->dailyAt('07:25')->withoutOverlapping();
+// §52 — the signing window closing / closed with someone still to sign (agent only).
+Schedule::command('rentals:send-signing-window-reminders')->dailyAt('07:30')->withoutOverlapping();
+// INSPECTIONS I-5 END
 
 // AT-236 — company-document expiry notifier (admins/CO at lead time + on expiry).
 Schedule::command('compliance:notify-document-expiries')->dailyAt('06:30')->withoutOverlapping();
@@ -360,6 +371,8 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 // .ai/specs/rental-work-orders.md §4/§6 — "a tracking way to keep track of
 // work orders," Johan's own words, the overdue half.
 Schedule::command('notifications:scan-rental-work-orders')->everyThirtyMinutes()->withoutOverlapping();
+// .ai/specs/rental-work-orders.md §17.10.8 (BUILD 3) — silence = accepted: a tenant completion check nobody answered inside its window is settled daily.
+Schedule::command('rentals:settle-completion-rounds')->daily()->withoutOverlapping();
 // Contact birthdays are no longer scanned per-contact — they are delivered as a
 // single "Birthdays today" section in the 06:30 daily digest below (one email
 // per user, never one email per birthday). See SendCalendarDigests.
@@ -446,6 +459,9 @@ Schedule::command('matches:recompute')->dailyAt('04:30')->onOneServer()->without
 // excludes them and their stale cached scores get purged the same night.
 Schedule::command('prospecting:flag-stale-listings')->dailyAt('03:50')->onOneServer()->withoutOverlapping();
 Schedule::command('prospecting:recompute-matches')->dailyAt('04:00')->onOneServer()->withoutOverlapping();
+// AT-454 Road to Sold — close earlier days, then build each agent's list for today. After the
+// buyer-match recompute above (04:00) so "stock for my buyers" reads fresh matches.
+Schedule::command('rts:build-lists')->dailyAt('04:30')->onOneServer()->withoutOverlapping();
 Schedule::command('corex:leave:send-reminders')->dailyAt('06:00')->onOneServer()->withoutOverlapping();
 
 // (P24 location tree now refreshes DAILY at 11:00 with stamp-and-sweep — see
@@ -593,3 +609,21 @@ Schedule::command('minion:capture --cycle --by=schedule')
 // Platform E-Sign — Subscription Agreement: expire lapsed links, remind the agency and RR (spec §11.14). Hourly; the thresholds
 // are platform settings (Platform E-Sign → Agreement wording), not constants.
 Schedule::command('platform-esign:remind-agreements')->hourly()->onOneServer()->withoutOverlapping();
+
+// AT-456 Part B — AI Template Builder reference images are private and live 7 days. Daily at 03:15;
+// also runnable by hand: php artisan ai-templates:purge-reference-images
+Schedule::command('ai-templates:purge-reference-images')->dailyAt('03:15')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part C — Article Library. Runs every night at 02:30 but only does work when the owner's
+// schedule setting (/admin/article-library/settings: off · nightly · every 3 days) says it is due.
+// Spend goes to the platform AI bucket (agency NULL). Also runnable by hand: php artisan article-library:run --force
+Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part D — Post Scheduler. Every minute: publish scheduled Facebook / Instagram posts that are due.
+// Each post is claimed with an atomic UPDATE first (overlapping runs publish once) and published inline,
+// no queue worker needed. Also runnable by hand: php artisan marketing:publish-due
+// withoutOverlapping(10): a killed run's lock expires in 10 minutes, not the 24-hour default (the atomic claim
+// already stops double publishing). runInBackground: slow Meta calls never hold up other scheduled tasks.
+Schedule::command('marketing:publish-due')->everyMinute()->onOneServer()->withoutOverlapping(10)->runInBackground();
+// Scheduled-post pictures: kept until published + 30 days; unused uploads removed after 2 days.
+Schedule::command('marketing:purge-scheduled-images')->dailyAt('03:20')->onOneServer()->withoutOverlapping();

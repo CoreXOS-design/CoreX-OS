@@ -180,4 +180,28 @@ final class RentalApplicationTenantPropertyLinkTest extends TestCase
         $response->assertSee($property->buildDisplayAddress());
         $response->assertDontSee('Modern family home with sea views');
     }
+
+    /**
+     * Johan, QA1, 2026-10-07 — typed "404 Margate Boulevard" (the property is
+     * 401) and the picker showed nothing at all, so it looked like no search
+     * was happening. The picker must say "searching" while the request is in
+     * flight and "No rental properties match '<text>'" when it returns nothing.
+     */
+    public function test_the_property_picker_shows_searching_and_no_match_states(): void
+    {
+        $this->rentalProperty();
+        $app = $this->application($this->contact('tenant6@example.co.za'));
+
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-applications.show', $app))
+            ->assertOk()->getContent();
+
+        $this->assertStringContainsString('data-test="rental-property-searching"', $html);
+        $this->assertStringContainsString('data-test="rental-property-no-results"', $html);
+        $this->assertStringContainsString('No rental properties match', $html);
+        $this->assertStringContainsString('data-test="rental-property-search-failed"', $html);
+
+        $this->actingAs($this->agent)
+            ->getJson(route('corex.rental-applications.search-properties', ['q' => '404 Nowhere Boulevard']))
+            ->assertOk()->assertExactJson([]);
+    }
 }

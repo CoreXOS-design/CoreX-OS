@@ -77,16 +77,23 @@ class Property24RefreshCostTest extends TestCase
             'agent_photo_path'    => null,   // no photo → nothing to upload
         ]);
 
-        $property = Property::factory()->create([
+        $property = $this->makeProperty([
             'agency_id' => $agency->id,
             'agent_id'  => $agent->id,
             'p24_ref'   => '117411168',
             'p24_syndication_status' => 'active',
+            // A live listing is already on the map; without coordinates the submit path geocodes it (a Google call,
+            // counted by Http::assertSentCount) - not a P24 cost, and not what this contract measures.
+            'latitude'  => -30.8600000,
+            'longitude' => 30.3700000,
         ]);
 
         // Fingerprint the CURRENT gallery + agent profile as "what P24 already
         // holds" — i.e. the state immediately after a successful sync.
         $property->forceFill(['p24_image_signature' => $property->p24ImageSignature()])->saveQuietly();
+        // Fingerprint the agent as the service sees it: re-read from the database (a factory model in memory lacks
+        // DB defaults such as is_active, which would make the fingerprint differ and force a profile push).
+        $agent = $agent->fresh();
         $agent->forceFill(['p24_profile_signature' => $this->profileSignature($agent)])->saveQuietly();
 
         return $property->fresh();
@@ -187,5 +194,47 @@ class Property24RefreshCostTest extends TestCase
         imagedestroy($img);
 
         return $bytes;
+    }
+
+    /**
+     * There is no Property factory (the model has no HasFactory) — build the listing explicitly, on a real
+     * branch of its agency, with the minimum a syndicatable sale listing carries.
+     */
+    private function makeProperty(array $attrs): Property
+    {
+        $branch = \App\Models\Branch::firstOrCreate(['agency_id' => $attrs['agency_id'], 'name' => 'Main']);
+
+        // withoutEvents: creating a live-looking listing would otherwise fire the observer's portal status
+        // push inside the test (recorded as outbound traffic); this fixture is the state BEFORE the action under test.
+        return Property::withoutEvents(fn () => Property::create(array_merge([
+            'external_id'   => (string) \Illuminate\Support\Str::uuid(),
+            'title'         => 'Syndication test listing',
+            'branch_id'     => $branch->id,
+            'listing_type'  => 'sale',
+            'property_type' => 'house',
+            'status'        => 'active',
+            'price'         => 1500000,
+            'suburb'        => 'Margate',
+            'address'       => '1 Test Road',
+            // Already split, as on a real saved listing - otherwise the first save derives them, which counts as an
+            // address change and geocodes (a Google call this contract does not measure).
+            'street_number' => '1',
+            'street_name'   => 'Test Road',
+            'description'   => 'A well-kept family home a short walk from the beach.',
+            'p24_suburb_id' => $this->verifiedP24SuburbId(),
+        ], $attrs)));
+    }
+
+    /** A P24-verified suburb chain (country → province → city → suburb) so the mapper can resolve the listing's suburb. */
+    private function verifiedP24SuburbId(): int
+    {
+        $country  = \App\Models\P24Country::firstOrCreate(['p24_id' => 1], ['name' => 'South Africa']);
+        $province = \App\Models\P24Province::firstOrCreate(['p24_id' => 4], ['p24_country_id' => $country->id, 'name' => 'KwaZulu Natal']);
+        $city     = \App\Models\P24City::firstOrCreate(['p24_id' => 376], ['p24_province_id' => $province->id, 'name' => 'Margate']);
+
+        return \App\Models\P24Suburb::firstOrCreate(
+            ['p24_id' => 6360],
+            ['name' => 'Margate', 'slug' => 'margate', 'p24_city_id' => $city->id, 'p24_verified_at' => now()]
+        )->id;
     }
 }

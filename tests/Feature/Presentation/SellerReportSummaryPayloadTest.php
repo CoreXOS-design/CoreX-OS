@@ -149,9 +149,10 @@ final class SellerReportSummaryPayloadTest extends TestCase
         $this->assertStringContainsString('homes you', $clause, 'Should reference competing homes');
         $this->assertStringContainsString('sold', $clause, 'Should reference everything similar that\'s sold');
 
-        // Bullet 4 — copy must include the conditional above_clause.
+        // Bullet 4 — the over-priced branch (PRES-CMA-SELLER-VOICE copy) states plainly
+        // that the asking is above what homes like this have actually sold for.
         $recBullet = collect($payload['bullets'])->firstWhere('key', 'recommendation');
-        $this->assertStringContainsString('priced above', $recBullet['html']);
+        $this->assertStringContainsString("you're asking more than homes like yours have actually sold for", $recBullet['html']);
     }
 
     public function test_no_comps_suppresses_bullet_2_and_keeps_section_index_consistent(): void

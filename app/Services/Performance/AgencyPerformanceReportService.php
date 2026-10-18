@@ -147,9 +147,9 @@ class AgencyPerformanceReportService
      * ['agent' => null] when the user is not an in-scope agency member (owners
      * excluded), so the caller can 404.
      */
-    public function agentJourney(int $agencyId, int $userId, Period $period): array
+    public function agentJourney(int $agencyId, int $userId, Period $period, ?PerformanceScope $ceiling = null): array
     {
-        $scope    = new PerformanceScope($agencyId, null, $userId);
+        $scope    = $ceiling ? $ceiling->withFilters(null, $userId) : new PerformanceScope($agencyId, null, $userId);
         $current  = $this->build($scope, $period);
         $previous = $this->build($scope, $period->previous());
 
@@ -196,9 +196,9 @@ class AgencyPerformanceReportService
      * which can differ after a move). $branchKey is a numeric branch id or the
      * 'unassigned' sentinel. Returns ['branch' => null] for an unknown branch.
      */
-    public function branchJourney(int $agencyId, string $branchKey, Period $period): array
+    public function branchJourney(int $agencyId, string $branchKey, Period $period, ?PerformanceScope $ceiling = null): array
     {
-        $scope    = new PerformanceScope($agencyId);
+        $scope    = $ceiling ? $ceiling->withFilters(null, null) : new PerformanceScope($agencyId);
         $current  = $this->build($scope, $period);
         $previous = $this->build($scope, $period->previous());
 

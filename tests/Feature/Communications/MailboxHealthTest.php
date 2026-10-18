@@ -231,6 +231,9 @@ final class MailboxHealthTest extends TestCase
                     public function query() { return $this; }
                     public function since($d) { return $this; }
                     public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now
+                    public function search() { return $this; }
+                    public function count() { return 0; }
+                    public function limit($perPage, $page = 1) { return $this; }
                     public function get() { return []; }
                 };
 
@@ -349,7 +352,11 @@ final class MailboxHealthTest extends TestCase
                     public function query() { return $this; }
                     public function since($d) { return $this; }
                     public function setFetchBody($b) { return $this; } // AT-257: poller fetches UIDs-only now
-                    public function get() { sleep(5); return []; }
+                    // First real network read is the poller's search()->count() — that is where it hangs.
+                    public function search() { sleep(5); return $this; }
+                    public function count() { return 1; } // answers late — the budget has already expired
+                    public function limit($perPage, $page = 1) { return $this; }
+                    public function get() { return []; }
                 };
 
                 return new class ($folder) {
@@ -404,7 +411,11 @@ final class MailboxHealthTest extends TestCase
                     public function query() { return $this; }
                     public function since($d) { return $this; }
                     public function setFetchBody($b) { return $this; }
-                    public function get() { sleep(5); return []; }
+                    // First real network read is the poller's search()->count() — that is where it hangs.
+                    public function search() { sleep(5); return $this; }
+                    public function count() { return 1; } // answers late — the budget has already expired
+                    public function limit($perPage, $page = 1) { return $this; }
+                    public function get() { return []; }
                 };
 
                 return new class ($folder) {

@@ -22,6 +22,20 @@ class Agency extends Model
      */
     protected static function booted(): void
     {
+        // The letters this agency's own document numbers start with (payslips: "<code>-202610-001"). Always present: typed
+        // by the agency, else worked out from its name; never a code another agency already uses. See App\Support\AgencyShortCode.
+        static::saving(function (Agency $agency) {
+            // an older migration that saves an Agency runs before the column exists on a fresh database
+            if (! \App\Support\AgencyShortCode::columnExists()) {
+                return;
+            }
+            if ($agency->exists && ! $agency->isDirty('short_code') && $agency->short_code) {
+                return;
+            }
+            $wanted = \App\Support\AgencyShortCode::clean($agency->short_code) ?? \App\Support\AgencyShortCode::fromName($agency->name);
+            $agency->short_code = \App\Support\AgencyShortCode::unique($wanted, $agency->exists ? (int) $agency->getKey() : null);
+        });
+
         static::created(function (Agency $agency) {
             \App\Services\RoleProvisioningService::provisionForAgency($agency);
         });
@@ -166,24 +180,12 @@ class Agency extends Model
         return (int) ($this->pp_max_photos ?? self::PP_DEFAULT_MAX_PHOTOS);
     }
 
-    /**
-     * AI monthly budget status constants. Returned by aiBudgetStatus().
-     * Drives the per-agency AI budget UI banner and the AnthropicGateway
-     * pre-call gate (capped = no further calls).
-     */
-    public const AI_BUDGET_STATUS_HEALTHY  = 'healthy';
-    public const AI_BUDGET_STATUS_WARNING  = 'warning';
-    public const AI_BUDGET_STATUS_CRITICAL = 'critical';
-    public const AI_BUDGET_STATUS_CAPPED   = 'capped';
-
     protected $fillable = [
         'name',
         'slug',
         'financial_year_start_month', // PPRA Inspection Pack item (j) — .ai/specs/ppra-inspection-pack.md §6.7
         'fica_referral_enabled', // AT-236 — is "Refer to CO" available (default ON)
         'fica_referral_recipient_user_id', // AT-236 — CO who receives referrals (null = primary CO)
-        'fica_link_days', // Quick Links W1 — validity (days) of the secure link in a FICA request email (default 14)
-        'fica_expiring_after_months', // Quick Links W1 — months after approval at which FICA shows "expiring" (default 11)
         'payroll_default_cut_day', // AT-237 — default run cut day-of-month (null => full month)
         'payroll_default_daily_rate_basis', // AT-237 — default proration basis for employees not individually set
         'wa_history_backfill', // AT-135 — read-only WA body backfill toggle
@@ -214,6 +216,11 @@ class Agency extends Model
         'reg_no',
         'vat_no',
         'vat_registered',
+        'vat_capture_mode',
+        'short_code', // letters that start this agency's document numbers (payslips) - App\Support\AgencyShortCode; blank = from the name
+        'agency_type', // sales | rentals | both — config/agency-types.php; seeds the feature switches
+        'vat_settings_updated_at',
+        'vat_settings_updated_by_user_id',
         'ffc_no',
         'ppra_number',
         'ncc_registration_number',
@@ -244,6 +251,10 @@ class Agency extends Model
         'require_external_access_authorization',
         'dashboard_settings_mode',
         'split_branches_enabled',
+        // .ai/specs/other-agency-stock.md §6 — which roles may see Other Agency
+        // Stock properties. null/[] = all roles (default, so rollout hides nothing).
+        'other_agency_stock_visible_roles',
+        'other_agency_stock_consent_wording',
         // .ai/specs/ppra-ffc-employment-letter.md §11 — the letter's "RE:" addressee block (null = PPRA's own
         // address). Was never mass-assignable, so SettingsController::savePpraEmploymentLetterSettings'
         // update() silently discarded it (found 2026-10-07 wiring the Setup Wizard control).
@@ -314,13 +325,11 @@ class Agency extends Model
         // Provisional outbound reconciliation knobs (AT-59).
         'communication_reconcile_window_minutes',
         'communication_provisional_prune_hours',
-        // MIC Phase B2 — per-agency AI monthly budget cap.
-        'ai_monthly_budget_zar',
-        'ai_budget_warning_pct',
-        'ai_budget_hard_cap_pct',
-        'ai_budget_overage_allowed',
-        'ai_budget_last_warned_at',
-        'ai_budget_last_hard_stopped_at',
+        // ai_monthly_budget_zar / ai_budget_* — RETIRED by AT-456 (AI Spend Safety
+        // replaced the monthly budget). Columns left in place, unused, until a
+        // later cleanup drops them; deliberately not fillable or cast any more.
+        // The ai_paused_at / ai_resumed_at / ai_alert_last_sent_at state is
+        // written only by AiSpendGuard (query builder), never mass-assigned.
         // Presentations V2 Phase 2 — CMA coverage thresholds.
         'presentations_coverage_rich_threshold',
         'presentations_coverage_moderate_threshold',
@@ -422,13 +431,16 @@ class Agency extends Model
     public const BRANCH_ORDER_ALPHABETICAL = 'alphabetical';
     public const BRANCH_ORDER_CUSTOM       = 'custom';
 
+    /** Agency VAT set-up — whether prices this agency captures are excl. or incl. VAT. */
+    public const VAT_CAPTURE_EXCL = 'excl';
+    public const VAT_CAPTURE_INCL = 'incl';
+
     protected $casts = [
         'is_active' => 'boolean',
         'is_demo' => 'boolean',
         'fica_referral_enabled' => 'boolean', // AT-236
-        'fica_link_days' => 'integer', // Quick Links W1
-        'fica_expiring_after_months' => 'integer', // Quick Links W1
         'vat_registered' => 'boolean',
+        'vat_settings_updated_at' => 'datetime',
         'payroll_default_cut_day' => 'integer', // AT-237
 
         'wa_history_backfill' => 'boolean', // AT-135 — read-only WA body backfill toggle (default on)
@@ -485,13 +497,13 @@ class Agency extends Model
         'communication_ingest_blocklist_domains' => 'array',
         'communication_reconcile_window_minutes' => 'integer',
         'communication_provisional_prune_hours'  => 'integer',
-        // MIC Phase B2 — AI budget casts.
-        'ai_monthly_budget_zar'          => 'decimal:2',
-        'ai_budget_warning_pct'          => 'integer',
-        'ai_budget_hard_cap_pct'         => 'integer',
-        'ai_budget_overage_allowed'      => 'boolean',
-        'ai_budget_last_warned_at'       => 'datetime',
-        'ai_budget_last_hard_stopped_at' => 'datetime',
+        // AT-456 AI Spend Safety state (written by AiSpendGuard).
+        'ai_paused_at'          => 'datetime',
+        'ai_paused_spend_zar'   => 'decimal:4',
+        'ai_resumed_at'         => 'datetime',
+        'ai_alert_last_sent_at' => 'datetime',
+        // AT-456 Part B — owner-set per-agency cap on AI template ideas per calendar month.
+        'ai_template_monthly_limit' => 'integer',
         // Presentations V2 Phase 2.
         'presentations_coverage_rich_threshold'     => 'integer',
         'presentations_coverage_moderate_threshold' => 'integer',
@@ -610,10 +622,10 @@ class Agency extends Model
      * Sum of cost_zar in the unified AI cost ledger (ai_usage_events)
      * attributed to this agency for the given month (default = current month).
      *
-     * Reads the ledger, not ai_narrative_cache, so the budget cap sees EVERY
-     * AI surface — mobile voice, image analysis, DocuPerfect, marketing copy,
-     * presentation evidence — not just the MIC narrative gateway. This is the
-     * line that makes canMakeAiCall() honest (spec ai-cost-ledger.md §4.4).
+     * Reads the ledger, not ai_narrative_cache, so it sees EVERY AI surface —
+     * mobile voice, image analysis, DocuPerfect, marketing copy, presentation
+     * evidence — not just the MIC narrative gateway. Shown as "Spend — this
+     * month" on the AI usage page; enforcement is AiSpendGuard's (AT-456).
      */
     public function aiBudgetUsedZar(?\Carbon\Carbon $month = null): float
     {
@@ -625,58 +637,6 @@ class Agency extends Model
                 $month->copy()->endOfMonth(),
             ])
             ->sum('cost_zar');
-    }
-
-    /**
-     * Used / budget × 100. Returns 0 when budget is zero (avoid div-by-zero).
-     */
-    public function aiBudgetUsedPct(?\Carbon\Carbon $month = null): float
-    {
-        $budget = (float) ($this->ai_monthly_budget_zar ?? 0);
-        if ($budget <= 0) return 0.0;
-        return round(($this->aiBudgetUsedZar($month) / $budget) * 100, 2);
-    }
-
-    /**
-     * ZAR remaining in the month (negative when overage allowed + exceeded).
-     */
-    public function aiBudgetRemaining(?\Carbon\Carbon $month = null): float
-    {
-        return (float) ($this->ai_monthly_budget_zar ?? 0) - $this->aiBudgetUsedZar($month);
-    }
-
-    /**
-     * Budget status:
-     *   healthy  — usage < warning_pct
-     *   warning  — warning_pct ≤ usage < (warning_pct + critical-band-width). Default: 80–94.99%.
-     *   critical — 95% ≤ usage < hard_cap_pct
-     *   capped   — usage ≥ hard_cap_pct AND overage not allowed
-     */
-    public function aiBudgetStatus(?\Carbon\Carbon $month = null): string
-    {
-        $used = $this->aiBudgetUsedPct($month);
-        $warn = (int) ($this->ai_budget_warning_pct ?? 80);
-        $hard = (int) ($this->ai_budget_hard_cap_pct ?? 110);
-
-        if ($used >= $hard && !$this->ai_budget_overage_allowed) {
-            return self::AI_BUDGET_STATUS_CAPPED;
-        }
-        if ($used >= 95) {
-            return self::AI_BUDGET_STATUS_CRITICAL;
-        }
-        if ($used >= $warn) {
-            return self::AI_BUDGET_STATUS_WARNING;
-        }
-        return self::AI_BUDGET_STATUS_HEALTHY;
-    }
-
-    /**
-     * Whether this agency may make further AI calls right now.
-     * False only when status=capped (hard cap reached AND overage disallowed).
-     */
-    public function canMakeAiCall(?\Carbon\Carbon $month = null): bool
-    {
-        return $this->aiBudgetStatus($month) !== self::AI_BUDGET_STATUS_CAPPED;
     }
 
     public function branches(): HasMany
@@ -748,6 +708,17 @@ class Agency extends Model
     public function oneEmailUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
     {
         return $this->belongsTo(User::class, 'one_email_user_id');
+    }
+
+    /** Agency VAT set-up audit trail — who last changed vat_registered/vat_capture_mode/vat_no, and when. */
+    public function vatSettingsUpdatedByUser(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(User::class, 'vat_settings_updated_by_user_id');
+    }
+
+    public function rentalVatTypes(): HasMany
+    {
+        return $this->hasMany(RentalVatType::class);
     }
 
     /** Website API keys (one per agency website). Spec: agency-public-api.md §3.5. */
@@ -914,12 +885,21 @@ class Agency extends Model
      *
      * @return array{name:string, logoUrl:?string, colors:array{sidebar:string,icon:string,default:string,button:string}}
      */
+    /**
+     * The name a customer reads (contractor, owner, tenant): the agency's own name. `trading_name` is only the "trading as" extra and may be
+     * half-filled ("Johan and Elize Properties T/A"), so it is never used on its own. The same name `publicBrandingFor()` gives the portal.
+     */
+    public static function displayNameFor(?self $agency, string $fallback = 'Your agency'): string
+    {
+        return trim((string) $agency?->name) !== '' ? trim((string) $agency->name) : (trim((string) $agency?->trading_name) !== '' ? trim((string) $agency->trading_name) : $fallback);
+    }
+
     public static function publicBrandingFor(int $agencyId): array
     {
         $a = static::withoutGlobalScopes()->find($agencyId);
 
         return [
-            'name'    => ($a && $a->name) ? (string) $a->name : 'our agency',
+            'name'    => static::displayNameFor($a, 'our agency'),
             'logoUrl' => ($a && $a->logo_path) ? asset('storage/' . $a->logo_path) : null,
             'colors'  => [
                 'sidebar' => ($a && $a->sidebar_color) ? $a->sidebar_color : '#0b2a4a',
@@ -1098,38 +1078,5 @@ class Agency extends Model
         $lang = (string) ($this->wa_transcription_language ?? '');
 
         return array_key_exists($lang, self::TRANSCRIPTION_LANGUAGES) ? $lang : 'auto';
-    }
-
-    /**
-     * Quick Links W1 — validity of the secure link in a FICA request email, in days. Per-agency (Settings → FICA, and
-     * the Setup Wizard's Compliance step); unset/odd values fall back to the historical 14.
-     */
-    public function ficaLinkDays(): int
-    {
-        $d = (int) ($this->fica_link_days ?? 0);
-
-        return $d >= 1 ? min($d, 90) : 14;
-    }
-
-    /** Months after approval at which a contact's FICA shows "expiring" (historical default 11). */
-    public function ficaExpiringAfterMonths(): int
-    {
-        $m = (int) ($this->fica_expiring_after_months ?? 0);
-
-        return $m >= 1 ? min($m, 60) : 11;
-    }
-
-    /**
-     * "Expiring after N months" for an agency id. List pages ask once per row, so this goes through Agency::find(), which is
-     * already memoised per request/job AND refreshed on every save (see $findMemo) — no second cache to go stale.
-     */
-    public static function ficaExpiringMonthsFor(?int $agencyId): int
-    {
-        if (! $agencyId) {
-            return 11;
-        }
-        $agency = static::find($agencyId);
-
-        return $agency ? $agency->ficaExpiringAfterMonths() : 11;
     }
 }

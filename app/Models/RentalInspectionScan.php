@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -20,6 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 class RentalInspectionScan extends Model
 {
     use BelongsToAgency;
+    use BelongsToBranch, InheritsBranchFromParent;
     use SoftDeletes;
 
     public const STATUS_PROCESSING = 'processing';
@@ -84,5 +87,11 @@ class RentalInspectionScan extends Model
     {
         $this->forceFill(['archived_by_user_id' => $by->id])->save();
         $this->delete();
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\RentalInspectionForm::class, 'rental_inspection_form_id'];
     }
 }

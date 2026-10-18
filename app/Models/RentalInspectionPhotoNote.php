@@ -100,7 +100,11 @@ class RentalInspectionPhotoNote extends Model
     public static function assertMutable(RentalInspection $inspection): void
     {
         if (in_array($inspection->status, [RentalInspection::STATUS_COMPLETED, RentalInspection::STATUS_CANCELLED], true)) {
-            throw new \LogicException('This inspection is completed and signed — its photo notes are read-only.');
+            throw new \LogicException('This inspection is completed and signed — its photo notes are read-only. It has been sent to the parties, so the only way to correct it is a new inspection that replaces it.');
+        }
+        // §47 — a signed report is locked: its photo notes too.
+        if ($inspection->isSignedLocked()) {
+            throw new \App\Exceptions\RentalInspectionSignedLockedException();
         }
     }
 

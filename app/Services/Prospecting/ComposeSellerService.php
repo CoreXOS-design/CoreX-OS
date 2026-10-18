@@ -454,7 +454,7 @@ class ComposeSellerService
     /** A one-line display address for a deeds tracked property (deeds-office authoritative). */
     public function deedAddressLine(TrackedProperty $tp): string
     {
-        $street = trim(implode(' ', array_filter([$tp->street_number, $tp->street_name])));
+        $street = $tp->streetLine();
         $scheme = $tp->scheme_name ?: $tp->complex_name;
 
         return trim(implode(', ', array_filter([$street, $scheme, $tp->suburb]))) ?: (string) ($tp->town ?? '');

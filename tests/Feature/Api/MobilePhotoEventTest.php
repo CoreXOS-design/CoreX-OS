@@ -116,6 +116,7 @@ class MobilePhotoEventTest extends TestCase
         $otherBranch = Branch::create(['agency_id' => $other->id, 'name' => 'Main']);
         $otherProperty = Property::create([
             'agency_id' => $other->id, 'branch_id' => $otherBranch->id,
+            'agent_id' => User::factory()->create(['agency_id' => $other->id, 'branch_id' => $otherBranch->id])->id,
             'title' => 'Not yours', 'suburb' => 'Ramsgate', 'property_type' => 'house',
             'listing_type' => 'sale', 'status' => 'active', 'price' => 1000000,
         ]);

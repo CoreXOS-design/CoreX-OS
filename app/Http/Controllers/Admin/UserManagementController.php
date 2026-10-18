@@ -229,6 +229,10 @@ class UserManagementController extends Controller
             'test_agent'      => ['nullable', 'in:0,1'],
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
+            // Admin Multi-Branch Manager — same fields, same rules as update().
+            'managed_branches'   => ['nullable', 'array'],
+            'managed_branches.*' => ['integer'],
+            'default_branch_id'  => ['nullable', 'integer'],
         ], $asSubUser ? $this->subUserMessages($request->input('email')) : []);
 
         // The owner role cannot be created through user management.
@@ -372,6 +376,9 @@ class UserManagementController extends Controller
             );
         }
 
+        // Branches managed — saved on create exactly as on edit.
+        $this->applyManagedBranches($user, (string) $data['role'], $data);
+
         // File uploads
         if ($request->hasFile('agent_photo')) {
             // One service keeps the file, the user_documents row and the legacy
@@ -467,6 +474,29 @@ class UserManagementController extends Controller
             ->with('invite_username', $user->email);
     }
 
+    /**
+     * Admin Multi-Branch Manager — the ONE place create and edit save "Branches managed".
+     * Only admins can manage several branches and act as their manager. The user's real
+     * agency is resolved from the saved user (never the editor's session) so foreign
+     * branches are rejected; anyone not in an admin role has their assignments cleared.
+     */
+    private function applyManagedBranches(User $user, string $role, array $data): void
+    {
+        if (in_array($role, ['admin', 'super_admin'], true)) {
+            $agencyId = $user->agency_id ?: optional(Branch::find($user->branch_id))->agency_id;
+            $user->syncManagedBranches(
+                $data['managed_branches'] ?? [],
+                $data['default_branch_id'] ?? null,
+                $agencyId ? (int) $agencyId : null
+            );
+
+            return;
+        }
+
+        // Not (or no longer) an admin role → drop any managed-branch assignments.
+        DB::table('user_managed_branches')->where('user_id', $user->id)->delete();
+    }
+
     public function edit(User $user)
     {
         abort_unless(auth()->user()?->hasPermission('manage_users'), 403);
@@ -552,6 +582,11 @@ class UserManagementController extends Controller
             'password'        => array_merge(['nullable', 'string', 'min:8'], $subUserPasswordRules),
             'show_on_website' => ['nullable', 'in:0,1'],
             'exclude_from_p24' => ['nullable', 'in:0,1'],
+            // Admin Multi-Branch Manager — branches this user manages + the one
+            // they log in as (default). Only honoured for admin roles below.
+            'managed_branches'   => ['nullable', 'array'],
+            'managed_branches.*' => ['integer'],
+            'default_branch_id'  => ['nullable', 'integer'],
         ], $asSubUser ? $this->subUserMessages($request->input('email')) + [
             'password.min'       => 'The temporary password must be at least 8 characters.',
             'password.confirmed' => 'The two temporary passwords do not match.',
@@ -658,6 +693,8 @@ class UserManagementController extends Controller
                 ? 'That username was just taken by someone else — please choose another.'
                 : 'That email address was just taken by someone else.']);
         }
+
+        $this->applyManagedBranches($user, (string) $data['role'], $data);
 
         // ── Domain events (spec corex-domain-events-spec.md) ─────────────────
         $fresh = $user->fresh() ?? $user;

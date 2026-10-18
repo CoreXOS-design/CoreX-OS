@@ -136,6 +136,10 @@ class BuyerPortalRedesignTest extends TestCase
         $prop = $this->makeProperty();
         $this->cacheMatch($contact->id, $prop->id, 100, 'perfect');
         $token = $this->link($contact->id);
+        // A card only shows a photo when the original actually exists on disk (a missing original renders the
+        // placeholder, never a broken image) — so give the fixture a real file.
+        \Illuminate\Support\Facades\Storage::fake('public');
+        \Illuminate\Support\Facades\Storage::disk('public')->put('properties/1/photo.jpg', 'x');
 
         $res = $this->get("/buyer/portal/{$token}");
 
@@ -209,7 +213,7 @@ class BuyerPortalRedesignTest extends TestCase
 
         $this->get("/buyer/portal/{$token}")
             ->assertStatus(410)
-            ->assertSee('no longer active', false);
+            ->assertSee("this link isn't active any more");
     }
 
     /**
@@ -357,6 +361,28 @@ class BuyerPortalRedesignTest extends TestCase
         $res = $this->get("/buyer/portal/{$token}");
         $res->assertStatus(200);
         $res->assertDontSee('Since-archived home', false); // gracefully skipped
+    }
+
+    /**
+     * An archived listing (status 'archived', row not trashed) never shows on the public page,
+     * and is not counted in the "N properties we think you'll like" headline either — while a
+     * live match beside it still shows. The cached match row outlives the archiving.
+     */
+    public function test_status_archived_listing_is_hidden_and_not_counted(): void
+    {
+        $contact = $this->makeContact();
+        $this->wishlist($contact->id, ['price_min' => 650000, 'price_max' => 900000]);
+        $archived = $this->makeProperty(['title' => 'Archived by status home', 'status' => 'archived']);
+        $live = $this->makeProperty(['title' => 'Still on the market home']);
+        $this->cacheMatch($contact->id, $archived->id, 99, 'perfect');
+        $this->cacheMatch($contact->id, $live->id, 90, 'perfect');
+        $token = $this->link($contact->id);
+
+        $res = $this->get("/buyer/portal/{$token}");
+        $res->assertStatus(200);
+        $res->assertDontSee('Archived by status home', false);
+        $res->assertSee('Still on the market home', false);
+        $res->assertSee('1 property we think you', false);
     }
 
     /** ISOLATION: only this buyer's matched properties appear. */

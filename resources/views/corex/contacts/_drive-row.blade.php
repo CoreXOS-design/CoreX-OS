@@ -17,9 +17,9 @@
     <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
             @if($doc->documentType)
-            <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded" style="background:var(--brand-icon, #0ea5e9); color:#fff; opacity:0.85;">{{ $doc->documentType->label }}</span>
+            <span class="ds-badge ds-badge-pill ds-badge-info">{{ $doc->documentType->label }}</span>
             @else
-            <span class="inline-block text-[10px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted); border:1px solid var(--border);">Untagged</span>
+            <span class="ds-badge ds-badge-pill ds-badge-default">Untagged</span>
             @endif
             <span class="text-sm font-medium truncate" style="color:var(--text-primary);">{{ $doc->original_name }}</span>
         </div>

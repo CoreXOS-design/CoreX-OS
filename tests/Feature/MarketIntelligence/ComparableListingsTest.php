@@ -24,6 +24,8 @@ class ComparableListingsTest extends TestCase
     use RefreshDatabase;
 
     private Agency $agency;
+    private \App\Models\User $agent;
+    private \App\Models\Branch $branch;
     private PropertyIntelligenceService $svc;
 
     protected function setUp(): void
@@ -31,12 +33,16 @@ class ComparableListingsTest extends TestCase
         parent::setUp();
         $this->agency = Agency::create(['name' => 'HFC', 'slug' => 'hfc-' . uniqid()]);
         $this->svc = app(PropertyIntelligenceService::class);
+        $this->branch = \App\Models\Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
+        $this->agent = \App\Models\User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
     }
 
     private function prop(array $extra = []): Property
     {
         return Property::withoutGlobalScope(AgencyScope::class)->create(array_merge([
             'agency_id' => $this->agency->id,
+            'agent_id' => $this->agent->id,
+            'branch_id' => $this->branch->id,
             'external_id' => (string) Str::uuid(),
             'title' => 'Listing ' . Str::random(4),
             'suburb' => 'Margate',
@@ -44,28 +50,27 @@ class ComparableListingsTest extends TestCase
             'status' => 'active',
             'listing_type' => 'sale',
             'price' => 900000,
+            'beds' => 2, 'baths' => 1, 'size_m2' => 80, // the comparability scorer needs real attributes (min score 50)
             'published_at' => now(),
         ], $extra));
     }
 
-    /** A rental subject: comparables are rentals priced off rental_amount — no R0, no sales. */
-    public function test_rental_comparables_use_rental_amount_and_exclude_sales(): void
+    /**
+     * AT-400 (Johan, 2026-09-10): "we dont need to compare like sales to other properties" for a rental — CoreX has
+     * no rental comp data the way it has sale comp data, so a rental subject has NO comparables. This used to
+     * assert rental-priced comparables; the ruling retired that. What must still hold: nothing leaks in — no sale
+     * under a rental subject, never an R0 card — even with a perfectly good rental neighbour sitting next to it.
+     */
+    public function test_a_rental_subject_has_no_comparables_and_no_sale_leaks_in(): void
     {
         $subject = $this->prop(['listing_type' => 'rental', 'price' => 0, 'rental_amount' => 6135]);
 
-        $rentalComp = $this->prop(['title' => 'Flat to let', 'listing_type' => 'rental', 'price' => 0, 'rental_amount' => 7250]);
-        $saleComp   = $this->prop(['title' => 'House for sale', 'listing_type' => 'sale', 'price' => 1500000]);
+        $this->prop(['title' => 'Flat to let', 'listing_type' => 'rental', 'price' => 0, 'rental_amount' => 7250]);
+        $this->prop(['title' => 'House for sale', 'listing_type' => 'sale', 'price' => 1500000]);
 
         $comps = $this->svc->getComparableListings($subject->id);
-        $ids = $comps->pluck('id')->all();
 
-        // The rental comparable is present, priced off rental_amount (not R0).
-        $this->assertContains($rentalComp->id, $ids);
-        $this->assertSame(7250.0, (float) $comps->firstWhere('id', $rentalComp->id)['price']);
-        // The sale is NOT surfaced under a rental subject.
-        $this->assertNotContains($saleComp->id, $ids);
-        // Never an R0 card.
-        $this->assertFalse($comps->contains(fn ($c) => ($c['price'] ?? 0) <= 0));
+        $this->assertTrue($comps->isEmpty(), 'a rental is never comparable (AT-400)');
     }
 
     /** A sale subject: comparables are sales priced off `price` — no rentals leak in. */

@@ -59,6 +59,11 @@ return Application::configure(basePath: dirname(__DIR__))
             // AT-423 — a sub-user whose password an admin reset must choose a new one first.
             // Inert (one boolean) for everyone else.
             \App\Http\Middleware\EnsurePasswordChanged::class,
+            // Features on/off (2026-10-07) — 404 a signed-in request to a route whose owning
+            // feature the agency has switched off. GLOBAL and registry-driven on purpose: the
+            // per-group `feature:` middleware only covers groups someone remembered to decorate,
+            // and a toggle that hides the sidebar link while the URL still opens is a silent no-op.
+            \App\Http\Middleware\EnforceFeatureRoutes::class,
         ]);
 
         // AT-321 — attribute API-driven property writes (mobile app etc.) too.
@@ -102,6 +107,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 'auth.wa_capture' => \App\Http\Middleware\AuthenticateWaCapture::class,
                 'waha.webhook' => \App\Http\Middleware\VerifyWahaWebhook::class,
                 'permission' => \App\Http\Middleware\CheckPermission::class,
+                // leases.md §15.8.4 (Build L3c) — a lease agreement's final approval checks the document against its lease.
+                'lease.agreement.confirmed' => \App\Http\Middleware\EnsureLeaseAgreementConfirmed::class,
                 // Per-agency feature gate — orthogonal to permission; 404s when a
                 // feature is off. Spec: .ai/specs/corex-feature-registry.md §6.3.
                 'feature' => \App\Http\Middleware\CheckFeature::class,
@@ -122,7 +129,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
+                'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,
+                'rental-portal.enabled' => \App\Http\Middleware\EnsureRentalPortalEnabled::class, // AT-445
+                'portal.once' => \App\Http\Middleware\EnsurePortalSubmissionOnce::class, // rental-portal-access.md §22 — one press does its work once
+                'portal.role' => \App\Http\Middleware\EnsurePortalRole::class, // rental-portal-access.md "QA demo sign-in" — a tab given a side acts on that side only
+                'portal.same-login' => \App\Http\Middleware\EnsurePortalSameLogin::class, // rental-portal-access.md §28 — a portal page only acts as the person it shows
+                'portal.photos' => \App\Http\Middleware\EnforcePortalPhotoLimits::class, // rental-portal-access.md §22 — the agency's fault-photo limits
                 // Agency Public API (website API)
                 'website.live' => \App\Http\Middleware\EnsureAgencyWebsiteLive::class,
                 'website.scope' => \App\Http\Middleware\EnsureWebsiteApiScope::class,
@@ -161,6 +174,9 @@ return Application::configure(basePath: dirname(__DIR__))
             // Agency Timeline public page: the 48-char token is the credential and the tick is
             // idempotent (an expired session would otherwise bounce the agency to the CoreX login).
             'agency-timeline/*/steps/*',
+            // §46 — a party signing an inspection from their personal link: the token is the credential and
+            // there is no session to protect. (The agent's own "sign on this device" POST is NOT excepted.)
+            'rental-inspection-sign/*/submit',
             // AT-450 — a collector signing a title deed receipt from their one-time link (token is the credential, no session).
             'title-deed-sign/*/submit',
         ]);
@@ -190,6 +206,24 @@ return Application::configure(basePath: dirname(__DIR__))
                 return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
             }
             return back()->withErrors(['property' => $e->getMessage()])->withInput();
+        });
+
+        // Johan's ruling (2026-10-05) — a property with an active lease must never be
+        // archived. PropertyObserver::deleting() throws this for every soft-delete/
+        // force-delete call; land the user on the lease itself (the "link to the
+        // lease" the ruling asks for) rather than a generic back(), since back() from
+        // a bulk-skip context wouldn't point anywhere useful.
+        $exceptions->render(function (\App\Exceptions\PropertyHasActiveLeaseException $e, $request) {
+            $lease = $e->lease();
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'ok'        => false,
+                    'error'     => $e->getMessage(),
+                    'lease_id'  => $lease->id,
+                    'lease_url' => route('corex.leases.show', $lease),
+                ], 422);
+            }
+            return redirect()->route('corex.leases.show', $lease)->with('error', $e->getMessage());
         });
 
         // 419 session-expired UX: instead of the bare Laravel 419 page, send
@@ -275,7 +309,13 @@ return Application::configure(basePath: dirname(__DIR__))
                 // THROWN abort(410) does) — that path is untouched by this.
                 return response()->view($isAuthed ? 'errors.404-app' : 'errors.404-guest', [], 410);
             }
-            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', [], 403);
+            // A signed-in user is told the plain reason when the code gave one ("You created this application ...").
+            $reason = $isAuthed ? trim((string) $e->getMessage()) : '';
+            if (in_array($reason, ['', 'Forbidden', 'This action is unauthorized.'], true)) {
+                $reason = '';
+            }
+
+            return response()->view($isAuthed ? 'errors.403-app' : 'errors.403-guest', ['reason' => $reason], 403);
         });
 
         $exceptions->reportable(function (\Throwable $e) {

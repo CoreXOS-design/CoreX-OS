@@ -1,0 +1,16 @@
+[Unit]
+Description=CoreX QA1 (corex_qa1) Laravel queue worker — QA-scoped, do not use for live/staging
+After=network.target mysql.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=3
+WorkingDirectory=/corex-qa1
+ExecStart=/usr/bin/php /corex-qa1/artisan queue:work --queue=default,p24import,p24images,matching,bg_removal,webhooks --sleep=3 --tries=3 --max-time=3600
+StandardOutput=append:/var/log/corex-qa1-queue.log
+StandardError=append:/var/log/corex-qa1-queue.log
+
+[Install]
+WantedBy=multi-user.target

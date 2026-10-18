@@ -40,6 +40,7 @@ class FeaturePageController extends Controller
             'grouped'   => $grouped,
             'items'     => $items,
             'catalogue' => $catalogue,
+            'agencyType' => \App\Services\Features\AgencyTypeFeatureSeeder::normalise(\App\Models\Agency::find(auth()->user()->effectiveAgencyId())?->agency_type),
         ]);
     }
 }

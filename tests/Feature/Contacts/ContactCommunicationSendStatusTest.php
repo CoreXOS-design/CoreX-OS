@@ -7,6 +7,7 @@ namespace Tests\Feature\Contacts;
 use App\Models\Communications\Communication;
 use App\Models\Contact;
 use App\Models\User;
+use App\Services\Communications\CommunicationSendStatusService;
 use App\Services\Communications\OutboundProvisionalLogger;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -15,9 +16,13 @@ use Tests\TestCase;
 
 /**
  * Contact-details Phase 4 — outreach could-not-send flow: flag a send as
- * not_delivered, reselect a different number/email and resend, revert, and
- * confirm none of this ever leaves a failed single send counted as
- * "communicated".
+ * not_delivered, reselect a different number/email and resend, and confirm none
+ * of this ever leaves a failed single send counted as "communicated".
+ *
+ * AT-323 (b2e75cfc7) reshaped the way back: there is NO "Revert" route — the modal's
+ * "Yes, I sent it" (`…/mark-sent`) is the ONLY path to sent — and "Resend" is no longer
+ * a server route (it re-runs the whole send flow in the browser); the linked-row
+ * bookkeeping lives in CommunicationSendStatusService::resend(), tested directly here.
  */
 final class ContactCommunicationSendStatusTest extends TestCase
 {
@@ -74,16 +79,16 @@ final class ContactCommunicationSendStatusTest extends TestCase
         $this->assertSame($this->agent->id, $comm->fresh()->send_status_set_by_user_id);
     }
 
-    /** Reverting a not_delivered flag restores the count and last_contacted_at. */
-    public function test_reverting_restores_count_and_last_contacted(): void
+    /** "Yes, I sent it" (the modal's answer) is the one path back to sent: it restores the count and last_contacted_at. */
+    public function test_confirming_sent_restores_count_and_last_contacted(): void
     {
         $comm = $this->logSend();
         $this->post(route('corex.contacts.communications.not-delivered', [$this->contact, $comm]));
         $this->contact->refresh();
         $this->assertNull($this->contact->last_contacted_at);
 
-        $this->post(route('corex.contacts.communications.revert', [$this->contact, $comm]))
-            ->assertSessionHasNoErrors();
+        $this->postJson(route('corex.contacts.communications.mark-sent', [$this->contact, $comm]))
+            ->assertOk()->assertJson(['ok' => true, 'count' => 1]);
 
         $this->contact->refresh();
         $this->assertNotNull($this->contact->last_contacted_at);
@@ -94,16 +99,10 @@ final class ContactCommunicationSendStatusTest extends TestCase
     /** Resend creates a linked NEW row to the reselected number; the original is untouched. */
     public function test_resend_creates_a_linked_new_row_to_the_reselected_number(): void
     {
-        $altPhone = $this->contact->phones()->create([
-            'agency_id' => $this->agencyId, 'phone' => '0829999999', 'is_primary' => false,
-        ]);
-
         $comm = $this->logSend();
         $this->post(route('corex.contacts.communications.not-delivered', [$this->contact, $comm]));
 
-        $this->post(route('corex.contacts.communications.resend', [$this->contact, $comm]), [
-            'contact_phone_id' => $altPhone->id,
-        ])->assertSessionHasNoErrors();
+        app(CommunicationSendStatusService::class)->resend($comm->fresh(), $this->contact, '0829999999', null, 'Hi there', $this->agent->id);
 
         $this->assertSame(Communication::SEND_STATUS_NOT_DELIVERED, $comm->fresh()->send_status, 'original is never modified');
 
@@ -115,17 +114,15 @@ final class ContactCommunicationSendStatusTest extends TestCase
         $this->assertSame(1, $this->contact->outboundCommCount(Communication::CHANNEL_WHATSAPP), 'only the resend counts, not the failed original');
     }
 
-    /** A not-delivered send can only be resent (not a still-sent one). */
-    public function test_resend_is_rejected_for_a_send_that_was_never_flagged(): void
+    /**
+     * AT-323 INVARIANT 3 — no false-sent path. The old "Revert to sent" and the silent server-side "Resend" (which recorded a
+     * sent row with no modal) were removed; this keeps them removed. The only way to sent is `mark-sent` (the modal's "Yes").
+     */
+    public function test_there_is_no_revert_or_silent_resend_route_only_the_modal_confirmation(): void
     {
-        $altPhone = $this->contact->phones()->create([
-            'agency_id' => $this->agencyId, 'phone' => '0829999999', 'is_primary' => false,
-        ]);
-        $comm = $this->logSend();
-
-        $this->postJson(route('corex.contacts.communications.resend', [$this->contact, $comm]), [
-            'contact_phone_id' => $altPhone->id,
-        ])->assertStatus(400);
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.contacts.communications.revert'));
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.contacts.communications.resend'));
+        $this->assertTrue(\Illuminate\Support\Facades\Route::has('corex.contacts.communications.mark-sent'));
     }
 
     /** Each status transition is recorded in domain_event_log (the "created → flagged → resent" audit chain). */
@@ -141,7 +138,7 @@ final class ContactCommunicationSendStatusTest extends TestCase
             'actor_user_id' => $this->agent->id,
         ]);
 
-        $this->post(route('corex.contacts.communications.revert', [$this->contact, $comm]));
+        $this->postJson(route('corex.contacts.communications.mark-sent', [$this->contact, $comm]))->assertOk();
         $this->assertDatabaseHas('domain_event_log', [
             'event_name' => \App\Events\Communication\CommunicationSendStatusReverted::class,
             'subject_id' => $this->contact->id,

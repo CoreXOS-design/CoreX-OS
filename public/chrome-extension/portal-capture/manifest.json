@@ -3,6 +3,7 @@
   "name": "CoreX",
   "version": "3.11.0",
   "description": "Pull properties and capture listings from portals into CoreX OS",
+  "homepage_url": "https://www.corexos.co.za/extension/privacy",
   "permissions": ["activeTab", "storage", "unlimitedStorage", "notifications", "alarms", "scripting"],
   "host_permissions": [
     "https://www.property24.com/*",

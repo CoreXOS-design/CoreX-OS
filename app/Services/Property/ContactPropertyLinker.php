@@ -61,6 +61,8 @@ class ContactPropertyLinker
                 'role' => $role,
             ], $extra));
 
+            self::ensureLandlordType($contactId, $role);
+
             return new ContactPropertyLinkResult(
                 row: $row,
                 isNew: true,
@@ -82,6 +84,10 @@ class ContactPropertyLinker
             $existing->save();
         }
 
+        if ($roleChanged || $wasTrashed) {
+            self::ensureLandlordType($contactId, $role);
+        }
+
         return new ContactPropertyLinkResult(
             row: $existing,
             isNew: false,
@@ -89,6 +95,34 @@ class ContactPropertyLinker
             roleChanged: $roleChanged,
             previousRole: $roleChanged ? $previousRole : null,
         );
+    }
+
+    /**
+     * A contact linked to a property as its landlord / lessor holds the Landlord TYPE too (added, never replacing anything),
+     * so the "Landlord" badge and the contact's own Contact Type box say the same thing and the first save works. Never throws:
+     * a type that cannot be added is never a reason to fail the link.
+     */
+    private static function ensureLandlordType(int $contactId, ?string $role): void
+    {
+        if (! in_array($role, ['landlord', 'lessor'], true)) {
+            return;
+        }
+        try {
+            $contact = \App\Models\Contact::withoutGlobalScopes()->find($contactId);
+            $type = \App\Models\ContactType::query()->parents()->where('esign_role', 'lessor')->first();
+            if (! $contact || ! $type) {
+                return;
+            }
+            if ($contact->parentTypes()->where('contact_types.id', $type->id)->exists()) {
+                return;
+            }
+            $contact->syncTypeAssignments(
+                array_merge($contact->parentTypes()->pluck('contact_types.id')->map(fn ($i) => (int) $i)->all(), [(int) $type->id]),
+                $contact->tags()->pluck('contact_tags.id')->map(fn ($i) => (int) $i)->all(),
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Could not add the Landlord type to a linked contact', ['contact_id' => $contactId, 'error' => $e->getMessage()]);
+        }
     }
 
     /**

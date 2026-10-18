@@ -39,24 +39,55 @@ use Endroid\QrCode\Writer\PngWriter;
  */
 class RentalInspectionReportPdfService
 {
-    public function generate(RentalInspection $inspection)
+    /**
+     * Conductor brief 2026-09-29 — "print for signature": the SAME report
+     * content generate() already builds, plus blank signature blocks for
+     * every outstanding party. A thin wrapper rather than a second
+     * generate-shaped method — the item table, the QR/public-link cover,
+     * and the signature roster are all identical; only how the
+     * report-pdf.blade.php view renders an OUTSTANDING row differs
+     * ($forSignature branches that one section — see the view itself).
+     */
+    public function generateForSignature(RentalInspection $inspection)
+    {
+        return $this->generate($inspection, forSignature: true);
+    }
+
+    public function generate(RentalInspection $inspection, bool $forSignature = false)
     {
         $inspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
-            'signatures.partyContact',
+            'signatures.partyContact', 'roomNotes', 'inspector',
         ]);
 
+        // §45.5 (Build I-3) — who attended and what is on record about each party's invitation. The printed
+        // statement is facts only (RentalInspectionAttendanceService::printableInvitation()); the wording is
+        // Johan's to confirm (§45.11).
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendanceBoard = $attendanceService->board($inspection);
+
+        // §45.3 (Build I-1) — the latest note per room, printed under that room's table (the PDF used to
+        // carry only item rows). Photos stay out of the PDF (Johan, 23 Sep); the per-flaw photo-time line
+        // waits for his answer to Q8.
+        $roomNotes = $inspection->roomNotes
+            ->groupBy('property_room_id')
+            ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
+
         $items = RentalInspectionItem::where('property_id', $inspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($inspection->id)
             ->with('room')
             ->get();
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with, whatever the checklist says now.
+        $inspection->applyWordingSnapshot($items);
 
         // AT-433, 2026-09-26 — a photo-anchor row (RentalInspectionObservation
         // ::CONDITION_PENDING) is not an assessment; excluded before the
         // latest-per-item pick so this COMPLETED inspection's own printed
         // report never shows an empty string as the item's recorded
         // condition just because a photo arrived before a condition did.
-        $currentByItem = $inspection->observations
+        // §49 — a tenant fault report filed after the report was sent is NOT part of the locked body: it is printed in its
+        // own marked block (addedAfterSent below), never folded into an item's condition.
+        $currentByItem = $inspection->bodyObservations()
             ->where('condition', '!=', \App\Models\RentalInspectionObservation::CONDITION_PENDING)
             ->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
@@ -145,11 +176,21 @@ class RentalInspectionReportPdfService
         return Pdf::loadView('corex.rental-inspections.report-pdf', [
             'inspection' => $inspection,
             'rows' => $rows,
+            'roomNotes' => $roomNotes,
+            'attendanceBoard' => $attendanceBoard,
+            'attendanceService' => $attendanceService,
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
             'publicUrl' => $publicUrl,
             'qrDataUri' => $qrDataUri,
             'signatureRows' => $signatureRows,
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
+            'forSignature' => $forSignature,
+            // §49 — Johan, 8 Oct 2026: every page of an unfinished or not-fully-signed report is stamped "DRAFT - not final";
+            // the stamp disappears only on the completed, fully signed report.
+            'isDraft' => ! $inspection->isFinalReport(),
+            'branding' => $inspection->reportBranding(),
+            'addedAfterSent' => app(RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
         ])->setPaper('a4', 'portrait');
     }
 
@@ -157,6 +198,17 @@ class RentalInspectionReportPdfService
     {
         $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
 
-        return "inspection-report-{$inspection->type}-{$address}-{$inspection->id}.pdf";
+        $type = str(RentalInspection::typeLabel($inspection->type))->slug();
+
+        return "inspection-report-{$type}-{$address}-{$inspection->id}.pdf";
+    }
+
+    public function filenameForSignatureFor(RentalInspection $inspection): string
+    {
+        $address = str($inspection->property?->buildDisplayAddress() ?? 'property')->slug();
+
+        $type = str(RentalInspection::typeLabel($inspection->type))->slug();
+
+        return "inspection-for-signature-{$type}-{$address}-{$inspection->id}.pdf";
     }
 }

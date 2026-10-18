@@ -1,8 +1,45 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@push('head')
+<style>
+    /* Contacts list, styled like the Properties list (AT-455): filter fields, the active filter,
+       and the row hover. Scoped to this page's root so no other screen changes. */
+    .corex-contacts-v2 .list-header-filter { transition: border-color 200ms ease, color 200ms ease, background 200ms ease; }
+    .corex-contacts-v2 .list-header-filter:hover { border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, var(--border)); }
+    .corex-contacts-v2 .list-header-filter:focus { outline: none; border-color: var(--brand-icon, #0ea5e9); }
+    .corex-contacts-v2 .list-header-filter.is-active { border-color: var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, var(--surface)); }
+    .corex-contacts-v2 .list-header-filter option { background: var(--surface); color: var(--text-primary); }
+    .corex-contacts-v2 .list-header-filter option:checked,
+    .corex-contacts-v2 .list-header-filter option:hover { background: var(--surface-2); color: var(--text-primary); }
+
+    /* Contact row hover: the same pop as the Properties cards and the sidebar links */
+    .corex-contacts-v2 .contact-row { position: relative; transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 200ms ease, box-shadow 200ms ease; }
+    /* Hover: the row stays its plain light colour and lifts on a deeper shadow, the avatar grows a
+       touch and the name takes the accent colour. Nothing moves, so the row never overlaps the bar above it. */
+    .corex-contacts-v2 .contact-row .w-9.h-9.rounded-full { transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .corex-contacts-v2 .contact-row:hover .w-9.h-9.rounded-full { transform: scale(1.1); }
+    .corex-contacts-v2 .contact-row:hover a.text-sm.font-semibold { color: var(--brand-icon, #0ea5e9) !important; }
+    .corex-contacts-v2 .contact-row:hover { background: var(--surface-2); z-index: 1; box-shadow: 0 12px 28px -12px rgba(0, 0, 0, 0.35); }
+    @media (prefers-reduced-motion: reduce) {
+        .corex-contacts-v2 .contact-row { transition: none; }
+        .corex-contacts-v2 .contact-row:hover,
+        .corex-contacts-v2 .contact-row:hover .w-9.h-9.rounded-full { transform: none; }
+    }
+
+    /* Filter panel: no grey fill, a lit accent edge on top, the same as the Properties filter panel */
+    .corex-contacts-v2 .props-filter-panel { background: transparent !important; }
+
+    /* My Contacts / All Contacts: the same pill toggle as My / All Properties */
+    .corex-contacts-v2 .props-pills { border-radius: 6px; }
+    .corex-contacts-v2 .props-pills-seg { background: var(--surface-2); height: 2.25rem; padding: 2px; gap: 2px; align-items: stretch; }
+    .corex-contacts-v2 .props-pill { display: inline-flex; align-items: center; background: transparent; color: var(--text-muted); border-radius: 5px; padding: 0 0.875rem; font-size: 0.75rem; line-height: 1rem; transition: background 200ms ease, color 200ms ease; }
+    .corex-contacts-v2 .props-pill.is-on { background: var(--brand-icon, #0ea5e9); color: #fff; }
+</style>
+@endpush
+
 @section('corex-content')
-<div class="w-full h-full flex flex-col" data-tour-root="contacts" data-list-collapse
+<div class="w-full h-full flex flex-col corex-contacts-v2" data-tour-root="contacts" data-list-collapse
      x-data="{ showAdd: {{ (session('duplicate_detected') || old('first_name') || $errors->any()) ? 'true' : 'false' }}, showImport: false, editId: null, importLoading: false, contactKind: '{{ old('contact_kind', 'natural_person') }}', idKind: '{{ old('id_type', 'sa_id') }}' }">
 
     {{-- Header + filters fold into the slim bar below while the list is scrolled
@@ -105,7 +142,7 @@
                 f.submit();
             }
          }"
-         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+         class="props-filter-panel rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
         @php
 
@@ -197,8 +234,8 @@
                 <input type="text" name="search" value="{{ request('search') }}"
                        data-tour="contact-search"
                        placeholder="Search name, phone, email…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                       class="list-header-filter w-full {{ request('search') ? 'is-active' : '' }}"
+                       style="padding-left:2.25rem;">
             </div>
 
             {{-- Preserve the current agent filter across search/type submits —
@@ -211,7 +248,7 @@
             @endif
 
             {{-- Type filter --}}
-            <select name="type" onchange="this.form.submit()" class="list-header-filter">
+            <select name="type" onchange="this.form.submit()" class="list-header-filter {{ request('type') ? 'is-active' : '' }}">
                 <option value="">{{ $isRentalEntry ? 'All Rental Types' : 'All Types' }}</option>
                 @foreach($typeFilterOptions as $type)
                     <option value="{{ $type->id }}" {{ request('type') == $type->id ? 'selected' : '' }}>{{ $type->name }}</option>
@@ -231,10 +268,9 @@
                 $vtAllUrl  = route($contactsRoute, array_merge($vtCarry, ['agent_id' => '']));
                 $vtBranchUrl = $isRentalEntry ? route('corex.rentals.contacts.index', array_merge($vtCarry, ['agent_id' => 'branch'])) : null;
             @endphp
-            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+            <div class="inline-flex props-pills props-pills-seg overflow-hidden" style="border:1px solid var(--border);">
                 <a href="{{ $vtMineUrl }}" @click.prevent="pickAgent('{{ $cuId }}')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="{{ $vtIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   class="props-pill px-3 py-2 text-xs font-semibold no-underline transition-all duration-300 {{ $vtIsMine ? 'is-on' : '' }}"
                    title="Show only my contacts">
                     My Contacts
                 </a>
@@ -250,8 +286,7 @@
                 {{-- A 'branch'-scoped user's ceiling IS branch - on the rentals lens "All" would duplicate the Branch pill, so it is dropped there. --}}
                 @if(!$isRentalEntry || $vtDScope !== 'branch')
                 <a href="{{ $vtAllUrl }}" @click.prevent="pickAgent('')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="border-left:1px solid var(--border); {{ $vtIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   class="props-pill px-3 py-2 text-xs font-semibold no-underline transition-all duration-300 {{ $vtIsAll ? 'is-on' : '' }}"
                    title="Show all {{ $vtDScope === 'branch' ? 'branch' : 'agency' }} contacts">
                     {{ $isRentalEntry ? 'Agency' : 'All Contacts' }}
                 </a>
@@ -372,7 +407,7 @@
             </div>
             @endif
 
-            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            <span class="cx-equal-btns inline-flex"><button type="submit" class="corex-btn-outline text-xs">Search</button></span>
             @if(request()->hasAny(['search','type']))
             <a href="{{ route($contactsRoute, $canPickAgent ? ['agent_id' => $filterAgentId] : []) }}"
                class="text-xs underline transition-all duration-300" style="color:var(--text-muted);">Clear</a>
@@ -619,7 +654,7 @@
                 <template x-if="contactKind === 'natural_person'">
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);"><span x-text="idKind === 'passport' ? 'Passport Number' : 'ID Number'"></span> <span style="color:var(--text-muted); font-weight:400;">(optional)</span></label>
-                    <input type="text" name="id_number" value="{{ old('id_number') }}"
+                    <input type="text" id="id_number" name="id_number" value="{{ old('id_number') }}"
                            :inputmode="idKind === 'passport' ? 'text' : 'numeric'"
                            :maxlength="idKind === 'passport' ? 50 : 13"
                            :placeholder="idKind === 'passport' ? 'e.g. AB1234567' : 'e.g. 7610025020081'"
@@ -755,7 +790,7 @@
             // — AT-403's own finding, 13 vs 66 real matches from the pivot
             // alone). No duplication: if the contact already holds the Lessor
             // type, "Landlord" is not added a second time.
-            $typeBadges = $contact->parentTypes->pluck('name')->all();
+            $typeBadges = $contact->parentTypes->map(fn ($t) => \App\Models\ContactType::displayName($t->esign_role, $t->name))->all();
             if ($isRentalEntry) {
                 $hasLessorType = $contact->parentTypes->contains(fn ($t) => $t->esign_role === 'lessor');
                 $isPropertyLandlord = $contact->relationLoaded('properties')
@@ -765,8 +800,7 @@
                 }
             }
         @endphp
-        <div class="px-5 py-4 transition-all duration-300" style="border-bottom:1px solid var(--border);"
-             onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background=''">
+        <div class="contact-row px-5 py-4" style="border-bottom:1px solid var(--border);">
 
             {{-- View row --}}
             <div x-show="editId !== {{ $contact->id }}" class="flex items-start justify-between gap-4">
@@ -800,15 +834,12 @@
                                 who is looking or whose contact it is.
                             --}}
                             @if($isRestricted || $isOtherAgent)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
-                                  title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
+                            <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning" title="{{ $isRestricted ? 'Found elsewhere in the agency — not in your own contacts' : 'This contact belongs to a different agent' }}">
                                 Agent: {{ $contact->agent->name ?? $contact->createdBy->name ?? 'Unassigned' }}
                             </span>
                             @endif
                             @foreach($typeBadges as $badgeName)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
+                            <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-info">
                                 {{ $badgeName }}
                             </span>
                             @endforeach
@@ -931,6 +962,7 @@
 
         </div>
         @empty
+        @php $contactsNarrowed = request()->filled('search') || request()->filled('type') || request()->filled('agent_id') || request()->filled('channel') || request()->filled('outreach_state'); @endphp
         <div class="py-12 px-6 text-center">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                  style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color: var(--brand-icon,#0ea5e9);">
@@ -945,11 +977,20 @@
                         Tenants, prospective tenants, and landlords show up here automatically once they're typed on the Contacts screen, or once a rental application is approved.
                     @endif
                 </p>
+            @elseif($contactsNarrowed)
+                {{-- 14 Oct 2026 (go-live walk): a search / filter that matches nothing is not "no contacts yet" - the agent HAS contacts. --}}
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);" data-qa="contacts-no-match">No contacts match this search or filter</h3>
+                <p class="text-sm mb-4" style="color: var(--text-muted);">Check the spelling, or clear the search and filters to see everyone you can see.</p>
             @else
-                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No contacts yet</h3>
+                <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);" data-qa="contacts-none-yet">No contacts yet</h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">Add your first contact to start tracking relationships.</p>
             @endif
-            <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
+            <div class="flex items-center justify-center gap-2">
+                @if(! $isRentalEntry && $contactsNarrowed)
+                    <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm" data-qa="contacts-clear-filters">Clear search and filters</a>
+                @endif
+                <button type="button" @click="showAdd = true" class="corex-btn-primary text-sm">Add Contact</button>
+            </div>
         </div>
         @endforelse
 

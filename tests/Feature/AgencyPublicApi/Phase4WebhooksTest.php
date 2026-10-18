@@ -165,7 +165,8 @@ class Phase4WebhooksTest extends TestCase
 
     public function test_webhook_payload_carries_slug_and_public_url(): void
     {
-        config()->set('integrations.public_website_url', 'http://91.99.130.85:1050');
+        // a property's public link is its OWN agency's website (Company Settings), else CoreX's public page - never one install-wide site
+        \Illuminate\Support\Facades\DB::table('agencies')->where('id', $this->agency->id)->update(['website_url' => 'http://91.99.130.85:1050']);
         Http::fake(['*' => Http::response('', 200)]);
         $key = $this->keyWithWebhook();
         $property = $this->makeProperty(); // title 'Sea-view'

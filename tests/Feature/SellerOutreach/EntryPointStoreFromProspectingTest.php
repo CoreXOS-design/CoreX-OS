@@ -51,7 +51,9 @@ final class EntryPointStoreFromProspectingTest extends TestCase
             );
 
         $resp->assertStatus(302);
-        $resp->assertRedirectContains('/outreach/compose');
+        // Compose redesign (Johan, 2026-08-14): "Create & continue" lands on the pitch-ready interstitial (pick
+        // who to pitch), not straight in the composer.
+        $resp->assertRedirectContains('/outreach/pitch-ready');
 
         // Contact must exist, with last_name stored as empty string (the
         // contacts.last_name column is NOT NULL with no default; the fix
@@ -97,7 +99,7 @@ final class EntryPointStoreFromProspectingTest extends TestCase
             );
 
         $resp->assertStatus(302);
-        $resp->assertRedirectContains('/outreach/compose');
+        $resp->assertRedirectContains('/outreach/pitch-ready');
 
         // contacts.phone is NOT NULL in the schema (pre-existing latent bug
         // independent of the array_filter regression). Decision: default
@@ -137,7 +139,7 @@ final class EntryPointStoreFromProspectingTest extends TestCase
                 ],
             )
             ->assertStatus(302)
-            ->assertRedirectContains('/outreach/compose');
+            ->assertRedirectContains('/outreach/pitch-ready');
 
         $contact = Contact::where('first_name', 'Filled')->first();
         $this->assertNotNull($contact);
@@ -146,27 +148,29 @@ final class EntryPointStoreFromProspectingTest extends TestCase
         $this->assertSame('filled@test.example', $contact->email);
     }
 
-    public function test_post_still_requires_phone_or_email(): void
+    public function test_post_with_no_phone_or_email_does_not_reach_the_pitch(): void
     {
-        // The array_merge fix preserves the "phone OR email required"
-        // pre-create guard — neither submitted means the form bounces
-        // back with errors, not a 500.
+        // Compose redesign (Johan, 2026-08-14): the old "phone OR email required" hard gate on the form was
+        // replaced by the working-set gate — every linked seller must be reachable (a ticked TVA number or a
+        // typed number/email) or acknowledged "No contact details". A name-only submit is therefore sent BACK
+        // to the capture page with a plain message, never on to the pitch, and never a 500.
         [$agencyId, $userId] = $this->seedAgency();
         $listingId = $this->seedProspectingListing($agencyId, [
             'address' => '99 Neither Provided Lane',
         ]);
 
-        $this->actingAs(User::find($userId))
+        $resp = $this->actingAs(User::find($userId))
             ->post(
                 route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]),
                 [
                     'first_name' => 'NoContact',
-                    // Neither phone nor email — the controller guard rejects.
+                    // Neither phone nor email.
                 ],
-            )
-            ->assertSessionHasErrors('contact_required');
+            );
 
-        $this->assertSame(0, Contact::where('first_name', 'NoContact')->count());
+        $resp->assertRedirect(route('seller-outreach.entry.from-prospecting', ['prospectingListingId' => $listingId]));
+        $resp->assertSessionHas('error', fn ($msg) => str_contains($msg, 'Still need a number'));
+        $this->assertNull(DB::table('prospecting_listings')->where('id', $listingId)->value('pitched_at'), 'nothing was committed to the pitch');
     }
 
     public function test_post_links_an_existing_contact_by_id_without_creating_a_new_one(): void
@@ -197,7 +201,7 @@ final class EntryPointStoreFromProspectingTest extends TestCase
             );
 
         $resp->assertStatus(302);
-        $resp->assertRedirectContains('/outreach/compose');
+        $resp->assertRedirectContains('/outreach/pitch-ready');
 
         // No new contact row — the existing one was reused.
         $this->assertSame($countBefore, Contact::count(), 'linking an existing contact must not create a new one');
@@ -306,7 +310,7 @@ final class EntryPointStoreFromProspectingTest extends TestCase
             ]);
 
         $resp->assertStatus(302);
-        $resp->assertRedirectContains('/outreach/compose');   // normal composer flow, not the dead-end redirect
+        $resp->assertRedirectContains('/outreach/pitch-ready');   // normal flow (the pitch-ready interstitial), not the dead-end redirect
 
         $contact = Contact::where('first_name', 'Reachable')->first();
         $this->assertNotNull($contact);

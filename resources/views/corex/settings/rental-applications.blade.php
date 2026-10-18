@@ -414,6 +414,32 @@
         </form>
     </div>
 
+    {{-- Johan, QA1, 2026-10-07 — lease rent above the amount the tenant was approved for. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Lease Rent Above Approved Amount</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">
+            What happens when a lease is created from an approved application at a rent higher than
+            the amount the tenant was approved for.
+        </p>
+
+        <form method="POST" action="{{ route('corex.settings.rental-applications.rent-above-approved-mode') }}">
+            @csrf
+            <div class="space-y-2 mb-3">
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="rent_above_approved_mode" value="warn" class="mt-0.5"
+                           @checked(old('rent_above_approved_mode', $rentAboveApprovedMode) === 'warn')>
+                    <span><strong>Warn and confirm</strong> — the agent sees both figures and confirms with a reason, which is logged.</span>
+                </label>
+                <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                    <input type="radio" name="rent_above_approved_mode" value="block" class="mt-0.5"
+                           @checked(old('rent_above_approved_mode', $rentAboveApprovedMode) === 'block')>
+                    <span><strong>Block</strong> — the lease cannot be created above the approved amount.</span>
+                </label>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+    </div>
+
     {{-- AT-430 §3.6 — Johan: "the checklist does not block approval by
          default." Off by default: Sherry's checklist is a working aid, not
          a gate, until an agency deliberately turns it into one. See
@@ -640,7 +666,7 @@
                     @endif
                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">
                         {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
-                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this custom field? Applications that already answered it keep that answer; it just won\'t be on new ones.');">
+                        <form method="POST" action="{{ route('corex.settings.rental-applications.custom-fields.archive', $customField) }}" style="display:inline;" data-confirm="Retire this custom field? Applications that already answered it keep that answer; it just won&#x27;t be on new ones.">
                             @csrf
                             <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
                         </form>
@@ -937,6 +963,45 @@
         </form>
     </div>
 
+    {{-- Rentals front-half decisions (8 Oct 2026) - six switches, each with the recommended value as its default. --}}
+    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Applying, handing over and withdrawing</h2>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Every switch is on by default; turn any off to go back to the earlier behaviour. Every change is logged below.</p>
+        <form method="POST" action="{{ route('corex.settings.rental-applications.front-half') }}" class="space-y-3">
+            @csrf
+            @foreach([
+                'allow_manual_link_share' => ['Let the agent hand the applicant their link themselves', 'WhatsApp or in person - for a tenant with no email. The application page gets a "Share the link myself" button.'],
+                'notify_agents_on_application_returned' => ['Tell the property\'s and lease\'s agents (in the app) when a tenant submits', 'The agent who created the application is still emailed as before.'],
+                'notify_authoriser_on_hand_over' => ['Tell the authoriser(s) when an application is handed to them', 'In the app and by email, subject to each person\'s own notification settings.'],
+                'prefill_lease_from_application' => ['Suggest the lease start date and term from what the applicant asked for', 'The agent can change both on the lease screen.'],
+                'allow_withdraw_after_approval' => ['Allow an approved application with no lease yet to be withdrawn', 'A note is required and the withdrawal is logged.'],
+            ] as $key => [$label, $help])
+                <div>
+                    <input type="hidden" name="{{ $key }}" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="{{ $key }}" value="1" @checked(old($key, $frontHalf[$key]))> {{ $label }}
+                    </label>
+                    <p class="text-xs ml-6" style="color: var(--text-muted);">{{ $help }}</p>
+                </div>
+            @endforeach
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Your sentence in the applicant's email and PDF (for example about pre-approval)</label>
+                <textarea name="invite_policy_sentence" rows="2" maxlength="{{ \App\Models\RentalApplicationQualifyingSetting::INVITE_POLICY_SENTENCE_MAX }}"
+                          class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">{{ old('invite_policy_sentence', $frontHalf['invite_policy_sentence']) }}</textarea>
+                <p class="text-xs" style="color: var(--text-muted);">Type {agency} where your agency name should appear. Empty = no sentence.</p>
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </form>
+        @if($recentFrontHalfChanges->isNotEmpty())
+            <div class="text-xs mt-3" style="color: var(--text-muted);">
+                <div class="font-semibold mb-1">Recent changes</div>
+                @foreach($recentFrontHalfChanges as $change)
+                    <div>{{ $change->created_at?->format('j M Y H:i') }} - {{ $change->user?->name ?? 'System' }} changed {{ str_replace('_', ' ', $change->setting_key) }}: {{ \Illuminate\Support\Str::limit((string) $change->old_value, 40) }} &rarr; {{ \Illuminate\Support\Str::limit((string) $change->new_value, 40) }}{{ $change->source === 'wizard' ? ' (setup wizard)' : '' }}</div>
+                @endforeach
+            </div>
+        @endif
+    </div>
+
     {{-- Contact-type ruling, 2026-09-11 — Johan, verbatim: "contact type
          can be added, not changed... the seller of unit a decides to rent
          but their property has not sold yet. so that contact will be
@@ -1084,7 +1149,7 @@
                 <div class="text-[11px] mb-1" style="color: var(--text-muted); margin-left: 2px;" @if(!$highlighter->creator) title="This highlighter was created before this was tracked." @endif>
                     {{ $highlighter->creator ? 'Added by ' . $highlighter->creator->name : 'Creator not recorded' }}
                 </div>
-                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" onsubmit="return confirm('Archive this highlighter? Existing marks made with it keep their colour — it just won\'t be choosable for new marks.');">
+                <form method="POST" action="{{ route('corex.settings.rental-applications.highlighters.archive', $highlighter) }}" style="display:inline;" data-confirm="Archive this highlighter? Existing marks made with it keep their colour — it just won&#x27;t be choosable for new marks." data-confirm-danger data-confirm-label="Archive">
                     @csrf
                     <button type="submit" class="text-xs" style="color: var(--text-muted); margin-left: 0;">Archive</button>
                 </form>
@@ -1214,9 +1279,8 @@
          .ai/specs/rental-applications.md for the full reasoning). --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">RO — Application Reviewers</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">
-            These users can approve, decline, or request more information on an application
-            an agent has submitted for approval.
+        <p class="text-xs mb-3" style="color: var(--text-muted);" data-qa="ro-meaning">
+            Reviewer: approves, declines or asks for more information - but not on an application they created (unless One step is on and they are the agency's only approver), and cannot change a decision once made.
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.ro') }}">
             @csrf
@@ -1238,10 +1302,8 @@
 
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">CO — Overrides</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">
-            Typically an admin or branch manager. These users can do everything a Reviewer can, and
-            can also OVERRIDE a Reviewer's existing decision (change an approve to a decline, or a
-            decline to an approve) — a reason is required whenever they do.
+        <p class="text-xs mb-3" style="color: var(--text-muted);" data-qa="co-meaning">
+            Override: everything a Reviewer can, plus deciding an application they created and changing a decision already made (a reason is required).
         </p>
         <form method="POST" action="{{ route('corex.settings.rental-applications.co') }}">
             @csrf

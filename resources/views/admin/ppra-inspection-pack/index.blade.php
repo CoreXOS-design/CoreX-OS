@@ -78,35 +78,28 @@
     @endif
 
     @php
-        $colourMap = [
-            'green'   => ['bg' => 'color-mix(in srgb, #15803d 12%, transparent)', 'fg' => '#15803d', 'label' => 'Compliant'],
-            'amber'   => ['bg' => 'color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent)', 'fg' => 'var(--ds-amber,#f59e0b)', 'label' => 'Expiring / Partial'],
-            'red'     => ['bg' => 'color-mix(in srgb, var(--ds-crimson,#c41e3a) 12%, transparent)', 'fg' => 'var(--ds-crimson,#c41e3a)', 'label' => 'Missing / Expired'],
-            'pending' => ['bg' => 'var(--surface-2)', 'fg' => 'var(--text-muted)', 'label' => 'Not yet available'],
-            'info'    => ['bg' => 'color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent)', 'fg' => 'var(--brand-icon,#0ea5e9)', 'label' => 'Info'],
-        ];
+        $statusTone = ['green' => 'ds-badge-success', 'amber' => 'ds-badge-warning', 'red' => 'ds-badge-danger', 'pending' => 'ds-badge-muted', 'info' => 'ds-badge-info'];
     @endphp
 
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
         <table class="w-full text-sm">
             <thead>
                 <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:4%;">Item</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:18%;">Description</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:10%;">Status</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Why</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:16%;">Remediation</th>
-                    <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted); width:18%;">Fix it</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted); width:4%;">Item</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted); width:18%;">Description</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted); width:10%;">Status</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Why</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted); width:16%;">Remediation</th>
+                    <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted); width:18%;">Fix it</th>
                 </tr>
             </thead>
             <tbody>
                 @foreach($rows as $row)
-                @php $c = $colourMap[$row->status]; @endphp
-                <tr style="border-bottom:1px solid var(--border);">
+                                <tr style="border-bottom:1px solid var(--border);">
                     <td class="px-4 py-3 align-top" style="color:var(--text-secondary);">{{ $row->item }})</td>
                     <td class="px-4 py-3 align-top font-semibold" style="color:var(--text-primary);">{{ $row->label }}</td>
                     <td class="px-4 py-3 align-top">
-                        <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background:{{ $c['bg'] }}; color:{{ $c['fg'] }};">
+                        <span class="ds-badge {{ $statusTone[$row->status] ?? 'ds-badge-muted' }}">
                             {{ $row->status === 'pending' ? 'Not yet available' : ucfirst($row->status) }}
                         </span>
                     </td>

@@ -94,8 +94,8 @@ class AgencySetupWizardController extends Controller
         'branch'         => ['step' => 'branches', 'label' => 'Branches', 'placeholder' => 'e.g. Seabreeze Bay'],
         // Market Intelligence / Prospecting Setup — mirrors the settings.prospecting
         // page's own collections, delegating to the SAME canonical CRUD controllers.
-        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Margate'],
-        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Uvongo'],
+        'mic_town'            => ['step' => 'market_intelligence', 'label' => 'Towns', 'placeholder' => 'e.g. Town name'],
+        'mic_suburb'          => ['step' => 'market_intelligence', 'label' => 'Suburbs', 'placeholder' => 'e.g. Suburb name'],
         'mic_property_type'   => ['step' => 'market_intelligence', 'label' => 'Property types', 'placeholder' => 'e.g. Vacant Land'],
         'mic_bedroom_segment' => ['step' => 'market_intelligence', 'label' => 'Bedroom segments', 'placeholder' => 'e.g. 3 Bed'],
         'mic_price_band'      => ['step' => 'market_intelligence', 'label' => 'Price bands', 'placeholder' => 'e.g. Entry Level'],
@@ -207,7 +207,21 @@ class AgencySetupWizardController extends Controller
                 'wzConditionStates' => \App\Models\RentalInspectionSetting::conditionStatesFor($agency->id),
                 'wzBaselineConditionKey' => \App\Models\RentalInspectionSetting::baselineConditionKeyFor($agency->id),
                 'wzPhotoClassifications' => \App\Models\RentalInspectionSetting::photoNoteClassificationsFor($agency->id),
+                // §45.5 (Build I-3) — key => label for how someone attended an inspection.
+                'wzAttendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($agency->id),
+                // §45.14 — key => label for the three move-out classifications.
+                'wzMoveOutClassificationLabels' => \App\Models\RentalInspectionSetting::moveOutClassificationLabelsFor($agency->id),
                 'wzInventoryConditionStates' => \App\Models\RentalInventorySetting::conditionStatesFor($agency->id),
+                // §45.4 item 3 (Build I-2) — ACTIVE custom room types only; the wizard never renders archived ones.
+                'wzCustomRoomTypes' => array_values(array_filter(\App\Models\RentalInspectionSetting::customRoomTypesFor($agency->id), fn ($t) => ! $t['archived'])),
+                // §55 - the standard room list per kind of property, plus the types an agent may pick from.
+                'wzRoomTemplates' => \App\Models\RentalInspectionSetting::roomTemplatesFor($agency->id),
+                'wzRoomTemplateTypeOptions' => \App\Models\RentalInspectionSetting::roomTypeOptionsFor($agency->id),
+                // LEASE-AGREEMENT BEGIN (leases.md §15.14 — Build L0): done / not done for the lease-agreement row.
+                'wzLeaseAgreementLinked' => app(\App\Services\Rentals\LeaseAgreementTemplateGuard::class)->linkedFor((int) $agency->id) !== null,
+                // LEASE-AGREEMENT END
+                // Rentals front-half decision D6: how many decline reasons the agency has (the link row on the Rentals step).
+                'wzDeclineTemplateCount' => \App\Models\RentalApplicationDeclineReasonTemplate::where('agency_id', $agency->id)->count(),
             ],
             // Same reads settings.prospecting.index itself uses (SettingsController)
             // — the wizard step shows exactly what that page would.
@@ -282,14 +296,20 @@ class AgencySetupWizardController extends Controller
             foreach (($config['savers'] ?? []) as $saver) {
                 // Some canonical savers take the Agency as a second argument
                 // (e.g. CompanySettingsController@update). Declared per-saver.
-                $args = [$request];
+                // Called through the container so a saver may also type-hint
+                // services (ProformaSettingsController@update needs its
+                // ProformaAdminService; StaleRulesController@updateListingWindow
+                // its ProspectingConfigurationService). Calling with the request
+                // alone crashed those two with ArgumentCountError for every
+                // agency on first save (14 Oct 2026, new-agency walk).
+                $params = [Request::class => $request, 'request' => $request];
                 if (!empty($saver['pass_agency'])) {
-                    $args[] = $this->agency();
+                    $params[Agency::class] = $this->agency();
                 }
 
                 try {
                     session()->forget('errors');
-                    app($saver['controller'])->{$saver['method']}(...$args);
+                    app()->call([app($saver['controller']), $saver['method']], $params);
 
                     $errors = session('errors');
                     if ($errors instanceof \Illuminate\Support\ViewErrorBag && $errors->any()) {
@@ -595,6 +615,11 @@ class AgencySetupWizardController extends Controller
                 // DR2 Wave 2 — Deal → Property → Portal sync settings live on their
                 // own singleton row (agency_deal_sync_settings), not on Agency.
                 'deal_sync' => \App\Models\AgencyDealSyncSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
+                // Lead response time — explicit per-key arm (spec §6.2), never an Agency column fall-through.
+                'lead_response' => match ($key) {
+                    'lead_response_target_minutes' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->leadResponseTargetMinutes(),
+                    default => $control['default'] ?? null,
+                },
                 'proforma'  => AgencyProformaSettings::forAgency($agency->id)->{$key} ?? ($control['default'] ?? null),
                 // Other Agency Stock — .ai/specs/other-agency-stock.md §6/§3a. Explicit per-key match
                 // (spec §6.2). Visible roles: stored NULL/empty means "visible to everyone", which the
@@ -611,6 +636,32 @@ class AgencySetupWizardController extends Controller
                     'core_matches_excluded_buyer_states' => \App\Models\AgencyContactSettings::forAgencyReadOnly($agency->id)->coreMatchesExcludedBuyerStates(),
                     default => $control['default'] ?? null,
                 },
+                // Live alert popup - AT-451 follow-up. Explicit per-key match (spec 6.2); read through the service, never an Agency column.
+                'alert_settings' => match ($key) {
+                    'alert_catchup_minutes' => app(\App\Services\CommandCenter\AlertSwitchService::class)->catchupMinutesFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
+                // Road to Sold - AT-454, .ai/specs/road-to-sold.md section 4. Explicit per-key match (spec 6.2).
+                // Read through SettingsService (defaults when the agency has saved nothing - never writes).
+                'road_to_sold' => (function () use ($key, $agency, $control) {
+                    $rts = \App\Services\RoadToSold\SettingsService::forAgency($agency->id);
+                    if (preg_match('/^default_target_([1-7])$/', $key, $m)) {
+                        return $rts->defaultWeekdayTargets()[(int) $m[1]];
+                    }
+
+                    return match ($key) {
+                        'half_day_leave_halves_target' => $rts->halfDayLeaveHalvesTarget(),
+                        'lock_agents_to_areas'         => $rts->lockAgentsToAreas(),
+                        'area_refresh_warn_days'       => $rts->areaRefreshWarnDays(),
+                        'min_area_properties'          => $rts->minAreaProperties(),
+                        'refresh_portal_p24'           => in_array('p24', $rts->refreshPortals(), true),
+                        'refresh_portal_pp'            => in_array('pp', $rts->refreshPortals(), true),
+                        'missed_items_mode'            => $rts->missedItemsMode(),
+                        'no_answer_drop_after'         => $rts->noAnswerDropAfter(),
+                        'hold_days'                    => $rts->holdDays(),
+                        default                        => $control['default'] ?? null,
+                    };
+                })(),
                 // Bug found 2026-09-20 (cc4, while wiring rental_work_orders'
                 // display case): 'rental_inspections' originally had NO arm at
                 // all, so both of its controls fell through to `default =>
@@ -647,6 +698,26 @@ class AgencySetupWizardController extends Controller
                     'expiry_notice_window_days' => LeaseSetting::expiryNoticeWindowDaysFor($agency->id),
                     'show_lease_type_field' => LeaseSetting::showLeaseTypeFieldFor($agency->id),
                     'default_deposit_months' => LeaseSetting::defaultDepositMonthsFor($agency->id),
+                    // .ai/specs/rental-renewals.md §2 — AT-444.
+                    'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
+                    'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),
+                    'breach_remedy_business_days' => LeaseSetting::breachRemedyBusinessDaysFor($agency->id),
+                    // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
+                    'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
+                    'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),
+                    'default_early_cancellation_allowed' => LeaseSetting::earlyCancellationAllowedFor($agency->id),
+                    'default_early_cancellation_notice' => LeaseSetting::earlyCancellationNoticeFor($agency->id),
+                    'default_early_cancellation_notice_unit' => LeaseSetting::earlyCancellationNoticeUnitFor($agency->id) ?? LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
+                    'default_early_cancellation_penalty' => LeaseSetting::earlyCancellationPenaltyFor($agency->id) ?? '',
+                    // Johan, 7 Oct 2026 — leases.md §5.3.
+                    'month_to_month_after_end_days' => LeaseSetting::monthToMonthAfterEndDaysFor($agency->id),
+                    // Rentals front-half decisions (8 Oct 2026).
+                    'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agency->id),
+                    'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agency->id),
+                    'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
+                    'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
+                    'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
                 // .ai/specs/rental-work-orders.md §3.4b/§8, Stage 3 — only one
@@ -663,16 +734,118 @@ class AgencySetupWizardController extends Controller
                     'no_approval_spend_threshold' => \App\Models\RentalWorkOrderSetting::spendThresholdFor($agency->id),
                     'completion_requires_photo' => \App\Models\RentalWorkOrderSetting::completionRequiresPhotoFor($agency->id),
                     'overdue_reminder_days' => \App\Models\RentalWorkOrderSetting::overdueReminderDaysFor($agency->id),
+                    // AT-442 (2026-10-04) — both pricing toggles were declared in the config but never named here.
+                    'capture_prices_on_job_cards' => \App\Models\RentalWorkOrderSetting::capturePricesOnJobCardsFor($agency->id),
+                    'show_costs_on_printed_job_card' => \App\Models\RentalWorkOrderSetting::showCostsOnPrintedJobCardFor($agency->id),
+                    // §17.21.1 — every maintenance-flow control needs its OWN explicit arm here (a key left to the `default`
+                    // fall-through shows a stale default, §6.2). Each build adds its keys between its markers.
+                    // BUILD 1 BEGIN — pricing keys
+                    'default_parts_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultPartsMarkupPercentFor($agency->id),
+                    'default_labour_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultLabourMarkupPercentFor($agency->id),
+                    'quote_estimate_term' => \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($agency->id),
+                    // BUILD 1 END
+                    // BUILD 2 BEGIN — approvals keys
+                    'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
+                    'external_quote_markup_value' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($agency->id),
+                    // BUILD 2 END
+                    // BUILD 3 BEGIN — completion-check keys
+                    'tenant_completion_check_enabled' => \App\Models\RentalWorkOrderSetting::tenantCompletionCheckEnabledFor($agency->id),
+                    'completion_response_window_days' => \App\Models\RentalWorkOrderSetting::completionResponseWindowDaysFor($agency->id),
+                    'notify_landlord_on_dispute' => \App\Models\RentalWorkOrderSetting::notifyLandlordOnDisputeFor($agency->id),
+                    'internal_team_label' => \App\Models\RentalWorkOrderSetting::internalTeamLabelFor($agency->id),
+                    'dispute_notify_crew_immediately' => \App\Models\RentalWorkOrderSetting::disputeNotifyCrewImmediatelyFor($agency->id),
+                    // BUILD 3 END
+                    // §17.31 — supplier invoice limits
+                    'invoice_max_file_mb' => \App\Models\RentalWorkOrderSetting::invoiceMaxFileMbFor($agency->id),
+                    'invoice_allowed_file_types' => \App\Models\RentalWorkOrderSetting::invoiceAllowedFileTypesFor($agency->id),
+                    default => $control['default'] ?? null,
+                },
+                // rental-portal-access.md §10 / rental-work-orders.md §14.27.3 — this source had NO arm,
+                // so every rental_portal control fell through to the agency-column default and showed its
+                // hardcoded default instead of the agency's saved value (§6.2). Explicit per-key, one entry
+                // per control the config declares under 'rental_portal'.
+                'rental_portal' => match ($key) {
+                    'tenant_portal_enabled' => \App\Models\RentalPortalSetting::tenantPortalEnabledFor($agency->id),
+                    'landlord_portal_enabled' => \App\Models\RentalPortalSetting::landlordPortalEnabledFor($agency->id),
+                    'contractor_links_enabled' => \App\Models\RentalPortalSetting::contractorLinksEnabledFor($agency->id),
+                    'contractor_secure_link_expiry_days' => \App\Models\RentalPortalSetting::contractorSecureLinkExpiryDaysFor($agency->id),
+                    'notify_landlord_on_decision_needed' => \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agency->id),
+                    'notify_tenant_on_status_change' => \App\Models\RentalPortalSetting::notifyTenantOnStatusChangeFor($agency->id),
+                    'auto_portal_access_on_signing' => \App\Models\RentalPortalSetting::autoPortalAccessOnSigningFor($agency->id),
+                    'crew_links_enabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($agency->id),
+                    'crew_job_link_expiry_days' => \App\Models\RentalPortalSetting::crewJobLinkExpiryDaysFor($agency->id),
+                    'crew_link_show_costs' => \App\Models\RentalPortalSetting::crewLinkShowCostsFor($agency->id),
+                    'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
+                    'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
+                    'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
+                    'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id),
+                    'crew_page_recent_completed_days' => \App\Models\RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id),
+                    'crew_page_upcoming_days' => \App\Models\RentalPortalSetting::crewPageUpcomingDaysFor($agency->id),
+                    // rental-portal-access.md §22 — fault photos and the Home FAQ wording (each needs its own explicit arm, §6.2).
+                    'fault_photo_max_count' => \App\Models\RentalPortalSetting::faultPhotoMaxCountFor($agency->id),
+                    'fault_photo_max_mb' => \App\Models\RentalPortalSetting::faultPhotoMaxMbFor($agency->id),
+                    'tenant_sees_agent_marks' => \App\Models\RentalPortalSetting::tenantSeesAgentMarksFor($agency->id),
+                    'crew_link_auto_send_on_fault_job' => \App\Models\RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agency->id),
+                    'fault_recurrence_window_days' => \App\Models\RentalPortalSetting::faultRecurrenceWindowDaysFor($agency->id),
+                    'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),
+                    'faq_tenant_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_answer'),
+                    'faq_tenant_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_question'),
+                    'faq_tenant_early_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_answer'),
+                    'faq_landlord_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_notice_question'),
+                    'faq_landlord_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_notice_answer'),
+                    'faq_landlord_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_early_question'),
+                    'faq_landlord_early_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_early_answer'),
+                    'faq_tenant_cancel_yes' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_cancel_yes'),
+                    'faq_tenant_cancel_no' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_cancel_no'),
+                    'faq_landlord_cancel_yes' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_cancel_yes'),
+                    'faq_landlord_cancel_no' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_landlord_cancel_no'),
                     default => $control['default'] ?? null,
                 },
                 'rental_inspections' => match ($key) {
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
+                    'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
+                    'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
+                    // §52 — the walk's rules and the reminder lead.
+                    'signing_reminder_lead_days' => \App\Models\RentalInspectionSetting::signingReminderLeadDaysFor($agency->id),
+                    // §49 — signatures required to complete an inspection, per type.
+                    'signatures_required_in' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'in'),
+                    'signatures_required_out' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'out'),
+                    'signatures_required_interim' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'interim'),
+                    'signatures_required_routine' => \App\Models\RentalInspectionSetting::signaturesRequiredFor($agency->id, 'ad_hoc'),
                     'auto_pair_photos_enabled' => \App\Models\RentalInspectionSetting::autoPairPhotosEnabledFor($agency->id),
                     'auto_send_report_enabled' => \App\Models\RentalInspectionSetting::autoSendReportEnabledFor($agency->id),
+                    // §45.6 (Build I-4) — who else is copied on the completed report.
+                    'report_agency_copy_emails' => implode(', ', \App\Models\RentalInspectionSetting::reportAgencyCopyEmailsFor($agency->id)),
+                    'report_copy_inspector' => \App\Models\RentalInspectionSetting::reportCopyInspectorFor($agency->id),
+                    'report_copy_creator' => \App\Models\RentalInspectionSetting::reportCopyCreatorFor($agency->id),
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
+                    'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
+                    // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.
+                    'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),
+                    'notify_landlord_enabled' => \App\Models\RentalInspectionSetting::notifyLandlordFor($agency->id),
+                    'notify_inspector_enabled' => \App\Models\RentalInspectionSetting::notifyInspectorFor($agency->id),
+                    'remind_tenant_by_email' => \App\Models\RentalInspectionSetting::remindTenantByEmailFor($agency->id),
+                    'remind_landlord_by_email' => \App\Models\RentalInspectionSetting::remindLandlordByEmailFor($agency->id),
+                    'notify_via_mail_enabled' => \App\Models\RentalInspectionSetting::notifyViaMailFor($agency->id),
+                    'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
+                    'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),
+                    'reminder_days_before' => \App\Models\RentalInspectionSetting::reminderDaysBeforeFor($agency->id),
+                    // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+                    'raise_due_inspections_enabled' => \App\Models\RentalInspectionSetting::raiseDueInspectionsEnabledFor($agency->id),
+                    'planned_date_lead_days' => \App\Models\RentalInspectionSetting::plannedDateLeadDaysFor($agency->id),
+                    'out_due_lead_days' => \App\Models\RentalInspectionSetting::outDueLeadDaysFor($agency->id),
+                    // §52 — the rules, named one by one (a missing arm would silently show the hardcoded default).
+                    'signing_window_reminders_enabled' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'signing_window_reminders_enabled'),
+                    'calendar_include_lease_agents' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'calendar_include_lease_agents'),
+                    'cancel_signed_requires_edit' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'cancel_signed_requires_edit'),
+                    'photos_required_to_sign' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'photos_required_to_sign'),
+                    'empty_checklist_blocks_signing' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'empty_checklist_blocks_signing'),
+                    'routine_follows_full_checks' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'routine_follows_full_checks'),
+                    'hold_pdf_when_refused' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'hold_pdf_when_refused'),
+                    'report_shows_agency_branding' => \App\Models\RentalInspectionSetting::ruleFor($agency->id, 'report_shows_agency_branding'),
                     default => $control['default'] ?? null,
                 },
                 // §41-follow-up (Job 3, 2026-09-28) — this wizard step's own

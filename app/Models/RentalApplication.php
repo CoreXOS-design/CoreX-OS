@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
+use App\Models\Concerns\InheritsBranchFromParent;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -20,7 +22,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class RentalApplication extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, InheritsBranchFromParent, SoftDeletes;
 
     public const STATUSES = [
         'draft', 'sent', 'in_progress', 'returned', 'reopened', 'under_assessment', 'approved', 'declined', 'withdrawn',
@@ -155,6 +157,16 @@ class RentalApplication extends Model
     public const POST_RETURN_STATUSES = [
         'returned', 'under_assessment', 'approved', 'declined', 'withdrawn',
     ];
+
+    /**
+     * The ONLY statuses an application may be handed to an authoriser from (or approved/declined directly from, in
+     * one-step agencies), and the only ones the agent's own status control moves it out of. approved / declined /
+     * withdrawn are final calls: the one way back is Reopen (override tier for declined / withdrawn, required note,
+     * audited). POST_RETURN_STATUSES above also lists them because it answers a different question ("has this been
+     * submitted at all?") - using it for the hand-off let a crafted POST drag a decided application back into the
+     * authoriser's queue and let one-step mode approve a withdrawn one.
+     */
+    public const HAND_OFF_STATUSES = ['returned', 'under_assessment'];
 
     /**
      * Reopen/resubmit, 2026-09-08 — the agent's OWN edit form
@@ -1007,14 +1019,25 @@ class RentalApplication extends Model
         return $this->status === 'under_assessment' && $this->submitted_for_approval_at !== null;
     }
 
+    /**
+     * Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property().
+     *
+     * Also bypasses ContactScope (the user's own contact-list visibility): whether a
+     * user may reach THIS application is decided by RentalApplication::scopeVisibleTo()
+     * and the authoriser guards, and anyone who may open or decide an application
+     * necessarily sees who applied. Left in, a reviewer/branch manager who is allowed to
+     * decide another agent's application got a null contact and a 500 on `->full_name`.
+     * AgencyScope still applies.
+     */
     public function contact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class);
+        return $this->belongsTo(Contact::class)->withTrashed()->withoutGlobalScope(\App\Models\Scopes\ContactScope::class);
     }
 
+    /** Same reasoning as contact() above. */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function branch(): BelongsTo
@@ -1161,6 +1184,21 @@ class RentalApplication extends Model
      * consulted this field. Single choke point so send() and the mailer can
      * never independently drift back out of sync with each other.
      */
+    /**
+     * Rentals front-half decision D15 (8 Oct 2026): an APPROVED application that has no lease yet may be withdrawn (the tenant
+     * walked away between approval and the lease), with a required note. Agency setting `allow_withdraw_after_approval`
+     * (default on). Once a lease exists for it - active or draft - it cannot: the lease is cancelled on the lease screen, and
+     * nothing else moves a decided file.
+     */
+    public function canBeWithdrawnAfterApproval(): bool
+    {
+        if ($this->status !== 'approved' || ! RentalApplicationQualifyingSetting::allowWithdrawAfterApprovalFor($this->agency_id)) {
+            return false;
+        }
+
+        return ! Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('rental_application_id', $this->id)->exists();
+    }
+
     public function recipientEmail(): ?string
     {
         return $this->email ?: $this->contact?->email;
@@ -1245,6 +1283,44 @@ class RentalApplication extends Model
     public function ficaOutstanding(): bool
     {
         return $this->contact?->ficaStatus() !== 'complete';
+    }
+
+    /**
+     * Johan's ruling of 2026-10-08 (relayed by the conductor): the FICA gate lifts on SUBMITTED. ficaOutstanding() above answers a different
+     * question — "has compliance finished VERIFYING this person" (it drives the "approved, subject to FICA
+     * verification" label, the FICA tiles and the badge) — and stays exactly as it was. THIS answers "may the
+     * agent carry on?": yes once the applicant has submitted FICA (or any later review stage), via the one shared
+     * FicaGate that sales' signer gate uses. A contact with a signed legacy e-sign FICA document counts as done
+     * too (Contact::ficaStatus() sees those; FicaGate deliberately only reads submissions).
+     */
+    public function ficaGateOpen(): bool
+    {
+        if ($this->contact_id === null) {
+            return false;
+        }
+
+        return \App\Services\Compliance\FicaGate::isOpen((int) $this->contact_id)
+            || ($this->contact?->ficaStatus() ?? 'incomplete') !== 'incomplete';
+    }
+
+    /**
+     * What a screen shows when the gate is closed — the shared FicaGate::describe() (state, plain-language
+     * warning, link to request/complete FICA) for this application's applicant; `open` follows ficaGateOpen().
+     *
+     * @return array{contact_id:int|null,name:string,state:string,open:bool,label:string,warning:?string,url:?string}
+     */
+    public function ficaGateDescribe(): array
+    {
+        $described = \App\Services\Compliance\FicaGate::describe($this->contact, 'the applicant');
+
+        if (! $described['open'] && $this->ficaGateOpen()) {
+            // Legacy signed FICA document: open, nothing to warn about.
+            $described['open'] = true;
+            $described['warning'] = null;
+            $described['url'] = null;
+        }
+
+        return $described;
     }
 
     /**
@@ -1436,5 +1512,41 @@ class RentalApplication extends Model
         $effRank = min($rank[$requested], $permRank);
 
         return array_search($effRank, ['own' => 1, 'branch' => 2, 'all' => 3], true) ?: 'own';
+    }
+
+    /**
+     * Johan, QA1, 2026-10-07 — the gap between a lease rent and the amount this
+     * tenant was approved for. Null when no approved amount is on record or the
+     * rent is at/below it; otherwise both figures, the difference, and the
+     * agency's policy (warn | block). ONE definition, used by the lease capture
+     * request (to refuse/require a reason), the service (to log it) and the
+     * screen (to warn).
+     *
+     * @return array{approved:float, rent:float, over:float, mode:string}|null
+     */
+    public function rentAboveApproved(float|int|string|null $leaseRent): ?array
+    {
+        if ($this->approved_rental_amount === null || $leaseRent === null || $leaseRent === '' || ! is_numeric($leaseRent)) {
+            return null;
+        }
+
+        $approved = round((float) $this->approved_rental_amount, 2);
+        $rent = round((float) $leaseRent, 2);
+        if ($rent <= $approved) {
+            return null;
+        }
+
+        return [
+            'approved' => $approved,
+            'rent' => $rent,
+            'over' => round($rent - $approved, 2),
+            'mode' => RentalApplicationQualifyingSetting::rentAboveApprovedModeFor((int) $this->agency_id),
+        ];
+    }
+
+    /** Branch Split: a child sits in its parent's branch, never the acting user's (branch-isolation-spec §7a). */
+    protected function branchParent(): array
+    {
+        return [\App\Models\Property::class, 'property_id'];
     }
 }

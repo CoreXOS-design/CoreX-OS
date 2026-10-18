@@ -31,6 +31,7 @@ final class FeaturePermissionOwnershipTest extends TestCase
         'data_scope' => 'core (visibility scoping)', 'franchise_admin' => 'core (platform admin)',
         // Pillar-adjacent modules with no registry feature of their own
         'deals_v2' => 'Deal pillar (DR2)', 'dr2_unfiled_emails' => 'Deal pillar (DR2)',
+        'buyer_notes' => 'Contact pillar (buyer notes on the Intelligence tab and Core Matches)', 'other_agency_stock' => 'Property pillar (imported other-agency listings; no feature of its own)',
         'buyer_pipeline' => 'Contact pillar', 'contact_governance' => 'Contact pillar', 'contact_rental_history' => 'Contact pillar',
         'client_portal' => 'client access', 'client_app' => 'client access', 'assistants' => 'people (assistant identity)',
         // Areas the registry does not model yet — always available until a feature owns them

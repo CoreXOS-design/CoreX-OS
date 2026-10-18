@@ -27,9 +27,7 @@
     {{-- Filter / search bar --}}
     <div class="rounded-md p-4" data-tour="comp-rmcp-search" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-col sm:flex-row sm:items-center gap-3">
-            <input type="text" name="search" value="{{ request('search') }}" placeholder="Search versions..."
-                   class="w-full sm:max-w-xs rounded-md px-3 py-2 text-sm"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter w-full sm:max-w-xs {{ request('search') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Search versions...">
             <button type="submit" class="corex-btn-outline">Search</button>
             @if(request('search'))
                 <a href="{{ route('compliance.rmcp.index') }}" class="text-sm font-medium" style="color: var(--brand-icon);">Clear</a>
@@ -83,7 +81,7 @@
                                         <a href="{{ route('compliance.rmcp.approve.form', $v) }}" class="text-xs font-semibold" style="color: var(--ds-amber);">Approve</a>
                                         @endpermission
                                     @endif
-                                    <a href="{{ route('compliance.rmcp.pdf', $v) }}" class="text-xs font-semibold" style="color: var(--text-muted);" target="_blank">PDF</a>
+                                    <a href="{{ route('compliance.rmcp.pdf', $v) }}" class="text-xs font-semibold" style="color: var(--text-muted);">PDF</a>
                                 </div>
                             </td>
                         </tr>

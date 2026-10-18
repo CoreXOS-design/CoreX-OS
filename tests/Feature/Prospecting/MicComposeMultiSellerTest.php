@@ -47,7 +47,7 @@ final class MicComposeMultiSellerTest extends TestCase
         $this->assertNotSame($a->id, $b->id, 'each seller is its own contact — never merged');
         $this->assertDatabaseHas('contact_property', ['property_id' => $propertyId, 'contact_id' => $a->id, 'role' => 'seller']);
         $this->assertDatabaseHas('contact_property', ['property_id' => $propertyId, 'contact_id' => $b->id, 'role' => 'seller']);
-        $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->count());
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->whereNull('deleted_at')->count());
     }
 
     /** Unlinking one seller leaves the other linked; both contacts survive. */
@@ -66,8 +66,9 @@ final class MicComposeMultiSellerTest extends TestCase
 
         $this->actingAs(User::find($userId))->postJson($unlinkUrl, ['contact_id' => $a->id])->assertOk();
 
-        $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->count());
-        $this->assertDatabaseMissing('contact_property', ['property_id' => $propertyId, 'contact_id' => $a->id, 'role' => 'seller']);
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->whereNull('deleted_at')->count());
+        // Unlinking archives the link (soft delete — "corex is a no-delete system").
+        $this->assertSoftDeleted('contact_property', ['property_id' => $propertyId, 'contact_id' => $a->id, 'role' => 'seller']);
         $this->assertNotNull(Contact::find($a->id), 'the unlinked contact still exists');
     }
 
@@ -104,7 +105,10 @@ final class MicComposeMultiSellerTest extends TestCase
         $this->assertDatabaseHas('contact_phones', ['contact_id' => $seller->id, 'phone' => '0832433166']);
         $this->assertDatabaseMissing('contact_phones', ['contact_id' => $seller->id, 'phone' => '0114729738']);
         $this->assertNotNull(DB::table('tva_contact_capture_items')->where('id', $pickId)->value('ingested_at'));
-        $this->assertNull(DB::table('tva_contact_capture_items')->where('id', $skipId)->value('ingested_at'));
+        // The un-ticked number is DISCARDED with the capture (one-shot decision): ingested_at is set
+        // so it never lingers, but it was never written to a contact (ingested_contact_id stays null).
+        $this->assertNotNull(DB::table('tva_contact_capture_items')->where('id', $skipId)->value('ingested_at'));
+        $this->assertNull(DB::table('tva_contact_capture_items')->where('id', $skipId)->value('ingested_contact_id'));
         $this->assertSame($seller->id, (int) DB::table('tva_contact_capture_items')->where('id', $pickId)->value('ingested_contact_id'));
     }
 
@@ -152,7 +156,7 @@ final class MicComposeMultiSellerTest extends TestCase
             ->post(route('seller-outreach.entry.store-from-prospecting', ['prospectingListingId' => $listingId]), [])
             ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
 
-        $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->count());
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->whereNull('deleted_at')->count());
         $this->assertSame(1, DB::table('contact_property')->where('property_id', $propertyId)->where('role', 'seller')->where('is_primary', true)->count());
     }
 
@@ -229,19 +233,19 @@ final class MicComposeMultiSellerTest extends TestCase
     public function test_select_deed_links_owners_and_reselect_replaces(): void
     {
         [$agencyId, $userId] = $this->seedAgency();
-        $listingId = $this->seedListing($agencyId, 'R1 Portal Road');
+        $listingId = $this->seedListing($agencyId, '20 Lilliecrona Drive', 'Manaba Beach'); // same property as the deed — keeps the listing matched after the deed address is applied
         $deedA = $this->seedDeed($agencyId, [['Alpha One', '8001015009087'], ['Alpha Two', '9001010001088']]);
         $deedB = $this->seedDeed($agencyId, [['Beta Solo', '6904050051082']]);
         $url = fn () => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]);
 
         $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deedA])->assertOk()
             ->assertJsonPath('linked_deed.tracked_property_id', $deedA);
-        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
-        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $pid = $this->promotedPropertyId($listingId);
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->whereNull('deleted_at')->count());
 
         // Reselect deed B → sellers REPLACE (deed-sourced Alpha owners dropped, Beta added).
         $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deedB])->assertOk();
-        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->whereNull('deleted_at')->count());
         $this->assertDatabaseHas('contact_property', ['property_id' => $pid, 'role' => 'seller', 'contact_id' => Contact::where('id_number', '6904050051082')->value('id')]);
     }
 
@@ -249,14 +253,14 @@ final class MicComposeMultiSellerTest extends TestCase
     public function test_unlink_deed_reverts(): void
     {
         [$agencyId, $userId] = $this->seedAgency();
-        $listingId = $this->seedListing($agencyId, 'R1u Road');
+        $listingId = $this->seedListing($agencyId, '20 Lilliecrona Drive', 'Manaba Beach'); // same property as the deed — keeps the listing matched after the deed address is applied
         $deed = $this->seedDeed($agencyId, [['Deed Owner', '8001015009087']]);
         $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]), ['tracked_property_id' => $deed])->assertOk();
-        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $pid = $this->promotedPropertyId($listingId);
 
         $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.unlink-deed-prospecting', ['prospectingListingId' => $listingId]), [])->assertOk()
             ->assertJsonPath('linked_deed', null);
-        $this->assertSame(0, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertSame(0, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->whereNull('deleted_at')->count());
         $this->assertNull(DB::table('prospecting_listings')->where('id', $listingId)->value('linked_deed_tracked_property_id'));
     }
 
@@ -264,23 +268,23 @@ final class MicComposeMultiSellerTest extends TestCase
     public function test_removal_is_sticky_against_deed_relink(): void
     {
         [$agencyId, $userId] = $this->seedAgency();
-        $listingId = $this->seedListing($agencyId, 'R2 Road');
+        $listingId = $this->seedListing($agencyId, '20 Lilliecrona Drive', 'Manaba Beach'); // same property as the deed — keeps the listing matched after the deed address is applied
         $deed = $this->seedDeed($agencyId, [['Keep Me', '8001015009087'], ['Remove Me', '9001010001088']]);
         $url = fn () => route('seller-outreach.entry.link-deed-prospecting', ['prospectingListingId' => $listingId]);
         $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deed])->assertOk();
-        $pid = (int) DB::table('prospecting_listings')->where('id', $listingId)->value('matched_property_id');
+        $pid = $this->promotedPropertyId($listingId);
         $removeMe = Contact::where('id_number', '9001010001088')->value('id');
 
         // Remove, then re-link the SAME deed — the removed owner must NOT come back.
         $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.unlink-seller-prospecting', ['prospectingListingId' => $listingId]), ['contact_id' => $removeMe])->assertOk();
         $this->assertDatabaseHas('prospecting_seller_removals', ['prospecting_listing_id' => $listingId, 'id_number' => '9001010001088']);
         $this->actingAs(User::find($userId))->postJson($url(), ['tracked_property_id' => $deed])->assertOk();
-        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertSame(1, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->whereNull('deleted_at')->count());
 
         // A deliberate re-add clears the sticky removal.
         $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.link-seller-prospecting', ['prospectingListingId' => $listingId]), ['contact_id' => $removeMe])->assertOk();
         $this->assertDatabaseMissing('prospecting_seller_removals', ['prospecting_listing_id' => $listingId, 'id_number' => '9001010001088']);
-        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->count());
+        $this->assertSame(2, DB::table('contact_property')->where('property_id', $pid)->where('role', 'seller')->whereNull('deleted_at')->count());
     }
 
     /** R3 — remove one number, and set which is primary. */
@@ -302,7 +306,8 @@ final class MicComposeMultiSellerTest extends TestCase
         $this->actingAs(User::find($userId))->postJson(route('seller-outreach.entry.remove-number-prospecting', ['prospectingListingId' => $listingId]),
             ['contact_id' => $contact->id, 'type' => 'phone', 'value' => '0820000001'])->assertOk();
         $this->assertSame(1, $contact->phones()->count());
-        $this->assertDatabaseMissing('contact_phones', ['contact_id' => $contact->id, 'phone' => '0820000001']);
+        // Removing a number archives it (soft delete — never a hard delete).
+        $this->assertSoftDeleted('contact_phones', ['contact_id' => $contact->id, 'phone' => '0820000001']);
     }
 
     // ── Entity (company / CC) seller linking (Johan 2026-08-14) ──────────
@@ -385,6 +390,17 @@ final class MicComposeMultiSellerTest extends TestCase
             ->assertRedirect(route('seller-outreach.entry.pitch-ready-prospecting', ['prospectingListingId' => $listingId]));
     }
 
+    /**
+     * The Property a prospecting listing was promoted to, found by its stable external_id key
+     * (prospecting:{id}). A deed link rewrites the property's address to the deeds-office one, after
+     * which the fuzzy stock matcher (synchronous in tests) legitimately clears the listing's
+     * matched_property_id — so that column is not a reliable pointer once a deed is linked.
+     */
+    private function promotedPropertyId(int $listingId): int
+    {
+        return (int) DB::table('properties')->where('external_id', 'prospecting:' . $listingId)->value('id');
+    }
+
     /** An entity Contact for the tests (contact_kind=entity, reg-no, no SA ID) — cc6's capture shape. */
     private function makeEntity(int $agencyId, string $name, string $regNo): Contact
     {
@@ -399,7 +415,7 @@ final class MicComposeMultiSellerTest extends TestCase
     private function seedDeed(int $agencyId, array $owners): int
     {
         $tpId = (int) DB::table('tracked_properties')->insertGetId([
-            'agency_id' => $agencyId, 'capture_kind' => 'deeds_capture', 'erf_number' => '659',
+            'agency_id' => $agencyId, 'external_id' => 'deed-' . Str::random(10), 'capture_kind' => 'deeds_capture', 'erf_number' => '659',
             'street_number' => '20', 'street_name' => 'Lilliecrona Drive', 'suburb' => 'Manaba Beach',
             'created_at' => now(), 'updated_at' => now(),
         ]);
@@ -495,14 +511,14 @@ final class MicComposeMultiSellerTest extends TestCase
         return [$agencyId, $user->id];
     }
 
-    private function seedListing(int $agencyId, string $address): int
+    private function seedListing(int $agencyId, string $address, string $suburb = 'Ramsgate'): int
     {
         $capturedBy = (int) DB::table('users')->where('agency_id', $agencyId)->orderBy('id')->value('id');
 
         return (int) DB::table('prospecting_listings')->insertGetId([
             'agency_id' => $agencyId, 'portal_source' => 'p24', 'portal_ref' => 'test-' . Str::random(10),
             'portal_url' => 'https://example.test/' . Str::random(6), 'captured_by_user_id' => $capturedBy,
-            'is_active' => true, 'address' => $address, 'suburb' => 'Ramsgate', 'price' => 0,
+            'is_active' => true, 'address' => $address, 'suburb' => $suburb, 'price' => 0,
             'first_seen_at' => now(), 'last_seen_at' => now(), 'created_at' => now(), 'updated_at' => now(),
         ]);
     }

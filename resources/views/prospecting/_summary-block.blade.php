@@ -175,8 +175,7 @@
                        style="background: var(--surface); border: 1px solid color-mix(in srgb, #10b981 35%, transparent);">
                         <span class="font-medium text-sm" style="color: var(--text-primary);">{{ $row['label'] }}</span>
                         <span class="text-[11px]" style="color: var(--text-muted);">{{ $row['buyers'] }} buyer{{ $row['buyers'] === 1 ? '' : 's' }} · {{ $row['listings'] }} listing{{ $row['listings'] === 1 ? '' : 's' }}</span>
-                        <span class="px-1.5 py-0.5 rounded text-[10px] font-bold"
-                              style="background: color-mix(in srgb, #10b981 20%, transparent); color: #047857;">+{{ $row['gap'] }}</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-success">+{{ $row['gap'] }}</span>
                     </a>
                 @else
                     <span class="inline-flex items-center gap-2 px-3 py-2 rounded"

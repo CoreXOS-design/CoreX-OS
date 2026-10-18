@@ -104,7 +104,7 @@ class CalendarEventCreator
                 'agency_id'     => $user->effectiveAgencyId(),
                 'branch_id'     => $user->branch_id,
                 'property_id'   => $data['property_id'] ?? ($propertyIds[0] ?? null),
-                'contact_id'    => ($data['contact_ids'] ?? [])[0] ?? ($data['contact_id'] ?? null),
+                'contact_id'    => $this->primaryContactId($data, $user->effectiveAgencyId() !== null ? (int) $user->effectiveAgencyId() : null),
                 // Per-event "requires feedback" choice → effective event nature.
                 // Stored in metadata (no new column); resolved by
                 // CalendarEvent::effectiveEventNature(). Absent = use class default.
@@ -121,6 +121,46 @@ class CalendarEventCreator
 
             return $event;
         });
+    }
+
+    /**
+     * The event's direct contact FK: the first CONTACT attendee, else the first
+     * contact_ids[] entry, else the singular contact_id. attendees[] comes first
+     * because syncEventLinks() builds the link graph from it in preference to
+     * contact_ids[] — the FK and the links must name the same contact. The mobile
+     * app sends contacts only as attendees[], which the old contact_ids-only read
+     * left as NULL (an event with a linked buyer but no contact on its card).
+     *
+     * Same-agency only, exactly like the link rows: the mobile endpoint validates
+     * attendee ids by existence alone, so a foreign contact id is skipped here
+     * (null agency = a genuinely agency-less event, nothing to check against).
+     */
+    private function primaryContactId(array $data, ?int $agencyId): ?int
+    {
+        $candidates = [];
+        foreach (($data['attendees'] ?? []) as $attendee) {
+            if (is_array($attendee) && ($attendee['type'] ?? 'contact') === 'contact' && !empty($attendee['id'])) {
+                $candidates[] = (int) $attendee['id'];
+            }
+        }
+        foreach (($data['contact_ids'] ?? []) as $id) {
+            $candidates[] = (int) $id;
+        }
+        if (!empty($data['contact_id'])) {
+            $candidates[] = (int) $data['contact_id'];
+        }
+
+        foreach ($candidates as $id) {
+            if ($id <= 0) {
+                continue;
+            }
+            if ($agencyId === null
+                || Contact::withoutGlobalScopes()->where('id', $id)->where('agency_id', $agencyId)->exists()) {
+                return $id;
+            }
+        }
+
+        return null;
     }
 
     /**

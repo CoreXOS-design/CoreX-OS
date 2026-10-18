@@ -508,7 +508,7 @@ final class WetInkPackStrikeTest extends TestCase
             . '<p class="corex-clause"><span class="sig-inline-line" data-marker-party="seller" data-marker-type="signature"> </span></p>'
             . '</div>';
 
-        [$tpl, $doc] = $this->seedRoleBlockDoc($merged);
+        [$tpl, $doc] = $this->seedRoleBlockDoc($merged, [], ['signer_address' => $addr]);
 
         // Derive the selection from the EXPANDED body — exactly what the agent drags in the (expanded) Fill &
         // Review preview: heading → the inserted "Seller - Anine…" label → Physical address → the address
@@ -557,7 +557,7 @@ final class WetInkPackStrikeTest extends TestCase
      *
      * @return array{0: SignatureTemplate, 1: Document}
      */
-    private function seedRoleBlockDoc(string $merged, array $extraWtd = []): array
+    private function seedRoleBlockDoc(string $merged, array $extraWtd = [], array $sellerAttrs = []): array
     {
         $uid = (int) DB::table('users')->insertGetId([
             'name' => 'RB Agent', 'email' => 'rb-' . Str::random(6) . '@x.test',
@@ -580,14 +580,16 @@ final class WetInkPackStrikeTest extends TestCase
             'signer_name' => 'RB Agent', 'signer_email' => 'a@x.test', 'token' => Str::random(48),
             'token_expires_at' => now()->addDays(30), 'status' => 'completed', 'signing_order' => 1,
         ]);
-        // A Seller recipient with NO contact_id → expandWithLooping keeps the baked address span verbatim
-        // (SellerIdentityPreservation: an absent Contact never overwrites the baked value), so the expanded
-        // text equals the authored text and the selection locates deterministically.
-        SignatureRequest::create([
+        // A Seller recipient with NO contact_id. expandWithLooping no longer keeps the baked span for such a
+        // recipient (blank is the correct empty state — another party's baked value must never print on this
+        // one); it fills each field from the recipient's OWN SignatureRequest columns instead. Callers pass
+        // those via $sellerAttrs (e.g. signer_address) so the expanded text equals the authored text and the
+        // selection locates deterministically.
+        SignatureRequest::create(array_merge([
             'signature_template_id' => $tpl->id, 'party_role' => 'seller', 'role_index' => 1,
             'signer_name' => 'Anine Van der Westhuizen', 'signer_email' => 's@x.test', 'token' => Str::random(48),
             'token_expires_at' => now()->addDays(30), 'status' => 'pending', 'signing_order' => 2,
-        ]);
+        ], $sellerAttrs));
 
         return [$tpl, $doc->fresh()];
     }

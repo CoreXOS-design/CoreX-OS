@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Contracts\ReportsUnreachableRecipients;
 use App\Contracts\SignedDocumentDistributable;
 use App\Exceptions\RentalInspectionNotRecordableException;
 use App\Models\Concerns\BelongsToAgency;
@@ -9,6 +10,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -23,13 +25,68 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * never a bespoke inspection-only path. See that interface's own
  * docblock + .ai/specs/signed-document-distribution.md for the contract.
  */
-class RentalInspection extends Model implements SignedDocumentDistributable
+class RentalInspection extends Model implements ReportsUnreachableRecipients, SignedDocumentDistributable
 {
     use BelongsToAgency, SoftDeletes;
 
     public const TYPE_IN = 'in';
     public const TYPE_OUT = 'out';
     public const TYPE_AD_HOC = 'ad_hoc';
+    // §45.7 (Build I-5) — a planned mid-tenancy inspection the AGENCY loaded a date for (rental_inspection_planned_dates).
+    // Joins the chain between In and Out and is signed by all three parties like In/Out (Johan, 6 Oct 2026, Q7).
+    // ad_hoc stays the unplanned check.
+    public const TYPE_INTERIM = 'interim';
+
+    /**
+     * The ONE word a person reads for each type, on every screen, message, mail and PDF. `ad_hoc` is what the
+     * "Next inspection" picker calls Routine (an unplanned mid-tenancy check) and is shown as "Routine" everywhere —
+     * the stored value is not renamed. `interim` is a SEPARATE, planned mid-tenancy inspection (booked from a date the
+     * agency loaded), shown as "Interim".
+     */
+    public const TYPE_LABELS = [
+        self::TYPE_IN => 'In',
+        self::TYPE_OUT => 'Out',
+        self::TYPE_AD_HOC => 'Routine',
+        self::TYPE_INTERIM => 'Interim',
+    ];
+
+    /** "In", "Out", "Routine", "Interim" — never the raw stored value. */
+    public static function typeLabel(?string $type): string
+    {
+        return self::TYPE_LABELS[(string) $type] ?? ucfirst(str_replace('_', ' ', (string) $type));
+    }
+
+    /** "In-inspection", "Out-inspection", "Routine inspection", "Interim inspection" — for sentences and titles. */
+    public static function typeName(?string $type): string
+    {
+        return in_array($type, [self::TYPE_IN, self::TYPE_OUT], true)
+            ? self::typeLabel($type) . '-inspection'
+            : self::typeLabel($type) . ' inspection';
+    }
+
+    /**
+     * §49 — the ONE list every place an inspection can be started or scheduled offers (the new-inspection form, the
+     * inspection page's and the property tab's "Next inspection" pickers, the tab's first-inspection picker). Johan, 8 Oct
+     * 2026: all four types, everywhere, with the one-line meaning beside Routine and Interim. value => [label, meaning].
+     * The order is the order they are shown.
+     */
+    public const TYPE_PICKER = [
+        self::TYPE_IN => ['label' => 'In', 'meaning' => 'move-in condition'],
+        self::TYPE_AD_HOC => ['label' => 'Routine', 'meaning' => 'an unplanned mid-tenancy check'],
+        self::TYPE_INTERIM => ['label' => 'Interim', 'meaning' => 'a planned mid-tenancy inspection, from a date you loaded'],
+        self::TYPE_OUT => ['label' => 'Out', 'meaning' => 'move-out condition'],
+    ];
+
+    /** @return array<int, array{value: string, label: string, meaning: string, text: string}> text = "Routine — an unplanned mid-tenancy check". */
+    public static function typePickerOptions(): array
+    {
+        $out = [];
+        foreach (self::TYPE_PICKER as $value => $o) {
+            $out[] = ['value' => $value, 'label' => $o['label'], 'meaning' => $o['meaning'], 'text' => $o['label'] . ' — ' . $o['meaning']];
+        }
+
+        return $out;
+    }
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_IN_PROGRESS = 'in_progress';
@@ -44,6 +101,15 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         'type',
         'status',
         'scheduled_for',
+        // §43 — a real "Schedule inspection" action. scheduled_for (date)
+        // already existed; these carry the time of day, how long it's
+        // expected to take, who is doing it (may differ from whoever
+        // booked it — defaults to the booking user, see schedule()), and
+        // a free-text note.
+        'scheduled_time',
+        'scheduled_duration_minutes',
+        'inspector_user_id',
+        'schedule_note',
         'fault_report_deadline_at',
         'signing_deadline_at',
         'completed_at',
@@ -74,6 +140,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         // below — never edited afterward (which inspection this one was
         // compared against is a recorded fact, not something that drifts).
         'previous_inspection_id',
+        'replaces_inspection_id',
         // 2026-09-23 — the public link. Written only by generatePublicLink()/
         // revokePublicLink() below, never through mass-assignment from a
         // request.
@@ -83,6 +150,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
 
     protected $casts = [
         'scheduled_for' => 'date',
+        'scheduled_duration_minutes' => 'integer',
         'fault_report_deadline_at' => 'datetime',
         'signing_deadline_at' => 'datetime',
         'completed_at' => 'datetime',
@@ -91,6 +159,8 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         'remotes_count' => 'integer',
         'move_in_date_recorded' => 'date',
         'public_token_expires_at' => 'datetime',
+        'checklist_wording_snapshot' => 'array',
+        'checklist_wording_snapshot_at' => 'datetime',
     ];
 
     protected static function boot(): void
@@ -106,16 +176,80 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 $inspection->status = self::STATUS_DRAFT;
             }
         });
+
+        // §45.8 (Build I-6b) — the inspection's history. Hooked on the MODEL, not in controllers, so every path that
+        // changes an inspection (the web screens today, a mobile endpoint or a job tomorrow) leaves the same trail.
+        static::created(function (self $inspection) {
+            RentalInspectionAuditLog::record(
+                $inspection,
+                RentalInspectionAuditLog::EVENT_CREATED,
+                self::typeName((string) $inspection->type) . ' created' . ($inspection->scheduled_for ? ' for ' . $inspection->scheduled_for->format('d M Y') : '') . '.',
+                null,
+                ['type' => $inspection->type, 'status' => $inspection->status],
+            );
+        });
+        static::updated(function (self $inspection) {
+            if (! $inspection->wasChanged('status')) {
+                return;
+            }
+            $from = (string) $inspection->getOriginal('status');
+            $to = (string) $inspection->status;
+            if ($to === self::STATUS_CANCELLED) {
+                RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_CANCELLED,
+                    'Cancelled' . ($inspection->cancel_reason ? ': ' . $inspection->cancel_reason : '.'), ['status' => $from], ['status' => $to]);
+
+                return;
+            }
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_STATUS_CHANGED,
+                'Status changed from ' . str_replace('_', ' ', $from) . ' to ' . str_replace('_', ' ', $to) . '.', ['status' => $from], ['status' => $to]);
+        });
+        static::deleted(function (self $inspection) {
+            if ($inspection->isForceDeleting()) {
+                return;
+            }
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_ARCHIVED, 'Archived.', null, ['archived_by_user_id' => $inspection->archived_by_user_id]);
+            $inspection->spliceOutOfChain();
+            self::syncCalendarQuietly($inspection);
+        });
+        static::restoring(function (self $inspection) {
+            // Spec §57 — an archived link no longer blocks its predecessor, so a new "next" may have been started since.
+            if ($inspection->previous_inspection_id && $inspection->status !== self::STATUS_CANCELLED
+                && self::where('previous_inspection_id', $inspection->previous_inspection_id)->where('id', '!=', $inspection->id)->exists()) {
+                throw new \LogicException('Another inspection was started after this one was archived, so it cannot be put back into the chain.');
+            }
+        });
+        static::restored(function (self $inspection) {
+            // archived_by_user_id is cleared right after a restore; the history keeps who had archived it.
+            RentalInspectionAuditLog::record($inspection, RentalInspectionAuditLog::EVENT_RESTORED,
+                'Restored' . ($inspection->archived_by_user_id ? ' (it had been archived by ' . (User::withoutGlobalScopes()->find($inspection->archived_by_user_id)?->name ?? 'unknown') . ').' : '.'));
+            self::syncCalendarQuietly($inspection);
+        });
     }
 
+    /**
+     * An archived inspection must not stay on the inspector's calendar as "pending", and a restored one must come back —
+     * hooked on the model so every archive / restore path (web, mobile, bulk) does it, not just the ones that remembered.
+     * The calendar is a view of the inspection: a failure here is logged, never allowed to undo the archive.
+     */
+    private static function syncCalendarQuietly(self $inspection): void
+    {
+        try {
+            app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($inspection);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Rental inspection calendar sync failed after archive/restore', ['inspection_id' => $inspection->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
+    /** Same reasoning as lease() above. */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function cancelledBy(): BelongsTo
@@ -131,6 +265,24 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public function createdBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /** §43 — who is actually doing the inspection; defaults to the booking user at schedule() time, but may be reassigned on reschedule(). */
+    public function inspector(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'inspector_user_id');
+    }
+
+    /** §43 — one immutable row per reschedule, latest first. */
+    public function reschedules(): HasMany
+    {
+        return $this->hasMany(RentalInspectionReschedule::class)->latest('id');
+    }
+
+    /** §43 — one row per notification attempt (scheduled/rescheduled/cancelled/reminder), latest first. */
+    public function notifications(): HasMany
+    {
+        return $this->hasMany(RentalInspectionNotification::class)->latest('id');
     }
 
     public function observations(): HasMany
@@ -153,6 +305,12 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public function roomNotes(): HasMany
     {
         return $this->hasMany(RentalInspectionRoomNote::class);
+    }
+
+    /** §45.5 (Build I-3) — every attendance record, superseded ones included; use ->live() for what counts. */
+    public function attendances(): HasMany
+    {
+        return $this->hasMany(RentalInspectionAttendance::class);
     }
 
     public function signatures(): HasMany
@@ -185,13 +343,32 @@ class RentalInspection extends Model implements SignedDocumentDistributable
 
     /**
      * The inverse — this inspection's own successor, if "Next inspection"
-     * has been pressed from it. At most one, enforced by the migration's
-     * unique index on previous_inspection_id (one linear chain, never a
-     * fork).
+     * has been pressed from it. At most ONE LIVE successor (one linear
+     * chain, never a fork): a cancelled successor is not part of the chain
+     * any more, and an archived one is already hidden by SoftDeletes. That
+     * is what lets chainTailFor() find the previous inspection again after
+     * the one started on top of it is cancelled (spec §57) — the row keeps
+     * its previous_inspection_id for the history, so several rows can
+     * point at one inspection and only this relation says which one counts.
+     * The "never a fork" rule lives in assertCanFollow() / startNext().
      */
     public function nextInChain(): \Illuminate\Database\Eloquent\Relations\HasOne
     {
-        return $this->hasOne(self::class, 'previous_inspection_id');
+        return $this->hasOne(self::class, 'previous_inspection_id')->where('status', '!=', self::STATUS_CANCELLED);
+    }
+
+    /**
+     * Take this inspection out of the chain once it is cancelled or archived (spec §57): whatever was started AFTER it
+     * now follows the inspection that came BEFORE it, so previousInspection() reads the right comparison everywhere
+     * without every reader having to skip dead links. The cancelled/archived row keeps its own link for the history.
+     * A cancelled or archived TAIL has no successor, so this is a no-op there — nextInChain() already ignores it.
+     */
+    public function spliceOutOfChain(): void
+    {
+        self::where('previous_inspection_id', $this->id)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->get()
+            ->each(fn (self $successor) => $successor->forceFill(['previous_inspection_id' => $this->previous_inspection_id])->save());
     }
 
     /** §13 — every active scanned/photographed wet-ink form uploaded against this inspection. An archived scan is never hard-deleted (non-negotiable #1) — it simply drops off this default list, same as every other soft-deletable list on this screen. */
@@ -254,6 +431,227 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * §45.8 (Build I-6b) — a COMPLETED inspection, or one that already carries a live signed / paper-signed
+     * signature, is evidence rather than a working draft. Archiving it needs `rental_inspections.archive_completed`.
+     */
+    public function isEvidenceRecord(): bool
+    {
+        if ($this->status === self::STATUS_COMPLETED) {
+            return true;
+        }
+
+        return $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->exists();
+    }
+
+    /**
+     * §45.3 (Build I-1) — every non-retired checklist item of this inspection's property that has no
+     * RECORDED condition on THIS inspection ("Not applicable" is a recorded condition). Exactly the
+     * screen's own definition of "Not yet recorded" / the n/total counter: an item is graded when this
+     * inspection holds an observation for it whose condition is not CONDITION_PENDING (a bare photo
+     * anchor, §20.22.3, is not a grade). Ordered the way the screen walks the property (room order,
+     * then item order).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInspectionItem>
+     */
+    public function itemsStillUngraded(): \Illuminate\Support\Collection
+    {
+        $gradedItemIds = $this->observations()
+            ->recorded()
+            ->pluck('rental_inspection_item_id')
+            ->unique();
+
+        return RentalInspectionItem::query()
+            ->where('property_id', $this->property_id)
+            ->notRetired()
+            ->with('room')
+            ->get()
+            ->reject(fn (RentalInspectionItem $item) => $gradedItemIds->contains($item->id))
+            ->sortBy([
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => ($a->room ? 0 : 1) <=> ($b->room ? 0 : 1),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) ($a->room?->sort_order ?? 0) <=> (int) ($b->room?->sort_order ?? 0),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) ($a->room?->id ?? 0) <=> (int) ($b->room?->id ?? 0),
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => (int) $a->sort_order <=> (int) $b->sort_order,
+                fn (RentalInspectionItem $a, RentalInspectionItem $b) => $a->id <=> $b->id,
+            ])
+            ->values();
+    }
+
+    /**
+     * §45.5 (Build I-3) — every EXPECTED party (each lease tenant, each invited landlord, the inspector)
+     * must have a recorded attendance outcome — attended or did not attend — before an in/out (later
+     * interim) inspection completes. Never ad_hoc. This is a record-keeping rule, not a setting: it only
+     * asks that the outcome be written down. It does not stop anyone from not attending.
+     */
+    /**
+     * §52 — the checklist items this inspection has a recorded, applicable condition for but NO photo on: the list behind the
+     * "N items without a photo" warning at Ready to sign. Items marked Not applicable and items not yet recorded are not counted
+     * (the first has nothing to photograph, the second is the every-item-recorded gate's business).
+     *
+     * @return \Illuminate\Support\Collection<int, RentalInspectionItem>
+     */
+    public function itemsWithoutPhoto(): \Illuminate\Support\Collection
+    {
+        $recorded = $this->observations()->recorded()->orderBy('id')->get(['id', 'rental_inspection_item_id', 'condition']);
+        $latestByItem = $recorded->groupBy('rental_inspection_item_id')->map(fn ($g) => $g->last());
+        $photographed = RentalInspectionPhoto::query()
+            ->where('rental_inspection_id', $this->id)
+            ->whereNotNull('rental_inspection_observation_id')
+            ->pluck('rental_inspection_observation_id');
+        $observationIdsByItem = $recorded->groupBy('rental_inspection_item_id')->map(fn ($g) => $g->pluck('id'));
+
+        return RentalInspectionItem::query()
+            ->where('property_id', $this->property_id)
+            ->notRetired()
+            ->with('room')
+            ->orderBy('property_room_id')->orderBy('sort_order')->orderBy('id')
+            ->get()
+            ->filter(function (RentalInspectionItem $item) use ($latestByItem, $photographed, $observationIdsByItem) {
+                $latest = $latestByItem->get($item->id);
+                if (! $latest || $latest->condition === RentalInspectionObservation::CONDITION_NA) {
+                    return false;
+                }
+
+                return $observationIdsByItem->get($item->id, collect())->intersect($photographed)->isEmpty();
+            })
+            ->values();
+    }
+
+    /**
+     * §52 — who the report says it is from: the agency's name and logo (the SAME source the tenant / owner portal header uses,
+     * Agency::publicBrandingFor()) and the inspecting agent's name, role, phone and email. Null when the agency switched
+     * `report_shows_agency_branding` off. `logo_data_uri` is for the PDF (a file:// logo cannot be fetched by the renderer);
+     * `logo_url` for the web page. A missing or unreadable logo file simply yields no logo — the name still shows.
+     *
+     * @return array{agency_name:string, logo_url:?string, logo_data_uri:?string, agent:?array{name:string, designation:?string, phone:?string, email:?string}}|null
+     */
+    public function reportBranding(): ?array
+    {
+        if (! RentalInspectionSetting::ruleFor($this->agency_id, 'report_shows_agency_branding')) {
+            return null;
+        }
+        $branding = Agency::publicBrandingFor((int) $this->agency_id);
+        $agency = Agency::withoutGlobalScopes()->find($this->agency_id);
+
+        $dataUri = null;
+        if ($agency?->logo_path) {
+            $abs = storage_path('app/public/' . ltrim((string) $agency->logo_path, '/'));
+            $mime = ['png' => 'image/png', 'jpg' => 'image/jpeg', 'jpeg' => 'image/jpeg', 'gif' => 'image/gif'][strtolower(pathinfo($abs, PATHINFO_EXTENSION))] ?? null;
+            if ($mime && is_file($abs)) {
+                $dataUri = 'data:' . $mime . ';base64,' . base64_encode((string) file_get_contents($abs));
+            }
+        }
+
+        $agent = $this->inspector_user_id
+            ? User::withoutGlobalScopes()->find($this->inspector_user_id)
+            : ($this->created_by_user_id ? User::withoutGlobalScopes()->find($this->created_by_user_id) : null);
+
+        return [
+            'agency_name' => (string) $branding['name'],
+            'logo_url' => $dataUri ? $branding['logoUrl'] : null,
+            'logo_data_uri' => $dataUri,
+            'agent' => $agent ? [
+                'name' => (string) $agent->name,
+                'designation' => $agent->designation ? ucwords(str_replace('_', ' ', (string) $agent->designation)) : null,
+                'phone' => ($agent->cell ?: $agent->phone) ?: null,
+                'email' => ($agent->outward_email ?: $agent->email) ?: null,
+            ] : null,
+        ];
+    }
+
+    /**
+     * §52 — where the signing window stands, for the screens ("5 days left", "closed 2 days ago — 1 still outstanding"). Null
+     * unless the report is waiting for signatures. `days_left` is whole calendar days from today to the closing day (0 = it
+     * closes today, negative = it closed). `outstanding` counts the tenants and the landlord who have no signing outcome yet.
+     *
+     * @return array{deadline:string, days_left:int, closed:bool, outstanding:int, label:string}|null
+     */
+    public function signingWindowStatus(): ?array
+    {
+        if ($this->status !== self::STATUS_AWAITING_SIGNATURE || ! $this->signing_deadline_at) {
+            return null;
+        }
+        $daysLeft = (int) now()->startOfDay()->diffInDays($this->signing_deadline_at->copy()->startOfDay(), false);
+        $outstanding = $this->outstandingSignatories()->count();
+        $closes = $this->signing_deadline_at->format('j M Y');
+        $label = match (true) {
+            $daysLeft > 1 => "Signing window: {$daysLeft} days left (closes {$closes})",
+            $daysLeft === 1 => "Signing window: 1 day left (closes {$closes})",
+            $daysLeft === 0 => "Signing window: closes today ({$closes})",
+            $daysLeft === -1 => 'Signing window: closed yesterday',
+            default => 'Signing window: closed ' . abs($daysLeft) . ' days ago',
+        };
+        if ($outstanding > 0) {
+            $label .= ' — ' . $outstanding . ' still to sign';
+        }
+
+        return ['deadline' => $this->signing_deadline_at->toDateString(), 'days_left' => $daysLeft, 'closed' => $daysLeft < 0, 'outstanding' => $outstanding, 'label' => $label];
+    }
+
+    /**
+     * §52 — a Routine (stored `ad_hoc`) inspection used to be exempt from every-item-recorded, required notes and attendance.
+     * With the agency rule `routine_follows_full_checks` (default ON) it needs the same checks as the others; switch it off and
+     * Routine is the light-weight check it was. Signatures are a separate, per-type setting (§49.4).
+     */
+    public function isRoutineExemptFromChecks(): bool
+    {
+        return $this->type === self::TYPE_AD_HOC && ! RentalInspectionSetting::ruleFor($this->agency_id, 'routine_follows_full_checks');
+    }
+
+    private function guardAttendanceRecorded(string $action): void
+    {
+        if ($this->isRoutineExemptFromChecks()) {
+            return;
+        }
+
+        $missing = app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->missingParties($this);
+        if ($missing !== []) {
+            throw new \App\Exceptions\RentalInspectionAttendanceMissingException($action, $missing);
+        }
+    }
+
+    /**
+     * §45.3 — the "every item graded" gate for in/out/interim (never ad_hoc), switched by
+     * RentalInspectionSetting::allItemsRequiredToCompleteFor(). Prevent-or-absorb: PREVENTED here at the
+     * two transitions that lock the record (sending it for signature, completing it); absorbed
+     * everywhere else — an agent can always keep recording. Never touches an inspection already past
+     * these points.
+     */
+    private function guardUngradedItems(string $action): void
+    {
+        if ($this->isRoutineExemptFromChecks()) {
+            return;
+        }
+        if (! RentalInspectionSetting::allItemsRequiredToCompleteFor($this->agency_id)) {
+            return;
+        }
+
+        // §52 — "every item recorded" is vacuously true on an inspection with NOTHING to inspect, which used to be signed and
+        // sent as an empty report (QA1 #38 is a completed Out with 0 items). Agency rule, default ON.
+        if (RentalInspectionSetting::ruleFor($this->agency_id, 'empty_checklist_blocks_signing')
+            && ! RentalInspectionItem::query()->where('property_id', $this->property_id)->notRetired()->exists()) {
+            throw new \LogicException('There is nothing to inspect yet — add the rooms and items for this property first, then ' . $action . '.');
+        }
+
+        $ungraded = $this->itemsStillUngraded();
+        if ($ungraded->isEmpty()) {
+            return;
+        }
+
+        throw new \App\Exceptions\RentalInspectionItemsUngradedException(
+            $action,
+            $ungraded->map(fn (RentalInspectionItem $item) => [
+                'item_id' => $item->id,
+                'item_label' => $item->label,
+                'room_id' => $item->property_room_id,
+                'room_label' => $item->room?->label ?? 'General',
+            ])->all()
+        );
+    }
+
+    /**
      * §"Notes (required)" gate — RentalInspectionSetting::
      * requireNotesBlocksProgressionFor() decides whether this throws (the
      * default) or is a no-op (an agency that only wants a warning); either
@@ -265,6 +663,9 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     private function guardMissingRequiredNotes(string $action): void
     {
+        if ($this->isRoutineExemptFromChecks()) {
+            return;
+        }
         if (! RentalInspectionSetting::requireNotesBlocksProgressionFor($this->agency_id)) {
             return;
         }
@@ -287,7 +688,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
 
     /**
      * §15.4/§15.7/§16 — every tenant on this inspection's own lease, plus the
-     * landlord if Property::sellerOwnerContact() resolves one, who does NOT
+     * landlord if Property::landlordContact() resolves one, who does NOT
      * yet have a live disposition (signed, refused, or wet_ink — a
      * superseded wet_ink row does not count, §16.3) row on THIS inspection.
      * Empty means every required party is accounted for — the one thing
@@ -317,7 +718,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             }
         }
 
-        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
+        $landlordContactId = $this->property?->landlordContact()?->id;
         if ($landlordContactId) {
             $already = $existing->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD);
             if (! $already) {
@@ -334,7 +735,353 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         return $this->signatures()
             ->where('party_role', RentalInspectionSignature::PARTY_AGENT)
             ->where('disposition', RentalInspectionSignature::DISPOSITION_SIGNED)
+            ->whereNull('superseded_at') // §47 — a signature voided by "Edit report" no longer counts
             ->exists();
+    }
+
+    // ═══ §47 — a signed report is locked ═══════════════════════════════════════
+
+    /**
+     * §47 — someone has really signed this report (a drawn / link / PIN signature, or a paper signature on file), so its
+     * content is locked. A refusal or a "paper sent" marker does not lock it: nobody has attested to the report yet.
+     * Voided signatures (superseded) never count.
+     */
+    public function isSignedLocked(): bool
+    {
+        return $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->exists();
+    }
+
+    /** The one guard for changing a report's CONTENT (conditions, notes, photos, details): recordable AND not signed-locked. */
+    public function assertContentEditable(): void
+    {
+        $this->assertRecordable();
+        if ($this->isSignedLocked()) {
+            throw new \App\Exceptions\RentalInspectionSignedLockedException();
+        }
+    }
+
+    /**
+     * §47 — DISTRIBUTED = the moment copies are sent. In the code today that moment is the agent pressing Complete:
+     * `markCompleted()` flips the status and `RentalInspectionRecordingController::complete()` then files the signed PDF
+     * and emails every party through `RentalInspectionCopiesService::fileAndSend()` (the email only when the agency's
+     * auto-send setting is on; a later "Resend" is a second send of the same, already-distributed report). Completed is
+     * therefore treated as distributed whether or not the agency's auto-send was on, and any logged email copy to a
+     * tenant or landlord counts too, so a distributed report can never be un-distributed by a status change.
+     * Johan's ruling (7 Oct 2026): a distributed report can NEVER be edited or reopened, by anyone, in any role — an edit
+     * after the tenant received it is a tampering claim. The only way forward is a NEW inspection (startReplacement()).
+     */
+    public function isDistributed(): bool
+    {
+        if ($this->status === self::STATUS_COMPLETED) {
+            return true;
+        }
+
+        return \App\Models\SignedDocumentDistributionLog::query()
+            ->where('distributable_type', self::class)
+            ->where('distributable_id', $this->id)
+            ->where('channel', 'email')
+            ->where('status', 'sent')
+            ->whereIn('recipient_role', ['tenant', 'landlord'])
+            ->exists();
+    }
+
+    /** "Edit report" is offered only while the report is signed-locked, still open, and NOT distributed. */
+    public function canBeReopened(): bool
+    {
+        return $this->isRecordable() && $this->isSignedLocked() && ! $this->isDistributed();
+    }
+
+    // ═══ §49 — downloads, the DRAFT stamp, signatures per type, sent-then-added, wording ═══════════
+
+    /** §49 — must this inspection carry the three signatures to be completed? The agency's own setting, per type. */
+    public function signaturesRequired(): bool
+    {
+        return RentalInspectionSetting::signaturesRequiredFor($this->agency_id, $this->type);
+    }
+
+    /**
+     * §49 — every party has really signed: each tenant on the lease, the landlord (when the property resolves one) and
+     * the agent each hold a LIVE drawn / link / PIN signature or a paper signature on file. A refusal, a "paper sent"
+     * marker or a voided signature is not a signature. This is the test for "everyone has signed".
+     */
+    public function isFullySigned(): bool
+    {
+        $live = $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->get(['party_role', 'party_contact_id', 'disposition']);
+
+        foreach (\App\Models\LeaseTenant::where('lease_id', $this->lease_id)->pluck('contact_id') as $contactId) {
+            if (! $live->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_TENANT && (int) $s->party_contact_id === (int) $contactId)) {
+                return false;
+            }
+        }
+        if ($this->property?->landlordContact()
+            && ! $live->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_LANDLORD)) {
+            return false;
+        }
+
+        return $live->contains(fn ($s) => $s->party_role === RentalInspectionSignature::PARTY_AGENT
+            && $s->disposition === RentalInspectionSignature::DISPOSITION_SIGNED);
+    }
+
+    /**
+     * §49 — Johan, 8 Oct 2026: a tenant or landlord may take a PDF (signing link, public link, portal, emailed copy) ONLY
+     * once everyone has signed — and it stays available after. Before that they read the report on screen and nothing
+     * leaves CoreX. A completed report (copies sent) is always available: completing is what sends it, and it can only
+     * happen with the agency's required signatures in. The agent's own Print / PDF is NOT governed by this — it is always
+     * available, stamped DRAFT until the report is final.
+     *
+     * A party's own signature does not make a copy available, and does not count as the report being sent: DISTRIBUTED
+     * (isDistributed()) is unchanged — completed, with the copies sent.
+     */
+    public function partyCopyAvailable(): bool
+    {
+        if ($this->status === self::STATUS_CANCELLED || $this->trashed()) {
+            return false;
+        }
+
+        return $this->allRequiredPartiesSigned() && ($this->isDistributed() || $this->isFullySigned());
+    }
+
+    /**
+     * §49 — "all required parties have signed", honouring the agency's per-type setting: where signatures are required for
+     * this type, every party must hold a live signature (isFullySigned()); where they are optional (Routine by default),
+     * nothing is outstanding. A refusal is not a signature, so a report with a refusal on record never counts.
+     */
+    public function allRequiredPartiesSigned(): bool
+    {
+        return ! $this->signaturesRequired() || $this->isFullySigned();
+    }
+
+    /**
+     * §49 — the report is FINAL: completed (and so, for a type that needs them, fully signed — completion refuses
+     * otherwise). Only a final report prints without the "DRAFT - not final" stamp on every page; an unfinished, cancelled
+     * or not-fully-signed one always carries it.
+     */
+    public function isFinalReport(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED && ! $this->trashed();
+    }
+
+    /**
+     * §49 — whether an observation was added AFTER the report was sent: only a tenant fault report filed inside the
+     * fault-report window (§3.5) can be, and only on a completed inspection, at or after the moment it was completed.
+     * Such an observation is shown and printed apart from the report body, clearly marked.
+     */
+    public function isAddedAfterSent(RentalInspectionObservation $observation): bool
+    {
+        return $this->status === self::STATUS_COMPLETED
+            && $this->completed_at !== null
+            && $observation->source === RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT
+            && $observation->created_at !== null
+            && $observation->created_at->gte($this->completed_at);
+    }
+
+    /** §49 — this inspection's observations that belong to the report body (everything except what was added after it was sent). */
+    public function bodyObservations(): \Illuminate\Support\Collection
+    {
+        return $this->observations->reject(fn (RentalInspectionObservation $o) => $this->isAddedAfterSent($o))->values();
+    }
+
+    /**
+     * §49 — fix the checklist item wording the report reads with. Called when someone first really signs and when the
+     * report is completed; fill-if-empty, so the wording a signer saw is never re-taken or overwritten. Every item of the
+     * property — live or retired — is recorded, because a report can list a retired item it assessed.
+     */
+    public function ensureChecklistWordingSnapshot(): void
+    {
+        $fresh = static::withoutGlobalScopes()->whereKey($this->id)->first(['id', 'checklist_wording_snapshot']);
+        if ($fresh && ! empty($fresh->checklist_wording_snapshot)) {
+            $this->checklist_wording_snapshot = $fresh->checklist_wording_snapshot;
+
+            return;
+        }
+
+        $map = $this->currentChecklistWording();
+        $now = now();
+        static::withoutGlobalScopes()->whereKey($this->id)->update([
+            'checklist_wording_snapshot' => json_encode($map),
+            'checklist_wording_snapshot_at' => $now,
+        ]);
+        $this->forceFill(['checklist_wording_snapshot' => $map, 'checklist_wording_snapshot_at' => $now])->syncOriginal();
+    }
+
+    /** @return array<int|string, string> {item id => its label right now} for every item of this property. */
+    public function currentChecklistWording(): array
+    {
+        return RentalInspectionItem::withoutGlobalScopes()
+            ->where('property_id', $this->property_id)
+            ->pluck('label', 'id')
+            ->map(fn ($l) => (string) $l)
+            ->all();
+    }
+
+    /** §49 — clear the snapshot (the report was reopened for editing: nobody's signature stands any more). */
+    public function clearChecklistWordingSnapshot(): void
+    {
+        static::withoutGlobalScopes()->whereKey($this->id)->update(['checklist_wording_snapshot' => null, 'checklist_wording_snapshot_at' => null]);
+        $this->forceFill(['checklist_wording_snapshot' => null, 'checklist_wording_snapshot_at' => null])->syncOriginal();
+    }
+
+    /**
+     * §49 — make the given checklist items (a collection, or one item) read with the wording this report was signed / sent
+     * with. In memory only: the label attribute is replaced and synced as the original, so nothing is ever written back to
+     * the checklist. An item with no snapshot entry (added later, or this report predates the snapshot) keeps its live label.
+     *
+     * @param  iterable<RentalInspectionItem>|RentalInspectionItem|null  $items
+     */
+    public function applyWordingSnapshot(iterable|RentalInspectionItem|null $items): void
+    {
+        $snapshot = $this->checklist_wording_snapshot;
+        if (empty($snapshot) || $items === null) {
+            return;
+        }
+        $items = $items instanceof RentalInspectionItem ? [$items] : $items;
+        foreach ($items as $item) {
+            if ($item instanceof RentalInspectionItem && array_key_exists((string) $item->id, $snapshot)) {
+                $item->setAttribute('label', $snapshot[(string) $item->id]);
+                $item->syncOriginalAttribute('label');
+            }
+        }
+    }
+
+    /** The inspection this one replaces (set when a distributed report could not be edited and a new one was started). */
+    public function replaces(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'replaces_inspection_id')->withTrashed();
+    }
+
+    /** The inspection that replaced this one, if any (live ones only). */
+    public function replacedBy(): HasOne
+    {
+        return $this->hasOne(self::class, 'replaces_inspection_id');
+    }
+
+    /**
+     * §47 — "Start new inspection" for a distributed report: a NEW inspection for the same property, lease and type that
+     * replaces it. The old inspection is not touched in any way; both histories say so. It joins the chain after its
+     * current tail (so the replacement compares against what was recorded before, and nothing forks), and the tail must be
+     * closed — a still-open inspection on the same tenancy is finished or cancelled first.
+     *
+     * @throws \LogicException
+     */
+    public static function startReplacement(self $old, User $by): self
+    {
+        if (! $old->isDistributed()) {
+            throw new \LogicException('This inspection has not been sent to the parties yet, so it can still be edited — start a new inspection only for one that has been sent.');
+        }
+        if ($old->trashed() || $old->status === self::STATUS_CANCELLED) {
+            throw new \LogicException('A cancelled or archived inspection cannot be replaced.');
+        }
+        if ($existing = self::where('replaces_inspection_id', $old->id)->where('status', '!=', self::STATUS_CANCELLED)->first()) {
+            throw new \LogicException('This inspection has already been replaced by inspection #' . $existing->id . '.');
+        }
+
+        $tail = $old;
+        for ($i = 0; $i < 50 && ($next = $tail->nextInChain()->first()); $i++) {
+            $tail = $next;
+        }
+        if ($tail->status !== self::STATUS_COMPLETED) {
+            throw new \LogicException('Another inspection (#' . $tail->id . ') is still open on this tenancy — finish or cancel it before starting the replacement.');
+        }
+
+        $lease = $old->lease ?? Lease::withoutGlobalScopes()->find($old->lease_id);
+        $property = $old->property ?? Property::find($old->property_id);
+
+        $new = \Illuminate\Support\Facades\DB::transaction(function () use ($old, $tail, $by, $lease, $property) {
+            return self::create([
+                'agency_id' => $old->agency_id,
+                'lease_id' => $old->lease_id,
+                'property_id' => $old->property_id,
+                'previous_inspection_id' => $tail->id,
+                'replaces_inspection_id' => $old->id,
+                'type' => $old->type,
+                'created_by_user_id' => $by->id,
+                'property_type' => $property?->property_type,
+                'furnished_status' => $property?->furnished_status,
+                'move_in_date_recorded' => $old->type === self::TYPE_OUT ? $lease?->start_date : null,
+            ]);
+        });
+
+        // Both histories carry the link (the old inspection's report is untouched — only its history gains a line).
+        RentalInspectionAuditLog::record($old, RentalInspectionAuditLog::EVENT_REPLACED,
+            'Replaced by new ' . strtolower(self::typeName($new->type)) . ' #' . $new->id . ', started by ' . $by->name . '. This report stays exactly as it was sent.',
+            null, ['replaced_by_inspection_id' => $new->id], $by);
+        RentalInspectionAuditLog::record($new, RentalInspectionAuditLog::EVENT_REPLACED,
+            'Replaces ' . strtolower(self::typeName($old->type)) . ' #' . $old->id . ', which had been sent to the parties and can no longer be changed.',
+            null, ['replaces_inspection_id' => $old->id], $by);
+
+        return $new;
+    }
+
+    public function reopens(): HasMany
+    {
+        return $this->hasMany(RentalInspectionReopen::class)->orderBy('id');
+    }
+
+    /**
+     * §47 — the report as a person reads it, in a compact form that can be stored: header details, each graded item
+     * (room, item, condition, note, photo count), room notes, overall notes. Stored on a reopen so what the signers
+     * signed stays on record after the report is edited. Fresh scope-free queries — same value whoever asks.
+     *
+     * @return array<string, mixed>
+     */
+    public function reportSnapshot(): array
+    {
+        $items = RentalInspectionItem::withoutGlobalScopes()->where('property_id', $this->property_id)
+            ->listedOnReportOf($this->id)->with(['room' => fn ($q) => $q->withoutGlobalScopes()])->get()->keyBy('id');
+        // §49 — what the signers saw is stored with the wording they saw.
+        $this->applyWordingSnapshot($items);
+
+        $observations = RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $this->id)
+            ->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)
+            ->orderBy('id')->get()
+            ->groupBy('rental_inspection_item_id')->map(fn ($g) => $g->last());
+
+        $photoCounts = RentalInspectionPhoto::withoutGlobalScopes()
+            ->whereIn('rental_inspection_observation_id', $observations->pluck('id')->all())
+            ->whereNull('deleted_at')->selectRaw('rental_inspection_observation_id, count(*) c')
+            ->groupBy('rental_inspection_observation_id')->pluck('c', 'rental_inspection_observation_id');
+
+        return [
+            'type' => $this->type,
+            'details' => collect($this->only([
+                'electricity_meter_reading', 'water_meter_reading', 'furnished_status', 'property_type',
+                'keys_count', 'keys_description', 'remotes_count', 'remotes_description', 'move_in_date_recorded',
+            ]))->map(fn ($v) => $v instanceof \DateTimeInterface ? $v->format('Y-m-d') : $v)->all(),
+            'items' => $observations->map(fn ($o) => [
+                'room' => $items->get($o->rental_inspection_item_id)?->room?->name,
+                'item' => $items->get($o->rental_inspection_item_id)?->label,
+                'condition' => $o->condition,
+                'note' => $o->notes,
+                'photos' => (int) ($photoCounts[$o->id] ?? 0),
+            ])->values()->all(),
+            'room_notes' => RentalInspectionRoomNote::withoutGlobalScopes()->where('rental_inspection_id', $this->id)->orderBy('id')
+                ->get(['property_room_id', 'note'])->map(fn ($n) => ['room_id' => $n->property_room_id, 'note' => $n->note])->all(),
+            'overall_notes' => (string) $this->overall_notes,
+        ];
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — the first party (if any) still sitting in
+     * "paper sent, not yet returned." Distinct from outstandingSignatories()
+     * (which only reports a party with NO live row at all): a party marked
+     * awaiting_wet_ink DOES have a live row, so they never appear there, but
+     * they have not actually provided evidence yet either — markCompleted()
+     * below blocks on this the same way it blocks on a truly outstanding
+     * party. Mirrors RentalInventory::firstAwaitingWetInkSignatory() exactly.
+     */
+    public function firstAwaitingWetInkSignatory(): ?RentalInspectionSignature
+    {
+        return $this->signatures()
+            ->where('disposition', RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK)
+            ->whereNull('superseded_at')
+            ->first();
     }
 
     /**
@@ -364,8 +1111,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inspections');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_inspections', $requestedScope);
 
         if ($scope === 'all') {
             return $query;
@@ -374,37 +1120,99 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             return $query->whereHas('property', fn (Builder $p) => $p->where('properties.branch_id', $user->effectiveBranchId()));
         }
         if ($scope === 'own') {
-            return $query->whereIn('rental_inspections.created_by_user_id', $user->dataIdentityIds());
+            // §43 — an inspector booked to do a scheduled inspection someone
+            // ELSE created (e.g. a branch manager scheduling on an agent's
+            // behalf) must see it on their own board too, not just the
+            // creator. Widened, never narrowed — created_by_user_id keeps
+            // working exactly as before for every pre-existing row (no
+            // inspector set) and for anyone who still books their own.
+            //
+            // Rentals walk, 8 Oct 2026 — and the lease's own AGENTS: its owner's agent and its tenant's agent are on every
+            // inspection of that tenancy too (Lease::scopeAgentedBy), not only the creator/inspector. Same rule as the
+            // per-record guard and the planned dates.
+            $identityIds = $user->dataIdentityIds();
+            return $query->where(fn (Builder $q) => $q
+                ->whereIn('rental_inspections.created_by_user_id', $identityIds)
+                ->orWhereIn('rental_inspections.inspector_user_id', $identityIds)
+                ->orWhereHas('lease', fn (Builder $l) => $l->agentedBy($identityIds)));
         }
 
         return $query->whereRaw('1 = 0');
     }
 
     /**
-     * §3.5/§0.7, widened by §15.3 (2026-09-20) — an in- or out-inspection
-     * moves to awaiting_signature once the walkthrough is done, opening the
-     * signing step. Previously out-inspection only; Johan's fuller ruling
-     * ("inspections both in and out needs all party signatures") requires
-     * the same step on both. TYPE_AD_HOC stays excluded — §15 names "both
-     * in and out" specifically, and an ad-hoc mid-tenancy check keeps its
-     * existing lighter-weight lifecycle. Guarded the same way completion is:
-     * cannot proceed while a discrepancy is still unresolved (§11).
+     * §3.5/§0.7, widened by §15.3 (2026-09-20) and again 7 Oct 2026 — ANY inspection (In, Out, Interim or Routine)
+     * moves to awaiting_signature once the walkthrough is done, opening the signing step. Johan's ruling, 7 Oct 2026:
+     * "EVERY inspection type can be marked ready to sign and signed". There is no type restriction here any more (a
+     * Routine inspection used to be refused with "only an in-, interim or out-inspection has a signing window").
+     * Guarded the same way completion is: cannot proceed while a discrepancy is still unresolved (§11). The signing
+     * window's length is the agency's own setting (signingWindowDaysFor), the same for every type.
      */
     public function startAwaitingSignature(): void
     {
-        $this->assertRecordable();
-        if (! in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
-            throw new \LogicException('Only an in- or out-inspection has a signing window.');
-        }
-        if ($this->hasUnresolvedDiscrepancy()) {
-            throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
-        }
-        $this->guardMissingRequiredNotes('start the signing window');
+        $this->assertReadyToSign();
 
         $this->forceFill([
             'status' => self::STATUS_AWAITING_SIGNATURE,
             'signing_deadline_at' => now()->addDays(RentalInspectionSetting::signingWindowDaysFor($this->agency_id)),
         ])->save();
+    }
+
+    /**
+     * Everything that must be true before this inspection can be marked ready to sign. Changes nothing - the single
+     * sequence both startAwaitingSignature() and signingReadiness() run.
+     *
+     * @throws \LogicException (RentalInspectionItemsUngradedException, ...RequiredNotesMissingException and the plain ones)
+     */
+    public function assertReadyToSign(): void
+    {
+        $this->assertRecordable();
+        if ($this->hasUnresolvedDiscrepancy()) {
+            throw new \LogicException('Cannot start the signing window while a discrepancy is unresolved.');
+        }
+        $this->guardUngradedItems('start the signing window');
+        $this->guardMissingRequiredNotes('start the signing window');
+
+        // §52 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
+        if (RentalInspectionSetting::ruleFor($this->agency_id, 'photos_required_to_sign')) {
+            $bare = $this->itemsWithoutPhoto();
+            if ($bare->isNotEmpty()) {
+                throw new \LogicException($bare->count() . ' item' . ($bare->count() === 1 ? ' has' : 's have') . ' no photo yet (for example ' . $bare->first()->label . ') — add them, or ask an administrator to relax the "photos required" rule, before this can be marked ready to sign.');
+            }
+        }
+    }
+
+    /**
+     * What the signing panel shows about "ready to sign": `state` is 'signing' (already open), 'ready' (every item is
+     * recorded - a signing link or "Sign on this device" opens signing by itself), 'blocked' (something is still missing:
+     * `message`, and for unrecorded items `unrecorded` and `rooms` = [{room_id, room, count}]) or 'closed' (completed /
+     * cancelled / archived - nothing to do).
+     *
+     * @return array{state:string, unrecorded:int, rooms:array<int, array{room_id:?int, room:string, count:int}>, message:?string}
+     */
+    public function signingReadiness(): array
+    {
+        $out = ['state' => 'ready', 'unrecorded' => 0, 'rooms' => [], 'message' => null];
+        if ($this->status === self::STATUS_AWAITING_SIGNATURE) {
+            return ['state' => 'signing'] + $out;
+        }
+        if (! $this->isRecordable()) {
+            return ['state' => 'closed'] + $out;
+        }
+
+        try {
+            $this->assertReadyToSign();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            $rooms = collect($e->ungradedItems)->groupBy('room_label')->map(fn ($rows, $label) => [
+                'room_id' => $rows->first()['room_id'] ?? null, 'room' => (string) $label, 'count' => $rows->count(),
+            ])->values()->all();
+
+            return ['state' => 'blocked', 'unrecorded' => count($e->ungradedItems), 'rooms' => $rooms, 'message' => $e->getMessage()];
+        } catch (\LogicException $e) {
+            return ['state' => 'blocked', 'message' => $e->getMessage()] + $out;
+        }
+
+        return $out;
     }
 
     /**
@@ -441,9 +1249,13 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         if ($this->hasUnresolvedDiscrepancy()) {
             throw new \LogicException('Cannot complete an inspection while a discrepancy is unresolved.');
         }
+        $this->guardUngradedItems('complete');
         $this->guardMissingRequiredNotes('complete');
+        $this->guardAttendanceRecorded('complete');
 
-        if (in_array($this->type, [self::TYPE_IN, self::TYPE_OUT], true)) {
+        // §49 — whether the three signatures are needed to complete is the agency's own setting per type (defaults: In,
+        // Out and Interim required; Routine optional). It used to be fixed by type here.
+        if ($this->signaturesRequired()) {
             $outstanding = $this->outstandingSignatories();
             if ($outstanding->isNotEmpty()) {
                 $first = $outstanding->first();
@@ -462,6 +1274,17 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 }
                 throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
             }
+
+            // Conductor brief 2026-09-29 — a party marked "sent for a paper
+            // signature" is not truly outstanding (they have a live row)
+            // but has not actually provided evidence yet either. Same gate,
+            // same ordering, as RentalInventory::markCompleted().
+            if ($awaiting = $this->firstAwaitingWetInkSignatory()) {
+                $name = $awaiting->party_role === RentalInspectionSignature::PARTY_TENANT
+                    ? (\App\Models\Contact::find($awaiting->party_contact_id)?->full_name ?? 'A tenant')
+                    : 'The landlord';
+                throw new \LogicException("Cannot complete: {$name} is still awaiting a paper signature — upload the signed scan (or mark them as refused) before completing.");
+            }
             if (! $this->hasAgentSignature()) {
                 throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');
             }
@@ -478,7 +1301,19 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 ->addDays(RentalInspectionSetting::faultReportWindowDaysFor($this->agency_id));
         }
 
+        // §49 — a sent report keeps the checklist wording it was sent with: fixed now unless it was already fixed when
+        // someone signed.
+        if (empty($this->checklist_wording_snapshot)) {
+            $attributes['checklist_wording_snapshot'] = $this->currentChecklistWording();
+            $attributes['checklist_wording_snapshot_at'] = $completedAt;
+        }
+
         $this->forceFill($attributes)->save();
+
+        // §43 — a completed inspection's calendar event (if it had one —
+        // only genuinely scheduled inspections get one) is marked done,
+        // never left open.
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
     }
 
     /**
@@ -500,6 +1335,10 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         if (! $this->isRecordable()) {
             throw new RentalInspectionNotRecordableException(
                 'This inspection is ' . ($this->trashed() ? 'archived' : str_replace('_', ' ', (string) $this->status)) . ' and can no longer be changed.'
+                // §47 — a completed report has been sent to the parties: nobody, in any role, edits or reopens it.
+                . ($this->status === self::STATUS_COMPLETED && ! $this->trashed()
+                    ? ' It has been sent to the parties, so the only way to correct it is a new inspection that replaces it.'
+                    : '')
             );
         }
     }
@@ -513,6 +1352,12 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public function cancel(User $by, string $reason): void
     {
+        // §52 — people have already signed this report: cancelling it would leave their signatures standing on a cancelled
+        // record. The agent presses "Edit report" first (clears every signature, records why), then cancels. Agency rule.
+        if ($this->isSignedLocked() && RentalInspectionSetting::ruleFor($this->agency_id, 'cancel_signed_requires_edit')) {
+            throw new \App\Exceptions\RentalInspectionSignedLockedException('This report has been signed. Press "Edit report" first — that clears the signatures and records why — and then cancel it.');
+        }
+
         // Audit H2 — a completed (signed) inspection is a record, not a
         // draft: it can never be cancelled, and cancelling twice must not
         // overwrite the first reason/actor.
@@ -526,6 +1371,14 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'cancelled_by_user_id' => $by->id,
             'cancel_reason' => $reason,
         ])->save();
+
+        $this->spliceOutOfChain();
+
+        // §43 — a scheduled inspection's calendar event is dismissed, never
+        // left dangling on the inspector's calendar, and every notified
+        // party is told it's off.
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyCancelled($this, $by);
     }
 
     /**
@@ -612,10 +1465,26 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      * whereDoesntHave('nextInChain') is what finds the tail directly — no
      * need to walk from the chain's root forward; the tail IS, by
      * definition, the one nothing points back to as a predecessor.
+     *
+     * Scoped to the property's active lease while one exists — with ONE
+     * deliberate exception: once the out-inspection completes,
+     * RentalInspectionCompletionObserver (rental-renewals.md §15, GATE 2
+     * row 6) correctly flips that lease to EXPIRED, so "active lease" goes
+     * null at exactly the moment this method matters most (the completed
+     * Out is the tail; the tab must keep showing it and the §41 completed
+     * lock must keep firing). With no active lease it falls back to the
+     * property's most recent tenancy that has a (non-cancelled) inspection.
+     * It never reaches back past an ACTIVE lease, so a new tenancy that
+     * has no inspection yet still reads as "no chain", never the previous
+     * tenant's finished one.
      */
     public static function chainTailFor(Property $property): ?self
     {
-        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first()
+            ?? Lease::where('property_id', $property->id)
+                ->whereIn('id', self::where('status', '!=', self::STATUS_CANCELLED)->select('lease_id'))
+                ->latest('id')
+                ->first();
         if (! $lease) {
             return null;
         }
@@ -654,7 +1523,11 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         return self::where('lease_id', $tail->lease_id)
             ->where('id', '!=', $tail->id)
             ->where('status', '!=', self::STATUS_CANCELLED)
-            ->where('created_at', '<', $tail->created_at)
+            // created_at has one-second resolution, so two inspections made in
+            // the same second tie — id is the tiebreaker (matching the orderBy
+            // below), otherwise the earlier of the pair has no predecessor.
+            ->where(fn ($q) => $q->where('created_at', '<', $tail->created_at)
+                ->orWhere(fn ($same) => $same->where('created_at', $tail->created_at)->where('id', '<', $tail->id)))
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->first();
@@ -688,6 +1561,35 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
+     * The ONE "may this type be created on this tenancy now" rule, shared by every entry point that creates an inspection
+     * from nothing (start() and schedule() — the create form, the tab's Start, the Due-row link, the Lease Hub link).
+     * startNext() carries the same In rule for the chain.
+     *
+     * - A type already under way for the tenancy is refused (a double-click, not a second real event); Routine is exempt —
+     *   several can be open at once (§4).
+     * - A tenancy has ONE move-in condition (§49.5): an In is refused once the lease has a live In, completed or not. The only
+     *   way to redo a sent In is "Start new inspection" (§47.5), which does not come through here.
+     *
+     * @throws \LogicException
+     */
+    private static function assertTypeStartable(Property $property, Lease $lease, string $type): void
+    {
+        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
+            throw new \LogicException(self::typeName($type) . ' is already under way for this tenancy.');
+        }
+        if ($type === self::TYPE_IN) {
+            $existingIn = self::where('lease_id', $lease->id)
+                ->where('type', self::TYPE_IN)
+                ->where('status', '!=', self::STATUS_CANCELLED)
+                ->oldest('id')
+                ->first();
+            if ($existingIn) {
+                throw new \LogicException('This tenancy already has an In-inspection (#' . $existingIn->id . ') — there is only one move-in condition on record.');
+            }
+        }
+    }
+
+    /**
      * §0.5/§4 — the deliberate action that actually begins an inspection.
      * Refuses if one of this type is already under way for the property's
      * active lease (currentFor() would already have found it — starting a
@@ -703,9 +1605,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
         }
 
-        if ($type !== self::TYPE_AD_HOC && self::currentFor($property, $type)) {
-            throw new \LogicException(ucfirst($type) . '-inspection is already under way for this tenancy.');
-        }
+        self::assertTypeStartable($property, $lease, $type);
 
         return self::create([
             'agency_id' => $property->agency_id,
@@ -722,6 +1622,115 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'furnished_status' => $property->furnished_status,
             'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
         ]);
+    }
+
+    /**
+     * §43 — a real "Schedule inspection" action: books the inspection for a
+     * future date/time without opening the recording flow (unlike start(),
+     * this does NOT mean "begin recording now" — an agent opens the
+     * property's Inspections tab separately, whenever they're ready, via
+     * the list screen's own "Start" link on the scheduled row). Shares
+     * start()'s two guards verbatim (active lease required; not already
+     * under way for this type) rather than refactoring start() itself —
+     * that method is covered by existing tests this task must not risk.
+     *
+     * $attrs: scheduled_for (required, date), scheduled_time (nullable),
+     * scheduled_duration_minutes (nullable), inspector_user_id (nullable —
+     * defaults to $by), schedule_note (nullable).
+     */
+    public static function schedule(Property $property, string $type, User $by, array $attrs): self
+    {
+        if (empty($attrs['scheduled_for'])) {
+            throw new \InvalidArgumentException('A scheduled date is required.');
+        }
+
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
+        }
+
+        self::assertTypeStartable($property, $lease, $type);
+
+        $inspection = self::create([
+            'agency_id' => $property->agency_id,
+            'lease_id' => $lease->id,
+            'type' => $type,
+            'created_by_user_id' => $by->id,
+            'scheduled_for' => $attrs['scheduled_for'],
+            'scheduled_time' => $attrs['scheduled_time'] ?? null,
+            'scheduled_duration_minutes' => $attrs['scheduled_duration_minutes'] ?? null,
+            'inspector_user_id' => $attrs['inspector_user_id'] ?? $by->id,
+            'schedule_note' => $attrs['schedule_note'] ?? null,
+            // §17 — same "pull what we already know" defaulting as start().
+            'property_type' => $property->property_type,
+            'furnished_status' => $property->furnished_status,
+            'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease->start_date : null,
+        ]);
+
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($inspection);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyScheduled($inspection);
+
+        return $inspection;
+    }
+
+    /**
+     * §43 — reschedule: records an immutable history row (old vs new date/
+     * time/inspector, who changed it, why) via
+     * RentalInspectionReschedule::record(), THEN updates the inspection
+     * itself, syncs the calendar event, and notifies the parties. A
+     * completed/cancelled/archived inspection can never be rescheduled —
+     * same guard as cancel()/markCompleted().
+     */
+    public function reschedule(array $new, User $by, ?string $reason = null): RentalInspectionReschedule
+    {
+        $this->assertRecordable();
+
+        $record = RentalInspectionReschedule::record($this, $new, $by, $reason);
+
+        $this->forceFill([
+            'scheduled_for' => $new['scheduled_for'] ?? $this->scheduled_for,
+            'scheduled_time' => array_key_exists('scheduled_time', $new) ? $new['scheduled_time'] : $this->scheduled_time,
+            'scheduled_duration_minutes' => $new['scheduled_duration_minutes'] ?? $this->scheduled_duration_minutes,
+            'inspector_user_id' => $new['inspector_user_id'] ?? $this->inspector_user_id,
+            'schedule_note' => array_key_exists('schedule_note', $new) ? $new['schedule_note'] : $this->schedule_note,
+        ])->save();
+
+        RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_RESCHEDULED,
+            'Rescheduled' . ($reason ? ': ' . $reason : '.'),
+            ['scheduled_for' => $record->old_scheduled_for?->format('Y-m-d'), 'scheduled_time' => $record->old_scheduled_time, 'inspector_user_id' => $record->old_inspector_user_id],
+            ['scheduled_for' => $record->new_scheduled_for?->format('Y-m-d'), 'scheduled_time' => $record->new_scheduled_time, 'inspector_user_id' => $record->new_inspector_user_id],
+            $by);
+
+        app(\App\Services\Rentals\RentalInspectionCalendarSyncService::class)->syncForInspection($this);
+        app(\App\Services\Rentals\RentalInspectionNotificationService::class)->notifyRescheduled($this, $record);
+
+        return $record;
+    }
+
+    /** §43 — the date and time combined, or null when no date is set. Time defaults to midnight when a date exists with no time. */
+    public function scheduledForDateTime(): ?\Carbon\Carbon
+    {
+        if (! $this->scheduled_for) {
+            return null;
+        }
+        $date = $this->scheduled_for->copy();
+        if ($this->scheduled_time) {
+            [$h, $m] = array_pad(explode(':', (string) $this->scheduled_time), 2, 0);
+            $date->setTime((int) $h, (int) $m);
+        }
+
+        return $date;
+    }
+
+    /** §43 — scheduledForDateTime() + the booked duration, or null when either is missing. */
+    public function scheduledEndDateTime(): ?\Carbon\Carbon
+    {
+        $start = $this->scheduledForDateTime();
+        if (! $start || ! $this->scheduled_duration_minutes) {
+            return null;
+        }
+
+        return $start->copy()->addMinutes($this->scheduled_duration_minutes);
     }
 
     /**
@@ -743,20 +1752,18 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      */
     public static function startNext(self $predecessor, string $type, User $by): self
     {
-        if ($type === self::TYPE_IN) {
-            throw new \LogicException('An In-inspection is always the first link in a chain — it cannot follow another inspection.');
-        }
-        if (! in_array($type, [self::TYPE_OUT, self::TYPE_AD_HOC], true)) {
-            throw new \LogicException('Unknown inspection type.');
-        }
-        // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.
-        if ($predecessor->status === self::STATUS_CANCELLED || $predecessor->trashed()) {
-            throw new \LogicException('A cancelled or archived inspection cannot be followed by a next inspection.');
-        }
-        if ($predecessor->nextInChain()->exists()) {
-            throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');
-        }
+        // The database no longer forbids two rows pointing at one predecessor (a cancelled successor keeps its link),
+        // so two quick presses are serialised on the predecessor row and the second one fails assertCanFollow().
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($predecessor, $type, $by) {
+            self::withoutGlobalScopes()->whereKey($predecessor->id)->lockForUpdate()->first();
+            self::assertCanFollow($predecessor, $type);
 
+            return self::createFollowing($predecessor, $type, $by);
+        });
+    }
+
+    private static function createFollowing(self $predecessor, string $type, User $by): self
+    {
         $lease = $predecessor->lease ?? Lease::withoutGlobalScopes()->find($predecessor->lease_id);
         $property = $predecessor->property ?? Property::find($predecessor->property_id);
 
@@ -774,6 +1781,41 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'furnished_status' => $property?->furnished_status,
             'move_in_date_recorded' => $type === self::TYPE_OUT ? $lease?->start_date : null,
         ]);
+    }
+
+    /**
+     * Every rule a "next inspection" must satisfy, in one place so the property tab can run them BEFORE it asks
+     * "an inspection is still open — start on top of it anyway?" (spec §57) and still show the real refusal first.
+     *
+     * @throws \LogicException
+     */
+    public static function assertCanFollow(self $predecessor, string $type): void
+    {
+        if (! in_array($type, [self::TYPE_IN, self::TYPE_OUT, self::TYPE_AD_HOC, self::TYPE_INTERIM], true)) {
+            throw new \LogicException('Unknown inspection type.');
+        }
+        // §49 — Johan, 8 Oct 2026: every place offers all four types, In included. A tenancy still has only one
+        // In-inspection, so an In is refused (and shown greyed out, with this reason) once the lease already has one.
+        if ($type === self::TYPE_IN && ($existingIn = $predecessor->leaseInInspection())) {
+            throw new \LogicException('This tenancy already has an In-inspection (#' . $existingIn->id . ') — there is only one move-in condition on record.');
+        }
+        // Audit L6 — a cancelled (never happened) or archived inspection cannot be chained from.
+        if ($predecessor->status === self::STATUS_CANCELLED || $predecessor->trashed()) {
+            throw new \LogicException('A cancelled or archived inspection cannot be followed by a next inspection.');
+        }
+        if ($predecessor->nextInChain()->exists()) {
+            throw new \LogicException('This inspection already has a next inspection — a chain link cannot fork.');
+        }
+    }
+
+    /** §49 — the tenancy's In-inspection, if it already has one (cancelled ones do not count). */
+    public function leaseInInspection(): ?self
+    {
+        return self::where('lease_id', $this->lease_id)
+            ->where('type', self::TYPE_IN)
+            ->where('status', '!=', self::STATUS_CANCELLED)
+            ->oldest('id')
+            ->first();
     }
 
     /**
@@ -846,13 +1888,23 @@ class RentalInspection extends Model implements SignedDocumentDistributable
             'public_token_expires_at' => now()->addDays($days),
         ])->save();
 
+        // §45.8 — never the token itself (it is the credential), only that one was issued and until when.
+        RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_PUBLIC_LINK_ISSUED,
+            'Public link issued, live until ' . $this->public_token_expires_at->format('d M Y') . ' (any earlier link stopped working).',
+            null, ['public_token_expires_at' => $this->public_token_expires_at->format('Y-m-d')]);
+
         return $this->public_token;
     }
 
     /** Revoke: clear the token — any existing link (PDF already printed, forwarded email) stops working immediately. */
     public function revokePublicLink(): void
     {
+        $had = $this->public_token !== null;
         $this->forceFill(['public_token' => null, 'public_token_expires_at' => null])->save();
+
+        if ($had) {
+            RentalInspectionAuditLog::record($this, RentalInspectionAuditLog::EVENT_PUBLIC_LINK_REVOKED, 'Public link revoked.');
+        }
     }
 
     public function publicLinkIsValid(): bool
@@ -875,7 +1927,73 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         return self::withoutGlobalScopes()
             ->where('public_token', $token)
             ->where('public_token_expires_at', '>', now())
+            // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
+            // strips SoftDeletes, so an ARCHIVED inspection used to keep
+            // serving its report (photos, signatures, tenants) for the rest
+            // of the link's 90 days, and so did a CANCELLED one. Both are
+            // refused here, in the one lookup every public route uses, and
+            // the token is deliberately NOT cleared: restoring an archived
+            // inspection brings the same link (and the QR already printed
+            // on its PDF) back to life. See rental-inspections.md §44a.
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', self::STATUS_CANCELLED);
+            })
             ->first();
+    }
+
+    /**
+     * A link a recipient can actually open right now: token unexpired AND the
+     * inspection is neither archived nor cancelled. publicLinkIsValid() above
+     * is deliberately left token-only — ensurePublicLink() relies on it to
+     * decide whether to generate a token, and must never overwrite a token
+     * (and so break the printed QR) just because the inspection is archived.
+     */
+    public function publicLinkIsAvailable(): bool
+    {
+        return $this->publicLinkIsValid()
+            && ! $this->trashed()
+            && $this->status !== self::STATUS_CANCELLED;
+    }
+
+    /**
+     * §46 — a fingerprint of the report's content as it stands right now: every observation (item, condition, note),
+     * every live photo, every room note and the overall notes. Stored on a signature when a party signs from their
+     * link, so a later change to the report is detectable. Built from fresh scope-free queries so the value is the same
+     * whoever asks (a tenant with no login, an agent, a console command). Only the signature records it — whether and
+     * how a later change is acted on is not decided yet (spec §46.8).
+     */
+    public function reportFingerprint(): string
+    {
+        $observations = RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $this->id)
+            ->orderBy('id')
+            ->get(['id', 'rental_inspection_item_id', 'condition', 'notes'])
+            ->map(fn ($o) => [$o->id, $o->rental_inspection_item_id, $o->condition, $o->notes])
+            ->all();
+
+        // An item photo hangs off its observation; a room or tray photo carries the inspection id directly.
+        $observationIds = array_column($observations, 0);
+        $photos = RentalInspectionPhoto::withoutGlobalScopes()
+            ->where(function ($q) use ($observationIds) {
+                $q->where('rental_inspection_id', $this->id);
+                if ($observationIds) {
+                    $q->orWhereIn('rental_inspection_observation_id', $observationIds);
+                }
+            })
+            ->whereNull('deleted_at')
+            ->orderBy('id')
+            ->pluck('id')
+            ->all();
+
+        $roomNotes = RentalInspectionRoomNote::withoutGlobalScopes()
+            ->where('rental_inspection_id', $this->id)
+            ->orderBy('id')
+            ->get(['id', 'property_room_id', 'note'])
+            ->map(fn ($n) => [$n->id, $n->property_room_id, $n->note])
+            ->all();
+
+        return hash('sha256', json_encode([$observations, $photos, $roomNotes, (string) $this->overall_notes]));
     }
 
     // ── SignedDocumentDistributable (§41, 2026-09-28) ──────────────────
@@ -886,60 +2004,102 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     }
 
     /**
-     * Every signing party on this inspection: the lease's own tenant(s)
-     * plus the property's landlord (Property::sellerOwnerContact(), the
-     * SAME resolver outstandingSignatories() above already uses for the
-     * landlord's own signature gate — one source of truth for "who is
-     * the landlord on this inspection", never a second lookup). A party
-     * with no email on file is silently excluded — there's no address to
-     * send to — rather than failing the whole send for a real signer
-     * someone else can still reach.
+     * §45.6 (Build I-4) — everyone who gets a copy of the completed report, in this order: every tenant on the
+     * lease, every landlord, the agency's own copy address(es), the inspector, the agent who created the
+     * inspection (the last three per the agency's settings). Tenants and landlords are resolved by the SAME
+     * strict resolvers the scheduling emails use (RentalInspectionNotificationService::tenantContacts() /
+     * landlordContacts(): ContactScope-bypassing, never "the only contact on file"), so an invitation and a copy
+     * can never disagree about who the parties are — and so a party the completing agent's own contact scope
+     * cannot see still gets their copy. De-duplicated by email address (one mail to a person who is listed twice,
+     * under the first role they hold). A party with no usable address is NOT dropped — see
+     * distributionUnreachableRecipients().
      *
      * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
      */
     public function distributionRecipients(): array
     {
-        $recipients = [];
-
-        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
-            $contact = $leaseTenant->contact;
-            if ($contact?->email) {
-                $recipients[] = [
-                    'contact_id' => $contact->id,
-                    'name' => $contact->full_name,
-                    'email' => $contact->email,
-                    'role' => 'tenant',
-                ];
-            }
-        }
-
-        $landlord = $this->property?->sellerOwnerContact();
-        if ($landlord?->email) {
-            $recipients[] = [
-                'contact_id' => $landlord->id,
-                'name' => $landlord->full_name,
-                'email' => $landlord->email,
-                'role' => 'landlord',
-            ];
-        }
-
-        return $recipients;
+        return $this->resolveDistributionParties()['reachable'];
     }
 
-    /** The agent who ran this inspection — whose mailbox an AUTOMATIC send uses by default. A manual Resend may override this (see the controller). */
+    /**
+     * §45.6 — parties who should have had a copy but have no (valid) email address on file. The shared service
+     * records each as a `skipped` row with this reason, so the "Copies sent" panel shows them rather than the
+     * party silently vanishing.
+     *
+     * @return array<int, array{contact_id: int|null, name: string, role: string, reason: string}>
+     */
+    public function distributionUnreachableRecipients(): array
+    {
+        return $this->resolveDistributionParties()['unreachable'];
+    }
+
+    /** @return array{reachable: array<int, array{contact_id: int|null, name: string, email: string, role: string}>, unreachable: array<int, array{contact_id: int|null, name: string, role: string, reason: string}>} */
+    private function resolveDistributionParties(): array
+    {
+        $notifications = app(\App\Services\Rentals\RentalInspectionNotificationService::class);
+        $reachable = [];
+        $unreachable = [];
+        $seen = [];
+
+        $add = function (string $role, ?int $contactId, string $name, ?string $email) use (&$reachable, &$unreachable, &$seen): void {
+            $email = trim((string) $email);
+            if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $unreachable[] = [
+                    'contact_id' => $contactId,
+                    'name' => $name,
+                    'role' => $role,
+                    'reason' => $email === '' ? 'No email address on file' : 'The email address on file is not valid',
+                ];
+
+                return;
+            }
+            $key = mb_strtolower($email);
+            if (isset($seen[$key])) {
+                return;
+            }
+            $seen[$key] = true;
+            $reachable[] = ['contact_id' => $contactId, 'name' => $name, 'email' => $email, 'role' => $role];
+        };
+
+        foreach ($notifications->tenantContacts($this) as $contact) {
+            $add('tenant', $contact->id, $contact->full_name, $contact->email);
+        }
+        foreach ($notifications->landlordContacts($this) as $contact) {
+            $add('landlord', $contact->id, $contact->full_name, $contact->email);
+        }
+
+        $agencyName = \App\Models\Agency::withoutGlobalScopes()->whereKey($this->agency_id)->value('name') ?: 'Agency';
+        foreach (RentalInspectionSetting::reportAgencyCopyEmailsFor($this->agency_id) as $address) {
+            $add('agency', null, $agencyName, $address);
+        }
+
+        if (RentalInspectionSetting::reportCopyInspectorFor($this->agency_id) && $this->inspector) {
+            $add('inspector', null, (string) $this->inspector->name, $this->inspector->outward_email ?: $this->inspector->email);
+        }
+        if (RentalInspectionSetting::reportCopyCreatorFor($this->agency_id) && $this->createdBy) {
+            $add('creator', null, (string) $this->createdBy->name, $this->createdBy->outward_email ?: $this->createdBy->email);
+        }
+
+        return ['reachable' => $reachable, 'unreachable' => $unreachable];
+    }
+
+    /**
+     * The agent whose mailbox the copies are sent from: the inspector who actually ran the inspection, falling back
+     * to whoever created it, then (null) the shared CoreX mailer. A manual Resend may override this (see the controller).
+     */
     public function distributionAgent(): ?User
     {
-        return $this->createdBy;
+        return $this->inspector ?? $this->createdBy;
     }
 
     public function distributionSubject(): string
     {
-        return ucfirst($this->type) . '-inspection report — ' . ($this->property?->buildDisplayAddress() ?? '');
+        return self::typeName($this->type) . ' report — ' . ($this->property?->buildDisplayAddress() ?? '');
     }
 
     public function distributionDocumentLabel(): string
     {
-        return ucfirst($this->type) . '-inspection report';
+        return self::typeName($this->type) . ' report';
     }
 
     public function distributionSourceType(): string
@@ -975,7 +2135,7 @@ class RentalInspection extends Model implements SignedDocumentDistributable
      * One row per tenant on the lease (§15.2a guarantees a completed
      * inspection has a live, non-superseded disposition for every one of
      * them), one row for the landlord — `not_required` true only when
-     * `Property::sellerOwnerContact()` resolves to null, the one legitimate
+     * `Property::landlordContact()` resolves to null, the one legitimate
      * "no signature exists and none is expected" case (§15.12's waived
      * landlord) — and one row for the agent.
      *
@@ -989,6 +2149,18 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 && ($contactId === null || (int) $s->party_contact_id === (int) $contactId)
         );
 
+        // §45.5 (Build I-3) — the party's recorded attendance outcome travels with its signature row, so a
+        // party who did not attend reads "No signature — did not attend" rather than "Refused to sign".
+        // Uses the already-loaded relation when a caller preloaded it (the public report page loads it
+        // scope-free — the token is the authority there), otherwise a fresh query.
+        $liveAttendances = ($this->relationLoaded('attendances') ? $this->attendances : $this->attendances()->get())
+            ->filter(fn (RentalInspectionAttendance $a) => $a->superseded_at === null);
+        $attendanceFor = fn (string $partyRole, ?int $contactId = null, ?int $userId = null) => $liveAttendances->first(
+            fn (RentalInspectionAttendance $a) => $a->party_role === $partyRole
+                && ($contactId === null || (int) $a->party_contact_id === (int) $contactId)
+                && ($userId === null || (int) $a->party_user_id === (int) $userId)
+        );
+
         $rows = [];
 
         foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
@@ -996,22 +2168,28 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 'role' => 'Tenant',
                 'name' => $leaseTenant->contact?->full_name,
                 'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_TENANT, $leaseTenant->contact_id),
+                'attendance' => $attendanceFor(RentalInspectionAttendance::PARTY_TENANT, $leaseTenant->contact_id),
                 'not_required' => false,
             ];
         }
 
-        $landlord = $this->property?->sellerOwnerContact();
+        $landlord = $this->property?->landlordContact();
         $rows[] = [
             'role' => 'Landlord',
             'name' => $landlord?->full_name,
             'signature' => $landlord ? $liveSignatureFor(RentalInspectionSignature::PARTY_LANDLORD, $landlord->id) : null,
+            'attendance' => $landlord ? $attendanceFor(RentalInspectionAttendance::PARTY_LANDLORD, $landlord->id) : null,
             'not_required' => ! $landlord,
         ];
 
+        // §45.5 — the report names the INSPECTOR who attended (falling back to whoever created the
+        // inspection), not always the creator.
+        $agent = $this->inspector ?? $this->createdBy;
         $rows[] = [
             'role' => 'Agent',
-            'name' => $this->createdBy?->name,
+            'name' => $agent?->name,
             'signature' => $liveSignatureFor(RentalInspectionSignature::PARTY_AGENT),
+            'attendance' => $agent ? $attendanceFor(RentalInspectionAttendance::PARTY_AGENT, null, $agent->id) : null,
             'not_required' => false,
         ];
 
@@ -1027,16 +2205,44 @@ class RentalInspection extends Model implements SignedDocumentDistributable
     public function updateDetails(array $attributes): void
     {
         if (in_array($this->status, [self::STATUS_COMPLETED, self::STATUS_CANCELLED], true)) {
-            throw new \LogicException('Cannot edit inspection details once the inspection is completed or cancelled.');
+            $this->assertRecordable(); // the plain, shared refusal (completed = sent to the parties; cancelled)
         }
 
-        $this->update(array_intersect_key($attributes, array_flip([
+        $fields = [
             'electricity_meter_reading', 'water_meter_reading',
             'furnished_status', 'property_type',
             'keys_count', 'keys_description',
             'remotes_count', 'remotes_description',
             'move_in_date_recorded',
-        ])));
+        ];
+        $stringify = fn ($v) => $v instanceof \DateTimeInterface ? $v->format('Y-m-d') : $v;
+        $snapshot = fn () => collect($this->only($fields))->map($stringify);
+        $before = $snapshot();
+
+        // §47 — a signed report's details are locked too. The details form autosaves, so only a real CHANGE is refused;
+        // posting back what is already there is a no-op, not an error.
+        $incoming = collect(array_intersect_key($attributes, array_flip($fields)))->map($stringify);
+        $changes = $incoming->filter(fn ($value, $key) => (string) ($before[$key] ?? '') !== (string) ($value ?? ''));
+        if ($changes->isNotEmpty() && $this->isSignedLocked()) {
+            throw new \App\Exceptions\RentalInspectionSignedLockedException();
+        }
+
+        $this->update(array_intersect_key($attributes, array_flip($fields)));
+
+        // §45.8 — only the fields that actually changed, compared against what was there before THIS call (the model's
+        // own getOriginal()/getChanges() are not reliable after a save: the original is already synced, and a save with
+        // nothing dirty keeps the PREVIOUS save's changes). An autosave that changed nothing leaves no row.
+        $after = $snapshot();
+        $changed = $after->filter(fn ($value, $key) => $value != $before[$key])->keys();
+        if ($changed->isNotEmpty()) {
+            RentalInspectionAuditLog::record(
+                $this,
+                RentalInspectionAuditLog::EVENT_DETAILS_EDITED,
+                'Details edited: ' . $changed->map(fn ($k) => str_replace('_', ' ', $k))->implode(', ') . '.',
+                $changed->mapWithKeys(fn ($k) => [$k => $before[$k]])->all(),
+                $changed->mapWithKeys(fn ($k) => [$k => $after[$k]])->all(),
+            );
+        }
     }
 
     /**
@@ -1103,8 +2309,16 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         // every other photo attribute; 'photos.note'/'observations.photos.note'
         // nested eager-loads so it's present in this same response without a
         // second round-trip, matching roomNotes' own reasoning just above.
-        $withDetail = fn (string $type) => self::currentFor($property, $type)
-            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+        // §45.5 (Build I-3) — each inspection the tab renders carries its attendance board (expected
+        // parties, recorded outcomes, invitation lines) so the panel needs no second round-trip.
+        $withBoard = function (?self $insp) {
+            $insp?->setAttribute('attendance_board', app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($insp));
+
+            return $insp;
+        };
+
+        $withDetail = fn (string $type) => $withBoard(self::currentFor($property, $type)
+            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']));
 
         $outInspection = $withDetail(self::TYPE_OUT);
         // 2026-09-20 fix — deliberately NOT $outInspection above. That value
@@ -1125,8 +2339,25 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         // property (the very first "Start In-Inspection" case) — rendered
         // gracefully, not as an error, same convention compare_right_
         // inspection below already established.
-        $chainDetail = fn (?self $insp) => $insp
-            ?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+        $chainDetail = function (?self $insp) {
+            $insp?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
+            // §47 — the screen shows "Edit report" (and a locked banner) from this.
+            $insp?->setAttribute('signed_locked', $insp->isSignedLocked());
+            // §49 — the "Next inspection" picker greys out In (with the reason) once the tenancy already has one.
+            $insp?->setAttribute('lease_in_inspection_id', $insp->leaseInInspection()?->id);
+            // The "Ready to complete" pill follows the SAME per-type rules the server's Complete enforces (a Routine
+            // inspection needs no attendance, and signatures only where the agency's setting asks for them).
+            $insp?->setAttribute('signatures_required', $insp?->signaturesRequired());
+            $insp?->setAttribute('attendance_required', $insp ? ! $insp->isRoutineExemptFromChecks() : true);
+            // §52 — "days left" in the signing window, and the "N items without a photo" warning at Ready to sign.
+            $insp?->setAttribute('signing_window', $insp?->signingWindowStatus());
+            $insp?->setAttribute('items_without_photo', $insp ? $insp->itemsWithoutPhoto()->map(fn ($i) => ['id' => $i->id, 'label' => $i->label, 'room' => $i->room?->label])->values()->all() : []);
+            // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's
+            // copy addresses, the inspector, the creator) — never a list the browser rebuilds for itself.
+            $insp?->setAttribute('report_recipients', $insp && $insp->status === self::STATUS_COMPLETED ? $insp->distributionRecipients() : []);
+
+            return $insp;
+        };
         $rawChainTail = self::chainTailFor($property);
         // Johan's ruling, 2026-09-23, property 5792 — a real predecessor
         // that simply never carries the explicit link (recorded before
@@ -1137,8 +2368,8 @@ class RentalInspection extends Model implements SignedDocumentDistributable
         $rawPredecessor = $rawChainTail
             ? ($rawChainTail->previousInspection ?? self::inferredPredecessorFor($rawChainTail))
             : null;
-        $chainTail = $chainDetail($rawChainTail);
-        $chainPredecessor = $chainDetail($rawPredecessor);
+        $chainTail = $withBoard($chainDetail($rawChainTail));
+        $chainPredecessor = $withBoard($chainDetail($rawPredecessor));
 
         // §20.15 — the two-panel compare view. Both sides deliberately use
         // completed-inclusive lookups (mostRecentFor()/compareRightFor()),
@@ -1177,10 +2408,10 @@ class RentalInspection extends Model implements SignedDocumentDistributable
                 : collect(),
             // §15.4, Stage 3 — property-level (unlike tenants, which are
             // lease-level), so both in_inspection and out_inspection share
-            // this same value. Null when Property::sellerOwnerContact()
+            // this same value. Null when Property::landlordContact()
             // can't resolve one — the UI shows that plainly (§15.4) rather
             // than hiding the row or blocking on a party nobody can name.
-            'landlord_contact' => $property->sellerOwnerContact(),
+            'landlord_contact' => $property->landlordContact(),
             // §15.5/§15.6, Stage 4 — the one-tap reason list the refusal
             // form picks from. 'other' always present and always last,
             // regardless of what the agency has saved (enforced inside

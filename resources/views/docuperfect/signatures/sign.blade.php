@@ -970,7 +970,7 @@ function signDocument() {
         storedDisclosure: @json($storedDisclosure ?? new \stdClass),
         webSigTotal: 0,
         webSigSigned: 0,
-        webCeremonyValues: {},     // { 'agent_location': 'Shelly Beach', 'agent_day': '23', ... }
+        webCeremonyValues: {},     // { 'agent_location': 'Cape Town', 'agent_day': '23', ... }
         webInitialElements: [],    // [{el, partyRole, index, isMine, signed, sigData}]
         _pendingInitialApplyAll: false,
         _initialsApplyAllOffered: false,
@@ -2424,12 +2424,22 @@ function signDocument() {
             this._updateIncompleteCount();
         },
 
+        // What "Apply to remaining" is about to apply to. A WEB template has no PDF markers at all, so counting
+        // this.markers always said "your remaining 0 signature markers" — count the web elements instead, and
+        // count initials (not signatures) when the prompt is the page-initials offer.
         get remainingSignatureCount() {
+            if (this.isWebTemplate) {
+                const pool = this._pendingInitialApplyAll ? (this.webInitialElements || []) : (this.webSigElements || []);
+                return pool.filter(e => e.isMine && !e.signed).length;
+            }
             return this.markers.filter(m =>
                 m.assigned_party === 'agent' &&
                 !m.signed &&
                 m.type === 'signature'
             ).length;
+        },
+        get applyAllNoun() {
+            return (this.isWebTemplate && this._pendingInitialApplyAll) ? 'initial' : 'signature';
         },
 
         set remainingSignatureCount(v) {

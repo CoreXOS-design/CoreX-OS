@@ -25,7 +25,16 @@
         <env name="CACHE_STORE" value="array"/>
         <!-- Tests run on MySQL (same engine as production) so the full
              historical migration set replays exactly as it does on the
-             server. A dedicated throwaway schema, refreshed per run. -->
+             server. A dedicated throwaway schema, refreshed per run.
+             DB_HOST/DB_PORT below are the GENERIC local-MySQL default for
+             any machine with no other arrangement. On the shared cc1-cc6
+             Linux box, tests/bootstrap.php force-overrides these (and
+             DB_USERNAME/DB_PASSWORD) to the dedicated tests-only instance
+             at 127.0.0.1:3317 whenever /root/.lanetest-mysql-credentials
+             exists (2026-10-05, see /root/LANETEST-MYSQL.md); that
+             override wins over this default (an env entry below only sets
+             a value when it isn't already set; the bootstrap script runs
+             after this block and sets it unconditionally either way). -->
         <env name="DB_CONNECTION" value="mysql"/>
         <env name="DB_HOST" value="127.0.0.1"/>
         <env name="DB_PORT" value="3306"/>

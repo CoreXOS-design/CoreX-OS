@@ -1,0 +1,18 @@
+[Unit]
+Description=CoreX QA1 (corex_qa1) Laravel queue worker — buyer-matching (dedicated; ~8 min CPU-bound jobs, kept off the shared worker) — QA-scoped, do not use for live/staging
+After=network.target mysql.service
+
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+RestartSec=3
+Nice=10
+TimeoutStopSec=20
+WorkingDirectory=/corex-qa1
+ExecStart=/usr/bin/php /corex-qa1/artisan queue:work --queue=buyer-matching --sleep=3 --tries=1 --timeout=610 --max-time=3600
+StandardOutput=append:/var/log/corex-qa1-queue-buyer-matching.log
+StandardError=append:/var/log/corex-qa1-queue-buyer-matching.log
+
+[Install]
+WantedBy=multi-user.target

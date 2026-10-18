@@ -86,6 +86,15 @@
                                placeholder="e.g. Coastal Crest Realty (Pty) Ltd">
                     </div>
                     <div>
+                        <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Short code</label>
+                        <input type="text" name="short_code" value="{{ old('short_code', $agency->short_code) }}" maxlength="10"
+                               class="w-full rounded-md px-3 py-2 text-sm uppercase"
+                               style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
+                               placeholder="e.g. CTR">
+                        <p class="text-xs mt-1" style="color:var(--text-muted);">2 to 10 letters or numbers. Starts the numbers on your documents (payslips: CTR-202610-001). Leave blank to keep the one worked out from your name. Numbers already issued do not change.</p>
+                        @error('short_code')<p class="text-xs mt-1" style="color:#dc2626;">{{ $message }}</p>@enderror
+                    </div>
+                    <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Tagline</label>
                         <input type="text" name="tagline" value="{{ old('tagline', $agency->tagline) }}"
                                class="w-full rounded-md px-3 py-2 text-sm"
@@ -136,6 +145,40 @@
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 12345">
                     </div>
+                </div>
+
+                {{-- Agency VAT set-up — registered/number/capture-mode in one place; the rate
+                     itself stays on the Performance tab (PerformanceSetting 'vat_rate',
+                     already agency-scoped, reused unchanged). Guarded on vat_registered's
+                     own presence (a toggle, always posts hidden 0 + checkbox 1 together) —
+                     this is the only form that ever renders it, so the Branding/other
+                     forms sharing this action never silently touch it. --}}
+                <div x-data="{ vatRegistered: {{ old('vat_registered', (int) $agency->vat_registered) ? 'true' : 'false' }} }">
+                    <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">VAT Set-up</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                        <div class="sm:col-span-2 flex items-center gap-2">
+                            <input type="hidden" name="vat_registered" value="0">
+                            <input type="checkbox" id="vat_registered" name="vat_registered" value="1" x-model="vatRegistered"
+                                   class="rounded" style="accent-color:var(--brand-icon, #0ea5e9);"
+                                   {{ old('vat_registered', $agency->vat_registered) ? 'checked' : '' }}>
+                            <label for="vat_registered" class="text-sm" style="color:var(--text-primary);">This agency is VAT registered</label>
+                        </div>
+                        <template x-if="vatRegistered">
+                        <div>
+                            <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Prices I capture are</label>
+                            <select name="vat_capture_mode" class="w-full rounded-md px-3 py-2 text-sm"
+                                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                <option value="excl" {{ old('vat_capture_mode', $agency->vat_capture_mode) === 'excl' ? 'selected' : '' }}>Excluding VAT</option>
+                                <option value="incl" {{ old('vat_capture_mode', $agency->vat_capture_mode) === 'incl' ? 'selected' : '' }}>Including VAT</option>
+                            </select>
+                            <p class="text-[11px] mt-1" style="color:var(--text-muted);">Whether prices your agents type in (job card lines, the parts &amp; labour catalogue) are excl. or incl. VAT. Existing prices are never converted when you change this.</p>
+                        </div>
+                        </template>
+                    </div>
+                    <p class="text-[11px] mt-2" style="color:var(--text-muted);">VAT No is set above. The VAT rate itself is set on the Performance tab. This set-up drives VAT on rental job cards and quotes, and will drive the rental money/invoicing stage.</p>
+                    @if($agency->vat_settings_updated_at)
+                        <p class="text-[11px] mt-1" style="color:var(--text-muted);">Last changed {{ $agency->vat_settings_updated_at->format('Y-m-d H:i') }}@if($agency->vatSettingsUpdatedByUser) by {{ $agency->vatSettingsUpdatedByUser->name }}@endif.</p>
+                    @endif
                 </div>
 
                 <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Contact Details</div>
@@ -462,6 +505,339 @@
                     <button type="submit" class="corex-btn-primary">Save Company Settings</button>
                 </div>
             </form>
+
+            {{-- ── VAT types — Standard/No VAT/Custom + whatever this agency adds.
+                 Reused by job card lines (and the future rental money/invoicing
+                 stage). Full add/rename/archive/restore, no hard delete. ── --}}
+            <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">VAT Types</div>
+                <p class="text-xs" style="color:var(--text-muted);">Used on rental job card lines. One is always the default a new line starts with.</p>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr style="color:var(--text-muted);">
+                                <th class="text-left font-medium py-1">Name</th>
+                                <th class="text-left font-medium py-1">Rate</th>
+                                <th class="text-left font-medium py-1">Default</th>
+                                <th class="text-left font-medium py-1">Status</th>
+                                <th class="text-right font-medium py-1">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @forelse($vatTypes as $vt)
+                            <tr style="border-top:1px solid var(--border);">
+                                <td class="py-1.5" style="color:var(--text-primary);">{{ $vt->name }}</td>
+                                <td class="py-1.5" style="color:var(--text-secondary);">
+                                    @if($vt->rate_mode === 'agency_rate') Agency rate
+                                    @elseif($vt->rate_mode === 'fixed') {{ rtrim(rtrim(number_format((float) $vt->fixed_rate, 2), '0'), '.') }}%
+                                    @else Entered per line
+                                    @endif
+                                </td>
+                                <td class="py-1.5">
+                                    @if($vt->is_default)
+                                        <span class="text-[11px] font-semibold uppercase px-1.5 py-0.5 rounded-md" style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">Default</span>
+                                    @elseif(!$vt->trashed())
+                                        <form method="POST" action="{{ route('admin.vat-types.default', [$agency, $vt]) }}" class="inline">
+                                            @csrf @method('PATCH')
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Make default</button>
+                                        </form>
+                                    @endif
+                                </td>
+                                <td class="py-1.5" style="color:var(--text-muted);">{{ $vt->trashed() ? 'Archived' : ($vt->is_active ? 'Active' : 'Inactive') }}</td>
+                                <td class="py-1.5 text-right">
+                                    @if($vt->trashed())
+                                        <form method="POST" action="{{ route('admin.vat-types.restore', [$agency, $vt->id]) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Restore</button>
+                                        </form>
+                                    @else
+                                        <button type="button" class="text-xs underline" style="color:var(--text-muted);"
+                                                onclick="document.getElementById('vt-edit-{{ $vt->id }}').classList.toggle('hidden')">Rename</button>
+                                        @if(!$vt->is_default)
+                                        <form method="POST" action="{{ route('admin.vat-types.archive', [$agency, $vt]) }}" class="inline" onsubmit="return confirm('Archive this VAT type?');">
+                                            @csrf @method('DELETE')
+                                            <button type="submit" class="text-xs underline ml-2" style="color:var(--ds-crimson);">Archive</button>
+                                        </form>
+                                        @endif
+                                    @endif
+                                </td>
+                            </tr>
+                            @if(!$vt->trashed())
+                            <tr id="vt-edit-{{ $vt->id }}" class="hidden">
+                                <td colspan="5" class="pb-2">
+                                    <form method="POST" action="{{ route('admin.vat-types.update', [$agency, $vt]) }}" class="flex flex-wrap items-end gap-2 pt-1">
+                                        @csrf @method('PUT')
+                                        <input type="hidden" name="rate_mode" value="{{ $vt->rate_mode }}">
+                                        <input type="hidden" name="fixed_rate" value="{{ $vt->fixed_rate }}">
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Name</label>
+                                            <input type="text" name="name" value="{{ $vt->name }}" required maxlength="100"
+                                                   class="rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        @if($vt->rate_mode === 'fixed')
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Rate %</label>
+                                            <input type="number" step="0.01" min="0" max="100" name="fixed_rate_visible" value="{{ $vt->fixed_rate }}"
+                                                   onchange="this.form.fixed_rate.value = this.value"
+                                                   class="w-20 rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        @endif
+                                        <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5">Save</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @endif
+                        @empty
+                            <tr><td colspan="5" class="py-2 text-xs" style="color:var(--text-muted);">No VAT types yet.</td></tr>
+                        @endforelse
+                        </tbody>
+                    </table>
+                </div>
+
+                <form method="POST" action="{{ route('admin.vat-types.store', $agency) }}" class="flex flex-wrap items-end gap-2 pt-2" style="border-top:1px solid var(--border);">
+                    @csrf
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">New type name</label>
+                        <input type="text" name="name" required maxlength="100" placeholder="e.g. Zero-rated"
+                               class="rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Rate %</label>
+                        <input type="number" step="0.01" min="0" max="100" name="fixed_rate" placeholder="0.00"
+                               class="w-20 rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <input type="hidden" name="rate_mode" value="fixed">
+                    <button type="submit" class="corex-btn-secondary text-xs px-3 py-1.5">Add VAT type</button>
+                </form>
+            </div>
+
+            {{-- ── Catalogue item types — Pastel-style enhancement, 2026-10-05.
+                 Labour/Part are the seeded defaults; an agency may add,
+                 rename, reorder, or archive its own. `kind` drives the
+                 underlying labour-hours/parts-used reporting and is fixed
+                 per row (set once, at creation — not editable), the way
+                 RentalVatType's own rate_mode works. ── --}}
+            <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Catalogue Item Types</div>
+                <p class="text-xs" style="color:var(--text-muted);">Used on the @feature('rental-catalogue')<a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a>@else parts &amp; labour catalogue @endfeature. Every type maps onto Labour or Part so job card reporting always adds up correctly.</p>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr style="color:var(--text-muted);">
+                                <th class="text-left font-medium py-1" style="width:36px;"></th>
+                                <th class="text-left font-medium py-1">Name</th>
+                                <th class="text-left font-medium py-1">Kind</th>
+                                <th class="text-left font-medium py-1">Status</th>
+                                <th class="text-right font-medium py-1">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @php $activeCatTypes = $catalogueItemTypes->where('deleted_at', null)->values(); @endphp
+                        @forelse($catalogueItemTypes as $i => $ct)
+                            @continue($ct->trashed())
+                            <tr style="border-top:1px solid var(--border);">
+                                <td class="py-1.5">
+                                    <span class="flex flex-col" style="line-height:1;">
+                                        @php $pos = $activeCatTypes->search(fn($x) => $x->id === $ct->id); @endphp
+                                        <button type="submit" form="cit-up-{{ $ct->id }}" @disabled($pos === 0) title="Move up" class="text-xs" style="opacity: {{ $pos === 0 ? '0.3' : '1' }};">&#9650;</button>
+                                        <button type="submit" form="cit-down-{{ $ct->id }}" @disabled($pos === count($activeCatTypes) - 1) title="Move down" class="text-xs" style="opacity: {{ $pos === count($activeCatTypes) - 1 ? '0.3' : '1' }};">&#9660;</button>
+                                    </span>
+                                </td>
+                                <td class="py-1.5" style="color:var(--text-primary);">{{ $ct->name }}</td>
+                                <td class="py-1.5" style="color:var(--text-secondary);">{{ ucfirst($ct->kind) }}</td>
+                                <td class="py-1.5" style="color:var(--text-muted);">{{ $ct->is_active ? 'Active' : 'Inactive' }}</td>
+                                <td class="py-1.5 text-right">
+                                    <button type="button" class="text-xs underline" style="color:var(--text-muted);"
+                                            onclick="document.getElementById('cit-edit-{{ $ct->id }}').classList.toggle('hidden')">Rename</button>
+                                    <form method="POST" action="{{ route('admin.catalogue-item-types.archive', [$agency, $ct]) }}" class="inline" onsubmit="return confirm('Archive this catalogue type?');">
+                                        @csrf @method('DELETE')
+                                        <button type="submit" class="text-xs underline ml-2" style="color:var(--ds-crimson);">Archive</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            <tr id="cit-edit-{{ $ct->id }}" class="hidden">
+                                <td colspan="5" class="pb-2">
+                                    <form method="POST" action="{{ route('admin.catalogue-item-types.update', [$agency, $ct]) }}" class="flex flex-wrap items-end gap-2 pt-1">
+                                        @csrf @method('PUT')
+                                        <input type="hidden" name="kind" value="{{ $ct->kind }}">
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Name</label>
+                                            <input type="text" name="name" value="{{ $ct->name }}" required maxlength="100"
+                                                   class="rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5">Save</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @if($pos > 0)
+                                @php $swappedUp = $activeCatTypes->pluck('id')->values()->all(); [$swappedUp[$pos - 1], $swappedUp[$pos]] = [$swappedUp[$pos], $swappedUp[$pos - 1]]; @endphp
+                                <form id="cit-up-{{ $ct->id }}" method="POST" action="{{ route('admin.catalogue-item-types.reorder', $agency) }}" style="display:none;">
+                                    @csrf
+                                    @foreach($swappedUp as $orderedId)<input type="hidden" name="order[]" value="{{ $orderedId }}">@endforeach
+                                </form>
+                            @endif
+                            @if($pos < count($activeCatTypes) - 1)
+                                @php $swappedDown = $activeCatTypes->pluck('id')->values()->all(); [$swappedDown[$pos], $swappedDown[$pos + 1]] = [$swappedDown[$pos + 1], $swappedDown[$pos]]; @endphp
+                                <form id="cit-down-{{ $ct->id }}" method="POST" action="{{ route('admin.catalogue-item-types.reorder', $agency) }}" style="display:none;">
+                                    @csrf
+                                    @foreach($swappedDown as $orderedId)<input type="hidden" name="order[]" value="{{ $orderedId }}">@endforeach
+                                </form>
+                            @endif
+                        @empty
+                            <tr><td colspan="5" class="py-2 text-xs" style="color:var(--text-muted);">No catalogue types yet.</td></tr>
+                        @endforelse
+                        @if($catalogueItemTypes->where('deleted_at', '!=', null)->isNotEmpty())
+                            <tr><td colspan="5" class="pt-2 pb-1 text-[11px] font-semibold uppercase" style="color:var(--text-muted);">Archived</td></tr>
+                            @foreach($catalogueItemTypes->whereNotNull('deleted_at') as $ct)
+                                <tr style="border-top:1px solid var(--border);">
+                                    <td></td>
+                                    <td class="py-1.5" style="color:var(--text-muted);">{{ $ct->name }}</td>
+                                    <td class="py-1.5" style="color:var(--text-muted);">{{ ucfirst($ct->kind) }}</td>
+                                    <td class="py-1.5" style="color:var(--text-muted);">Archived</td>
+                                    <td class="py-1.5 text-right">
+                                        <form method="POST" action="{{ route('admin.catalogue-item-types.restore', [$agency, $ct->id]) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Restore</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        @endif
+                        </tbody>
+                    </table>
+                </div>
+
+                <form method="POST" action="{{ route('admin.catalogue-item-types.store', $agency) }}" class="flex flex-wrap items-end gap-2 pt-2" style="border-top:1px solid var(--border);">
+                    @csrf
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">New type name</label>
+                        <input type="text" name="name" required maxlength="100" placeholder="e.g. Subcontractor"
+                               class="rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Kind</label>
+                        <select name="kind" class="rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            <option value="labour">Labour</option>
+                            <option value="part">Part</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="corex-btn-secondary text-xs px-3 py-1.5">Add type</button>
+                </form>
+            </div>
+
+            {{-- ── Catalogue units — Pastel-style enhancement, 2026-10-05. ── --}}
+            <div class="rounded-md p-4 space-y-3 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Catalogue Units</div>
+                <p class="text-xs" style="color:var(--text-muted);">Used on the @feature('rental-catalogue')<a href="{{ route('corex.rental-catalogue-items.index') }}" class="underline">parts &amp; labour catalogue</a>@else parts &amp; labour catalogue @endfeature — a job card line reads quantity and unit together, e.g. "1 dozen screws".</p>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr style="color:var(--text-muted);">
+                                <th class="text-left font-medium py-1" style="width:36px;"></th>
+                                <th class="text-left font-medium py-1">Name</th>
+                                <th class="text-left font-medium py-1">Status</th>
+                                <th class="text-right font-medium py-1">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        @php $activeUnits = $catalogueUnits->where('deleted_at', null)->values(); @endphp
+                        @forelse($catalogueUnits as $u)
+                            @continue($u->trashed())
+                            <tr style="border-top:1px solid var(--border);">
+                                <td class="py-1.5">
+                                    <span class="flex flex-col" style="line-height:1;">
+                                        @php $pos = $activeUnits->search(fn($x) => $x->id === $u->id); @endphp
+                                        <button type="submit" form="cu-up-{{ $u->id }}" @disabled($pos === 0) title="Move up" class="text-xs" style="opacity: {{ $pos === 0 ? '0.3' : '1' }};">&#9650;</button>
+                                        <button type="submit" form="cu-down-{{ $u->id }}" @disabled($pos === count($activeUnits) - 1) title="Move down" class="text-xs" style="opacity: {{ $pos === count($activeUnits) - 1 ? '0.3' : '1' }};">&#9660;</button>
+                                    </span>
+                                </td>
+                                <td class="py-1.5" style="color:var(--text-primary);">{{ $u->name }}</td>
+                                <td class="py-1.5" style="color:var(--text-muted);">{{ $u->is_active ? 'Active' : 'Inactive' }}</td>
+                                <td class="py-1.5 text-right">
+                                    <button type="button" class="text-xs underline" style="color:var(--text-muted);"
+                                            onclick="document.getElementById('cu-edit-{{ $u->id }}').classList.toggle('hidden')">Rename</button>
+                                    <form method="POST" action="{{ route('admin.catalogue-units.archive', [$agency, $u]) }}" class="inline" onsubmit="return confirm('Archive this unit?');">
+                                        @csrf @method('DELETE')
+                                        <button type="submit" class="text-xs underline ml-2" style="color:var(--ds-crimson);">Archive</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            <tr id="cu-edit-{{ $u->id }}" class="hidden">
+                                <td colspan="4" class="pb-2">
+                                    <form method="POST" action="{{ route('admin.catalogue-units.update', [$agency, $u]) }}" class="flex flex-wrap items-end gap-2 pt-1">
+                                        @csrf @method('PUT')
+                                        <div>
+                                            <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">Name</label>
+                                            <input type="text" name="name" value="{{ $u->name }}" required maxlength="50"
+                                                   class="rounded-md px-2 py-1 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                                        </div>
+                                        <button type="submit" class="corex-btn-primary text-xs px-3 py-1.5">Save</button>
+                                    </form>
+                                </td>
+                            </tr>
+                            @if($pos > 0)
+                                @php $swappedUp = $activeUnits->pluck('id')->values()->all(); [$swappedUp[$pos - 1], $swappedUp[$pos]] = [$swappedUp[$pos], $swappedUp[$pos - 1]]; @endphp
+                                <form id="cu-up-{{ $u->id }}" method="POST" action="{{ route('admin.catalogue-units.reorder', $agency) }}" style="display:none;">
+                                    @csrf
+                                    @foreach($swappedUp as $orderedId)<input type="hidden" name="order[]" value="{{ $orderedId }}">@endforeach
+                                </form>
+                            @endif
+                            @if($pos < count($activeUnits) - 1)
+                                @php $swappedDown = $activeUnits->pluck('id')->values()->all(); [$swappedDown[$pos], $swappedDown[$pos + 1]] = [$swappedDown[$pos + 1], $swappedDown[$pos]]; @endphp
+                                <form id="cu-down-{{ $u->id }}" method="POST" action="{{ route('admin.catalogue-units.reorder', $agency) }}" style="display:none;">
+                                    @csrf
+                                    @foreach($swappedDown as $orderedId)<input type="hidden" name="order[]" value="{{ $orderedId }}">@endforeach
+                                </form>
+                            @endif
+                        @empty
+                            <tr><td colspan="4" class="py-2 text-xs" style="color:var(--text-muted);">No units yet.</td></tr>
+                        @endforelse
+                        @if($catalogueUnits->where('deleted_at', '!=', null)->isNotEmpty())
+                            <tr><td colspan="4" class="pt-2 pb-1 text-[11px] font-semibold uppercase" style="color:var(--text-muted);">Archived</td></tr>
+                            @foreach($catalogueUnits->whereNotNull('deleted_at') as $u)
+                                <tr style="border-top:1px solid var(--border);">
+                                    <td></td>
+                                    <td class="py-1.5" style="color:var(--text-muted);">{{ $u->name }}</td>
+                                    <td class="py-1.5" style="color:var(--text-muted);">Archived</td>
+                                    <td class="py-1.5 text-right">
+                                        <form method="POST" action="{{ route('admin.catalogue-units.restore', [$agency, $u->id]) }}" class="inline">
+                                            @csrf
+                                            <button type="submit" class="text-xs underline" style="color:var(--text-muted);">Restore</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        @endif
+                        </tbody>
+                    </table>
+                </div>
+
+                <form method="POST" action="{{ route('admin.catalogue-units.store', $agency) }}" class="flex flex-wrap items-end gap-2 pt-2" style="border-top:1px solid var(--border);">
+                    @csrf
+                    <div>
+                        <label class="block text-[11px] mb-0.5" style="color:var(--text-muted);">New unit name</label>
+                        <input type="text" name="name" required maxlength="50" placeholder="e.g. Roll"
+                               class="rounded-md px-2 py-1.5 text-xs" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    </div>
+                    <button type="submit" class="corex-btn-secondary text-xs px-3 py-1.5">Add unit</button>
+                </form>
+            </div>
+
+            {{-- ── Rental Crews — 2026-10-05, Johan's ruling: agents/staff
+                 are never maintenance crew. Full CRUD lives on its own
+                 screen (search/sort/pagination, unlike the small inline
+                 lists above) — this is a link out to it, not an inline
+                 editor. --}}
+            <div class="rounded-md p-4 space-y-2 mt-5" style="background: var(--surface); border: 1px solid var(--border);">
+                <div class="text-xs font-bold uppercase tracking-wider pb-1" style="color:var(--text-muted); border-bottom:1px solid var(--border);">Rental Crews</div>
+                <p class="text-xs" style="color:var(--text-muted);">The people (or named teams) picked on a job card's Assign dropdown — set up here, never a CoreX login.</p>
+                @feature('rental-crews')
+                <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-secondary text-xs px-3 py-1.5 inline-block">Manage crews</a>
+                @endfeature
+            </div>
 
             {{-- ── Proforma Invoice — Banking & Numbering (Accounting pillar) ── --}}
             {{-- The agency being SHOWN ($agency — the controller already applied the owner

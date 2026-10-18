@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Upload Received — {{ $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
+    <title>Upload Received — {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -47,7 +47,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            {{ $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
+            {{ \App\Support\Docuperfect\DocumentAgencyContext::pinnedAgency()?->name ?? $request->template?->creator?->agency?->name ?? 'Agency' }} &mdash; Document Signing
         </div>
     </div>
 </body>

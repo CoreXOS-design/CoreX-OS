@@ -25,6 +25,14 @@ class BranchPerformanceController extends Controller
         $branch = \App\Models\Branch::find($branchId);
         abort_unless($branch, 404);
 
+        // Scope-report fix (2026-10-07): the agency check above says nothing
+        // about WHICH branch of the agency this viewer may see. An agent or a
+        // branch manager could edit {branchId} and read another branch's
+        // rollup. agency ceiling -> any branch; branch ceiling -> own branch
+        // only; own -> none. Platform owners are exempt by design (see above).
+        $viewer = $request->user();
+        abort_unless($viewer && ($viewer->isOwnerRole() || app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canViewBranch($viewer, $branchId)), 403);
+
         // getBranchRollup()/getPeriodRollup() run raw DB::table() queries
         // that bypass Eloquent's AgencyScope entirely, so they need the
         // agency filter passed explicitly. Use the BRANCH's own agency_id

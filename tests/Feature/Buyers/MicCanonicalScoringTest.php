@@ -58,21 +58,28 @@ final class MicCanonicalScoringTest extends TestCase
 
     public function test_price_band_tolerance_and_drift_decay(): void
     {
-        [$agencyId, $agent] = $this->fixture(); // default mic_price_band_pct = 10
+        [$agencyId, $agent] = $this->fixture(); // default mic_price_band_pct = 10 → tolerated ceiling R990k
         $buyer = $this->buyer($agencyId, $agent->id);
         $this->match($agencyId, $buyer->id, ['price_min' => 700_000, 'price_max' => 900_000, 'beds_min' => 2, 'property_types' => ['House']]);
 
-        $withinBand = $this->listing($agencyId, $agent->id, ['price' => 950_000,   'bedrooms' => 2, 'property_type' => 'House']); // +5.5% ≤ 10% band → full
-        $drifted    = $this->listing($agencyId, $agent->id, ['price' => 1_200_000, 'bedrooms' => 2, 'property_type' => 'House']); // beyond band → decays
+        $inRange    = $this->listing($agencyId, $agent->id, ['price' => 850_000,   'bedrooms' => 2, 'property_type' => 'House']); // inside the stated range → full
+        $withinBand = $this->listing($agencyId, $agent->id, ['price' => 950_000,   'bedrooms' => 2, 'property_type' => 'House']); // +5.5% over the ceiling, inside the ±10% band → surfaced, decayed
+        $beyondBand = $this->listing($agencyId, $agent->id, ['price' => 1_200_000, 'bedrooms' => 2, 'property_type' => 'House']); // past the tolerated ceiling → price hard gate
 
         app(PropertyMatchScoringService::class)->recomputeProspectingMatchesForBuyer($buyer->id);
 
-        $within = (int) DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $withinBand)->value('score');
-        $drift  = DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $drifted)->value('score');
+        $score = fn (int $listingId) => DB::table('prospecting_buyer_matches')->where('contact_id', $buyer->id)->where('prospecting_listing_id', $listingId)->value('score');
 
-        $this->assertSame(100, $within, 'within the ±10% tolerance → full price score');
-        $this->assertNotNull($drift, 'drifted listing still shows (no hard cutoff)');
-        $this->assertLessThan(75, (int) $drift, 'drift decays it below the strong threshold (sorts to bottom)');
+        $this->assertSame(100, (int) $score($inRange), 'inside the stated range → full price score');
+
+        // 2026-09-10 (matches spec §5.1): a near-miss inside the tolerance band is surfaced WITH a decayed
+        // score — it no longer earns the same price marks as one bang inside the range.
+        $this->assertNotNull($score($withinBand), 'a near-miss inside the tolerance band still shows');
+        $this->assertLessThan(100, (int) $score($withinBand), 'but it decays below a full match');
+        $this->assertGreaterThan(50, (int) $score($withinBand), 'and stays above the display floor');
+
+        // 2026-08-11 price hard gate: past the tolerated ceiling it is excluded outright, not merely decayed.
+        $this->assertNull($score($beyondBand), 'a listing beyond the tolerated band is not matched at all');
     }
 
     public function test_missing_listing_category_does_not_penalise_the_buyer(): void

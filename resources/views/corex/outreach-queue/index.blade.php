@@ -50,22 +50,21 @@
         </h2>
 
         @forelse($ready as $row)
-            <div id="oq-row-{{ $row->id }}" class="rounded-md p-4 mb-2"
-                 style="background: var(--surface); border: 1px solid var(--border);">
+            <div id="oq-row-{{ $row->id }}" class="rounded-md p-4 mb-2 transition-colors duration-150"
+                 style="background: var(--surface); border: 1px solid var(--border);"
+                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
                 <div class="flex items-start justify-between gap-4">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-1 flex-wrap">
                             <span class="text-sm font-semibold truncate" style="color: var(--text-primary);">
                                 {{ trim(($row->contact->first_name ?? '') . ' ' . ($row->contact->last_name ?? '')) ?: ('Contact #' . $row->contact_id) }}
                             </span>
-                            <span class="text-xs font-medium px-2 py-0.5 rounded-md whitespace-nowrap"
-                                  style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
+                            <span class="ds-badge ds-badge-pill ds-badge-default">
                                 {{ $sourceLabels[$row->source] ?? ucfirst($row->source) }}
                             </span>
                             {{-- AT-120 — whose message it is, shown when viewing beyond own (manager/admin). --}}
                             @if(($showAgent ?? false) && $row->agent)
-                                <span class="text-xs font-medium px-2 py-0.5 rounded-md whitespace-nowrap"
-                                      style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 25%, transparent); color: var(--brand-icon, #0ea5e9);">
+                                <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-info">
                                     {{ $row->agent_id === ($currentUserId ?? null) ? 'You' : ($row->agent->name ?? ('Agent #' . $row->agent_id)) }}
                                 </span>
                             @endif
@@ -126,8 +125,9 @@
     <section>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-3" style="color: var(--text-muted);">Recently removed</h2>
         @foreach($inactive as $row)
-            <div class="rounded-md px-3 py-2 mb-1.5 flex items-center justify-between gap-4"
-                 style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md px-3 py-2 mb-1.5 flex items-center justify-between gap-4 transition-colors duration-150"
+                 style="background: var(--surface); border: 1px solid var(--border);"
+                 onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='var(--surface)'">
                 <span class="text-xs truncate" style="color: var(--text-secondary);">
                     {{ trim(($row->contact->first_name ?? '') . ' ' . ($row->contact->last_name ?? '')) ?: ('Contact #' . $row->contact_id) }}
                 </span>

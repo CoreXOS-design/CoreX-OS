@@ -181,6 +181,10 @@ class PortalCaptureController extends Controller
 
                         // Universal Match-or-Create: this listing feeds the TP universe.
                         $this->linkPortalItemsToTrackedProperties($capture, $sourceSite, [$itemForTracking]);
+
+                        // AT-454: a listing page is the one place a real listed date exists. Hand it to MIC
+                        // (updates an advert MIC already holds; never creates one; never throws).
+                        $this->recordListedDate($capture, (string) $listingId);
                     }
                 }
             } catch (\Throwable $e) {
@@ -1245,6 +1249,16 @@ class PortalCaptureController extends Controller
     /**
      * Normalize source_site to a consistent domain (e.g. www.property24.com).
      */
+    /** Store the page's JSON-LD "datePosted" on the matching MIC listing (see ListedDateRecorder). */
+    private function recordListedDate(PortalCapture $capture, string $listingId): void
+    {
+        $date = \App\Services\Prospecting\ListedDateRecorder::datePostedFromJsonLd($capture->jsonld_json);
+        $agencyId = (int) \DB::table('users')->where('id', $capture->user_id)->value('agency_id');
+        if ($date !== null && $agencyId > 0) {
+            app(\App\Services\Prospecting\ListedDateRecorder::class)->record($agencyId, 'p24', $listingId, $date);
+        }
+    }
+
     private function normalizeSourceSite(string $sourceSite): string
     {
         $site = strtolower(trim($sourceSite));

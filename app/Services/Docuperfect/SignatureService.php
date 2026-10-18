@@ -13,7 +13,9 @@ use App\Models\Docuperfect\DocumentAmendment;
 use App\Models\Docuperfect\LeaseRecord;
 use App\Models\Lease;
 use App\Models\LeaseTenant;
+use App\Services\Rentals\LeaseActivationService;
 use App\Services\Rentals\TenantContactResolver;
+use Illuminate\Validation\ValidationException;
 use App\Models\Docuperfect\Signature;
 use App\Models\Docuperfect\SignatureAuditLog;
 use App\Models\Docuperfect\SignatureMarker;
@@ -1129,6 +1131,10 @@ class SignatureService
             requestId: $request->id,
             metadata: ['signer_email' => $request->signer_email],
         );
+
+        // leases.md §15.15 — a signing request just went out; a lease whose agreement this is learns it is out
+        // for signing. Announced, never relied on: a listener fault cannot disturb the send.
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeSent::class, $template);
     }
 
     /**
@@ -4129,6 +4135,10 @@ class SignatureService
             'finalization_error' => null,
             'finalization_finished_at' => now(),
         ]);
+
+        // leases.md §15.15 — signed, approved and filed: THE point a lease agreement is finished. This one recorder
+        // is shared by the synchronous cascade and FinalizeSignedDocumentJob, so both paths announce it exactly here.
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeFinalized::class, $template);
     }
 
     /**
@@ -4991,6 +5001,109 @@ class SignatureService
     }
 
     // ──────────────────────────────────────────────
+    // Envelope announcements (leases.md §15.15) and cancelling
+    // ──────────────────────────────────────────────
+
+    /**
+     * Tells the rest of CoreX that something happened to an envelope — sent, finalised, declined, cancelled or
+     * expired — by dispatching the named domain event (scalars only). The Rentals listener uses it to keep a lease's
+     * signing state in step; nothing in the e-sign pipeline depends on it. Fire-and-forget by design: any fault is
+     * logged and swallowed, because a listener must never be able to disturb a signing that has legally happened.
+     *
+     * @param class-string<\App\Events\AbstractDomainEvent> $eventClass
+     */
+    public function announceEnvelope(string $eventClass, ?SignatureTemplate $template, ?string $reason = null): void
+    {
+        if (! $template) {
+            return;
+        }
+
+        try {
+            event(new $eventClass((int) $template->id, $template->document_id ? (int) $template->document_id : null, $template->agency_id ? (int) $template->agency_id : null, $reason));
+        } catch (\Throwable $e) {
+            Log::warning('SignatureService: envelope announcement failed (signing unaffected)', [
+                'event' => $eventClass,
+                'signature_template_id' => $template->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Cancels an envelope that is not finished: every waiting/pending party's link stops working, the envelope is
+     * marked cancelled with the reason and who cancelled it, the audit log records it, the rest of CoreX is told
+     * (SignatureEnvelopeCancelled) and each party who was still waiting gets the cancellation mail. This is the one
+     * implementation of "cancel document" — ESignWizardController::cancelDocument() and a lease being cancelled with
+     * its agreement out both go through it (leases.md §15.15, Build L3b; behaviour moved, not changed).
+     *
+     * The caller decides who may cancel (the creator, in the controller) and that the envelope is not already
+     * completed or cancelled.
+     *
+     * @param array<string,mixed> $auditMetadata merged into the audit entry beside the reason
+     * @return int how many waiting parties were notified
+     */
+    public function cancelEnvelope(SignatureTemplate $envelope, User $by, string $reason, ?string $ip = null, ?string $userAgent = null, array $auditMetadata = []): int
+    {
+        // Collect the waiting parties BEFORE cancelling (they are the ones to notify).
+        $waiting = $envelope->requests()
+            ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+            ->get();
+
+        DB::transaction(function () use ($envelope, $by, $reason, $ip, $userAgent, $auditMetadata) {
+            $envelope->requests()
+                ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
+                ->update(['status' => 'cancelled']);
+
+            $envelope->update([
+                'status' => SignatureTemplate::STATUS_CANCELLED,
+                'cancellation_reason' => $reason,
+                'cancelled_by' => $by->id,
+                'cancelled_at' => now(),
+            ]);
+
+            SignatureAuditLog::log(
+                $envelope,
+                SignatureAuditLog::ACTION_CANCELLED,
+                SignatureAuditLog::ACTOR_USER,
+                $by->name,
+                $by->email,
+                $by->id,
+                null,
+                $ip,
+                $userAgent,
+                ['reason' => $reason] + $auditMetadata,
+            );
+        });
+
+        $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeCancelled::class, $envelope, $reason);
+
+        $documentName = $envelope->document->name ?? 'Untitled';
+        foreach ($waiting as $sigReq) {
+            if (empty($sigReq->signer_email)) {
+                continue;
+            }
+            try {
+                \Illuminate\Support\Facades\Mail::to($sigReq->signer_email)->send(
+                    (new \App\Mail\Signatures\DocumentCancelledMail(
+                        signerName: $sigReq->signer_name ?? 'Signer',
+                        documentName: $documentName,
+                        agentName: $by->name,
+                        cancellationReason: $reason,
+                    ))->fromAgent($by)
+                );
+            } catch (\Throwable $e) {
+                Log::error('Failed to send cancellation email', [
+                    'request_id' => $sigReq->id,
+                    'signer_email' => $sigReq->signer_email,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return $waiting->count();
+    }
+
+    // ──────────────────────────────────────────────
     // Decline
     // ──────────────────────────────────────────────
 
@@ -5021,6 +5134,14 @@ class SignatureService
                 metadata: ['reason' => $reason],
             );
         });
+
+        // leases.md §15.15 — after the decline is committed, so a lease sees the settled state.
+        $declinedBy = trim((string) $request->signer_name);
+        $this->announceEnvelope(
+            \App\Events\Docuperfect\SignatureEnvelopeDeclined::class,
+            $request->template,
+            trim(($declinedBy !== '' ? $declinedBy . ' declined' : 'Declined') . ($reason ? ' — ' . $reason : '')),
+        );
     }
 
     // ──────────────────────────────────────────────
@@ -5136,6 +5257,7 @@ class SignatureService
             $fromStatus = $template->status;
 
             $template->update(['status' => $newStatus]);
+            $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeExpired::class, $template, 'the signing deadline passed');
 
             SignatureAuditLog::log(
                 $template,
@@ -5179,6 +5301,7 @@ class SignatureService
 
             if (!$hasActiveRequests && $template->status !== SignatureTemplate::STATUS_COMPLETED) {
                 $template->update(['status' => SignatureTemplate::STATUS_EXPIRED]);
+                $this->announceEnvelope(\App\Events\Docuperfect\SignatureEnvelopeExpired::class, $template, 'the signing links ran out before everyone signed');
             }
 
             SignatureAuditLog::log(
@@ -5478,6 +5601,28 @@ class SignatureService
      * confident address-matching against the real `properties` table
      * instead. No confident match = no Lease created here; an agent can
      * always create one manually from the property's Rental tab.
+     *
+     * AT-439 — before creating a new row, checks for an existing DRAFT
+     * lease on the SAME property to promote instead of creating a second,
+     * disconnected row for the same real-world tenancy. Matching, in
+     * order: (1) a draft already linked to the SAME tenant the signed
+     * document resolves — takes priority so a draft an agent already tied
+     * to a DIFFERENT, known tenant (e.g. a renewal being prepared
+     * alongside the still-current lease) is never silently reassigned; (2)
+     * failing that, a draft with NO tenant linked at all yet (the common
+     * case — a draft started manually before any tenant was decided),
+     * ONLY when exactly one such open draft exists on the property — an
+     * ambiguous multi-draft property is never guessed at. If a match is
+     * found, that draft is PROMOTED (its terms + source_document_id are
+     * set from the signed document and it is activated). Promotion goes
+     * through LeaseActivationService::activate() — the same one-active-
+     * lease-per-property guard every other activation path already uses —
+     * inside a DB transaction; if another lease is already active on this
+     * property (a genuine conflict, not the common case), the draft's
+     * terms/source_document_id are still saved so the document is linked,
+     * but its status is left exactly as it was rather than letting an
+     * uncaught ValidationException escape into the e-sign completion
+     * cascade (BUILD_STANDARD §4 — no raw exception reaches a user path).
      */
     public function createLeaseFromSignedDocument(SignatureTemplate $template): ?Lease
     {
@@ -5485,6 +5630,14 @@ class SignatureService
         $document = $template->document;
 
         if (!$document || Lease::withoutGlobalScopes()->where('source_document_id', $document->id)->exists()) {
+            return null;
+        }
+
+        // leases.md §15.15 (Build L3b) — a document launched from a lease already HAS its lease: it was linked by
+        // id when the agent prepared signing, and UpdateLeaseSigningState finishes it when SignatureEnvelopeFinalized
+        // fires. Guessing a lease from the address and the tenant's name — what this method does for a document that
+        // was started from the generic wizard — could only create a second lease, or promote the wrong draft.
+        if (Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->exists()) {
             return null;
         }
 
@@ -5499,41 +5652,138 @@ class SignatureService
         $parties = $template->parties_json ?? [];
         $tenant = $this->firstPartyWithRole($parties, ['tenant', 'lessee']);
 
-        $startDate = $fields['lease_start_date'] ?? now()->toDateString();
+        // A value the document does not carry never overwrites what a matched draft already holds (leases.md
+        // §15.22 #4: a rent of 0, today's date as the start, a blank end date). The no-draft branch below has no
+        // draft to protect and keeps its old defaults.
+        $startDate = $fields['lease_start_date'] ?? null;
         $endDate = $fields['lease_end_date'] ?? null;
+        $rentalAmount = (float) ($fields['rental_amount'] ?? 0);
 
-        $lease = Lease::withoutGlobalScopes()->create([
-            'agency_id' => $property->agency_id,
-            'branch_id' => $property->branch_id,
-            'property_id' => $property->id,
-            'status' => Lease::STATUS_ACTIVE,
-            'rental_amount' => $fields['rental_amount'] ?? 0,
-            'start_date' => $startDate,
-            'end_date' => $endDate,
-            'source' => 'esign_document',
-            'source_document_id' => $document->id,
-        ]);
-
-        if ($tenant) {
-            $tenantContact = app(TenantContactResolver::class)->matchOrCreate(
+        // Resolved up front (rather than only after a brand-new Lease is
+        // created, as before) so the draft-match-by-tenant lookup below can
+        // use the SAME resolved contact a freshly-created Lease would get.
+        $tenantContact = $tenant
+            ? app(TenantContactResolver::class)->matchOrCreate(
                 $property->agency_id,
                 $property->branch_id,
                 $tenant['name'] ?? null,
                 $tenant['email'] ?? null,
-            );
+            )
+            : null;
 
-            if ($tenantContact) {
-                LeaseTenant::create([
+        // Tenant-linked drafts take priority (never silently hijack a draft
+        // an agent already tied to a DIFFERENT, known tenant). Only when no
+        // tenant-matched draft exists do we fall back to an UNTENANTED
+        // draft on this property (the common case — a draft started
+        // manually before any tenant was decided) — and only when exactly
+        // one such open draft exists, so an ambiguous multi-draft property
+        // is never guessed at.
+        $draftLeasesQuery = fn () => Lease::withoutGlobalScopes()
+            ->where('property_id', $property->id)
+            ->where('status', Lease::STATUS_DRAFT);
+
+        $draftLease = $tenantContact
+            ? $draftLeasesQuery()->whereHas('tenants', fn ($q) => $q->where('contact_id', $tenantContact->id))->latest('id')->first()
+            : null;
+
+        if (!$draftLease) {
+            $openDrafts = $draftLeasesQuery()->whereDoesntHave('tenants')->get();
+            $draftLease = $openDrafts->count() === 1 ? $openDrafts->first() : null;
+        }
+
+        if ($draftLease) {
+            $lease = DB::transaction(function () use ($draftLease, $rentalAmount, $startDate, $endDate, $document) {
+                $draftLease->forceFill([
+                    'rental_amount' => $rentalAmount > 0 ? $rentalAmount : $draftLease->rental_amount,
+                    'start_date' => $startDate ?? $draftLease->start_date,
+                    'end_date' => $endDate ?? $draftLease->end_date,
+                    'source' => 'esign_document',
+                    'source_document_id' => $document->id,
+                ])->save();
+
+                try {
+                    // .ai/specs/rental-renewals.md §6/§14 (AT-444, item 6) — a
+                    // renewal draft (previous_lease_id already set, built by
+                    // RenewalDraftService::copyForward()/draftFromTemplate())
+                    // goes through LeaseRenewalService::activateRenewalTerm()
+                    // instead of calling LeaseActivationService::activate()
+                    // directly here — that method ALSO records the
+                    // escalation on the new term before activating, which a
+                    // bare activate() call never did. Reused, not duplicated:
+                    // activateRenewalTerm() itself calls activate() inside.
+                    // Falls back to the plain activate() path (unchanged
+                    // behaviour) when no acting user can be resolved — this
+                    // completion cascade runs with no authenticated session,
+                    // so the document's own owner stands in, same actor this
+                    // method's CheckLeaseExpiry sibling already uses.
+                    if ($draftLease->previous_lease_id) {
+                        // rental-renewals.md §22 - a renewal signed ahead of its start date waits for it; the running lease stays active.
+                        $renewalService = app(\App\Services\Rentals\LeaseRenewalService::class);
+                        if ($renewalService->startsLater($draftLease)) {
+                            $renewalService->holdUntilStart($draftLease, User::find($document->owner_id));
+
+                            return $draftLease->fresh();
+                        }
+
+                        $actingUser = User::find($document->owner_id);
+                        if ($actingUser) {
+                            return app(\App\Services\Rentals\LeaseRenewalService::class)
+                                ->activateRenewalTerm($draftLease, $actingUser);
+                        }
+                    }
+
+                    return app(LeaseActivationService::class)->activate($draftLease);
+                } catch (ValidationException $e) {
+                    Log::warning('createLeaseFromSignedDocument: draft lease linked to signed document but NOT activated — another lease is already active on this property', [
+                        'lease_id' => $draftLease->id,
+                        'property_id' => $draftLease->property_id,
+                        'document_id' => $document->id,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    return $draftLease->fresh();
+                }
+            });
+        } else {
+            // leases.md §15.22 #2 (Build L3b) — created as a draft and activated through the one activation
+            // service, so the one-active-lease-per-property guard and the let-out status flip apply here as they do
+            // everywhere else. If another lease is already active on the property the lease simply stays a draft
+            // (the document is linked); nothing is thrown into the completion cascade.
+            $lease = Lease::withoutGlobalScopes()->create([
+                'agency_id' => $property->agency_id,
+                'branch_id' => $property->branch_id,
+                'property_id' => $property->id,
+                'status' => Lease::STATUS_DRAFT,
+                'rental_amount' => $rentalAmount,
+                'start_date' => $startDate ?? now()->toDateString(),
+                'end_date' => $endDate,
+                'source' => 'esign_document',
+                'source_document_id' => $document->id,
+            ]);
+
+            try {
+                $lease = app(LeaseActivationService::class)->activate($lease);
+            } catch (ValidationException $e) {
+                Log::warning('createLeaseFromSignedDocument: new lease created from the signed document but NOT activated — another lease is already active on this property', [
                     'lease_id' => $lease->id,
-                    'contact_id' => $tenantContact->id,
-                    'is_primary' => true,
+                    'property_id' => $property->id,
+                    'document_id' => $document->id,
+                    'error' => $e->getMessage(),
                 ]);
             }
         }
 
+        if ($tenantContact && !LeaseTenant::where('lease_id', $lease->id)->where('contact_id', $tenantContact->id)->exists()) {
+            LeaseTenant::create([
+                'lease_id' => $lease->id,
+                'contact_id' => $tenantContact->id,
+                'is_primary' => true,
+            ]);
+        }
+
         SignatureAuditLog::log(
             $template,
-            'lease_created_from_document',
+            $draftLease ? 'lease_promoted_from_document' : 'lease_created_from_document',
             SignatureAuditLog::ACTOR_SYSTEM,
             'System',
             metadata: ['lease_id' => $lease->id, 'property_id' => $property->id],
@@ -5872,6 +6122,48 @@ class SignatureService
      *   HD-7 (§11-B) — what `autoFileSignedDocument()` actually filed, which now runs FIRST. A pack
      *   signed as one ceremony is distributed as the many documents it really is.
      */
+    /**
+     * rental-portal-access.md §16 — when this envelope is a lease's agreement, the signer's copy carries their
+     * personal CoreX portal link (tenant / landlord of that lease only; null when the agency has portal access off).
+     * A fault here is never a reason to fail a completed signing's email.
+     *
+     * @return array{url:string, roles:array<int,string>, offers:array<int,string>}|null
+     */
+    private function leasePortalBlockFor(SignatureTemplate $template, string $signerEmail): ?array
+    {
+        try {
+            $lease = \App\Models\Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->first();
+
+            return $lease ? app(\App\Services\Rentals\RentalPortalAccessService::class)->mailBlockForLease($lease, $signerEmail) : null;
+        } catch (\Throwable $e) {
+            Log::warning('Portal link block for a signed lease copy failed', ['template_id' => $template->id, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
+    /**
+     * Rentals front-half decision D13 (8 Oct 2026): the tenant / landlord still get their signed lease, and when the lease cannot
+     * go live yet (another lease is still active on the property) the mail carries the agency's one sentence saying so
+     * (LeaseSetting::signedCopyNotLiveNoteFor(), editable, empty = nothing extra). Null for every other document.
+     */
+    private function leaseNotLiveNoteFor(SignatureTemplate $template): ?string
+    {
+        try {
+            $lease = \App\Models\Lease::withoutGlobalScopes()->where('signature_template_id', $template->id)->first();
+            if (! $lease || $lease->status !== \App\Models\Lease::STATUS_DRAFT) {
+                return null;
+            }
+            $note = trim(\App\Models\LeaseSetting::signedCopyNotLiveNoteFor((int) $lease->agency_id));
+
+            return $note !== '' && app(\App\Services\Rentals\LeaseActivationService::class)->blockingLease($lease) ? $note : null;
+        } catch (\Throwable $e) {
+            Log::warning('Not-live note for a signed lease copy failed', ['template_id' => $template->id, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
+
     private function sendCompletionEmails(SignatureTemplate $template, ?array $pdfPaths = null, array $signedDocuments = []): void
     {
         try {
@@ -5958,6 +6250,8 @@ class SignatureService
                     pdfPath: $clientPdfPath,
                     pdfFilename: $clientPdfPath ? $pdfFilename : null,
                     documents: $attachments,
+                    portal: $this->leasePortalBlockFor($template, (string) $request->signer_email),
+                    leaseNote: $this->leaseNotLiveNoteFor($template),
                 ))->fromAgent($agent);
 
                 // AT-294 — per-recipient try/catch: a single failed send records

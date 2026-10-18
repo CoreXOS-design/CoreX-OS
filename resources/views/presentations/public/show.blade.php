@@ -965,7 +965,7 @@
                             {{ $row['address'] ?? '—' }}
                             @if(!empty($row['hfc_sold']))
                                 <span style="display:inline-block;margin-left:6px;padding:2px 8px;background:color-mix(in srgb, var(--hfc-teal) 14%, transparent);color:var(--hfc-teal);border-radius:6px;font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;">
-                                    HFC sold this
+                                    We sold this
                                 </span>
                             @endif
                         </td>
@@ -998,7 +998,7 @@
                             {{ $row['address'] ?? '—' }}
                             @if(!empty($row['hfc_sold']))
                                 <span style="display:inline-block;margin-left:6px;padding:2px 8px;background:color-mix(in srgb, var(--hfc-teal) 14%, transparent);color:var(--hfc-teal);border-radius:6px;font-size:0.625rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;">
-                                    HFC sold this
+                                    We sold this
                                 </span>
                             @endif
                         </td>
@@ -1113,7 +1113,7 @@
              price tick uses the existing teal token. --}}
         @if($secOn('cma_analysis') && ($cmaLower || $cmaMid || $cmaUpper))
         <section class="block" data-section-id="cma-valuation">
-            <div class="block-eyebrow">CMA Valuation</div>
+            <div class="block-eyebrow">CMA Evaluation</div>
             <h2>Where your asking price sits in the recommended band</h2>
             @php
                 $gLow = (int) ($cmaLower ?? $cmaMid ?? 0);

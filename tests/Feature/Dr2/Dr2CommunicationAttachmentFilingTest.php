@@ -316,7 +316,7 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
         $this->assertSame(0, Document::where('deal_id', $this->dealV2Id)->count(), 'signature/logo images must never reach the deal document library');
         $this->assertDatabaseHas('communication_links', [
             'communication_id' => $comm->id, 'linkable_type' => DealV2::class, 'linkable_id' => $this->dealV2Id,
-        ], 'the email itself still files — only the document side is filtered');
+        ]); // the email itself still files — only the document side is filtered (the 3rd assertDatabaseHas arg is a CONNECTION name, not a message)
         $response->assertJson(['attachments' => ['filed' => 0, 'skipped_duplicate' => 0, 'skipped_non_pdf' => 1, 'failed' => 0]]);
     }
 

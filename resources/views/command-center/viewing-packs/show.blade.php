@@ -18,7 +18,9 @@
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('corex.viewing-packs.index') }}" class="corex-btn-outline text-xs">&larr; All packs</a>
                 @if(optional($pack->contact))
+                    @feature('buyer-pipeline')
                     <a href="{{ route('command-center.buyers.show', $pack->contact_id) }}" class="corex-btn-outline text-xs">Open buyer</a>
+                    @endfeature
                 @endif
                 {{-- Two SEPARATE files, two SEPARATE buttons (compliance spine §1) — never a combined download. --}}
                 @if($pack->viewingPackProperties->isNotEmpty())

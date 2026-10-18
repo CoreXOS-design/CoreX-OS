@@ -70,6 +70,8 @@ final class AgencyCreateAdminScopeTest extends TestCase
             'admin_name'       => 'Jaco Human',
             'admin_email'      => 'jaco.human@example.test',
             'admin_password'   => 'password123',
+            'branch_name'      => 'Head Office',   // AT-378: a first branch is required on agency creation
+            'branch_code'      => 'HQ',
         ]);
 
         $resp->assertRedirect();
@@ -100,6 +102,8 @@ final class AgencyCreateAdminScopeTest extends TestCase
                 'admin_name'     => 'Jaco Human',
                 'admin_email'    => 'jaco.human.regression@example.test',
                 'admin_password' => 'password123',
+                'branch_name'    => 'Head Office',   // AT-378: a first branch is required on agency creation
+                'branch_code'    => 'HQ',
             ]);
 
         $resp->assertRedirect();

@@ -89,7 +89,8 @@ class OffMarketDelistTest extends TestCase
 
     public function test_job_with_remove_false_delists_pp_but_keeps_website(): void
     {
-        $p = $this->ppProperty('active');
+        // Sold stock: the job only withdraws a property that is STILL off-market when it runs.
+        $p = $this->ppProperty('sold');
         app(WebsiteSyndicationService::class)->setEnabled($p, $this->key, true);
 
         $this->mock(PrivatePropertySyndicationService::class, function ($m) {

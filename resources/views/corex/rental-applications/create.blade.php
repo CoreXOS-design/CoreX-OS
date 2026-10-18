@@ -3,9 +3,9 @@
 
 @section('corex-content')
 <div class="w-full space-y-5" x-data="rentalApplicationCreate({{ Js::from([
-    'contactId' => $oldContact?->id ?? '',
+    'contactId' => old('contact_id', $oldContact?->id ?? ''),
     'contactName' => $oldContact ? trim($oldContact->first_name . ' ' . $oldContact->last_name) : '',
-    'propertyId' => $oldProperty?->id ?? '',
+    'propertyId' => old('property_id', $oldProperty?->id ?? ''),
     {{-- Johan, QA1 walk, 2026-09-21 — address first, never the listing's
          marketing title. Same fix as the search results below. --}}
     'propertyLabel' => $oldProperty?->buildDisplayAddress() ?? '',
@@ -16,45 +16,45 @@
     </div>
 
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
+        <div class="rounded-md px-4 py-3 text-sm max-w-3xl" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);">
             {{ $errors->first() }}
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-applications.store') }}" class="rounded-md p-6 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-applications.store') }}" class="rounded-md p-6 space-y-5 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
 
         <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Contact <span class="text-red-500">*</span></label>
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Contact <span style="color: var(--ds-crimson);">*</span></label>
             <input type="text" x-model="contactQuery" @input.debounce.300ms="searchContacts()"
                    placeholder="Search contacts by name, phone or email…"
-                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                   class="prop-input">
             <input type="hidden" name="contact_id" x-model="selectedContactId" required>
-            <div class="mt-1 rounded-md" style="border: 1px solid var(--border);" x-show="contactResults.length">
+            <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="contactResults.length">
                 <template x-for="c in contactResults" :key="c.id">
-                    <button type="button" @click="selectContact(c)" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                    <button type="button" @click="selectContact(c)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <span x-text="c.first_name + ' ' + c.last_name"></span>
-                        <span class="text-xs text-slate-400" x-text="c.email || c.phone || ''"></span>
+                        <span class="text-xs" style="color: var(--text-muted);" x-text="c.email || c.phone || ''"></span>
                     </button>
                 </template>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedContactName" x-text="'Selected: ' + selectedContactName"></p>
-            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--ds-blue, #2563eb);">Can't find them? Create a new contact</button>
+            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);">Can't find them? Create a new contact</button>
         </div>
 
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property (optional)</label>
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties…"
-                   class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                   class="prop-input">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
             {{-- Johan, QA1 walk, 2026-09-21 — same richer result row as the
                  PDF splitter's property picker: address + status, then ref +
                  agent as a muted subtitle, so an agent can be certain which
                  property they're picking, not just its marketing title. --}}
-            <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="border: 1px solid var(--border);" x-show="propertyResults.length">
+            <div class="mt-1 rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length">
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                         <div class="flex items-center gap-1.5">
                             <span x-text="p.label"></span>
                             <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
@@ -66,9 +66,9 @@
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedPropertyLabel" x-text="'Selected: ' + selectedPropertyLabel"></p>
         </div>
 
-        <div class="flex justify-end gap-2 pt-2">
-            <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-xs" :disabled="!selectedContactId">Create</button>
+        <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
+            <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-sm">Cancel</a>
+            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId">Create</button>
         </div>
     </form>
 
@@ -82,26 +82,26 @@
             <h2 class="text-sm font-bold" style="color: var(--text-primary);">New contact</h2>
 
             <template x-if="quickCreateError">
-                <p class="text-xs rounded px-2 py-1" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);" x-text="quickCreateError"></p>
+                <p class="text-xs rounded-md px-3 py-2" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);" x-text="quickCreateError"></p>
             </template>
 
             <template x-if="!quickCreateDuplicates.length">
                 <div class="space-y-2">
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">First name</label>
-                        <input type="text" x-model="quickCreate.first_name" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="text" x-model="quickCreate.first_name" class="prop-input">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Last name</label>
-                        <input type="text" x-model="quickCreate.last_name" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="text" x-model="quickCreate.last_name" class="prop-input">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Phone</label>
-                        <input type="text" x-model="quickCreate.phone" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="text" x-model="quickCreate.phone" class="prop-input">
                     </div>
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Email</label>
-                        <input type="email" x-model="quickCreate.email" class="w-full rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <input type="email" x-model="quickCreate.email" class="prop-input">
                     </div>
                     <p class="text-xs" style="color: var(--text-muted);">Phone or email is required. Everything else about this contact can be filled in later from Contacts.</p>
                     <div class="flex justify-end gap-2 pt-1">
@@ -117,7 +117,7 @@
                     <template x-for="d in quickCreateDuplicates" :key="d.id">
                         <div class="rounded-md px-3 py-2 text-sm flex items-center justify-between" style="border: 1px solid var(--border);">
                             <div>
-                                <div x-text="d.name"></div>
+                                <div x-text="d.name" style="color: var(--text-primary);"></div>
                                 <div class="text-xs" style="color: var(--text-muted);" x-text="[d.phone, d.email].filter(Boolean).join(' · ')"></div>
                             </div>
                             <button type="button" x-show="d.can_view" @click="useDuplicate(d)" class="corex-btn-outline text-xs">Use this contact</button>

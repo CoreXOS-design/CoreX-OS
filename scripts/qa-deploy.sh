@@ -7,7 +7,7 @@
 # Deploys whatever is on origin/QA1 to the qa1 host: fast-forward pull →
 # storage permissions → (only if frontend changed) npm build → migrate →
 # reference data → permission keys → clear caches → reload the shared
-# php8.2-fpm pool → restart the qa1 worker. Idempotent; safe to re-run.
+# php8.2-fpm pool → restart the qa1 workers. Idempotent; safe to re-run.
 #
 # NOT for staging/live. Refuses to run anywhere but the qa1 checkout. The general
 # scripts/deploy.sh is BANNED on qa1 — this is the blessed path.
@@ -320,9 +320,23 @@ php artisan view:clear 2>&1 | tail -1
 echo "-- 9. reload $FPM (clears opcache) --"
 sudo systemctl reload "$FPM" 2>&1 | tail -1 || systemctl reload "$FPM" 2>&1 | tail -1
 
-echo "-- 10. restart qa1 worker --"
-sudo systemctl restart "$WORKER" 2>&1 | tail -1 || systemctl restart "$WORKER" 2>&1 | tail -1
+echo "-- 10. restart qa1 workers --"
+# The shared worker and the dedicated mail worker are short-job only, so a hard restart is safe and
+# instant. The long-job workers (buyer-matching ~8 min, p24images, mail-slow) are NOT restarted here:
+# queue:restart below makes them finish the current job, exit, and systemd respawns them on the new
+# code — a restart would kill a running job and stall the deploy for the stop timeout.
+for unit in "$WORKER" "$WORKER-mail"; do
+    sudo systemctl restart "$unit" 2>&1 | tail -1 || systemctl restart "$unit" 2>&1 | tail -1
+done
 php artisan queue:restart 2>&1 | tail -1
+# Never let the host's worker units drift from the repo's record of them (the 2026-10-07 mail stall
+# came from mail sharing a worker with an 8-minute job). Loud, non-fatal.
+for unit in "$WORKER" "$WORKER-mail" "$WORKER-buyer-matching"; do
+    if ! diff -q "$APP_DIR/scripts/qa1/systemd/$unit.service" "/etc/systemd/system/$unit.service" >/dev/null 2>&1; then
+        echo "   WARNING: /etc/systemd/system/$unit.service differs from scripts/qa1/systemd/ — see scripts/qa1/systemd/README.md"
+    fi
+    systemctl is-active --quiet "$unit" || echo "   WARNING: $unit is NOT running — mail/jobs will stall"
+done
 
 echo "-- 11. smoke: app boots (route table resolves) --"
 php artisan route:list >/dev/null 2>&1 && echo "   route table OK" || { echo "   ROUTE TABLE FAILED — investigate"; exit 1; }

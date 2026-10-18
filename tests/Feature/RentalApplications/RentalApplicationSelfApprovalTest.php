@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\Contact;
 use App\Models\RentalApplication;
+use App\Models\RentalApplicationDeclineReasonTemplate;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -78,6 +79,8 @@ final class RentalApplicationSelfApprovalTest extends TestCase
         $contact = Contact::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho-' . uniqid() . '@example.co.za',
+            // The creating agent's own contact — visible to them under the own/branch/agency scope.
+            'agent_id' => $creator->id, 'created_by_user_id' => $creator->id,
         ]);
 
         return RentalApplication::create([
@@ -85,6 +88,15 @@ final class RentalApplicationSelfApprovalTest extends TestCase
             'created_by_user_id' => $creator->id, 'status' => 'under_assessment', 'submitted_for_approval_at' => now(),
             'full_name' => 'Sipho Ndlovu', 'email' => 'applicant-' . uniqid() . '@example.co.za',
         ]);
+    }
+
+    /** AT-410b — every decline must name the applicant-facing reason template (agency-scoped). */
+    private function declineTemplateId(): int
+    {
+        return RentalApplicationDeclineReasonTemplate::create([
+            'agency_id' => $this->agency->id, 'reason' => 'Income requirements not met',
+            'guidance' => 'Thank you for applying.', 'sort_order' => 0,
+        ])->id;
     }
 
     private function approveUrl(RentalApplication $app): string
@@ -112,7 +124,7 @@ final class RentalApplicationSelfApprovalTest extends TestCase
 
         $this->actingAs($agent)->post($this->approveUrl($app), ['approved_rental_amount' => 15000])
             ->assertForbidden();
-        $this->actingAs($agent)->post($this->declineUrl($app), ['reason' => 'no'])
+        $this->actingAs($agent)->post($this->declineUrl($app), ['reason' => 'no', 'decline_reason_template_id' => $this->declineTemplateId()])
             ->assertForbidden();
         $this->actingAs($agent)->post($this->requestMoreInfoUrl($app), ['reason' => 'need more'])
             ->assertForbidden();
@@ -124,14 +136,18 @@ final class RentalApplicationSelfApprovalTest extends TestCase
 
     public function test_an_ro_cannot_approve_their_own_submission_but_can_approve_someone_elses(): void
     {
-        $ro = $this->user('agent');
+        // RO/CO tier is eligibility, not data visibility (AT-392): to decide ANOTHER agent's
+        // application the reviewer must also have it in their data scope — a branch manager sees
+        // the whole branch. (Not an admin: admin/super_admin are the override tier and exempt from
+        // the self-approval block this test pins.)
+        $ro = $this->user('branch_manager');
         $otherAgent = $this->user('agent');
         $this->setRO([$ro->id]);
 
         $ownApp = $this->pendingApplication($ro);
         $this->actingAs($ro)->post($this->approveUrl($ownApp), ['approved_rental_amount' => 15000])
             ->assertForbidden();
-        $this->actingAs($ro)->post($this->declineUrl($ownApp), ['reason' => 'no'])
+        $this->actingAs($ro)->post($this->declineUrl($ownApp), ['reason' => 'no', 'decline_reason_template_id' => $this->declineTemplateId()])
             ->assertForbidden();
         $this->actingAs($ro)->post($this->requestMoreInfoUrl($ownApp), ['reason' => 'need more'])
             ->assertForbidden();
@@ -164,7 +180,7 @@ final class RentalApplicationSelfApprovalTest extends TestCase
         $this->setCO([$co->id]);
         $app = $this->pendingApplication($co);
 
-        $this->actingAs($co)->post($this->declineUrl($app), ['reason' => 'not qualifying'])
+        $this->actingAs($co)->post($this->declineUrl($app), ['reason' => 'not qualifying', 'decline_reason_template_id' => $this->declineTemplateId()])
             ->assertRedirect();
         $this->assertSame('declined', $app->fresh()->status);
     }
@@ -199,7 +215,7 @@ final class RentalApplicationSelfApprovalTest extends TestCase
         $this->setCO([$admin->id]);
         $app = $this->pendingApplication($admin);
 
-        $this->actingAs($admin)->post($this->declineUrl($app), ['reason' => 'not qualifying'])
+        $this->actingAs($admin)->post($this->declineUrl($app), ['reason' => 'not qualifying', 'decline_reason_template_id' => $this->declineTemplateId()])
             ->assertRedirect();
         $this->assertSame('declined', $app->fresh()->status);
     }

@@ -23,6 +23,9 @@ use Tests\TestCase;
 final class RentalsStepRuledInSettingsTest extends TestCase
 {
     use RefreshDatabase;
+    // basePayload() starts from a real browser's full POST of the step (every control it renders, incl. each maintenance-flow
+    // toggle), so it can never go stale when a control joins the step; the tests then layer / remove exactly the keys they are about.
+    use \Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 
     private function admin(Agency $agency): User
     {
@@ -41,8 +44,27 @@ final class RentalsStepRuledInSettingsTest extends TestCase
         return Agency::create(['name' => 'Cape Rentals', 'slug' => 'cape-rentals-' . uniqid()]);
     }
 
-    /** What the step posts before any of the newly ruled-in controls are involved. */
-    private function basePayload(): array
+    /** The ruled-in controls (and their list markers): the keys a post "that never rendered the new controls" does not carry. */
+    private const RULED_IN_KEYS = [
+        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold',
+        'refusal_reason_presets', 'condition_states_submitted', 'condition_states', 'baseline_condition_key',
+        'photo_note_classifications_submitted', 'photo_note_classifications',
+        'inventory_condition_states_submitted', 'inventory_condition_states',
+    ];
+
+    /** What the step posts before any of the newly ruled-in controls are involved: the browser's full POST, minus the ruled-in keys. */
+    private function basePayload(User $admin, Agency $agency): array
+    {
+        $payload = array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), $this->handWrittenFields());
+        foreach (self::RULED_IN_KEYS as $key) {
+            unset($payload[$key]);
+        }
+
+        return $payload;
+    }
+
+    /** The fields the original, hand-written payload carried — kept as overrides on top of the browser baseline. */
+    private function handWrittenFields(): array
     {
         return [
             'expiry_notice_window_days' => 60,
@@ -99,7 +121,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'leases']));
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload() + [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + [
                 'credit_bureau_name' => 'XDS',
                 'tenanted_label' => 'Occupied',
                 'show_lease_type_field' => '1',
@@ -149,7 +171,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'leases']));
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload())
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency))
             ->assertSessionHasNoErrors();
 
         $this->assertSame('XDS', RentalApplicationQualifyingSetting::creditBureauNameFor($agency->id));
@@ -169,7 +191,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'leases']));
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload() + [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + [
                 'refusal_reason_presets' => [['key' => 'cust_1', 'label' => 'Tenant not reachable']],
                 'condition_states_submitted' => '1',
                 'condition_states' => [

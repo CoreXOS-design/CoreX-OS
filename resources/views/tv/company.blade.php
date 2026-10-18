@@ -47,7 +47,8 @@ $messages = array_map(function($x){
 
 if (count($messages) === 0) {
     $dealsRemaining = max(0, $dealsTarget - $dealsActual);
-    $messages = ["HOME FINDERS COASTAL: Only {$dealsRemaining} deals to go this month!"];
+    $tvCompany = mb_strtoupper(trim((string) ($companyName ?? '')));
+    $messages = [($tvCompany !== '' ? $tvCompany . ': Only ' : 'Only ') . "{$dealsRemaining} deals to go this month!"];
 }
 if (count($tickerMessagesFinal) === 0) {
     $tickerMessagesFinal = [];

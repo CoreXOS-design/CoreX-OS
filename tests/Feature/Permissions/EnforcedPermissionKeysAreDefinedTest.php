@@ -29,6 +29,9 @@ final class EnforcedPermissionKeysAreDefinedTest extends TestCase
 
         $undefined = [];
         foreach ($this->enforcedLiteralKeys() as $key => $file) {
+            if (str_ends_with($key, '.')) {
+                continue; // a dynamic key ('rental_inspections.' . $action): its parts are each checked where they are written
+            }
             if (! isset($defined[$key])) {
                 $undefined[] = "{$key}  ({$file})";
             }

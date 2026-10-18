@@ -22,21 +22,6 @@
         border-color: var(--brand-button);
         background: color-mix(in srgb, var(--brand-button) 6%, var(--surface));
     }
-    .bi-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        font-size: 0.6875rem;
-        font-weight: 600;
-        border-radius: 9999px;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        white-space: nowrap;
-    }
-    .bi-badge-pending  { background: color-mix(in srgb, var(--text-muted) 18%, transparent); color: var(--text-muted); }
-    .bi-badge-uploading{ background: color-mix(in srgb, var(--brand-button) 18%, transparent); color: var(--brand-button); }
-    .bi-badge-success  { background: color-mix(in srgb, var(--ds-green, #10b981) 18%, transparent); color: var(--ds-green, #10b981); }
-    .bi-badge-duplicate{ background: color-mix(in srgb, var(--ds-amber, #d97706) 18%, transparent); color: var(--ds-amber, #d97706); }
-    .bi-badge-failed   { background: color-mix(in srgb, var(--ds-crimson, #dc2626) 18%, transparent); color: var(--ds-crimson, #dc2626); }
     .bi-action-bar {
         position: sticky; bottom: 0; z-index: 5;
         background: var(--surface);
@@ -146,7 +131,7 @@
                         <td style="padding: 8px 12px; text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums;"
                             x-text="formatBytes(f.size)"></td>
                         <td style="padding: 8px 12px;">
-                            <span class="bi-badge"
+                            <span class="ds-badge"
                                   :class="badgeClass(f.status)"
                                   x-text="badgeLabel(f.status)"></span>
                             <a x-show="f.reportId" x-cloak
@@ -334,15 +319,15 @@
 
                 badgeClass(status) {
                     const map = {
-                        pending:           'bi-badge-pending',
-                        uploading:         'bi-badge-uploading',
-                        queued:            'bi-badge-success',
-                        success:           'bi-badge-success',
-                        duplicate:         'bi-badge-duplicate',
-                        failed:            'bi-badge-failed',
-                        detection_failed:  'bi-badge-failed',
+                        pending:           'ds-badge-muted',
+                        uploading:         'ds-badge-info',
+                        queued:            'ds-badge-success',
+                        success:           'ds-badge-success',
+                        duplicate:         'ds-badge-warning',
+                        failed:            'ds-badge-danger',
+                        detection_failed:  'ds-badge-danger',
                     };
-                    return map[status] || 'bi-badge-pending';
+                    return map[status] || 'ds-badge-muted';
                 },
                 badgeLabel(status) {
                     const map = {

@@ -2190,12 +2190,15 @@ final class RoleBlockExpansionService
                 // separate party_clause_text snapshot path.
                 if ($recipient !== null && $recipient->represented_contact_id !== null) {
                     if (in_array($parsed['sub_name'], ['phone', 'cell', 'cell_phone', 'mobile'], true)) {
-                        $value = $this->blankToNull($recipient->signer_phone);
+                        $value = $this->blankToNull($recipient->signer_phone) ?? $value;
                     } elseif ($parsed['sub_name'] === 'email') {
-                        $value = $this->blankToNull($recipient->signer_email);
+                        $value = $this->blankToNull($recipient->signer_email) ?? $value;
                     } elseif (in_array($parsed['sub_name'], ['address', 'address_1', 'address_line_1', 'physical_address'], true)) {
-                        $value = $this->blankToNull($recipient->signer_address);
+                        $value = $this->blankToNull($recipient->signer_address) ?? $value;
                     }
+                    // A blank correction never overwrites: when the representative's
+                    // own signer_phone/email/address is blank (no correction typed),
+                    // the Contact's real value resolved above stands.
                 }
                 // AT-292 — headline couple's-mandate fix, and now also the
                 // no-Contact-at-all case above. When there is no id_number to

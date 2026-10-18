@@ -9,6 +9,8 @@
         cancelDocName: '',
         showCompleted: false,
         showCancelled: false,
+        showExpired: false,
+        showOther: false,
         showFiled: false,
         activeFilter: null,
      }">
@@ -180,7 +182,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-amber); color: #fff;">AMENDMENT — APPROVAL REQUIRED</span>
+                                <span class="ds-badge ds-badge-warning ml-2">Amendment — approval required</span>
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">
                                 <span class="text-xs" style="color: var(--text-muted);">
@@ -278,7 +280,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">RETURNED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Returned</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 The authoriser sent this back for changes. Your signature stays in place — open it, make the changes, initial each change, then resubmit. You do not re-sign the whole document.
@@ -326,7 +328,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FINALISATION FAILED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Finalisation failed</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 Every party signed this document, but generating the signed PDF, filing it, or
@@ -375,7 +377,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FLAGGED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Flagged</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 A signing party flagged a clause &mdash; signing is paused until you review it and resolve or re-send the document.
@@ -542,9 +544,12 @@
                                                 <span class="text-[10px]" style="color: var(--text-muted);" title="Held by {{ $req->signer_name }} for this long">for {{ $heldSince->diffForHumans(null, true) }}</span>
                                             @endif
                                             @if($req->fica_required && $req->contact_id)
-                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
-                                                @if($ficaDone)
+                                                {{-- The one FICA gate (Johan, 2026-10-08): submitted lifts it, so a submitted FICA is not "Awaiting FICA". --}}
+                                                @php $ficaGateState = \App\Services\Compliance\FicaGate::stateFor($req->contact_id); @endphp
+                                                @if($ficaGateState === \App\Services\Compliance\FicaGate::STATE_APPROVED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);">FICA OK</span>
+                                                @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
                                                     @if(feature('compliance') && auth()->user()?->hasPermission('access_compliance'))
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
@@ -561,9 +566,12 @@
                                             <span class="capitalize" style="color: var(--text-muted);">{{ $req->party_role ?? 'Party' }}</span>
                                             <span style="color: var(--text-muted);">waiting</span>
                                             @if($req->fica_required && $req->contact_id)
-                                                @php $ficaDone = \App\Models\FicaSubmission::where('contact_id', $req->contact_id)->where('status', 'approved')->exists(); @endphp
-                                                @if($ficaDone)
+                                                {{-- The one FICA gate (Johan, 2026-10-08): submitted lifts it, so a submitted FICA is not "Awaiting FICA". --}}
+                                                @php $ficaGateState = \App\Services\Compliance\FicaGate::stateFor($req->contact_id); @endphp
+                                                @if($ficaGateState === \App\Services\Compliance\FicaGate::STATE_APPROVED)
                                                     <span class="ml-1 font-medium" style="color: var(--ds-green);">FICA OK</span>
+                                                @elseif($ficaGateState === \App\Services\Compliance\FicaGate::STATE_SUBMITTED)
+                                                    <span class="ml-1 font-medium" style="color: var(--ds-green);" title="Submitted — with us for review; it does not hold the signer up">FICA submitted</span>
                                                 @else
                                                     @if(feature('compliance') && auth()->user()?->hasPermission('access_compliance'))
                                                     <a href="{{ $req->fica_submission_id ? route('compliance.fica.show', $req->fica_submission_id) : '#' }}" class="ml-1 font-medium hover:underline" style="color: var(--ds-amber);">Awaiting FICA</a>
@@ -976,6 +984,78 @@
                             @endif
                             <div class="text-xs mt-1" style="color: var(--text-muted);">
                                 Cancelled {{ $tpl->updated_at->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        @if($doc)
+                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--text-muted);">View</a>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== EXPIRED (collapsed by default) — AT-445 =====
+         The signing link TTL lapsed with no active recipient left; the document and template
+         still exist, nothing was deleted. "View" opens signatures.audit — the one document
+         screen with no status gate — since signatures.review rejects non-pending-approval
+         statuses outright. --}}
+    @if($groups['expired']->isNotEmpty())
+    <div id="section-expired" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150" style="color: var(--text-muted);"
+            @click="showExpired = !showExpired">
+            Expired ({{ number_format($groups['expired']->count()) }})
+            <span class="text-xs" x-text="showExpired ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showExpired" x-collapse class="space-y-3">
+            @foreach($groups['expired'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4 opacity-75" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h4 class="font-medium" style="color: var(--text-muted);">{{ $doc->name ?? 'Untitled' }}</h4>
+                            @if($doc && $doc->property_address)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->property_address }}</div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Expired {{ $tpl->updated_at->format('d M Y H:i') }}
+                            </div>
+                        </div>
+                        @if($doc)
+                        <a href="{{ route('docuperfect.signatures.audit', $doc) }}" class="text-xs font-semibold hover:underline transition-colors duration-150" style="color: var(--text-muted);">View</a>
+                        @endif
+                    </div>
+                </div>
+            @endforeach
+        </div>
+    </div>
+    @endif
+
+    {{-- ===== OTHER (collapsed by default) — AT-445 catch-all =====
+         Any template whose status isn't matched by a named bucket above lands here with its raw
+         status label, so a future status this page hasn't been taught about yet still shows up
+         instead of silently vanishing (the same defect the Expired section above was added to
+         fix — AT-299, BUG-2, AT-373, AT-445). --}}
+    @if($groups['other']->isNotEmpty())
+    <div id="section-other" class="space-y-3 scroll-mt-4 mt-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider cursor-pointer transition-colors duration-150" style="color: var(--text-muted);"
+            @click="showOther = !showOther">
+            Other ({{ number_format($groups['other']->count()) }})
+            <span class="text-xs" x-text="showOther ? '&#9660;' : '&#9654;'"></span>
+        </h3>
+        <div x-show="showOther" x-collapse class="space-y-3">
+            @foreach($groups['other'] as $tpl)
+                @php $doc = $tpl->document; @endphp
+                <div class="rounded-md p-4 opacity-75" style="background: var(--surface); border: 1px solid var(--border);">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <h4 class="font-medium" style="color: var(--text-muted);">{{ $doc->name ?? 'Untitled' }}</h4>
+                            @if($doc && $doc->property_address)
+                                <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $doc->property_address }}</div>
+                            @endif
+                            <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                Status: {{ ucfirst(str_replace('_', ' ', $tpl->status)) }}
                             </div>
                         </div>
                         @if($doc)

@@ -34,6 +34,7 @@ import puppeteer from 'puppeteer-core';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { pathToFileURL } from 'url';
+import { normalisePrivateUseGlyphs } from './lib/pdf-glyph-normalise.mjs';
 
 const [,, inputArg, outputArg, fieldsArg] = process.argv;
 
@@ -109,6 +110,10 @@ try {
     // Navigate to the local HTML file
     const fileUrl = pathToFileURL(inputPath).href;
     await page.goto(fileUrl, { waitUntil: 'networkidle0', timeout: 120000 });
+
+    // AT-387: Symbol/Wingdings private-use bullets print as empty boxes — map them to real Unicode
+    // before fields are measured and the page images are baked.
+    await normalisePrivateUseGlyphs(page);
 
     // ===== PASS 1: Measure field positions =====
     const measuredFields = [];

@@ -234,10 +234,13 @@ final class CompetitorStockMatchTest extends TestCase
             price: 1_200_000, beds: 2, suburb: 'Uvongo', type: 'Sectional Title',
         );
 
+        // Each candidate gets its own price: rows with the identical price + size
+        // (+ agreeing beds) are collapsed as ONE physical property advertised
+        // twice (deduplicateSamePhysicalProperty), which these distinct homes are not.
         $sectionalId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Apartment');
-        $townhouseId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Townhouse');
-        $houseId     = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'House');
-        $landId      = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: null, type: 'Vacant land');
+        $townhouseId = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_210_000, beds: 2, type: 'Townhouse');
+        $houseId     = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_220_000, beds: 2, type: 'House');
+        $landId      = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_230_000, beds: null, type: 'Vacant land');
 
         // Step-up off so we see the full pre-step-up result set.
         Agency::find($agencyId)->update(['competitor_stock_min_same_type' => 0]);
@@ -303,7 +306,9 @@ final class CompetitorStockMatchTest extends TestCase
         // maps both "Sectional Title" and "Apartment" to 'apartment').
         // Townhouse is same-family-different-kind.
         $aptId  = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Apartment');
-        $thId   = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_200_000, beds: 2, type: 'Townhouse');
+        // Distinct price — identical price + size + beds would be collapsed as one
+        // property advertised twice (deduplicateSamePhysicalProperty).
+        $thId   = $this->seedListing($agencyId, suburb: 'Uvongo', price: 1_210_000, beds: 2, type: 'Townhouse');
 
         // Step-up off so both show. The +5 exact-kind bonus must push
         // apartment above townhouse in the score sort.
@@ -355,8 +360,10 @@ final class CompetitorStockMatchTest extends TestCase
         // count (1) < floor (5) → widen to include same-family other kind.
         Agency::find($agencyId)->update(['competitor_stock_min_same_type' => 5]);
 
+        // Distinct price for the land — same price + size + (missing) beds would be
+        // collapsed into the house as one advert (deduplicateSamePhysicalProperty).
         $h1 = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: 3, type: 'House');
-        $vl = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_000_000, beds: null, type: 'Vacant land');
+        $vl = $this->seedListing($agencyId, suburb: 'Uvongo', price: 2_010_000, beds: null, type: 'Vacant land');
 
         $matches = (new CompetitorStockMatchService())->findCompetitors($subject)->all();
         $ids = array_column($matches, 'listing_id');

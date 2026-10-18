@@ -3,14 +3,20 @@
 namespace App\Http\Controllers\CoreX;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
+use App\Http\Controllers\Concerns\ExportsRentalList;
 use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
+use App\Models\RentalInspectionSetting;
+use App\Models\User;
+use App\Services\Rentals\RentalInspectionFollowUpService;
 use App\Services\Rentals\RentalInspectionFormPdfService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 
 /**
@@ -24,6 +30,11 @@ use Illuminate\View\View;
  */
 class RentalInspectionController extends Controller
 {
+    use AuthorizesRentalRecordScope;
+    use ExportsRentalList;
+
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
     /**
      * 2026-09-20 — the list screen had no way to start an inspection at all;
      * an agent had to already know to go to a property's Rental Images tab.
@@ -35,29 +46,89 @@ class RentalInspectionController extends Controller
      */
     public function create(Request $request): View
     {
+        $user = $request->user();
+
+        // §45.8 H3 — only properties inside the user's own/branch/agency properties scope are
+        // offered (Property::visibleTo, on top of AgencyScope), the same ceiling store() enforces.
         $properties = Property::where('listing_type', 'rental')
+            ->visibleTo($user)
             ->whereIn('id', Lease::where('status', Lease::STATUS_ACTIVE)->pluck('property_id'))
             ->orderBy('title')
             ->limit(500)
             ->get();
 
-        return view('corex.rental-inspections.create', ['properties' => $properties]);
+        // AT-439 Part 3 — pre-select from a lease_id/property_id query param:
+        // the Lease Hub's "Start in-inspection" next-step action
+        // (LeaseHubService::nextStep()) passes lease_id; the Command
+        // Centre's "Start inspection" action passes property_id. Both are
+        // resolved against the SAME own/branch/agency ceiling index() uses
+        // (Lease::visibleTo()) rather than a raw findOrFail() — a request
+        // for a lease/property outside the user's scope silently falls back
+        // to "no pre-selection" instead of a 403/500 (BUILD_STANDARD §3,
+        // absorb rather than break on a param nobody is forced to supply).
+        $selectedPropertyId = null;
+        if ($leaseId = $request->get('lease_id')) {
+            $selectedPropertyId = Lease::query()->visibleTo($user, null)->find($leaseId)?->property_id;
+        }
+        if (!$selectedPropertyId && ($propertyId = $request->get('property_id'))) {
+            $selectedPropertyId = $properties->firstWhere('id', (int) $propertyId)?->id;
+        }
+
+        return view('corex.rental-inspections.create', [
+            'properties' => $properties,
+            'selectedPropertyId' => $selectedPropertyId,
+            // §43 — the inspector picker on the Schedule form. Same agency
+            // as the booking user; is_active only — a deactivated agent is
+            // never offered a new booking.
+            'inspectors' => User::where('agency_id', $user->effectiveAgencyId())
+                ->where('is_active', true)
+                ->orderBy('name')
+                ->get(['id', 'name']),
+            'defaultInspectorId' => $user->id,
+            'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($user->effectiveAgencyId()),
+        ]);
     }
 
+    /**
+     * §43 — one endpoint, two intents, same form: `intent=schedule` books a
+     * future inspection via RentalInspection::schedule() and stays on the
+     * list/show screen (nothing has been recorded yet — the agent opens
+     * the tab separately, whenever they're ready); anything else (or no
+     * `intent` at all — every pre-existing caller, including the Lease
+     * Hub's "Start in/out-inspection" links) keeps the ORIGINAL immediate
+     * behaviour byte-for-byte: RentalInspection::start(), redirect straight
+     * into the recording tab. No existing caller's behaviour changes.
+     */
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
             'property_id' => ['required', 'integer', 'exists:properties,id'],
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC])],
         ]);
 
-        $property = Property::findOrFail($validated['property_id']);
+        // §45.8 H3 — resolved through the same scopes the picker offers from (AgencyScope +
+        // Property::visibleTo), never a bare findOrFail(): `exists:properties,id` above only says
+        // the id exists somewhere. A property outside the user's own/branch scope is refused with
+        // the same 403 whether it is a colleague's listing or doesn't exist for them at all.
+        $property = Property::query()->visibleTo($request->user())->find($validated['property_id']);
+        if (! $property) {
+            \Illuminate\Support\Facades\Log::warning('§45.8 H3: rental inspection store() refused — property outside the acting user\'s scope', [
+                'acting_user_id' => $request->user()->id,
+                'property_id' => $validated['property_id'],
+            ]);
+            abort(403);
+        }
+
+        if ($request->input('intent') === 'schedule') {
+            return $this->storeScheduled($request, $property, $validated['type']);
+        }
 
         try {
             $inspection = RentalInspection::start($property, $validated['type'], $request->user());
         } catch (\LogicException $e) {
             return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
         }
+        $this->linkPlannedDate($request, $inspection);
 
         // Recording (observations/photos/signatures) only happens on the
         // property's Inspections tab (§1/§4, renamed 2026-09-22 — label-
@@ -66,7 +137,110 @@ class RentalInspectionController extends Controller
         // actually start working, not on a dead end they'd have to navigate
         // away from immediately.
         return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
-            ->with('success', ucfirst($validated['type']) . '-inspection started.');
+            ->with('success', RentalInspection::typeName($validated['type']) . ' started.');
+    }
+
+    /**
+     * §45.8 H3 — an inspector must belong to the SAME agency as the inspection. A bare
+     * `exists:users,id` runs against the raw table (no AgencyScope), so another agency's user id
+     * was accepted and that user was then e-mailed the schedule and given a calendar event
+     * (RentalInspectionNotificationService). Used by both places an inspector can be set —
+     * scheduling and rescheduling (same defect, same line).
+     */
+    private function inspectorExistsRule(?int $agencyId): \Illuminate\Validation\Rules\Exists
+    {
+        return Rule::exists('users', 'id')->where('agency_id', $agencyId);
+    }
+
+    /**
+     * §45.7 (Build I-5) — "Book from this date": when the form was opened from a loaded interim date, attach the new
+     * inspection to it (planned -> booked). Re-checked here, never trusted as posted: the date must be one this user can see,
+     * still be a plain 'planned' date, and match the inspection's lease and type — anything else is ignored, the inspection
+     * is created exactly as it would have been without it.
+     */
+    private function linkPlannedDate(Request $request, RentalInspection $inspection): void
+    {
+        $id = $request->input('planned_date_id');
+        if (! $id) {
+            return;
+        }
+
+        $date = \App\Models\RentalInspectionPlannedDate::query()->visibleTo($request->user())->find($id);
+        if ($date
+            && $date->status === \App\Models\RentalInspectionPlannedDate::STATUS_PLANNED
+            && (int) $date->lease_id === (int) $inspection->lease_id
+            && $date->type === $inspection->type) {
+            $date->update(['status' => \App\Models\RentalInspectionPlannedDate::STATUS_BOOKED, 'rental_inspection_id' => $inspection->id]);
+        }
+    }
+
+    private function storeScheduled(Request $request, Property $property, string $type): RedirectResponse
+    {
+        $validated = $request->validate([
+            'scheduled_for' => ['required', 'date'],
+            'scheduled_time' => ['nullable', 'date_format:H:i'],
+            'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
+            'inspector_user_id' => ['nullable', 'integer', $this->inspectorExistsRule($property->agency_id)],
+            'schedule_note' => ['nullable', 'string', 'max:1000'],
+        ]);
+
+        try {
+            $inspection = RentalInspection::schedule($property, $type, $request->user(), $validated);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+        $this->linkPlannedDate($request, $inspection);
+
+        $warning = null;
+        $minimumNoticeDays = RentalInspectionSetting::minimumNoticeDaysFor($property->agency_id);
+        if ($inspection->scheduledForDateTime()?->lt(now()->addDays($minimumNoticeDays))) {
+            $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — scheduled anyway, parties are still notified.";
+        }
+
+        $redirect = redirect()->route('corex.rental-inspections.show', $inspection)
+            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}.");
+
+        return $warning ? $redirect->with('warning', $warning) : $redirect;
+    }
+
+    /**
+     * §43 — reschedule: keeps the existing date/time/inspector as history
+     * (RentalInspectionReschedule::record(), via the model method), updates
+     * the inspection, re-syncs its calendar event, and re-notifies the
+     * parties. Reason is optional (unlike cancel — a reschedule is a normal
+     * operational adjustment, not something needing a justification on
+     * record the way cancelling an inspection does).
+     */
+    public function reschedule(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $validated = $request->validate([
+            'scheduled_for' => ['required', 'date'],
+            'scheduled_time' => ['nullable', 'date_format:H:i'],
+            'scheduled_duration_minutes' => ['nullable', 'integer', 'min:5', 'max:1440'],
+            'inspector_user_id' => ['nullable', 'integer', $this->inspectorExistsRule($rentalInspection->agency_id)],
+            'schedule_note' => ['nullable', 'string', 'max:1000'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        try {
+            $rentalInspection->reschedule($validated, $request->user(), $validated['reason'] ?? null);
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
+
+        $warning = null;
+        $minimumNoticeDays = RentalInspectionSetting::minimumNoticeDaysFor($rentalInspection->agency_id);
+        if ($rentalInspection->scheduledForDateTime()?->lt(now()->addDays($minimumNoticeDays))) {
+            $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — rescheduled anyway, parties are still notified.";
+        }
+
+        $redirect = redirect()->route('corex.rental-inspections.show', $rentalInspection)
+            ->with('success', 'Inspection rescheduled.');
+
+        return $warning ? $redirect->with('warning', $warning) : $redirect;
     }
 
     /**
@@ -78,64 +252,47 @@ class RentalInspectionController extends Controller
     {
         $user = $request->user();
 
+        // AT-439 — own/branch/all "Showing:" control, same pattern as
+        // RentalApplicationController::index()/LeaseController::index().
+        $maxScope = \App\Services\Rentals\RentalDataScope::ceiling($user, 'rental_inspections');
+        $resolvedScope = \App\Services\PermissionService::clampScope($request->get('scope'), $maxScope);
+        $scopeOptions = match ($maxScope) {
+            'all' => ['own', 'branch', 'all'],
+            'branch' => ['own', 'branch'],
+            default => ['own'],
+        };
+
         $sort = $request->get('sort', 'scheduled_for');
         $direction = $request->get('direction', 'desc');
-        $allowedSorts = ['scheduled_for', 'property', 'status', 'type'];
+        // §43 — 'inspector' added so the list can be sorted by who is
+        // booked to do the inspection, not just when.
+        // §45.5 (Build I-3) — 'attended' sorts by how many expected parties attended.
+        $allowedSorts = ['scheduled_for', 'property', 'status', 'type', 'inspector', 'attended'];
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'scheduled_for';
         }
         $direction = $direction === 'asc' ? 'asc' : 'desc';
 
         $archived = $request->boolean('archived');
-
-        $query = RentalInspection::query()
-            ->when($archived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'createdBy', 'archivedBy']);
-
-        if ($search = trim((string) $request->get('q', ''))) {
-            $query->where(function ($q) use ($search) {
-                $q->whereHas('property', function ($p) use ($search) {
-                    $p->searchAddress($search);
-                })->orWhereHas('lease.tenants.contact', function ($c) use ($search) {
-                    $c->where('first_name', 'like', "%{$search}%")
-                        ->orWhere('last_name', 'like', "%{$search}%");
-                })->orWhereHas('createdBy', function ($u) use ($search) {
-                    $u->where('name', 'like', "%{$search}%");
-                });
-            });
-        }
-
-        if ($status = $request->get('status')) {
-            $query->where('rental_inspections.status', $status);
-        }
-
-        if ($type = $request->get('type')) {
-            $query->where('rental_inspections.type', $type);
-        }
-
-        if ($dateFrom = $request->get('date_from')) {
-            $query->where('rental_inspections.scheduled_for', '>=', $dateFrom);
-        }
-        if ($dateTo = $request->get('date_to')) {
-            $query->where('rental_inspections.scheduled_for', '<=', $dateTo);
-        }
-
-        if ($request->boolean('has_unresolved_discrepancy')) {
-            $query->withUnresolvedDiscrepancy();
-        }
-
-        // §39, 2026-09-28 — the summary tiles' own "Scheduled (upcoming)"
-        // exception tile, same shape as every other ad-hoc filter above.
         $scheduled = $request->boolean('scheduled');
-        if ($scheduled) {
-            $query->where('rental_inspections.scheduled_for', '>=', now());
-        }
+
+        $query = $this->filteredInspectionsQuery($request, $archived);
 
         if ($sort === 'property') {
             $query->join('properties', 'properties.id', '=', 'rental_inspections.property_id')
                 ->orderBy('properties.title', $direction)
                 ->select('rental_inspections.*');
+        } elseif ($sort === 'attended') {
+            $query->orderByRaw("(select count(*) from rental_inspection_attendances ria where ria.rental_inspection_id = rental_inspections.id and ria.outcome = 'attended' and ria.superseded_at is null and ria.party_role in ('tenant','landlord','agent')) {$direction}")
+                ->orderBy('rental_inspections.id', $direction);
+        } elseif ($sort === 'inspector') {
+            $query->leftJoin('users as inspector_users', 'inspector_users.id', '=', 'rental_inspections.inspector_user_id')
+                ->orderBy('inspector_users.name', $direction)
+                ->select('rental_inspections.*');
+        } elseif ($sort === 'scheduled_for') {
+            // §45.8 — COALESCE with the creation time, so a start-now inspection (no scheduled date) is not always last.
+            $query->orderByRaw("COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at) {$direction}")
+                ->orderBy('rental_inspections.id', $direction);
         } else {
             $query->orderBy("rental_inspections.{$sort}", $direction);
         }
@@ -145,7 +302,17 @@ class RentalInspectionController extends Controller
             ->visibleTo($user, $request->get('scope'))
             ->exists();
 
-        $inspections = $query->paginate(25)->withQueryString();
+        $perPage = (int) $request->get('per_page', 25);
+        if (!in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        $inspections = $query->paginate($perPage)->withQueryString();
+
+        // §45.5 (Build I-3) — the "Attended" column ("2 of 3"): two grouped queries for the page, never one per row.
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendedCounts = $attendanceService->attendedCountsFor($inspections->getCollection()->pluck('id')->all());
+        $expectedCounts = $attendanceService->expectedCountsFor($inspections->getCollection());
 
         // §39, 2026-09-28 — Johan: a summary tiles row, same reused pattern
         // as FICA/rental-applications (compliance/fica/index.blade.php,
@@ -156,10 +323,17 @@ class RentalInspectionController extends Controller
         // what "All" on this exact same scope would show. Johan's own named
         // list, verbatim: Draft, In progress, Awaiting signature, Completed,
         // Unresolved discrepancies, Scheduled (upcoming).
+        //
+        // 14 Oct 2026 (go-live walk): the Lease Hub's "inspections for this lease" link (`?lease_id=`) narrows the list to
+        // one lease, so the tiles must narrow with it - otherwise "24 total" sits beside a list of 3. The lease is a CONTEXT
+        // of the page, like the own/branch/agency scope, not an ad-hoc filter like search/status/date.
+        $leaseContextId = (int) $request->get('lease_id');
         $tileBase = fn () => RentalInspection::query()
             ->when($archived, fn ($q) => $q->onlyTrashed())
-            ->visibleTo($user, $request->get('scope'));
+            ->visibleTo($user, $request->get('scope'))
+            ->when($leaseContextId > 0, fn ($q) => $q->where('rental_inspections.lease_id', $leaseContextId));
         $tileCounts = [
+            'total' => $tileBase()->count(),
             'draft' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_DRAFT)->count(),
             'in_progress' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_IN_PROGRESS)->count(),
             'awaiting_signature' => $tileBase()->where('rental_inspections.status', RentalInspection::STATUS_AWAITING_SIGNATURE)->count(),
@@ -174,19 +348,241 @@ class RentalInspectionController extends Controller
             'direction' => $direction,
             'hasAnyInspections' => $hasAnyInspections,
             'archived' => $archived,
+            'perPage' => $perPage,
+            'perPageOptions' => self::PER_PAGE_OPTIONS,
             'tileCounts' => $tileCounts,
             'scheduled' => $scheduled,
-            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy']),
+            'filters' => $request->only(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance', 'lease_id']),
+            'leaseFilterLabel' => $this->leaseFilterLabel($request),
+            'attendedCounts' => $attendedCounts,
+            'expectedCounts' => $expectedCounts,
+            'inspectorOptions' => $this->inspectorOptionsForViewer($user, $maxScope),
+            'resolvedScope' => $resolvedScope,
+            'scopeOptions' => $scopeOptions,
         ]);
+    }
+
+    /**
+     * Shared scoped+filtered query, reused by index()/printList()/export().
+     * Returns an UNSORTED, UNPAGINATED builder.
+     */
+    private function filteredInspectionsQuery(Request $request, bool $archived = false)
+    {
+        $user = $request->user();
+
+        $query = RentalInspection::query()
+            ->when($archived, fn ($q) => $q->onlyTrashed())
+            ->visibleTo($user, $request->get('scope'))
+            ->with(['property', 'lease.tenants.contact', 'createdBy', 'archivedBy', 'inspector']);
+
+        if ($search = trim((string) $request->get('q', ''))) {
+            $query->where(function ($q) use ($search) {
+                $q->whereHas('property', function ($p) use ($search) {
+                    $p->searchAddress($search);
+                })->orWhereHas('lease.tenants.contact', function ($c) use ($search) {
+                    // "Jane Smith" must find Jane Smith: first, last, or the two together.
+                    $c->where('first_name', 'like', "%{$search}%")
+                        ->orWhere('last_name', 'like', "%{$search}%")
+                        ->orWhereRaw("CONCAT_WS(' ', first_name, last_name) like ?", ["%{$search}%"]);
+                })->orWhereHas('createdBy', function ($u) use ($search) {
+                    $u->where('name', 'like', "%{$search}%");
+                })->orWhereHas('inspector', function ($u) use ($search) {
+                    $u->where('name', 'like', "%{$search}%");
+                });
+            });
+        }
+
+        if ($status = $request->get('status')) {
+            $query->where('rental_inspections.status', $status);
+        }
+
+        if ($type = $request->get('type')) {
+            $query->where('rental_inspections.type', $type);
+        }
+
+        // §43 — filter by inspector, same own/branch/agency ceiling as
+        // every other scope-sensitive filter on this screen (a request for
+        // an inspector id outside the viewer's own scope simply matches
+        // nothing, since visibleTo() has already narrowed the base query).
+        if ($inspectorId = $request->get('inspector_id')) {
+            $query->where('rental_inspections.inspector_user_id', $inspectorId);
+        }
+
+        // §45.8 (Build I-6b) — an inspection started on the spot has no scheduled date; it is placed by the day it
+        // was created, so it can be found by a date range and sorts where it belongs instead of last.
+        if ($dateFrom = $request->get('date_from')) {
+            $query->whereRaw('DATE(COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at)) >= ?', [$dateFrom]);
+        }
+        if ($dateTo = $request->get('date_to')) {
+            $query->whereRaw('DATE(COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at)) <= ?', [$dateTo]);
+        }
+
+        // §45.8 (Build I-6b) — the Lease Hub's "inspections for this lease" link (`?lease_id=`) was silently ignored.
+        // Narrows the SAME own/branch/agency-scoped query, so it can only ever show what the user may already see.
+        if ($leaseId = (int) $request->get('lease_id')) {
+            $query->where('rental_inspections.lease_id', $leaseId);
+        }
+
+        if ($request->boolean('has_unresolved_discrepancy')) {
+            $query->withUnresolvedDiscrepancy();
+        }
+
+        // §45.5 (Build I-3) — attendance filters, applied on top of the same own/branch/agency-scoped query.
+        if ($attendance = $request->get('attendance')) {
+            if ($attendance === 'did_not_attend') {
+                $query->whereExists(fn ($q) => $q->selectRaw('1')->from('rental_inspection_attendances as ria')
+                    ->whereColumn('ria.rental_inspection_id', 'rental_inspections.id')
+                    ->where('ria.outcome', 'did_not_attend')->whereNull('ria.superseded_at'));
+            } elseif ($attendance === 'incomplete') {
+                $query->whereIn('rental_inspections.id', app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->incompleteInspectionIds($query));
+            }
+        }
+
+        if ($request->boolean('scheduled')) {
+            $query->where('rental_inspections.scheduled_for', '>=', now());
+        }
+
+        return $query;
+    }
+
+    private function activeInspectionFiltersSummary(Request $request): array
+    {
+        $out = [];
+        if ($q = $request->get('q')) {
+            $out['Search'] = $q;
+        }
+        if ($status = $request->get('status')) {
+            $out['Status'] = ucfirst(str_replace('_', ' ', $status));
+        }
+        if ($type = $request->get('type')) {
+            $out['Type'] = \App\Models\RentalInspection::typeLabel($type);
+        }
+        if ($df = $request->get('date_from')) {
+            $out['Scheduled from'] = $df;
+        }
+        if ($dt = $request->get('date_to')) {
+            $out['Scheduled to'] = $dt;
+        }
+        if ($request->boolean('has_unresolved_discrepancy')) {
+            $out['Unresolved discrepancy'] = 'Yes';
+        }
+        if ($request->get('lease_id')) {
+            $out['Lease'] = $this->leaseFilterLabel($request) ?? '';
+        }
+        if ($inspectorId = $request->get('inspector_id')) {
+            $out['Inspector'] = User::find($inspectorId)?->name ?? "#{$inspectorId}";
+        }
+        if ($request->boolean('scheduled')) {
+            $out['Scheduled (upcoming)'] = 'Yes';
+        }
+        if ($request->boolean('archived')) {
+            $out['Archived'] = 'Yes';
+        }
+        $out['Scope'] = ucfirst(\App\Services\Rentals\RentalDataScope::resolve($request->user(), 'rental_inspections', $request->get('scope')));
+
+        return $out;
+    }
+
+    /** req — print the current filtered list, same scoping as index(), filters shown in the header. */
+    /** §45.8 (Build I-6b) — the most rows one print / export will produce; beyond this the user is told to narrow the filter. */
+    public const EXPORT_ROW_CAP = 5000;
+
+    /** @return \Illuminate\Http\RedirectResponse|null a redirect with a plain message when the filtered list is too large to print or export */
+    private function refuseIfTooLargeToExport(Request $request): ?\Illuminate\Http\RedirectResponse
+    {
+        $cap = (int) config('rental-inspections.export_row_cap', self::EXPORT_ROW_CAP);
+        $count = $this->filteredInspectionsQuery($request, $request->boolean('archived'))->setEagerLoads([])->count();
+        if ($count <= $cap) {
+            return null;
+        }
+
+        return redirect()->route('corex.rental-inspections.index', $request->except(['format']))
+            ->withErrors(['export' => 'That list has ' . number_format($count) . ' inspections — more than the ' . number_format($cap) . ' one print or export can carry. Narrow it with a date range, status or inspector and try again.']);
+    }
+
+    /** §45.8 — one source for the order a printed / exported list uses (matches the screen's default: newest first). */
+    private function exportOrder($query)
+    {
+        return $query->orderByRaw('COALESCE(rental_inspections.scheduled_for, rental_inspections.created_at) desc')->orderByDesc('rental_inspections.id');
+    }
+
+    /**
+     * §45.8 — the inspector filter offers only people inside the viewer's own reach: an `own` viewer sees just
+     * themselves, a `branch` viewer their branch, an `all` viewer the agency (never another agency's staff).
+     */
+    private function inspectorOptionsForViewer(User $user, ?string $maxScope)
+    {
+        return User::query()
+            ->where('agency_id', $user->effectiveAgencyId())
+            ->where('is_active', true)
+            ->when($maxScope === 'branch', fn ($q) => $q->where('branch_id', $user->effectiveBranchId()))
+            ->when(! in_array($maxScope, ['all', 'branch'], true), fn ($q) => $q->whereIn('id', $user->dataIdentityIds()))
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    /** §45.8 — the chip shown while the list is narrowed to one lease (so the narrowing is never invisible). */
+    private function leaseFilterLabel(Request $request): ?string
+    {
+        $leaseId = (int) $request->get('lease_id');
+        if (! $leaseId) {
+            return null;
+        }
+        $lease = Lease::query()->visibleTo($request->user(), null)->with('property')->find($leaseId);
+
+        return $lease ? ($lease->property?->buildDisplayAddress() ?: 'Lease #' . $lease->id) : 'a lease you cannot see';
+    }
+
+    public function printList(Request $request)
+    {
+        if ($refused = $this->refuseIfTooLargeToExport($request)) {
+            return $refused;
+        }
+
+        $inspections = $this->exportOrder($this->filteredInspectionsQuery($request, $request->boolean('archived')))
+            ->get();
+
+        return view('corex.rental-inspections.print-list', [
+            'inspections' => $inspections,
+            'printFilters' => $this->activeInspectionFiltersSummary($request),
+        ]);
+    }
+
+    /** req — export the current filtered list as xlsx/csv, same scoping as index(). */
+    public function export(Request $request)
+    {
+        if ($refused = $this->refuseIfTooLargeToExport($request)) {
+            return $refused;
+        }
+
+        $inspections = $this->exportOrder($this->filteredInspectionsQuery($request, $request->boolean('archived')))
+            ->get();
+
+        $headers = ['Property', 'Tenant(s)', 'Type', 'Status', 'Scheduled'];
+        $rows = $inspections->map(fn (RentalInspection $i) => [
+            $i->property?->buildDisplayAddress() ?? 'Unknown property',
+            $i->lease?->tenantNames() ?? '',
+            \App\Models\RentalInspection::typeLabel($i->type),
+            ucfirst(str_replace('_', ' ', $i->status)),
+            $i->scheduled_for?->format('Y-m-d') ?? '',
+        ]);
+
+        $filename = 'rental-inspections-' . now()->format('Y-m-d');
+
+        return $request->get('format') === 'csv'
+            ? $this->streamRentalListCsv($filename . '.csv', $headers, $rows)
+            : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
     public function show(Request $request, RentalInspection $rentalInspection): View
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->load([
             'property', 'lease.tenants.contact',
-            'observations.item', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
+            'observations.item.room', 'observations.observedByUser', 'observations.observedByContact', 'observations.photos',
             'discrepancies.observations', 'discrepancies.resolvedBy', 'discrepancies.acceptedObservation',
-            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'createdBy', 'cancelledBy',
+            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy', 'signatures.voidedByReopen.reopenedBy', 'createdBy', 'cancelledBy',
             // 2026-09-23 — the chain. previousInspection loaded one level
             // deep with its own observations so the comparison row below
             // needs no per-item query; nextInChain so the screen can hide
@@ -194,7 +590,24 @@ class RentalInspectionController extends Controller
             // means there can only ever be at most one).
             'previousInspection.observations.item',
             'nextInChain',
+            // §43 — scheduling: who's booked, the reschedule history, and
+            // the notification log.
+            'inspector', 'reschedules.changedBy', 'reschedules.oldInspector', 'reschedules.newInspector',
+            'notifications.recipientContact', 'notifications.recipientUser',
         ]);
+
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with. In memory only; nothing written back.
+        $rentalInspection->applyWordingSnapshot($rentalInspection->observations->map->item->filter());
+        $rentalInspection->applyWordingSnapshot($rentalInspection->discrepancies->map->item->filter());
+
+        // §15 (AT-447) — the Follow-up block: every marked-faulty/damaged
+        // observation on this inspection, plus which of them already have a
+        // fault report / work order (and its job card) raised against them,
+        // so the show page can render a link instead of a create action for
+        // those (idempotent, per Johan's own requirement).
+        $followUpService = app(RentalInspectionFollowUpService::class);
+        $followUpObservations = $followUpService->followUpObservations($rentalInspection);
+        $followUpLinked = $followUpService->linkedRecordsFor($rentalInspection);
 
         return view('corex.rental-inspections.show', [
             'inspection' => $rentalInspection,
@@ -208,7 +621,72 @@ class RentalInspectionController extends Controller
             // for the on-demand history popover. Null when this is the
             // first inspection in its chain (§6 — must render gracefully).
             'comparisonRows' => $this->buildComparisonRows($rentalInspection),
+            // §43 — the reschedule form's inspector picker.
+            'inspectorOptions' => User::where('agency_id', $rentalInspection->agency_id)->where('is_active', true)->orderBy('name')->get(['id', 'name']),
+            // §45.5 (Build I-3) — who attended, with each party's invitation lines (read-only here; it is
+            // recorded on the property's Inspections tab, where the rest of the recording happens).
+            'attendanceBoard' => app(\App\Services\Rentals\RentalInspectionAttendanceService::class)->board($rentalInspection),
+            'attendedAsLabels' => \App\Models\RentalInspectionSetting::attendedAsLabelsFor($rentalInspection->agency_id),
+            // §45.8 (Build I-6b) — the History panel: newest first, optionally narrowed to one event kind. The filter
+            // choices are only the kinds that actually occur on THIS inspection, with their counts.
+            'historyEvents' => \App\Models\RentalInspectionAuditLog::query()
+                ->where('rental_inspection_id', $rentalInspection->id)
+                ->selectRaw('event, COUNT(*) as c')->groupBy('event')->pluck('c', 'event')->all(),
+            'historyFilter' => (string) $request->get('history_event', ''),
+            'historyRows' => \App\Models\RentalInspectionAuditLog::query()
+                ->where('rental_inspection_id', $rentalInspection->id)
+                ->when($request->filled('history_event'), fn ($q) => $q->where('event', (string) $request->get('history_event')))
+                ->with('user')
+                ->orderByDesc('id')
+                ->limit(200)
+                ->get(),
+            // §49 — what was added after the report was sent (a tenant fault report, a move-out finding), marked as such.
+            'addedAfterSent' => app(\App\Services\Rentals\RentalInspectionAddedAfterSentService::class)->entriesFor($rentalInspection),
+            'followUpObservations' => $followUpObservations,
+            'followUpMarkers' => $followUpService->comparisonMarkersFor($rentalInspection, $followUpObservations),
+            'followUpFaultReportsByObservation' => $followUpLinked['fault_reports'],
+            'followUpWorkOrdersByObservation' => $followUpLinked['work_orders'],
         ]);
+    }
+
+    /**
+     * §15 (AT-447) — the Follow-up block's "Create fault report" action,
+     * per-row (one ticked observation) or batched with "combine into one"
+     * (several). Direct, immediate creation — unlike a work order, a fault
+     * report needs no further human decision (no supplier/internal choice),
+     * so there is no intermediate form to redirect to. Permission reuses
+     * rental_fault_reports.create (the same gate the normal "Report a
+     * Fault" create form already sits behind), per Johan's instruction to
+     * reuse the existing create permissions rather than invent a new one.
+     */
+    public function storeFollowUpFaultReports(Request $request, RentalInspection $rentalInspection): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $validated = $request->validate([
+            'observation_ids' => ['required', 'array', 'min:1'],
+            'observation_ids.*' => ['integer', 'exists:rental_inspection_observations,id'],
+        ]);
+
+        $result = app(RentalInspectionFollowUpService::class)->createFaultReports(
+            $rentalInspection,
+            array_map('intval', $validated['observation_ids']),
+            $request->boolean('combine'),
+            $request->user()
+        );
+
+        $created = count($result['created']);
+        if ($created === 0) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->with('error', 'Nothing to create — every selected item already has a fault report.');
+        }
+
+        $message = $created === 1 ? 'Fault report created.' : "{$created} fault reports created.";
+        if ($result['skipped'] > 0) {
+            $message .= ' (' . $result['skipped'] . ' already had one — skipped.)';
+        }
+
+        return redirect()->route('corex.rental-inspections.show', $rentalInspection)->with('success', $message);
     }
 
     /**
@@ -235,11 +713,12 @@ class RentalInspectionController extends Controller
         }
 
         $items = RentalInspectionItem::where('property_id', $rentalInspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($rentalInspection->id)
             ->with('room')
             ->get();
+        $rentalInspection->applyWordingSnapshot($items);
 
-        $currentByItem = $rentalInspection->observations->groupBy('rental_inspection_item_id')
+        $currentByItem = $rentalInspection->bodyObservations()->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
         $predecessorByItem = $rentalInspection->previousInspection->observations->groupBy('rental_inspection_item_id')
             ->map(fn ($group) => $group->sortByDesc('created_at')->first());
@@ -277,6 +756,8 @@ class RentalInspectionController extends Controller
      */
     public function form(Request $request, RentalInspection $rentalInspection, RentalInspectionFormPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->loadMissing(['property', 'lease.tenants.contact', 'createdBy']);
 
         $form = $service->generate($rentalInspection, $request->user());
@@ -297,6 +778,8 @@ class RentalInspectionController extends Controller
      */
     public function report(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->loadMissing([
             'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
             'observations.item.room', 'observations.item', 'signatures.partyContact',
@@ -313,6 +796,33 @@ class RentalInspectionController extends Controller
     }
 
     /**
+     * GET /corex/rental-inspections/{inspection}/print-for-signature —
+     * conductor brief 2026-09-29. Same report, plus blank signature blocks
+     * for every outstanding party — the agent prints this and hands/sends
+     * it to whoever still needs to sign on paper. Mirrors report() exactly,
+     * including the same "ensure a live public link before printing a QR"
+     * step, so the same PDF can also stand in as the completed record once
+     * every party has signed (nobody needs to distinguish the two by URL).
+     */
+    public function printForSignature(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
+    {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        $rentalInspection->loadMissing([
+            'property', 'lease.tenants.contact', 'previousInspection', 'createdBy',
+            'observations.item.room', 'observations.item', 'signatures.partyContact',
+        ]);
+
+        if (! $rentalInspection->publicLinkIsValid()) {
+            $rentalInspection->generatePublicLink();
+        }
+
+        $pdf = $service->generateForSignature($rentalInspection);
+
+        return $pdf->download($service->filenameForSignatureFor($rentalInspection));
+    }
+
+    /**
      * Johan's ruling, 2026-09-23 — "Next inspection" from any inspection:
      * the deliberate action that records the chain (RentalInspection::
      * startNext(), see its own docblock). Lands the agent on the new
@@ -322,8 +832,10 @@ class RentalInspectionController extends Controller
      */
     public function next(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
-            'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_OUT, RentalInspection::TYPE_AD_HOC])],
+            'type' => ['required', 'in:' . implode(',', array_keys(RentalInspection::TYPE_PICKER))], // §49 — all four (In is refused once the tenancy has one)
         ]);
 
         try {
@@ -333,7 +845,7 @@ class RentalInspectionController extends Controller
         }
 
         return redirect()->route('corex.rental-inspections.show', $next)
-            ->with('success', ucfirst($validated['type']) . '-inspection started, compared against this one.');
+            ->with('success', RentalInspection::typeName($validated['type']) . ' started, compared against this one.');
     }
 
     /**
@@ -344,6 +856,8 @@ class RentalInspectionController extends Controller
      */
     public function generatePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         // Audit L2/M3 — no live link for a cancelled or archived inspection.
         if ($rentalInspection->status === RentalInspection::STATUS_CANCELLED || $rentalInspection->trashed()) {
             return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -358,6 +872,8 @@ class RentalInspectionController extends Controller
 
     public function revokePublicLink(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $rentalInspection->revokePublicLink();
 
         return redirect()->route('corex.rental-inspections.show', $rentalInspection)
@@ -366,6 +882,8 @@ class RentalInspectionController extends Controller
 
     public function cancel(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
         $validated = $request->validate([
             'cancel_reason' => ['required', 'string', 'max:500'],
         ]);
@@ -392,6 +910,15 @@ class RentalInspectionController extends Controller
      */
     public function destroy(Request $request, RentalInspection $rentalInspection): RedirectResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        // §45.8 (Build I-6b) — a completed or signed inspection is evidence; archiving it is a separate, managerial
+        // permission. (Any inspection still being worked on stays archivable with plain `.archive`, as before.)
+        if ($rentalInspection->isEvidenceRecord() && ! $request->user()->hasPermission('rental_inspections.archive_completed')) {
+            return redirect()->route('corex.rental-inspections.show', $rentalInspection)
+                ->withErrors(['rental_inspection' => 'A completed or signed inspection is a record — only a manager can archive it.']);
+        }
+
         $rentalInspection->forceFill(['archived_by_user_id' => $request->user()->id])->save();
         $rentalInspection->delete();
 
@@ -400,9 +927,14 @@ class RentalInspectionController extends Controller
 
     public function restore(Request $request, int $rentalInspection): RedirectResponse
     {
-        // Audit M1 — same own/branch scoping as the list and every bound route.
-        $inspection = RentalInspection::withTrashed()->visibleTo($request->user())->findOrFail($rentalInspection);
-        $inspection->restore();
+        $inspection = RentalInspection::withTrashed()->findOrFail($rentalInspection);
+        $this->guardRentalRecordScope($inspection, 'rental_inspections', $inspection->property?->branch_id);
+
+        try {
+            $inspection->restore();
+        } catch (\LogicException $e) {
+            return redirect()->route('corex.rental-inspections.show', $inspection)->withErrors(['rental_inspection' => $e->getMessage()]);
+        }
         $inspection->forceFill(['archived_by_user_id' => null])->save();
 
         return redirect()->route('corex.rental-inspections.show', $inspection)->with('success', 'Inspection restored.');

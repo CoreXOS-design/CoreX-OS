@@ -3,9 +3,11 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use App\Models\Concerns\BelongsToBranch;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
@@ -19,12 +21,72 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  */
 class Lease extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, BelongsToBranch, SoftDeletes;
 
     public const STATUS_DRAFT = 'draft';
     public const STATUS_ACTIVE = 'active';
     public const STATUS_EXPIRED = 'expired';
     public const STATUS_CANCELLED = 'cancelled';
+
+    // rental-renewals.md §7 — who gave notice. Free-form string, not an enum
+    // class of its own — matches the 'source' column's own convention.
+    public const NOTICE_BY_TENANT = 'tenant';
+    public const NOTICE_BY_LANDLORD = 'landlord';
+
+    // rental-renewals.md §19 — Johan's ruling 2026-10-05: what happens to the
+    // PROPERTY once notice is recorded. The agent picks exactly one, every
+    // time; nothing defaults/pre-selects. Replaces the old boolean
+    // `notice_readvertised`, which could only ever represent READVERTISE or
+    // LEAVE, never WITHDRAW.
+    public const NOTICE_OUTCOME_READVERTISE = 'readvertise';
+    public const NOTICE_OUTCOME_WITHDRAW = 'withdraw';
+    public const NOTICE_OUTCOME_LEAVE = 'leave';
+
+    // rental-takeon-import.md §5.3 — audit trail of how this lease came to
+    // exist. 'source' is a plain string(30), not a real enum, so this is
+    // just a new recognised value, no schema change.
+    public const SOURCE_MIGRATED_TAKEON = 'migrated_takeon';
+
+    // LEASE-AGREEMENT BEGIN (leases.md §15.5 — Build L1). `signing_status` runs beside `status`
+    // (which keeps its meaning); it says where the lease's e-sign agreement is, never whether the
+    // lease is in force.
+    public const SIGNING_NOT_SENT = 'not_sent';
+    public const SIGNING_PREPARED = 'prepared';
+    public const SIGNING_OUT_FOR_SIGNING = 'out_for_signing';
+    public const SIGNING_AWAITING_AGENT_REVIEW = 'awaiting_agent_review';
+    public const SIGNING_SIGNED = 'signed';
+    public const SIGNING_DECLINED = 'declined';
+    public const SIGNING_VOIDED = 'voided';
+    public const SIGNING_EXPIRED = 'expired';
+    public const SIGNING_SIGNED_ON_PAPER = 'signed_on_paper';
+
+    public const SIGNING_STATUSES = [
+        self::SIGNING_NOT_SENT,
+        self::SIGNING_PREPARED,
+        self::SIGNING_OUT_FOR_SIGNING,
+        self::SIGNING_AWAITING_AGENT_REVIEW,
+        self::SIGNING_SIGNED,
+        self::SIGNING_DECLINED,
+        self::SIGNING_VOIDED,
+        self::SIGNING_EXPIRED,
+        self::SIGNING_SIGNED_ON_PAPER,
+    ];
+
+    // leases.source — how the lease came to exist (§2, §15.5/§15.6.5).
+    public const SOURCE_ESIGN_DOCUMENT = 'esign_document';
+    public const SOURCE_UPLOADED_SIGNED_COPY = 'uploaded_signed_copy';
+
+    /** §15.13 — shown on the edit panel and returned by update() while isLockedForSigning(). */
+    /** The lease-screen sentence for a lease whose agreement is in flight: out for signing, or signed by everyone and waiting for approval. */
+    public function lockedMessage(): string
+    {
+        return $this->signing_status === self::SIGNING_AWAITING_AGENT_REVIEW
+            ? 'Everyone has signed. Approve the signed agreement to finish - values change in the agreement, not here.'
+            : self::LOCKED_FOR_SIGNING_MESSAGE;
+    }
+
+    public const LOCKED_FOR_SIGNING_MESSAGE = 'This agreement is out for signing. Change values in the agreement — CoreX will ask you to confirm them at approval.';
+    // LEASE-AGREEMENT END
 
     protected $fillable = [
         'agency_id',
@@ -43,11 +105,45 @@ class Lease extends Model
         'previous_lease_id',
         'renewed_lease_id',
         'created_by_user_id',
+        // leases.md §17 — the lease's own two agents (owner's side / tenant's side).
+        'owner_agent_user_id',
+        'tenant_agent_user_id',
         'cancelled_at',
         'cancelled_by_user_id',
         'cancel_reason',
+        'archived_by_user_id',
+        'archive_reason',
+        'archived_from_status',
         'migrated_from_table',
         'migrated_from_id',
+        // rental-takeon-import.md §6 — read-only, display-only facts about
+        // the tenancy as it stood on the day it was taken on. Never written
+        // by any other flow.
+        'migrated_escalation_percent',
+        'migrated_next_escalation_date',
+        'migrated_opening_arrears',
+        'migrated_last_inspection_date',
+        'notice_date',
+        'notice_given_by',
+        'notice_note',
+        'move_out_date',
+        'notice_outcome',
+        'renewal_draft_flow_id',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M2 — Build L1)
+        'signing_status',
+        'signing_flow_id',
+        'signature_template_id',
+        'agreement_document_id',
+        'agreement_template_id',
+        'signed_at',
+        'accepted_at',
+        'accepted_by_user_id',
+        'agreement_confirmed_fingerprint',
+        'agreement_confirmed_at',
+        'agreement_confirmed_by_user_id',
+        'capture_key',
+        'signing_failure_note',
+        // LEASE-AGREEMENT END
     ];
 
     protected $casts = [
@@ -57,11 +153,33 @@ class Lease extends Model
         'end_date' => 'date',
         'is_month_to_month' => 'boolean',
         'cancelled_at' => 'datetime',
+        'overdue_alerted_at' => 'datetime',
+        'notice_date' => 'date',
+        'move_out_date' => 'date',
+        'migrated_escalation_percent' => 'decimal:2',
+        'migrated_next_escalation_date' => 'date',
+        'migrated_opening_arrears' => 'decimal:2',
+        'migrated_last_inspection_date' => 'date',
+        // LEASE-AGREEMENT BEGIN (leases.md §15.10 M2 — Build L1)
+        'signed_at' => 'datetime',
+        'accepted_at' => 'datetime',
+        'agreement_confirmed_at' => 'datetime',
+        // LEASE-AGREEMENT END
     ];
 
+    /**
+     * Deleted-related-record rule (.ai/BUILD_STANDARD.md §4): a lease
+     * outlives its property's own soft-delete (e.g. a landlord's property
+     * record is archived while historic leases on it stay on file).
+     * ->withTrashed() keeps $lease->property resolving to the archived
+     * Property instead of silently going null, so every screen that
+     * renders it can show "(archived)" instead of 500ing on a route()
+     * call with a null model. Mirrors the existing
+     * RentalWorkOrder::property() precedent.
+     */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
     public function branch(): BelongsTo
@@ -69,19 +187,103 @@ class Lease extends Model
         return $this->belongsTo(Branch::class);
     }
 
+    /** Same reasoning as property() above; RentalApplication is soft-deletable. */
     public function rentalApplication(): BelongsTo
     {
-        return $this->belongsTo(RentalApplication::class);
+        return $this->belongsTo(RentalApplication::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function previousLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'previous_lease_id');
+        return $this->belongsTo(self::class, 'previous_lease_id')->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function renewedLease(): BelongsTo
     {
-        return $this->belongsTo(self::class, 'renewed_lease_id');
+        return $this->belongsTo(self::class, 'renewed_lease_id')->withTrashed();
+    }
+
+    /**
+     * rental-command-centre.md §3.1 "Renewals in progress" / §9 — draft
+     * term(s) chained BACK to this lease via previous_lease_id, still in
+     * draft (not yet activated). Deliberately NOT "this lease's own
+     * renewed_lease_id is set" — LeaseActivationService::activate() only
+     * sets that at ACTIVATION time, by which point this lease is already
+     * expired, not active — so that check can never fire for a currently
+     * active lease. This relation/method is the ONE definition of "has a
+     * renewal term in progress", reused by RentalCommandCentreService's
+     * tile/filter so the two can never drift apart.
+     */
+    public function renewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_DRAFT);
+    }
+
+    /**
+     * A renewal that is signed and approved but whose start date has not come: the lease it renews keeps running until its own end
+     * date and this one stays a draft - shown as "Signed - starts <date>" - until `leases:advance-terms` (or the agent) activates it on
+     * its start date.
+     */
+    public function isSignedRenewalAwaitingStart(): bool
+    {
+        return $this->status === self::STATUS_DRAFT
+            && $this->previous_lease_id !== null
+            && $this->start_date !== null
+            && $this->start_date->toDateString() > now()->toDateString()
+            && (($this->signing_status === self::SIGNING_SIGNED && $this->accepted_at !== null)
+                || $this->signing_status === self::SIGNING_SIGNED_ON_PAPER);
+    }
+
+    /**
+     * Ruling 14 Oct 2026 (cc5 re-walk, lease 119): the SQL twin of isSignedRenewalAwaitingStart() - the list's tile and filter use THIS so they can never
+     * disagree with the status the lease's own page shows ("Signed - starts <date>").
+     */
+    public function scopeSignedRenewalAwaitingStart($query)
+    {
+        return $query->where('leases.status', self::STATUS_DRAFT)
+            ->whereNotNull('leases.previous_lease_id')
+            ->whereNotNull('leases.start_date')
+            ->whereDate('leases.start_date', '>', now()->toDateString())
+            ->where(fn ($q) => $q->where(fn ($s) => $s->where('leases.signing_status', self::SIGNING_SIGNED)->whereNotNull('leases.accepted_at'))
+                ->orWhere('leases.signing_status', self::SIGNING_SIGNED_ON_PAPER));
+    }
+
+    /** A draft as the list calls "Draft": every draft except a signed renewal that is only waiting for its start date. */
+    public function scopeDraftNotSignedRenewal($query)
+    {
+        return $query->where('leases.status', self::STATUS_DRAFT)->whereNot(fn ($q) => $q->signedRenewalAwaitingStart());
+    }
+
+    /** The status as a person reads it: a signed renewal waiting for its start date says so instead of "Draft". */
+    public function displayStatus(): string
+    {
+        return $this->isSignedRenewalAwaitingStart()
+            ? 'Signed - starts ' . $this->start_date->format('j M Y')
+            : ucfirst((string) $this->status);
+    }
+
+    public function hasPendingRenewalDraft(): bool
+    {
+        return $this->renewalDrafts()->exists();
+    }
+
+    /**
+     * rental-renewals.md §20 — a renewal draft the agent explicitly
+     * cancelled for this term. Kept as its own distinct state from an
+     * active draft so the tenancy log and any future lookup can tell "never
+     * started" apart from "started, then called off" — only an agent
+     * explicitly using "Renew lease" creates another one for this term.
+     */
+    public function cancelledRenewalDrafts(): HasMany
+    {
+        return $this->hasMany(self::class, 'previous_lease_id')->where('status', self::STATUS_CANCELLED);
+    }
+
+    public function hasCancelledRenewalDraft(): bool
+    {
+        return $this->cancelledRenewalDrafts()->exists();
     }
 
     public function tenants(): HasMany
@@ -93,6 +295,180 @@ class Lease extends Model
     {
         return $this->hasMany(LeaseEscalation::class)->orderByDesc('effective_date');
     }
+
+    // LEASE-AGREEMENT BEGIN (leases.md §15.10 — Build L1)
+    /**
+     * What this lease's agreement says beyond rent and dates (leases.md §15.7.2). Not withTrashed —
+     * a soft-deleted terms row is "no terms"; LeaseAgreementTerms::forLease() restores it on write.
+     */
+    public function agreementTerms(): HasOne
+    {
+        return $this->hasOne(LeaseAgreementTerms::class);
+    }
+
+    /** .ai/specs/lease-notices.md - every notice given on this lease (the cases), newest first. */
+    public function leaseNotices(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LeaseNotice::class)->latest('id');
+    }
+
+    /** .ai/specs/rental-notices.md - every breach notice issued on this lease, newest first. */
+    public function breaches(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(LeaseBreach::class)->latest('id');
+    }
+
+    /** The lease agreement template (docuperfect_templates) this lease's document was made from. */
+    public function agreementTemplate(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Template::class, 'agreement_template_id');
+    }
+
+    /** The e-sign flow the launcher created for this lease (renewal drafts mirror it in renewal_draft_flow_id). */
+    public function signingFlow(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Flow::class, 'signing_flow_id');
+    }
+
+    /** The e-sign envelope (signature_templates row) of this lease's agreement. */
+    public function signatureTemplate(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\SignatureTemplate::class, 'signature_template_id');
+    }
+
+    /** The in-flight (or signed) agreement document — kept apart from source_document_id until completion. */
+    public function agreementDocument(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\Docuperfect\Document::class, 'agreement_document_id');
+    }
+
+    public function acceptedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'accepted_by_user_id');
+    }
+
+    /**
+     * §15.11 — the one accessor for "the signed copy of this lease": the filed e-sign PDF
+     * (documents.source_type='esign', source_id = the envelope), falling back to a signed paper copy
+     * (source_type='lease', source_id = this lease). Null when there is neither.
+     */
+    public function signedDocument(): ?\App\Models\Document
+    {
+        if ($this->signature_template_id) {
+            $filed = \App\Models\Document::where('source_type', 'esign')
+                ->where('source_id', $this->signature_template_id)
+                ->latest('id')
+                ->first();
+            if ($filed) {
+                return $filed;
+            }
+        }
+
+        return \App\Models\Document::where('source_type', 'lease')
+            ->where('source_id', $this->id)
+            ->latest('id')
+            ->first();
+    }
+
+    /**
+     * §15.13 — what the Leases list's "Agreement" filter, the status sub-label and the export call each
+     * signing state, in plain words. `not_sent` is a real state ("no agreement requested") but is never
+     * shown as a sub-label — most leases are plain leases.
+     */
+    public const SIGNING_LABELS = [
+        self::SIGNING_NOT_SENT => 'Not sent',
+        self::SIGNING_PREPARED => 'Being prepared',
+        self::SIGNING_OUT_FOR_SIGNING => 'Out for signing',
+        self::SIGNING_AWAITING_AGENT_REVIEW => 'Needs my approval',
+        self::SIGNING_SIGNED => 'Signed',
+        self::SIGNING_SIGNED_ON_PAPER => 'Signed on paper',
+        self::SIGNING_DECLINED => 'Declined',
+        self::SIGNING_VOIDED => 'Voided',
+        self::SIGNING_EXPIRED => 'Expired',
+    ];
+
+    /** The sub-label shown under a lease's status badge, or null for a lease with no agreement requested. */
+    public function signingStatusLabel(): ?string
+    {
+        $status = (string) ($this->signing_status ?? self::SIGNING_NOT_SENT);
+
+        return $status === self::SIGNING_NOT_SENT ? null : (self::SIGNING_LABELS[$status] ?? null);
+    }
+
+    /**
+     * §15.13 — while the agreement is out for signing or waiting for the agent's approval, the lease's
+     * agreement-governed fields change in the agreement, not here (one place to change a value).
+     */
+    public function isLockedForSigning(): bool
+    {
+        return in_array($this->signing_status, [
+            self::SIGNING_OUT_FOR_SIGNING,
+            self::SIGNING_AWAITING_AGENT_REVIEW,
+        ], true);
+    }
+
+    /** The signing states in which the agreement is still live — the only ones the e-sign engine may move. */
+    public const SIGNING_IN_FLIGHT = [
+        self::SIGNING_PREPARED,
+        self::SIGNING_OUT_FOR_SIGNING,
+        self::SIGNING_AWAITING_AGENT_REVIEW,
+    ];
+
+    /**
+     * §15.5 — what the e-sign engine's own status for an envelope means for the lease, in one place (the listener
+     * and the safety-net re-check both use it).
+     *
+     *   draft / ready / signing / awaiting_* / partial / deferred / revived → out_for_signing
+     *   pending_agent_approval and every returned / amendment state        → awaiting_agent_review
+     *   completed                                                           → signed ONLY once finalisation has
+     *                                                                         succeeded (the signed copy is filed);
+     *                                                                         until then the agent's approval is
+     *                                                                         still the last thing that happened
+     *   declined, rejected                                                  → declined
+     *   cancelled                                                           → voided
+     *   expired, lapsed, re_lapsed, extension_proposed                      → expired
+     */
+    public static function signingStatusFor(\App\Models\Docuperfect\SignatureTemplate $envelope): string
+    {
+        $status = (string) $envelope->status;
+        $envelopeModel = \App\Models\Docuperfect\SignatureTemplate::class;
+
+        return match (true) {
+            $status === $envelopeModel::STATUS_COMPLETED
+                => $envelope->finalization_status === $envelopeModel::FINALIZATION_SUCCEEDED
+                    ? self::SIGNING_SIGNED
+                    : self::SIGNING_AWAITING_AGENT_REVIEW,
+            in_array($status, [
+                $envelopeModel::STATUS_PENDING_AGENT_APPROVAL,
+                $envelopeModel::STATUS_RETURNED_TO_CANDIDATE,
+                $envelopeModel::STATUS_AMENDMENT_REVIEW,
+                $envelopeModel::STATUS_AMENDMENT_INITIALING,
+                $envelopeModel::STATUS_AMENDMENT_CHAIN_REVIEW,
+                $envelopeModel::STATUS_EDITOR_REACCEPTANCE,
+            ], true) => self::SIGNING_AWAITING_AGENT_REVIEW,
+            in_array($status, [$envelopeModel::STATUS_DECLINED, $envelopeModel::STATUS_REJECTED], true) => self::SIGNING_DECLINED,
+            $status === $envelopeModel::STATUS_CANCELLED => self::SIGNING_VOIDED,
+            in_array($status, [
+                $envelopeModel::STATUS_EXPIRED,
+                $envelopeModel::STATUS_LAPSED,
+                $envelopeModel::STATUS_RE_LAPSED,
+                $envelopeModel::STATUS_EXTENSION_PROPOSED,
+            ], true) => self::SIGNING_EXPIRED,
+            default => self::SIGNING_OUT_FOR_SIGNING,
+        };
+    }
+
+    /**
+     * §15.15 safety net — re-reads the envelope and brings this lease in step with it, whatever the engine did or
+     * failed to announce. Called when the Lease Hub, the Leases list or the Command Centre loads a lease whose
+     * agreement is in flight, and by the nightly `leases:reconcile-signing`. Never throws; returns whether anything
+     * changed.
+     */
+    public function reconcileSigning(): bool
+    {
+        return app(\App\Services\Rentals\LeaseSigningStateService::class)->reconcile($this);
+    }
+    // LEASE-AGREEMENT END
 
     /**
      * Sets rental_amount to the new amount of the latest escalation whose
@@ -123,6 +499,171 @@ class Lease extends Model
     }
 
     /**
+     * leases.md §17 — the landlord-side agent. Global scopes off and trashed kept, so a screen shows the name of an
+     * agent in another branch (or one who has since left) instead of a blank; WHO may be chosen is
+     * LeaseAgentService's job, not this relation's.
+     */
+    public function ownerAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'owner_agent_user_id')->withoutGlobalScopes()->withTrashed();
+    }
+
+    /** leases.md §17 — the tenant-side agent. Same reasoning as ownerAgent(). */
+    public function tenantAgent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'tenant_agent_user_id')->withoutGlobalScopes()->withTrashed();
+    }
+
+    public function cancelledByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by_user_id');
+    }
+
+    public function inspections(): HasMany
+    {
+        return $this->hasMany(RentalInspection::class);
+    }
+
+    public function faultReports(): HasMany
+    {
+        return $this->hasMany(RentalFaultReport::class);
+    }
+
+    public function workOrders(): HasMany
+    {
+        return $this->hasMany(RentalWorkOrder::class);
+    }
+
+    /** rental-work-orders.md §14.29 — job cards raised against this tenancy (rental_job_cards.lease_id). */
+    public function jobCards(): HasMany
+    {
+        return $this->hasMany(RentalJobCard::class);
+    }
+
+    public function inventories(): HasMany
+    {
+        return $this->hasMany(RentalInventory::class);
+    }
+
+    /** AT-445 — .ai/specs/rental-portal-access.md §8/§10. */
+    public function notices(): HasMany
+    {
+        return $this->hasMany(RentalNotice::class);
+    }
+
+    /**
+     * rental-renewals.md §8 — append-only renewal/outcome event log, newest
+     * last. Secondary `id` sort breaks ties when two events land in the
+     * same second (occurred_at alone is not a reliable tiebreak — MySQL
+     * does not guarantee insertion order for equal ORDER BY keys).
+     */
+    public function events(): HasMany
+    {
+        return $this->hasMany(LeaseEvent::class)->orderBy('occurred_at')->orderBy('id');
+    }
+
+    /**
+     * rental-renewals.md §7 — true once notice (by either party) has been
+     * recorded and not since reversed. Used by the Lease Hub next-step
+     * card and by the one-click outcome buttons' own state (no point
+     * offering "Tenant gave notice" again once notice is already on file).
+     */
+    public function hasActiveNotice(): bool
+    {
+        return $this->notice_date !== null;
+    }
+
+    /**
+     * cc5's second walk (lease 115, 14 Oct 2026): a move-out notice AND a renewal for the same tenancy contradict each other (the tenant is leaving on one date and
+     * staying from another). The renewal used to win silently. Returns the plain agent-facing sentence while BOTH exist on this lease, else null.
+     */
+    public function noticeRenewalConflict(): ?string
+    {
+        if ($this->status !== self::STATUS_ACTIVE || ! $this->hasActiveNotice()) {
+            return null;
+        }
+        $renewal = $this->renewalDrafts()->orderBy('start_date')->first();
+        if (! $renewal) {
+            return null;
+        }
+
+        return 'This lease has a move-out notice (move-out ' . ($this->move_out_date?->format('j M Y') ?? 'date not set') . ') AND a renewal starting '
+            . ($renewal->start_date?->format('j M Y') ?? 'on a date not set') . ($renewal->isSignedRenewalAwaitingStart() ? ' that is already signed' : '')
+            . '. They contradict each other - the renewal will take over unless you withdraw one: reverse the notice (Lease actions), or cancel the renewal.';
+    }
+
+    /**
+     * AT-439 §G — derived, never duplicated onto this model. This is the
+     * ONLY definition of this method — the other, AT-440/cc3 copy was
+     * removed during a 2026-10-04 QA1 outage (duplicate-declaration 500,
+     * 96b4f3ca0) by keeping this (AT-439's canonical contact-role-key,
+     * N-party) version.
+     *
+     * AT-444 (2026-10-05): the 2026-10-04 "AT-444 follow-up 3" revision had
+     * restored a fallback to `Property::sellerOwnerContact()` for a property
+     * with zero landlord/lessor pivots — but that method's own job (AT-105,
+     * PDF Splitter filing) is to guess the SOLE linked contact when none is
+     * tagged seller-side, with NO awareness of whether that sole contact is
+     * actually a tenant. On a property linked ONLY to its tenant, that
+     * fallback returned the tenant AS the landlord — confirmed on QA1,
+     * property 5792 / lease 10 (Andre Roets, the lease's tenant, shown as
+     * both party chips in the rental context bar). `sellerOwnerContact()`
+     * itself is NOT changed here — it is shared with sales-side callers
+     * (PDF Splitter, Deal Register, match-card, Proforma) whose behaviour is
+     * out of scope — this method simply stops calling it.
+     *
+     * The fallback is now a second EXPLICIT role check (seller/owner pivot
+     * tags, via `contactsForRole('seller_owner')`), used ONLY when nothing
+     * is tagged landlord/lessor — never a guess at "the only contact on
+     * file." A contact whose role is tenant/occupant/applicant — anything
+     * other than landlord/lessor/seller/owner — can never be returned
+     * here. A true gap (no contact tagged any of the four roles) returns
+     * an empty collection; every caller (Lease Hub, rental-context-bar,
+     * tenancy report PDF, rental notices, renewal recipients, owner/
+     * landlord-decision-needed mail) already renders "No landlord linked"
+     * / "—" for an empty result rather than inventing one.
+     */
+    public function landlordContacts(): \Illuminate\Support\Collection
+    {
+        if (!$this->property) {
+            return collect();
+        }
+
+        // Leases list (leases.md §7) eager-loads 'property.contacts' and
+        // calls this per row — Property::contactsForRole() always issues a
+        // fresh query via $this->contacts()->get() regardless of what's
+        // eager-loaded, so it would N+1 on a paginated list. Reuse the
+        // already-loaded collection when present; Property.php itself is
+        // untouched (shared with sales-side callers) — the identical
+        // pivot-role matching (Property::pivotRolesForContactRole()) is
+        // replicated here, scoped to this one call site.
+        $contacts = $this->property->relationLoaded('contacts')
+            ? $this->property->contacts
+            : $this->property->contacts()->get();
+
+        $matchRole = fn (array $roles) => $contacts->filter(function ($c) use ($roles) {
+            $role = strtolower(trim((string) ($c->pivot->role ?? '')));
+            return in_array($role, $roles, true);
+        })->values();
+
+        $landlords = $matchRole(['landlord'])->merge($matchRole(['lessor']))->unique('id')->values();
+
+        if ($landlords->isNotEmpty()) {
+            return $landlords;
+        }
+
+        return $matchRole(['seller', 'owner']);
+    }
+
+    /** Leases list (leases.md §7) — same shape as tenantNames(), for the landlord column + export. */
+    public function landlordNames(): string
+    {
+        $names = $this->landlordContacts()->map(fn (Contact $c) => $c->full_name)->filter();
+
+        return $names->isEmpty() ? 'No landlord linked' : $names->implode(', ');
+    }
+
+    /**
      * Whether this lease can still be soft-deleted through the ordinary CRUD
      * path (leases.md §2 — deletable only while nothing has attached yet).
      * A lease with any escalation history has evidence on it and may only
@@ -141,16 +682,61 @@ class Lease extends Model
     }
 
     /**
+     * AT-445 — the tenant-side equivalent of landlordContacts() above, used
+     * by the portal to resolve which leases a given Contact may see as a
+     * tenant. N-party: every contact on this lease's `lease_tenants` pivot.
+     */
+    public function tenantContacts(): \Illuminate\Support\Collection
+    {
+        return $this->tenants->map(fn (LeaseTenant $t) => $t->contact)->filter()->unique('id')->values();
+    }
+
+    /**
      * leases.md §7 — OWN/BRANCH/AGENCY scoping, layered on top of the hard
      * AgencyScope boundary. Same PermissionService::getDataScope() +
      * clampScope() convention already used by rental_applications, so the
      * existing role-manager scope UI covers this module without a new
      * mechanism.
      */
+    /**
+     * Recording an outcome is the NEXT step: an active lease whose end date has passed and that has nothing on file yet —
+     * no notice (either side), not already month-to-month, not renewed, and no renewal draft under way. The one definition behind
+     * the rentals needs-action queue's "Record outcome" rows (the Lease Hub's own next-step card is the same rule minus the
+     * month-to-month and renewal-draft exclusions, which it never needed because it is shown one lease at a time).
+     */
+    public function scopeAwaitingOutcome($query, ?string $today = null)
+    {
+        return $query->where('leases.status', self::STATUS_ACTIVE)
+            ->whereNotNull('leases.end_date')
+            ->where('leases.end_date', '<', $today ?? now()->toDateString())
+            ->whereNull('leases.notice_date')
+            ->whereNull('leases.renewed_lease_id')
+            ->where(fn ($m) => $m->whereNull('leases.is_month_to_month')->orWhere('leases.is_month_to_month', false))
+            ->whereNotExists(function ($sub) {
+                $sub->selectRaw('1')->from('leases as renewal')
+                    ->whereColumn('renewal.previous_lease_id', 'leases.id')
+                    ->where('renewal.status', self::STATUS_DRAFT)
+                    ->whereNull('renewal.deleted_at');
+            });
+    }
+
+    /**
+     * leases.md §18.7 — leases whose notice terms no agent has confirmed against the signed lease (none on record, or only an
+     * agency default). The "to check" list on the lease list and the rentals needs-action queue share this one definition.
+     */
+    public function scopeNoticeTermsUnconfirmed($query)
+    {
+        return $query->whereNotExists(function ($sub) {
+            $sub->selectRaw('1')->from('lease_agreement_terms as nt')
+                ->whereColumn('nt.lease_id', 'leases.id')
+                ->whereNull('nt.deleted_at')
+                ->whereNotNull('nt.notice_terms_confirmed_at');
+        });
+    }
+
     public function scopeVisibleTo($query, User $user, ?string $requestedScope = null)
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'leases');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'leases', $requestedScope);
 
         if ($scope === 'all') {
             return $query;
@@ -159,9 +745,57 @@ class Lease extends Model
             return $query->where('leases.branch_id', $user->effectiveBranchId());
         }
         if ($scope === 'own') {
-            return $query->whereIn('leases.created_by_user_id', $user->dataIdentityIds());
+            // leases.md §17.5 — "my" leases are the ones I created AND the ones I am the owner's or the tenant's agent on.
+            return $query->involvingUsers($user->dataIdentityIds());
         }
 
         return $query->whereRaw('1 = 0');
+    }
+
+    /**
+     * "This lease's own AGENTS" (scopeAgentedBy below) are what the inspection surfaces add to creator/inspector — an agent
+     * who merely created the lease does not thereby see a colleague's inspection on it (that stayed refused on purpose).
+     *
+     * The ONE definition of "this lease is mine": I created it, or I am its owner's agent, or its tenant's agent
+     * (leases.md §17.5). Everything that asks "whose inspection / due item / reminder is this" goes through it (directly
+     * or through isOwnedBy()), so the answer cannot differ between the list, the due board, the planned dates and the guard.
+     *
+     * @param  array<int,int>  $userIds  the viewer's data identity ids (User::dataIdentityIds())
+     */
+    public function scopeAgentedBy($query, array $userIds)
+    {
+        return $query->where(fn ($own) => $own
+            ->whereIn('leases.owner_agent_user_id', $userIds)
+            ->orWhereIn('leases.tenant_agent_user_id', $userIds));
+    }
+
+    /** Per-record twin of scopeAgentedBy(): am I this lease's owner's agent or tenant's agent? (NOT merely its creator.) */
+    public function isAgentedBy(User $user): bool
+    {
+        $ids = $user->dataIdentityIds();
+
+        return ($this->owner_agent_user_id !== null && in_array((int) $this->owner_agent_user_id, $ids, true))
+            || ($this->tenant_agent_user_id !== null && in_array((int) $this->tenant_agent_user_id, $ids, true));
+    }
+
+    public function scopeInvolvingUsers($query, array $userIds)
+    {
+        return $query->where(fn ($own) => $own
+            ->whereIn('leases.created_by_user_id', $userIds)
+            ->orWhereIn('leases.owner_agent_user_id', $userIds)
+            ->orWhereIn('leases.tenant_agent_user_id', $userIds));
+    }
+
+    /**
+     * Whether $user is among this lease's own people (leases.md §17.5) — the per-record twin of the 'own' branch of
+     * scopeVisibleTo(), used by AuthorizesRentalRecordScope so a direct URL never grants less (or more) than the list.
+     */
+    public function isOwnedBy(User $user): bool
+    {
+        $ids = $user->dataIdentityIds();
+
+        return in_array((int) $this->created_by_user_id, $ids, true)
+            || ($this->owner_agent_user_id !== null && in_array((int) $this->owner_agent_user_id, $ids, true))
+            || ($this->tenant_agent_user_id !== null && in_array((int) $this->tenant_agent_user_id, $ids, true));
     }
 }

@@ -27,7 +27,7 @@ final class FicaQuickState
     /**
      * @param  Collection<int, object>  $submissions  FicaSubmission-like rows, NEWEST FIRST (status, created_at, updated_at, verified_at, token_expires_at, id)
      * @param  CarbonInterface|null     $legacySignedAt  latest signed legacy e-sign FICA document, if any
-     * @param  int                      $expiringAfterMonths  the agency's setting (Agency::ficaExpiringAfterMonths())
+     * @param  int                      $expiringAfterMonths  the agency's setting (FicaWindows::currentMonths())
      */
     public static function resolve(Collection $submissions, ?CarbonInterface $legacySignedAt, int $expiringAfterMonths, ?CarbonInterface $now = null): array
     {

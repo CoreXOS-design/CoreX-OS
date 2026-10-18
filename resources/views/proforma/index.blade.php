@@ -16,9 +16,7 @@
                 </p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold"
-                      style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);"
-                      title="Records matching the current filter">
+                <span class="ds-badge ds-badge-pill ds-badge-info" title="Records matching the current filter">
                     {{ number_format($invoices->total()) }} {{ $status === 'issued' ? 'issued' : ($status === 'voided' ? 'voided' : 'total') }}
                 </span>
             </div>

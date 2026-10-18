@@ -8,7 +8,13 @@
 
     <div style="background-color: #1a365d; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
         <h1 style="color: #ffffff; margin: 0; font-size: 22px;">
-            {{ $stage === \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_COMPLETED ? 'Work Completed' : 'Work Order Logged' }}
+            @if($stage === \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_COMPLETED)
+                Work Completed
+            @elseif($stage === \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED)
+                Revised Quote
+            @else
+                Work Order Logged
+            @endif
         </h1>
     </div>
 
@@ -25,12 +31,28 @@
             @if($workOrder->completion_notes)
                 <p>{{ $workOrder->completion_notes }}</p>
             @endif
+        @elseif($stage === \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_QUOTE_REVISED)
+            @php $currentQuote = $workOrder->quotes()->where('is_selected', true)->first(); @endphp
+            <p>{{ $agencyName }} has sent you a revised quote for {{ $propertyAddress }}:</p>
+            <p><strong>{{ $workOrder->title }}</strong></p>
+            @if($currentQuote)
+                <p>Revised quote{{ $currentQuote->revision > 1 ? ' (Rev ' . $currentQuote->revision . ')' : '' }}: <strong>R{{ number_format((float) $currentQuote->amount, 2) }}</strong></p>
+            @endif
+            <p>This replaces the quote you received earlier. Any approval you gave to the earlier quote no longer applies to this one.</p>
         @else
             <p>{{ $agencyName }} has logged the following against {{ $propertyAddress }}:</p>
             <p><strong>{{ $workOrder->title }}</strong></p>
             <p>{{ $workOrder->description }}</p>
             @if($workOrder->trade_type)
                 <p>Trade: {{ ucfirst($workOrder->trade_type) }}</p>
+            @endif
+        @endif
+
+        {{-- §17.11 / R6 — the estimate wording snapshotted onto the quote being sent; printed on the quote mail, never on the completed notice. --}}
+        @if($stage !== \App\Mail\Rentals\RentalWorkOrderOwnerMail::STAGE_COMPLETED)
+            @php $estimateQuote = $workOrder->quotes()->where('is_selected', true)->whereNotNull('term_text')->first(); @endphp
+            @if($estimateQuote && trim((string) $estimateQuote->term_text) !== '')
+                <p style="font-size: 13px; color: #444; border-left: 3px solid #cbd5e0; padding-left: 10px;">{{ $estimateQuote->term_text }}</p>
             @endif
         @endif
 

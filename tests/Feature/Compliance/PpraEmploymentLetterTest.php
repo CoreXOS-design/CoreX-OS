@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\RequiresChromiumPdf;
 use Tests\TestCase;
 
 /**
@@ -31,6 +32,7 @@ use Tests\TestCase;
 final class PpraEmploymentLetterTest extends TestCase
 {
     use RefreshDatabase;
+    use RequiresChromiumPdf;
 
     private Agency $agency;
     private Branch $branch;
@@ -91,6 +93,7 @@ final class PpraEmploymentLetterTest extends TestCase
 
     public function test_create_and_download_the_letter_for_wet_ink_signing(): void
     {
+        $this->requireChromiumPdf(); // downloads the real PDF
         $agent = $this->user();
         $this->principal();
 
@@ -339,6 +342,7 @@ final class PpraEmploymentLetterTest extends TestCase
      */
     public function test_admin_start_letter_form_works_with_string_ids_from_a_real_browser_post_and_follows_redirects(): void
     {
+        $this->requireChromiumPdf(); // downloads the real PDF
         $this->seedLetterGrants(['agent', 'admin']);
         $agent = $this->user();
         $principalA = $this->principal();

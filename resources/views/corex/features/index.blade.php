@@ -33,6 +33,21 @@
         </div>
     </div>
 
+    {{-- What the agency does. A separate form (id below) so saving it never posts, or depends on, the switches. --}}
+    <div class="flex-shrink-0 rounded-md px-4 py-3 flex flex-wrap items-center gap-3" style="background: var(--surface); border:1px solid var(--border);" data-test="agency-type-card">
+        <div class="flex-1" style="min-width:260px;">
+            <label for="agency_type" class="text-sm font-semibold" style="color: var(--text-primary);">What does your agency do?</label>
+            <p class="text-xs mt-0.5" style="color: var(--text-muted);">Changing this switches the matching tools on or off: <strong>Rentals only</strong> turns the sales tools off, <strong>Sales only</strong> turns the Rentals area off. Anything else you have switched stays as you set it, and you can still change any switch below.</p>
+        </div>
+        <select id="agency_type" name="agency_type" form="agency-type-form" class="rounded-md text-sm"
+                style="height:40px; padding:0 12px; color:var(--text-primary); background:var(--surface-2); border:1px solid var(--border);">
+            @foreach (\App\Services\Features\AgencyTypeFeatureSeeder::options() as $typeValue => $typeLabel)
+                <option value="{{ $typeValue }}" @selected($agencyType === $typeValue)>{{ $typeLabel }}</option>
+            @endforeach
+        </select>
+        <button type="submit" form="agency-type-form" class="corex-btn-outline text-xs" data-test="agency-type-save">Save type</button>
+    </div>
+
     @if (session('success'))
         <div class="rounded-md px-3 py-2 text-sm flex-shrink-0"
              style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 30%, transparent); color:var(--text-primary);">
@@ -85,9 +100,9 @@
                             <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text-primary);">
                                 <span>{{ $row['label'] }}</span>
                                 @if ($row['kind'] === 'core')
-                                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Always on</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">Always on</span>
                                 @elseif ($row['kind'] === 'switchboard')
-                                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Managed in its own settings</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">Managed in its own settings</span>
                                 @endif
                             </div>
                             @if (!empty($row['explain']))
@@ -141,6 +156,7 @@
         </div>
     </div>
 </form>
+<form id="agency-type-form" method="POST" action="{{ route('corex.settings.agency-type.update') }}">@csrf</form>
 
 <script>
 /* Features page state. `items` = key => {kind, enabled, depends_on, blocked_by, search}; kinds: core | switchboard | module. */

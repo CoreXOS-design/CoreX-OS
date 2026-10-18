@@ -214,7 +214,7 @@ class FicaController extends Controller
             'agency_id'        => $agencyId,
             'requested_by'     => Auth::id(),
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays($this->linkDays((int) $agencyId)),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $agencyId)),
             'status'           => 'draft',
         ]);
 
@@ -229,17 +229,6 @@ class FicaController extends Controller
 
         return redirect()->route('compliance.fica.index')
             ->with('success', "FICA request sent to {$contact->full_name}.");
-    }
-
-    /**
-     * How long (days) the secure link in a FICA request email stays valid — the agency's own setting
-     * (Settings → FICA, Setup Wizard → Compliance), default 14. Quick Links W1, .ai/specs/quick-links.md §8-4.
-     */
-    private function linkDays(int $agencyId): int
-    {
-        $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
-
-        return $agency ? $agency->ficaLinkDays() : 14;
     }
 
     /**
@@ -648,7 +637,7 @@ class FicaController extends Controller
             'risk_rating'          => $validated['risk_rating'],
             'verified_by'          => Auth::id(),
             'verified_at'          => now(),
-            'fica_expires_at'      => now()->addMonths(24),
+            'fica_expires_at'      => now()->addMonths(\App\Services\Compliance\FicaWindows::validityMonths((int) $submission->agency_id)),
             'co_verified_by'       => Auth::id(),
             'co_verified_at'       => now(),
             'co_verification_data' => $coChecklistData,
@@ -885,7 +874,7 @@ class FicaController extends Controller
             'status'           => 'corrections_requested',
             'reviewer_notes'   => $validated['reviewer_notes'],
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays($this->linkDays((int) $submission->agency_id)),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $submission->agency_id)),
         ]);
 
         if ($submission->contact && $submission->contact->email) {
@@ -909,7 +898,7 @@ class FicaController extends Controller
 
         $submission->update([
             'token'            => Str::random(64),
-            'token_expires_at' => now()->addDays($this->linkDays((int) $submission->agency_id)),
+            'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $submission->agency_id)),
         ]);
 
         FicaResendLog::create([
@@ -1187,6 +1176,7 @@ class FicaController extends Controller
             $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, "fica/{$submission->id}");
 
             $doc = FicaDocument::create([
+                'agency_id'          => $submission->agency_id,
                 'fica_submission_id' => $submission->id,
                 'document_type'      => $type,
                 'file_path'          => $path,

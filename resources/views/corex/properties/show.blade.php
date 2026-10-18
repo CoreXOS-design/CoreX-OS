@@ -153,11 +153,14 @@
         .cv-untagged-thumb-selected { opacity: 1; border-color: #3FC9E6; }
         .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
+    {{-- List-look polish (Johan 2026-10-17): hover lift / accent edge / animated tab underline / field hover — restyle only. --}}
+    @include('corex.properties.partials._property-polish-styles')
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', tabPending: null, synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
+     x-init="$watch('activeTab', (k) => { tabPending = null; window.ppTabEnter && window.ppTabEnter($el, k); })"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Identity strip (2026-09-13 restyle, option 2) — Back, the property's identity
@@ -1011,7 +1014,7 @@
                 $readinessBarClass = $readinessPct >= 80 ? 'ds-bar-green' : 'ds-bar-amber';
                 $readinessMissing = array_keys(array_filter($readinessChecks, fn($v) => !$v));
             @endphp
-            <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
+            <div class="prop-readiness-card rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
                 <button type="button" @click="readinessOpen = !readinessOpen"
                         class="w-full flex items-center justify-between"
                         style="background:transparent; border:0; cursor:pointer; padding:0;">
@@ -1260,7 +1263,7 @@
                     @if($hasAddressM && $property->title)
                     <div class="text-xs mt-0.5 truncate" style="color:var(--text-muted);" title="{{ $property->title }}">{{ $property->title }}</div>
                     @endif
-                    <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                    <div class="text-base font-bold mt-0.5" style="color:var(--brand-default);">{{ $property->formattedDisplayPrice() }}</div>
                     <div class="flex items-center gap-2 mt-1 flex-wrap">
                         @php
                             $listingTypeLabel2 = match(strtolower((string) ($property->listing_type ?? 'sale'))) {
@@ -1277,8 +1280,8 @@
                             $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $listingTypeLabel2 }}</span>
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
+                        <span class="ds-badge ds-badge-info" data-listing-chip>{{ $listingTypeLabel2 }}</span>
+                        <span class="ds-badge {{ $statusBadgeVariants[$property->status] ?? 'ds-badge-default' }}">{{ $statusLabel2 }}</span>
                         @if(!empty($property->status_label))
                             <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
                         @endif
@@ -1513,7 +1516,7 @@
                                 <div class="text-sm mt-0.5" style="color:var(--text-secondary);">{{ $property->title ?: 'Untitled property' }}</div>
                             </div>
                             <div class="text-right flex-shrink-0">
-                                <div class="text-2xl font-extrabold leading-none" style="color:var(--brand-default);">{{ $property->formattedPrice() }}</div>
+                                <div class="text-2xl font-extrabold leading-none" style="color:var(--brand-default);">{{ $property->formattedDisplayPrice() }}</div>
                                 @if($daysOnMarket !== null)
                                     <div class="text-xs mt-1" style="color:var(--text-muted);">{{ number_format($daysOnMarket) }} days on market</div>
                                 @endif
@@ -1621,7 +1624,7 @@
                         <div class="rounded-md flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
                                 <div x-show="activityExpanded || {{ $i }} === 0" x-cloak
-                                     class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                     class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
@@ -1694,7 +1697,7 @@
                                     if ($comm->from_display) { $metaParts[] = 'by ' . $comm->from_display; }
                                     $metaLine = implode(' · ', $metaParts);
                                 @endphp
-                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--surface); color:var(--brand-icon, #0ea5e9);">
                                         {{-- envelope / paperclip --}}
                                         @if($isSecureLink)
@@ -1732,7 +1735,7 @@
                         <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Property Location</h3>
                         @if($property->latitude && $property->longitude)
                             <a href="{{ route('corex.map.index') }}?focus={{ $property->latitude }},{{ $property->longitude }}&zoom=17"
-                               class="text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
+                               class="prop-text-link text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
                                 Open full map →
                             </a>
                         @endif
@@ -1766,7 +1769,7 @@
                     @if($hfcSales->isNotEmpty())
                         <div style="margin-top:14px;padding:14px;background:var(--surface);border:1px solid var(--border);border-left:3px solid #00b594;border-radius:6px;">
                             <h3 class="text-xs font-bold uppercase tracking-wider mb-2" style="color:#00b594;">
-                                HFC has sold this property before
+                                Your agency has sold this property before
                             </h3>
                             <p style="font-size:0.75rem;color:var(--text-muted);margin:0 0 10px 0;">
                                 Powerful re-mandate signal — we know this property.
@@ -1824,7 +1827,7 @@
                 <div class="lg:col-start-3 flex flex-col">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">{{ $ownerLabel }}</h3>
                     @if($owner)
-                        <a href="{{ route('corex.contacts.show', $owner) }}" class="block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <a href="{{ route('corex.contacts.show', $owner) }}" class="prop-card-link block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $ownerName }}</div>
                             @if($owner->phone)
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $owner->phone }}</div>
@@ -1834,7 +1837,7 @@
                             @endif
                         </a>
                     @else
-                        <button type="button" @click="activeTab='contacts'" class="w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
+                        <button type="button" @click="activeTab='contacts'" class="prop-card-link w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
                             No owner linked yet — click to add a seller / landlord
                         </button>
                     @endif
@@ -1861,11 +1864,16 @@
                     </div>
                 @endif
             </div>
+
+            {{-- AT-454 - Road to Sold calls logged on this property (scoped own / branch / agency in the query). --}}
+            @if(! $isNew)
+                <x-road-to-sold.history-panel :property-id="$property->id" />
+            @endif
         </div>
 
 
         {{-- ── INFO TAB ───────────────────────────────────────────────────── --}}
-        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="px-4 pb-4">
+        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="prop-info-panel px-4 pb-4">
             {{-- AT-60 — duplicate-address guard. A property already matches this
                  contact's address: offer link-to-existing (kept OUTSIDE the create
                  form — no nested forms). The agent can ignore it and keep creating. --}}
@@ -1932,31 +1940,8 @@
                 </form>
             @endif
 
-            {{-- AT-432 — the "Send to Auction" entry point (.ai/specs/auctions.md
-                 §9 steps 1-2). Deliberately NOT added to the intake wizard
-                 (wizard.blade.php) — the wizard has no path to also create/attach
-                 the auction in the same step, and setting sale_method='auction'
-                 with no lot behind it is an inconsistent state. This link instead
-                 carries the property into AuctionController::create(), which
-                 attaches it as Lot 1 the moment the auction itself is created —
-                 sale_method only ever flips together with a real lot existing. --}}
-            @if(!$isNew)
-            @feature('auctions')
-            @permission('auctions.create')
-                @if($property->isAuction() && ($currentLot = $property->currentAuctionLot()))
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.lots.show', $currentLot) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">
-                        On Auction — Lot {{ $currentLot->lot_number }} ({{ $currentLot->auction->reference }})
-                    </a>
-                </div>
-                @elseif(!$property->isAuction())
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">Send to Auction</a>
-                </div>
-                @endif
-            @endpermission
-            @endfeature
-            @endif
+            {{-- AT-432 — the "Send to Auction" / "On Auction" entry point moved to the page header
+                 (partials/_property-shell-header.blade.php, Johan 2026-10-17). --}}
 
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
@@ -2083,6 +2068,22 @@
                                             && auth()->user()->hasPermission('auctions.create');
                                         $openAuctions = $auctionChoiceOpen ? \App\Services\Auctions\AuctionLotAttacher::openAuctions() : collect();
                                     @endphp
+                                    @if($isNew)
+                                    <script>
+                                        // New property: the page is rendered before the type is chosen, so picking "For Rental" must
+                                        // change what the page SAYS at once - the header chip and the price box (that number is the rent).
+                                        document.addEventListener('DOMContentLoaded', function () {
+                                            var sel = document.getElementById('prop-listing-type'), lab = document.getElementById('prop-price-label');
+                                            if (!sel) return;
+                                            var sync = function () {
+                                                var rental = sel.value === 'rental';
+                                                document.querySelectorAll('[data-listing-chip]').forEach(function (c) { c.textContent = rental ? 'For Rent' : 'For Sale'; });
+                                                if (lab) lab.innerHTML = (rental ? 'Monthly rent (ZAR)' : 'Price (ZAR)') + ' <span class="prop-required">*</span>';
+                                            };
+                                            sel.addEventListener('change', sync); sync();
+                                        });
+                                    </script>
+                                    @endif
                                     <select name="listing_type" class="prop-select prop-field-enum" id="prop-listing-type">
                                         <option value="sale"   {{ old('listing_type', $property->listing_type ?? 'sale') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                                         <option value="rental" {{ old('listing_type', $property->listing_type ?? 'sale') === 'rental' ? 'selected' : '' }}>For Rental</option>
@@ -2168,7 +2169,7 @@
                     <div x-show="info.pricing" x-collapse class="prop-section-body space-y-4">
                         <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" x-data="{ showPriceModal: false }">
                             <div class="relative" data-tour="prop-info-price">
-                                <label class="prop-label">
+                                <label class="prop-label" id="prop-price-label">
                                     {{ $property->isRental() ? 'Sale Price (ZAR)' : 'Price (ZAR)' }}
                                     @unless($property->isRental())<span class="prop-required">*</span>@endunless
                                 </label>
@@ -3163,7 +3164,7 @@
                                             </div>
                                             <div>
                                                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">District / Municipality</label>
-                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Ray Nkonyeni" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                                <input type="text" name="district" value="{{ old('district', $property->district) }}" placeholder="e.g. Municipality or district" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                             </div>
                                         </div>
                                         <div>
@@ -3179,7 +3180,7 @@
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Region</label>
-                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="KZN South Coast" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                                            <input type="text" name="region" value="{{ old('region', $property->region) }}" placeholder="e.g. Region or area" autocomplete="off" class="w-full rounded-md px-3 py-1.5 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                                         </div>
                                         <div>
                                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-secondary);">Internal Note</label>
@@ -3444,6 +3445,14 @@
                                     // dates. Changing the status or picking an expiry date takes it over as a
                                     // normal listing, with today's dates (PropertyController::update).
                                     $importedFields = ! $isNew && $property->isUntouchedImportedStock();
+                                    // 2026-09-30 field audit — this always fell back to created_at (when the
+                                    // ROW was created), ignoring the actual listed_date column entirely. Never
+                                    // wrong for a normal property (they're usually the same day), but Other
+                                    // Agency Stock deliberately sets listed_date to the PORTAL's own real
+                                    // listing date (from P24's "Listing Date" row) — created_at is just
+                                    // whenever the import happened, e.g. today. isImportedStock() is false for
+                                    // OAS (it checks a different, legacy p24_imported_at column), so this
+                                    // branch is exactly the one OAS properties hit.
                                     $listedDateValue = $importedFields
                                         ? now()->format('Y-m-d')   // what a takeover will set; also the earliest expiry
                                         : (($property->listed_date ?? $property->created_at)?->format('Y-m-d') ?? now()->format('Y-m-d'));
@@ -3473,7 +3482,7 @@
                                                class="prop-input prop-field-lifecycle"
                                                style="color-scheme: light dark; opacity:.75; cursor:not-allowed;"
                                                title="Listed Date is always the date the property was loaded">
-                                        @if(!$isNew)
+                                        @if(!$isNew && auth()->user()->hasPermission('properties.listed_date.correct'))
                                         <button type="button" class="text-xs underline mt-1" style="color:var(--brand-default);"
                                                 onclick="window.dispatchEvent(new CustomEvent('open-listed-date-fix'))">Correct listed date</button>
                                         @endif
@@ -4510,6 +4519,50 @@
              any save. --}}
         @if($isNew || $property->listing_type_pending || strtolower($property->listing_type ?? '') === 'rental')
         <div x-show="activeTab === 'rental'" x-cloak class="p-6 space-y-4">
+            {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access
+                 invited from here too, same mechanism as the Lease Hub. --}}
+            @unless($isNew)
+                @php
+                    // AT-445 regression (2026-10-05, 6b14f9e4c) -- the inline
+                    // one-liner form's own extraction regex is NOT paren-
+                    // balance-aware: it closes the directive at the FIRST
+                    // literal ')' it finds, which here was leases()'s own
+                    // empty parens -- not the one actually closing this
+                    // statement. Everything from ->where(...) onward was
+                    // left as literal, uncompiled text, and because Blade's
+                    // single-pass compiler had already moved past this
+                    // point, every directive/echo for the rest of this tab
+                    // panel (lease_period, showLeaseType, has_deposit, the
+                    // AT-402/rental-work-orders/rentals-faults-work-orders
+                    // comments) rendered as raw Blade source instead of
+                    // compiling. Block form has no such regex -- the closing
+                    // php-block tag is a literal token match, not a paren
+                    // count. IMPORTANT: never write the literal opening or
+                    // closing php-block tag name inside ANY comment in this
+                    // file -- Blade extracts raw php blocks BEFORE stripping
+                    // comments, so the token is live even inside a comment.
+                    $currentLease = $property->leases()->where('status', 'active')->first();
+                @endphp
+                <div class="rounded-md p-4 space-y-3" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <h2 class="text-sm font-semibold">Portal access</h2>
+                    @if($currentLease)
+                        @forelse($currentLease->tenantContacts() as $tenantContact)
+                            <p class="text-xs font-medium">Tenant: {{ $tenantContact->full_name }}</p>
+                            @include('corex.contacts.partials.client-app-access', ['contact' => $tenantContact])
+                        @empty
+                        @endforelse
+                    @else
+                        <p class="text-xs" style="color: var(--text-muted);">No active lease — invite a tenant from the Lease Hub once one exists.</p>
+                    @endif
+                    @forelse($property->contactsForRole('landlord')->merge($property->contactsForRole('lessor'))->unique('id') as $landlordContact)
+                        <p class="text-xs font-medium">Landlord: {{ $landlordContact->full_name }}</p>
+                        @include('corex.contacts.partials.client-app-access', ['contact' => $landlordContact])
+                    @empty
+                        <p class="text-xs" style="color: var(--text-muted);">No landlord linked to this property yet.</p>
+                    @endforelse
+                </div>
+            @endunless
+
             @if($isNew || $property->listing_type_pending)
                 {{-- The property may not exist yet (or is mid type-change), so
                      the dedicated rental-details action below can't be used —
@@ -4594,15 +4647,27 @@
                         <label class="prop-label">Marketing Fee (R)</label>
                         <input type="number" name="marketing_fee" form="prop-update-form" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                     </div>
-                    {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
-                         ruling 2026-09-29 — the amount this property's
-                         landlord permits an agent to approve on a repair
-                         quote without going back to them. Blank uses the
-                         agency's own default. The lease screen shows this
-                         value read-only, sourced from here. --}}
+                    {{-- BUILD 2 (.ai/specs/rental-work-orders.md §17.6.2) — the no-approval limit and the variation tolerance are no
+                         longer fields of this form: the owner's work terms have their own panel (and history) on a SETTLED
+                         rental property's Rental tab. This duplicate input never saved anything and has been removed. --}}
+                    {{-- .ai/specs/rentals-faults-work-orders.md §3 — so a tenant's
+                         fault first-aid screen can tell them exactly where to look
+                         ("Your main water valve is at: <location>"). --}}
                     <div>
-                        <label class="prop-label">No-Approval Spend Threshold (R)</label>
-                        <input type="number" name="rental_no_approval_spend_threshold" form="prop-update-form" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
+                        <label class="prop-label">Main Water Valve Location</label>
+                        <input type="text" name="rental_main_water_valve_location" form="prop-update-form" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
+                        @if($property->rental_main_water_valve_photo_path)
+                            <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-1 rounded-md max-h-14">
+                        @endif
+                        <input type="file" name="rental_main_water_valve_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="prop-label">DB Board Location</label>
+                        <input type="text" name="rental_db_board_location" form="prop-update-form" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
+                        @if($property->rental_db_board_photo_path)
+                            <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-1 rounded-md max-h-14">
+                        @endif
+                        <input type="file" name="rental_db_board_photo" form="prop-update-form" accept="image/*" class="mt-2 text-sm">
                     </div>
                     {{-- AT-402 Part 4 — Furnished Status (agency-managed list,
                          Settings → Properties & Listings), move-in Availability
@@ -4644,11 +4709,12 @@
                      below (those are the property's ASKING terms; a lease's
                      rental_amount is the AGREED terms for a specific tenancy —
                      leases.md §6 is explicit these are not the same fact). --}}
-                {{-- Block form, never the one-liner @php(...) -- see this file's own
+                {{-- Block form, never the inline one-liner -- see this file's own
                      AT-243/AT-252 comment ~280 lines below (Linked Contacts section)
                      for exactly why: the one-liner has no guard in Blade's raw-PHP
-                     extraction regex and swallows every line up to the next @endphp
-                     in the whole file. --}}
+                     extraction regex and swallows every line up to the next closing
+                     php-block tag in the whole file. (Never write the literal php-block
+                     tag names inside any comment here -- see the AT-445 comment above.) --}}
                 @php
                     $activeLease = \App\Models\Lease::where('property_id', $property->id)->where('status', 'active')->with('tenants.contact')->first();
                 @endphp
@@ -4661,15 +4727,69 @@
                                 ({{ $activeLease->start_date?->format('Y-m-d') }}
                                 &ndash; {{ $activeLease->end_date?->format('Y-m-d') ?? ($activeLease->is_month_to_month ? 'month-to-month' : 'no end date') }})
                             </div>
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.show', $activeLease) }}" class="corex-btn-outline text-xs">View lease</a>
+                            @endfeature
                         </div>
                     @else
                         <div class="flex items-center justify-between">
                             <span style="color: var(--text-muted);">No active lease on this property.</span>
                             @permission('leases.create')
+                            @feature('rental-leases')
                             <a href="{{ route('corex.leases.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">Create lease</a>
+                            @endfeature
                             @endpermission
                         </div>
+                    @endif
+                </div>
+
+                @permission('rental_applications.create')
+                @feature('rental-applications')
+                <div class="flex items-center justify-between rounded-md p-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border);" data-test="property-new-application">
+                    <span style="color: var(--text-muted);">A tenant wants this property?</span>
+                    <a href="{{ route('corex.rental-applications.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs">New rental application</a>
+                </div>
+                @endfeature
+                @endpermission
+
+                {{-- AT-440 Lease Hub — shared rental context bar (leases.md
+                     §12.4 / rentals-foundation-at439.md §5), ONE include, no
+                     per-screen reimplementation. --}}
+                <x-rental-context-bar :property="$property" :lease="$activeLease" current="property" />
+
+                {{-- .ai/specs/leases.md §12.6 — occupancy history: every PAST
+                     lease on this property, newest first. This is the "who
+                     stayed when" record the Stage-1 audit found missing
+                     (audit Part 1 item 3 / Part 5 top-gap #7) — the active-
+                     lease box above answers "who lives here now"; this
+                     answers "who lived here before." Superseded plan: no
+                     second active-lease summary here, linking straight to
+                     the Lease Hub instead (Screen rule: no fact shown twice). --}}
+                @php
+                    $pastLeases = \App\Models\Lease::where('property_id', $property->id)
+                        ->whereIn('status', ['expired', 'cancelled'])
+                        ->with('tenants.contact')
+                        ->orderByDesc('start_date')
+                        ->get();
+                @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: var(--surface-2); border: 1px solid var(--border);">
+                    <strong>Occupancy history</strong>
+                    @if($pastLeases->isEmpty())
+                        <div style="color: var(--text-muted);">No past tenancies recorded on this property.</div>
+                    @else
+                        <ul class="space-y-1">
+                            @foreach($pastLeases as $pastLease)
+                                <li class="flex items-center justify-between">
+                                    <span>{{ $pastLease->tenantNames() }}
+                                        — {{ $pastLease->start_date?->format('Y-m-d') }}
+                                        to {{ $pastLease->end_date?->format('Y-m-d') ?? '—' }}
+                                        ({{ ucfirst($pastLease->status) }})</span>
+                                    @feature('rental-leases')
+                                    <a href="{{ route('corex.leases.show', $pastLease) }}" class="text-xs underline">View</a>
+                                    @endfeature
+                                </li>
+                            @endforeach
+                        </ul>
                     @endif
                 </div>
 
@@ -4685,7 +4805,9 @@
                     <div class="flex items-center justify-between">
                         <strong>Fault reports</strong>
                         @permission('rental_fault_reports.create')
+                        @feature('rental-faults')
                         <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
+                        @endfeature
                         @endpermission
                     </div>
                     @if($recentFaultReports->isEmpty())
@@ -4695,7 +4817,9 @@
                             @foreach($recentFaultReports as $fr)
                                 <li class="flex items-center justify-between">
                                     <span>{{ $fr->title }} — {{ ucfirst(str_replace('_', ' ', $fr->status)) }}</span>
+                                    @feature('rental-faults')
                                     <a href="{{ route('corex.rental-fault-reports.show', $fr) }}" class="text-xs underline">View</a>
+                                    @endfeature
                                 </li>
                             @endforeach
                         </ul>
@@ -4712,7 +4836,9 @@
                     <div class="flex items-center justify-between">
                         <strong>Work orders</strong>
                         @permission('rental_work_orders.create')
+                        @feature('rental-work-orders')
                         <a href="{{ route('corex.rental-work-orders.create', array_filter(['property_id' => $property->id, 'lease_id' => $activeLease?->id])) }}" class="corex-btn-outline text-xs">Work order</a>
+                        @endfeature
                         @endpermission
                     </div>
                     @if($recentWorkOrders->isEmpty())
@@ -4722,7 +4848,9 @@
                             @foreach($recentWorkOrders as $wo)
                                 <li class="flex items-center justify-between">
                                     <span>{{ $wo->title }} — {{ ucfirst(str_replace('_', ' ', $wo->status)) }}</span>
+                                    @feature('rental-work-orders')
                                     <a href="{{ route('corex.rental-work-orders.show', $wo) }}" class="text-xs underline">View</a>
+                                    @endfeature
                                 </li>
                             @endforeach
                         </ul>
@@ -4734,10 +4862,17 @@
                      validation, its own DB transaction, the same
                      authorizeProperty() OWN/BRANCH/AGENCY scoping every other
                      property write already uses. --}}
-                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" class="space-y-4">
+                {{-- Johan, QA1, 2026-10-07 — compact: four label-over-input columns that line up, no spare padding.
+                     Scoped to this form only (the .rental-compact overrides below). --}}
+                <style>
+                    .rental-compact .prop-label { margin-bottom: 2px; font-size: 11px; }
+                    .rental-compact .prop-input, .rental-compact .prop-select { padding-top: 4px; padding-bottom: 4px; font-size: 12px; min-height: 30px; }
+                    .rental-compact .rc-check { min-height: 30px; }
+                </style>
+                <form method="POST" action="{{ route('corex.properties.rental-details.update', $property) }}" enctype="multipart/form-data" class="space-y-2 rental-compact">
                     @csrf
                     @method('PUT')
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-2 lg:grid-cols-4 gap-x-3 gap-y-2 items-end">
                         <div>
                             {{-- .ai/specs/rental-property-tab.md §3, Part 3
                                  (Johan, 2026-09-21) — ONE price type, ONE
@@ -4764,13 +4899,37 @@
                                 @endforeach
                             </select>
                         </div>
-                        <div>
-                            <label class="prop-label">Lease Start Date</label>
-                            <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
-                        </div>
-                        <div>
-                            <label class="prop-label">Lease End Date</label>
-                            <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                        {{-- Johan, QA1, 2026-10-07 — ONE source of truth. While a lease is active these show ITS dates,
+                             read-only and not posted (the lease owns them; change them on the lease). Only with no active
+                             lease are they this property's own editable dates (also the portal "available from" date,
+                             rental-renewals.md §19), so two places can never hold different dates. --}}
+                        @if($activeLease)
+                            <div>
+                                <label class="prop-label">Lease Start Date</label>
+                                <input type="date" value="{{ $activeLease->start_date?->format('Y-m-d') }}" disabled class="prop-input prop-field-date" style="color-scheme: light dark;" title="From the active lease" data-test="property-lease-start-from-lease">
+                            </div>
+                            <div>
+                                <label class="prop-label">Lease End Date</label>
+                                <input type="date" value="{{ $activeLease->end_date?->format('Y-m-d') }}" disabled class="prop-input prop-field-date" style="color-scheme: light dark;" title="{{ $activeLease->end_date ? 'From the active lease' : ($activeLease->is_month_to_month ? 'Month-to-month' : 'No end date on the lease') }}" data-test="property-lease-end-from-lease">
+                            </div>
+                        @else
+                            <div>
+                                <label class="prop-label">Lease Start Date</label>
+                                <input type="date" name="lease_start_date" value="{{ old('lease_start_date', $property->lease_start_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                            </div>
+                            <div>
+                                <label class="prop-label">Lease End Date</label>
+                                <input type="date" name="lease_end_date" value="{{ old('lease_end_date', $property->lease_end_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
+                            </div>
+                        @endif
+                        {{-- .ai/specs/rental-renewals.md §19 — whether Lease Start
+                             Date (reused as "available from") reaches Property24/
+                             Private Property. Also offered as a one-off tick on the
+                             Lease Hub's notice dialogs, which persists onto this
+                             same setting. --}}
+                        <div class="flex items-center gap-2 rc-check">
+                            <input type="checkbox" id="show_available_from_on_portals" name="show_available_from_on_portals" value="1" {{ old('show_available_from_on_portals', $property->show_available_from_on_portals) ? 'checked' : '' }} class="rounded">
+                            <label for="show_available_from_on_portals" class="prop-label !mb-0">Show available-from date on portals</label>
                         </div>
                         {{-- AT-402 Part 2 — moved from the old Pricing Details popup,
                              which showed these to every property, sale included. --}}
@@ -4795,7 +4954,7 @@
                             </select>
                         </div>
                         @endif
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_has_deposit_settled" name="has_deposit" value="1" {{ old('has_deposit', $property->has_deposit) ? 'checked' : '' }} class="rounded">
                             <label for="rental_has_deposit_settled" class="prop-label !mb-0">Has Deposit</label>
                         </div>
@@ -4816,15 +4975,22 @@
                             <label class="prop-label">Marketing Fee (R)</label>
                             <input type="number" name="marketing_fee" value="{{ old('marketing_fee', $property->marketing_fee) }}" placeholder="optional" min="0" step="0.01" class="prop-input prop-field-money">
                         </div>
-                        {{-- .ai/specs/rental-work-orders.md §3.4b/§3.4c, Johan's
-                             ruling 2026-09-29 — the amount this property's
-                             landlord permits an agent to approve on a repair
-                             quote without going back to them. Blank uses the
-                             agency's own default. The lease screen shows this
-                             value read-only, sourced from here. --}}
-                        <div>
-                            <label class="prop-label">No-Approval Spend Threshold (R)</label>
-                            <input type="number" name="rental_no_approval_spend_threshold" value="{{ old('rental_no_approval_spend_threshold', $property->rental_no_approval_spend_threshold) }}" placeholder="Agency default" min="0" step="0.01" class="prop-input prop-field-money">
+                        {{-- .ai/specs/rentals-faults-work-orders.md §3 --}}
+                        <div class="col-span-2">
+                            <label class="prop-label">Main Water Valve Location</label>
+                            <input type="text" name="rental_main_water_valve_location" value="{{ old('rental_main_water_valve_location', $property->rental_main_water_valve_location) }}" placeholder="e.g. outside, left of the front door" maxlength="255" class="prop-input">
+                            @if($property->rental_main_water_valve_photo_path)
+                                <img src="{{ $property->rental_main_water_valve_photo_path }}" alt="Main water valve" class="mt-1 rounded-md max-h-14">
+                            @endif
+                            <input type="file" name="rental_main_water_valve_photo" accept="image/*" class="mt-2 text-sm">
+                        </div>
+                        <div class="col-span-2">
+                            <label class="prop-label">DB Board Location</label>
+                            <input type="text" name="rental_db_board_location" value="{{ old('rental_db_board_location', $property->rental_db_board_location) }}" placeholder="e.g. garage, back wall" maxlength="255" class="prop-input">
+                            @if($property->rental_db_board_photo_path)
+                                <img src="{{ $property->rental_db_board_photo_path }}" alt="DB board" class="mt-1 rounded-md max-h-14">
+                            @endif
+                            <input type="file" name="rental_db_board_photo" accept="image/*" class="mt-2 text-sm">
                         </div>
                         {{-- AT-402 Part 4 — Furnished Status (agency-managed
                              list), move-in Availability date (the existing
@@ -4842,15 +5008,15 @@
                             <label class="prop-label">Availability Date</label>
                             <input type="date" name="occupation_date" value="{{ old('occupation_date', $property->occupation_date?->format('Y-m-d')) }}" class="prop-input prop-field-date" style="color-scheme: light dark;">
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_water_included_settled" name="water_included" value="1" {{ old('water_included', $property->water_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_water_included_settled" class="prop-label !mb-0">Water Included</label>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_electricity_included_settled" name="electricity_included" value="1" {{ old('electricity_included', $property->electricity_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_electricity_included_settled" class="prop-label !mb-0">Electricity Included</label>
                         </div>
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 rc-check">
                             <input type="checkbox" id="rental_levies_included_settled" name="levies_included" value="1" {{ old('levies_included', $property->levies_included) ? 'checked' : '' }} class="rounded">
                             <label for="rental_levies_included_settled" class="prop-label !mb-0">Levies Included</label>
                         </div>
@@ -4868,7 +5034,7 @@
                                 $cfValue = old($cfOldKey, $property->rental_details_custom_field_values[$customField->key] ?? null);
                             @endphp
                             @if($customField->field_type === \App\Models\PropertyRentalDetailsCustomField::TYPE_YES_NO)
-                                <div class="flex items-center gap-2">
+                                <div class="flex items-center gap-2 rc-check">
                                     {{-- Hidden + checkbox, not a bare checkbox — an unticked
                                          box must still submit "0" so a REQUIRED yes/no field
                                          is answered (explicitly No), not merely absent. --}}
@@ -4897,6 +5063,12 @@
                         <button type="submit" class="corex-btn-primary text-sm">Save Rental Details</button>
                     </div>
                 </form>
+
+                {{-- rentals-faults-work-orders.md section 22 - "How the owner wants faults handled": the OWNER's own limits, with evidence, confirm and dispute. --}}
+                @include('corex.properties._rental-owner-fault-settings')
+
+                {{-- rentals-faults-work-orders.md section 21 - "Who looks at faults first": up to three ordered first responders, with the owner's default behind them. --}}
+                @include('corex.properties._rental-first-responders')
             @endif
         </div>
         @endif
@@ -4945,10 +5117,12 @@
                     itemStore: '{{ route('corex.properties.rental-inspection-items.store', $property) }}',
                     itemsReorder: '{{ route('corex.properties.rental-inspection-items.reorder', $property) }}',
                     seedFromAdvertising: '{{ route('corex.properties.rental-inspection-items.seed-from-advertising', $property) }}',
+                    seedFromStandard: '{{ route('corex.properties.rental-inspection-items.seed-from-standard', $property) }}',
                     startInspection: '{{ route('corex.properties.rental-inspections.start', $property) }}',
                     nextInspectionBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspections') }}',
                     roomsReorder: '{{ route('corex.properties.rental-inspection-rooms.reorder', $property) }}',
                     roomsApplyDefaultOrder: '{{ route('corex.properties.rental-inspection-rooms.apply-default-order', $property) }}',
+                    roomsMissingStandardBase: '{{ url('/corex/properties/'.$property->id.'/rental-inspection-rooms') }}',
                     // §20.15 — compare view match/unmatch. Base only for the
                     // destroy route since it needs a match id appended at
                     // call time (the id is not known until a match exists).
@@ -4989,7 +5163,7 @@
                     // screen's own photos-visible/problem-filter preference,
                     // per user, not per-inspection — no id appended at call
                     // time, unlike every other inspectionUrls entry above.
-                    screenPreference: '{{ route('corex.rental-inspections.screen-preference') }}'
+                    screenPreference: '@feature('rental-inspections'){{ route('corex.rental-inspections.screen-preference') }}@endfeature'
                 },
                 inspectionData: {{ Js::from(\App\Models\RentalInspection::tabPayloadFor($property)) }},
                 {{-- Item 8, 2026-09-22 — "the property already knows it."
@@ -5131,14 +5305,20 @@
                          panels below have nothing to record against either. --}}
                     <div x-show="!activeItems().length" class="space-y-2">
                         <p class="text-xs" style="color:var(--text-muted);">
-                            No inspection items yet. Build this property's inspection form from its
+                            No inspection items yet. Build the rooms from your agency's standard checklist for this kind of
+                            property (edit the checklist under Settings → Inspections), build them from this property's
                             advertising Spaces and ticked Features, or add rooms and meters by hand
                             below — e.g. "Bedroom 1", "Water meter". In and Out Inspection can't record
                             anything until at least one item exists here.
                         </p>
-                        <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
-                                class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" :disabled="seedBusy" @click="seedFromStandard()" data-qa="build-standard-rooms"
+                                    class="px-4 py-2 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                    x-text="seedBusy ? 'Building…' : 'Build rooms from the standard checklist'"></button>
+                            <button type="button" :disabled="seedBusy" @click="seedFromAdvertising()"
+                                    class="px-4 py-2 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-secondary);"
+                                    x-text="seedBusy ? 'Building…' : 'Build from advertising details'"></button>
+                        </div>
                     </div>
 
                     {{-- 2026-09-21, Johan on property 5792 — "no logical way to line
@@ -5194,12 +5374,41 @@
                                 {{-- Johan: "the agent must be able to reorder rooms
                                      themselves and have it stick." --}}
                                 <div x-show="group.room" class="flex items-center gap-1">
+                                    {{-- §45.4 item 2 (Build I-2): bring THIS room up to the agency's
+                                         current standard checklist. Preview first, add only what the
+                                         agent confirms; existing items are never touched. --}}
+                                    <button type="button" :disabled="itemBusy" @click="previewTopUp(group.room)"
+                                            class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--brand-button,#0ea5e9);">Add missing standard items</button>
                                     <button type="button" :disabled="itemBusy" @click="moveRoomUp(group.room)"
                                             class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move up</button>
                                     <button type="button" :disabled="itemBusy" @click="moveRoomDown(group.room)"
                                             class="text-xs font-semibold px-2 py-0.5 rounded-md" style="color:var(--text-muted);">Move down</button>
                                 </div>
                             </div>
+                            <template x-if="group.room && topUp && topUp.roomId === group.room.id">
+                                <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2); border:1px solid var(--border);">
+                                    <p x-show="topUp.loading" class="text-xs" style="color:var(--text-muted);">Checking this room against your standard checklist…</p>
+                                    <p x-show="topUp.error" class="text-xs" style="color:var(--ds-crimson);" x-text="topUp.error"></p>
+                                    <template x-if="!topUp.loading && !topUp.error && topUp.missing.length === 0">
+                                        <p class="text-xs" style="color:var(--text-secondary);">This room already has every item on your standard checklist for its room type. Nothing to add.</p>
+                                    </template>
+                                    <template x-if="!topUp.loading && !topUp.error && topUp.missing.length > 0">
+                                        <div class="space-y-2">
+                                            <p class="text-xs font-semibold" style="color:var(--text-secondary);">These standard items are not on this room yet. Untick any you do not want, then add them. Items already on the room are not changed.</p>
+                                            <template x-for="label in topUp.missing" :key="label">
+                                                <label class="flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                                    <input type="checkbox" :value="label" x-model="topUp.chosen"> <span x-text="label"></span>
+                                                </label>
+                                            </template>
+                                            <p x-show="topUp.present.length" class="text-[11px]" style="color:var(--text-muted);">Already on this room, not added again: <span x-text="topUp.present.join(', ')"></span></p>
+                                            <button type="button" :disabled="itemBusy || !topUp.chosen.length" @click="applyTopUp()"
+                                                    class="px-3 py-1.5 rounded-md text-xs font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                                    x-text="itemBusy ? 'Adding…' : 'Add ' + topUp.chosen.length + ' item' + (topUp.chosen.length === 1 ? '' : 's')"></button>
+                                        </div>
+                                    </template>
+                                    <button type="button" @click="topUp = null" class="text-xs font-semibold" style="color:var(--text-muted);">Close</button>
+                                </div>
+                            </template>
                             <template x-for="item in group.items" :key="item.id">
                                 <div class="flex items-center justify-between py-1.5 pl-3 flex-wrap gap-1" style="border-bottom:1px solid var(--border);">
                                     <template x-if="renamingItemId !== item.id">
@@ -5224,8 +5433,8 @@
                                             <div class="flex items-center gap-1">
                                                 <select x-model="assignTypeChoice[item.id]" class="prop-input text-xs" style="max-width:9rem;">
                                                     <option value="">Give it a room type…</option>
-                                                    @foreach(config('property-spaces.all_space_types', []) as $spaceType)
-                                                        <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                                                    @foreach(\App\Models\RentalInspectionSetting::roomTypeOptionsFor($property->agency_id) as $roomTypeOption)
+                                                        <option value="{{ $roomTypeOption['key'] }}">{{ $roomTypeOption['label'] }}</option>
                                                     @endforeach
                                                 </select>
                                                 <button type="button" :disabled="itemBusy || !assignTypeChoice[item.id]" @click="assignType(item)"
@@ -5272,8 +5481,8 @@
                              so this picker renders server-side rather than trust it. --}}
                         <select x-show="newItem.kind === 'space'" x-model="newItem.space_type" class="prop-input" style="max-width:10rem;">
                             <option value="">Room type…</option>
-                            @foreach(config('property-spaces.all_space_types', []) as $spaceType)
-                                <option value="{{ $spaceType }}">{{ $spaceType }}</option>
+                            @foreach(\App\Models\RentalInspectionSetting::roomTypeOptionsFor($property->agency_id) as $roomTypeOption)
+                                <option value="{{ $roomTypeOption['key'] }}">{{ $roomTypeOption['label'] }}</option>
                             @endforeach
                         </select>
                         {{-- Which EXISTING room the item goes into — this is the control
@@ -5328,7 +5537,7 @@
                                      as the pre-chain version (2026-09-22) — a
                                      ternary that returns a real empty string. --}}
                                 <span x-show="chainTail" class="ml-2 text-xs" style="color:var(--text-muted);"
-                                      x-text="chainTail ? ((chainTail.type === 'out' ? 'Out' : (chainTail.type === 'in' ? 'In' : 'Routine')) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
+                                      x-text="chainTail ? (inspectionTypeLabel(chainTail.type) + ' — ' + chainTail.status.replace('_',' ') + (activeItems().length ? ' · ' + inspectionProgress(tailSection()).recorded + '/' + inspectionProgress(tailSection()).total : '')) : ''"></span>
                             </h3>
                             <svg class="prop-section-chevron" :class="open['inspection'] ? 'is-open' : ''" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
                         </button>
@@ -5362,19 +5571,28 @@
                                  AND a tail to compare, same precondition
                                  runAutoPair() itself checks. --}}
                             <div x-show="chainTail && chainPredecessor" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
-                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair()"
+                                <button type="button" data-qa="auto-pair" :disabled="autoPairBusy" @click="runAutoPair(true)"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                                        title="Link any obviously-matching photos between this inspection and its predecessor.">
+                                        title="Pair the photos of each item with the same item's photos on the previous inspection, first with first, second with second.">
                                     <span x-text="autoPairBusy ? 'Pairing…' : 'Auto-pair'"></span>
                                 </button>
+                                {{-- 2026-10-14 — the button used to give no sign it had run. --}}
+                                <span x-show="autoPairMessage" x-cloak data-qa="auto-pair-result" class="text-xs font-semibold" style="color:var(--text-secondary);" x-text="autoPairMessage"></span>
                             </div>
                             <div x-show="chainTail" x-cloak class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
                                 <span x-show="nextError" x-cloak class="text-xs" style="color:#ef4444;" x-text="nextError"></span>
                                 <span class="text-xs font-semibold" style="color:var(--text-secondary);"
                                       title="Compares against this inspection's own recorded condition, room by room.">Next inspection:</span>
-                                <select x-model="nextType" class="prop-input text-xs" style="max-width:11rem;">
-                                    <option value="ad_hoc">Routine (mid-tenancy)</option>
-                                    <option value="out">Out</option>
+                                {{-- §49 — Johan, 8 Oct 2026: all four types, with the meaning beside each; an In is greyed out
+                                     (and says why) once the tenancy already has one. --}}
+                                <select x-model="nextType" class="prop-input text-xs" style="max-width:15rem;" data-qa="next-type">
+                                    @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
+                                        @if($opt['value'] === 'in')
+                                            <option value="in" :disabled="!!(chainTail && chainTail.lease_in_inspection_id)" x-text="'{{ $opt['text'] }}' + ((chainTail && chainTail.lease_in_inspection_id) ? ' — already recorded for this tenancy' : '')">{{ $opt['text'] }}</option>
+                                        @else
+                                            <option value="{{ $opt['value'] }}">{{ $opt['text'] }}</option>
+                                        @endif
+                                    @endforeach
                                 </select>
                                 <button type="button" data-qa="next-inspection" :disabled="nextBusy" @click="nextInspection(nextType)"
                                         class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
@@ -5393,7 +5611,7 @@
                                  this page (share-actions.blade.php). --}}
                             <div x-show="chainTail && chainTail.status === 'completed'" x-cloak
                                  class="flex items-center gap-2 flex-none flex-wrap lg:flex-nowrap pr-3">
-                                <a :href="inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report'"
+                                <a :href="chainTail ? inspectionUrls.inspectionsBase + '/' + chainTail.id + '/report' : '#'"
                                    target="_blank" rel="noopener"
                                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
                                     Download report
@@ -5419,7 +5637,7 @@
                                             <div class="space-y-2">
                                                 <p class="text-xs font-semibold" style="color:var(--text-primary);">Send the signed report to:</p>
                                                 <ul class="text-xs space-y-0.5" style="color:var(--text-secondary);">
-                                                    <template x-for="r in reportRecipients()" :key="r.email">
+                                                    <template x-for="(r, i) in reportRecipients()" :key="i + '|' + r.email">
                                                         <li x-text="r.name + ' (' + r.role + ') — ' + r.email"></li>
                                                     </template>
                                                 </ul>
@@ -5436,7 +5654,7 @@
                                         </template>
                                         <template x-if="resendResult">
                                             <div class="space-y-1">
-                                                <template x-for="r in resendResult" :key="r.email">
+                                                <template x-for="(r, i) in resendResult" :key="i + '|' + r.email">
                                                     <p class="text-xs" :style="r.status === 'sent' ? 'color:var(--ds-green,#059669);' : 'color:var(--ds-crimson);'" x-text="(r.status === 'sent' ? '✓ ' : '✗ ') + r.email"></p>
                                                 </template>
                                                 <div class="flex justify-end pt-1">
@@ -5458,10 +5676,18 @@
                              predecessor (RentalInspection::startNext()). --}}
                         <template x-if="!chainTail">
                             <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
-                                <div x-show="startError['in']" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError['in']"></div>
-                                <button type="button" :disabled="startBusy['in']" @click="startInspection('in')"
-                                        class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
-                                        x-text="startBusy['in'] ? 'Starting…' : 'Start In-Inspection'"></button>
+                                {{-- §49 — Johan, 8 Oct 2026: the first inspection of a property can be any of the four types, not only an In. --}}
+                                <div x-show="startError[startType]" x-cloak class="text-xs mb-2" style="color:#ef4444;" x-text="startError[startType]"></div>
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <select x-model="startType" class="prop-input text-xs" style="max-width:20rem;" data-qa="start-type">
+                                        @foreach(\App\Models\RentalInspection::typePickerOptions() as $opt)
+                                            <option value="{{ $opt['value'] }}">{{ $opt['text'] }}</option>
+                                        @endforeach
+                                    </select>
+                                    <button type="button" :disabled="isStartBusy(startType)" @click="startInspection(startType)" data-qa="start-inspection"
+                                            class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);"
+                                            x-text="isStartBusy(startType) ? 'Starting…' : 'Start inspection'"></button>
+                                </div>
                             </div>
                         </template>
 
@@ -6435,17 +6661,24 @@
                 // without a full page reload) must get its own run.
                 _autoPairedForPair: null,
                 autoPairBusy: false,
+                autoPairMessage: '',
+                _autoPairMessageTimer: null,
                 async maybeAutoPairPhotos() {
                     if (!this.autoPairPhotosEnabled) return;
                     if (!this.chainPredecessor || !this.chainTail) return;
+                    // §47 — a signed or sent inspection is locked: nothing pairs itself on page open (the server refuses it too).
+                    if (this.chainTail.status === 'completed' || this.chainTail.signed_locked) return;
                     const key = this.chainPredecessor.id + ':' + this.chainTail.id;
                     if (this._autoPairedForPair === key) return;
                     this._autoPairedForPair = key;
                     await this.runAutoPair();
                 },
-                async runAutoPair() {
+                // `explicit` is true only for the button press: that one reports its result
+                // ("Paired 6 photos, 2 without a match."); the silent on-open run never does.
+                async runAutoPair(explicit = false) {
                     if (!this.chainPredecessor || !this.chainTail) return;
                     this.autoPairBusy = true;
+                    if (explicit) this.autoPairMessage = '';
                     try {
                         const res = await fetch(this.inspectionUrls.photoMatchesAutoPair, {
                             method: 'POST',
@@ -6460,6 +6693,11 @@
                         (data.groups || []).forEach(group => {
                             this._applyGroupPatch(group, (group.members || []).map(m => m.photo_id));
                         });
+                        if (explicit) {
+                            this.autoPairMessage = data.message || '';
+                            clearTimeout(this._autoPairMessageTimer);
+                            this._autoPairMessageTimer = setTimeout(() => { this.autoPairMessage = ''; }, 12000);
+                        }
                     } finally {
                         this.autoPairBusy = false;
                     }
@@ -6638,9 +6876,35 @@
                     // observation, not just the latest) showed them fine.
                     // Same source both sides now use everywhere else in
                     // this file for item photos.
-                    const photos = this.compareViewer.kind === 'room'
-                        ? this.roomPhotosForInspection(insp, this.compareViewer.roomId)
-                        : this.itemPhotosForInspection(insp, this.compareViewer.itemId);
+                    return this.compareViewerSidePhotos(side, this.compareViewer.kind, this.compareViewer.roomId, this.compareViewer.itemId);
+                },
+                // 2026-10-14 (Johan, property 21222: the viewer chips read
+                // "Ceiling 0 / 0", "Walls 3 / 0" while the strips showed 3 IN
+                // and 4 OUT photos on Ceiling) — ONE resolver for "which
+                // photos does this side have for this room/item", used by
+                // the rails AND the chip counts, and reading the SAME
+                // sources the strips read: the predecessor through the
+                // plain inspection object (every observation's photos), the
+                // current (tail) inspection through the live uploader cache
+                // (itemPhotosFor()/roomPhotosFor(), exactly what
+                // pairedStripRows() uses for the tail). The tail used to be
+                // read off chainTail.observations[].photos — the payload as
+                // loaded with the page — so any photo uploaded after page
+                // load, and any item whose newest observation was a
+                // photo-less re-assessment, silently counted as zero.
+                compareViewerSidePhotos(side, kind, roomId, itemId) {
+                    const insp = side === 'left' ? this.chainPredecessor : this.chainTail;
+                    if (!insp) return [];
+                    let photos;
+                    if (side === 'right' && this.photoUploader(this.tailSection())) {
+                        photos = kind === 'room'
+                            ? this.roomPhotosFor(this.tailSection(), { id: roomId })
+                            : this.itemPhotosFor(this.tailSection(), { id: itemId });
+                    } else {
+                        photos = kind === 'room'
+                            ? this.roomPhotosForInspection(insp, roomId)
+                            : this.itemPhotosForInspection(insp, itemId);
+                    }
                     return (photos || []).filter(p => p && p.storage_path);
                 },
                 // §24.11, AT-433 Part B follow-up, 2026-09-27 — pairs first
@@ -6739,12 +7003,17 @@
                 compareViewerInspectionTypeName(side) {
                     const insp = this.compareViewerInspectionFor(side);
                     if (!insp) return 'Nothing yet';
-                    const typeLabel = insp.type === 'out' ? 'Out' : (insp.type === 'in' ? 'In' : 'Routine');
-                    return typeLabel + '-inspection';
+                    return this.inspectionTypeName(insp.type);
                 },
                 compareViewerInspectionDate(side) {
+                    // §45.3 — the PHOTO's own capture time (per photo, both sides), not just the
+                    // inspection's booked date. Falls back to the inspection's date for a pane with no
+                    // photo, and to completed/created for an inspection that was never scheduled.
+                    const photo = this.compareViewerCurrentPhoto(side);
+                    if (photo && photo.taken_caption) return photo.taken_caption;
                     const insp = this.compareViewerInspectionFor(side);
-                    return insp ? (insp.scheduled_for || '') : '';
+                    if (!insp) return '';
+                    return insp.scheduled_for || String(insp.completed_at || insp.created_at || '').slice(0, 10);
                 },
                 compareViewerPaneInspectionLabel(side) {
                     const insp = this.compareViewerInspectionFor(side);
@@ -6876,13 +7145,11 @@
                     this.compareViewerResetZoom();
                 },
                 // The chip's own "2 / 1" count — IN side / CURRENT side.
+                // Same resolver as the rails (compareViewerSidePhotos()), so the
+                // number on a chip can never disagree with what the rail lists.
                 compareViewerChipCounts(itemId) {
-                    const countFor = (insp) => {
-                        if (!insp) return 0;
-                        if (!itemId) return this.roomPhotosForInspection(insp, this.compareViewer.roomId).length;
-                        return ((this.conditionForInspection(insp, itemId) || {}).photos || []).length;
-                    };
-                    return countFor(this.chainPredecessor) + ' / ' + countFor(this.chainTail);
+                    const countFor = (side) => this.compareViewerSidePhotos(side, itemId ? 'item' : 'room', this.compareViewer.roomId, itemId).length;
+                    return countFor('left') + ' / ' + countFor('right');
                 },
                 // §27.1 — was a hardcoded conditionKey === 'good' /
                 // indexOf('damag') string check: only ever correct for an
@@ -7264,6 +7531,8 @@
 
                 itemError: '',
                 itemBusy: false,
+                // §45.4 item 2 — the open "Add missing standard items" preview, one room at a time.
+                topUp: null,
                 newItem: { kind: 'space', label: '', space_type: '', property_room_id: '' },
                 // 2026-09-21 — one pending room-type choice per legacy
                 // typeless item, keyed by item id (several can be mid-pick
@@ -7372,6 +7641,31 @@
                     try {
                         const result = await this._post(this.inspectionUrls.roomsApplyDefaultOrder, {});
                         this._applyRoomSortOrders(result.rooms);
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.itemBusy = false; }
+                },
+                // §45.4 item 2 (Build I-2) — preview the difference, then add only what
+                // the agent ticked. The server recomputes the difference on apply, so a
+                // stale preview can never add anything that is no longer missing.
+                async previewTopUp(room) {
+                    if (this.topUp && this.topUp.roomId === room.id) { this.topUp = null; return; }
+                    this.itemError = '';
+                    this.topUp = { roomId: room.id, loading: true, missing: [], present: [], chosen: [], error: '' };
+                    try {
+                        const r = await this._compareViewerNoteRequest(`${this.inspectionUrls.roomsMissingStandardBase}/${room.id}/missing-standard-items`, 'GET');
+                        this.topUp = { roomId: room.id, loading: false, missing: r.missing, present: r.present, chosen: [...r.missing], error: '' };
+                    } catch (e) {
+                        this.topUp = { roomId: room.id, loading: false, missing: [], present: [], chosen: [], error: e.message };
+                    }
+                },
+                async applyTopUp() {
+                    if (!this.topUp || !this.topUp.chosen.length) return;
+                    this.itemBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(`${this.inspectionUrls.roomsMissingStandardBase}/${this.topUp.roomId}/missing-standard-items`, { labels: this.topUp.chosen });
+                        this.items.push(...result.items);
+                        this.topUp = null;
                     } catch (e) { this.itemError = e.message; }
                     finally { this.itemBusy = false; }
                 },
@@ -7514,6 +7808,18 @@
                     finally { this.seedBusy = false; }
                 },
 
+                // §55 - the agency's standard room list for this kind of property. Offered wherever a property has no rooms
+                // (this tab's Inspection Items panel and the recording panel); the server refuses it for a property that has rooms.
+                async seedFromStandard() {
+                    this.seedBusy = true;
+                    this.itemError = '';
+                    try {
+                        const result = await this._post(this.inspectionUrls.seedFromStandard, {});
+                        this.items.push(...result.items.filter(i => !this.items.some(existing => existing.id === i.id)));
+                    } catch (e) { this.itemError = e.message; }
+                    finally { this.seedBusy = false; }
+                },
+
                 // ── Inspection recording (§14.1/§14.2, same endpoints a
                 // mobile client calls) ──────────────────────────────────────────
                 // Johan's ruling, 2026-09-23 — generalized beyond the old
@@ -7523,6 +7829,16 @@
                 // whole rule — works for any chain length without special-
                 // casing a third slot. Returns null for any other value,
                 // same as the old ternary did for an unrecognised section.
+                // One name per inspection type for every header on this tab. An interim inspection must read
+                // "Interim" (as on the list, create and due screens), never fall through to "Routine".
+                inspectionTypeLabel(type) {
+                    return type === 'out' ? 'Out' : (type === 'in' ? 'In' : (type === 'interim' ? 'Interim' : 'Routine'));
+                },
+                // Same sentence form as RentalInspection::typeName(): "In-inspection", "Out-inspection", "Routine inspection".
+                inspectionTypeName(type) {
+                    const l = this.inspectionTypeLabel(type);
+                    return (type === 'in' || type === 'out') ? l + '-inspection' : l + ' inspection';
+                },
                 currentInspection(section) { return (this.chainTail && this.chainTail.type === section) ? this.chainTail : null; },
                 // The read-only left panel — always this inspection's own
                 // predecessor, never resolved by type. Null for the first
@@ -7542,6 +7858,10 @@
                 },
 
                 startBusy: {},
+                // AT-437 class guard, 2026-10-07 — coerced to a real boolean like isObsBusy()/
+                // isMarkGoodBusy(); no boolean-attribute binding on this screen reads a
+                // lazily-populated object directly any more (RentalInspectionDeadControlGuardTest).
+                isStartBusy(section) { return !!this.startBusy[section]; },
                 startError: {},
 
                 // FIX, 2026-09-22, Johan: "the screen does not refresh after
@@ -7570,6 +7890,7 @@
                 nextBusy: false,
                 nextError: '',
                 nextType: 'ad_hoc',
+                startType: 'in', // §49 — which type the first-inspection picker will start
                 // §41, 2026-09-28 — the "Resend report" confirm popover's
                 // own state, top-level (not local to the popover's markup)
                 // since sendReportResend() below is a method on THIS
@@ -7584,7 +7905,14 @@
                     this.nextBusy = true;
                     this.nextError = '';
                     try {
-                        await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        try {
+                            await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type });
+                        } catch (e) {
+                            // Spec §57 — the tail is still being recorded: say so, and only stack a new one on top if the agent insists.
+                            if (!(e.data && e.data.reason === 'open_inspection')) throw e;
+                            if (!window.confirm(e.message + '\n\nOK = start the new inspection anyway.\nCancel = stay and keep working on the open one.')) return;
+                            await this._post(`${this.inspectionUrls.nextInspectionBase}/${this.chainTail.id}/next`, { type, confirm_stack: true });
+                        }
                         await this.refreshInspectionData();
                     } catch (e) { this.nextError = e.message; }
                     finally { this.nextBusy = false; }
@@ -7598,16 +7926,10 @@
                 // gate above — one source of truth, not a second lookup). A
                 // party with no email on file is excluded, same reasoning as
                 // the server-side resolver.
+                // 8 Oct 2026 — no longer a browser-side guess: the list is the server's own distributionRecipients()
+                // (tenants, ALL landlords, the agency's copy addresses, the inspector, the creator), carried on the tab payload.
                 reportRecipients() {
-                    if (!this.chainTail) return [];
-                    const recipients = [];
-                    (this.chainTail.lease?.tenants || []).forEach(t => {
-                        if (t.contact?.email) recipients.push({ name: t.contact.first_name + ' ' + t.contact.last_name, email: t.contact.email, role: 'tenant' });
-                    });
-                    if (this.landlordContact?.email) {
-                        recipients.push({ name: this.landlordContact.first_name + ' ' + this.landlordContact.last_name, email: this.landlordContact.email, role: 'landlord' });
-                    }
-                    return recipients;
+                    return (this.chainTail && this.chainTail.report_recipients) ? this.chainTail.report_recipients : [];
                 },
                 publicShareUrl() {
                     return this.chainTail?.public_token ? (window.location.origin + '/rental-inspection-report/' + this.chainTail.public_token) : '';
@@ -8085,6 +8407,22 @@
                         }
                     } catch (e) { this.error = e.message; return; }
                     this.trayTagRoomChoice = '';
+                },
+                // The sign-off bar's one line (13 Oct 2026): where this inspection stands, in plain words.
+                signSummary(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp) return '';
+                    if (insp.status === 'completed') return 'Completed';
+                    if (insp.status !== 'awaiting_signature') {
+                        const p = this.inspectionProgress(section);
+                        return p.recorded + '/' + p.total + ' recorded' + (p.recorded < p.total ? ' - ' + (p.total - p.recorded) + ' to go' : ' - ready to sign');
+                    }
+                    const tenants = this.inspectionTenants(section);
+                    let done = tenants.filter(t => this.tenantDisposition(section, t.contact_id)).length;
+                    let total = tenants.length;
+                    if (this.landlordContact) { total++; if (this.landlordDisposition(section)) done++; }
+                    total++; if (this.agentDisposition(section)) done++;
+                    return 'Open for signing - ' + done + ' of ' + total + ' signed';
                 },
                 inspectionProgress(section) {
                     const items = this.activeItems();
@@ -8615,6 +8953,20 @@
 
                 // ── Discrepancies, signatures, lifecycle (§0.4/§0.7/§11) ────────
                 lifecycleError: '',
+                // §45.3 (Build I-1) — the server's list of checklist items still ungraded when a
+                // complete / send-for-signature attempt was refused. Cleared on every new attempt.
+                ungradedItems: [],
+                // §45.5 (Build I-3) — attendance panel state. The board itself (expected parties, recorded
+                // outcomes, invitation lines) arrives with each inspection as insp.attendance_board and is
+                // replaced wholesale by every response from the attendance endpoints.
+                attendanceError: '',
+                attendanceBusy: false,
+                attendanceAttention: false,
+                attForm: {},
+                invForm: {},
+                otherForm: { open: false, name: '', as: 'co_occupant', arrived: '' },
+                invitationMethods: {{ Js::from(\App\Services\Rentals\RentalInspectionAttendanceService::INVITATION_METHODS) }},
+                attendedAsLabels: {{ Js::from(\App\Models\RentalInspectionSetting::attendedAsLabelsFor($property->agency_id)) }},
                 discForm: {},
                 discBusy: {},
                 // FIX, 2026-09-27 — same root cause as isMarkGoodBusy()/
@@ -8658,9 +9010,155 @@
                     });
                 },
 
+                // ── §45.5 (Build I-3) — who attended, and the invitation trail ──────────
+                attendanceBoard(section) {
+                    const insp = this.currentInspection(section);
+                    return insp && insp.attendance_board ? insp.attendance_board : null;
+                },
+                attendanceRows(section) {
+                    const board = this.attendanceBoard(section);
+                    return board ? board.rows : [];
+                },
+                attendanceOthers(section) {
+                    const board = this.attendanceBoard(section);
+                    return board ? board.others : [];
+                },
+                // Completed / cancelled inspections are evidence — the panel then only shows what is on record.
+                attendanceEditable(section) {
+                    const insp = this.currentInspection(section);
+                    return !!insp && !['completed', 'cancelled'].includes(insp.status);
+                },
+                attendanceSummary(section) {
+                    const board = this.attendanceBoard(section);
+                    if (!board) return '';
+                    return board.recorded + ' of ' + board.expected + ' recorded · ' + board.attended + ' attended';
+                },
+                attendanceRoleLabel(role) {
+                    return { tenant: 'Tenant', landlord: 'Landlord', agent: 'Agent', other: 'Other' }[role] || role;
+                },
+                attendanceOutcomeText(a) {
+                    if (!a) return '';
+                    if (a.outcome === 'did_not_attend') return 'Did not attend';
+                    let text = 'Attended';
+                    if (a.attended_as && a.attended_as !== 'self') {
+                        text += ' — ' + (this.attendedAsLabels[a.attended_as] || a.attended_as) + (a.attendee_name ? ' (' + a.attendee_name + ')' : '');
+                    }
+                    if (a.arrived_at) text += ', arrived ' + a.arrived_at;
+                    return text;
+                },
+                attFormFor(key) {
+                    return this.attForm[key] || (this.attForm[key] = { open: false, name: '', arrived: '' });
+                },
+                invFormFor(key) {
+                    return this.invForm[key] || (this.invForm[key] = { open: false, method: '', at: '' });
+                },
+                _attendanceUrl(insp, suffix) {
+                    return this.inspectionUrls.inspectionsBase + '/' + insp.id + '/attendance' + (suffix || '');
+                },
+                async ensureAttendanceBoard(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp || insp.attendance_board) return;
+                    try {
+                        const res = await fetch(this._attendanceUrl(insp), { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+                        if (res.ok) insp.attendance_board = (await res.json()).attendance_board;
+                    } catch (e) {}
+                },
+                async _attendanceCall(section, suffix, body) {
+                    const insp = this.currentInspection(section);
+                    this.attendanceBusy = true;
+                    this.attendanceError = '';
+                    try {
+                        const result = await this._post(this._attendanceUrl(insp, suffix), body);
+                        insp.attendance_board = result.attendance_board;
+                        this.attendanceAttention = false;
+                        return true;
+                    } catch (e) {
+                        this.attendanceError = e.message;
+                        return false;
+                    } finally { this.attendanceBusy = false; }
+                },
+                async recordAttendance(section, row, outcome, onBehalf) {
+                    const form = this.attFormFor(row.key);
+                    const ok = await this._attendanceCall(section, '', {
+                        party_role: row.party_role,
+                        party_contact_id: row.contact_id,
+                        party_user_id: row.user_id,
+                        outcome: outcome,
+                        attended_as: onBehalf ? 'representative' : 'self',
+                        attendee_name: onBehalf ? form.name : null,
+                        arrived_at: form.arrived || null,
+                        client_idempotency_key: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null,
+                    });
+                    if (ok) { form.open = false; form.name = ''; form.arrived = ''; }
+                },
+                async withdrawAttendance(section, attendanceId) {
+                    await this._attendanceCall(section, '/' + attendanceId + '/withdraw', {});
+                },
+                async addOtherAttendee(section) {
+                    const form = this.otherForm;
+                    const ok = await this._attendanceCall(section, '', {
+                        party_role: 'other',
+                        outcome: 'attended',
+                        attended_as: form.as,
+                        attendee_name: form.name,
+                        arrived_at: form.arrived || null,
+                        client_idempotency_key: (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : null,
+                    });
+                    if (ok) { form.open = false; form.name = ''; form.arrived = ''; form.as = 'co_occupant'; }
+                },
+                async recordInvitationGiven(section, row) {
+                    const form = this.invFormFor(row.key);
+                    const insp = this.currentInspection(section);
+                    const ok = await this._attendanceCall(section, '-invitations', {
+                        party_role: row.party_role,
+                        party_contact_id: row.contact_id,
+                        party_user_id: row.user_id,
+                        method: form.method,
+                        occurred_at: form.at || null,
+                    });
+                    if (ok) { form.open = false; form.method = ''; form.at = ''; }
+                },
+                // The completion guard's list of parties with no outcome yet — flag the panel and bring it into view.
+                _noteMissingAttendance(section, e) {
+                    const missing = e && e.data && e.data.missing_attendance ? e.data.missing_attendance : [];
+                    if (!missing.length) return;
+                    this.attendanceAttention = true;
+                    this.$nextTick(() => {
+                        const el = document.getElementById('attendance-panel');
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    });
+                },
+
+                // §45.3 — the refused attempt's ungraded_items grouped by room for the checklist panel
+                // under the Complete button. Group order = the server's own (room walking order).
+                ungradedRoomGroups() {
+                    const groups = [];
+                    const byKey = {};
+                    for (const m of this.ungradedItems) {
+                        const key = m.room_id ? 'r' + m.room_id : 'general';
+                        if (!byKey[key]) {
+                            byKey[key] = { key: key, roomId: m.room_id || null, label: m.room_label || 'General', items: [] };
+                            groups.push(byKey[key]);
+                        }
+                        byKey[key].items.push(m.item_label);
+                    }
+                    return groups;
+                },
+                jumpToUngradedRoom(section, roomId) {
+                    const group = this.roomGroups().find(g => (g.room ? g.room.id : null) === (roomId || null));
+                    if (group) this.scrollToInspectionRoom(section, group, false);
+                },
+                _noteUngradedItems(section, e) {
+                    this.ungradedItems = (e && e.data && e.data.ungraded_items) ? e.data.ungraded_items : [];
+                    this.ungradedItems.forEach(m => {
+                        if (m.room_id) this.roomOpenOverride[section + '_' + m.room_id] = true;
+                    });
+                },
+
                 async completeInspection(section) {
                     const insp = this.currentInspection(section);
                     this.lifecycleError = '';
+                    this.ungradedItems = [];
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
                         // §32, 2026-09-28 — was Object.assign(insp, updated),
@@ -8674,7 +9172,7 @@
                         // Nothing types into these three directly, so a
                         // plain merge (no snapshot/unchanged check) is safe.
                         this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section, e); }
+                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section, e); this._noteMissingAttendance(section, e); this.jumpToMissingRequiredNotes(section, e); }
                 },
 
                 async startAwaitingSignature(section) {
@@ -8683,13 +9181,14 @@
                     // and the existing out-section UI share one method.
                     const insp = this.currentInspection(section || 'out');
                     this.lifecycleError = '';
+                    this.ungradedItems = [];
                     try {
                         const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/start-awaiting-signature`, {});
                         // §32, 2026-09-28 — same reasoning as completeInspection()
                         // just above: RentalInspection::startAwaitingSignature()
                         // only ever touches these two.
                         this._mergeFields(insp, updated, ['status', 'signing_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this.jumpToMissingRequiredNotes(section || 'out', e); }
+                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section || 'out', e); this.jumpToMissingRequiredNotes(section || 'out', e); }
                 },
 
                 // §17 — the header block. x-model binds straight to
@@ -8744,6 +9243,24 @@
                 activeSigningKey: null,
                 signaturePads: {},
 
+                // §45.6 (Build I-4 top-up) — true when everything Complete asks for from the PARTIES is already in: every
+                // party has a signing outcome (none still waiting for a paper scan), the agent has signed, and every
+                // expected party has an attendance outcome. Display only — the server re-checks all of it (and also
+                // enforces unrecorded items and required notes, which this deliberately does not claim).
+                readyToComplete(section) {
+                    const insp = this.currentInspection(section);
+                    if (!insp || insp.status !== 'awaiting_signature') return false;
+                    const live = (insp.signatures || []).filter(sg => !sg.superseded_at);
+                    if (live.some(sg => sg.disposition === 'awaiting_wet_ink')) return false;
+                    if (insp.signatures_required !== false) {
+                        if (!live.some(sg => sg.party_role === 'agent')) return false;
+                        if (this.inspectionTenants(section).some(t => !this.tenantDisposition(section, t.contact_id))) return false;
+                        if (this.landlordContact && !this.landlordDisposition(section)) return false;
+                    }
+                    if (insp.attendance_required === false) return true;
+                    const board = this.attendanceBoard(section);
+                    return !!board && board.complete;
+                },
                 inspectionTenants(section) {
                     return this.currentInspection(section)?.lease?.tenants || [];
                 },
@@ -8764,22 +9281,37 @@
                 },
                 agentDisposition(section) {
                     const insp = this.currentInspection(section);
-                    return (insp?.signatures || []).find(s => s.party_role === 'agent') || null;
+                    return (insp?.signatures || []).find(s => s.party_role === 'agent' && !s.superseded_at) || null; // §47 — a signature voided by "Edit report" no longer counts
                 },
                 // §16 — one label, everywhere a disposition badge is shown, so
                 // wet-ink can never be mistaken for "Signed" (an e-signature).
-                dispositionLabel(sig) {
+                // Conductor brief 2026-09-29 — awaiting_wet_ink gets its own
+                // label, distinct from a resolved wet_ink upload.
+                dispositionLabel(sig, section) {
                     if (!sig) return '';
-                    if (sig.disposition === 'refused') return 'Refused';
+                    if (sig.disposition === 'refused') {
+                        // §45.5 — a party recorded as having not attended has no signature, not a refusal.
+                        const row = section ? this.attendanceRows(section).find(r => r.party_role === sig.party_role && (r.contact_id || null) === (sig.party_contact_id || null)) : null;
+                        if (row && row.attendance && row.attendance.outcome === 'did_not_attend') return 'No signature — did not attend';
+                        return 'Refused';
+                    }
                     if (sig.disposition === 'wet_ink') return 'Signed on paper';
+                    if (sig.disposition === 'awaiting_wet_ink') return 'Awaiting paper signature';
                     return 'Signed';
                 },
                 // §16 — mirrors RentalInspectionSignature::supersedeWetInk()'s
-                // own guard so the UI never offers a "Replace" the server will
-                // refuse: only a live (not superseded) wet-ink row, only before
-                // the agent has attested to the record.
-                canReplaceWetInk(section, sig) {
-                    return !!sig && sig.disposition === 'wet_ink' && !sig.superseded_at && !this.agentDisposition(section);
+                // own guard so the UI never offers an action the server will
+                // refuse: only a live (not superseded) wet-ink OR
+                // awaiting_wet_ink row, only before the agent has attested to
+                // the record. Conductor brief 2026-09-29 — widened from
+                // wet_ink-only ("Replace") to also cover awaiting_wet_ink
+                // ("Upload scan") — same button, same guard, different label.
+                canActOnWetInk(section, sig) {
+                    return !!sig && (sig.disposition === 'wet_ink' || sig.disposition === 'awaiting_wet_ink')
+                        && !sig.superseded_at && !this.agentDisposition(section);
+                },
+                wetInkActionLabel(sig) {
+                    return sig?.disposition === 'awaiting_wet_ink' ? 'Upload scan' : 'Replace';
                 },
                 allTenantsDispositioned(section) {
                     return this.inspectionTenants(section).every(t => this.tenantDisposition(section, t.contact_id));
@@ -8867,8 +9399,28 @@
                 activeWetInkKey: null,
                 wetInkForm: {},
                 wetInkBusy: {},
+                // Found 2026-09-29 via a real click-through (rental-inventory.md
+                // §21) — a genuine Alpine/Vue-reactivity gotcha, not a logic
+                // bug: `(this.wetInkForm[key] = {file:null})` as a single
+                // assignment EXPRESSION evaluates to the raw object being
+                // assigned, NOT a re-read through the reactive Proxy's own
+                // getter. The FIRST time a template binding (:disabled,
+                // x-text) called this for a given key, it got back that raw,
+                // never-wrapped object and tracked a dependency on ITS
+                // `.file` property, which the reactive system never
+                // instruments since it was never accessed via the Proxy. A
+                // LATER @change mutation re-reads `this.wetInkForm[key]`
+                // through the reactive getter (properly wrapped) and sets
+                // `.file` there — correctly, but nothing was ever subscribed
+                // to THAT path, so :disabled/x-text silently never updated.
+                // This button has shipped since §16 with no real-browser
+                // click-through ever having proven it (§17.7's own docblock).
+                // Splitting the assignment into its own statement means
+                // every return value, including the very first call for a
+                // key, is a fresh reactive read.
                 wetInkField(key) {
-                    return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null });
+                    if (!this.wetInkForm[key]) { this.wetInkForm[key] = { file: null }; }
+                    return this.wetInkForm[key];
                 },
                 openWetInkFor(key) {
                     this.activeSigningKey = null;
@@ -8876,13 +9428,32 @@
                     this.activeWetInkKey = this.activeWetInkKey === key ? null : key;
                 },
 
+                // Conductor brief 2026-09-29 — "Send for wet-ink" marks a
+                // party as sent (disposition=awaiting_wet_ink, no file) via
+                // the SAME JSON _saveDisposition() every other disposition
+                // already uses.
+                async sendTenantForWetInk(section, tenant) {
+                    await this._saveDisposition(section, {
+                        party_role: 'tenant', disposition: 'awaiting_wet_ink', party_contact_id: tenant.contact_id,
+                    }, section + '_tenant_' + tenant.contact_id);
+                },
+                async sendLandlordForWetInk(section) {
+                    await this._saveDisposition(section, {
+                        party_role: 'landlord', disposition: 'awaiting_wet_ink', party_contact_id: this.landlordContact?.id,
+                    }, section + '_landlord');
+                },
+
+                // Conductor brief 2026-09-29 — existingWetInk now also
+                // covers a live awaiting_wet_ink row (the "Upload scan"
+                // action resolving it the first time a scan actually
+                // arrives), not just a wet_ink row being corrected.
                 async saveTenantWetInkFor(section, tenant) {
                     const key = section + '_tenant_' + tenant.contact_id;
                     const field = this.wetInkField(key);
                     if (!field.file) return;
                     const existing = this.tenantDisposition(section, tenant.contact_id);
                     await this._saveWetInk(section, key, field.file,
-                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        (existing && (existing.disposition === 'wet_ink' || existing.disposition === 'awaiting_wet_ink')) ? existing : null,
                         { party_role: 'tenant', party_contact_id: tenant.contact_id });
                 },
 
@@ -8892,7 +9463,7 @@
                     if (!field.file) return;
                     const existing = this.landlordDisposition(section);
                     await this._saveWetInk(section, key, field.file,
-                        (existing && existing.disposition === 'wet_ink') ? existing : null,
+                        (existing && (existing.disposition === 'wet_ink' || existing.disposition === 'awaiting_wet_ink')) ? existing : null,
                         { party_role: 'landlord', party_contact_id: this.landlordContact?.id });
                 },
 
@@ -9251,6 +9822,7 @@
                             <div class="text-xs mt-0.5" style="color:var(--text-muted);" x-text="[nc.phone, nc.email].filter(Boolean).join(' · ')"></div>
                             <div class="text-xs font-medium mt-0.5" style="color:var(--brand-icon);">New contact (will be created)</div>
                         </div>
+                        <input type="hidden" :name="'pending_new_contacts['+idx+'][confirmed_new]'" :value="nc.confirmed_new ? 1 : 0" form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][first_name]'" :value="nc.first_name" form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][last_name]'"  :value="nc.last_name"  form="prop-update-form">
                         <input type="hidden" :name="'pending_new_contacts['+idx+'][phone]'"      :value="nc.phone"      form="prop-update-form">
@@ -9350,10 +9922,27 @@
                             <p class="mt-1 text-[11px]" style="color:var(--text-muted);">SA ID — 13 digits. Leave blank if not known.</p>
                         </div>
                     </div>
-                    <button type="button" @click="addNew()"
+                    {{-- The phone / email typed above already belongs to a contact: ask, never substitute. --}}
+                    <div x-show="duplicate" x-cloak data-new-contact-duplicate class="rounded-md p-4 mb-3" style="background:var(--surface); border:1px solid var(--brand-icon);">
+                        <div class="text-sm font-semibold" style="color:var(--text-primary);">
+                            This <span x-text="duplicate && duplicate.matched === 'email' ? 'email address' : 'number'"></span> belongs to <span x-text="duplicate ? duplicate.name : ''"></span>.
+                        </div>
+                        <div class="text-xs mt-1" style="color:var(--text-muted);" x-text="duplicate ? [duplicate.phone, duplicate.email !== '—' ? duplicate.email : ''].filter(Boolean).join(' · ') : ''"></div>
+                        <div class="text-xs mt-2" style="color:var(--text-secondary);">Use that contact, or create a new one?</div>
+                        <div class="flex flex-wrap gap-2 mt-3">
+                            <button type="button" @click="useDuplicate()" data-new-contact-use-existing
+                                    class="px-4 py-2 rounded-md text-sm font-semibold text-white" style="background:var(--brand-button,#0ea5e9);">Use <span x-text="duplicate ? duplicate.name : ''"></span></button>
+                            <button type="button" @click="createAnyway()" x-show="duplicate && duplicate.can_create_anyway" data-new-contact-create-new
+                                    class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">Create a new contact</button>
+                            <button type="button" @click="duplicate = null"
+                                    class="px-4 py-2 rounded-md text-sm font-semibold" style="color:var(--text-muted);">Change the details</button>
+                        </div>
+                        <p class="text-xs mt-2" x-show="duplicate && !duplicate.can_create_anyway" style="color:var(--text-muted);">Your agency does not allow a second contact with the same number or email.</p>
+                    </div>
+                    <button type="button" @click="addNew()" :disabled="checking"
                             class="px-5 py-2 rounded-md text-sm font-semibold text-white"
                             style="background:var(--brand-button,#0ea5e9);">
-                        Add to Pending
+                        <span x-text="checking ? 'Checking…' : 'Add to Pending'">Add to Pending</span>
                     </button>
                 </div>
             </div>
@@ -9383,21 +9972,21 @@
                 </h3>
                 <div id="linked-contacts-list">
                 @forelse($linkedContacts as $c)
-                {{-- Keep this a block, never the one-liner form. (The @@ below are Blade
-                     escapes — they must NOT become live directives inside this comment.)
-
-                     Blade lifts raw PHP out with /(?<!@)@@php(.*?)@@endphp/s BEFORE it
-                     strips comments or compiles directives, and that regex has no guard
-                     for the @@php(...) one-liner. So a lone one-liner is read as a block
-                     OPENER and swallows every line up to the next @@endphp in the file.
-                     Here it reached the History tab's block ~280 lines below, so that
-                     tab's @@if never compiled and the page died on "unexpected endif" —
-                     the entire property page 500'd. (AT-243 regression, fixed in AT-252.) --}}
+                {{-- Keep this a block, never the one-liner form. Never write the literal
+                     opening or closing php-block tag name inside ANY comment in this
+                     file, even doubled -- Blade lifts raw PHP out BEFORE it strips
+                     comments or compiles directives, and that extraction has no guard
+                     for the one-liner form: a lone one-liner is read as a block OPENER
+                     and swallows every line up to the next closing tag it finds anywhere
+                     in the file, comment or not. Here it reached the History tab's block
+                     ~280 lines below, so that tab's conditional never compiled and the
+                     page died on "unexpected endif" -- the entire property page 500'd.
+                     (AT-243 regression, fixed in AT-252.) --}}
                 @php
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole), confirmingUnlink: false }"
-                     class="px-4 py-3 rounded-md mb-2"
+                     class="prop-row-hover px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
                      data-contact-row="{{ $c->id }}" @if($isPurchaser) data-purchaser="1" @endif>
                     <div class="flex items-center gap-3">
@@ -9715,7 +10304,7 @@
             {{-- Notes list --}}
             <div class="space-y-3">
                 @forelse($property->notes as $note)
-                <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="prop-row-hover rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex-1">
                             <div class="text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->content }}</div>
@@ -9727,7 +10316,7 @@
                         <form method="POST" action="{{ route('corex.properties.notes.destroy', [$property, $note]) }}"
                               onsubmit="return confirm('Delete this note?')">
                             @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold flex-shrink-0 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
+                            <button type="submit" class="text-xs font-semibold flex-shrink-0 rounded-md px-2 py-1 -my-1 -mr-2 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
                         </form>
                         @endif
                     </div>
@@ -9766,7 +10355,7 @@
                     </div>
                 </div>
                 @forelse($fullAuditLog as $entry)
-                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
+                    <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
                         <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-start justify-between gap-2">
@@ -10010,11 +10599,9 @@
                     $recommendations = $intel->getAgentRecommendations($property->id);
                     $comparables = $intel->getComparableListings($property->id);
                     $buyerSignals = $intel->getBuyerInterestSignals($property->id);
-                    // View-only "Notes (n)" per signal buyer — only for buyers whose contact this user may
-                    // see (ContactScope) and only if they may open contacts at all (route needs access_contacts).
-                    $buyerNoteCounts = auth()->user()?->hasPermission('access_contacts')
-                        ? $intel->getBuyerNoteCounts($buyerSignals)
-                        : [];
+                    // View-only "Notes (n)" per signal buyer — only for buyers whose notes this user may read
+                    // under the Role Manager scope buyer_notes.view (own / branch / agency); none without it.
+                    $buyerNoteCounts = $intel->getBuyerNoteCounts($buyerSignals);
                 @endphp
 
                 {{-- Controls row: Preview toggle + Log Marketing Action + Mark as Sold --}}
@@ -10367,8 +10954,10 @@
                         foreach ($sellers as $seller) {
                             \App\Models\PropertySellerLink::ensureExists($property->id, $seller->id);
                         }
+                        // Only links still in force: not revoked AND whose seller is still on the property
+                        // (a removed seller's link is switched off — spec seller-live-link.md).
                         $sellerLinks = \App\Models\PropertySellerLink::where('property_id', $property->id)
-                            ->whereNull('revoked_at')
+                            ->stillHeld()
                             ->get();
                     @endphp
                     <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Seller Live Links</h3>
@@ -10539,13 +11128,13 @@
                                 </div>
                                 <div class="flex items-center gap-2">
                                     {{-- Notes recorded on this buyer's contact — VIEW ONLY (newest first, author + date).
-                                         Same read-only fragment the Core Matches board uses; it is bound through
-                                         ContactScope, so a buyer this user cannot see has no control here and a hand-typed
+                                         Same read-only fragment the Core Matches board uses; it is gated by the
+                                         buyer_notes.view scope, so a buyer outside it has no control here and a hand-typed
                                          address 404s. Agent-facing only — never on the seller live link. --}}
                                     @if(array_key_exists($buyer['id'], $buyerNoteCounts))
                                         @if($buyerNoteCounts[$buyer['id']] > 0)
                                             <button type="button" data-buyer-notes
-                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.contacts.notes.quick-view', $buyer['id']) }}' })"
+                                                    @click="$dispatch('open-signal-notes', { url: '{{ route('corex.buyer-notes.show', $buyer['id']) }}' })"
                                                     class="text-[10px] font-medium" style="color: var(--brand-icon, #0ea5e9);">Notes ({{ $buyerNoteCounts[$buyer['id']] }})</button>
                                         @else
                                             <span class="text-[10px]" style="color: var(--text-muted);" data-buyer-notes>Notes (0)</span>
@@ -10646,13 +11235,13 @@
             @foreach($coreMatches as $cm)
             @php $views = $cm->propertyViewCount($property->id); @endphp
             <div x-data="{ open: false }"
-                 class="rounded-md overflow-hidden"
+                 class="prop-cm-card rounded-md overflow-hidden"
                  style="background:var(--surface); border:1px solid var(--border);">
 
                 {{-- Row --}}
                 <button type="button"
                         @click="open = !open"
-                        class="w-full flex items-center gap-4 px-5 py-4 text-left"
+                        class="prop-cm-row w-full flex items-center gap-4 px-5 py-4 text-left"
                         style="background:transparent;">
 
                     {{-- Client avatar --}}
@@ -10762,7 +11351,7 @@
                             </div>
                             @if($cm->contact)
                             <a href="{{ route('corex.contacts.matches.results', [$cm->contact, $cm]) }}"
-                               class="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
+                               class="prop-cm-open inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
                                style="color:var(--brand-icon);">
                                 View match results →
                             </a>
@@ -10855,6 +11444,9 @@
 // Property page: unsaved-changes guard (self-contained, no Alpine deps)
 // ─────────────────────────────────────────────────────────────────────
 (function () {
+    // A property that does not exist yet keeps everything (including the contact to be linked) on this one page and creates it
+    // on Save, so moving between its tabs never needs the "save first?" question; leaving the page still does.
+    var isNewProperty = {{ $isNew ? 'true' : 'false' }};
     var dirty = false;
     var pending = null; // { type: 'tab'|'url', value: string }
     var initialSnapshot = null;
@@ -10928,6 +11520,7 @@
 
         var tabBtn = e.target.closest && e.target.closest('[data-prop-tab]');
         if (tabBtn) {
+            if (isNewProperty) return;
             // ignore click on already-active tab
             var key = tabBtn.getAttribute('data-prop-tab');
             var rootEl = document.querySelector('[x-data*="activeTab"]');
@@ -11069,6 +11662,8 @@ function pendingContactsManager(searchUrl, seed = []) {
         pendingNew: [], // new contacts to create+link: { first_name, last_name, phone, email, contact_type_id }
         newForm: { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' },
         showNewForm: false,
+        duplicate: null,   // the existing contact whose phone / email the agent just typed (null = no clash, or already answered)
+        checking: false,
 
         async search() {
             if (this.query.length < 1) { this.results = []; this.searched = false; return; }
@@ -11101,15 +11696,56 @@ function pendingContactsManager(searchUrl, seed = []) {
         remove(idx)    { this.pending.splice(idx, 1); },
         removeNew(idx) { this.pendingNew.splice(idx, 1); },
 
-        addNew() {
+        async addNew() {
             if (!this.newForm.first_name.trim() || !this.newForm.last_name.trim() || !this.newForm.phone.trim()) {
                 alert('First name, last name and phone are required.');
                 return;
             }
-            this.pendingNew.push({ ...this.newForm });
+            this.duplicate = null;
+            // A number / email that already belongs to a contact is put to the agent - it is never swapped in silently.
+            this.checking = true;
+            try {
+                const res = await fetch(@js(route('corex.contacts.check-duplicate')), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': @js(csrf_token()), 'Accept': 'application/json' },
+                    body: JSON.stringify({ phone: this.newForm.phone.trim(), email: this.newForm.email.trim() || null }),
+                });
+                const data = await res.json();
+                if (data && data.found) {
+                    const digits = v => String(v || '').replace(/\D/g, '');
+                    data.matched = (this.newForm.email.trim() && String(data.email || '').toLowerCase() === this.newForm.email.trim().toLowerCase()
+                        && digits(data.phone) !== digits(this.newForm.phone)) ? 'email' : 'phone';
+                    this.duplicate = data;
+                    return;
+                }
+            } catch (e) {
+                // Could not ask: the server asks again on save and refuses a clash, so nothing is swapped silently either way.
+            } finally {
+                this.checking = false;
+            }
+            this.commitNew(false);
+        },
+
+        commitNew(confirmedNew) {
+            this.pendingNew.push({ ...this.newForm, confirmed_new: confirmedNew });
             this.newForm      = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
             this.showNewForm  = false;
+            this.duplicate    = null;
         },
+
+        // "Use that contact": the typed details are dropped and the existing contact is queued exactly as if it had been searched and added.
+        useDuplicate() {
+            const d = this.duplicate;
+            if (!d) { return; }
+            if (!this.pending.find(p => p.id === d.id)) {
+                this.pending.push({ id: d.id, name: d.name, phone: d.phone || '', email: d.email && d.email !== '—' ? d.email : '' });
+            }
+            this.newForm     = { first_name: '', last_name: '', phone: '', email: '', contact_type_id: '', id_number: '' };
+            this.showNewForm = false;
+            this.duplicate   = null;
+        },
+
+        createAnyway() { this.commitNew(true); },
     };
 }
 
@@ -11902,7 +12538,7 @@ function _lbRender() {
 }
 document.addEventListener('keydown', function(e) {
     var lb = document.getElementById('lightbox');
-    if (lb.classList.contains('hidden')) return;
+    if (!lb || lb.classList.contains('hidden')) return; // a NEW property has no gallery, so no viewer: nothing to close
     if (e.key === 'Escape')       closeLightbox();
     if (e.key === 'ArrowLeft')    lightboxNav(-1);
     if (e.key === 'ArrowRight')   lightboxNav(1);
@@ -12530,6 +13166,12 @@ function propertyMapWidget(cfg) {
             // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
 
+            // The Info tab fades/slides in when the agent comes back to it; re-measure the map once it has
+            // settled so Leaflet never keeps a stale size from while the tab was hidden.
+            window.addEventListener('corex:prop-tab-shown', (e) => {
+                if (e.detail === 'info' && this._map) setTimeout(() => this._map.invalidateSize(), 260);
+            });
+
             // On initial load: if no saved coords, kick the backend to
             // resolve from whatever address parts we have. The backend will
             // pick the building level when street parts are present; if not,
@@ -12562,7 +13204,7 @@ function propertyMapWidget(cfg) {
             this.geocoding = true;
             try {
                 const data = await window.CoreX.api.fetch(
-                    '/api/v1/properties/' + this.propertyId + '/geocode',
+                    '/corex/properties/' + this.propertyId + '/geocode',
                     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
                 );
                 if (data && data.ok && data.latitude !== null && data.longitude !== null) {

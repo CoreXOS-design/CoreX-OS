@@ -1,7 +1,7 @@
 # ESIGN-CANON — the governing doctrine of CoreX e-signature
 
-> **Amended 2026-10-08 (Johan's ruling, lane cc3):** §7 — whether a document can be e-signed is **the template's own setting**, for every document type alike. There is **no hard block** on sale agreements / OTPs / deeds: the guard is template setup; for the document types flagged `document_types.esign_warning_required` the **admin** acknowledges a legal warning **in template setup only**, it is recorded, and **nothing about it is ever shown to an agent**. Johan: *"as CoreX the guard is from template setup, and that's where it stays. If an agency chooses to do electronic sales agreements then that's their call. We will warn them of it, but we do not hard block it. And when the law changes it's a mere tick, not recoding."* All stated below as the canon AND as what the code does. The e-sign acknowledgement lives in `App\Services\Docuperfect\EsignAcknowledgementService`.
-
+> **Amended 2026-10-08 (Johan's rulings, lane cc3):** §6 — the FICA gate lifts on **SUBMITTED**, not only on approved; §7 — whether a document can be e-signed is **the template's own setting**, for every document type alike. There is **no hard block** on sale agreements / OTPs / deeds: the guard is template setup; for the document types flagged `document_types.esign_warning_required` the **admin** acknowledges a legal warning **in template setup only**, it is recorded, and **nothing about it is ever shown to an agent**. Johan: *"as CoreX the guard is from template setup, and that's where it stays. If an agency chooses to do electronic sales agreements then that's their call. We will warn them of it, but we do not hard block it. And when the law changes it's a mere tick, not recoding."* All stated below as the canon AND as what the code does. The FICA rule lives in `App\Services\Compliance\FicaGate`; the e-sign acknowledgement in `App\Services\Docuperfect\EsignAcknowledgementService`.
+>
 > **Status: CANON (Johan's order, 2026-07-15). This document governs all e-sign content and
 > behaviour work. Where any other spec, blade, or service disagrees with a ruling below, this
 > document wins and the code is the defect.**
@@ -179,21 +179,29 @@ the applicable text prints — kills strike-through-and-initial.*
 
 ## §6 — FICA AT THE E-SIGN GATE
 
-**THE LAW (ruling 6):** *E-sign of a non-compliant/unsubmitted signer KICKS OFF the electronic FICA
-process at the gate; an approved FicaSubmission lifts the gate; else FICA form flow, recipient completes
-their OWN identity fields — never pre-filled (the FICA bright-line ruling); wet-ink FICA auto-creation
-from splitter stays.*
+**THE LAW (ruling 6, AMENDED 2026-10-08 — Johan's ruling as relayed by the conductor, a paraphrase and not a verbatim quote: the FICA gate lifts on SUBMITTED, not only on approved):** *E-sign of a
+non-compliant/unsubmitted signer KICKS OFF the electronic FICA process at the gate; a **submitted** FicaSubmission (or any later
+review stage: under review, agent-approved, referred to the CO, approved) lifts the gate; else FICA form flow, recipient completes
+their OWN identity fields — never pre-filled (the FICA bright-line ruling); wet-ink FICA auto-creation from splitter stays.*
+(The earlier text of this ruling said an *approved* FicaSubmission lifts the gate; that was never what the product did and is
+superseded. The signer has done their part when they submit; what our staff then do with the submission is shown as a status,
+never as a stop in front of the signer.)
 
-**CONFORMANCE — CONFORMS on the flow + the bright-line; DIVERGES on what lifts the gate.**
+**CONFORMANCE — CONFORMS on the flow, the bright-line AND now on what lifts the gate.**
 
-- **Gate exists + kicks off FICA:** **CONFORMS** — `SigningController.php:123-175`: if `fica_required` and
-  no qualifying `FicaSubmission`, the signer is sent to `external.fica-gate`, which links to the electronic
-  FICA form (`fica-gate.blade.php:67-68` → `fica.form`).
-- **⚠️ What lifts the gate: DIVERGES.** The gate opens on
-  `whereIn('status', ['submitted','under_review','agent_approved','approved'])` (`SigningController.php:125-127`)
-  — i.e. as soon as the recipient has merely **submitted**, not on a fully **approved** FicaSubmission as the
-  ruling requires. (The variable is even named `$ficaApproved`.) An unvetted submission currently lets the
-  signer through.
+- **One shared rule:** `App\Services\Compliance\FicaGate` (`OPEN_STATUSES` = submitted, under_review, agent_approved, referred_to_co,
+  approved; `isOpen()`, `stateFor()`, `describe()`). Sales' signer gate, the e-sign wizard's FICA kick-off and every rentals FICA
+  check (application → authoriser → lease → agreement → portal) ask it. There is no second, rentals-only rule.
+- **Gate exists + kicks off FICA:** **CONFORMS** — `SigningController::show()`: if `fica_required` and the gate is not open, the signer is
+  sent to `external.fica-gate`, which links to the electronic FICA form (`fica-gate.blade.php` → `fica.form`).
+- **What lifts the gate: CONFORMS (spec corrected to the code).** `FicaGate::isOpen()`; proven for every FICA state in
+  `tests/Feature/Docuperfect/SigningView/FicaGateLiftsOnSubmittedTest.php`. (`referred_to_co` was missing from the old inline list and
+  would have sent a signer whose FICA was with the compliance officer back to the FICA page; it is in `OPEN_STATUSES` now.)
+- **Where FICA stops, and where it only warns:** the external signer's own signing page is the ONE place sales genuinely hard-stops
+  (a signer with `fica_required` who has not submitted). Everywhere else — an agent sending to the authoriser, approving, linking a
+  property, creating/activating a lease, sending a lease for signature, portal access — FICA **warns** (plain message + link to
+  request/complete FICA) and the agent carries on. The one opt-in exception is the agency's own "FICA before authoriser"
+  setting (OFF by default), which stops only an applicant who has not submitted. See `.ai/specs/compliance.md` §"The FICA gate".
 - **Recipient fills own identity, never pre-filled:** **CONFORMS (the bright-line holds)** — `FicaPublicController::form()`
   passes `$contact` to the view but `fica/form.blade.php` **never references it**; every identity field is
   blank Alpine state the recipient fills themselves (`fica/form.blade.php:731-733`).
@@ -202,13 +210,13 @@ from splitter stays.*
 
 ---
 
-## §7 — WET-INK BOUNDARY (sale/alienation never e-sign)
+## §7 — E-SIGN ELIGIBILITY IS THE TEMPLATE'S OWN SETTING
 
 **THE LAW (ruling 7, AMENDED 2026-10-08 — Johan's ruling and same-day correction, relayed by the conductor; the quote above is verbatim, the wording below is a paraphrase):** *Whether a document is e-signed, wet-ink or download-only is decided by the template's own setting (`is_esign`, `allowed_delivery_modes`) and respected as set, for every document type alike. There is no hard block. For the document types flagged as sale documents the **admin** is warned — once, in template setup, at the moment e-signing is switched ON — must acknowledge it, and the acknowledgement (who, when, which template) is recorded. The warning appears in no other place: nothing for agents — not on the template, the send-for-signature screen, the wizard, the document, mail or the signing page.* Which types trigger the warning is **data** (a flag on the document type), so that when the law changes it is switched off with a tick, not recoding.
 
 **CONFORMANCE — what the code does (CONFORMS):**
 
-- **Template setting respected:** `Template::allowsDeliveryMode()` / `getEffectiveDeliveryModes()` read `allowed_delivery_modes`.
+- **Template setting respected:** `Template::allowsDeliveryMode()` / `getEffectiveDeliveryModes()` read `allowed_delivery_modes`; `LeaseAgreementTemplateGuard` requires `is_esign` for a lease agreement.
 - **The flag is data:** `document_types.esign_warning_required`, set by migration for `otp`, `offer_to_purchase`, `sale_agreement`, `deed_of_sale`, `deed_of_alienation` and on create by `DocumentTypesCatalogueSeeder` (never re-asserted on a sync). CoreX owner-role users switch it per type on Document Types settings. An unclassified template is matched to a document type by name (`DocumentTypeClassifier`) and follows that type's flag. The old hard-coded slug list and name regex in `Template::isEsignBlocked()` are **gone**.
 - **Defaults unchanged:** a template of a flagged type stays wet-ink for every agency, existing and new; nothing flips by itself. `Template::booted()` stores `is_esign = false` for a flagged template that carries no recorded acknowledgement, whoever the writer is; e-sign delivery for it (`esignAwaitingAcknowledgement()`) is unavailable until an admin switches it on.
 - **Warning + acknowledgement, template setup only:** the PDF template editor and the CDS builder show the warning (`public/js/esign-acknowledgement-modal.js`, wording in `config/esign-acknowledgement.php`) when e-signing is switched ON for a flagged type and require the tick before the save; the server (`EsignAcknowledgementService::resolveRequest()`, used by `TemplateController::saveFields()` and `cdsGenerate()`) refuses a missing acknowledgement with `422 esign_ack_required`. Permission: the existing `manage_templates`.
@@ -229,11 +237,11 @@ from splitter stays.*
 | 3 | Other conditions editable during signing | **MISSING (main view)** | Present on external sign view; not wired into `SignatureController::sign()` / `sign.blade.php` | `SignatureController.php:857-946` (absence); present `SigningController.php:332` | **HIGH** |
 | 4 | Disclosure machinery reaches signing | **DIVERGES** | Active flagship disclosures use the bare-table shape, whose converter is "external-only" → inert on the main signing view; gate is JS-only (no server re-validate) | `disclosure-logic.blade.php:11-13`; `external/sign.blade.php:2958`; `SigningController.php:1328-1384` | **HIGH** |
 | 5 | Conditional (binary) rendering | **MISSING** | No conditional tag in the live pipeline; only wired binary mechanism is signing-time strikethrough (the thing to replace); the real primitive is in the held CDS Compiler | `DocumentTemplateGenerator.php:251-287`; `Cds/Condition.php` (held) | **HIGH** |
-| 6 | FICA gate — what lifts it | **DIVERGES** | Gate lifts on `submitted`/`under_review`/`agent_approved`, not only `approved` — an unvetted submission passes | `SigningController.php:125-127` | **HIGH** (compliance) |
+| 6 | FICA gate — what lifts it | **CONFORMS (ruling amended 2026-10-08)** | Gate lifts on SUBMITTED or any later review stage (Johan's ruling); one shared rule, `FicaGate`; `referred_to_co` added | `FicaGate.php`; `SigningController::show()` | — |
 | 7 | E-sign eligibility = template setting (ruling amended 2026-10-08) | **CONFORMS** | Template setting respected for every type; no hard block; flagged types (data) need an admin acknowledgement in template setup, recorded, shown to no agent | `EsignAcknowledgementService`; `Template::booted()`; `TemplateController::saveFields()/cdsGenerate()` | — (held compiler L7 to align before activation) |
 
 **CONFORMS as-is:** 1c-1e (loop/blocks/roles), 2-injection (company-header + signature-block components),
-3-external-view, 4-master/no-data-field, 6-no-prefill + splitter FICA, 7 (template setting; admin acknowledgement for flagged types).
+3-external-view, 4-master/no-data-field, 6 (gate lifts on submitted; no-prefill + splitter FICA), 7 (template setting; admin acknowledgement for flagged types).
 
 ---
 
@@ -248,7 +256,8 @@ components, roles, disclosure master, wet-ink block, FICA no-prefill). Its failu
 2. **Path-split** — the editable Other Conditions (§3) and the disclosure machinery (§4) exist on the
    **external recipient** signing view but not on the **main** `SignatureController::sign()` view; and
    conditional rendering (§5) exists only in the held CDS Compiler, not the live import. Plus two
-   compliance-grade single-line divergences: the FICA gate lifts too early (§6) and the disclosure
-   completion gate is client-only (§4).
+   compliance-grade single-line divergence: the disclosure
+   completion gate is client-only (§4). (The FICA gate "lifts too early" finding was withdrawn 2026-10-08 — Johan ruled it lifts on
+   SUBMITTED, and the spec now says so.)
 
 **Before any further content build, these divergences are the work — not new templates.**

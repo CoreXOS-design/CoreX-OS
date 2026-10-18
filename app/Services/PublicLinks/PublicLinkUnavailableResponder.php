@@ -97,7 +97,7 @@ class PublicLinkUnavailableResponder
             : collect();
 
         return response()->view('public.shared._dead-end', [
-            'eyebrow'         => $eyebrow ?? ($agency->name ?? 'CoreX'),
+            'eyebrow'         => $eyebrow ?? ($agency->name ?? \App\Support\ClientBrand::NEUTRAL),
             'headline'        => $title,
             'lede'            => $body,
             'agency'          => $agency,

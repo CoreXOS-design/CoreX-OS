@@ -57,7 +57,11 @@ class SellerLinkController extends Controller
         if (!$link) {
             abort(404);
         }
-        if ($link->revoked_at) {
+        // A manual Revoke, OR the seller has since been taken off this property: the link is
+        // switched off the same way and says so the same way (it must not reveal the listing).
+        // Checked before anything is recorded or loaded. Re-linking the seller switches this
+        // same link back on — see PropertySellerLink::scopeStillHeld().
+        if ($link->revoked_at || ! $link->isHeld()) {
             return $this->showUnavailable($link, $link->property, 'revoked');
         }
 

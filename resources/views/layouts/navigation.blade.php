@@ -21,7 +21,6 @@
                 <div class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex hidden"> <!-- SIDEBAR_NAV_DISABLED_2026 -->
                     <x-nav-link :href="route('dashboard')" :active="request()->routeIs('dashboard')">Dashboard</x-nav-link>
                     <x-nav-link :href="route('worksheet.index')" :active="request()->routeIs('worksheet.*')">Worksheet</x-nav-link>
-                    <x-nav-link :href="route('rentals.index')" :active="request()->routeIs('rentals.*')">Rentals</x-nav-link>
 
                                         {{-- Tools --}}
                     <x-nav-link :href="route('tools.commission')" :active="request()->routeIs('tools.commission')">Commission Calculator</x-nav-link>

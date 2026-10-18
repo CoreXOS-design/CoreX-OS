@@ -54,7 +54,12 @@ class FicaPublicController extends Controller
                 return ['name' => $doc->file_name, 'status' => 'existing', 'id' => $doc->id];
             });
 
-        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments'));
+        $trustPhrase = \App\Services\Compliance\FicaTrustAccount::phraseFor($submission->agency_id ? (int) $submission->agency_id : null);
+
+        // What CoreX already knows about this person (name, ID, address, phone, email) - the form opens filled in, every field editable.
+        $prefill = \App\Services\Compliance\FicaFormPrefill::for($submission);
+
+        return view('fica.form', compact('submission', 'contact', 'agency', 'token', 'returnUrl', 'returnContext', 'existingDocuments', 'trustPhrase', 'prefill'));
     }
 
     /**
@@ -66,13 +71,23 @@ class FicaPublicController extends Controller
 
         $entityType = $request->input('entity_type');
 
+        // The form shows the stored ID / passport number masked. Left alone, it posts the masked text plus a keep flag: the stored
+        // number is used. Retyped, the keep flag is gone and what they typed is validated like any other entry.
+        if ($request->input('personal.id_number_keep') === '1') {
+            $kept = \App\Services\Compliance\FicaFormPrefill::keptIdentityFor($submission, $request->input('personal.id_number'));
+            if ($kept !== null) {
+                $request->merge(['personal' => array_merge((array) $request->input('personal'), ['id_number' => $kept])]);
+            }
+        }
+
         $rules = [
             // Section 1 — Entity type
             'entity_type' => 'required|in:natural,company,trust,partnership',
 
             // Section 2 — Person completing form
             'personal.full_name'           => 'required|string|max:255',
-            'personal.id_number'           => 'required|string|max:50',
+            // A masked number ("****1234") is never a valid answer: either the stored one was kept, or they type the full number.
+            'personal.id_number'           => ['required', 'string', 'max:50', 'not_regex:/\\*/'],
             'personal.sa_citizen'          => 'required|in:yes,no',
             'personal.residential_address' => 'required|string|max:2000',
             'personal.phone'              => 'required|string|max:30',
@@ -237,7 +252,10 @@ class FicaPublicController extends Controller
         // AT-173 — encrypt on write (private disk) via the FICA storage seam.
         $path = app(\App\Services\Compliance\FicaDocumentStorage::class)->putUploaded($file, $dir);
 
+        // An applicant on a public link is not logged in, so BelongsToAgency has no user to stamp the agency
+        // from: it comes from the submission this token resolves to - never a default.
         $doc = FicaDocument::create([
+            'agency_id'          => $submission->agency_id,
             'fica_submission_id' => $submission->id,
             'document_type'      => $request->input('document_type'),
             'file_path'          => $path,

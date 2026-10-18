@@ -72,8 +72,7 @@
                                     <div class="flex-1 min-w-0">
                                         <div class="flex items-center gap-1.5 flex-wrap">
                                             @if($tag && isset($pillarStyle[$tag]))
-                                                <span class="text-[9px] font-bold uppercase px-1 py-px rounded"
-                                                      style="background: color-mix(in srgb, var({{ $pillarStyle[$tag]['var'] }}) 15%, transparent); color: var({{ $pillarStyle[$tag]['var'] }}); letter-spacing:0.5px;">
+                                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $pillarStyle[$tag]['var'] }});">
                                                     {{ $pillarStyle[$tag]['label'] }}
                                                 </span>
                                             @endif

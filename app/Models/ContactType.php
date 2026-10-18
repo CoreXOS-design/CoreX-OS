@@ -35,6 +35,15 @@ class ContactType extends Model
     public const EXTRA_PARENTS = ['Owner', 'Other'];
 
     /**
+     * The word the screens use. The system-locked parent is stored as "Lessor" (its e-sign role), but the agent's word - on
+     * the contact list, the property and the badge - is "Landlord"; the picker said "Lessor" (Sherry walk, 13 Oct 2026).
+     */
+    public static function displayName(?string $esignRole, ?string $name): string
+    {
+        return $esignRole === 'lessor' ? 'Landlord' : (string) $name;
+    }
+
+    /**
      * Selectable parent types that fall OUTSIDE the strict 1:1 esign_role
      * mapping CANONICAL guarantees — added by name, not by esign_role, so
      * CANONICAL's one-name-per-role invariant (the e-sign wizard's own

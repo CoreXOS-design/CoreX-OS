@@ -148,7 +148,8 @@ class RentalInventoryController extends Controller
             'property', 'lease.tenants.contact',
             'lines.createdBy', 'lines.room',
             'roomMarks',
-            'signatures.partyContact', 'signatures.recordedByUser',
+            'signatures.partyContact', 'signatures.recordedByUser', 'signatures.supersededBy',
+            'buyerAcceptances.buyerContact', 'buyerAcceptances.recordedByUser',
             'createdBy', 'cancelledBy',
         ]);
 
@@ -202,6 +203,28 @@ class RentalInventoryController extends Controller
     }
 
     /**
+     * GET /corex/rental-inventories/{inventory}/print-for-signature —
+     * conductor brief 2026-09-29. Same report, plus blank signature blocks
+     * for every outstanding party. Mirrors RentalInspectionController::
+     * printForSignature() exactly.
+     */
+    public function printForSignature(Request $request, RentalInventory $rentalInventory, \App\Services\Rentals\RentalInventoryReportPdfService $service)
+    {
+        $this->assertVisible($request, $rentalInventory);
+
+        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'createdBy']);
+
+        // Read-only, same as report(): this GET (view permission) no longer
+        // mints or rotates the public link (audit A-H2) — that would also
+        // invalidate a link already emailed. A PDF with no live link simply
+        // omits the QR; the link is created at completion / by resend-report.
+
+        $pdf = $service->generateForSignature($rentalInventory);
+
+        return $pdf->download($service->filenameForSignatureFor($rentalInventory));
+    }
+
+    /**
      * GET /corex/rental-inventories/{inventory}/comparison — §8, the
      * move-out review screen. Read-only: RentalInventoryComparisonService
      * computes fresh on every load, nothing here is stored. §0a/§15 — a
@@ -230,6 +253,28 @@ class RentalInventoryController extends Controller
             'rows' => $service->compare($rentalInventory),
             'dispositionPresets' => RentalInventorySetting::dispositionPresetsFor($rentalInventory->agency_id),
         ]);
+    }
+
+    /**
+     * Audit A-H1 — serve a buyer's wet-ink scan from the private disk.
+     * Own/branch visibility is re-checked on the bound inventory, and the
+     * acceptance must belong to it.
+     */
+    public function buyerAcceptanceWetInkFile(Request $request, RentalInventory $rentalInventory, \App\Models\RentalInventoryBuyerAcceptance $acceptance)
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $acceptance->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        return $acceptance->wetInkFileResponse();
+    }
+
+    /** Audit A-H1 — serve a party's wet-ink scan from the private disk; the signature must belong to the (visible) inventory. */
+    public function signatureWetInkFile(Request $request, RentalInventory $rentalInventory, \App\Models\RentalInventorySignature $signature)
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $signature->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        return $signature->wetInkFileResponse();
     }
 
     public function cancel(Request $request, RentalInventory $rentalInventory): RedirectResponse

@@ -13,6 +13,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,7 @@ use Tests\TestCase;
  */
 final class PropertyDriveMultiUploadTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -47,11 +49,7 @@ final class PropertyDriveMultiUploadTest extends TestCase
         ]);
 
         foreach (['mandate' => 'Mandate', 'disclosure' => 'Disclosure'] as $slug => $label) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0,
-                'is_active' => true, 'grouping' => 'shared',
-                'created_at' => now(), 'updated_at' => now(),
-            ]);
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, ['grouping' => 'shared']);
         }
 
         $this->actingAs($this->user);

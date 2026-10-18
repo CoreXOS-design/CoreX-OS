@@ -83,6 +83,8 @@ class PropertyAdTemplateController extends Controller
 
     public function store(Request $request)
     {
+        $this->assertMayBuildTemplates();
+
         $data = $request->validate([
             'name'        => 'required|string|max:100',
             'layout_json' => 'required|array',
@@ -95,6 +97,8 @@ class PropertyAdTemplateController extends Controller
             // is_global is deprecated (caused a cross-agency leak); visibility is
             // now strictly agency-scoped via AgencyScope. See ad-manager.md §3.
             'is_global'   => false,
+            // A person saved it in the Ad Builder (AT-456 §B.9 leftovers: "Match our existing templates" reads this).
+            'human_edited_at' => now(),
         ]);
 
         return response()->json(['id' => $tpl->id, 'name' => $tpl->name]);
@@ -102,6 +106,7 @@ class PropertyAdTemplateController extends Controller
 
     public function update(Request $request, PropertyAdTemplate $template)
     {
+        $this->assertMayBuildTemplates();
         $this->authorizeTemplate($template);
 
         $data = $request->validate([
@@ -112,6 +117,7 @@ class PropertyAdTemplateController extends Controller
         $template->update([
             'name'        => $data['name'],
             'layout_json' => $data['layout_json'],
+            'human_edited_at' => now(),
         ]);
 
         return response()->json(['id' => $template->id, 'name' => $template->name]);
@@ -122,6 +128,17 @@ class PropertyAdTemplateController extends Controller
         $this->authorizeTemplate($template);
         $template->delete();
         return redirect()->back()->with('success', 'Template archived.');
+    }
+
+    /**
+     * Creating or editing a template needs BOTH access_properties and access_ad_manager
+     * (spec ad-manager.md §19, at456 spec §B.6) — the same gate as AdTemplateManagerController.
+     * The route middleware enforces it too; this is the server-side re-check.
+     */
+    private function assertMayBuildTemplates(): void
+    {
+        $user = auth()->user();
+        abort_unless($user && $user->hasPermission('access_properties') && $user->hasPermission('access_ad_manager'), 403);
     }
 
     /**

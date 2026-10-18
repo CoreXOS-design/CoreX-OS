@@ -89,6 +89,11 @@ final class RentalInspectionComparisonServiceTest extends TestCase
             'agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id,
             'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->agent->id,
             'condition' => $condition, 'notes' => $notes,
+            // `source` is a required column with no default (spec §3.2 / §14): an
+            // in-inspection observation is recorded as in_inspection, an out as out_inspection.
+            'source' => $inspection->type === RentalInspection::TYPE_OUT
+                ? RentalInspectionObservation::SOURCE_OUT_INSPECTION
+                : RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
     }
 
@@ -106,17 +111,33 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $this->assertSame(RentalInspectionComparisonService::UNCHANGED, $rows->first()['classification']);
     }
 
-    public function test_moving_to_good_is_improved(): void
+    public function test_moving_to_a_calmer_state_is_improved(): void
     {
+        // §45.7a (Build I-7): "improved" is read from the agency's severity buckets, no longer "moved TO the literal good".
+        // damaged (red) -> good (blue) is a real improvement under the default vocabulary.
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'fair', 'Scuffed on move-in.');
+        $this->observe($in, $item, 'damaged', 'Scuffed on move-in.');
         $this->observe($out, $item, 'good');
 
         $rows = $this->service->compareItems($out);
 
         $this->assertSame(RentalInspectionComparisonService::IMPROVED, $rows->first()['classification']);
+    }
+
+    public function test_fair_to_good_is_a_difference_to_look_at_not_an_improvement_because_both_are_calm(): void
+    {
+        // §45.7a: same severity bucket (fair and good are both blue in the default vocabulary) but a different state is
+        // "Different from move-in" — marked for the agent, never auto-called better or worse. This used to read IMPROVED
+        // purely because the outgoing value was the literal 'good'.
+        $item = $this->item();
+        $in = $this->inInspection();
+        $out = $this->outInspection();
+        $this->observe($in, $item, 'fair');
+        $this->observe($out, $item, 'good');
+
+        $this->assertSame(RentalInspectionComparisonService::DECLINED, $this->service->compareItems($out)->first()['classification']);
     }
 
     public function test_moving_away_from_good_is_declined(): void
@@ -151,19 +172,18 @@ final class RentalInspectionComparisonServiceTest extends TestCase
     }
 
     /**
-     * N/A doesn't exist in the condition enum yet (cc2's own work, in
-     * flight). This proves the whitelist-based exclusion works for ANY
-     * value outside the six real conditions — including whatever cc2's N/A
-     * ends up being called — without this test (or the service) needing to
-     * know its exact name.
+     * N/A is the fixed sentinel 'n_a' (RentalInspectionObservation::CONDITION_NA — what markRoomNa()
+     * writes), "not an argument at all" (Johan; spec §7.1). An item N/A at BOTH ends is not a finding —
+     * filtered out entirely, not shown as an excluded row. (This used to use a placeholder value,
+     * 'not_applicable', written before N/A existed; the service correctly matches only the real key.)
      */
-    public function test_a_condition_value_outside_the_known_enum_on_both_sides_is_excluded_entirely(): void
+    public function test_an_item_na_at_both_ends_is_excluded_entirely(): void
     {
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'not_applicable');
-        $this->observe($out, $item, 'not_applicable');
+        $this->observe($in, $item, RentalInspectionObservation::CONDITION_NA);
+        $this->observe($out, $item, RentalInspectionObservation::CONDITION_NA);
 
         $rows = $this->service->compareItems($out);
 
@@ -175,7 +195,7 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'not_applicable');
+        $this->observe($in, $item, RentalInspectionObservation::CONDITION_NA);
         $this->observe($out, $item, 'good');
 
         $rows = $this->service->compareItems($out);

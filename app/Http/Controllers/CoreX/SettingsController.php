@@ -18,7 +18,6 @@ use App\Models\PropertySettingItem;
 use App\Models\Docuperfect\NamedField;
 use App\Models\PerformanceSetting;
 use App\Models\Rental\RentalDocumentType;
-use App\Models\Rental\RentalReminderSetting;
 use App\Models\Branch;
 use App\Models\User;
 use App\Models\CommandCenter\AgencyDashboardSetting;
@@ -56,7 +55,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'core-matches', 'prospecting-setup',
-            'outreach-templates', 'team-inbox',
+            'outreach-templates', 'team-inbox', 'leave-types',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -88,9 +87,10 @@ class SettingsController extends Controller
         // Feature Settings tab: Docuperfect
         $data['namedFields'] = NamedField::orderBy('sort_order')->orderBy('name')->get();
 
-        // Feature Settings tab: Rentals
-        $data['rentalDocTypes']         = RentalDocumentType::orderBy('sort_order')->get();
-        $data['rentalReminderSettings'] = RentalReminderSetting::current();
+        // Feature Settings tab: Rentals — Document Types only. AT-439 — the
+        // Email Reminders screen is retired (Johan's 2026-10-05 ruling); the
+        // rental_reminder_settings table stays, untouched, just no longer read here.
+        $data['rentalDocTypes'] = RentalDocumentType::orderBy('sort_order')->get();
 
         // Feature Settings tab: Contacts — the 4 fixed parents, each with its
         // agency-scoped sub-tags eager-loaded (AT-79). Any legacy tag without a
@@ -366,6 +366,14 @@ class SettingsController extends Controller
             $data['leaveVisibilityGrid']  = $grid;
         }
 
+        // Operations: Leave Types (AT-455, Andre 2026-10-14 — moved here from the
+        // Leave Management menu). Same permission the leave-type routes carry;
+        // only queried when that section is open, since it paginates.
+        $data['leaveTypes'] = null;
+        if ($section === 'leave-types' && $user && $user->hasPermission('manage_leave_types') && $user->hasFeature('leave')) {
+            $data['leaveTypes'] = \App\Http\Controllers\Leave\LeaveTypeController::listData($request);
+        }
+
         return view('corex.settings', $data);
     }
 
@@ -534,7 +542,7 @@ class SettingsController extends Controller
         if ($item->group === 'condition_level'
             && $item->name === PropertySettingItem::CONDITION_BASELINE_NAME) {
             return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])
-                ->with('error', 'The "Average" baseline condition cannot be deleted — it anchors the valuation calc.');
+                ->with('error', 'The "Average" baseline condition cannot be deleted — it anchors the evaluation calc.');
         }
         $item->delete();
         return redirect()->route('corex.settings', ['tab' => 'feature', 'fsec' => 'properties'])->with('success', 'Item deleted.');
@@ -1036,18 +1044,52 @@ class SettingsController extends Controller
             'fax'              => ['nullable', 'string', 'max:255'],
             'email'            => ['nullable', 'string', 'max:255'],
             'reg_no'           => ['nullable', 'string', 'max:255'],
-            'vat_no'           => ['nullable', 'string', 'max:255'],
+            'vat_no'           => ['nullable', 'string', 'max:255', 'required_if:vat_registered,1'],
+            // Agency VAT set-up — guarded on vat_registered's own presence
+            // below (CLAUDE.md §6.1); only the Setup Wizard's identity step
+            // renders it on this shared action, so a plain /settings/agency
+            // post never touches it.
+            'vat_registered'       => ['nullable', 'boolean'],
+            'vat_capture_mode'     => ['nullable', 'in:excl,incl'],
             'ffc_no'           => ['nullable', 'string', 'max:255'],
             'ppra_number'      => ['nullable', 'string', 'max:32'],
             'fic_no'           => ['nullable', 'string', 'max:255'],
             'email_disclaimer' => ['nullable', 'string', 'max:2000'],
             'popi_url'         => ['nullable', 'string', 'max:500'],
-            'logo'             => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
+            'logo'             => ['nullable', new \App\Rules\AgencyLogoFile()],
             'remove_logo'      => ['nullable', 'boolean'],
         ]);
 
+        // Guarded on vat_registered's own presence (a toggle always posts a
+        // hidden 0 + checkbox 1 together) — only the Setup Wizard's identity
+        // step renders it on this shared action, so a plain /settings/agency
+        // post can never silently touch it.
+        unset($data['vat_settings_present']);
+        if ($request->has('vat_registered')) {
+            $data['vat_registered'] = $request->boolean('vat_registered');
+            $data['vat_capture_mode'] = $data['vat_capture_mode'] ?? Agency::VAT_CAPTURE_EXCL;
+            $vatChanged = (bool) $agency->vat_registered !== $data['vat_registered']
+                || $agency->vat_capture_mode !== $data['vat_capture_mode']
+                || (string) $agency->vat_no !== (string) ($data['vat_no'] ?? '');
+            if ($vatChanged) {
+                $data['vat_settings_updated_at'] = now();
+                $data['vat_settings_updated_by_user_id'] = $request->user()->id;
+            }
+        } else {
+            unset($data['vat_registered'], $data['vat_capture_mode']);
+        }
+
         $removeLogo = $data['remove_logo'] ?? false;
         unset($data['logo'], $data['remove_logo']);
+
+        // The letters this agency's document numbers start with (payslips). Written only when the form posted the box (§6.1);
+        // a blank box keeps the code the agency has - it is never emptied.
+        if ($request->has('short_code')) {
+            $shortCode = \App\Support\AgencyShortCode::validated($request->input('short_code'), (int) $agency->id);
+            if ($shortCode !== null) {
+                $data['short_code'] = $shortCode;
+            }
+        }
 
         if ($removeLogo) {
             if ($agency->logo_path) {
@@ -1416,8 +1458,32 @@ class SettingsController extends Controller
             'task_due_reminders', 'overdue_daily_digest', 'digest_time',
             'default_calendar_view', 'weekend_visible', 'notify_in_app', 'notify_email',
             'notify_push', 'open_hours_enabled', 'open_hours_start', 'open_hours_end',
-            'min_minutes_between_same',
+            'min_minutes_between_same', 'alert_poll_seconds', 'alert_catchup_minutes',
         ]);
+
+        // AT-451 — how often staff browsers check for a new alert to pop up. Absent = this form never showed the field
+        // (leave it alone); blank = back to the default (30). Whole seconds, 15 to 600.
+        if ($request->has('alert_poll_seconds')) {
+            $request->validate(
+                ['alert_poll_seconds' => ['nullable', 'integer', 'min:' . \App\Services\CommandCenter\AlertSwitchService::MIN_POLL_SECONDS, 'max:' . \App\Services\CommandCenter\AlertSwitchService::MAX_POLL_SECONDS]],
+                ['alert_poll_seconds.*' => 'Check for new alerts every: enter a whole number of seconds between ' . \App\Services\CommandCenter\AlertSwitchService::MIN_POLL_SECONDS . ' and ' . \App\Services\CommandCenter\AlertSwitchService::MAX_POLL_SECONDS . ', or leave it blank for the default.']
+            );
+            $data['alert_poll_seconds'] = ($request->input('alert_poll_seconds') === null || $request->input('alert_poll_seconds') === '')
+                ? null
+                : (int) $request->input('alert_poll_seconds');
+        }
+
+        // AT-451 follow-up - how far back a freshly opened tab looks for alerts still unread. Absent = this form never showed the
+        // field (leave it alone); blank = back to the default (10). Whole minutes, 1 to 240.
+        if ($request->has('alert_catchup_minutes')) {
+            $request->validate(
+                ['alert_catchup_minutes' => ['nullable', 'integer', 'min:' . \App\Services\CommandCenter\AlertSwitchService::MIN_CATCHUP_MINUTES, 'max:' . \App\Services\CommandCenter\AlertSwitchService::MAX_CATCHUP_MINUTES]],
+                ['alert_catchup_minutes.*' => 'Show alerts still unread from the last: enter a whole number of minutes between ' . \App\Services\CommandCenter\AlertSwitchService::MIN_CATCHUP_MINUTES . ' and ' . \App\Services\CommandCenter\AlertSwitchService::MAX_CATCHUP_MINUTES . ', or leave it blank for the default.']
+            );
+            $data['alert_catchup_minutes'] = ($request->input('alert_catchup_minutes') === null || $request->input('alert_catchup_minutes') === '')
+                ? null
+                : (int) $request->input('alert_catchup_minutes');
+        }
 
         foreach (['open_hours_start', 'open_hours_end'] as $t) {
             if (!empty($data[$t])) $data[$t] = substr($data[$t], 0, 5);

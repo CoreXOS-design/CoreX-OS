@@ -30,7 +30,7 @@ class RentalWorkOrderQuoteController extends Controller
     {
         $this->assertVisible($request, $rentalWorkOrder);
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
+            'agency_service_provider_id' => ['required', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $request->user()->effectiveAgencyId())],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
@@ -47,16 +47,68 @@ class RentalWorkOrderQuoteController extends Controller
                 ->store("rental-work-order-quotes/{$rentalWorkOrder->id}", 'local');
         }
         unset($validated['document']);
-        $wantsSelected = (bool) ($validated['is_selected'] ?? false);
+        // Johan, 9 Oct 2026 (WO 65: a R4,120 quote was captured but never selected, so the owner was never asked): a quote that is the ONLY
+        // one on the work order is selected at once - selecting is what puts it through the no-approval limit / to the owner. With two or more
+        // the agent chooses (the page says loudly while none is chosen); "use this one instead" only exists once one is selected.
+        $explicitlySelected = (bool) ($validated['is_selected'] ?? false);
         unset($validated['is_selected']);
 
         $quote = $rentalWorkOrder->recordQuote($validated, $request->user());
 
-        if ($wantsSelected) {
-            $rentalWorkOrder->selectQuote($quote, $request->user());
+        // Only quote on the work order (live ones; archived are out): there is nothing to choose between, so it IS the quote.
+        $onlyQuote = $rentalWorkOrder->quotes()->whereNull('declined_at')->count() === 1;
+        $selected = false;
+        if ($explicitlySelected || $onlyQuote) {
+            try {
+                $rentalWorkOrder->selectQuote($quote, $request->user());
+                $selected = true;
+            } catch (\LogicException $e) {
+                if ($explicitlySelected) {
+                    throw $e;
+                }
+
+                return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote captured, but not selected: ' . $e->getMessage());
+            }
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Quote captured.');
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', $this->capturedMessage($rentalWorkOrder->fresh(), $selected));
+    }
+
+    /** What the capture did, in one plain sentence: who was asked, or that it was approved on the spot, or that nothing was chosen. */
+    private function capturedMessage(RentalWorkOrder $workOrder, bool $selected): string
+    {
+        if (! $selected) {
+            // Q1 (Johan, 9 Oct 2026): say what is REALLY true. Another quote may still be the chosen one, with the owner.
+            $chosen = $workOrder->quotes()->where('is_selected', true)->first();
+            if ($chosen) {
+                $name = ($chosen->supplier?->name ?? 'The earlier quote') . ' (R' . number_format($chosen->ownerFacingAmount(), 2) . ')';
+                $where = match ($workOrder->owner_approval_status) {
+                    RentalWorkOrder::APPROVAL_PENDING => 'is with the owner',
+                    RentalWorkOrder::APPROVAL_APPROVED => 'is approved by the owner',
+                    default => 'is waiting for its cost to be authorised',
+                };
+
+                return "Quote captured. {$name} is still the chosen quote and {$where}. Use Select on the new quote to put that one to the owner instead.";
+            }
+
+            return 'Quote captured. No quote is chosen yet - the owner has not been asked. Choose one with its Select button.';
+        }
+        if ($workOrder->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+            $names = app(\App\Services\Rentals\RentalWorkOrderService::class)->ownerNames($workOrder);
+
+            $who = $names !== '' ? $names : 'the owner';
+            if (! \App\Models\RentalPortalSetting::notifyLandlordOnDecisionNeededFor($workOrder->agency_id)) {
+                return "Quote captured. It is above what you may authorise (or the owner has not set a repair limit), so {$who} must approve it on the portal (the approval email is switched off for this agency, so tell them).";
+            }
+
+            return "Quote captured. It is above the owner's limit and has gone to {$who}.";
+        }
+        // section 22.6: nothing is approved by itself - say what is left to do
+        if (! app(\App\Services\Rentals\RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
+            return 'Quote captured. Authorise its cost under "Approve the cost".';
+        }
+
+        return 'Quote captured and selected.';
     }
 
     /** Editable while the work order is still open — the reportable facts, not the lifecycle. */
@@ -67,7 +119,7 @@ class RentalWorkOrderQuoteController extends Controller
         abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true), 409, 'This work order has closed and its quotes can no longer be edited.');
 
         $validated = $request->validate([
-            'agency_service_provider_id' => ['required', Rule::exists('agency_service_providers', 'id')->where('agency_id', $request->user()->effectiveAgencyId())],
+            'agency_service_provider_id' => ['required', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $request->user()->effectiveAgencyId(), (int) $quote->agency_service_provider_id)],
             'amount' => ['required', 'numeric', 'min:0'],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
@@ -84,9 +136,15 @@ class RentalWorkOrderQuoteController extends Controller
         }
         unset($validated['document']);
 
-        $before = [(float) $quote->amount, (int) $quote->agency_service_provider_id];
-        $quote->update($validated);
-        $priceOrSupplierChanged = $before !== [(float) $quote->amount, (int) $quote->agency_service_provider_id];
+        // BUILD 2 (§17.9.1a) — the agency's fee on an outside contractor's quote is recomputed when the amount changes (the estimate
+        // wording snapshotted when the quote was captured stays as it was). The gate sees the OWNER-FACING amount, so a fee change counts as a price change.
+        $before = [$quote->ownerFacingAmount(), (int) $quote->agency_service_provider_id];
+        $fee = $quote->rental_job_card_id ? [] : RentalWorkOrderQuote::feeAttributes($rentalWorkOrder, (float) $validated['amount'], false);
+        if ($quote->term_text) {
+            unset($fee['term_text']);
+        }
+        $quote->update($validated + $fee);
+        $priceOrSupplierChanged = $before !== [$quote->ownerFacingAmount(), (int) $quote->agency_service_provider_id];
 
         // The threshold gate is only as fresh as the amount it last saw —
         // an edit to the SELECTED quote's amount must re-evaluate the gate,
@@ -108,6 +166,12 @@ class RentalWorkOrderQuoteController extends Controller
     {
         $this->assertVisible($request, $rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
+
+        // A quote that is already the selected one (a first quote is selected on capture) is not selected a second time: that would put it
+        // through the limit again and mail the owner a second time. The page has no Select button on it either.
+        if ($quote->is_selected) {
+            return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'That quote is already the selected one.');
+        }
 
         try {
             $rentalWorkOrder->selectQuote($quote, $request->user());

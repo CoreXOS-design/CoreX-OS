@@ -139,8 +139,7 @@
                     <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4" style="background:var(--surface); border:1px solid var(--border); max-height:calc(100vh - 8rem);">
                         <div class="px-2 pt-2 pb-2 sticky top-0 z-10" style="background:var(--surface); border-bottom:1px solid var(--border);">
                             <input type="text" x-model="featureSearch" placeholder="Search features…"
-                                   class="w-full text-xs rounded-md px-2 py-1.5"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                                   class="list-header-filter w-full" :class="featureSearch ? 'is-active' : ''">
                         </div>
                         @foreach($matrixSections as $sectionLabel => $modules)
                             @php
@@ -216,6 +215,10 @@
                                             <div>
                                                 <p class="text-sm font-medium" style="color:var(--text-primary);">{{ $perm->label }}</p>
                                                 <p class="text-xs mt-0.5" style="color:var(--text-muted);">Menu / section visibility</p>
+                                                @if(str_ends_with($perm->key, '.view') && ($scopeDefaults[$perm->key]['read'] ?? false))
+                                                {{-- AT-401: an access-type .view key has no scope picker here, so say what the system applies when no scope is stored. --}}
+                                                <p class="text-xs mt-0.5" style="color:var(--ds-amber,#f59e0b);">Default breadth when no scope is stored: {{ ['own' => 'Own', 'branch' => 'Branch', 'all' => 'All'][$scopeDefaults[$perm->key]['scope'] ?? ''] ?? 'None' }} — {{ $scopeDefaults[$perm->key]['note'] }}{{ $scopeDefaults[$perm->key]['varies'] ? '. Varies by screen.' : '.' }}</p>
+                                                @endif
                                             </div>
                                             <div class="flex-shrink-0">
                                                 @foreach($roles as $role)
@@ -275,6 +278,9 @@
                                                                           x-text="['branch','all'].includes(scopeMatrix['{{ $fViewKey }}']?.['{{ $role->name }}']) ? 'On' : 'Off'"></span>
                                                                 </label>
                                                             @endif
+                                                            <p x-show="scopeIsDefault['{{ $fViewKey }}']?.['{{ $role->name }}']" x-cloak
+                                                               class="text-xs mt-1 text-right max-w-md" style="color:var(--ds-amber,#f59e0b);"
+                                                               x-text="defaultLine('{{ $fViewKey }}')"></p>
                                                         </div>
                                                     </template>
                                                     @endforeach
@@ -316,6 +322,9 @@
                                                                     @endforeach
                                                                 </div>
                                                             @endif
+                                                            <p x-show="scopeIsDefault['{{ $fViewKey }}']?.['{{ $role->name }}']" x-cloak
+                                                               class="text-xs mt-1 text-right max-w-md" style="color:var(--ds-amber,#f59e0b);"
+                                                               x-text="defaultLine('{{ $fViewKey }}')"></p>
                                                         </div>
                                                     </template>
                                                     @endforeach
@@ -423,12 +432,17 @@
                     <input type="hidden" name="role" :value="selectedRole">
                     @foreach($permissions as $perm)
                         @if($perm->type === 'action' && str_ends_with($perm->key, '.view'))
+                            {{-- AT-401: while the matrix is only SHOWING the code's default for this role, nothing is
+                                 posted for it but the unchanged grant bit and scope=default (stored as NULL, as before) —
+                                 so saving without changes changes nothing. --}}
                             <input type="hidden"
                                    name="permissions[{{ $perm->key }}]"
-                                   :value="scopeMatrix['{{ $perm->key }}']?.[selectedRole] && scopeMatrix['{{ $perm->key }}'][selectedRole] !== 'none' ? '1' : '0'">
+                                   :value="scopeIsDefault['{{ $perm->key }}']?.[selectedRole]
+                                       ? (matrix['{{ $perm->key }}']?.[selectedRole] ? '1' : '0')
+                                       : (scopeMatrix['{{ $perm->key }}']?.[selectedRole] && scopeMatrix['{{ $perm->key }}'][selectedRole] !== 'none' ? '1' : '0')">
                             <input type="hidden"
                                    name="scopes[{{ $perm->key }}]"
-                                   :value="scopeMatrix['{{ $perm->key }}']?.[selectedRole] || 'none'">
+                                   :value="scopeIsDefault['{{ $perm->key }}']?.[selectedRole] ? 'default' : (scopeMatrix['{{ $perm->key }}']?.[selectedRole] || 'none')">
                         @else
                             <input type="hidden"
                                    name="permissions[{{ $perm->key }}]"
@@ -850,6 +864,8 @@
 function roleManager() {
     const grantedData = @json($granted);
     const scopeData = @json($scopeGranted);
+    // AT-401 — what the code applies when a role has no stored scope: { 'x.view': {scope, varies, read, note} }
+    const scopeDefaults = @json($scopeDefaults);
     const rolesData = @json($rolesJson);
     const allPermKeys = @json($allPermKeys);
     const sharedModules = @json($sharedModules);
@@ -870,19 +886,23 @@ function roleManager() {
     });
 
     // Initialize scopeMatrix: scopeMatrix[viewKey][roleName] = 'none'|'own'|'branch'|'all'
+    // AT-401 — this is the access IN FORCE. A stored scope shows as itself. A role with no stored
+    // scope (no grant row, or a row without one) shows what the code applies by default and is
+    // flagged in scopeIsDefault so the screen marks it "Default" and a save never writes it.
     let scopeMatrix = {};
+    let scopeIsDefault = {};
     viewKeys.forEach(key => {
         scopeMatrix[key] = {};
+        scopeIsDefault[key] = {};
         rolesData.forEach(r => {
+            scopeIsDefault[key][r.name] = false;
             if (r.is_owner) {
                 scopeMatrix[key][r.name] = 'all';
             } else if (scopeData[key] && scopeData[key][r.name]) {
                 scopeMatrix[key][r.name] = scopeData[key][r.name];
-            } else if (grantedData[key] && grantedData[key][r.name]) {
-                // Has permission but no scope set — default to 'all'
-                scopeMatrix[key][r.name] = 'all';
             } else {
-                scopeMatrix[key][r.name] = 'none';
+                scopeMatrix[key][r.name] = scopeDefaults[key]?.scope || 'none';
+                scopeIsDefault[key][r.name] = true;
             }
         });
     });
@@ -896,6 +916,8 @@ function roleManager() {
         selectedRole: urlParams.get('role') || rolesData.find(r => !r.is_owner)?.name || rolesData[0]?.name || 'admin',
         matrix: matrix,
         scopeMatrix: scopeMatrix,
+        scopeIsDefault: scopeIsDefault,
+        scopeDefaults: scopeDefaults,
         dirty: false,
         saving: false,
         lastSavedAt: null,
@@ -927,12 +949,23 @@ function roleManager() {
             return r ? r.label : this.selectedRole;
         },
 
+        // AT-401 — one plain line saying what the system applies while nothing is stored for the role.
+        defaultLine(viewKey) {
+            const d = this.scopeDefaults[viewKey];
+            if (!d) return 'Default — nothing is stored for this role.';
+            if (!d.read) return 'Default — ' + d.note + '.';
+            const word = {own: 'Own', branch: 'Branch', all: 'All'}[d.scope] || 'None';
+            return 'Default (nothing stored for this role) — the system applies ' + word + ': ' + d.note + (d.varies ? '. Varies by screen.' : '.');
+        },
+
         handleScopeChange(moduleKey, roleName, scopeVal) {
             this.scheduleSave();
             const actions = moduleActions[moduleKey];
             if (!actions) return;
 
             const viewKey = actions['view'];
+            // The admin has now chosen a value for this role — it is no longer "Default".
+            if (viewKey && this.scopeIsDefault[viewKey]) this.scopeIsDefault[viewKey][roleName] = false;
             const createKey = actions['create'];
             const editKey = actions['edit'];
             const archiveKey = actions['archive'];
@@ -958,6 +991,11 @@ function roleManager() {
                 if (thisKey && this.matrix[thisKey]?.[roleName] && viewKey) {
                     if (this.scopeMatrix[viewKey]?.[roleName] === 'none') {
                         this.scopeMatrix[viewKey][roleName] = 'own';
+                        this.scopeIsDefault[viewKey][roleName] = false;
+                    } else if (this.scopeIsDefault[viewKey]?.[roleName] && !this.matrix[viewKey]?.[roleName]) {
+                        // Ticking an action on a role that only has the DEFAULT view access: make the
+                        // view grant real (at the scope shown) so the action has a view row to sit on.
+                        this.scopeIsDefault[viewKey][roleName] = false;
                     }
                 }
             }
@@ -983,6 +1021,8 @@ function roleManager() {
             viewKeys.forEach(key => {
                 if (this.scopeMatrix[key]) {
                     this.scopeMatrix[key][dst] = this.scopeMatrix[key][src] || 'none';
+                    // Destination mirrors the source exactly — including "still the default".
+                    this.scopeIsDefault[key][dst] = !!this.scopeIsDefault[key][src];
                 }
             });
 

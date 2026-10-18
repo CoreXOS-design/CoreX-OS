@@ -173,11 +173,15 @@ class AgentPpController extends Controller
     }
 
     /**
-     * Hard-delete a listing referenced by PP's PP121 error.
+     * Archive (soft-delete) a listing referenced by PP's PP121 error.
      * Called from the duplicate-agent cleanup popup. Deactivates on PP first
-     * (so PP releases the agent association) then force-deletes the Property
-     * row in CoreX. This is the one place hard deletion is allowed — it's a
-     * sandbox/duplicate cleanup workflow under manage_users.
+     * (so PP releases the agent association) then archives the Property row
+     * in CoreX — a soft delete through the normal guarded path, same as
+     * every other archive action (PropertyController::destroy() etc.), so
+     * CLAUDE.md non-negotiable #1 (no hard deletes, ever) holds here too and
+     * Property::blockingActiveLease() still applies. Previously this called
+     * forceDelete() and permanently destroyed the row — fixed 2026-10-05;
+     * see .ai/specs/leases.md "Archive guard".
      */
     public function purgeListing(int $id): JsonResponse
     {
@@ -209,13 +213,29 @@ class AgentPpController extends Controller
 
         $ppMessage = implode(' | ', $ppParts);
 
-        if ($property) {
-            $property->forceDelete();
+        // Already-archived rows have nothing left to archive — don't re-fire the
+        // delete event (and its cache-bust/audit/P24-withdraw side effects) for a
+        // no-op. A still-live row goes through the same guarded delete() every
+        // other archive path uses, so an active lease blocks this exactly like it
+        // blocks the Delete button.
+        if ($property && !$property->trashed()) {
+            try {
+                $property->delete();
+            } catch (\App\Exceptions\PropertyHasActiveLeaseException $e) {
+                return response()->json([
+                    'success'    => false,
+                    'message'    => $e->getMessage(),
+                    'lease_id'   => $e->lease()->id,
+                    'lease_url'  => route('corex.leases.show', $e->lease()),
+                    'pp_ok'      => $ppOk,
+                    'pp_message' => $ppMessage,
+                ], 422);
+            }
         }
 
         return response()->json([
             'success'    => true,
-            'message'    => 'Listing #' . $id . ($property ? ' purged from CoreX' : ' (orphan — not in CoreX)')
+            'message'    => 'Listing #' . $id . ($property ? ' archived in CoreX' : ' (orphan — not in CoreX)')
                           . ($ppMessage ? ' — PP: ' . $ppMessage : ''),
             'pp_ok'      => $ppOk,
             'pp_message' => $ppMessage,

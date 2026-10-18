@@ -9,6 +9,7 @@ use App\Models\RentalInspectionSetting;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 use Tests\TestCase;
 
 /**
@@ -41,6 +42,7 @@ use Tests\TestCase;
  */
 final class RentalsStepSaverIndependenceTest extends TestCase
 {
+    use PostsWizardStepLikeABrowser;
     use RefreshDatabase;
 
     private function admin(Agency $agency): User
@@ -59,28 +61,19 @@ final class RentalsStepSaverIndependenceTest extends TestCase
         $agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty-' . uniqid()]);
         $admin = $this->admin($agency);
 
+        // 2026-10-06 — the baseline is what the leases step itself would post (every
+        // hidden/checked/typed field, serialised the way a browser does it, plus the
+        // rows its Alpine lists add); the four values this test is about are layered on
+        // top. The hand-written list that stood here went stale each time a toggle joined
+        // the step — a payload no real browser could send, which the saver's has()-guard
+        // rightly refuses. Assertions are unchanged and the saver is untouched.
         $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), [
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
                 'expiry_notice_window_days' => 45,
                 'fault_report_window_days' => 10,
                 'out_inspection_signing_window_days' => 14,
                 'no_approval_spend_threshold' => 750,
-                // rental-application-field-config.md joined this same shared
-                // step after this test was first written — every field
-                // below is a real control this step now renders, so a
-                // genuine form submits it too.
-                'shown_field_keys' => collect(\App\Models\RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
-                'required_field_keys' => [],
-                'field_display_submitted' => '1',
-                'required_fields_submitted' => '1',
-                'return_gate_method' => 'id_number',
-                'return_gate_attempt_max' => 6,
-                'return_gate_attempt_window_minutes' => 15,
-                'lock_property_after_submission' => '1',
-                'tag_contact_as_tenant_on_approval' => '1',
-                'require_fica_before_authorisation' => '0',
-                'document_uploads_open_after_approval' => '1',
-            ])
+            ]))
             ->assertRedirect()
             ->assertSessionHasNoErrors();
 

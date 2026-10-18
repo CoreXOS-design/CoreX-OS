@@ -79,9 +79,10 @@ final class RentalApplicationDocumentVisibilityTest extends TestCase
         $this->assertSame(1, $this->application->documents()->count());
 
         // The regression this test guards: an in_progress application with a
-        // real uploaded document must be discoverable on Returned
-        // Applications, not just on the plain index.
-        $returnedResponse = $this->actingAs($this->agent)->get(route('corex.rental-applications.returned'));
+        // real uploaded document must be discoverable on its own tile (AT-402
+        // folded "Returned Applications" into the index — an in_progress
+        // application sits on "Not Yet Submitted"), not just on the plain index.
+        $returnedResponse = $this->actingAs($this->agent)->get(route('corex.rental-applications.index', ['tile' => 'not_yet_submitted']));
         $returnedResponse->assertOk();
         $returnedResponse->assertSee($this->application->contact->full_name);
 

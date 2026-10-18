@@ -324,16 +324,13 @@ class TrackedPropertyMatchOrCreateTest extends TestCase
         // them at the TP level too (same erf+suburb legitimately IS one TP
         // identity, so without an artificial guard fact the fixture setup
         // would merge them before this test ever reaches promoteToStock()).
-        $tpA = $this->service->matchOrCreate(
-            $this->agency->id,
-            ['street_number' => '10', 'street_name' => 'Erf Rd', 'suburb' => 'Margate', 'erf_number' => '9001', 'unit_number' => 'TPGUARD-A'],
-            ['type' => 'deeds', 'ref' => 'ERFDUP-A']
-        );
-        $tpB = $this->service->matchOrCreate(
-            $this->agency->id,
-            ['street_number' => '10', 'street_name' => 'Erf Rd Renamed', 'suburb' => 'Margate', 'erf_number' => '9001', 'unit_number' => 'TPGUARD-B'],
-            ['type' => 'deeds', 'ref' => 'ERFDUP-B-unrelated-ref']
-        );
+        //
+        // 2026-10-07 (structured address matching): the fixture used to keep matchOrCreate() from merging the two by giving
+        // them DIFFERENT unit numbers (TPGUARD-A / TPGUARD-B). A different unit on both sides is now — by the same rule that
+        // applies everywhere ("a different street number, unit or erf always blocks same") — a different property, so the two
+        // rows are created directly instead: the test is about promoteToStock() resolving ONE Property, not about the hub.
+        $tpA = TrackedProperty::create(['agency_id' => $this->agency->id, 'street_number' => '10', 'street_name' => 'Erf Rd', 'suburb' => 'Margate', 'erf_number' => '9001', 'source_chain' => []]);
+        $tpB = TrackedProperty::create(['agency_id' => $this->agency->id, 'street_number' => '10', 'street_name' => 'Erf Rd Renamed', 'suburb' => 'Margate', 'erf_number' => '9001', 'source_chain' => []]);
         $this->assertNotSame($tpA->id, $tpB->id, 'sanity: these must be two distinct TrackedProperty rows for this test to prove anything');
 
         $propertyA = $this->service->promoteToStock((int) $tpA->id, (int) $this->user->id);

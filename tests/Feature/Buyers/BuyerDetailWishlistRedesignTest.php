@@ -383,7 +383,7 @@ final class BuyerDetailWishlistRedesignTest extends TestCase
         ]);
         $this->property($agencyId, $agent->id, $suburbId, ['title' => 'Shared Card House', 'price' => 1_000_000]);
 
-        $sharedCardSignature = "x-data=\"{ noteOpen: false, hideModalOpen: false, hideReason: '' }\"";
+        $sharedCardSignature = "x-data=\"{ noteOpen: false, hideModalOpen: false, hideReason: ''";  // prefix — the component has since grown more state (addressCopied)
 
         $wishlistResp = $this->actingAs($agent)->get(route('command-center.buyers.show', $buyer) . '?tab=wishlists');
         $wishlistResp->assertStatus(200);

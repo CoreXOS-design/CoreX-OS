@@ -99,4 +99,91 @@ final class LeaseSettingsTest extends TestCase
         self::assertSame(75, LeaseSetting::expiryNoticeWindowDaysFor($agency->id), 'the field this request DID carry must still save');
         self::assertSame(2.0, LeaseSetting::defaultDepositMonthsFor($agency->id), 'omitted from the request -- must be left exactly as it was, not blanked');
     }
+
+    // ── Property status follows the lease: the four switches have a control (cross-cutting audit 2026-10-08) ──
+
+    private function adminOf(Agency $agency): User
+    {
+        $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch A']);
+
+        return User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'admin']);
+    }
+
+    public function test_the_status_switches_default_to_on_and_active_and_show_on_the_settings_page(): void
+    {
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $admin = $this->adminOf($agency);
+
+        self::assertTrue(LeaseSetting::autoReadvertiseOnNoticeFor($agency->id));
+        self::assertTrue(LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id));
+        self::assertTrue(LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id));
+        self::assertSame('active', LeaseSetting::defaultPreLetStatusFor($agency->id));
+
+        $this->actingAs($admin)->get(route('corex.settings.leases.edit'))->assertOk()
+            ->assertSee('Property status when a lease changes')
+            ->assertSee('name="auto_readvertise_on_notice"', false)
+            ->assertSee('name="auto_restore_status_on_lease_ended"', false)
+            ->assertSee('name="auto_restore_status_on_lease_cancelled"', false)
+            ->assertSee('name="default_pre_let_status"', false);
+    }
+
+    public function test_the_settings_page_saves_each_status_switch_and_the_on_market_status(): void
+    {
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $admin = $this->adminOf($agency);
+
+        $this->actingAs($admin)->post(route('corex.settings.leases.update'), [
+            'expiry_notice_window_days' => 60,
+            'auto_readvertise_on_notice' => '0',
+            'auto_restore_status_on_lease_ended' => '0',
+            'auto_restore_status_on_lease_cancelled' => '1',
+            'default_pre_let_status' => 'draft',
+        ])->assertRedirect(route('corex.settings.leases.edit'))->assertSessionHasNoErrors();
+
+        self::assertFalse(LeaseSetting::autoReadvertiseOnNoticeFor($agency->id));
+        self::assertFalse(LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id));
+        self::assertTrue(LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id));
+        self::assertSame('draft', LeaseSetting::defaultPreLetStatusFor($agency->id));
+    }
+
+    public function test_a_save_that_omits_the_status_switches_never_wipes_them(): void
+    {
+        // The wizard step posts a SUBSET of fields (agency-onboarding-setup.md section 6.1): absent = "not shown", never "off".
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $admin = $this->adminOf($agency);
+        LeaseSetting::create([
+            'agency_id' => $agency->id, 'expiry_notice_window_days' => 60,
+            'auto_readvertise_on_notice' => false, 'auto_restore_status_on_lease_ended' => false,
+            'auto_restore_status_on_lease_cancelled' => false, 'default_pre_let_status' => 'draft',
+        ]);
+
+        $this->actingAs($admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => 75])->assertSessionHasNoErrors();
+
+        self::assertSame(75, LeaseSetting::expiryNoticeWindowDaysFor($agency->id));
+        self::assertFalse(LeaseSetting::autoReadvertiseOnNoticeFor($agency->id));
+        self::assertFalse(LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id));
+        self::assertFalse(LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id));
+        self::assertSame('draft', LeaseSetting::defaultPreLetStatusFor($agency->id));
+    }
+
+    public function test_a_status_the_agency_does_not_have_is_rejected(): void
+    {
+        $agency = Agency::create(['name' => 'Agency ' . uniqid(), 'slug' => 'agency-' . uniqid()]);
+        $admin = $this->adminOf($agency);
+
+        $this->actingAs($admin)->post(route('corex.settings.leases.update'), [
+            'expiry_notice_window_days' => 60, 'default_pre_let_status' => 'definitely_not_a_status',
+        ])->assertSessionHasErrors('default_pre_let_status');
+
+        self::assertSame('active', LeaseSetting::defaultPreLetStatusFor($agency->id));
+    }
+
+    public function test_the_three_status_switches_are_in_the_setup_wizard_leases_step(): void
+    {
+        $keys = collect(config('agency-onboarding-copy.leases.controls', []))->pluck('key')->all();
+
+        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'auto_restore_status_on_lease_cancelled'] as $key) {
+            self::assertContains($key, $keys, "{$key} must be a control on the leases wizard step");
+        }
+    }
 }

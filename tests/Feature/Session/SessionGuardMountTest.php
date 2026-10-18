@@ -36,7 +36,7 @@ class SessionGuardMountTest extends TestCase
         $resp = $this->actingAs($this->agent())->get(route('command-center.calendar'));
 
         $resp->assertStatus(200);
-        $resp->assertSee('js/corex-session-guard.js', false);   // the reusable guard asset
+        $resp->assertSee('js/corex-connection-guard.js', false);   // the reusable guard asset
         $resp->assertSee('startHeartbeat', false);              // heartbeat init
         $resp->assertSee('corex:csrf-refreshed', false);        // global token sink → meta refresh
     }
@@ -46,11 +46,11 @@ class SessionGuardMountTest extends TestCase
     {
         $this->actingAs($this->agent());
         $authed = view('layouts.partials._session-guard')->render();
-        $this->assertStringContainsString('corex-session-guard.js', $authed);
+        $this->assertStringContainsString('corex-connection-guard.js', $authed);
         $this->assertStringContainsString('startHeartbeat', $authed);
 
         auth()->logout();
         $guest = view('layouts.partials._session-guard')->render();
-        $this->assertStringNotContainsString('corex-session-guard.js', $guest);
+        $this->assertStringNotContainsString('corex-connection-guard.js', $guest);
     }
 }

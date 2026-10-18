@@ -324,15 +324,28 @@ class SyncPermissions extends Command
 
             // Determine the full default key set for this role per config
             if (isset($roleDefaults[$roleName])) {
-                $expectedKeys = $this->keysForDef($roleDefaults[$roleName], $allKeys);
+                $def = $roleDefaults[$roleName];
 
                 // Johan, 2026-09-07 — "hate silent fails." keysForDef() returns []
                 // for a role_defaults entry it does not recognise (e.g. a typo'd
-                // 'inlcude' key) — indistinguishable, further down, from a
-                // genuinely empty diff ("up to date"). Surface it as its own
-                // status rather than letting a malformed config read as healthy.
-                if (empty($expectedKeys)) {
+                // 'inlcude' key) — indistinguishable, by RESULT alone, from a
+                // role whose config is a genuinely, deliberately empty closed
+                // include (AT-267: 'assistant' => ['include' => []] — an identity
+                // label role meant to carry zero config-default grants). Checking
+                // the result (empty($expectedKeys)) conflated the two and fired
+                // this WARNING for 'assistant' in every agency, every deploy
+                // (2026-10-05). Check the SHAPE instead — that's the actual
+                // thing that can be malformed; a recognised shape resolving to
+                // zero keys is a legitimate, intended outcome, not a warning.
+                if (!RoleDefaultsResolver::isRecognizedShape($def)) {
                     $perRoleSummary[$label] = 'WARNING — role_defaults entry present but resolved to ZERO keys (check its shape: expects "*", ["exclude"=>...], or ["include"=>...])';
+                    continue;
+                }
+
+                $expectedKeys = $this->keysForDef($def, $allKeys);
+
+                if (empty($expectedKeys)) {
+                    $perRoleSummary[$label] = 'skipped (role_defaults resolves to zero keys by design)';
                     continue;
                 }
             } else {

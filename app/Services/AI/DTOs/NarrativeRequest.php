@@ -53,6 +53,19 @@ final class NarrativeRequest
      *                                  When non-empty, AnthropicGateway emits
      *                                  the messages.content[] in multipart form
      *                                  (document blocks before the text block).
+     * @param string  $source           AiUsageEvent::SOURCE_* the ledger row is filed
+     *                                  under. Default keeps every existing caller on
+     *                                  mic_narrative; a new surface passes its own so its
+     *                                  spend shows up under its own name (AT-456 Part B).
+     * @param int|null $timeoutSeconds  Per-request HTTP timeout override. Null = the
+     *                                  config default (30s) — fine for a short brief, too
+     *                                  short for a multi-layout generation.
+     * @param bool    $system           AT-456 Part C — platform (system-bucket) call. The spend is
+     *                                  ALWAYS guarded and recorded as agency NULL, never resolved
+     *                                  from the signed-in user. Without it a null $agencyId means
+     *                                  "use the signed-in user's agency", which would charge an
+     *                                  owner pressing Run now to their own agency. Default false
+     *                                  leaves every existing caller unchanged.
      */
     public function __construct(
         public readonly string $narrativeType,
@@ -69,7 +82,29 @@ final class NarrativeRequest
         public readonly bool $forceRefresh = false,
         public readonly string $promptVersion = 'v1',
         public readonly array $documents = [],
+        public readonly string $source = \App\Models\AI\AiUsageEvent::SOURCE_MIC_NARRATIVE,
+        public readonly ?int $timeoutSeconds = null,
+        public readonly bool $system = false,
     ) {}
+
+    /**
+     * A copy of this request with a different system prompt, every other field
+     * carried over. DTOs are immutable, so anything that needs to adjust the system
+     * prompt (e.g. the gateway's JSON-only instruction) must go through here and
+     * never rebuild the constructor by hand — a hand-built copy silently drops any
+     * field added later (it dropped `documents`, so a PDF never reached the AI).
+     * Reflects over the constructor, so a future field is carried automatically.
+     */
+    public function withSystemPrompt(string $systemPrompt): self
+    {
+        $args = [];
+        foreach ((new \ReflectionClass(self::class))->getConstructor()->getParameters() as $param) {
+            $name        = $param->getName();
+            $args[$name] = $name === 'systemPrompt' ? $systemPrompt : $this->{$name};
+        }
+
+        return new self(...$args);
+    }
 
     /**
      * sha256 of the input data — the cache hit requires both cache_key AND

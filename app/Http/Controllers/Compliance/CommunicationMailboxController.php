@@ -273,7 +273,7 @@ class CommunicationMailboxController extends Controller
         $append = $appender->append($mailbox, $rawMime ?? $testMime);
         // 2026-09-09 (Johan, auth-lock safeguard) — the IMAP leg's own real login.
         $hostBreaker->recordAuthFailureIfApplicable(strtolower(trim((string) $mailbox->imap_host)), $append['reason'] ?? null);
-        if ($append['reason'] === 'intercepted') {
+        if (in_array($append['reason'], ['intercepted', 'simulated'], true)) { // 'simulated' = non-sending environment (§42): a deliberate safety skip too
             // AT-URGENT-2026-09-08/09 — a deliberate safety skip, not a
             // failure: nothing was attempted, so the mailbox's real
             // append-health fields are left exactly as they were. Wording

@@ -92,6 +92,10 @@ trait BuildsSigningSession
         ]);
 
         $signatureTemplate = SignatureTemplate::create([
+            // Explicit, like the Document above: with no Auth::user() the creating hook falls back to a
+            // process-wide "exactly one agency" static cache, so leaving this out made the row agency-less
+            // (or not, depending on test order) and invisible to the acting agent's AgencyScope.
+            'agency_id'     => $creator->agency_id,
             'document_id'   => $document->id,
             'document_hash' => Str::random(64),
             'status'        => SignatureTemplate::STATUS_SIGNING,

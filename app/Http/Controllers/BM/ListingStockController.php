@@ -56,6 +56,15 @@ class ListingStockController extends Controller
                   });
             });
 
+        // Breadth beyond the branch fence above: a role whose listings scope is 'own'
+        // (or none) must not read the whole branch just because it holds the permission.
+        $stockScope = \App\Services\PermissionService::getDataScope($u, 'listings');
+        if ($stockScope === 'own') {
+            $q->whereIn('user_id', $u->dataIdentityIds());
+        } elseif (! in_array($stockScope, ['all', 'branch'], true)) {
+            $q->whereRaw('1 = 0');
+        }
+
         // Status dropdown filter (same behaviour as Agent)
         if ($statusFilter === 'active') {
             $q->where(function ($qq) {

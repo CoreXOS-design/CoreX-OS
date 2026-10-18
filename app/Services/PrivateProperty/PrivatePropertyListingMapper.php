@@ -99,7 +99,7 @@ class PrivatePropertyListingMapper
             // CoreX capture time (a 2-week compliance hold would otherwise reach PP stale).
             'ListingDate'             => self::resolveListingDate($property),
             'ExpiryDate'              => $expiryDate,
-            'AvailableFrom'           => now()->format('Y-m-d\TH:i:s'),
+            'AvailableFrom'           => self::resolveAvailableFrom($property),
             'AgentId'                 => $this->buildAgentIdString($property),
             'PhotoUrls'               => new \stdClass(), // empty ArrayOfString — overridden below if photos exist
             'OwnerID'                 => '',
@@ -396,7 +396,7 @@ class PrivatePropertyListingMapper
 
         // Town is required for PP geographic hierarchy (suburb → town → province)
         if (empty($property->town) && empty($property->city) && empty($property->pp_suburb_id)) {
-            $missing[] = ['field' => 'town', 'label' => 'Town (e.g. "Margate") — required for PP location hierarchy', 'tab' => 'info'];
+            $missing[] = ['field' => 'town', 'label' => 'Town (the town name) — required for PP location hierarchy', 'tab' => 'info'];
         }
 
         // PP60: a unit number means the property sits within a scheme, so PP
@@ -804,6 +804,27 @@ class PrivatePropertyListingMapper
     }
 
     /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (3). PP's
+     * `AvailableFrom` is a REQUIRED struct field (always sent, never
+     * omitted) — before this it was unconditionally `now()`, so a rental
+     * re-advertised with a real future move-out date (§15 GATE 2 row 2)
+     * never showed its real availability on PP. Now reads
+     * `lease_start_date` (the SAME column reused for an ordinary rental's
+     * own move-in date and for the notice-readvertise path) when the
+     * agency/property setting allows it; falls back to `now()` exactly as
+     * before — for a sale listing (no lease_start_date), the setting off,
+     * or no date ever captured.
+     */
+    public static function resolveAvailableFrom(Property $property): string
+    {
+        if ($property->lease_start_date !== null && (bool) ($property->show_available_from_on_portals ?? true)) {
+            return $property->lease_start_date->format('Y-m-d\TH:i:s');
+        }
+
+        return now()->format('Y-m-d\TH:i:s');
+    }
+
+    /**
      * Map the CoreX property status to a PP PropertyStatus enum.
      *
      * Previously this was hardcoded to ForSale/ToLet, so a Sold/Withdrawn/Expired
@@ -818,15 +839,37 @@ class PrivatePropertyListingMapper
      */
     private function mapPropertyStatus(Property $property, string $listingType): string
     {
-        $status = strtolower(trim($property->status ?? ''));
-
-        foreach (['sold', 'rented', 'withdrawn', 'expired', 'cancelled', 'archived', 'unavailable'] as $offMarket) {
-            if (str_contains($status, $offMarket)) {
-                return 'Inactive';
-            }
+        if (self::isOffMarketBase($property)) {
+            return 'Inactive';
         }
 
         return $listingType === 'Rental' ? 'ToLet' : 'ForSale';
+    }
+
+    /**
+     * Is the property's BASE status off-market? One definition for BOTH the
+     * full-submit mapper and the status-sync mapper (Johan, 2026-10-06 — a Refresh
+     * on a let property sent it back as To Let because this check was a hand-kept
+     * substring list that did not know `let_out`). Sourced from
+     * Property::OFF_MARKET_STATUSES (BUILD_STANDARD §6); the space form covers
+     * underscored slugs ("let_out" / "let out"), the substring match covers
+     * variants like "sold • cash". Base status only — a stale on-market sub-label
+     * must never resurrect an off-market listing (same rule as the P24 mapper).
+     */
+    private static function isOffMarketBase(Property $property): bool
+    {
+        $status = strtolower(trim((string) $property->status));
+        if ($status === '') {
+            return false;
+        }
+
+        foreach (Property::OFF_MARKET_STATUSES as $needle) {
+            if (str_contains($status, $needle) || str_contains($status, str_replace('_', ' ', $needle))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -841,6 +884,13 @@ class PrivatePropertyListingMapper
      */
     public static function statusFor(Property $property, string $listingType): string
     {
+        // Off-market BASE status is absolute — resolved before the sub-label so a stale
+        // banner ("Under Offer", "Back on Market") on a let_out/withdrawn listing can
+        // never re-advertise it, and so this agrees with the full-submit mapper.
+        if (self::isOffMarketBase($property)) {
+            return 'Inactive';
+        }
+
         $lifecycle = \App\Services\Syndication\ListingLifecycle::resolve($property->status, $property->status_label);
 
         if ($lifecycle === \App\Services\Syndication\ListingLifecycle::UNDER_OFFER) {

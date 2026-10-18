@@ -532,7 +532,7 @@ class PresentationPdfService
         // logo above, never a hardcoded tenant. $agencyAddress is null (not a
         // fallback string) when unresolved, so the address line is omitted
         // rather than leaking another tenant's location.
-        $agencyName = $agency->name ?? config('app.name');
+        $agencyName = $agency->name ?? \App\Support\ClientBrand::NEUTRAL;
         $agencyAddress = $agency->address ?? null;
         if ($agency && $agency->logo_path) {
             $logoFile = storage_path('app/public/' . $agency->logo_path);
@@ -1193,7 +1193,7 @@ td.num, th.num { text-align: right; }
 .metric-card.success { border-color: var(--success); }
 .metric-card.success .value { color: var(--success); }
 
-/* ── VALUATION BAR ───────────────────────────────────────────────────── */
+/* ── EVALUATION BAR ───────────────────────────────────────────────────── */
 .val-bar-container { margin: 16px 0; position: relative; }
 .val-bar {
     display: flex;
@@ -2355,7 +2355,7 @@ a:hover { text-decoration: underline; }
 </div>
 
 <?php if ($cmaLower || $cmaMiddle || $cmaUpper): ?>
-<h3 style="margin-bottom:10px;color:var(--brand);">CMA Valuation Range</h3>
+<h3 style="margin-bottom:10px;color:var(--brand);">CMA Evaluation Range</h3>
 
 <div class="metric-grid">
     <div class="metric-card">
@@ -2363,7 +2363,7 @@ a:hover { text-decoration: underline; }
         <div class="value"><?= $zar($cmaLower) ?></div>
     </div>
     <div class="metric-card highlight">
-        <div class="label">CMA Valuation</div>
+        <div class="label">CMA Evaluation</div>
         <div class="value"><?= $zar($cmaMiddle) ?></div>
     </div>
     <div class="metric-card">
@@ -2374,7 +2374,7 @@ a:hover { text-decoration: underline; }
 
 <?php if ($subject['municipal_value']): ?>
 <p style="font-size:11px;color:var(--text-muted);margin:8px 0;">
-    Municipal Valuation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?>:
+    Municipal Evaluation<?php if ($subject['municipal_year']): ?> (<?= $esc($subject['municipal_year']) ?>)<?php endif ?>:
     <strong><?= $zar($subject['municipal_value']) ?></strong>
 </p>
 <?php endif ?>
@@ -2807,7 +2807,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
                         <?php if (!empty($c['portal_ref'])): ?><span style="font-family:monospace;"><?= $esc($c['portal_ref']) ?></span> · <?php endif; ?>
                         <span style="background:<?= $tierBg ?>;color:<?= $tierColor ?>;padding:1px 5px;border-radius:6px;font-weight:600;"><?= $esc($tierLabel) ?></span>
                         <?php if (!empty($c['is_hfc_owned'])): ?>
-                            · <span style="color:#10b981;font-weight:600;">HFC</span>
+                            · <span style="color:#10b981;font-weight:600;">Own</span>
                             <?php if (isset($c['days_on_market']) && $c['days_on_market'] !== null): ?> · <?= (int) $c['days_on_market'] ?>d<?php endif; ?>
                             <?php if (isset($c['views']) && $c['views'] !== null): ?> · <?= number_format((int) $c['views']) ?> views<?php endif; ?>
                         <?php endif; ?>
@@ -3240,7 +3240,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
 
 <div class="section-intro avoid-break">
     This brings everything together into a recommendation. The range reflects what the
-    evidence supports — recent sales, the valuation band, current competition, and the
+    evidence supports — recent sales, the evaluation band, current competition, and the
     cost of waiting. The <strong>final decision is yours</strong>; our role is to make
     sure it's an informed one.
 </div>
@@ -3337,7 +3337,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
         <?php endif ?>
         <?php if ($subject['municipal_value']): ?>
         <tr>
-            <td>Municipal Valuation</td>
+            <td>Municipal Evaluation</td>
             <td class="num"><?= $zar($subject['municipal_value']) ?></td>
             <td><span class="cmp-badge cmp-warning">Reference</span></td>
         </tr>
@@ -3638,7 +3638,7 @@ for ($rowStart = 0; $rowStart < $visibleCount; $rowStart += $columns):
     Prepared by <?= $esc($agentName) ?> &middot; <?= $esc($agencyName) ?> &middot; <?= $compiledAt ?>
     &middot; Version #<?= $version->id ?>
     <br>
-    This report is based on publicly available data and independent CMA valuation.
+    This report is based on publicly available data and independent CMA evaluation.
     All values are in South African Rand (ZAR). Data sources include CMA Info and Property24.
 </div>
 </div>

@@ -44,6 +44,9 @@ have no `-live-` in their name (unlike every other live lane) despite running
 ambiguous/QA-like at a glance — Johan flagged this after the first version shipped a flat
 list. There is no QA1/QA2 in this data at all: those run as separate systemd services
 (`corex-qa1-queue.service`, `corex-qa2-queue.service`), invisible to `supervisorctl`.
+QA1 splits its workers like live does: `corex-qa1-queue` (short jobs), `corex-qa1-queue-mail` (mail only) and
+`corex-qa1-queue-buyer-matching` (~8 min CPU-bound jobs) — mail must never share a worker with a long job
+(2026-10-07 stall). Unit files and install steps: `scripts/qa1/systemd/`.
 
 **Host-level permission grant (already applied to the shared host, not QA2-scoped):**
 - `/usr/local/bin/corex-supervisor-status.sh` — root-owned, mode 0755, one line:

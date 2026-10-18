@@ -19,10 +19,16 @@ class PerformanceController extends Controller
     {
         $period = $request->get('period', now()->format('Y-m'));
         $user = Auth::user();
+        // Scope-report fix (2026-10-07): this is the BRANCH-wide page; the route
+        // only checks `view_performance`, which every agent holds. A viewer whose
+        // performance_report.view is 'own' must not see the whole branch.
+        abort_unless($user && app(\App\Services\Performance\PerformanceReportScopeResolver::class)->canOpenBranchPages($user), 403);
         $branchId = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
 
         // Existing rollup service (do NOT change weights system)
-        $rollup = $service->getBranchRollup($branchId, $period);
+        // A branch belongs to exactly one agency — hand it to the rollup so its raw queries are agency-filtered.
+        $branchAgencyId = (int) (\DB::table('branches')->where('id', $branchId)->value('agency_id') ?? 0) ?: null;
+        $rollup = $service->getBranchRollup($branchId, $period, $branchAgencyId);
 
         $branchName = \App\Models\Branch::where('id', $branchId)->value('name') ?? 'Branch';
 
@@ -196,7 +202,8 @@ class PerformanceController extends Controller
             return back()->with('status', 'Set a branch budget first.');
         }
 
-        $rollup = $service->getBranchRollup($branchId, $period);
+        $branchAgencyId = (int) (\DB::table('branches')->where('id', $branchId)->value('agency_id') ?? 0) ?: null;
+        $rollup = $service->getBranchRollup($branchId, $period, $branchAgencyId);
 
         $commissionRate = (float) config('performance.commission_rate', 0.075);
         $companyShare   = (float) config('performance.company_share', 0.50);

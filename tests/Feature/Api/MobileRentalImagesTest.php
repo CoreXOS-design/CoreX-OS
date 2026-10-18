@@ -281,7 +281,9 @@ class MobileRentalImagesTest extends TestCase
         $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
                 'section' => 'in_inspection',
-                'images'  => [UploadedFile::fake()->create('move-in.heic', 200, 'image/heic')],
+                // Real bytes, not create(): that only REPORTS a size over an empty temp file, which
+                // PropertyImageStorer (rightly, since 2026-09-27) refuses as "empty on disk".
+                'images'  => [UploadedFile::fake()->createWithContent('move-in.heic', str_repeat("\0HEIC-test-bytes", 128))],
             ])
             ->assertStatus(201)
             ->assertJsonPath('rental_images.in_inspection.images', fn ($imgs) => count($imgs) === 1);

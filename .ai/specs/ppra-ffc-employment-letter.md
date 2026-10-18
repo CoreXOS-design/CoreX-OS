@@ -189,7 +189,7 @@ Agency Settings → "PPRA FFC Employment Letter" section
 > the SAME `savePpraEmploymentLetterSettings` the settings page uses — now `$request->has()`-guarded so a
 > wizard post that never rendered the field cannot clear it (`agency-onboarding-setup.md` §5.1/§6.1).
 > The reminder-days setting listed in the original version of this section was removed on 6 Oct (§18) and
-> is not in the wizard. Test: `tests/Feature/Onboarding/AgencySetupWizardPpraTest.php`.
+> is not in the wizard. Test: `tests/Feature/Onboarding/AgencySetupWizardPpraOasTest.php`.
 >
 > **Bug found and fixed while doing this (2026-10-07):** `ppra_employment_letter_address_block` was never
 > in `Agency::$fillable`, so the settings page's `update()` silently discarded every address an agency typed

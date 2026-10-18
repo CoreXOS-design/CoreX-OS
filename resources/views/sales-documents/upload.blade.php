@@ -1,16 +1,17 @@
+@php($brandName = \App\Support\ClientBrand::nameForId($send->agency_id ?? null))
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Return Signed Document — {{ config('app.name') }}</title>
+    <title>Return Signed Document — {{ $brandName }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-lg">
 
         <div class="text-center mb-6">
-            <h1 class="text-xl font-bold text-slate-800">{{ config('app.name') }}</h1>
+            <h1 class="text-xl font-bold text-slate-800">{{ $brandName }}</h1>
             <p class="text-sm text-slate-500 mt-1">Return Signed Document</p>
         </div>
 
@@ -90,7 +91,7 @@
         </div>
 
         <div class="text-center mt-4 text-xs text-slate-400">
-            {{ config('app.name') }} &mdash; Document Management
+            {{ $brandName }} &mdash; Document Management
         </div>
     </div>
 

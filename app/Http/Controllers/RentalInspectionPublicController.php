@@ -43,11 +43,25 @@ class RentalInspectionPublicController extends Controller
             return $this->privateHeaders(response()->view('rental-inspections.public.unavailable'));
         }
 
+        return $this->privateHeaders(response()->view('rental-inspections.public.show', $this->reportData($inspection, fn ($signature, string $kind) => $signature->fileUrl($kind, $inspection->public_token))));
+    }
+
+    /**
+     * §46 — everything the report page renders, built once so the general public link and a party's personal signing
+     * link show the SAME report. `$signatureFileUrl` says how a signature image / wet-ink scan is fetched under the
+     * caller's own token (each kind of link has its own token-authorised file route).
+     *
+     * @param  callable(\App\Models\RentalInspectionSignature, string): ?string  $signatureFileUrl
+     * @return array<string, mixed>
+     */
+    public function reportData(RentalInspection $inspection, callable $signatureFileUrl): array
+    {
         // Audit L1 — every relation is loaded scope-free: the token is the
         // authority here. A logged-in agent of ANOTHER agency opening a
         // forwarded link would otherwise get AgencyScope-filtered nulls
         // (property = null) and a 500.
         $unscoped = fn ($q) => $q->withoutGlobalScopes();
+        $agencyOnly = fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class);
         $inspection->load([
             'property' => $unscoped,
             'lease' => $unscoped,
@@ -58,24 +72,40 @@ class RentalInspectionPublicController extends Controller
             'observations' => $unscoped,
             'observations.item' => $unscoped,
             'observations.item.room' => $unscoped,
-            'observations.photos' => $unscoped,
+            // Only the AGENCY scope is lifted on the item photos too — an archived (soft-deleted) item photo
+            // must never reach the tenant/landlord link (it used to, because $unscoped also lifts SoftDeletes).
+            'observations.photos' => $agencyOnly,
             'signatures' => $unscoped,
             'signatures.partyContact' => $unscoped,
             'roomNotes' => $unscoped,
+            // §45.5 (Build I-3) — preloaded scope-free for signatureSummaryRows(), and the inspector so the
+            // report names who attended (falling back to the creator).
+            'attendances' => $unscoped,
+            'inspector' => $unscoped,
+            // §45.3 (Build I-1) — room-level ("general") photos and every photo's own note. Only the
+            // AGENCY scope is lifted (an unauthenticated caller has no agency context); SoftDeletes
+            // stays on, so an archived photo — e.g. one removed as "wrong property" — never appears here.
+            'photos' => $agencyOnly,
+            'photos.note' => $agencyOnly,
+            'observations.photos.note' => $agencyOnly,
         ]);
 
         $agencyId = $inspection->property?->agency_id;
         $conditionStates = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->keyBy('key');
 
         $items = RentalInspectionItem::withoutGlobalScopes()->where('property_id', $inspection->property_id)
-            ->where('is_retired', false)
+            ->listedOnReportOf($inspection->id)
             ->with(['room' => $unscoped])
             ->get();
+        // §49 — a sent (or signed) report keeps the checklist wording it was sent with, whatever the checklist says now.
+        $inspection->applyWordingSnapshot($items);
 
         // AT-433, §20.22 — a photo-anchor row (CONDITION_PENDING) is not an
         // assessment; excluded before the latest-per-item pick, the same
         // rule RentalInspectionReportPdfService::generate() already applies.
-        $observationsByItem = $inspection->observations->groupBy('rental_inspection_item_id');
+        // §49 — what was added after the report was sent (a tenant fault report in the window) is not part of the body;
+        // it is shown in its own marked block below.
+        $observationsByItem = $inspection->bodyObservations()->groupBy('rental_inspection_item_id');
         $currentByItem = $observationsByItem
             ->map(fn ($group) => $group->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)->sortByDesc('created_at')->first())
             ->filter();
@@ -114,14 +144,52 @@ class RentalInspectionPublicController extends Controller
             ->groupBy('property_room_id')
             ->map(fn ($notes) => $notes->sortByDesc('created_at')->first());
 
-        return $this->privateHeaders(response()->view('rental-inspections.public.show', [
+        // §45.3 — a room's general condition photos (tagged to the room, no single item). A room with
+        // ONLY such photos and/or a room note, but no graded item, must still appear on the report.
+        $roomPhotos = $inspection->photos
+            ->filter(fn ($p) => $p->property_room_id !== null && $p->rental_inspection_observation_id === null)
+            ->groupBy('property_room_id');
+
+        $extraRoomIds = $roomPhotos->keys()->merge($roomNotes->keys())
+            ->filter(fn ($id) => $id !== null && ! $rows->has($id))
+            ->unique()->values();
+        $extraRooms = $extraRoomIds->isEmpty()
+            ? collect()
+            : \App\Models\PropertyRoom::withoutGlobalScopes()->whereIn('id', $extraRoomIds)->get()->keyBy('id');
+        foreach ($extraRoomIds as $extraId) {
+            // An empty row list is a real, renderable section (heading + photos + note) — see the view.
+            $rows->put($extraId, collect());
+        }
+
+        // §45.5 — the attendance board is built from scope-aware queries; the one caller it cannot serve is a
+        // logged-in user of ANOTHER agency opening a forwarded link (their AgencyScope would hide every row),
+        // who simply gets the report without the attendance block rather than a wrong one.
+        $viewer = auth()->user();
+        $attendanceService = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        $attendanceBoard = (! $viewer || (int) $viewer->effectiveAgencyId() === (int) $agencyId || $viewer->isOwnerRole())
+            ? $attendanceService->board($inspection)
+            : null;
+
+        return [
+            'signatureFileUrl' => $signatureFileUrl,
             'inspection' => $inspection,
             'rows' => $rows,
             'roomNotes' => $roomNotes,
+            'attendanceBoard' => $attendanceBoard,
+            'attendanceService' => $attendanceService,
+            'attendedAsLabels' => RentalInspectionSetting::attendedAsLabelsFor($agencyId),
+            'roomPhotos' => $roomPhotos,
+            'extraRooms' => $extraRooms,
+            'photoNoteLabels' => collect(RentalInspectionSetting::photoNoteClassificationsFor($agencyId))->pluck('label', 'key'),
             'signatureRows' => $inspection->signatureSummaryRows(),
             'refusalReasonLabels' => collect(RentalInspectionSetting::refusalReasonPresetsFor($agencyId))->pluck('label', 'key'),
             'severityColors' => RentalInspectionSetting::SEVERITY_COLORS,
-        ]));
+            // §49 — a tenant or landlord may print / download this report only once everyone has signed (and it stays
+            // available after). Until then the page is for reading on screen only.
+            'downloadAllowed' => $inspection->partyCopyAvailable(),
+            'branding' => $inspection->reportBranding(),
+            'addedAfterSent' => app(\App\Services\Rentals\RentalInspectionAddedAfterSentService::class)->entriesFor($inspection),
+        ];
     }
 
     /**
@@ -129,7 +197,7 @@ class RentalInspectionPublicController extends Controller
      * indexes and shared caches, and stop the token leaking in a Referer
      * header when a photo / signature link is opened.
      */
-    private function privateHeaders(\Symfony\Component\HttpFoundation\Response $response): \Symfony\Component\HttpFoundation\Response
+    public function privateHeaders(\Symfony\Component\HttpFoundation\Response $response): \Symfony\Component\HttpFoundation\Response
     {
         $response->headers->set('X-Robots-Tag', 'noindex, nofollow, noarchive');
         $response->headers->set('Cache-Control', 'no-store, private');

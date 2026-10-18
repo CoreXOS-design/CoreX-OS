@@ -95,7 +95,8 @@ final class OutreachNotSentReleasesPendingTest extends TestCase
 
         $this->assertSame(Contact::OUTREACH_INITIAL, $contact->outreachConsentState());
 
-        // 1. Send the pitch — born 'sent' optimistically, AT-81 clock starts.
+        // 1. Send the pitch. AT-323/AT-81: a WhatsApp pitch is click-to-chat, born NOT counted, and the no-response
+        //    clock is anchored to DELIVERY — so it does not start at compose; it starts when the agent answers "Yes".
         $sendResponse = $this->actingAs($agent)
             ->postJson(route('seller-outreach.composer.submit', $contact), [
                 'channel' => 'whatsapp',
@@ -106,8 +107,16 @@ final class OutreachNotSentReleasesPendingTest extends TestCase
         $this->assertNotNull($sendId, 'submit() must return the send id for the sent-page flow');
 
         $contact->refresh();
-        $this->assertTrue($contact->isOutreachPending(), 'sending starts the AT-81 clock');
-        $this->assertSame(SellerOutreachSend::OUTCOME_SENT, SellerOutreachSend::withoutGlobalScopes()->findOrFail($sendId)->outcome);
+        $this->assertFalse($contact->isOutreachPending(), 'compose alone does not start the AT-81 clock for WhatsApp');
+        $sendRow = SellerOutreachSend::withoutGlobalScopes()->findOrFail($sendId);
+        $this->assertSame(SellerOutreachSend::OUTCOME_SENT, $sendRow->outcome);
+
+        // The agent first answers "Yes, I sent it" (the clock starts), then corrects themselves below.
+        app(\App\Services\Communications\CommunicationSendStatusService::class)->markSent(
+            \App\Models\Communications\Communication::withoutGlobalScopes()->findOrFail($sendRow->communication_id), $contact, $agent->id,
+        );
+        $contact->refresh();
+        $this->assertTrue($contact->isOutreachPending(), 'confirming the send starts the AT-81 clock');
 
         // 2. Agent confirms on the sent page: WhatsApp did NOT actually go out.
         $notSentResponse = $this->actingAs($agent)
@@ -152,6 +161,12 @@ final class OutreachNotSentReleasesPendingTest extends TestCase
                 'body'    => "Hi {seller_name}. {tracking_link} Reply STOP.",
             ]);
         $sendResponse->assertOk();
+
+        // AT-323/AT-81: the clock starts when the agent confirms "Yes, I sent it", not at compose.
+        $sendRow = SellerOutreachSend::withoutGlobalScopes()->findOrFail($sendResponse->json('send_id') ?? $sendResponse->json('id'));
+        app(\App\Services\Communications\CommunicationSendStatusService::class)->markSent(
+            \App\Models\Communications\Communication::withoutGlobalScopes()->findOrFail($sendRow->communication_id), $contact, $agent->id,
+        );
 
         $contact->refresh();
         $this->assertTrue($contact->isOutreachPending());

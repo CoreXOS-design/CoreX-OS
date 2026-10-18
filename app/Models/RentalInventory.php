@@ -94,14 +94,16 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         }
     }
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function property(): BelongsTo
     {
-        return $this->belongsTo(Property::class);
+        return $this->belongsTo(Property::class)->withTrashed();
     }
 
+    /** Same reasoning as property() above. */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
     public function lines(): HasMany
@@ -118,6 +120,92 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     public function signatures(): HasMany
     {
         return $this->hasMany(RentalInventorySignature::class);
+    }
+
+    /** §24 ruling — the buyer's own separate acceptance record(s). Never gates markCompleted(). */
+    public function buyerAcceptances(): HasMany
+    {
+        return $this->hasMany(RentalInventoryBuyerAcceptance::class);
+    }
+
+    /**
+     * §24 ruling (Johan, 2026-09-29) — buyer acceptance is offered ONLY
+     * once: the inventory is completed, it is a sale property-level record
+     * (never a lease-attached rental one — a tenant is never a "buyer"),
+     * AND the property has a COMMITTED deal (Property::purchasingDeal(),
+     * Granted/Registered only — an active offer alone does not count, same
+     * "an offer is not a purchase" honesty that method's own docblock
+     * states). This is the ONE gate every buyer-acceptance surface reads.
+     */
+    public function buyerAcceptanceOfferedFor(): bool
+    {
+        return $this->status === self::STATUS_COMPLETED
+            && $this->lease_id === null
+            && $this->property?->listing_type === 'sale'
+            && $this->property->purchasingDeal() !== null;
+    }
+
+    /** Every buyer on the property's current committed deal — empty when buyerAcceptanceOfferedFor() is false. */
+    public function eligibleBuyerContacts(): \Illuminate\Support\Collection
+    {
+        if (! $this->buyerAcceptanceOfferedFor()) {
+            return collect();
+        }
+
+        return $this->property->purchasingDeal()->buyers()->get();
+    }
+
+    /**
+     * Audit A-M5 (2026-10-18) — the credential a buyer signs with. The
+     * inventory's public_token is shared with the tenant, the landlord and
+     * the seller, so it can never identify WHICH buyer is accepting. This
+     * returns "{buyerId}.{hmac}": an HMAC (app key) over this inventory, the
+     * buyer and the CURRENT public_token, so it cannot be forged from the
+     * shared link, is valid for exactly one buyer on exactly one inventory,
+     * and dies the moment the public link is revoked/regenerated or expires.
+     * Null when there is no live public link. Nothing is stored.
+     */
+    public function buyerAcceptanceTokenFor(Contact|int $buyer): ?string
+    {
+        if (! $this->publicLinkIsValid()) {
+            return null;
+        }
+        $buyerId = $buyer instanceof Contact ? $buyer->id : $buyer;
+
+        return $buyerId . '.' . $this->buyerAcceptanceSignature((int) $buyerId);
+    }
+
+    /** The buyer contact id a token was issued for, or null when the token is missing, malformed or not valid for THIS inventory's current link. */
+    public function buyerIdFromAcceptanceToken(mixed $token): ?int
+    {
+        if (! $this->publicLinkIsValid() || ! is_string($token) || ! preg_match('/^(\d{1,18})\.([a-f0-9]{64})$/', $token, $m)) {
+            return null;
+        }
+
+        return hash_equals($this->buyerAcceptanceSignature((int) $m[1]), $m[2]) ? (int) $m[1] : null;
+    }
+
+    /** The personal link emailed to one buyer: the shared report page plus that buyer's own token. */
+    public function buyerAcceptanceUrlFor(Contact $buyer): ?string
+    {
+        $token = $this->buyerAcceptanceTokenFor($buyer);
+
+        return $token ? route('rental-inventories.public.show', ['token' => $this->public_token, 'buyer' => $token]) : null;
+    }
+
+    private function buyerAcceptanceSignature(int $buyerId): string
+    {
+        return hash_hmac('sha256', "rental-inventory-buyer-acceptance|{$this->id}|{$buyerId}|{$this->public_token}", (string) config('app.key'));
+    }
+
+    /** Every eligible buyer who has NOT yet recorded their acceptance. */
+    public function outstandingBuyerAcceptances(): \Illuminate\Support\Collection
+    {
+        $acceptedContactIds = $this->buyerAcceptances()->pluck('buyer_contact_id');
+
+        return $this->eligibleBuyerContacts()
+            ->reject(fn (Contact $buyer) => $acceptedContactIds->contains($buyer->id))
+            ->values();
     }
 
     public function photos(): HasMany
@@ -302,11 +390,38 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         });
     }
 
-    /** Every tenant on the lease, plus the landlord if resolvable, who does NOT yet have a live disposition. */
+    /**
+     * §22 ruling (Johan, 2026-09-29) — the owner's real signing role: SELLER
+     * for a property-level (no lease) inventory on a FOR-SALE property
+     * ("it completes and is filed at mandate stage, long before a buyer
+     * exists"); LANDLORD for every other case — a lease-attached rental
+     * inventory, or a property-level inventory on a RENTAL property
+     * currently between tenancies (still a rental, just vacant; §15's own
+     * distinction). Internal key only, never a display word — see
+     * PartyRoleLabel::for() for the label.
+     */
+    public function ownerPartyRole(): string
+    {
+        if ($this->lease_id === null && $this->property?->listing_type === 'sale') {
+            return RentalInventorySignature::PARTY_SELLER;
+        }
+
+        return RentalInventorySignature::PARTY_LANDLORD;
+    }
+
+    /** Every tenant on the lease, plus the owner (landlord or seller, §18) if resolvable, who does NOT yet have a live disposition. */
     public function outstandingSignatories(): \Illuminate\Support\Collection
     {
+        $ownerRole = $this->ownerPartyRole();
+
+        // Conductor brief 2026-09-29 — a superseded wet-ink row (a corrected
+        // wrong upload, or the awaiting_wet_ink row a real upload just
+        // resolved) must not count as "this party is accounted for"; its
+        // replacement is the live disposition. Same filter
+        // RentalInspection::outstandingSignatories() already applies.
         $existing = $this->signatures()
-            ->whereIn('party_role', [RentalInventorySignature::PARTY_TENANT, RentalInventorySignature::PARTY_LANDLORD])
+            ->whereIn('party_role', [RentalInventorySignature::PARTY_TENANT, RentalInventorySignature::PARTY_LANDLORD, RentalInventorySignature::PARTY_SELLER])
+            ->whereNull('superseded_at')
             ->get(['party_role', 'party_contact_id']);
 
         $outstanding = collect();
@@ -320,11 +435,11 @@ class RentalInventory extends Model implements SignedDocumentDistributable
             }
         }
 
-        $landlordContactId = $this->property?->sellerOwnerContact()?->id;
-        if ($landlordContactId) {
-            $already = $existing->contains(fn ($s) => $s->party_role === RentalInventorySignature::PARTY_LANDLORD);
+        $ownerContactId = $this->property?->sellerOwnerContact()?->id;
+        if ($ownerContactId) {
+            $already = $existing->contains(fn ($s) => $s->party_role === $ownerRole);
             if (! $already) {
-                $outstanding->push(['party_role' => RentalInventorySignature::PARTY_LANDLORD, 'party_contact_id' => $landlordContactId]);
+                $outstanding->push(['party_role' => $ownerRole, 'party_contact_id' => $ownerContactId]);
             }
         }
 
@@ -337,6 +452,72 @@ class RentalInventory extends Model implements SignedDocumentDistributable
             ->where('party_role', RentalInventorySignature::PARTY_AGENT)
             ->where('disposition', RentalInventorySignature::DISPOSITION_SIGNED)
             ->exists();
+    }
+
+    /**
+     * Conductor brief 2026-09-29 — the first party (if any) still sitting in
+     * "paper sent, not yet returned." Distinct from outstandingSignatories()
+     * (which only reports a party with NO live row at all): a party marked
+     * awaiting_wet_ink DOES have a live row, so they never appear there, but
+     * they have not actually provided evidence yet either — markCompleted()
+     * below blocks on this the same way it blocks on a truly outstanding
+     * party.
+     */
+    public function firstAwaitingWetInkSignatory(): ?RentalInventorySignature
+    {
+        return $this->signatures()
+            ->where('disposition', RentalInventorySignature::DISPOSITION_AWAITING_WET_INK)
+            ->whereNull('superseded_at')
+            ->first();
+    }
+
+    /**
+     * Every signing party — tenant(s), the owner (landlord/seller), the
+     * agent — one row each, with the party's current live signature (if
+     * any). Mirrors RentalInspection::signatureSummaryRows() exactly (same
+     * shape, same "not_required" convention for an unresolvable landlord),
+     * built here for the report PDF's "print for signature" mode and its
+     * own signature section, which previously iterated raw
+     * $inventory->signatures instead of the full required roster.
+     *
+     * @return array<int, array{role:string, name:?string, signature:?RentalInventorySignature, not_required:bool}>
+     */
+    public function signatureSummaryRows(): array
+    {
+        $liveSignatureFor = fn (string $partyRole, ?int $contactId = null) => $this->signatures->first(
+            fn (RentalInventorySignature $s) => $s->party_role === $partyRole
+                && $s->superseded_at === null
+                && ($contactId === null || (int) $s->party_contact_id === (int) $contactId)
+        );
+
+        $rows = [];
+
+        foreach ($this->lease?->tenants ?? [] as $leaseTenant) {
+            $rows[] = [
+                'role' => \App\Services\PartyRoleLabel::for($this->agency_id, RentalInventorySignature::PARTY_TENANT),
+                'name' => $leaseTenant->contact?->full_name,
+                'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_TENANT, $leaseTenant->contact_id),
+                'not_required' => false,
+            ];
+        }
+
+        $owner = $this->property?->sellerOwnerContact();
+        $ownerRole = $this->ownerPartyRole();
+        $rows[] = [
+            'role' => \App\Services\PartyRoleLabel::for($this->agency_id, $ownerRole),
+            'name' => $owner?->full_name,
+            'signature' => $owner ? $liveSignatureFor($ownerRole, $owner->id) : null,
+            'not_required' => ! $owner,
+        ];
+
+        $rows[] = [
+            'role' => \App\Services\PartyRoleLabel::for($this->agency_id, RentalInventorySignature::PARTY_AGENT),
+            'name' => $this->createdBy?->name,
+            'signature' => $liveSignatureFor(RentalInventorySignature::PARTY_AGENT),
+            'not_required' => false,
+        ];
+
+        return $rows;
     }
 
     /**
@@ -400,7 +581,22 @@ class RentalInventory extends Model implements SignedDocumentDistributable
                 $name = Contact::find($first['party_contact_id'])?->full_name ?? 'A tenant';
                 throw new \LogicException("Cannot complete: {$name} has neither signed nor been marked as refusing.");
             }
-            throw new \LogicException('Cannot complete: the landlord has neither signed nor been marked as refusing.');
+            $ownerLabel = lcfirst(\App\Services\PartyRoleLabel::for($this->agency_id, $first['party_role']));
+            throw new \LogicException("Cannot complete: the {$ownerLabel} has neither signed nor been marked as refusing.");
+        }
+
+        // Conductor brief 2026-09-29 — a party marked "sent for a paper
+        // signature" is not truly outstanding (they have a live row) but
+        // has not actually provided evidence yet either. Checked after the
+        // outstanding-signatories gate (a genuinely blank party is the more
+        // fundamental problem) and before the agent-signature gate (the
+        // agent cannot sign until every party is fully resolved anyway, so
+        // this can never be reached with the agent already signed).
+        if ($awaiting = $this->firstAwaitingWetInkSignatory()) {
+            $name = $awaiting->party_role === RentalInventorySignature::PARTY_TENANT
+                ? (Contact::find($awaiting->party_contact_id)?->full_name ?? 'A tenant')
+                : 'The ' . lcfirst(\App\Services\PartyRoleLabel::for($this->agency_id, $awaiting->party_role));
+            throw new \LogicException("Cannot complete: {$name} is still awaiting a paper signature — upload the signed scan (or mark them as refused) before completing.");
         }
         if (! $this->hasAgentSignature()) {
             throw new \LogicException('Cannot complete an inventory without the agent\'s own signature.');
@@ -433,8 +629,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     /** Same OWN/BRANCH/AGENCY scoping convention as RentalInspection::scopeVisibleTo(). */
     public function scopeVisibleTo(Builder $query, User $user, ?string $requestedScope = null): Builder
     {
-        $maxScope = \App\Services\PermissionService::getDataScope($user, 'rental_inventories');
-        $scope = \App\Services\PermissionService::clampScope($requestedScope, $maxScope);
+        $scope = \App\Services\Rentals\RentalDataScope::resolve($user, 'rental_inventories', $requestedScope);
 
         if ($scope === 'all') {
             return $query;
@@ -490,6 +685,19 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         return self::withoutGlobalScopes()
             ->where('public_token', $token)
             ->where('public_token_expires_at', '>', now())
+            // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
+            // strips SoftDeletes, so an ARCHIVED inventory used to keep
+            // serving its report (and accepting buyer signatures) for the
+            // rest of the link's life, and so did a CANCELLED one. Both are
+            // refused here, in the one lookup both public routes use, and
+            // the token is deliberately NOT cleared: restoring an archived
+            // inventory brings the same link (and the QR already printed on
+            // its PDF) back. Mirrors RentalInspection::findByPublicToken();
+            // see rental-inventory.md §25.
+            ->whereNull('deleted_at')
+            ->where(function ($q) {
+                $q->whereNull('status')->orWhere('status', '!=', self::STATUS_CANCELLED);
+            })
             ->first();
     }
 
@@ -505,10 +713,9 @@ class RentalInventory extends Model implements SignedDocumentDistributable
      * lease-attached inventory — empty for a property-level one, §15) plus
      * the property's owner (Property::sellerOwnerContact(), the SAME
      * resolver outstandingSignatories() above already uses). The owner's
-     * role reads 'landlord' for a lease-attached inventory and 'seller' for
-     * a property-level one — same distinction §15's `$ownerPartyLabel`
-     * display fix already drew on the show page, carried here rather than
-     * re-decided. A party with no email on file is silently excluded.
+     * `role` is the internal key from ownerPartyRole() (§22 ruling) — never
+     * a display word; this array feeds logging/data, not rendered text. A
+     * party with no email on file is silently excluded.
      *
      * @return array<int, array{contact_id: int|null, name: string, email: string, role: string}>
      */
@@ -534,7 +741,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
                 'contact_id' => $owner->id,
                 'name' => $owner->full_name,
                 'email' => $owner->email,
-                'role' => $this->lease_id ? 'landlord' : 'seller',
+                'role' => $this->ownerPartyRole(),
             ];
         }
 

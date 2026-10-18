@@ -104,8 +104,12 @@ final class SharedCaptureModalUnificationTest extends TestCase
             'the agent in-app surface must include signature-modal (which wraps the shared capture modal)');
 
         $wrapper = $this->surfaceSource('partials/signature-modal.blade.php');
-        $this->assertStringContainsString('@include(\'' . self::SHARED_PARTIAL . '\')', $wrapper,
-            'signature-modal must delegate its capture markup to the single shared partial');
+        // The include may pass view data (e.g. savedSignatureSupport) — match the partial name, not a bare `@include('x')`.
+        $this->assertMatchesRegularExpression(
+            '/@include\(\s*[\'"]' . preg_quote(self::SHARED_PARTIAL, '/') . '[\'"]/',
+            $wrapper,
+            'signature-modal must delegate its capture markup to the single shared partial',
+        );
 
         // The in-app host defines no capture modal of its own.
         $this->assertNoDivergentCaptureModal($src, 'sign.blade.php');

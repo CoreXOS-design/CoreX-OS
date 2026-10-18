@@ -13,8 +13,8 @@
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $contactName }},</p>
 
-        <p>{{ $agencyName }} works on pre-approval of prospective tenants before any
-           viewings take place. Please complete the rental application below —
+        <p>@if($propertyAddress !== '')Thank you for your interest in <strong>{{ $propertyAddress }}</strong>. @endif{{ $policySentence }}
+           Please complete the rental application below —
            whichever way suits you.</p>
 
         <div style="text-align: center; margin: 25px 0;">

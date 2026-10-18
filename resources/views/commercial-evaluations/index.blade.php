@@ -48,7 +48,7 @@
                     {{ $showArchived ? 'No archived evaluations' : 'No commercial evaluations yet' }}
                 </h3>
                 <p class="text-sm mb-4" style="color: var(--text-muted);">
-                    {{ $showArchived ? 'Archived evaluations will appear here.' : 'Create your first evaluation to start tracking commercial property valuations.' }}
+                    {{ $showArchived ? 'Archived evaluations will appear here.' : 'Create your first evaluation to start tracking commercial property evaluations.' }}
                 </p>
                 @unless($showArchived)
                     <a href="{{ route('commercial-evaluations.create') }}" class="corex-btn-primary">

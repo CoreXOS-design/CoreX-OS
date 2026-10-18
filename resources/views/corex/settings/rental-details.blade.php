@@ -46,7 +46,7 @@
     --}}
     <div id="custom-fields" class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Custom Fields</h2>
-        <p class="text-xs mb-3" style="color: var(--text-muted);">Fields of your own, beyond what CoreX ships — e.g. a "Lets Assist" yes/no toggle. Each can also be included in the auto-generated advert block.</p>
+        <p class="text-xs mb-3" style="color: var(--text-muted);">Fields of your own, beyond what CoreX ships — e.g. a "Pets allowed" yes/no toggle. Each can also be included in the auto-generated advert block.</p>
 
         @php $activeCustomFieldIds = $activeCustomFields->pluck('id')->all(); @endphp
 
@@ -110,7 +110,7 @@
                     @endif
                     <div class="text-[11px] mt-1" style="color: var(--text-muted);">
                         {{ $customField->key }} &middot; {{ $customField->creator ? 'Added by ' . $customField->creator->name : 'Creator not recorded' }}
-                        <form method="POST" action="{{ route('corex.settings.rental-details.custom-fields.archive', $customField) }}" style="display:inline;" onsubmit="return confirm('Retire this field? Properties that already have a value keep it; it just won\'t be on new ones.');">
+                        <form method="POST" action="{{ route('corex.settings.rental-details.custom-fields.archive', $customField) }}" style="display:inline;" data-confirm="Retire this field? Properties that already have a value keep it; it just won&#x27;t be on new ones.">
                             @csrf
                             <button type="submit" style="color: var(--text-muted); margin-left: 6px;">Retire</button>
                         </form>
@@ -127,7 +127,7 @@
                 @csrf
                 <div>
                     <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Label</label>
-                    <input type="text" name="label" value="{{ old('label') }}" maxlength="150" placeholder="e.g. Lets Assist" required class="corex-input text-xs" style="width: 160px;">
+                    <input type="text" name="label" value="{{ old('label') }}" maxlength="150" placeholder="e.g. Pets allowed" required class="corex-input text-xs" style="width: 160px;">
                 </div>
                 <div>
                     <label class="block text-[11px] mb-1" style="color: var(--text-muted);">Type</label>

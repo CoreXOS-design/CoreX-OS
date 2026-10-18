@@ -267,10 +267,13 @@ class AgentPerformanceService
         $branchTotals = null;
         $companyTotals = null;
 
-        if ($user->branch_id) {
+        // The rollup service runs raw DB::table() queries that only filter by agency when
+        // it is handed one — omitting it summed every agency into the Company tile. With no
+        // resolvable agency the tiles stay empty rather than fall back to "everyone".
+        if ($user->branch_id && $agencyId) {
             $svc = app(\App\Services\Admin\CompanyPerformanceService::class);
-            $branch = $svc->getBranchRollup((int)$user->branch_id, $month->format('Y-m'));
-            $company = $svc->getPeriodRollup($month->format('Y-m'));
+            $branch = $svc->getBranchRollup((int)$user->branch_id, $month->format('Y-m'), (int) $agencyId);
+            $company = $svc->getPeriodRollup($month->format('Y-m'), (int) $agencyId);
 
             $branchTotals = $branch['totals'] ?? null;
             $companyTotals = $company['totals'] ?? null;

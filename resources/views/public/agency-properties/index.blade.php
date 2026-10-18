@@ -90,7 +90,7 @@
 </section>
 
 <footer class="px-6 py-6 text-center text-xs text-muted">
-    Powered by CoreX OS
+    &copy; {{ date('Y') }} {{ $agency->name }}
 </footer>
 
 </body>

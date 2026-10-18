@@ -52,42 +52,11 @@
         </div>
     @endif
 
-    {{-- ============================================================ --}}
-    {{-- RENTALS (conditional) --}}
-    {{-- ============================================================ --}}
-    @if(auth()->user()->can_capture_rentals || auth()->user()->hasPermission('rentals.create'))
-    @php
-        $rentalsActive = (int)($calc['rentals_active_count'] ?? 0);
-        $rentalsAssist = (int)($calc['rentals_assist_count'] ?? 0);
-        $rentalsCommExcl = (float)($calc['rentals_commission_excl_total'] ?? 0);
-    @endphp
-
-    <div class="ds-status-card" style="border-left-color: var(--border);">
-        <div class="flex items-center justify-between mb-3">
-            <h3 class="ds-section-header" style="margin-bottom:0;">Rentals (This Period)</h3>
-            <span class="ds-badge ds-badge-default">Ex VAT</span>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-                <div class="ds-label">Active Rentals</div>
-                <div class="ds-value text-lg">{{ number_format($rentalsActive) }}</div>
-            </div>
-            <div>
-                <div class="ds-label">Rental Assist</div>
-                <div class="ds-value text-lg">{{ number_format($rentalsAssist) }}</div>
-            </div>
-            <div>
-                <div class="ds-label">Commission (Excl VAT)</div>
-                <div class="ds-value text-lg">R {{ number_format($rentalsCommExcl, 2) }}</div>
-            </div>
-        </div>
-
-        <div class="text-xs mt-3" style="color: var(--text-muted);">
-            Display-only: rentals are not yet integrated into budgets.
-        </div>
-    </div>
-    @endif
+    {{-- AT-439 — the old rentals-inclusion card (legacy `rentals` table,
+         display-only, never integrated into budgets) is retired per Johan's
+         2026-10-05 ruling: HFC does not use the old rental commission
+         worksheet. The matching computation in WorksheetController::calculate()
+         is removed in the same commit. --}}
 
     {{-- ============================================================ --}}
     {{-- COMPANY REQUIREMENT --}}

@@ -45,6 +45,7 @@
     Optional: $formAction — the branch/agent pages need next requests to
     keep hitting their own drill-down route, not the company report; omit it
     on the company report page to GET the current URL as usual.
+    Optional: $hiddenFields (array name => value) - extra query fields the form keeps when it re-submits (AT-454: the Road to Sold track).
     Optional: $compareMode (string, default 'off'), $compareModes (array) —
     2026-08-19 (Johan, period-comparison) — the "Compare to" selector. Off by
     default on branch/agent pages if they don't pass these (index.blade.php
@@ -74,22 +75,23 @@
         Period
         <select name="period" x-model="preset"
                 @change="maybeAutoSubmit($event.target)"
-                class="block mt-1 text-xs rounded px-2 py-1"
-                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                class="block mt-1 list-header-filter"
+                :class="{ 'is-active': preset !== 'this_month' }">
             @foreach($presets as $p)
                 <option value="{{ $p }}">{{ ucfirst(str_replace('_', ' ', $p)) }}</option>
             @endforeach
         </select>
     </label>
+    @foreach(($hiddenFields ?? []) as $hk => $hv)<input type="hidden" name="{{ $hk }}" value="{{ $hv }}">@endforeach
     <template x-if="preset === 'custom'">
         <div class="flex items-end gap-2 flex-wrap">
             <label class="text-[11px]" style="color:var(--text-muted);">Start
                 <input type="date" name="start" x-model="start" required
-                       class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                       class="block mt-1 list-header-filter" :class="{ 'is-active': start }">
             </label>
             <label class="text-[11px]" style="color:var(--text-muted);">End
                 <input type="date" name="end" x-model="end" required
-                       class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                       class="block mt-1 list-header-filter" :class="{ 'is-active': end }">
             </label>
         </div>
     </template>
@@ -98,8 +100,8 @@
             Compare to
             <select name="compare" x-model="compare"
                     @change="maybeAutoSubmit($event.target)"
-                    class="block mt-1 text-xs rounded px-2 py-1"
-                    style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    class="block mt-1 list-header-filter"
+                    :class="{ 'is-active': compare !== 'off' }">
                 @foreach($compareModes as $c)
                     <option value="{{ $c }}">{{ $c === 'off' ? 'Off' : ($c === 'same_last_year' ? 'Same period last year' : ucfirst(str_replace('_', ' ', $c))) }}</option>
                 @endforeach
@@ -109,11 +111,11 @@
             <div class="flex items-end gap-2 flex-wrap">
                 <label class="text-[11px]" style="color:var(--text-muted);">Compare start
                     <input type="date" name="compare_start" x-model="compareStart" required
-                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                       class="block mt-1 list-header-filter" :class="{ 'is-active': compareStart }">
                 </label>
                 <label class="text-[11px]" style="color:var(--text-muted);">Compare end
                     <input type="date" name="compare_end" x-model="compareEnd" required
-                           class="block mt-1 text-xs rounded px-2 py-1" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                       class="block mt-1 list-header-filter" :class="{ 'is-active': compareEnd }">
                 </label>
             </div>
         </template>
@@ -122,7 +124,7 @@
         <div class="flex items-end gap-2 flex-wrap">
             <button type="submit" :disabled="!readyToSubmit()"
                     :style="!readyToSubmit() ? 'background:var(--surface-2); color:var(--text-muted); cursor:not-allowed; border:1px solid var(--border);' : 'background:var(--brand-button, #0ea5e9); color:#fff;'"
-                    class="text-xs px-3 py-1 rounded">Apply</button>
+                    class="text-xs px-3 rounded" style="height:2.25rem;">Apply</button>
             <span x-show="!readyToSubmit()" class="text-[11px]" style="color:var(--text-muted);">Pick both dates for every custom range in use</span>
         </div>
     </template>

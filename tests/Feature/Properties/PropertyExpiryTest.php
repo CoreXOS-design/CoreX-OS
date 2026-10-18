@@ -859,7 +859,10 @@ final class PropertyExpiryTest extends TestCase
             ['slug' => MandateExpiryPolicy::EXTENSION_SLUG],
             ['label' => 'Mandate Extension', 'grouping' => 'property', 'listing_types' => null, 'is_active' => false, 'sort_order' => 4]
         );
-        $type->update(['is_active' => false, 'listing_types' => null]);
+        // The schema snapshot now carries this row with the migration's own label ('Extension'), so
+        // firstOrCreate() above no longer builds the install-that-already-had-it case: set the label
+        // explicitly, or the "label an install already had is kept" assertion below proves nothing.
+        $type->update(['label' => 'Mandate Extension', 'is_active' => false, 'listing_types' => null]);
         $type->delete();   // archived AND inactive AND no listing types - the worst case
 
         $migration = require database_path('migrations/2026_10_13_100100_add_mandate_extension_document_type.php');

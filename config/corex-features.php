@@ -28,9 +28,20 @@
  *     'settings_section' => ?string,  // $railGroups anchor in corex/settings.blade.php (null if none)
  *     'route_prefixes'   => array,    // verified ->prefix() strings for the phase-4 feature:<key> middleware
  *     'global_flag'      => ?string,  // optional key in config/features.php for the outer AND kill-switch
+ *     'route_names'      => array,    // OPTIONAL — Str::is() globs of the signed-in web routes this feature owns.
+ *                                     //   App\Http\Middleware\EnforceFeatureRoutes 404s them when the feature is off
+ *                                     //   (in addition to any explicit `feature:` middleware already on the route).
+ *     'view_dirs'        => array,    // OPTIONAL — views/ path prefixes of the feature's OWN screens. Any other view
+ *                                     //   that links to its routes must wrap the link in @feature('<key>')
+ *                                     //   (guard: FeatureNavGuardCoverageTest).
  *     'permission_modules' => array,  // OPTIONAL — whole permission `module`s (corex-permissions.php) this feature owns
  *     'permission_keys'    => array,  // OPTIONAL — individual permission keys it owns (these WIN over module ownership)
  *   ]
+ *
+ * STANDING RULE (Andre + Johan, 2026-10-07): every sidebar item is switchable on/off here. The sidebar guard
+ * (SidebarNavAuditor + FeatureNavGuardCoverageTest) fails when a sidebar link sits outside every @feature
+ * wrap and is not one of the explicit core / platform-owner exemptions in
+ * App\Support\Navigation\SidebarFeatureCoverage. New sidebar item => new row here, same commit.
  *
  * Permission ownership (.ai/specs/features-page.md §4): a permission owned by a feature that is OFF is
  * blocked — its routes 404 (CheckPermission) and Role Manager hides it, while the role_permissions rows
@@ -200,6 +211,17 @@ return [
         'settings_section' => null, 'route_prefixes' => ['prospecting', 'corex/market-intelligence', 'corex/tracked-properties'], 'global_flag' => null,
         'permission_modules' => ['prospecting', 'mic', 'market_intelligence', 'deeds_capture'],
     ],
+    'road-to-sold' => [
+        'label' => 'Road to Sold', 'category' => 'Prospecting & Outreach',
+        'explain' => 'A daily list of properties each agent phones to win stock, measured against a target for each weekday that your agency sets per agent.',
+        'affects' => 'Whether the Road to Sold page and its settings (areas, targets, call outcomes) appear for your agents and managers. Off hides them; calls already logged are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['prospecting'],
+        'nav_permission' => ['access_road_to_sold'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'route_names' => ['road-to-sold.*'],
+        'view_dirs' => ['road-to-sold/'],
+        'permission_modules' => ['road_to_sold'],
+    ],
     'portal-leads' => [
         'label' => 'Portal Leads', 'category' => 'Prospecting & Outreach',
         'explain' => 'The inbox of buyer enquiries that arrive from Property24 and Private Property, ready to be actioned and assigned.',
@@ -221,8 +243,8 @@ return [
 
     // ── Presentations & Valuations ──
     'presentations' => [
-        'label' => 'Presentations & CMA', 'category' => 'Presentations & Valuations',
-        'explain' => 'The seller-presentation and Comparative Market Analysis suite that builds the evidenced valuation you put in front of a seller.',
+        'label' => 'Presentations & CMA', 'category' => 'Presentations & Evaluations',
+        'explain' => 'The seller-presentation and Comparative Market Analysis suite that builds the evidenced evaluation you put in front of a seller.',
         'affects' => 'Whether the Presentations area, analytics and CMA tools appear for your agents. Off hides them; published presentations are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_presentations'], 'sidebar_section' => 'real-estate',
@@ -230,8 +252,8 @@ return [
         'permission_modules' => ['presentations'],
     ],
     'commercial-evaluations' => [
-        'label' => 'Commercial Evaluations', 'category' => 'Presentations & Valuations',
-        'explain' => 'The commercial-property evaluation tool for valuing income-producing and commercial stock.',
+        'label' => 'Commercial Evaluations', 'category' => 'Presentations & Evaluations',
+        'explain' => 'The commercial-property evaluation tool for evaluating income-producing and commercial stock.',
         'affects' => 'Whether the Commercial Evaluations area appears for your agents. Off hides it; saved evaluations are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_commercial_evaluations'], 'sidebar_section' => 'real-estate',
@@ -239,7 +261,7 @@ return [
         'permission_modules' => ['commercial_evals'],
     ],
     'viewing-packs' => [
-        'label' => 'Viewing Packs', 'category' => 'Presentations & Valuations',
+        'label' => 'Viewing Packs', 'category' => 'Presentations & Evaluations',
         'explain' => 'Curated packs of properties to take a buyer on a viewing day.',
         'affects' => 'Whether the Viewing Packs area appears for your agents. Off hides it; saved packs are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
@@ -292,6 +314,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_title_deeds'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['title-deeds'], 'global_flag' => null,
+        'permission_modules' => ['title_deeds'],
     ],
 
     // ── Compliance ──
@@ -336,6 +359,8 @@ return [
         'default' => true, 'core' => false, 'depends_on' => ['agency-tracker'],
         'nav_permission' => [], 'sidebar_section' => 'agency-tracker',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        'route_names' => ['commission.dashboard'],
+        'view_dirs' => ['commission/'],
     ],
     'proforma-invoices' => [
         'label' => 'Proforma Invoices', 'category' => 'Deals & Commission',
@@ -385,13 +410,20 @@ return [
         'settings_section' => null, 'route_prefixes' => ['onboarding'], 'global_flag' => null,
     ],
     'rentals' => [
-        'label' => 'Rentals', 'category' => 'People & Payroll',
-        'explain' => 'The rental workflow — lease capture, active and expired lease tracking, rental document types and rent-related reminders.',
-        'affects' => 'Whether the Rentals area and its leases appear for your agents, and whether CoreX chases rental renewals. Off hides it; existing leases are untouched and reappear when you turn it back on.',
+        'label' => 'Rentals', 'category' => 'Rentals',
+        'explain' => 'The whole Rentals area — leases, applications, inspections, maintenance, and the rental views of your contacts, properties and pipeline. This is the master switch for every rental module listed under it.',
+        'affects' => 'Whether the Rentals menu and every rental screen appear for your users, and whether CoreX chases rental renewals. Off hides all of Rentals at once (the individual rental modules below switch off with it); existing leases and records are untouched and reappear when you turn it back on.',
         'default' => true, 'core' => false, 'depends_on' => [],
-        'nav_permission' => ['view_rentals'], 'sidebar_section' => 'hidden.rentals',
-        'settings_section' => 'feature-rentals', 'route_prefixes' => ['rental'], 'global_flag' => null,
-        'permission_modules' => ['rentals', 'leases', 'rental_applications', 'rental_details', 'rental_fault_reports', 'rental_inspections', 'rental_inventories', 'rental_work_orders'],
+        // Any one of these puts an item in the Rentals panel — the SAME list the sidebar's Rentals toggle checks
+        // (corex-sidebar.blade.php). 'view_rentals' was retired with AT-439; naming it here pointed at nothing.
+        'nav_permission' => ['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => 'feature-rentals', 'route_prefixes' => ['rental', 'rentals'], 'global_flag' => null,
+        // Settings-page configuration routes (rental.settings.*) are deliberately NOT owned here: an agency can still
+        // configure Rentals while it is switched off, and the Settings screens stay reachable.
+        'route_names' => ['corex.rentals.contacts.*', 'corex.rentals.properties.*', 'corex.rentals.pipeline.*', 'corex.rentals.core-matches.*', 'rental.dashboard', 'rental.active-leases', 'rental.expired-leases', 'rental.signatures', 'rentals.permissions*'],
+        // corex/contacts/index is the shared Contacts list; it only emits rentals.contacts links when opened through the Rentals lens route itself.
+        'view_dirs' => ['rental/', 'rentals/', 'corex/contacts/index.blade.php'],
+        'permission_modules' => ['rentals', 'leases', 'rental_applications', 'rental_details', 'rental_fault_reports', 'rental_inspections', 'rental_inventories', 'rental_work_orders', 'rental_portal'],
     ],
 
     // ── Tools & Calculators ──
@@ -457,6 +489,8 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         'nav_permission' => ['access_ellie'], 'sidebar_section' => 'tools',
         'settings_section' => null, 'route_prefixes' => ['ellie'], 'global_flag' => null,
+        'route_names' => ['admin.ellie.reference-sources.*'],
+        'view_dirs' => ['admin/ellie/'],
         'permission_modules' => ['ellie'],
     ],
     'training' => [
@@ -496,6 +530,314 @@ return [
         'nav_permission' => ['marketing_suppressions.view'], 'sidebar_section' => 'admin',
         'settings_section' => null, 'route_prefixes' => ['admin/marketing-suppressions'], 'global_flag' => null,
         'permission_modules' => ['marketing'],
+    ],
+
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SIDEBAR-COMPLETENESS TOGGLES — added 2026-10-07 (Andre + Johan: every
+    // sidebar item must be switchable under Settings → Features on/off).
+    // All default ON so nothing disappears for an existing agency. Each owns
+    // its signed-in web routes via `route_names` (404 when off, enforced by
+    // App\Http\Middleware\EnforceFeatureRoutes) and its sidebar item via an
+    // @feature wrap; other screens that link to it wrap the link too.
+    // ══════════════════════════════════════════════════════════════════════
+
+    // ── Rentals (children of the 'rentals' master switch; one per sidebar item) ──
+    'rental-command-centre' => [
+        'label' => 'Rental Command Centre', 'category' => 'Rentals',
+        'explain' => 'The one-screen overview of every rental property — what is due, overdue or needs attention across leases, inspections, faults and maintenance.',
+        'affects' => 'Whether the Command Centre appears at the top of the Rentals menu. Off hides it and its print view; the leases and records it summarises are untouched.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_command_centre.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rentals/command-centre'], 'global_flag' => null,
+        'route_names' => ['corex.rentals.command-centre.*'],
+        'view_dirs' => ['corex/rentals/command-centre/'],
+        'permission_modules' => ['rental_command_centre'],
+    ],
+    'rental-reports' => [
+        'label' => 'Rental Reports', 'category' => 'Rentals',
+        'explain' => 'The rental reports — property history, tenancy and portfolio reports with print versions.',
+        'affects' => 'Whether Reports appears in the Rentals menu. Off hides the reports; no rental data is removed.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_reports.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rentals/reports'], 'global_flag' => null,
+        'route_names' => ['corex.rentals.reports.*'],
+        'view_dirs' => ['corex/rentals/reports/'],
+        'permission_modules' => ['rental_reports'],
+    ],
+    'rental-applications' => [
+        'label' => 'Rental Applications', 'category' => 'Rentals',
+        'explain' => 'Tenant rental applications — send the application link, collect documents, assess affordability and have an authoriser approve or decline.',
+        'affects' => 'Whether Rental Applications and Rental Application Authorisation appear in the Rentals menu, and the Applications tab on a contact. Off hides them; submitted applications are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_applications.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-applications'], 'global_flag' => null,
+        'route_names' => ['corex.rental-applications.*'],
+        'view_dirs' => ['corex/rental-applications/'],
+    ],
+    'rental-leases' => [
+        'label' => 'Leases', 'category' => 'Rentals',
+        'explain' => 'Lease capture and management — create a lease, activate it, renew or cancel it, send notices and track the tenancy.',
+        'affects' => 'Whether Leases appears in the Rentals menu and whether lease links appear on properties and rental screens. Off hides them; existing leases and their dates are untouched.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['leases.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/leases'], 'global_flag' => null,
+        'route_names' => ['corex.leases.*'],
+        'view_dirs' => ['corex/leases/'],
+    ],
+    'rental-take-on-import' => [
+        'label' => 'Rental Take-On Import', 'category' => 'Rentals',
+        'explain' => 'Bulk import of an existing rental portfolio (properties, tenants and leases) from a spreadsheet when you move onto CoreX.',
+        'affects' => 'Whether Rental Take-On Import appears in the Rentals menu. Off hides the importer; already-imported rentals are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rentals_take_on_import.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rentals/take-on-import'], 'global_flag' => null,
+        'route_names' => ['corex.rentals.take-on-import.*'],
+        'view_dirs' => ['corex/rentals/take-on-import/'],
+        'permission_modules' => ['rentals_take_on_import'],
+    ],
+    'rental-inspections' => [
+        'label' => 'Rental Inspections & Inventories', 'category' => 'Rentals',
+        'explain' => 'Move-in, periodic and move-out inspections and inventories — room-by-room condition, photos, signatures and deposit comparison.',
+        'affects' => 'Whether Rental Inspections appears in the Rentals menu and whether inspection and inventory links appear on leases, properties and contacts. Off hides them; completed inspections and reports are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_inspections.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-inspections', 'corex/rental-inventories'], 'global_flag' => null,
+        'route_names' => ['corex.rental-inspections.*', 'corex.rental-inventories.*'],
+        'view_dirs' => ['corex/rental-inspections/', 'corex/rental-inventories/'],
+    ],
+    'rental-faults' => [
+        'label' => 'Rental Fault Reports & Types', 'category' => 'Rentals',
+        'explain' => 'Maintenance fault reporting — the fault types you offer and the fault reports raised against a rental property.',
+        'affects' => 'Whether Rental Fault Types and Rental Fault Reports appear in the Rentals menu and whether fault links appear on rental screens. Off hides them; logged faults are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_fault_reports.view', 'rental_fault_types.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-fault-reports', 'corex/rental-fault-types'], 'global_flag' => null,
+        'route_names' => ['corex.rental-fault-reports.*', 'corex.rental-fault-types.*'],
+        'view_dirs' => ['corex/rental-fault-reports/', 'corex/rental-fault-types/'],
+        'permission_modules' => ['rental_fault_types'],
+    ],
+    'rental-work-orders' => [
+        'label' => 'Rental Work Orders', 'category' => 'Rentals',
+        'explain' => 'Work orders for rental maintenance — quotes, landlord approval, supplier assignment, variations and completion.',
+        'affects' => 'Whether Rental Work Orders appears in the Rentals menu and whether work-order links appear on fault reports, leases and properties. Off hides them; existing work orders are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_work_orders.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-work-orders'], 'global_flag' => null,
+        'route_names' => ['corex.rental-work-orders.*'],
+        'view_dirs' => ['corex/rental-work-orders/', 'corex/rental-completion/'],
+    ],
+    'rental-notices' => [
+        'label' => 'Rental Notices', 'category' => 'Rentals',
+        'explain' => 'Formal notices to tenants and landlords — generated from templates, sent and filed against the lease.',
+        'affects' => 'Whether Rental Notices appears in the Rentals menu. Off hides it; notices already sent stay filed on their leases.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals', 'rental-leases'],
+        'nav_permission' => ['rental_notices.create', 'rental_notices.review', 'rental_breaches.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-notices', 'corex/lease-notices', 'corex/breaches'], 'global_flag' => null,
+        'route_names' => ['corex.rental-notices.*', 'corex.lease-notices.*', 'corex.leases.notice-cases.store', 'corex.breaches.*', 'corex.leases.breaches.*'],
+        'view_dirs' => ['corex/rental-notices/', 'corex/lease-notices/', 'corex/breaches/'],
+        'permission_modules' => ['rental_notices', 'rental_breaches'],
+    ],
+    'rental-job-cards' => [
+        'label' => 'Rental Job Cards', 'category' => 'Rentals',
+        'explain' => 'Job cards for the maintenance work itself — crew assignment, parts and labour lines, pricing, tenant confirmation and sign-off.',
+        'affects' => 'Whether Job Cards appears in the Rentals menu and whether job-card links appear on leases, inspections and work orders. Off hides them; existing job cards are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_job_cards.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-job-cards'], 'global_flag' => null,
+        'route_names' => ['corex.rental-job-cards.*'],
+        'view_dirs' => ['corex/rental-job-cards/', 'corex/leases/_job-cards-panel.blade.php'],
+        'permission_modules' => ['rental_job_cards'],
+    ],
+    'rental-catalogue' => [
+        'label' => 'Parts & Labour Catalogue', 'category' => 'Rentals',
+        'explain' => 'Your catalogue of priced parts and labour items used to build job-card lines, with bulk import.',
+        'affects' => 'Whether the Parts & Labour Catalogue appears in the Rentals menu. Off hides it; catalogue items and the prices already on job cards are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_catalogue.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-catalogue-items'], 'global_flag' => null,
+        'route_names' => ['corex.rental-catalogue-items.*'],
+        'view_dirs' => ['corex/rental-catalogue-items/'],
+        'permission_modules' => ['rental_catalogue'],
+    ],
+    'rental-crews' => [
+        'label' => 'Rental Crews', 'category' => 'Rentals',
+        'explain' => 'Your in-house maintenance crews and their members, who can be assigned to job cards and given a secure link to their jobs.',
+        'affects' => 'Whether Rental Crews appears in the Rentals menu and whether crew assignment appears on job cards. Off hides them; crews and members are kept.',
+        'default' => true, 'core' => false, 'depends_on' => ['rentals'],
+        'nav_permission' => ['rental_catalogue.view'], 'sidebar_section' => 'rental-applications',
+        'settings_section' => null, 'route_prefixes' => ['corex/rental-crews'], 'global_flag' => null,
+        'route_names' => ['corex.rental-crews.*'],
+        'view_dirs' => ['corex/rental-crews/'],
+    ],
+
+    // ── Real Estate group ──
+    'deeds-capture' => [
+        'label' => 'Deeds Capture', 'category' => 'Prospecting & Outreach',
+        'explain' => 'Review and promote property and owner details captured from the Deeds Office into your tracked properties.',
+        'affects' => 'Whether Deeds Capture appears in the Real Estate menu. Off hides the review screen; captured deeds data is kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['deeds_capture.access'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => ['corex/deeds-capture'], 'global_flag' => null,
+        'route_names' => ['corex.deeds-capture.*'],
+        'view_dirs' => ['corex/deeds-capture/'],
+    ],
+    'address-review' => [
+        'label' => 'Address Review', 'category' => 'Prospecting & Outreach',
+        'explain' => 'The list of property and prospect addresses CoreX could not read confidently, where an administrator corrects or dismisses each one.',
+        'affects' => 'Whether Address Review appears in the Real Estate menu. Off hides the screen; the addresses and any corrections already made are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['address_review.manage'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => ['corex/address-review'], 'global_flag' => null,
+        'route_names' => ['corex.address-review.*'],
+        'view_dirs' => ['corex/address-review/'],
+    ],
+    'imported-stock' => [
+        'label' => 'Imported Stock (other agency stock)', 'category' => 'Listings & Marketing',
+        'explain' => 'The list of properties brought in from other agencies\' portal stock, kept apart from your own listings.',
+        'affects' => 'Whether Imported Stock appears in the Real Estate menu. Off hides the list; the imported properties are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_imported_stock'], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => ['corex/properties/imported-stock'], 'global_flag' => null,
+        'route_names' => ['corex.properties.imported-stock'],
+        'view_dirs' => [],
+    ],
+    'buyer-pipeline' => [
+        'label' => 'Buyer Pipeline', 'category' => 'Buyers & Matching',
+        'explain' => 'The buyer pipeline board — move each buyer through your stages, record why one is lost, and open a buyer\'s detail page.',
+        'affects' => 'Whether Buyer Pipeline appears in the Real Estate menu (and Rental Pipeline in Rentals), and whether buyer-pipeline buttons appear on Core Matches, contacts and viewing packs. Off hides them; each buyer\'s stage is kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => [], 'sidebar_section' => 'real-estate',
+        'settings_section' => null, 'route_prefixes' => ['corex/command-center/buyers', 'corex/rentals/pipeline'], 'global_flag' => null,
+        'route_names' => ['command-center.buyers.*', 'corex.rentals.pipeline.*'],
+        'view_dirs' => ['command-center/buyers/'],
+    ],
+
+    // ── Reports & Performance ──
+    'performance-roi-report' => [
+        'label' => 'Performance & ROI Report', 'category' => 'Reports & Performance',
+        'explain' => 'The agency-wide performance and return-on-investment report, with branch and agent drill-downs and a print version.',
+        'affects' => 'Whether Performance & ROI Report appears in the Reports menu. Off hides it; the figures it is built from are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['view_performance'], 'sidebar_section' => 'reports',
+        'settings_section' => null, 'route_prefixes' => ['corex/performance/agency-report'], 'global_flag' => null,
+        'route_names' => ['performance.agency-report*'],
+        'view_dirs' => ['performance/'],
+        'permission_modules' => ['performance_report'],
+    ],
+    'buyers-report' => [
+        'label' => 'Buyers Report', 'category' => 'Reports & Performance',
+        'explain' => 'The buyer demand and activity report, with branch and agent drill-downs, PDF and print.',
+        'affects' => 'Whether Buyers Report appears in the Reports menu. Off hides it; buyer records are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['view_buyers_report'], 'sidebar_section' => 'reports',
+        'settings_section' => null, 'route_prefixes' => ['corex/buyers-report'], 'global_flag' => null,
+        'route_names' => ['buyers-report.*'],
+        'view_dirs' => ['buyers-report/'],
+    ],
+    'lead-response-report' => [
+        'label' => 'Lead Response Report', 'category' => 'Reports & Performance',
+        'explain' => 'The report of how fast new enquiries from portals, the website and shared links get a first reply, by agent and by source, with print and PDF.',
+        'affects' => 'Whether Lead Response appears in the Reports menu. Off hides it; enquiries and their recorded first replies are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['view_buyers_report'], 'sidebar_section' => 'reports',
+        'settings_section' => null, 'route_prefixes' => ['corex/lead-response-report'], 'global_flag' => null,
+        'route_names' => ['lead-response-report.*'],
+        'view_dirs' => ['lead-response-report/'],
+    ],
+    'performance-dashboards' => [
+        'label' => 'Performance Dashboards', 'category' => 'Reports & Performance',
+        'explain' => 'The Dashboard\'s performance pages — My Performance, Branch Report, Agency Report, Lost Deals, Oversight and Performance.',
+        'affects' => 'Whether those pages appear in the Dashboard menu and whether their links appear on the Dashboard. Off hides them; Today, Calendar and Tasks always stay.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['view_dashboard'], 'sidebar_section' => 'command-center',
+        'settings_section' => null, 'route_prefixes' => ['corex/command-center/reporting', 'corex/command-center/performance', 'corex/dashboard/oversight'], 'global_flag' => null,
+        'route_names' => ['command-center.reporting.*', 'command-center.performance*', 'command-center.lost-deals', 'corex.dashboard.oversight*'],
+        'view_dirs' => ['command-center/reporting/', 'command-center/performance', 'command-center/lost-deals', 'corex/dashboard/oversight/'],
+    ],
+
+    // ── HR ──
+    'ppra-employment-letters' => [
+        'label' => 'PPRA Employment Letters', 'category' => 'People & Payroll',
+        'explain' => 'The PPRA FFC employment letter — agents request their letter in My Portal and the office registers, signs and files it.',
+        'affects' => 'Whether PPRA FFC Letter appears under HR and whether agents see the request in My Portal. Off hides both; issued letters and signed copies are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['ppra_employment_letters.manage'], 'sidebar_section' => 'hr-documents',
+        'settings_section' => null, 'route_prefixes' => ['admin/ppra-employment-letters', 'corex/my-portal/ppra-employment-letters'], 'global_flag' => null,
+        'route_names' => ['admin.ppra-employment-letters.*', 'ppra-employment-letters.*'],
+        'view_dirs' => ['admin/ppra-employment-letters/', 'compliance/ppra-employment-letters/'],
+    ],
+
+    // ── Company & Admin ──
+    'billing' => [
+        'label' => 'Billing', 'category' => 'Company & Admin',
+        'explain' => 'What your agency pays for CoreX each month — the plan, the per-user charges and the amount payable.',
+        'affects' => 'Whether Billing appears in the Company menu. Off hides the page; invoices and the subscription itself are unaffected.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['billing.view'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['corex/billing'], 'global_flag' => null,
+        'route_names' => ['billing.*'],
+        'view_dirs' => ['billing/'],
+    ],
+    'assistants' => [
+        'label' => 'Assistants', 'category' => 'Company & Admin',
+        'explain' => 'Personal assistants who each work for one agent — they start with a copy of that agent\'s permissions and the agent switches off whatever they do not want to hand over.',
+        'affects' => 'Whether Assistants appears in the Company menu and My Assistants in My Portal, and whether assistants can act for their agents. Off hides both and assistants lose access; existing assistant links are kept and return when it is switched back on. This is the same switch as Company Settings → Assistants — you change it there.',
+        'default' => false, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['assistants.view'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['admin/assistants', 'my-portal/assistants'], 'global_flag' => null,
+        'route_names' => ['admin.assistants.*', 'agent.assistants.*'],
+        'view_dirs' => ['admin/assistants/', 'agent/assistants/'],
+    ],
+    'soft-deletes' => [
+        'label' => 'Soft Deletes (recover archived records)', 'category' => 'Company & Admin',
+        'explain' => 'The recovery screen — everything in CoreX is archived rather than deleted, and anything archived shows here so an admin can restore it.',
+        'affects' => 'Whether Soft Deletes appears in the Company menu. Off hides the recovery screen; archived records stay archived and are not lost.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_soft_deletes'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['admin/soft-deletes'], 'global_flag' => null,
+        'route_names' => ['admin.soft-deletes.*'],
+        'view_dirs' => ['admin/soft-deletes/'],
+    ],
+    'ppra-inspection-pack' => [
+        'label' => 'PPRA Inspection Pack', 'category' => 'Company & Admin',
+        'explain' => 'Builds the pack of registers, samples and evidence you hand to a PPRA inspector.',
+        'affects' => 'Whether PPRA Inspection Pack appears in the Company menu and agency documents. Off hides it; previously generated packs are kept.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['ppra_inspection_pack.view'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['admin/ppra-inspection-pack'], 'global_flag' => null,
+        'route_names' => ['admin.ppra-inspection-pack.*'],
+        'view_dirs' => ['admin/ppra-inspection-pack/', 'components/ppra-sample-picker'],
+    ],
+    'misfiled-documents' => [
+        'label' => 'Misfiled Documents', 'category' => 'Company & Admin',
+        'explain' => 'Contact-only documents (ID, FICA, proof of residence) that were filed to a property or left with no contact, so each can be re-filed to the right person.',
+        'affects' => 'Whether Misfiled Documents appears in the Company menu. Off hides the queue; the documents stay where they are.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_misfiled_documents'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['admin/misfiled-documents'], 'global_flag' => null,
+        'route_names' => ['admin.misfiled-documents.*'],
+        'view_dirs' => ['admin/misfiled-documents/'],
+    ],
+    'finance-engine' => [
+        'label' => 'Finance Engine', 'category' => 'Company & Admin',
+        'explain' => 'The registered finance formulas and the audit tools that recalculate and check a deal\'s commission and fee figures.',
+        'affects' => 'Whether Finance Engine appears in the Company menu. Off hides the definitions and audit screens; the figures on deals are unchanged.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => ['access_finance_engine'], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['admin/finance'], 'global_flag' => null,
+        'route_names' => ['admin.finance.*'],
+        'view_dirs' => ['admin/finance/'],
+    ],
+    'contact-governance' => [
+        'label' => 'Contact Governance', 'category' => 'Company & Admin',
+        'explain' => 'Agency-wide sharing, duplicate, freshness and retention rules for contacts.',
+        'affects' => 'Whether Contact Governance appears in the Company menu. Off hides the rules screen; the rules already set keep applying to contacts.',
+        'default' => true, 'core' => false, 'depends_on' => [],
+        'nav_permission' => [], 'sidebar_section' => 'company',
+        'settings_section' => null, 'route_prefixes' => ['corex/command-center/settings/contact-governance'], 'global_flag' => null,
+        'route_names' => ['command-center.settings.contact-governance*'],
+        'view_dirs' => ['command-center/settings/contact-governance'],
     ],
 
     // ── Auctions (AT-432) ──

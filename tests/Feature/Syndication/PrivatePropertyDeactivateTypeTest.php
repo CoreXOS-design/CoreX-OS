@@ -53,7 +53,7 @@ class PrivatePropertyDeactivateTypeTest extends TestCase
             ->with((string) $p->id)
             ->andReturn(['GetListingStatusResult' => 'Inactive']);
 
-        $service = new PrivatePropertySyndicationService($client, app(\App\Services\PrivateProperty\PrivatePropertyListingMapper::class));
+        $service = new PrivatePropertySyndicationService($client, app(\App\Services\PrivateProperty\PrivatePropertyListingMapper::class), app(\App\Services\Images\AgentPhotoNormalizer::class));
         $result = $service->deactivateListing($p);
 
         $this->assertTrue($result['success']);

@@ -137,8 +137,7 @@ final class BirthdayDigestTest extends TestCase
 
     private function makeBirthdayType(): NotificationEventType
     {
-        return NotificationEventType::create([
-            'key'               => 'contact.birthday',
+        return NotificationEventType::updateOrCreate(['key' => 'contact.birthday'], [
             'pillar'            => 'contact',
             'group_label'       => 'Activity',
             'label'             => 'Contact birthday today',

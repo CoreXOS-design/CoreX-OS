@@ -207,9 +207,26 @@ managed branches + default from the **Role** tab of the admin user-edit screen
   to `syncManagedBranches()` — never `effectiveAgencyId()`, which is
   session-scoped to the editing admin and would be wrong here.
 
+> **Regression fixed 2026-10-07 (QA1).** The save described above was added 22 Jun
+> (`2d49f4ce7`) and silently lost in the 26-30 Jul QA2/Staging reconciliation merges
+> (the controller kept the form but no longer validated or saved `managed_branches` /
+> `default_branch_id`, so ticking "Branches managed" saved nothing). Restored exactly as
+> specified; `AdminMultiBranchManagerTest::test_admin_edit_screen_assigns_and_clears_managed_branches`
+> is the guard that caught it.
+
 `User::syncManagedBranches(array $branchIds, ?int $defaultId, ?int $agencyId)`
 is the single shared writer used by both the self-service panel (§7.1) and this
 screen, so the validation/default rules can't drift between the two.
+
+> **Create saves them too (7 Oct 2026, QA1).** The "Branches Managed" boxes also render on the
+> **create** form (`/admin/users/create`), but only the edit path ever saved them, so on create they
+> looked live and did nothing. `UserManagementController@store` now validates `managed_branches` /
+> `default_branch_id` with the same rules as `update`, and BOTH call one private routine,
+> `applyManagedBranches()` (admin role → `syncManagedBranches()` with the saved user's real agency;
+> any other role → rows cleared). Same rules on create as on edit: foreign-agency branches dropped,
+> exactly one default, first ticked branch becomes the default when none is marked. The form also
+> re-ticks the boxes (and the default) when a save bounces on validation. Test:
+> `AdminUserCreateManagedBranchesTest`.
 
 ---
 

@@ -48,6 +48,11 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
 
     private function workOrder(array $attrs = []): RentalWorkOrder
     {
+        // section 22.6: a job that is already out with the contractor / under way was authorised before the test starts
+        if (in_array($attrs['status'] ?? null, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
+            $attrs += ['approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED];
+        }
+
         return RentalWorkOrder::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
@@ -146,7 +151,12 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->fresh()->owner_approval_status);
     }
 
-    public function test_changing_the_price_of_the_selected_quote_requires_re_approval(): void
+    /**
+     * BUILD 2 (.ai/specs/rental-work-orders.md §17.9.4) supersedes audit M1's "a price change drops the approval": once the owner has
+     * approved an amount, a HIGHER price is a variation for the extra (the approval stands for what the owner agreed); the owner is asked
+     * about the difference only. A change on a work order with NO approved amount still re-evaluates from scratch.
+     */
+    public function test_changing_the_price_of_the_selected_quote_after_approval_raises_a_variation_for_the_extra(): void
     {
         $supplier = $this->supplier();
         $workOrder = $this->workOrder();
@@ -159,7 +169,13 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
             'detail_text' => 'price went up',
         ])->assertRedirect();
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $workOrder->fresh()->owner_approval_status);
+        $fresh = $workOrder->fresh();
+        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $fresh->owner_approval_status, 'what the owner approved stays approved');
+        $this->assertSame('20000.00', $fresh->approved_amount);
+        $variation = $fresh->openVariation();
+        $this->assertNotNull($variation, 'the extra waits for the owner');
+        $this->assertSame('10000.00', $variation->extra_amount);
+        $this->assertSame('30000.00', $variation->new_total);
     }
 
     public function test_the_assigned_supplier_must_be_the_selected_quotes_supplier(): void
@@ -169,6 +185,11 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote(['agency_service_provider_id' => $quoted->id, 'amount' => 100, 'quote_date' => now()], $this->admin);
         $workOrder->selectQuote($quote, $this->admin);
+        // section 22.6: inside the owner's repair limit, but nothing is approved until the agent authorises it
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $workOrder->property_id], [
+            'agency_id' => $workOrder->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($workOrder->fresh(), $this->admin, []);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $workOrder), ['agency_service_provider_id' => $other->id])
             ->assertSessionHasErrors('rental_work_order');
@@ -265,9 +286,13 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $others = $this->workOrder(['created_by_user_id' => $this->admin->id, 'status' => RentalWorkOrder::STATUS_ORDERED]);
         $mine = $this->workOrder(['created_by_user_id' => $agent->id]);
 
-        $this->actingAs($agent)->get(route('corex.rental-work-orders.show', $others))->assertNotFound();
-        $this->actingAs($agent)->post(route('corex.rental-work-orders.complete', $others), ['paid_by' => 'owner'])->assertNotFound();
-        $this->actingAs($agent)->post(route('corex.rental-work-orders.cancel', $others), ['cancel_reason' => 'x'])->assertNotFound();
+        // Guard mechanism is now AuthorizesRentalRecordScope::guardRentalRecordScope()
+        // (AT-439, adopted over this controller's own former assertVisible()/404 on
+        // Johan's explicit ruling, 2026-10-04) — out-of-scope is refused with 403, not
+        // 404. The record is still fully unreachable; only the status code changed.
+        $this->actingAs($agent)->get(route('corex.rental-work-orders.show', $others))->assertForbidden();
+        $this->actingAs($agent)->post(route('corex.rental-work-orders.complete', $others), ['paid_by' => 'owner'])->assertForbidden();
+        $this->actingAs($agent)->post(route('corex.rental-work-orders.cancel', $others), ['cancel_reason' => 'x'])->assertForbidden();
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $others->fresh()->status);
 
         $this->actingAs($agent)->get(route('corex.rental-work-orders.show', $mine))->assertOk();
@@ -294,5 +319,107 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $before = RentalWorkOrder::withoutGlobalScopes()->count();
         $this->actingAs($agent)->post(route('corex.rental-work-orders.store'), $payload)->assertNotFound();
         $this->assertSame($before, RentalWorkOrder::withoutGlobalScopes()->count());
+    }
+
+    // ── Audit 2026-10-18: A-L8 / A-L9 ───────────────────────────────────
+
+    private function inspectionObservation(Property $property, ?Agency $agency = null): array
+    {
+        $agency ??= $this->agency;
+        $lease = Lease::create([
+            'agency_id' => $agency->id, 'branch_id' => $this->branch->id, 'property_id' => $property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now()->subDays(10), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $inspection = \App\Models\RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+            'type' => \App\Models\RentalInspection::TYPE_OUT, 'created_by_user_id' => $this->admin->id,
+        ]);
+        $item = \App\Models\RentalInspectionItem::create([
+            'agency_id' => $agency->id, 'property_id' => $property->id,
+            'kind' => \App\Models\RentalInspectionItem::KIND_SPACE, 'label' => 'Bathroom', 'created_by_user_id' => $this->admin->id,
+        ]);
+        $observation = \App\Models\RentalInspectionObservation::create([
+            'agency_id' => $agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->admin->id, 'condition' => 'damaged', 'notes' => 'Cracked.', 'source' => 'out_inspection',
+        ]);
+
+        return [$inspection, $observation];
+    }
+
+    private function workOrderPayload(array $over = []): array
+    {
+        return $over + [
+            'property_id' => $this->property->id, 'reported_by_type' => RentalWorkOrder::REPORTED_BY_INSPECTION,
+            'title' => 'Fix crack', 'description' => 'Cracked tile',
+        ];
+    }
+
+    public function test_store_refuses_an_observation_that_belongs_to_another_property_or_agency(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '2 Other Street', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [, $elsewhere] = $this->inspectionObservation($otherProperty);
+
+        $otherAgency = Agency::create(['name' => 'Foreign Agency', 'slug' => 'foreign-' . uniqid()]);
+        $foreignProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '9 Foreign Road', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [, $foreign] = $this->inspectionObservation($foreignProperty, $otherAgency);
+
+        foreach ([$elsewhere, $foreign] as $observation) {
+            $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), $this->workOrderPayload([
+                'reported_inspection_observation_id' => $observation->id,
+            ]))->assertNotFound();
+        }
+        $this->assertSame(0, RentalWorkOrder::withoutGlobalScopes()->count());
+
+        // The property's OWN observation is fine.
+        [, $mine] = $this->inspectionObservation($this->property);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), $this->workOrderPayload([
+            'reported_inspection_observation_id' => $mine->id,
+        ]))->assertSessionHasNoErrors();
+        $this->assertSame(1, RentalWorkOrder::withoutGlobalScopes()->where('reported_inspection_observation_id', $mine->id)->count());
+    }
+
+    public function test_batch_store_refuses_an_observation_from_a_different_property_and_creates_nothing(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '2 Other Street', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [$otherInspection, $elsewhere] = $this->inspectionObservation($otherProperty);
+        [, $mine] = $this->inspectionObservation($this->property);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), [
+            'property_id' => $this->property->id, 'assignment_type' => RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+            'rental_inspection_id' => $otherInspection->id,
+            'batch_items' => [
+                ['observation_id' => $mine->id, 'title' => 'Mine'],
+                ['observation_id' => $elsewhere->id, 'title' => 'Not mine'],
+            ],
+        ])->assertNotFound();
+
+        $this->assertSame(0, RentalWorkOrder::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_screen_does_not_prefill_from_an_inspection_outside_the_users_scope(): void
+    {
+        \App\Models\Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agency->id]);
+        foreach (['rental_work_orders.view', 'rental_work_orders.create', 'rental_inspections.view', 'properties.view', 'leases.view'] as $key) {
+            \App\Models\RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
+        \App\Services\PermissionService::clearCache();
+        $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+
+        [$inspection, $observation] = $this->inspectionObservation($this->property);
+
+        $res = $this->actingAs($agent)->get(route('corex.rental-work-orders.create', [
+            'rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id],
+        ]))->assertOk();
+
+        $this->assertNull($res->viewData('followUp'));
     }
 }

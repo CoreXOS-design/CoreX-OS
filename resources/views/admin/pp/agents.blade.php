@@ -96,11 +96,12 @@
                     <h2 class="text-lg font-bold" style="color:var(--text-primary);">Active listings blocking deactivation</h2>
                     <p class="text-xs mt-1" style="color:var(--text-muted);">
                         PP refused to deactivate agent profile <span x-text="modal.agentId" class="font-mono"></span>
-                        because these listings are still attached to it. Delete each listing entirely
-                        from the system, wait a couple of minutes, then retry deactivating the agent.
+                        because these listings are still attached to it. Archive each listing,
+                        wait a couple of minutes, then retry deactivating the agent.
                     </p>
                     <p class="text-xs mt-1" style="color:#f59e0b;">
-                        ⚠ This is a hard delete — the Property row is removed from the database (not soft-deleted).
+                        ⚠ This archives the listing (soft delete) — it can be restored afterwards, and is
+                        blocked while the property has an active lease.
                     </p>
                 </div>
                 <button type="button" @click="modal.open = false"
@@ -135,9 +136,9 @@
                                         :style="L._done
                                             ? 'background:rgba(34,197,94,0.12); color:#22c55e; border:1px solid rgba(34,197,94,0.3);'
                                             : 'background:color-mix(in srgb, var(--ds-crimson) 8%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);'">
-                                    <span x-show="!L._busy && !L._done">Delete Listing</span>
+                                    <span x-show="!L._busy && !L._done">Archive Listing</span>
                                     <span x-show="L._busy" x-cloak>...</span>
-                                    <span x-show="L._done" x-cloak>Deleted</span>
+                                    <span x-show="L._done" x-cloak>Archived</span>
                                 </button>
                             </template>
                         </div>
@@ -234,7 +235,7 @@ window.ppAgentsPage = function (root) {
 
         async purgeListing(L) {
             if (!L.purge_url) return;
-            if (!confirm('Hard-delete listing #' + L.id + ' from CoreX? This is irreversible — the Property row is removed from the database (not soft-deleted) and PP is told to deactivate the listing.')) return;
+            if (!confirm('Archive listing #' + L.id + ' in CoreX and tell PP to deactivate it? The listing can be restored afterwards; this is blocked if the property has an active lease.')) return;
             L._busy = true; this.modal.msg = ''; this.modal.ok = null;
             try {
                 var res = await fetch(L.purge_url, {
@@ -251,7 +252,7 @@ window.ppAgentsPage = function (root) {
                 if (data.success) {
                     L._done = true;
                     this.modal.ok = true;
-                    this.modal.msg = data.message || ('Listing ' + L.id + ' deleted.');
+                    this.modal.msg = data.message || ('Listing ' + L.id + ' archived.');
                 } else {
                     this.modal.ok = false;
                     this.modal.msg = 'Listing ' + L.id + ': ' + (data.message || 'failed (HTTP ' + res.status + ')');

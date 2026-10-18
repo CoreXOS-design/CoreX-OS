@@ -973,8 +973,8 @@ class AnalysisDataService
             $severity = ($basisMismatch || ($divergencePct !== null && $divergencePct > 100))
                 ? 'high' : 'review';
             if ($basisMismatch) {
-                $message = 'This valuation may be unreliable: the comparable sales and this property are not size-comparable '
-                    . '(e.g. sectional units measured against a full-title erf), so a per-m² valuation is not meaningful. '
+                $message = 'This evaluation may be unreliable: the comparable sales and this property are not size-comparable '
+                    . '(e.g. sectional units measured against a full-title erf), so a per-m² evaluation is not meaningful. '
                     . 'Check the comparable selection and the subject extent before relying on the headline figure.';
             } else {
                 $message = 'Heads up — a size-normalised cross-check (median R/m² × this property\'s extent) values it around R'

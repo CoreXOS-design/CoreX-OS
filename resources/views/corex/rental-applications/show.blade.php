@@ -40,7 +40,7 @@
         <x-slot name="left">
             <div class="min-w-0">
                 <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
-                    {{ $rentalApplication->contact->full_name ?? 'Rental Application' }}
+                    {{ $rentalApplication->contact?->full_name ?? 'Rental Application' }}
                 </h1>
                 {{-- displayStatusLabel() is the one shared place this text is
                      decided — every rental-application status badge calls
@@ -93,6 +93,13 @@
                     <span x-show="!dirty" x-cloak>Add an email address to send</span>
                 </span>
             </form>
+            @if(\App\Models\RentalApplicationQualifyingSetting::allowManualLinkShareFor($rentalApplication->agency_id)
+                && ! in_array($rentalApplication->status, array_merge(\App\Models\RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, \App\Models\RentalApplication::POST_RETURN_STATUSES), true))
+                <form method="POST" action="{{ route('corex.rental-applications.share-link', $rentalApplication) }}" class="inline-flex items-center gap-2" data-test="share-link-form">
+                    @csrf
+                    <button type="submit" class="corex-btn-outline text-xs" :disabled="dirty" title="Give the applicant the link yourself (WhatsApp, in person) - nothing is emailed">Share the link myself</button>
+                </form>
+            @endif
             @endpermission
 
             {{-- 2026-09-12 — Archive moved off rental_applications.create onto
@@ -100,7 +107,7 @@
                  module's {module}.archive convention. --}}
             @permission('rental_applications.archive')
             <form method="POST" action="{{ route('corex.rental-applications.destroy', $rentalApplication) }}"
-                  onsubmit="return confirm('Archive this rental application? It can be recovered by an admin.');" class="inline">
+                  data-confirm="Archive this rental application? It can be recovered by an admin." data-confirm-danger data-confirm-label="Archive" class="inline">
                 @csrf
                 @method('DELETE')
                 <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
@@ -109,12 +116,7 @@
         </x-slot>
     </x-sticky-action-bar>
 
-    @if(session('success'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
-    @endif
-    @if(session('error'))
-        <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">{{ session('error') }}</div>
-    @endif
+    {{-- success / error flashes are shown ONCE, by the layout's toast — never again as an inline banner (they used to appear twice). --}}
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
@@ -122,7 +124,11 @@
         </div>
     @endif
 
-    @if($rentalApplication->token)
+    @if($rentalApplication->token && $rentalApplication->status === 'draft')
+    <div class="rounded-md p-4 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);">
+        The applicant's link starts working once you send the application, or press "Share the link myself" if you will give it to them yourself. Until then there is nothing to share.
+    </div>
+    @elseif($rentalApplication->token)
     <div class="rounded-md p-4 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);">
         <div><strong>Online link:</strong> <a href="{{ route('rental-applications.public.show', $rentalApplication->token) }}" target="_blank" style="color: var(--brand-icon, #2563eb);">{{ route('rental-applications.public.show', $rentalApplication->token) }}</a></div>
         <div><strong>Download link:</strong> <a href="{{ route('rental-applications.public.pdf', $rentalApplication->token) }}" style="color: var(--brand-icon, #2563eb);">{{ route('rental-applications.public.pdf', $rentalApplication->token) }}</a></div>
@@ -297,8 +303,9 @@
 
         <div>
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Property</h2>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <x-rental-application-field name="property_address_override" label="Property address (if not linked above)" :value="$rentalApplication->property_address_override" />
+            @include('corex.rental-applications.partials.property-link-control')
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                <x-rental-application-field name="property_address_override" label="Property address (only if it isn't one of your properties)" :value="$rentalApplication->property_address_override" />
             </div>
         </div>
 

@@ -38,8 +38,7 @@
             {{-- Agent --}}
             <div>
                 <label for="filter_agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
-                <select id="filter_agent_id" name="agent_id" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <select id="filter_agent_id" name="agent_id" class="list-header-filter w-full text-sm {{ filled(request('agent_id')) ? 'is-active' : '' }}">
                     <option value="">All Agents</option>
                     @foreach($allAgents as $agent)
                         <option value="{{ $agent->id }}" {{ request('agent_id') == $agent->id ? 'selected' : '' }}>{{ $agent->name }}</option>
@@ -50,9 +49,8 @@
             {{-- Status --}}
             <div>
                 <label for="filter_status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                <select id="filter_status" name="status" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="all" {{ request('status') === 'all' ? 'selected' : '' }}>All</option>
+                <select id="filter_status" name="status" class="list-header-filter w-full text-sm {{ !in_array(request('status'), [null, '', 'all'], true) ? 'is-active' : '' }}">
+                    <option value="all" {{ request('status') === 'all' ? 'selected' : '' }}>All statuses</option>
                     <option value="pending" {{ request('status') === 'pending' ? 'selected' : '' }}>Pending</option>
                     <option value="confirmed" {{ request('status') === 'confirmed' ? 'selected' : '' }}>Confirmed</option>
                     <option value="paid" {{ request('status') === 'paid' ? 'selected' : '' }}>Paid</option>
@@ -63,9 +61,8 @@
             {{-- Type --}}
             <div>
                 <label for="filter_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
-                <select id="filter_type" name="transaction_type" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="all" {{ request('transaction_type') === 'all' ? 'selected' : '' }}>All</option>
+                <select id="filter_type" name="transaction_type" class="list-header-filter w-full text-sm {{ !in_array(request('transaction_type'), [null, '', 'all'], true) ? 'is-active' : '' }}">
+                    <option value="all" {{ request('transaction_type') === 'all' ? 'selected' : '' }}>All types</option>
                     <option value="sale" {{ request('transaction_type') === 'sale' ? 'selected' : '' }}>Sale</option>
                     <option value="rental_letting" {{ request('transaction_type') === 'rental_letting' ? 'selected' : '' }}>Letting</option>
                     <option value="rental_management" {{ request('transaction_type') === 'rental_management' ? 'selected' : '' }}>Rental</option>
@@ -77,23 +74,19 @@
             {{-- Date from --}}
             <div>
                 <label for="filter_date_from" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">From</label>
-                <input id="filter_date_from" type="date" name="date_from" value="{{ request('date_from') }}"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <input id="filter_date_from" type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter w-full text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
             </div>
 
             {{-- Date to --}}
             <div>
                 <label for="filter_date_to" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
-                <input id="filter_date_to" type="date" name="date_to" value="{{ request('date_to') }}"
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <input id="filter_date_to" type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter w-full text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
             </div>
 
             {{-- Filter / Clear buttons --}}
             <div class="flex gap-2">
-                <button type="submit" class="corex-btn-primary">Filter</button>
-                <a href="{{ route('commission.index') }}" class="corex-btn-outline">Clear</a>
+                <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+                <a href="{{ route('commission.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
             </div>
         </form>
 
@@ -173,8 +166,7 @@
                                     {{ \Illuminate\Support\Str::limit($entry->description, 40) }}
                                 </td>
                                 <td class="px-4 py-3 text-center whitespace-nowrap">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold whitespace-nowrap"
-                                          style="background: color-mix(in srgb, {{ $typeBadge['tint'] }} 12%, transparent); color: {{ $typeBadge['tint'] }};">
+                                    <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $typeBadge['tint'] }};">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 </td>

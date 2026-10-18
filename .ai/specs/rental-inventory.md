@@ -642,6 +642,9 @@ last and only once every tenant + the (resolvable) landlord already has a dispos
 - **Wet-ink** (rental-inspections.md §16) — "every page is signed" was Johan's observation about the real
   document, not an explicit instruction to build the wet-ink path a second time tonight. If wanted here
   too, that is a follow-up ask, matching how wet-ink was its own separately-scoped task for inspections.
+  **SUPERSEDED — built 2026-09-29, see §21.** The follow-up ask landed: wet-ink signing for Inventory,
+  mirroring rental-inspections.md §16/§17 exactly, plus the new awaiting_wet_ink pre-state and document
+  filing that §39 of that spec adds to Inspections at the same time.
 - **`sign_on_behalf`-gated refusal permission** — inspections gate a refusal specifically behind
   `rental_inspections.sign_on_behalf` (an agent asserting something on a party's behalf with no evidence
   but their word). Not wired here; every refusal is gated only by the base `rental_inventories.create`
@@ -2628,3 +2631,527 @@ attribute) to the same `fakeEl()` object. Not the actual §20.1 bug (that one on
 real browser — see `scripts/rental-click-through.mjs`'s own header for why a static sandbox can't catch
 an `undefined`-bound boolean attribute either), but a real gap in the gate itself, worth closing so the
 next legitimate `?.getAttribute(...)` call doesn't hit the same false crash.
+
+---
+
+## 21. Wet-ink signing — built (2026-09-29), plus "Print for signature"
+
+Conductor brief 2026-09-29 — Johan's flow: the agent captures the inventory, prints it and sends it to
+the landlord/tenant for a wet-ink signature. When the signed paper comes back, the agent attaches the
+scan to the inventory and it gets filed. This section closes §5's flagged gap ("Wet-ink — deliberately
+NOT built here") and, in the same build, closes the equivalent gaps on rental-inspections.md's own
+wet-ink build (§16/§17) — see that spec's own §39.
+
+### 21.1 A new pre-state: `awaiting_wet_ink`
+
+§16/§17 (inspections) only ever built a DIRECT wet-ink capture — the agent uploads the scan in one step,
+creating a `disposition='wet_ink'` row immediately. Nothing tracked "the paper has been sent but hasn't
+come back yet." This build adds a fourth disposition, `RentalInventorySignature::DISPOSITION_AWAITING_WET_INK`
+(mirrored onto `RentalInspectionSignature` for the inspections side too), alongside `signed`/`refused`/
+`wet_ink`:
+
+- **Never valid for `party_role=agent`** — same rule as `wet_ink` itself; the agent is always present.
+- **Carries no evidence** — no upload, no signature image, no refusal reason. A pure tracking marker.
+- **A live row, but never a completing one.** `RentalInventory::outstandingSignatories()` still treats an
+  awaiting party as "accounted for" (they DO have a live row) — but `markCompleted()` gained a SEPARATE
+  gate, `firstAwaitingWetInkSignatory()`, that refuses completion while any party is still awaiting,
+  with a plain message naming them. `RentalInventorySignature::capture()`'s own agent-signing branch gained
+  the identical check — the agent cannot sign (and therefore cannot ever reach `markCompleted()` in an
+  inconsistent state) while a party is still awaiting a paper signature. Both checks exist because
+  `outstandingSignatories()`'s own contract (no row at all) is unchanged elsewhere and other callers may
+  still rely on that narrower meaning.
+
+**The action:** "Send for wet-ink" — a new button alongside Sign/Wet ink/Refuses on the inventory show
+page's recording section, POSTs `{party_role, disposition: 'awaiting_wet_ink', party_contact_id}` through
+the SAME `signatures.store` endpoint every other disposition already uses (no new route). The party's row
+then shows "Awaiting paper signature" wherever a disposition badge is shown, with an "Upload scan"
+action in place of Sign/Wet ink/Refuses/Send-for-wet-ink.
+
+### 21.2 Resolving/correcting: one mechanism, two starting points
+
+`RentalInventorySignature::supersedeWetInk()` (new — inspections' own §16.3 method, generalised) accepts
+an existing row whose disposition is EITHER `wet_ink` (correcting a wrong/unreadable upload — the
+original use) OR `awaiting_wet_ink` (the scan arriving for the first time). Both transitions mark the
+existing row `superseded_at`/pointed at by `superseded_by_signature_id` and create a fresh
+`disposition='wet_ink'` row, inside one transaction — never edited in place, never destroyed
+(non-negotiable #1). `POST /corex/rental-inventories/{inventory}/signatures/{signature}/supersede-wet-ink`
+is a NEW route (inspections already had its own equivalent; inventory didn't have wet-ink at all before
+this build) — same permission (`rental_inventories.create`), same `assertEditable()` lock as every other
+capture-write endpoint (§20's f9bd98e83 lock — see §21.5).
+
+A party who was never marked "awaiting" can also be captured as wet-ink DIRECTLY, in one step — `POST
+.../signatures` with `disposition=wet_ink` + `wet_ink_file`, unchanged from how inspections' §16 already
+worked. Accepted types/size: `pdf,jpg,jpeg,png,heic`, max 10MB — the exact same rule
+`RentalInspectionRecordingController::storeSignature()`'s own `wet_ink_file` validation already used,
+copied verbatim so the two modules can never silently drift on what counts as an acceptable scan.
+
+### 21.3 The scan is also filed as a property Document
+
+New, on both modules. Every successful wet-ink capture/supersede — inventory's `storeSignature()`/
+`supersedeWetInkSignature()`, and the same two methods on `RentalInspectionRecordingController` — files
+the uploaded scan to the property's Document store via the SHARED
+`App\Services\Distribution\SignedDocumentDistributionService::fileToProperty()` (see
+`signed-document-distribution.md` for the service itself, and its own new §"one-off filings" section for
+the adapter this needed).
+
+- **`fileToProperty()` only ever writes a PDF** (it hardcodes `mime_type: 'application/pdf'`). An
+  already-PDF upload is filed as its own raw bytes; a jpg/png/heic upload is wrapped in a one-page PDF
+  first (`resources/views/corex/rental-signatures/wet-ink-scan-pdf.blade.php`, shared by both modules) via
+  a base64 `data:` URI, so DomPDF never fetches it over HTTP.
+- **Keyed on `(source_type, source_id) = ('rental_inventory_signature_wet_ink', $signature->id)`**
+  (inspections: `'rental_inspection_signature_wet_ink'`) — a NEW signature row every time (the initial
+  capture, or `supersedeWetInk()`'s replacement), so a re-upload files its OWN new Document; the
+  superseded row's earlier filing is left exactly as it was — never removed.
+- **A sensible doc type**, per the conductor brief: `DocumentType` slug `inventory_list` (inspections:
+  `inspection_report`) — both already exist in the global catalogue
+  (`DocumentTypesCatalogueSeeder::CATALOGUE`), reused rather than adding a new type. `fileToProperty()`
+  itself never sets `document_type_id` (not even for the base report filing — a pre-existing gap, out of
+  scope here); the caller sets it on the returned `Document` directly, only if not already set.
+- **Absorbed, never a hard failure**: the whole filing step is wrapped in its own try/catch, logged as a
+  warning on failure, exactly like `complete()`'s own `fileAndMaybeEmailReport()` try/catch — a filing
+  failure must never fail the signature capture that already succeeded.
+
+### 21.4 "Print for signature" — the same report, plus blank signature blocks
+
+`GET /corex/rental-inventories/{inventory}/print-for-signature` (inspections:
+`corex.rental-inspections.print-for-signature`) — a new PDF-service entry point,
+`RentalInventoryReportPdfService::generateForSignature()` (a thin wrapper: `generate($inventory,
+forSignature: true)`), reusing the EXACT same `report-pdf.blade.php` view and content the completed
+report already builds (items by room, the QR/public-link cover) — not a second document.
+
+- A red "FOR SIGNATURE — this document is not yet complete" banner at the top.
+- In the signature section, a party with no live disposition yet, OR one still `awaiting_wet_ink`, gets a
+  blank block — Signature line + Date line — instead of "Outstanding"/"Awaiting paper signature" text.
+  Computed off `RentalInventory::signatureSummaryRows()` (new — mirrors
+  `RentalInspection::signatureSummaryRows()` exactly: one row per required party — tenant(s), owner,
+  agent — with that party's current live signature if any, `not_required` when the owner can't be
+  resolved). The inventory report-pdf's signature section now reads this FULL roster instead of the old
+  raw `$inventory->signatures` filter, so a party who hasn't dispositioned yet appears at all (needed for
+  the blank block, and a genuine improvement to the normal completed report too — every required party
+  now always has a row).
+- Reachable from the inventory show page (button next to "Download report"/"Back to list", shown while
+  the inventory isn't completed/cancelled) and from the property's own Inventory tab.
+
+### 21.5 The completed/cancelled lock (f9bd98e83) — confirmed to still agree
+
+`supersedeWetInkSignature()` (new) calls `$rentalInventory->assertEditable()` first, same as every other
+capture-write endpoint the lock already covers; `storeSignature()`'s existing `assertEditable()` call is
+unchanged and already covers the new `wet_ink`/`awaiting_wet_ink` dispositions since they go through the
+same method. Uploads are only ever possible while the inventory is a draft — there is no scenario where a
+wet-ink write happens as part of the completing step itself; `complete()`'s own `assertEditable()` +
+`markCompleted()` sequence is unaffected and unchanged (`RentalInventoryLockedAfterCompletionTest.php`
+covers `signatures.store`/`complete` already; not re-duplicated here — this build's own
+`RentalInventoryWetInkTest.php` adds the two NEW endpoint's own lock coverage:
+`signatures.supersede-wet-ink` refused 409 once completed, `signatures.store` with the new dispositions
+refused 409 once completed).
+
+### 21.6 "Signed on paper" — wording made consistent everywhere
+
+Every surface that shows a `wet_ink` disposition now reads **"Signed on paper — scan on file"**
+(previously inspections' own wording was "Signed (wet-ink upload)" in some places) — the report PDF, the
+public share page, and the live recording screen's disposition badge. `awaiting_wet_ink` reads "Awaiting
+paper signature" everywhere the same badge/label appears.
+
+**Public-page bug fixed, inspections side** — `resources/views/rental-inspections/public/show.blade.php`
+(around the old lines 234-236) rendered EVERY `wet_ink_upload_path` as an `<img>`, including a PDF scan —
+a PDF is not a browser-decodable image format, so it silently showed nothing. Now branches on the file
+extension: an image extension (`jpg/jpeg/png/heic/heif`) keeps the existing linked-`<img>`; anything else
+(a PDF) gets a plain "View uploaded scan (PDF)" link instead. The inventory public page never had wet-ink
+rendering at all before this build (inventory had no wet-ink) — built with the same extension-aware
+branch from the start, so the same bug is never introduced there.
+
+Both public pages also now filter to `->whereNull('superseded_at')` before rendering — a superseded row
+(a corrected upload, or a resolved awaiting marker) stays in the record via `supersededBy()` but no
+longer prints a second, stale entry next to its replacement.
+
+### 21.7 UI — where every new action lives
+
+| Action | Where | Notes |
+|---|---|---|
+| "Print for signature" | Inventory show page (button row) + property Inventory tab | New route, both modules |
+| "Send for wet-ink" | Inventory show page, per-party recording row (undispositioned only) | POSTs the existing `signatures.store` endpoint, no new route |
+| "Wet ink" (direct capture) | Same row, alongside Sign/Refuses | Unchanged shape from inspections' own §16 button |
+| "Upload scan" | Same row, replaces the four buttons once a party is `awaiting_wet_ink` | Opens the same upload form, POSTs `supersede-wet-ink` |
+| "Replace" | Read-only Signatures list, next to an already-uploaded `wet_ink` row (while still replaceable) | Same guard as inspections' own `canActOnWetInk()` (not superseded, agent hasn't signed) |
+
+Inventory's show page keeps Johan's existing "action-only recording section, full record above" split —
+an `awaiting_wet_ink` party is the one exception that still needs to appear in the ACTION section (via a
+new `needsAction()` helper, not just `!dispositionFor(...)`), since it isn't a resolved record yet.
+
+### 21.8 Files
+
+- `database/migrations/2026_10_05_100000_widen_disposition_on_rental_signature_tables.php` — `disposition`
+  widened `string(10)` → `string(20)` on both `rental_inspection_signatures` and `rental_inventory_signatures`
+  (`'awaiting_wet_ink'` is 17 characters).
+- `database/migrations/2026_10_05_100100_add_wet_ink_to_rental_inventory_signatures.php` — mirrors
+  `2026_10_01_100000_add_wet_ink_to_rental_inspection_signatures.php` exactly.
+- `app/Models/RentalInventorySignature.php` — `DISPOSITION_WET_INK`, `DISPOSITION_AWAITING_WET_INK`,
+  `capture()` extended, `storeWetInkUpload()`, `supersedeWetInk()`, `supersededBy()`, `isWetInk()`,
+  `isAwaitingWetInk()`, `isReplaceableWetInk()` (all new — mirrors `RentalInspectionSignature`).
+- `app/Models/RentalInspectionSignature.php` — `DISPOSITION_AWAITING_WET_INK`, `capture()`/`supersedeWetInk()`
+  extended, `isAwaitingWetInk()`/`isReplaceableWetInk()` (new).
+- `app/Models/RentalInventory.php` — `firstAwaitingWetInkSignatory()`, `signatureSummaryRows()` (new),
+  `outstandingSignatories()`/`markCompleted()` updated.
+- `app/Models/RentalInspection.php` — `firstAwaitingWetInkSignatory()` (new), `markCompleted()` updated.
+- `app/Support/Distribution/FileableDocumentAdapter.php` (new) — the minimal `SignedDocumentDistributable`
+  used for filing a one-off document with no natural distributable object of its own.
+- `app/Services/Rentals/RentalInventoryReportPdfService.php` / `RentalInspectionReportPdfService.php` —
+  `generateForSignature()`, `filenameForSignatureFor()` (new); `generate()` gained `forSignature`.
+- `app/Http/Controllers/CoreX/RentalInventoryRecordingController.php` — `storeSignature()` extended,
+  `supersedeWetInkSignature()` (new), `fileInventoryWetInkScan()`/`wetInkScanAsPdfBytes()` (new, private).
+- `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` — `storeSignature()` extended,
+  `supersedeWetInkSignature()` files the scan now too, `fileInspectionWetInkScan()`/`wetInkScanAsPdfBytes()`
+  (new, private).
+- `app/Http/Controllers/CoreX/RentalInventoryController.php` / `RentalInspectionController.php` —
+  `printForSignature()` (new).
+- `routes/web.php` — `corex.rental-inventories.print-for-signature`,
+  `corex.rental-inventories.signatures.supersede-wet-ink`, `corex.rental-inspections.print-for-signature`.
+- `resources/views/corex/rental-inventories/show.blade.php` — signature section rebuilt (live-only
+  filter, wet_ink/awaiting_wet_ink branches, "Print for signature" button); recording section gains
+  Send-for-wet-ink/Upload-scan/Replace; JS (`rentalInventoryShow()`) gains `needsAction()`,
+  `isAwaitingWetInk()`, `sendForWetInkFor()`, `openWetInkFor()`/`saveWetInk()`/`wetInkContext`.
+- `resources/views/corex/rental-inventories/partials/_wetink-form.blade.php` (new).
+- `resources/views/corex/rental-inventories/report-pdf.blade.php` / `rental-inspections/report-pdf.blade.php`
+  — `forSignature` banner + blank blocks, "Signed on paper — scan on file" wording.
+- `resources/views/corex/properties/partials/rental-inspection-recording.blade.php` — Send-for-wet-ink
+  button, Upload-scan/Replace generalised (`canActOnWetInk()`/`wetInkActionLabel()`), "Print for
+  signature" link.
+- `resources/views/corex/properties/show.blade.php` (the shared Alpine component JS) —
+  `sendTenantForWetInk()`/`sendLandlordForWetInk()`, `canActOnWetInk()`/`wetInkActionLabel()` (replace
+  `canReplaceWetInk()`), `dispositionLabel()`/`_saveWetInk()`'s existing-row check widened.
+- `resources/views/corex/rental-inspections/show.blade.php` — "Print for signature" link.
+- `resources/views/rental-inventories/public/show.blade.php` / `rental-inspections/public/show.blade.php`
+  — wet_ink/awaiting_wet_ink rendering, the extension-aware image-vs-PDF fix, live-only filter.
+- `resources/views/corex/rental-signatures/wet-ink-scan-pdf.blade.php` (new, shared) — the one-page PDF
+  wrapper for an image scan.
+- Tests: `tests/Feature/RentalInventory/RentalInventoryWetInkTest.php` (new),
+  `tests/Feature/RentalInspections/RentalInspectionWetInkAwaitingTest.php` (new).
+
+### 21.9 Three real bugs found and fixed via the real click-through (2026-09-29)
+
+Johan's own instruction for this build included a real Puppeteer click-through as user 365 on a
+throwaway property — not a PHPUnit-only proof. It found three genuine bugs no PHPUnit test could see
+(exactly the class of gap STANDARDS.md Standard −1f exists to name), all fixed before landing:
+
+1. **The "Save upload" button never actually enabled**, on BOTH modules. `:disabled="!wetInkField(key)
+   .file || wetInkBusy[key]"` — `wetInkBusy[key]` is `undefined` until `saveWetInk()` runs at least
+   once, and `false || undefined` is `undefined`, not `false`. Alpine forwards that straight to
+   `toggleAttribute('disabled', undefined)` — a WebIDL optional-boolean argument passed as literal
+   `undefined` is spec'd as the argument being OMITTED, the exact bug class §20.1 already documents
+   (`markRoomBusy`). First fix: `!!wetInkBusy[key]` to force a real boolean. That fix alone was NOT
+   enough — direct Alpine-state inspection showed the underlying expression correctly computed `false`
+   (should be enabled) while the DOM's `disabled` attribute stayed `true` regardless. Root cause,
+   found by evaluating the exact bound expression via `Alpine.$data()` directly: `wetInkField(key) {
+   return this.wetInkForm[key] || (this.wetInkForm[key] = { file: null }); }` — the assignment `(a = b)`
+   as a JS expression evaluates to the RAW value being assigned, not a re-read through Alpine's
+   reactive Proxy getter. The very FIRST time a template binding (`:disabled`, `x-text`) called this for
+   a given key — which happens on initial render, before any file is chosen — it got back that raw,
+   never-wrapped object and tracked a dependency on ITS `.file` property, never instrumented by the
+   reactive system since it was never read via the Proxy. A LATER `@change` mutation re-reads
+   `this.wetInkForm[key]` through the proper reactive getter and sets `.file` there correctly, but
+   nothing was ever subscribed to THAT path, so `:disabled`/`x-text` silently never updated again after
+   the first render. Fixed by splitting the assignment into its own statement so every return, including
+   the first call for a key, is a fresh reactive read — in both the new inventory partial's
+   `wetInkField()` and the PRE-EXISTING inspections one (`properties/show.blade.php`, shipped since §16,
+   never proven against a real browser per §17.7's own docblock: "no browser tool is available in this
+   environment... needs proving once landed"). Confirmed fixed by re-running the click-through and by
+   direct database inspection — both a PDF and a JPG upload now file correctly end to end.
+2. **`resources/views/corex/rental-inspections/show.blade.php`** (the admin/read-only inspection detail
+   page) still read the ORIGINAL "Signed on paper (wet-ink)" wording from §16/§17, not the standardised
+   "Signed on paper — scan on file" this build uses everywhere else — fixed.
+3. **The same page had NO branch for `awaiting_wet_ink` at all** — it fell through to the `@else`
+   (refused) block and rendered an awaiting party as "Refused to sign" with a bogus reason label
+   (`refusal_reason_preset` is null for this disposition). Added the missing branch. The page's own
+   deliberate choice to still print a SUPERSEDED row (with its own note pointing at the replacement,
+   §17.5's original design) is unchanged — a real difference from the report PDF/public page/inventory
+   show page, which show the live row only, not a bug.
+
+**Why the "one PDF, one JPG" click-through step of Johan's own brief is exactly what caught #1**: every
+automated PHPUnit test in both new test files (`RentalInventoryWetInkTest`/
+`RentalInspectionWetInkAwaitingTest`) posts straight to the controller endpoint — proving the server
+contract, never proving a human can actually click the button that calls it. Standard −1f's own lesson,
+recurring: "A PHPUnit test cannot see a disabled button — it does not run a browser." Verified on
+throwaway fixtures only (properties 21068-21074, inventories 18-23, inspection 38, agency 1, user 365)
+— property 5294 never touched.
+
+---
+
+## 22. Party roles — settings-driven labels, a real SELLER role, and the sale/rental split (2026-09-29, Johan)
+
+Johan's own words started this: *"I hope in inventory we did not hard code signatures to landlord and
+tenant. Sales work for this as well."* Investigation confirmed the worry — role words were hardcoded in
+several places, and a sale property's owner signed under `party_role='landlord'`, the rental word,
+because §15 only ever fixed the DISPLAY label (`$ownerPartyLabel`), never the stored role or the
+downstream logic gated on it (`outstandingSignatories()`, `capture()`'s validation). Three rulings
+landed together, in order.
+
+### 22.1 Labels — ONE resolver, reading the real Contact Types settings screen
+
+Johan pointed to the actual source (checked live in Chrome): `/corex/settings?s=feature-contacts` →
+"Contact Types" tab, backed by `App\Models\ContactType` (table `contact_types`, read/written by
+`App\Http\Controllers\CoreX\ContactTypeController::store()`/`update()`). The four signing roles
+(lessor/lessee/seller/buyer) are fixed in count and in `esign_role`, but an agency can add its OWN named
+type under a given `esign_role` — e.g. the live `'Tenant'` row (`esign_role=lessee`), distinct from the
+canonical `'Lessee'` row.
+
+**`App\Services\PartyRoleLabel::for(?int $agencyId, string $roleKey): string`** is the ONE place every
+inventory-facing surface reads a role's display word from — internal keys
+(`RentalInventorySignature::PARTY_TENANT`/`PARTY_LANDLORD`/`PARTY_SELLER`/`PARTY_AGENT`) never change,
+only the label. Maps `landlord→lessor`, `tenant→lessee`, `seller→seller`, `buyer→buyer`, looks up the
+matching `ContactType` row, returns its `name`. `agent` has no `ContactType` (a CoreX `User`, not a
+`Contact`) and stays the fixed word `'Agent'`.
+
+**Deterministic pick when two rows share an `esign_role`** (Johan's own named case — Agency 1 carries
+both `'Tenant'` and `'Lessee'` for `esign_role=lessee`): the STRICTLY CANONICAL row (`name ===
+ContactType::CANONICAL[$esignRole]`) wins, else the lowest `sort_order` among the rest. Chosen because
+the canonical row is the one every e-sign flow's own 1:1 role mapping already depends on
+(`ContactType::isLocked()`). **Consequence, stated plainly rather than left implicit**: on Agency 1's
+current data this means inventory now displays "Lessor"/"Lessee" (the canonical names), NOT the
+colloquial "Landlord"/"Tenant" wording, because no row named "Landlord" exists and the canonical
+`'Lessee'` row wins over the custom `'Tenant'` row. If HFC wants "Tenant"/"Landlord" wording specifically,
+that is a change on the Contact Types settings screen (rename/deactivate a canonical row, or adjust
+sort_order so a differently-named row wins), not in this resolver — the resolver is now correctly
+settings-driven; it does not choose which word an agency prefers.
+
+**`agencyId` accepted, unused**: `ContactType` has no `agency_id` column — the 6 base parents are global
+(the "Contact Types" screen's own note: *"the four signing roles are fixed"*). The parameter is wired
+through every call site regardless, so the day this becomes genuinely per-agency, only `PartyRoleLabel`'s
+internals change.
+
+**Party CONTACT resolution — deliberately NOT switched to ContactType, flagged instead of silently
+changed.** Johan asked to resolve the party contacts themselves via ContactType `esign_role` too, instead
+of `contact_property.role`. Investigated: `Property::sellerOwnerContact()` (`Property.php:1040`) resolves
+via the `contact_property` pivot's own free-text `role` column (`'seller'|'owner'|'landlord'|'lessor'`) —
+a genuinely separate vocabulary from `ContactType.esign_role`, confirmed by `Contact::rentalRoleLabels()`
+'s own docblock: *"most landlords are linked via the property pivot, never actually assigned the
+Lessor/Landlord type."* Switching contact RESOLUTION (not just the label) to ContactType-only would
+silently stop resolving the owner for the majority of real properties, which have never been tagged.
+`sellerOwnerContact()`/`LeaseTenant` are UNCHANGED in this build for that reason — labels are
+settings-driven (22.1 above); WHO counts as the owner/tenant contact is still the existing pivot/lease
+mechanism. A genuine cutover is a larger, riskier change than this task, and is Johan's call once he's
+seen this trade-off, not something to make silently.
+
+### 22.2 A real SELLER role — sale = seller + agent only, never a buyer at this stage
+
+`RentalInventorySignature::PARTY_SELLER = 'seller'` added alongside the existing three. New
+`RentalInventory::ownerPartyRole(): string` is the ONE place that decides which of `PARTY_SELLER`/
+`PARTY_LANDLORD` applies: **`'seller'` only when `lease_id` is null AND `property.listing_type ===
+'sale'`; `'landlord'` for every other case** — a lease-attached rental inventory, OR a property-level
+inventory on a RENTAL property currently between tenancies (also `lease_id` null, but still a rental,
+just vacant — §15's own distinction, now enforced in code, not just narrated). `outstandingSignatories()`,
+`markCompleted()`'s error messages, `signatureSummaryRows()`, and `distributionRecipients()` all read
+through this one method instead of the old `$inventory->lease_id ? 'landlord' : 'seller'` ternary, which
+was wrong for exactly the vacant-rental case.
+
+`RentalInventorySignature::capture()` now refuses a `party_role` that doesn't match
+`$inventory->ownerPartyRole()` outright (`InvalidArgumentException`) — a sale inventory's owner cannot be
+recorded as `'landlord'`, and vice versa, even if a stale client sends it. Ruling: **"It completes and is
+filed at mandate stage, long before a buyer exists. Seller signs as the SELLER role for real, not as
+'landlord' relabelled."** — a sale inventory's `outstandingSignatories()` now requires ONLY the seller (no
+tenant loop ever matches — `LeaseTenant::where('lease_id', null)` is naturally empty) + the agent, exactly
+mirroring the rental shape of tenant(s) + landlord + agent.
+
+**Data migration** `2026_10_06_090000_relabel_sale_inventory_landlord_signatures_to_seller` — every
+EXISTING `rental_inventory_signatures` row with `party_role='landlord'`, `rental_inventories.lease_id
+IS NULL`, and `properties.listing_type='sale'` is relabelled to `'seller'`. Deliberately scoped to sale
+properties only — a vacant rental property's own `lease_id IS NULL` row stays `'landlord'`, correctly.
+Idempotent (a second run matches zero rows), logs the relabelled count, `down()` is a deliberate no-op
+(there is no "original" value worth restoring — `'seller'` is the correct value for these rows).
+
+### 22.3 Rental regression — proven, not assumed
+
+`RentalInventoryPartyRolesTest::test_rental_inventory_still_requires_tenant_and_landlord` runs the FULL
+rental flow (tenant + landlord + agent capture → `markCompleted()`) end to end against the new code path
+and asserts it completes exactly as before. A second test
+(`test_rental_inventory_rejects_a_seller_role_signature`) proves the new role-mismatch guard doesn't leak
+the other way — a rental inventory refuses a `'seller'`-role signature outright.
+
+### 22.4 Found while building this, out of scope, flagged not fixed
+
+`database/schema/mysql-schema.sql`'s baked-in migrations ledger now marks
+`2026_09_12_000001_reseed_base_contact_type_parents_for_fresh_bootstraps` as "already applied" — so a
+fresh `RefreshDatabase` test bootstrap SKIPS it and gets ZERO of the 6 base `ContactType` parents
+(Seller/Buyer/Lessor/Lessee/Owner/Other). This is the EXACT AT-392 class of gap that migration's own
+docblock predicted would recur once the snapshot was regenerated again — confirmed by a real test
+failure while building `RentalInventoryPartyRolesTest` (expected `'Lessor'`, got the `ucfirst()` fallback
+`'Landlord'` because the row simply didn't exist). Worked around LOCALLY in this test's own `setUp()`
+(seeds the 6 parents directly, same convention `DocumentType` rows already use in sibling tests) — the
+snapshot itself is untouched, since regenerating it is shared infra outside this task's scope. Any OTHER
+test anywhere in the suite that depends on these 6 rows existing via that migration has the same latent
+gap.
+
+---
+
+## 23. Viewing Pack eligibility — the completed inventory is now a selectable document (2026-09-29, Johan)
+
+Johan: *"the inventory should be one of the documents an agent can select for a viewing pack."* The
+Viewing Pack feature already exists in full (`app/Models/ViewingPack*.php`,
+`app/Http/Controllers/CommandCenter/ViewingPackController.php`, `.ai/specs/viewing-pack.md`) — an agent
+picks properties for a buyer's viewing day, then per-property picks eligible attached documents to
+bundle. Eligibility is `document_types.buyer_pack_eligible` (+ per-agency override), resolved by
+`AgencyComplianceDocTypeService::isBuyerPackEligible()`, and
+`ViewingPackDocumentService::eligibleDocumentsFor()` filters on `$document->documentType?->slug` — so a
+`Document` row with no `document_type_id` is structurally invisible to it, regardless of the catalogue
+flag.
+
+**Root cause found**: every inventory Document filed via `fileAndMaybeEmailReport()` (the completed
+report) had `document_type_id = NULL` — only the WET-INK SCAN filing path
+(`fileInventoryWetInkScan()`) already stamped one, to the pre-existing `inventory_list` catalogue slug
+(no new slug needed — reused, not invented).
+
+**Fix**:
+- `RentalInventoryRecordingController::stampInventoryListDocumentType()` — new shared private helper
+  (extracted from `fileInventoryWetInkScan()`'s own inline logic, now called from BOTH filing paths) —
+  sets `document_type_id` to the `inventory_list` type on a freshly-filed Document that doesn't already
+  have one. Idempotent by construction (`fileToProperty()` itself is idempotent; the helper no-ops if
+  already typed).
+- Migration `2026_10_06_090100_mark_inventory_list_buyer_pack_eligible` flips the EXISTING
+  `document_types.buyer_pack_eligible` catalogue default for slug `inventory_list` to `true` (was
+  `false` — never buyer-eligible before this ruling). Per-agency overrides, if any exist, are untouched.
+- Migration `2026_10_06_090200_backfill_inventory_document_type_id` — every already-filed
+  `documents` row with `source_type IN ('rental_inventory_report', 'rental_inventory_signature_wet_ink')`
+  and `document_type_id IS NULL` gets typed. Idempotent, logs the backfilled count.
+
+**Proven** — `RentalInventoryViewingPackDocumentTypeTest`: completing a sale inventory via the real HTTP
+endpoint results in a filed Document carrying `document_type_id = inventory_list`'s id; the backfill
+migration types a pre-existing untyped row the same way. Full `tests/Feature/RentalInventory/` directory
+re-run clean (110 passed, 342 assertions) after this and the §22 changes together — no regressions.
+
+---
+
+## 24. Buyer acceptance — a separate, later, optional signature (2026-09-29, Johan)
+
+Johan's ruling: *"once a buyer exists, the agent can send the completed inventory to the buyer for a
+'signature of acceptance' of what they get in the sale. This must NOT reopen or edit the completed
+record. It is a separate acceptance signature that sits alongside it, on screen or wet-ink. Buyer is
+resolved from the deal / accepted offer on that property."*
+
+**New table/model — `rental_inventory_buyer_acceptances` / `RentalInventoryBuyerAcceptance`.**
+Deliberately separate from `RentalInventorySignature`: that model's whole shape
+(`outstandingSignatories()`, the completion gate) is about who must sign BEFORE an inventory can
+complete. Buyer acceptance is additive and optional — no code path in this feature ever calls
+`RentalInventory::assertEditable()`. Two capture methods only, per Johan's own words ("on screen or
+wet-ink") — no refusal disposition, no `awaiting_wet_ink` tracking marker; this is not a gate anything
+blocks on. No DB-level unique constraint on `(rental_inventory_id, buyer_contact_id)` — a correction is
+soft-delete + a fresh row (non-negotiable #1), and MySQL's unique indexes would block that pattern
+(soft-deleted rows still count); "at most one LIVE row per buyer" is enforced in `capture()` instead,
+same discipline `RentalInventorySignature::capture()` already uses.
+
+**The one gate — `RentalInventory::buyerAcceptanceOfferedFor(): bool`**: `status === completed && lease_id
+=== null && property.listing_type === 'sale' && property.purchasingDeal() !== null`. Buyer resolution
+reuses `Property::purchasingDeal()`/`->buyers()` AS-IS (Granted/Registered only — "an offer is not a
+purchase," that method's own docblock) — no new resolver needed, it already implemented exactly this.
+`RentalInventory::eligibleBuyerContacts()` / `outstandingBuyerAcceptances()` read through this one gate.
+
+**Two surfaces, deliberately separate**:
+- **Agent side** — `RentalInventoryBuyerAcceptanceController::send()` (its own controller, not
+  `RentalInventoryRecordingController`, so the "never touches `assertEditable()`" boundary is structural,
+  not a convention to remember). Emails the buyer their own public share link (generated if none is live
+  yet), reusing the existing `SignedDocumentDistributionMail` directly — no new Mailable, no forced
+  `SignedDocumentDistributable` contract for a party the inventory itself doesn't require a signature
+  from. `SignedDocumentDistributionService::sendGenericMail()` — new, small — extracts the SAME
+  `TEST_RECIPIENT`-safety-rail + per-mailbox-with-fallback `dispatch()` for a Mailable outside that
+  contract, so the mail-safety rail can never drift between the two send paths. `show.blade.php` gained a
+  "Buyer acceptance" panel (shown only when `buyerAcceptanceOfferedFor()`), listing already-accepted
+  buyers (read-only, with their signature/scan) and outstanding ones (a "Send for acceptance" button) —
+  no signing UI here; the buyer signs on THEIR OWN device.
+- **Buyer side** — `RentalInventoryPublicController::storeBuyerAcceptance()`, a new POST on the EXISTING
+  public/token-gated inventory page (no new token, no new page — the same `public_token` that already
+  gates read access). `public/show.blade.php` gained a signing block per outstanding buyer: "Sign on
+  screen" (a `SignaturePad` canvas, same library/version as the agent-side pages) or "Upload signed scan"
+  (a file upload) — both submit to the same endpoint. A `csrf-token` meta tag was added to this
+  previously-bare public page (Laravel starts a session, and its CSRF token, for every visitor regardless
+  of login state — this route sits in the `web` middleware group like every other route in this file).
+  The submitted `buyer_contact_id` is checked against BOTH the inventory's own `eligibleBuyerContacts()`
+  AND (since the controller reads the Contact via `withoutGlobalScopes()`, same as `findByPublicToken()`
+  itself) an explicit `agency_id` match, so the parameter can never be used to probe another agency's
+  contact record now that scoping is bypassed.
+
+**Proven** — `RentalInventoryBuyerAcceptanceTest` (10 tests): not offered without a committed deal;
+offered once one exists; capturing an on-screen acceptance leaves the inventory's own `status` untouched;
+a non-buyer contact is refused; a second capture for the same buyer is refused; both public-endpoint
+capture methods (on-screen JSON + wet-ink multipart) work end to end through the real HTTP route; an
+invalid token 404s; the agent-side send endpoint emails the buyer and generates a public link on demand;
+sending is refused outright when acceptance isn't offered yet.
+
+---
+
+## 25. Public report link stops working when the inventory is archived or cancelled (2026-10-06, cc1 — BUILT, security fix)
+
+**Same defect as the inspection report link** (`rental-inspections.md` §44a, fixed earlier the same day), found
+by the class sweep done for that fix and reported then as "same gap, other module". Johan's ruling (6 Oct): apply
+the identical fix here.
+
+**The defect.** `RentalInventory::findByPublicToken()` ran `withoutGlobalScopes()` (a public caller has no
+agency context), which also strips `SoftDeletes`, and never looked at `status`. So an ARCHIVED inventory — and a
+CANCELLED one — kept serving its report publicly for the rest of the link's life, **and kept accepting
+unauthenticated buyer-acceptance writes** (`POST /rental-inventory-report/{token}/buyer-acceptance`, §24), which is
+worse than a read-only leak: a buyer's signature could be recorded against an inventory the agency had archived.
+
+**The rule.** Archived (soft-deleted) or cancelled → the link shows the standard "This link isn't available" page
+(and the buyer-acceptance POST answers 404 `This link is no longer available.`, never an exception); **restored →
+the SAME link works again**. Signed/expiry rules otherwise unchanged.
+
+**The fix — one place.** `findByPublicToken()` now also requires `deleted_at IS NULL` and `status != 'cancelled'`.
+Both public routes resolve through it, so both are covered. The token is deliberately NOT cleared on archive —
+restoring an archived inventory revives the same link and the QR already printed on its PDF. Expiry, revoke
+(clears the token) and regenerate (replaces it) are exactly as before; an expired, revoked or replaced token
+stays dead after a restore. The unavailable page is the existing uniform one, so an archived/cancelled link is
+indistinguishable from a wrong or expired one. `publicLinkIsValid()` is left token-only (`ensurePublicLink()`
+depends on it and must never overwrite a token merely because an inventory is archived). No agent-screen change
+was needed: the share-link buttons only render for a COMPLETED inventory (`corex/rental-inventories/show.blade.php:77`),
+and an archived inventory's screen already 404s through route binding. A completed inventory cannot be cancelled by
+the app (`RentalInventory::cancel()` refuses), so the cancelled rule is defensive; it is status-based, not path-based.
+
+**Routes covered:** `GET /rental-inventory-report/{token}` (`rental-inventories.public.show`) and
+`POST /rental-inventory-report/{token}/buyer-acceptance` (`rental-inventories.public.buyer-acceptance.store`) —
+the only two public/tokenised inventory routes (checked in `routes/web.php`); both use `findByPublicToken()` only.
+
+**Reported, not changed:**
+1. Photos on the public inventory page are static public-disk URLs, not served under the token — a URL someone already holds keeps working (same point as inspections §44a #2; unchanged by ruling).
+2. The unavailable page is returned with HTTP 200 for the GET (`RentalInventoryPublicController.php:28-35`); 404/410 would be more correct.
+3. `RentalInventoryController::printForSignature()` mints a public link on a GET when none is valid (`:215`), including for a cancelled inventory — the link is now dead on arrival but the state change on GET remains.
+
+**Tests** (`tests/Feature/RentalInventory/RentalInventoryPublicLinkLifecycleTest.php`, 14): archived page · archived
+buyer write (404, no acceptance row) · cancelled page (real `cancel()` on a draft) · cancelled buyer write ·
+restored page and restored buyer write on the same token (201) · archive → restore → archive again · archive and
+restore through the agent's own HTTP routes · archiving does not clear the token · expired / revoked / replaced
+tokens stay dead after a restore · archived link identical (status and text) to a never-issued token · other
+agency's live link unaffected. With the model fix reverted 11 of the 14 fail (the 3 that still pass guard unchanged
+rules); with it, 14/14, and the neighbouring `RentalInventoryBuyerAcceptanceTest` and `RentalInventoryDistributionTest`
+pass with the lane's mail redirect set (33/33 together).
+
+Files: `app/Models/RentalInventory.php` (`findByPublicToken`),
+`tests/Feature/RentalInventory/RentalInventoryPublicLinkLifecycleTest.php`. No migration, setting, permission,
+route or view change.
+
+---
+
+## 26. Release audit fixes — buyer acceptance and inventory access (2026-10-18, audit batch 1-inventory)
+
+- **Buyer acceptance is per buyer (A-M5).** The inventory's single public link is held by the tenant, landlord and
+  seller, so it no longer accepts a buyer acceptance on its own, and the buyer is never taken from the request body.
+  The "Send for acceptance" email now carries a personal link: the report page plus `?buyer=<id>.<hmac>`
+  (`RentalInventory::buyerAcceptanceTokenFor()` / `buyerAcceptanceUrlFor()`). The HMAC covers the inventory, the buyer
+  and the current public token, so it is unforgeable from the shared link, valid for one buyer only, and dies when the
+  link is revoked, regenerated or expires. Nothing is stored (no migration). The shared link shows no signing block;
+  a personal link shows only that buyer's block. `POST /rental-inventory-report/{token}/buyer-acceptance` takes
+  `buyer_token`; a missing/forged token and an unknown/foreign contact all answer the same 404.
+- **Wet-ink scans are private (A-H1).** The buyer's uploaded scan is stored on the private disk as
+  `private:rental-inventory-buyer-acceptances/{property}/wetink_<random>.<ext>` (extension from the sniffed MIME via a
+  fixed allow-list, never the client's), and the agent's "View uploaded scan" link goes through
+  `corex.rental-inventories.buyer-acceptances.wet-ink-file` (own/branch checked; `nosniff` + sandbox CSP). Eligibility
+  is checked before any file is written; only the evidence for the chosen disposition is stored; `signature_image` is
+  size-capped. Rows stored before this change keep their public URL and are still linked as-is.
+- **Access checks (A-H2, A-M3, A-M4).** `printForSignature`, `supersedeWetInkSignature` and the buyer-acceptance
+  `send` action now call `assertVisible()` first. `printForSignature` no longer creates a public link from the GET
+  (same as `report()`: a PDF with no live link omits the QR).
+
+**Follow-up (same batch, 2026-10-18).** Same class as the buyer-scan fix: (a) the buyer's on-screen signature
+(`RentalInventoryBuyerAcceptance::storeCanvasImage`, public route) now must decode to a real, size-capped PNG and is
+re-encoded before it is written; (b) a party's wet-ink scan (`RentalInventorySignature::storeWetInkUpload`, agent upload)
+now goes to the private disk with a server-chosen name/extension and is read back through
+`corex.rental-inventories.signatures.wet-ink-file` (agent, own/branch-checked) or
+`rental-inventories.public.signature-wet-ink-file` (public report page, live token only) — old public-URL values keep
+working as-is; (c) the PDF-vs-image decision when filing a scan to the property (inventory and inspection) uses the
+sniffed content type, not the client filename. Shared code: `App\Support\PrivateScanFile`.

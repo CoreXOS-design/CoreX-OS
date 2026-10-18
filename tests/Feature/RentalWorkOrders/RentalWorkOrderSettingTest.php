@@ -82,33 +82,42 @@ final class RentalWorkOrderSettingTest extends TestCase
         $this->assertSame(350.0, RentalWorkOrderSetting::spendThresholdFor($this->agency->id));
     }
 
-    public function test_property_override_is_saved_through_the_rental_details_endpoint(): void
+    /** AT-452 (rentals-faults-work-orders.md sections 22.7 / 22.6) - the repair limit lives in ONE place (the owner's own settings); the work-terms endpoint is gone altogether. */
+    public function test_the_work_terms_endpoint_is_gone_and_the_repair_limit_has_no_second_editor(): void
     {
         $property = $this->property();
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
-            'rental_no_approval_spend_threshold' => 3000,
-        ])->assertRedirect();
-
-        $this->assertSame(3000.0, (float) $property->fresh()->rental_no_approval_spend_threshold);
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.properties.rental-work-terms.update'));
+        $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);
+        $this->assertSame(500.0, RentalWorkOrderSetting::thresholdFor($property->fresh()), 'the agency default is still the fallback while the owner has no answer');
     }
 
-    /** BUILD_STANDARD §2 — optional-and-empty must clear gracefully, not 500 or silently keep a stale value. */
-    public function test_property_override_can_be_cleared_back_to_the_agency_default(): void
+    public function test_the_rental_details_endpoint_ignores_the_threshold_field(): void
+    {
+        $property = $this->property(['rental_no_approval_spend_threshold' => 1800]);
+
+        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
+            'rental_no_approval_spend_threshold' => 99999,
+        ])->assertRedirect();
+
+        $this->assertSame(1800.0, (float) $property->fresh()->rental_no_approval_spend_threshold, 'nothing on the property screen writes it');
+    }
+
+    /** The legacy column is only a fallback now: it is still honoured while the owner has no answer, and the owner's own answer wins once there is one. */
+    public function test_the_legacy_value_is_a_fallback_and_the_owners_answer_wins(): void
     {
         $property = $this->property(['rental_no_approval_spend_threshold' => 3000]);
+        $this->assertSame(3000.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
 
-        $this->actingAs($this->admin)->put(route('corex.properties.rental-details.update', $property), [
-            'rental_no_approval_spend_threshold' => '',
-        ])->assertRedirect();
+        app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->capture($property, $this->admin, ['repair_limit' => 650, 'emergency_limit' => 0, 'callout_mode' => 'no'], 'email', now(), 'Owner emailed.');
 
-        $this->assertNull($property->fresh()->rental_no_approval_spend_threshold);
-        $this->assertSame(500.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
+        $this->assertSame(650.0, RentalWorkOrderSetting::thresholdFor($property->fresh()));
     }
 
-    public function test_lease_show_screen_reads_through_to_the_property_value(): void
+    public function test_lease_show_screen_reads_the_owners_own_limit(): void
     {
-        $property = $this->property(['rental_no_approval_spend_threshold' => 1750]);
+        $property = $this->property();
+        app(\App\Services\Rentals\RentalOwnerFaultSettingsService::class)->capture($property, $this->admin, ['repair_limit' => 1750, 'emergency_limit' => 0, 'callout_mode' => 'no'], 'email', now(), 'Owner emailed.');
         $lease = \App\Models\Lease::create([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $property->id,
             'status' => \App\Models\Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now(),
@@ -117,7 +126,7 @@ final class RentalWorkOrderSettingTest extends TestCase
 
         $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))
             ->assertOk()
-            ->assertSee('No-approval spend threshold')
+            ->assertSee("Owner's repair limit", false)
             ->assertSee('1,750.00');
     }
 }

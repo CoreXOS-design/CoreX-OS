@@ -7,12 +7,18 @@
 <div class="corex-document-wrapper">
 <div class="corex-page">
 
-@include('docuperfect.web-templates.components.company-header', ['branch' => $branch])
+@if($branch)
+    @include('docuperfect.web-templates.components.company-header', ['branch' => $branch])
+@else
+    @include('docuperfect.web-templates.components.company-header', ['previewAgency' => $agency])
+@endif
 
 <div class="corex-h1">Rental Application Process and Requirements</div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">
-    {{ $agency->name ?? 'The agency' }} strictly works on pre-approval of prospective tenants
-    before any viewings take place. Please complete this form and submit it with your
+    @php
+        $policySentence = \App\Models\RentalApplicationQualifyingSetting::renderedInvitePolicySentenceFor($application->agency_id ?? null, isset($agency) && $agency ? \App\Models\Agency::displayNameFor($agency) : null);
+    @endphp
+    {{ $policySentence }} Please complete this form and submit it with your
     supporting documents to
     @isset($branch)
         {{ $branch->email ?: ($agency->email ?? '') }}

@@ -312,21 +312,121 @@ New-letter picker (`letterCandidatesFor()`, direct role-row read) and in the use
 everyone in the old picker + roles of everyone with a letter on record; template rows get only the three
 practitioner roles. Spec: ppra-ffc-employment-letter.md §17.
 
----
 
-## Appendix — Permission audit, 2026-10-12 (AT-449 pre-flight)
+## `buyer_notes.view` — buyer-notes data scope (2026-10-07)
+A `.view` action key in module `buyer_notes` (own / branch / all via the normal Role Manager selector and
+`PermissionService::getDataScope($user, 'buyer_notes')`). Governs read-only buyer notes on the Intelligence
+tab and Core Matches. Independent of `contacts.view`. See `core-matches.md` ("Buyer notes — Role Manager scope").
 
-Read-only audit of Role Manager ↔ feature registry ↔ settings ↔ code ↔ the QA2 database. Clean: the feature
-registry validates (47 features), every nav permission / global flag / route prefix resolves, every gated sidebar
-item is guarded, Role Manager queries are all agency-scoped. Findings and what was done:
 
-| # | Finding | Status |
-|---|---|---|
-| 1 | Five keys enforced in code but undefined in `config/corex-permissions.php` (`shared_drive.drives.{create,create_restricted,manage}`, `branches.self_assign_managed`, typo `commercial_evaluations.edit` → `commercial_evals.edit`) — Role Manager could not grant them, so only the platform owner passed | **Fixed** in code; guarded by `EnforcedPermissionKeysAreDefinedTest` |
-| 2 | Extension capture endpoints had no permission/feature check; `presentation_id` accepted another agency's presentation | **Fixed** — see `at449-chrome-extension-store-restyle.md` §9 |
-| 3 | Three permission keys had invalid `type` values (`use_ellie_voice`, `use_property_image_ai` = `feature`; `billing.view` = `view`) — Role Manager already treated them as access-style, so behaviour is unchanged | **Fixed** (label only) |
-| 4 | Role grants far beyond `role_defaults`: `office_admin` ~312 live grants vs 6 in config (incl. Role Manager, payroll, impersonation), `agent` +120, `branch_manager` +61, `viewer` +7–10 — copied into every new agency from the global template | **Fixed for NEW agencies (Johan's ruling, 2026-10-12):** "each role should get bare minimum and admin should get all, and until an admin gives permissions they should stay like that." `RoleProvisioningService` now builds a new agency's grants from config `role_defaults` (§6 below), not from the template's drifted grant rows. **Existing agencies are deliberately untouched** — HFC's wider access looks intentional (AT-118) and ~half the extra keys are still read by code, so `corex:reconcile-role-grants` was NOT run; any clean-up of an existing agency is a separate decision for Johan. |
-| 5 | Global template roles (`agency_id` NULL) duplicated on 2026-09-27 (a "Fresh Agency No Template" debug session) → every template role and grant doubled; `roles_name_agency_unique` cannot prevent it because MySQL treats NULLs as distinct. `RoleProvisioningService` already de-duplicates, so new agencies were unaffected | Data clean-up pending DB approval (soft-delete the newer copies; reversible) |
-| 6 | QA2 DB behind: 3 pending migrations, `viewing_feedback_edit.view` not synced, 8 stale keys (`access_agencies`, `manage_agencies`, `access_importer`, `importer.import_agents`, `importer.import_listings`, `confirm_properties`, `send_agent_invites`, `ad_manager.all_agents`) with zero grants and no code references | Pending DB approval: `migrate`, then `corex:sync-permissions --prune --merge-defaults` |
+## AT-401 — the matrix shows the access IN FORCE, not "None" (2026-10-07)
 
-**`corex:reconcile-role-grants --except-agencies=<ids>` (2026-10-12).** Leaves the listed agencies completely untouched (e.g. `1` = Home Finders Coastal) while reducing the global template and every other agency to config. The exclusion is recorded in the rollback snapshot. Used by `reduce_roles.sh`, which lists the agencies first and aborts if an agency named like Home Finders is not protected (ids can differ per database). Test: `ReconcileRoleGrantsTest::test_except_agencies_leaves_those_agencies_untouched_and_reduces_the_rest`.
+**The defect.** For a `<module>.view` key the Role Manager only knew stored grant rows. A role with no row
+showed "None" although the code applies a default for it (own / branch / all), and a role holding a `.view`
+row with no stored scope showed "All" while the runtime reads NULL — and saving the matrix then *wrote* that
+"All". Confirmed case: `contact_rental_history.view` (runtime default all, shown None).
+
+**What `getDataScope()` really does.** It returns the stored scope, or NULL when the role has no row *or* a
+row with a NULL scope (`getScopesForRole()` selects only non-NULL scopes). It never returns `'none'`. What
+each module then does with NULL is decided in that module's own code (deny / own / all / mixed). The
+single record of those answers is `PermissionService::UNGRANTED_SCOPE_DEFAULTS` (read via
+`ungrantedScopeDefault($module)`): `[scope, varies-by-screen, plain-English note]`. A module with a `.view`
+key that is not in the map has no breadth reader at all (plain on/off).
+
+**Display rules (Role Manager).**
+- Stored scope → shown as itself.
+- No stored scope (no row, or row with NULL scope) → shown as the code's default, in amber text
+  "Default (nothing stored for this role) — the system applies X: …", with "Varies by screen" where the
+  module's screens disagree. Access-type `.view` keys (no scope picker, e.g. the rentals family) carry a
+  static "Default breadth when no scope is stored: …" line.
+- Choosing anything (radio, toggle, ticking an action on a default-only role) makes it an explicit value.
+- Save: a role/key still showing only the default posts the *unchanged* grant bit and `scopes[key]=default`;
+  the server stores NULL for `default`. **Saving with no changes changes nothing**; a revoked key stays revoked
+  (the default on screen is never saved as a grant).
+- Display only: no default was tightened or loosened. The wrappers `calendarScope()` … `dr2UnfiledEmailsScope()`
+  read the same map for their fallback so display and runtime cannot drift; the `?? 'own'` literals that live in
+  models/controllers (FicaSubmission, PortalLead, OutreachQueueController, …) are mirrored in the map and must be
+  changed together with it.
+
+**Not done (decisions for Johan, see the AT-401 lane report):** the schema still cannot store an explicit
+*deny* (no row = revoked = "not decided" are one bit); role-literal shortcuts (admin/super_admin) that bypass a
+stored scope are not shown in the matrix.
+
+Tests: `tests/Feature/RoleManager/RoleManagerDefaultsDisplayTest.php`.
+
+
+## The default matrix must be able to do the job — new-agency go-live blocker (2026-10-14)
+
+**The defect.** cc3's new-agency walk on QA1 (agency 205): the agent role had 193 grants against HFC's 316, branch_manager
+321 vs 384, viewer 73 vs 308. The new agency's agent got 403 on Calendar and Tasks and could not create/edit/archive a
+listing. Cause: provisioning was correct (a new agency equals `role_defaults` exactly — 193/321/504/73/13/0 matched the
+config key-for-key) but `role_defaults` itself was too thin — the Command Centre keys appeared in NO role's list, and
+`listings.create/edit/archive`, `rentals.archive`, `daily_activity.archive` etc. were only ever ticked by hand in HFC's
+Role Manager. Nothing is "copied from agency 1" — HFC simply held keys the canonical list never named.
+
+**The one canonical matrix** is `role_defaults` in `config/corex-permissions.php`. It is applied (1) on agency creation
+(`RoleProvisioningService`, via `Agency::created`) and (2) additively on every deploy to every agency's roles
+(`deploy:sync-reference-data` → `corex:sync-permissions --merge-defaults`; a soft-deleted/un-ticked grant is seen and never
+resurrected, custom roles and extra grants are never touched). There are no `is_locked`/`customised` flags — the Role
+Manager's soft-delete IS the customisation record.
+
+**Added to the defaults (2026-10-14).**
+- agent: `command_center.view`, `.scorecards.own`, `.calendar.view/create/edit/delete`, `.tasks.view/create/edit/delete`;
+  `listings.create/edit/archive`, `rentals.archive`, `daily_activity.archive`, `create_presentations`
+  (property page "Presentation" button), `contact_rental_history.view`, `buyer_pipeline.view`.
+- branch_manager: the same, plus `command_center.tasks.assign`, `command_center.health.view`, `view_own_stats`.
+- viewer: read-only `command_center.view`, `.calendar.view`, `.tasks.view`.
+- admin: unchanged (all-minus-exclude already complete). office_admin/assistant: unchanged (Johan's 12 Oct bare-minimum ruling).
+
+**Deliberately NOT added** (HFC holds them; manager/officer/admin or HFC-specific — Johan's call per key):
+compliance (`compliance.fica.review/approve`, `approve_rmcp`, `approve_policy`, whistleblow configure/approve), finance/users/roles/
+settings views, `contacts.delete/import/reassign_agent`, `properties.archive`/`delete_properties`, `contacts.archive`,
+client-app logins, `agency_api.*`, `testimonials.publish`, marketing suppressions, P24 manage, remote-access authorisation,
+TV messages, targets, branch assignments, deeds capture, MIC admin keys, `deals_v2.create`/`create_deals` (AT-283: agents have
+no deal-register access), `documents.edit` (edits other people's documents), `command_center.automation.manage`.
+Retired keys HFC still holds and nothing reads: `view_rentals`, `access_rental_signatures`, `ppra_employment_letters.sign_as_principal`.
+
+Tests: `tests/Feature/Permissions/NewAgencyDefaultMatrixTest.php`.
+
+
+### Amendment (2026-10-14, later the same day) — every role gets everything HFC's corresponding role holds
+
+Johan on the held-back keys: **"each gets everything - they decide in setup what they want and need."** This
+supersedes the 12 Oct "bare minimum" default (§6) and the "Deliberately NOT added" list above. The canonical
+`role_defaults` now carries, for branch_manager, agent, viewer and office_admin, every key HFC's same-named role holds
+(agent +102, branch_manager +43, viewer +230, office_admin +313 on top of the first batch; admin was already complete
+via all-minus-exclude; assistant stays a zero-grant label). Only exclusions: the platform-owner-only keys (admin's
+`exclude` list — none of them is held by any HFC role) and the three retired keys. A new agency starts exactly where HFC
+is and trims per role in Role Manager.
+- Where this reaches past an older, narrower ruling it is knowingly the newer ruling that wins: AT-283 (settlement /
+  payroll / deal register are admin-only) — office_admin and viewer now default to `manage_payroll`, `run_payroll`,
+  `view_payroll_reports`, `deals_v2.*`, viewer also `access_deal_register(_v2)` and `branches.switch`; agent gets
+  `deals_v2.create/archive/override_dates` and `create_deals`.
+- Rollout consequence: `deploy:sync-reference-data` adds these keys additively to EVERY existing agency's roles on the
+  next deploy of an environment (an un-ticked/soft-deleted grant is respected; a key an agency simply never had is
+  added). QA1 gets it with this change; Staging/live only when promoted.
+- The setup wizard's Roles step is explainer-only (no grants, no tick boxes; `agency-setup/steps/roles.blade.php`) and its
+  worked example still says an agent "cannot ... approve a FICA pack" — now untrue for a fresh agency. Trimming happens
+  in Role Manager. Reported to Johan; not changed (out of this task's scope).
+
+## Menus follow permissions — no link ends in a 403 (2026-10-14, Johan; cc3's new-agency walk)
+
+**Rule.** A sidebar / menu entry only renders when the user holds the permission its page needs. Calendar, Tasks and the
+portal-access buttons showed for a minimal agent role and opened a 403.
+
+**Enforced three ways.**
+- `App\Support\Navigation\SidebarPermissionGuards` reads the sidebar's real Blade guard stack (`@permission`, `hasPermission`,
+  `hasAnyPermission`; `@else` branches and ORs do not count) and `SidebarLinksFollowPermissionsTest` fails for any link to a route
+  behind `permission:` middleware that is not inside a guard holding one of the route's keys. 34 offenders were fixed on 14 Oct
+  (Calendar, Tasks, Lost Deals, Core Matches, rentals/auctions Properties, WhatsApp consent review, Link My WhatsApp, Daily Activity,
+  Deal Register, P24 Auto-Import, the Documents menu, Staff Screening, Agency Documents, PPRA FFC Letter, Contact Governance,
+  Deal -> Property Sync). Where a link was guarded by a *different* key than its page checks, the page's key was added.
+- The same test renders the sidebar for a real agent (default matrix, and a stripped-down role) and checks every link opens.
+- `config/corex-features.php` `nav_permission` now names live keys (Rentals used the retired `view_rentals`);
+  `corex:features:validate` fails on a `nav_permission` key that does not exist.
+- The Client App access panel (contact / property pages) also needs `access_contacts`, the routes' own permission.
+
+**Known mismatch, left for Johan (product call, not changed):** `admin.deals` (Deal Register) is behind `create_deals` while the menu
+used to offer it on `view_deals` — branch managers hold `view_deals` only, so the link is now hidden from them. And
+`compliance.agency-settings.*` is behind `manage_agency_compliance` only although its controller has a branch-manager path
+(`manage_branch_compliance`), so that menu entry is now hidden from branch compliance managers.

@@ -59,6 +59,15 @@ final class OutreachNoResponseLapseTest extends TestCase
             ]);
         $first->assertOk();
 
+        // AT-81 (delivery-anchored): a WhatsApp pitch is click-to-chat, so the clock does NOT start at compose —
+        // it starts when the agent answers "Yes, I sent it" (the one truthful delivery signal).
+        $contact->refresh();
+        $this->assertNull($contact->outreach_permission_asked_at, 'compose alone does not start the clock');
+        $sendRow = SellerOutreachSend::withoutGlobalScopes()->findOrFail($first->json('send_id'));
+        app(\App\Services\Communications\CommunicationSendStatusService::class)->markSent(
+            \App\Models\Communications\Communication::withoutGlobalScopes()->findOrFail($sendRow->communication_id), $contact, $userId,
+        );
+
         $contact->refresh();
         $this->assertNotNull($contact->outreach_permission_asked_at, 'clock started');
         $this->assertTrue($contact->isOutreachPending());
@@ -370,7 +379,12 @@ final class OutreachNoResponseLapseTest extends TestCase
     private function seedPendingSilentContact(int $agencyId, int $userId, int $askedDaysAgo): Contact
     {
         $contact = $this->seedContactWithAddress($agencyId, 'Sipho' . random_int(100, 999));
-        $this->seedSend($agencyId, $contact->id, $userId, sentAt: now()->subDays($askedDaysAgo), outcome: SellerOutreachSend::OUTCOME_SENT);
+        $send = $this->seedSend($agencyId, $contact->id, $userId, sentAt: now()->subDays($askedDaysAgo), outcome: SellerOutreachSend::OUTCOME_SENT);
+        // AT-81 (delivery-anchored): a WhatsApp pitch only lapses on evidence it was DELIVERED — its linked
+        // communication confirmed sent — and the window runs from that confirmation, not from compose.
+        $comm = app(\App\Services\Communications\OutboundProvisionalLogger::class)->log($contact, 'whatsapp', null, 'Hi there', $userId);
+        $comm->forceFill(['send_status' => \App\Models\Communications\Communication::SEND_STATUS_SENT, 'send_status_set_at' => now()->subDays($askedDaysAgo)])->save();
+        $send->forceFill(['communication_id' => $comm->id])->save();
         $contact->forceFill(['outreach_permission_asked_at' => now()->subDays($askedDaysAgo)])->save();
         return $contact;
     }

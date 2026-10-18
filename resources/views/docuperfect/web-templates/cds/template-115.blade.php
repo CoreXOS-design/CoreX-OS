@@ -22,7 +22,7 @@
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-text">subject to the conditions set out in this agreement.</span></div>
 <div class="corex-clause corex-clause-indent-1"><span class="corex-clause-number">2</span> <span class="corex-clause-text">The rental amount required by the Owner for the property is R<span class="corex-field-value" data-field="deal_amount">{{ $deal_amount ?? '' }}</span></span> which includes the commission as stated in clause 4.  In the event of the Agency not finding a suitable Tenant to rent the property at such rental amount, then, between the Owner and the Agency they will agree to an acceptable rental amount prior to allowing any tenant taking occupation of the said property, which includes commission as stated in clause 4.</span></div>
 @include("docuperfect.web-templates.components.signature-line", ['party' => 'landlord'])
-@include("docuperfect.web-templates.components.signature-line", ['party' => 'agent'])</div>
+@include("docuperfect.web-templates.components.signature-line", ['party' => 'agent'])
 
 @include("docuperfect.web-templates.components.signature-block", ["parties" => ["Lessor", "Agent"]])
 

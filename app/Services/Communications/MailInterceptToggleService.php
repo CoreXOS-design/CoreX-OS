@@ -26,6 +26,13 @@ class MailInterceptToggleService
     /** @throws \InvalidArgumentException if $reason is blank */
     public function forceSend(User $user, string $reason): void
     {
+        // 2026-10-08 — interception is fixed by environment configuration everywhere except real
+        // production, so a database "send" switch would be ignored there anyway. Refuse it
+        // loudly instead of storing a value that looks like it does something.
+        if (! OutboundMailGuard::isSendingConfirmed()) {
+            throw new \InvalidArgumentException('Outbound mail on this environment is held by environment configuration and cannot be switched to send. Only the live production site can send real mail.');
+        }
+
         $this->set($user, false, $reason);
     }
 

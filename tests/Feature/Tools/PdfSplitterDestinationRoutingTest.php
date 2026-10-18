@@ -20,6 +20,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use ReflectionMethod;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -36,6 +37,7 @@ use Tests\TestCase;
  */
 final class PdfSplitterDestinationRoutingTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -68,11 +70,8 @@ final class PdfSplitterDestinationRoutingTest extends TestCase
             'offer_to_purchase' => ['Offer to Purchase', 'shared', ['seller_owner', 'buyer'], 'none'],
             'other'             => ['Other', 'shared', [], 'none'],
         ] as $slug => [$label, $grouping, $roles, $slot]) {
-            $this->typeIds[$slug] = DB::table('document_types')->insertGetId([
-                'slug' => $slug, 'label' => $label, 'sort_order' => 0,
-                'is_active' => true, 'grouping' => $grouping,
-                'contact_roles' => json_encode($roles), 'fica_slot' => $slot,
-                'created_at' => now(), 'updated_at' => now(),
+            $this->typeIds[$slug] = $this->documentTypeId($slug, $label, [
+                'grouping' => $grouping, 'contact_roles' => json_encode($roles), 'fica_slot' => $slot,
             ]);
         }
 

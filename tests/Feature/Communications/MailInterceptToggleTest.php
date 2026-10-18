@@ -82,6 +82,8 @@ final class MailInterceptToggleTest extends TestCase
 
     public function test_a_super_admin_can_force_the_toggle_over_http(): void
     {
+        // Forcing SEND only exists on real production now (every other environment is fixed by configuration).
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
 
         $response = $this->actingAs($owner)->put(route('settings.email-setup.mail-intercept'), [
@@ -150,8 +152,24 @@ final class MailInterceptToggleTest extends TestCase
         $this->assertSame('Afrihost is blocking us again', $row->reason);
     }
 
+    public function test_force_send_is_refused_on_a_non_production_environment(): void
+    {
+        config(['app.env' => 'staging', 'app.url' => 'https://staging.corexos.co.za']);
+        $owner = $this->superAdmin();
+
+        try {
+            (new MailInterceptToggleService())->forceSend($owner, 'trying to open staging');
+            $this->fail('forceSend must be refused outside real production');
+        } catch (\InvalidArgumentException $e) {
+            $this->assertStringContainsString('environment configuration', $e->getMessage());
+        }
+        $this->assertNull(OutboundMailGuard::forcedDirection(), 'nothing stored');
+        $this->assertSame(0, OutboundMailGuardToggleAudit::count());
+    }
+
     public function test_force_send_writes_an_audit_row(): void
     {
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
         $service = new MailInterceptToggleService();
 
@@ -173,7 +191,7 @@ final class MailInterceptToggleTest extends TestCase
 
     public function test_clear_override_records_which_direction_the_environment_reverted_to(): void
     {
-        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za']);
+        config(['app.env' => 'production', 'app.url' => 'https://corexos.co.za', 'mail.guard.real_send' => true]);
         $owner = $this->superAdmin();
         $service = new MailInterceptToggleService();
 

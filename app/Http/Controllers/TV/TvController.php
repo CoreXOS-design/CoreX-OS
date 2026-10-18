@@ -76,7 +76,7 @@ class TvController extends Controller
         }
 
         // Reuse exact same data pipeline as BranchTvController
-        $rollup = $service->getBranchRollup($branchId, $period);
+        $rollup = $service->getBranchRollup($branchId, $period, (int) (DB::table('branches')->where('id', $branchId)->value('agency_id') ?? 0) ?: null);
         $statusSummary = Deal::statusSummaryForBranch((int) $branchId, (string) $period);
 
         // Listing Stock Stats

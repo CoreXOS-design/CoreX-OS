@@ -131,9 +131,10 @@ final class PrivateEventVisibilityTest extends TestCase
         $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'completed']);
 
         $event2 = $this->makePrivateEvent($agencyId, $creator->id, 'Doctor visit');
+        // The web dismiss action answers a redirect back to the page (only complete() has a JSON branch).
         $this->actingAs($creator)
-            ->postJson(route('command-center.calendar.dismiss', $event2))
-            ->assertOk();
+            ->post(route('command-center.calendar.dismiss', $event2))
+            ->assertRedirect();
         $this->assertDatabaseHas('calendar_events', ['id' => $event2->id, 'status' => 'dismissed']);
     }
 
@@ -154,16 +155,17 @@ final class PrivateEventVisibilityTest extends TestCase
             ->postJson(route('command-center.calendar.complete', $event))
             ->assertOk();
         $this->assertDatabaseHas('calendar_events', ['id' => $event->id, 'status' => 'completed']);
-        $this->assertDatabaseHas('calendar_event_audit_entries', [
+        $this->assertDatabaseHas('calendar_event_audit_log', [
             'calendar_event_id' => $event->id, 'action' => 'completed', 'performed_by_user_id' => $admin->id,
         ]);
 
         $event2 = $this->makePrivateEvent($agencyId, $creator->id, 'Doctor visit');
+        // The web dismiss action answers a redirect back to the page (only complete() has a JSON branch).
         $this->actingAs($admin)
-            ->postJson(route('command-center.calendar.dismiss', $event2))
-            ->assertOk();
+            ->post(route('command-center.calendar.dismiss', $event2))
+            ->assertRedirect();
         $this->assertDatabaseHas('calendar_events', ['id' => $event2->id, 'status' => 'dismissed']);
-        $this->assertDatabaseHas('calendar_event_audit_entries', [
+        $this->assertDatabaseHas('calendar_event_audit_log', [
             'calendar_event_id' => $event2->id, 'action' => 'dismissed', 'performed_by_user_id' => $admin->id,
         ]);
     }

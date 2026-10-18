@@ -10,9 +10,9 @@ use App\Services\Performance\BuyerActivityService;
 use App\Services\Performance\HierarchyResolver;
 use App\Services\Performance\Period;
 use App\Services\Performance\Providers\BuyersWonProvider;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
 /**
@@ -27,22 +27,29 @@ use Tests\TestCase;
  * resolved cohort never appears, regardless of state — the report must never
  * be the leak this whole task exists to prevent.
  *
- * DB approach: hand-built minimal schema, same ERROR-1419 workaround used
- * all night on this box.
+ * DB approach: RefreshDatabase against the REAL tables, with real rows. (This file used
+ * to DROP and re-create users/contacts/agencies... by hand — the old ERROR-1419
+ * workaround — which, inside a lane's persistent test schema, left every later test
+ * file without those tables until `lane-test.sh --fresh`. It never touches DDL now.)
  */
 final class BuyersReportServiceTest extends TestCase
 {
+    use RefreshDatabase;
+
     private const AGENCY_ID = 9101;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->buildSchema();
+        // Real tables, rolled back by RefreshDatabase. The rows below use made-up
+        // agency/branch/user ids whose parent rows are irrelevant to what is proved
+        // here, so foreign-key checks are off for this connection (restored in tearDown).
+        DB::statement('SET FOREIGN_KEY_CHECKS=0');
     }
 
     protected function tearDown(): void
     {
-        $this->dropSchema();
+        DB::statement('SET FOREIGN_KEY_CHECKS=1');
         parent::tearDown();
     }
 
@@ -172,20 +179,19 @@ final class BuyersReportServiceTest extends TestCase
         $agentId = 1101;
         $this->seedUser($agentId, self::AGENCY_ID, 801, 'Mixed Book Agent');
 
-        DB::table('contact_types')->insert([
-            ['id' => 1, 'name' => 'Buyer'],
-            ['id' => 2, 'name' => 'Lead'],
-            ['id' => 3, 'name' => 'Lessee'],
-        ]);
+        // The schema snapshot already carries Buyer and Lessee (reference rows) — find or create by name.
+        $buyerType  = $this->contactTypeId('Buyer');
+        $leadType   = $this->contactTypeId('Lead');
+        $lesseeType = $this->contactTypeId('Lessee');
 
         $realBuyer = $this->seedBuyer(30, self::AGENCY_ID, $agentId, 801, 'warm', 'Real Buyer');
-        DB::table('contacts')->where('id', $realBuyer)->update(['contact_type_id' => 1]);
+        DB::table('contacts')->where('id', $realBuyer)->update(['contact_type_id' => $buyerType]);
 
         $lead = $this->seedBuyer(31, self::AGENCY_ID, $agentId, 801, 'new', 'Pure Lead');
-        DB::table('contacts')->where('id', $lead)->update(['contact_type_id' => 2]);
+        DB::table('contacts')->where('id', $lead)->update(['contact_type_id' => $leadType]);
 
         $lessee = $this->seedBuyer(32, self::AGENCY_ID, $agentId, 801, 'warm', 'Actually A Tenant');
-        DB::table('contacts')->where('id', $lessee)->update(['contact_type_id' => 3]);
+        DB::table('contacts')->where('id', $lessee)->update(['contact_type_id' => $lesseeType]);
 
         $scope  = new BuyersReportScope(self::AGENCY_ID, BuyersReportScope::LEVEL_BRANCH, branchId: 801);
         $period = new Period(Carbon::now()->subDays(1)->startOfDay()->toImmutable(), Carbon::now()->addDay()->endOfDay()->toImmutable(), 'This period', 'custom');
@@ -226,7 +232,7 @@ final class BuyersReportServiceTest extends TestCase
         // Direct link, but feedback WAS captured. Must NOT appear.
         $evt3 = $this->seedViewing($agentId, $past, contactId: $fedBuyer);
         DB::table('calendar_event_feedback')->insert([
-            'calendar_event_id' => $evt3, 'contact_id' => $fedBuyer,
+            'calendar_event_id' => $evt3, 'agency_id' => self::AGENCY_ID, 'contact_id' => $fedBuyer,
             'feedback_kind' => 'viewing', 'captured_at' => $past,
         ]);
 
@@ -243,11 +249,18 @@ final class BuyersReportServiceTest extends TestCase
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
+    private function contactTypeId(string $name): int
+    {
+        $id = DB::table('contact_types')->where('name', $name)->value('id');
+
+        return (int) ($id ?? DB::table('contact_types')->insertGetId(['name' => $name]));
+    }
+
     private function seedViewing(int $agentId, Carbon $eventDate, ?int $contactId): int
     {
         return (int) DB::table('calendar_events')->insertGetId([
             'user_id' => $agentId, 'contact_id' => $contactId, 'category' => 'viewing',
-            'title' => 'Test viewing', 'event_date' => $eventDate, 'status' => 'completed',
+            'event_type' => 'manual', 'title' => 'Test viewing', 'event_date' => $eventDate, 'status' => 'completed',
         ]);
     }
 
@@ -263,7 +276,8 @@ final class BuyersReportServiceTest extends TestCase
     {
         DB::table('users')->insert([
             'id' => $id, 'agency_id' => $agencyId, 'branch_id' => $branchId,
-            'name' => $name, 'role' => 'agent', 'is_active' => 1,
+            'name' => $name, 'email' => "agent{$id}@example.test", 'password' => 'x',
+            'role' => 'agent', 'is_active' => 1,
         ]);
     }
 
@@ -283,160 +297,5 @@ final class BuyersReportServiceTest extends TestCase
             'agency_id' => self::AGENCY_ID, 'contact_id' => $contactId,
             'to_state' => $toState, 'reason' => $reason, 'occurred_at' => $occurredAt,
         ]);
-    }
-
-    private function dropSchema(): void
-    {
-        DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        Schema::dropIfExists('communication_links');
-        Schema::dropIfExists('communications');
-        Schema::dropIfExists('calendar_event_feedback');
-        Schema::dropIfExists('contact_types');
-        Schema::dropIfExists('calendar_event_links');
-        Schema::dropIfExists('calendar_events');
-        Schema::dropIfExists('buyer_lost_records');
-        Schema::dropIfExists('buyer_state_transitions');
-        Schema::dropIfExists('contacts');
-        Schema::dropIfExists('users');
-        Schema::dropIfExists('branches');
-        Schema::dropIfExists('agencies');
-        Schema::dropIfExists('roles');
-        DB::statement('SET FOREIGN_KEY_CHECKS=1');
-    }
-
-    private function buildSchema(): void
-    {
-        $this->dropSchema();
-
-        Schema::create('agencies', function ($table) {
-            $table->id();
-            $table->string('name')->nullable();
-            $table->boolean('split_branches_enabled')->default(false);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('branches', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->string('name')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('roles', function ($table) {
-            $table->id();
-            $table->string('name', 60);
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->boolean('is_owner')->default(false);
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('users', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->string('name')->nullable();
-            $table->string('role', 40)->nullable();
-            $table->boolean('is_active')->default(1);
-            $table->boolean('show_in_performance_reports')->default(1);
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('contacts', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('agent_id')->nullable();
-            $table->unsignedBigInteger('branch_id')->nullable();
-            $table->unsignedBigInteger('contact_type_id')->nullable();
-            $table->boolean('is_buyer')->default(0);
-            $table->string('buyer_state', 20)->nullable();
-            $table->string('first_name')->nullable();
-            $table->string('last_name')->nullable();
-            $table->timestamp('last_activity_at')->nullable();
-            $table->timestamp('last_contacted_at')->nullable();
-            $table->timestamp('buyer_pipeline_entered_at')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('contact_types', function ($table) {
-            $table->id();
-            $table->string('name');
-        });
-
-        Schema::create('buyer_state_transitions', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->unsignedBigInteger('contact_id');
-            $table->string('from_state', 20)->nullable();
-            $table->string('to_state', 20);
-            $table->string('reason', 30)->nullable();
-            $table->unsignedBigInteger('triggered_by_user_id')->nullable();
-            $table->timestamp('occurred_at');
-        });
-
-        Schema::create('buyer_lost_records', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id');
-            $table->unsignedBigInteger('contact_id');
-            $table->string('reason_code', 40)->nullable();
-            $table->string('reason_label')->nullable();
-            $table->decimal('preapproval_amount_at_loss', 12, 2)->nullable();
-            $table->string('buyer_state_at_loss', 20)->nullable();
-            $table->unsignedInteger('days_in_pipeline_at_loss')->nullable();
-            $table->unsignedInteger('days_since_last_activity_at_loss')->nullable();
-            $table->unsignedBigInteger('agent_owner_user_id_at_loss')->nullable();
-            $table->unsignedBigInteger('branch_id_at_loss')->nullable();
-            $table->timestamp('recorded_at');
-            $table->timestamp('recovered_at')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('calendar_events', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('user_id');
-            $table->unsignedBigInteger('contact_id')->nullable();
-            $table->string('category', 80)->nullable();
-            $table->string('title')->nullable();
-            $table->string('status', 20)->default('pending');
-            $table->dateTime('event_date');
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('calendar_event_links', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('calendar_event_id');
-            $table->string('linkable_type');
-            $table->unsignedBigInteger('linkable_id');
-            $table->string('role')->default('attendee');
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        Schema::create('calendar_event_feedback', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('calendar_event_id');
-            $table->unsignedBigInteger('contact_id');
-            $table->string('feedback_kind', 40)->nullable();
-            $table->timestamp('captured_at')->nullable();
-            $table->timestamp('deleted_at')->nullable();
-        });
-
-        // BuyerActivityService::metricsByUser() always queries these two, even
-        // when a test only cares about a different metric -- must exist so the
-        // schema is self-sufficient regardless of test run order.
-        Schema::create('communications', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('agency_id')->nullable();
-            $table->unsignedBigInteger('owner_user_id')->nullable();
-            $table->string('channel', 20)->nullable();
-            $table->timestamp('occurred_at')->nullable();
-        });
-
-        Schema::create('communication_links', function ($table) {
-            $table->id();
-            $table->unsignedBigInteger('communication_id');
-            $table->string('linkable_type');
-            $table->unsignedBigInteger('linkable_id');
-            $table->timestamp('deleted_at')->nullable();
-        });
     }
 }

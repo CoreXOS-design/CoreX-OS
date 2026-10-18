@@ -85,10 +85,27 @@ final class ImapPollReadTimeoutTest extends TestCase
                         return $this;
                     }
 
-                    public function get()
+                    // The poller counts matches with search()->count() BEFORE it fetches a page, so that
+                    // first search is the first real network read — where the dead server blocks.
+                    public function search()
                     {
                         sleep(5); // simulate a non-responsive server fread()
 
+                        return $this;
+                    }
+
+                    public function count()
+                    {
+                        return 1; // the blocked search eventually answers; the budget has already expired by then
+                    }
+
+                    public function limit($perPage, $page = 1)
+                    {
+                        return $this;
+                    }
+
+                    public function get()
+                    {
                         return [];
                     }
                 };

@@ -5,12 +5,12 @@ namespace Tests\Feature\Onboarding;
 use App\Models\Agency;
 use App\Models\Branch;
 use App\Models\LeaseSetting;
-use App\Models\RentalApplication;
 use App\Models\RentalApplicationQualifyingSetting;
 use App\Models\RentalInspectionSetting;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Feature\Onboarding\Concerns\PostsWizardStepLikeABrowser;
 use Tests\TestCase;
 
 /**
@@ -48,6 +48,7 @@ use Tests\TestCase;
  */
 final class AgencySetupWizardAtomicSaveTest extends TestCase
 {
+    use PostsWizardStepLikeABrowser;
     use RefreshDatabase;
 
     private function admin(Agency $agency): User
@@ -62,25 +63,26 @@ final class AgencySetupWizardAtomicSaveTest extends TestCase
         ]);
     }
 
-    private function fullValidPayload(): array
+    /**
+     * 2026-10-06 — what the leases step itself posts (every hidden/checked/typed
+     * field serialised the way a browser does it, plus the rows its Alpine lists
+     * add), with the values these tests care about layered on top. The hand-written
+     * list that stood here went stale each time a toggle joined the step, so the
+     * "valid" payload was no longer valid and a test meant to prove one saver's
+     * failure was failing (or passing) because of a different one. Tests below
+     * unset exactly the one key they are about.
+     */
+    private function fullValidPayload(User $admin, Agency $agency): array
     {
-        return [
+        return array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), [
             'expiry_notice_window_days' => 99,
             'fault_report_window_days' => 7,
             'out_inspection_signing_window_days' => 7,
             'no_approval_spend_threshold' => 500,
-            'shown_field_keys' => collect(RentalApplication::submissionFieldRegistry())->pluck('key')->all(),
-            'required_field_keys' => [],
-            'field_display_submitted' => '1',
-            'required_fields_submitted' => '1',
             'return_gate_method' => 'id_number',
             'return_gate_attempt_max' => 6,
             'return_gate_attempt_window_minutes' => 15,
-            'lock_property_after_submission' => '1',
-            'tag_contact_as_tenant_on_approval' => '1',
-            'require_fica_before_authorisation' => '0',
-            'document_uploads_open_after_approval' => '1',
-        ];
+        ]);
     }
 
     /**
@@ -98,7 +100,7 @@ final class AgencySetupWizardAtomicSaveTest extends TestCase
         $admin = $this->admin($agency);
         LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 45]);
 
-        $payload = $this->fullValidPayload();
+        $payload = $this->fullValidPayload($admin, $agency);
         unset($payload['field_display_submitted']);
 
         // A real user always GETs the step before POSTing its form — this
@@ -150,7 +152,7 @@ final class AgencySetupWizardAtomicSaveTest extends TestCase
         $admin = $this->admin($agency);
 
         $response = $this->actingAs($admin)
-            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->fullValidPayload());
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->fullValidPayload($admin, $agency));
 
         $response->assertSessionHasNoErrors();
         $response->assertRedirect(route('corex.agency-setup.step', ['step' => 'properties']));
@@ -171,7 +173,7 @@ final class AgencySetupWizardAtomicSaveTest extends TestCase
         $admin = $this->admin($agency);
         LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 45]);
 
-        $payload = $this->fullValidPayload();
+        $payload = $this->fullValidPayload($admin, $agency);
         unset($payload['return_gate_method']); // updateReturnGate() requires all 3 return-gate fields together.
 
         $response = $this->actingAs($admin)

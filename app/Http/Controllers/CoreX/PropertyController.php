@@ -194,7 +194,7 @@ class PropertyController extends Controller
         // agency scope, matching the pivot's own lookup) so the syndication
         // control on every card/row costs no extra query.
         $query = Property::with([
-            'agent', 'branch', 'secondAgent',
+            'agent', 'branch', 'secondAgent', 'activeLease',
             'websiteSyndication' => fn ($q) => $q->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class),
         ])
             // .ai/specs/other-agency-stock.md §6 — hide Other Agency Stock from
@@ -326,7 +326,7 @@ class PropertyController extends Controller
             // On-market = live stock (for_sale incl. sub-labels, under_offer, …),
             // i.e. NOT terminal/draft. Single source of truth on the model.
             // AT-453 — Other Agency Stock is on-market for Core Matches but is not OUR stock.
-            $query->whereNotIn('status', Property::OFF_MARKET_STATUSES)->ownStock();
+            $query->onMarket()->ownStock();
         } elseif ($status === 'rented_out') {
             // AT-401 — the Rentals-lens equivalent of the sale side's "Sold"
             // tab/filter. Not a single literal status value: real data on the
@@ -380,7 +380,7 @@ class PropertyController extends Controller
         // Marketing status filter
         $marketingFilter = $request->query('filter', '');
         if ($marketingFilter === 'marketing_pending') {
-            $query->whereNull('compliance_snapshot_at')->whereNotIn('status', Property::OFF_MARKET_STATUSES);
+            $query->whereNull('compliance_snapshot_at')->onMarket();
         }
 
         // Portal Agent Mismatch Guard — "Portal agent": listings whose send to
@@ -398,7 +398,7 @@ class PropertyController extends Controller
         if ($marketingFilter === 'approval_pending' && $syndicationApprovalOn) {
             $query->whereNotNull('compliance_snapshot_at')
                 ->whereNull('syndication_approved_at')
-                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->onMarket()
                 ->whereExists(function ($sub) {
                     $sub->select(DB::raw(1))
                         ->from('property_syndication_approvals as psa')
@@ -420,12 +420,15 @@ class PropertyController extends Controller
         // set (single source of truth on the model). Values are code constants,
         // never user input, so direct interpolation is safe.
         $offMarketIn = "'" . implode("','", Property::OFF_MARKET_STATUSES) . "'";
+        // Same normalisation as Property::scopeOnMarket() / isOnMarket(), so this tile agrees with
+        // the "On market" filter and the row-level check for "Let Out" / " SOLD " style values.
+        $normStatus = Property::normalisedStatusSql();
         // AT-453 — one definition of "our own stock" (Property::scopeOwnStock): Total and On Market
         // never count Other Agency Stock; it gets its own tile (other_agency).
         $oasSlug = Property::STATUS_OTHER_AGENCY_STOCK;
         $agg = (clone $query)->selectRaw(
             "SUM(CASE WHEN COALESCE(status, '') <> '$oasSlug' THEN 1 ELSE 0 END) as total,"
-            . " SUM(CASE WHEN status NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
+            . " SUM(CASE WHEN $normStatus NOT IN ($offMarketIn) AND status <> '$oasSlug' THEN 1 ELSE 0 END) as active,"
             . " SUM(CASE WHEN status = '$oasSlug' THEN 1 ELSE 0 END) as other_agency,"
             . " SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) as draft,"
             . " SUM(CASE WHEN status = 'sold' THEN 1 ELSE 0 END) as sold,"
@@ -480,7 +483,7 @@ class PropertyController extends Controller
             ? tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
                 ->whereNotNull('compliance_snapshot_at')
                 ->whereNull('syndication_approved_at')
-                ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+                ->onMarket()
                 ->whereExists(function ($sub) {
                     $sub->select(DB::raw(1))
                         ->from('property_syndication_approvals as psa')
@@ -620,7 +623,7 @@ class PropertyController extends Controller
             if ($p->compliance_snapshot_at !== null) {
                 $p->marketing_status = 'live';
                 $p->marketing_status_detail = 'Live since ' . $p->compliance_snapshot_at->format('j M Y');
-            } elseif (in_array($p->status, Property::OFF_MARKET_STATUSES)) {
+            } elseif (! $p->isOnMarket()) {
                 $p->marketing_status = 'n/a';
                 $p->marketing_status_detail = '';
             } else {
@@ -765,8 +768,20 @@ class PropertyController extends Controller
         $showOtherAgencyStock = ! $isRentalEntry && ! ($isAuctionEntry ?? false) && ! $importedStock
             && \App\Services\Properties\OtherAgencyStockVisibility::canSee($user);
 
+        // Price slider ends: the lowest and highest price across the viewer's live stock.
+        // Role scope only (not the other filters), so the ends do not move when a price is picked.
+        // Off-market rows are left out: a withdrawn or expired listing with a placeholder price
+        // would otherwise set the top of the slider.
+        $priceBounds = tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
+            ->ownStock()
+            ->where(fn ($q) => $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES))
+            ->where('price', '>', 0)
+            ->selectRaw('MIN(price) as lo, MAX(price) as hi')
+            ->first();
+        $priceRange = ['min' => (int) ($priceBounds->lo ?? 0), 'max' => (int) ($priceBounds->hi ?? 0)];
+
         return view('corex.properties.index', compact(
-            'showOtherAgencyStock',
+            'showOtherAgencyStock', 'priceRange',
             'properties', 'stats', 'scope', 'status', 'search',
             'filterAgentIds', 'agentList', 'selectedAgents', 'canPickAgent',
             'filterOptions', 'filters', 'currentSort', 'currentDir', 'agencySortMode',
@@ -829,7 +844,7 @@ class PropertyController extends Controller
         // but not edit it. forEdit:false selects view breadth; all write actions keep the default
         // mutation pin to the agent's own listings. Spec §7.2 (AT-267).
         $this->authorizeProperty($property, forEdit: false);
-        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type']);
+        $property->load(['agent', 'branch', 'notes.user', 'files.user', 'contacts.type', 'activeLease']);
 
         $settingItems = [
             'categories'      => PropertySettingItem::group('category')->get(),
@@ -1171,6 +1186,56 @@ class PropertyController extends Controller
     }
 
     /**
+     * New-property create: every "new contact" the agent queued is checked against the agency's book BEFORE anything is saved. A phone /
+     * email that already belongs to someone is put to the agent ("use that contact, or create a new one?") and is never swapped in
+     * silently - this used to link the existing contact to the new property with no warning (rental re-walk, 13 Oct 2026). The form asks
+     * first; this is the backstop for a post that skipped the question. An entry the agent confirmed as new (`confirmed_new`) goes
+     * through unless the agency's duplicate mode forbids creating a second one for this user.
+     *
+     * @throws \Illuminate\Validation\ValidationException nothing has been saved yet when this is thrown
+     */
+    private function guardPendingContactDuplicates(Request $request, int $agencyId): void
+    {
+        if ($agencyId <= 0) {
+            return;
+        }
+        $service = app(\App\Services\ContactDuplicateService::class);
+        $mode = $service->resolveMode($agencyId);
+        $role = (string) auth()->user()?->effectiveRole();
+
+        foreach ((array) $request->input('pending_new_contacts', []) as $nc) {
+            if (empty($nc['first_name']) || empty($nc['last_name']) || empty($nc['phone'])) {
+                continue;
+            }
+            $probe = [
+                'phone' => substr((string) $nc['phone'], 0, 30),
+                'email' => ! empty($nc['email']) ? substr((string) $nc['email'], 0, 150) : null,
+            ];
+            $existing = $service->findDuplicates($probe, $agencyId)->first();
+            if (! $existing) {
+                continue;
+            }
+            $name = trim((string) $existing->full_name) ?: ('contact #' . $existing->id);
+            $match = $service->identifyMatch($probe, $existing, $agencyId);
+            $what = $match['field'] === 'email' ? 'email address' : 'number';
+            $confirmed = filter_var($nc['confirmed_new'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if (! $confirmed) {
+                $service->logAttempt($agencyId, (int) auth()->id(), $mode, $match['field'], $match['value'], $existing->id, $probe, 'rejected');
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'contacts' => "This {$what} belongs to {$name}. Use that contact, or create a new one - nothing was saved.",
+                ]);
+            }
+            if (! \App\Services\ContactDuplicateService::mayCreateDespiteMatch($mode, $role)) {
+                throw \Illuminate\Validation\ValidationException::withMessages([
+                    'contacts' => "This {$what} belongs to {$name}, and your agency does not allow a second contact with it. Use that contact instead - nothing was saved.",
+                ]);
+            }
+            $service->logAttempt($agencyId, (int) auth()->id(), $mode, $match['field'], $match['value'], $existing->id, $probe, 'created_anyway');
+        }
+    }
+
+    /**
      * AT-221 Layer 1 — reject, at capture, a description carrying content the
      * listing portals refuse (built from their real rejection reasons). Throws a
      * validation error on `description` so the agent fixes it inline before the
@@ -1235,6 +1300,27 @@ class PropertyController extends Controller
         $multiple = LeaseSetting::defaultDepositMonthsFor($agencyId);
         $data['deposit_amount'] = round((float) ($rentalAmount ?? 0) * $multiple, 2);
         $data['deposit_amount_is_default'] = true;
+    }
+
+    /**
+     * One field, carried through (Sherry walk, 13 Oct 2026). On a NEW property the form still shows the single "Price (ZAR)" box
+     * whichever Listing Type is picked, so for a rental that number IS the rent: it becomes rental_amount (the column every rental
+     * screen and the header read) and the sale price is cleared. An explicit rent typed on the Rental tab always wins.
+     *
+     * @param array<string,mixed> $data
+     */
+    private function carryPriceIntoRent(array &$data, ?Property $existing): void
+    {
+        $type = strtolower((string) ($data['listing_type'] ?? $existing?->listing_type ?? 'sale'));
+        if ($type !== 'rental') {
+            return;
+        }
+        $rent  = (float) ($data['rental_amount'] ?? $existing?->rental_amount ?? 0);
+        $price = (float) ($data['price'] ?? 0);
+        if ($rent <= 0 && $price > 0) {
+            $data['rental_amount'] = $price;
+            $data['price'] = 0;
+        }
     }
 
     public function store(Request $request)
@@ -1397,6 +1483,9 @@ class PropertyController extends Controller
                 ->withErrors(['contacts' => 'A contact must be linked to the property before saving.']);
         }
 
+        // A new contact whose phone / email already belongs to someone is NEVER swapped for that someone behind the agent's back.
+        $this->guardPendingContactDuplicates($request, (int) ($user->effectiveAgencyId() ?: 0));
+
         $data = $this->processSpacesJson($data);
         $data = $this->applyP24Location($data);
 
@@ -1416,6 +1505,7 @@ class PropertyController extends Controller
         // not) so applyDepositDefault() below can test it reliably. See
         // that method's own docblock for the full reasoning.
         $data['has_deposit'] = $request->boolean('has_deposit');
+        $this->carryPriceIntoRent($data, null);
         $this->applyDepositDefault($data, $data['agency_id']);
 
         // Branch follows the primary agent — every property is owned by its agent's branch.
@@ -1544,8 +1634,7 @@ class PropertyController extends Controller
             }
         }
 
-        // Create + link new contacts added during create (with duplicate detection)
-        $dupService = app(\App\Services\ContactDuplicateService::class);
+        // Create + link new contacts added during create (a match was already put to the agent - see guardPendingContactDuplicates)
 
         // AT-253 (STANDARDS Rule 17) — DERIVE the agency from the PROPERTY these contacts are
         // being attached to, not from the acting user. The contacts belong to the property's
@@ -1565,24 +1654,8 @@ class PropertyController extends Controller
                 'phone'      => substr($nc['phone'],       0, 30),
                 'email'      => !empty($nc['email']) ? substr($nc['email'], 0, 150) : null,
             ];
-            // Auto-link if duplicate found (non-blocking in bulk create context)
-            $existing = $dupService->findDuplicates($ncData, $agencyId)->first();
-            if ($existing) {
-                $linkResult = \App\Services\Property\ContactPropertyLinker::link($existing->id, $property->id, $defaultLinkRole);
-                $wasLinked = ! $linkResult->isNew;
-                $match = $dupService->identifyMatch($ncData, $existing, $agencyId);
-                $dupService->logAttempt($agencyId, auth()->id(), 'auto_link', $match['field'], $match['value'], $existing->id, $ncData, 'auto_linked');
-                if (!$wasLinked) {
-                    \App\Models\PropertySellerLink::ensureExists($property->id, $existing->id);
-                    event(new \App\Events\Contact\ContactLinkedToProperty(
-                        contact: $existing,
-                        property: $property,
-                        role: $defaultLinkRole,
-                        actorUserId: auth()->id(),
-                    ));
-                }
-                continue;
-            }
+            // A matching contact was already put to the agent (guardPendingContactDuplicates, before anything was saved): an entry
+            // that reaches here either matches nobody or is one the agent chose to create as new. It is never swapped for the match.
             $ncData['contact_type_id'] = !empty($nc['contact_type_id']) ? (int) $nc['contact_type_id'] : null;
             $ncData['created_by_user_id'] = auth()->id();
 
@@ -1984,7 +2057,8 @@ class PropertyController extends Controller
         // real boolean, and so unticking the box actually persists as
         // false like every other checkbox on this form.
         $data['has_deposit'] = $request->boolean('has_deposit');
-        $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
+        $this->carryPriceIntoRent($data, $property);
+        $this->applyDepositDefault($data, $property->agency_id, (float) ($data['rental_amount'] ?? $property->rental_amount));
 
         // AT-422 — a user changing the status, expiry date or listed date of Imported Stock
         // takes the listing over: Listed Date and Loaded become today, the Imported tag goes,
@@ -2297,7 +2371,7 @@ class PropertyController extends Controller
             if (empty($property->status))  $missing[] = 'Status';
             if (empty($property->suburb))  $missing[] = 'Suburb';
             if ($missing) {
-                $msg = 'Cannot publish to HFC Premium — missing: ' . implode(', ', $missing);
+                $msg = 'Cannot publish to your agency website — missing: ' . implode(', ', $missing);
                 if ($request->wantsJson() || $request->ajax()) {
                     return response()->json(['error' => $msg, 'missing' => $missing], 422);
                 }
@@ -2306,13 +2380,13 @@ class PropertyController extends Controller
         }
         if ($action === 'publish' || $action === 'refresh') {
             $property->published_at = now();
-            $msg = $action === 'refresh' ? 'Listing refreshed on HFC Premium.' : 'Published to HFC Premium.';
+            $msg = $action === 'refresh' ? 'Listing refreshed on your agency website.' : 'Published to your agency website.';
         } elseif ($action === 'unpublish') {
             $property->published_at = null;
-            $msg = 'Unpublished from HFC Premium.';
+            $msg = 'Unpublished from your agency website.';
         } else {
             $property->published_at = $property->published_at ? null : now();
-            $msg = $property->published_at ? 'Published to HFC Premium.' : 'Unpublished from HFC Premium.';
+            $msg = $property->published_at ? 'Published to your agency website.' : 'Unpublished from your agency website.';
         }
         $property->save();
 
@@ -2980,12 +3054,14 @@ class PropertyController extends Controller
             'commission_percent' => 'nullable|numeric|min:0|max:100',
             'admin_fee'          => "nullable|numeric|min:0|max:{$feeCeiling}",
             'marketing_fee'      => "nullable|numeric|min:0|max:{$feeCeiling}",
-            // .ai/specs/rental-work-orders.md §3.4b, Johan's ruling 2026-09-29
-            // — "per property, populated to the leases screen." The single
-            // editable place a landlord's no-approval spend limit lives; the
-            // lease screen only ever reads through to this column. Null
-            // (cleared) means "use the agency default."
-            'rental_no_approval_spend_threshold' => 'nullable|numeric|min:0',
+            // BUILD 2 (.ai/specs/rental-work-orders.md §17.6.2) — the no-approval limit is no longer accepted here: it is edited,
+            // with its history, through RentalPropertyWorkTermsController (the "Work terms agreed with the owner" panel).
+            // .ai/specs/rentals-faults-work-orders.md §3 — so the tenant-facing
+            // fault first-aid screen can tell a tenant exactly where to look.
+            'rental_main_water_valve_location' => 'nullable|string|max:255',
+            'rental_main_water_valve_photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,heic,heif|max:10240',
+            'rental_db_board_location' => 'nullable|string|max:255',
+            'rental_db_board_photo' => 'nullable|image|mimes:jpg,jpeg,png,webp,heic,heif|max:10240',
             // AT-402 Part 4 — Furnished Status / Availability / Utilities.
             // furnished_status: free-text-shaped but UI-constrained to the
             // agency's own PropertySettingItem list (group 'furnished_status')
@@ -3061,9 +3137,28 @@ class PropertyController extends Controller
         $data['water_included']      = $request->boolean('water_included');
         $data['electricity_included'] = $request->boolean('electricity_included');
         $data['levies_included']     = $request->boolean('levies_included');
+        // .ai/specs/rental-renewals.md §19 — same unchecked-checkbox rule as above.
+        $data['show_available_from_on_portals'] = $request->boolean('show_available_from_on_portals');
 
         // FIX, 2026-09-22 (Johan) — see applyDepositDefault()'s own docblock.
         $this->applyDepositDefault($data, $property->agency_id, (float) $property->rental_amount);
+
+        // .ai/specs/rentals-faults-work-orders.md §3.1/§3.2 — the valve/DB-board
+        // photos are genuinely property-scoped (this specific property's own
+        // control point), so PropertyImageStorer fits here, unlike the
+        // fault-type catalogue images (RentalFaultTypeController, agency-level,
+        // no property to key to). A fresh upload replaces whichever path was
+        // already stored — no gallery, one photo per field.
+        if ($request->hasFile('rental_main_water_valve_photo')) {
+            $data['rental_main_water_valve_photo_path'] = app(\App\Services\Images\PropertyImageStorer::class)
+                ->store($request->file('rental_main_water_valve_photo'), $property->id);
+        }
+        unset($data['rental_main_water_valve_photo']);
+        if ($request->hasFile('rental_db_board_photo')) {
+            $data['rental_db_board_photo_path'] = app(\App\Services\Images\PropertyImageStorer::class)
+                ->store($request->file('rental_db_board_photo'), $property->id);
+        }
+        unset($data['rental_db_board_photo']);
 
         DB::transaction(function () use ($property, $data) {
             $property->update($data);

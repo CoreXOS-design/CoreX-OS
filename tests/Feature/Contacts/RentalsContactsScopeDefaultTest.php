@@ -59,6 +59,9 @@ final class RentalsContactsScopeDefaultTest extends TestCase
         $agency = Agency::create(['name' => 'Agency B', 'slug' => 'agency-b-' . uniqid(), 'split_branches_enabled' => true]);
         $branch1 = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch 1']);
         $branch2 = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch 2']);
+        // Once any grant row exists, the screen's own gate (permission:access_contacts) is enforced
+        // for real — without this grant the request is a 403 before the scope code under test runs.
+        RolePermission::create(['role' => 'branch_manager', 'permission_key' => 'access_contacts', 'agency_id' => $agency->id]);
         RolePermission::create(['role' => 'branch_manager', 'permission_key' => 'contacts.view', 'agency_id' => $agency->id, 'scope' => 'all']);
         $bm = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch1->id, 'role' => 'branch_manager']);
         $sameBranch = $this->makeLesseeContact($agency, $branch1, $bm, 'SameBranch');
@@ -67,8 +70,11 @@ final class RentalsContactsScopeDefaultTest extends TestCase
         $response = $this->actingAs($bm)->get(route('corex.rentals.contacts.index'));
 
         $response->assertOk();
-        $response->assertSee('>Branch<', false);
-        $response->assertDontSee('>Agency<', false);
+        // The pills are multi-line markup (label on its own line), so a literal '>Branch<'
+        // never matches; assert on each pill's own title attribute instead.
+        $response->assertSee('title="Show all contacts in my branch"', false);
+        $response->assertDontSee('title="Show all agency contacts"', false);
+        $response->assertDontSee('title="Show all branch contacts"', false);
         $response->assertSee('SameBranch');
         $response->assertDontSee('OtherBranch');
 
@@ -81,6 +87,9 @@ final class RentalsContactsScopeDefaultTest extends TestCase
     {
         $agency = Agency::create(['name' => 'Agency C', 'slug' => 'agency-c-' . uniqid()]);
         $branch = Branch::create(['agency_id' => $agency->id, 'name' => 'Branch C']);
+        // Once any grant row exists, the screen's own gate (permission:access_contacts) is enforced
+        // for real — without this grant the request is a 403 before the scope code under test runs.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'access_contacts', 'agency_id' => $agency->id]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'contacts.view', 'agency_id' => $agency->id, 'scope' => 'own']);
         $me = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);
         $colleague = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent']);

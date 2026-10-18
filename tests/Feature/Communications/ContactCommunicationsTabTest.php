@@ -91,7 +91,8 @@ final class ContactCommunicationsTabTest extends TestCase
         $resp->assertOk();
         $this->assertTrue((bool) $resp->viewData('canViewComms'));
         $this->assertSame(1, $resp->viewData('contactComms')->count());
-        $resp->assertSee('Communication Archive', false);
+        // The tab is headed "Communications" and links permitted viewers through to the archive.
+        $resp->assertSee('Open full archive', false);
         $resp->assertSee('Re: Your enquiry about 12 Bairn Street', false);
         $resp->assertSee('Open thread', false);
     }

@@ -14,7 +14,7 @@
             <div class="flex flex-wrap items-center gap-2">
                 <a href="{{ route('compliance.policy.index') }}" class="corex-btn-outline text-xs">&larr; Policies</a>
                 @if($selectedPolicy)
-                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" target="_blank" class="corex-btn-outline text-xs">Export Report</a>
+                <a href="{{ route('compliance.policy.dashboard.report', ['policy' => $selectedKey]) }}" class="corex-btn-outline text-xs">Export Report</a>
                 @endif
             </div>
         </div>
@@ -25,8 +25,7 @@
         <form method="GET" class="flex flex-wrap items-end gap-3">
             <div class="min-w-[260px]">
                 <label for="policy" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Policy</label>
-                <select id="policy" name="policy" onchange="this.form.submit()" class="w-full rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <select class="list-header-filter w-full" id="policy" name="policy" onchange="this.form.submit()">
                     @forelse($policies as $p)
                     <option value="{{ $p->policy_key }}" {{ $selectedKey === $p->policy_key ? 'selected' : '' }}>{{ $p->name }}</option>
                     @empty
@@ -93,14 +92,11 @@
                 <input type="hidden" name="policy" value="{{ $selectedKey }}">
                 <div class="flex-1 min-w-[200px]">
                     <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-                    <input id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff..."
-                           class="w-full rounded-md px-3 py-2 text-sm"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <input class="list-header-filter w-full {{ $search ? 'is-active' : '' }}" id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff...">
                 </div>
                 <div>
                     <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                    <select id="status" name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
-                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select class="list-header-filter {{ $filterStatus ? 'is-active' : '' }}" id="status" name="status" onchange="this.form.submit()">
                         <option value="">All statuses</option>
                         <option value="valid" {{ $filterStatus === 'valid' ? 'selected' : '' }}>Acknowledged</option>
                         <option value="in_progress" {{ $filterStatus === 'in_progress' ? 'selected' : '' }}>In Progress</option>

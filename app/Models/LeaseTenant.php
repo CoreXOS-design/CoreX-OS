@@ -22,13 +22,15 @@ class LeaseTenant extends Model
         'is_primary' => 'boolean',
     ];
 
+    /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
     public function lease(): BelongsTo
     {
-        return $this->belongsTo(Lease::class);
+        return $this->belongsTo(Lease::class)->withTrashed();
     }
 
+    /** Same reasoning — a soft-deleted tenant contact must not vanish from the tenancy list. */
     public function contact(): BelongsTo
     {
-        return $this->belongsTo(Contact::class);
+        return $this->belongsTo(Contact::class)->withTrashed();
     }
 }

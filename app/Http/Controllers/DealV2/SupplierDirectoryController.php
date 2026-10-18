@@ -10,6 +10,7 @@ use App\Models\DealV2\AgencyServiceType;
 use App\Models\DealV2\DealV2;
 use App\Models\Scopes\AgencyScope;
 use App\Services\DealV2\AgencyServiceProviderService;
+use App\Services\DealV2\SupplierCalloutFeeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -38,14 +39,46 @@ class SupplierDirectoryController extends Controller
     public function index(Request $request)
     {
         $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
-        $providers = AgencyServiceProvider::query()->withoutGlobalScopes()
+        $f = $this->listFilters($request);
+        $query = AgencyServiceProvider::query()->withoutGlobalScopes()
             ->where('agency_id', $agencyId)
             ->with([
                 'serviceContacts' => fn ($q) => $q->orderByDesc('is_active')->orderBy('attorney_name'),
                 'serviceTypes',
-            ])
-            ->orderByDesc('is_active')->orderBy('specialty')->orderByDesc('is_preferred')->orderBy('name')
-            ->get();
+            ]);
+        // §20.4 - search (name, company, email, phone), status and call-out filters, sortable columns; default order unchanged.
+        if ($f['q'] !== '') {
+            $query->matching($f['q']);   // the ONE supplier search: business name, contact person, email, phone and trade
+        }
+        if ($f['status'] !== 'all') {
+            $query->where('is_active', $f['status'] === 'active');
+        }
+        if ($f['callout'] !== 'any') {
+            $query->where('callout_fee_mode', $f['callout']);
+        }
+        if ($f['kind'] !== '') {
+            $query->where('kind', $f['kind']);
+        }
+        if ($f['group'] !== '') {
+            $inGroup = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->where('group_id', (int) $f['group'])->get(['code', 'legacy_specialty']);
+            $query->where(fn ($w) => $w
+                ->whereIn('id', \Illuminate\Support\Facades\DB::table('agency_service_provider_service_types')->where('agency_id', $agencyId)->whereNull('deleted_at')
+                    ->whereIn('service_type', $inGroup->whereNull('legacy_specialty')->pluck('code'))->select('service_provider_id'))
+                ->orWhereIn('specialty', $inGroup->whereNotNull('legacy_specialty')->pluck('legacy_specialty')));
+        }
+        // the Specialty column shows a contractor's ticked service types (else a role's name, else the old value) - it SORTS on that same word, not the old stored value
+        $tradeWord = "COALESCE((select min(t.label) from agency_service_provider_service_types p join agency_service_types t on t.code = p.service_type and t.agency_id = p.agency_id where p.service_provider_id = agency_service_providers.id and p.deleted_at is null and t.deleted_at is null and t.legacy_specialty is null), (select t2.label from agency_service_types t2 where t2.agency_id = agency_service_providers.agency_id and t2.legacy_specialty = agency_service_providers.specialty and t2.deleted_at is null limit 1), specialty)";
+        $dir = $f['dir'] === 'desc' ? 'desc' : 'asc';
+        match ($f['sort']) {
+            'name' => $query->orderBy('name', $dir),
+            'kind' => $query->orderBy('kind', $dir)->orderBy('name'),
+            'specialty' => $query->orderByRaw($tradeWord . ' ' . $dir)->orderBy('name'),
+            'status' => $query->orderBy('is_active', $dir)->orderBy('name'),
+            // asc = charges (largest fee first), then no fee, then not known; desc = the reverse
+            'callout' => $query->orderByRaw("FIELD(callout_fee_mode, 'yes', 'no', 'unknown') " . $dir)->orderBy('callout_fee_amount', $dir === 'asc' ? 'desc' : 'asc')->orderBy('name'),
+            default => $query->orderByDesc('is_active')->orderByRaw($tradeWord)->orderByDesc('is_preferred')->orderBy('name'),
+        };
+        $providers = $query->paginate(50)->withQueryString();
 
         // AT-319 — the agency's active, configurable service types drive the per-supplier tick boxes.
         // Resolve the SAME way Settings → COC/Service Types does (AgencyScope / acting-agency session
@@ -56,22 +89,248 @@ class SupplierDirectoryController extends Controller
         $serviceTypes = AgencyServiceType::active()
             ->orderBy('sort_order')->orderBy('id')->get(['code', 'label']);
 
+        $events = \Illuminate\Support\Facades\Schema::hasTable('agency_service_provider_events')
+            ? \Illuminate\Support\Facades\DB::table('agency_service_provider_events as e')->leftJoin('users as u', 'u.id', '=', 'e.user_id')
+                ->where('e.agency_id', $agencyId)->whereIn('e.service_provider_id', $providers->pluck('id'))->orderByDesc('e.id')->limit(300)
+                ->get(['e.service_provider_id', 'e.note', 'e.created_at', 'u.name as by'])->groupBy('service_provider_id')
+            : collect();
+
         return view('deals-v2.suppliers.index', [
+            'providerEvents' => $events,
+            'calloutHistory' => $this->calloutHistory($agencyId, $providers->pluck('id')),
+            'filters' => $f,
             'providers' => $providers,
+            'kinds' => AgencyServiceProvider::KINDS,
             'specialties' => self::SPECIALTIES,
             'serviceTypes' => $serviceTypes,
+            'groups' => \App\Models\DealV2\AgencyServiceTypeGroup::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->orderBy('sort_order')->orderBy('id')->get(['id', 'label']),
+            'roleLabels' => AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNotNull('legacy_specialty')->whereNull('deleted_at')->pluck('label', 'legacy_specialty'),
+            'returnFault' => $this->returnFault($request, $agencyId),
         ]);
+    }
+
+    /** @return array{q:string, status:string, kind:string, callout:string, sort:string, dir:string} the directory's search / filter / sort, whitelisted */
+    private function listFilters(Request $request): array
+    {
+        return [
+            'q' => trim((string) $request->query('q', '')),
+            'status' => in_array($request->query('status'), ['active', 'inactive'], true) ? $request->query('status') : 'all',
+            // rentals-faults-work-orders.md section 21.1 - filter by the KIND of supplier
+            'kind' => array_key_exists((string) $request->query('kind', ''), AgencyServiceProvider::KINDS) ? (string) $request->query('kind') : '',
+            'callout' => in_array($request->query('callout'), AgencyServiceProvider::CALLOUT_MODES, true) ? $request->query('callout') : 'any',
+            // the service-type GROUP (Your trades / Property sales / one the agency added): a supplier is in a group when one of its ticked service types is, or its stored role is
+            'group' => ctype_digit((string) $request->query('group', '')) ? (string) (int) $request->query('group') : '',
+            'sort' => in_array($request->query('sort'), ['name', 'kind', 'specialty', 'callout', 'status'], true) ? $request->query('sort') : '',
+            'dir' => $request->query('dir') === 'desc' ? 'desc' : 'asc',
+        ];
+    }
+
+    /** The last few call-out fee changes per supplier (who, when, from, to) for the rows on this page. */
+    private function calloutHistory(int $agencyId, $providerIds)
+    {
+        return \Illuminate\Support\Facades\DB::table('agency_service_provider_callout_history as h')->leftJoin('users as u', 'u.id', '=', 'h.user_id')
+            ->where('h.agency_id', $agencyId)->whereIn('h.service_provider_id', $providerIds)->orderByDesc('h.id')->limit(300)
+            ->get(['h.service_provider_id', 'h.from_mode', 'h.from_amount', 'h.from_note', 'h.to_mode', 'h.to_amount', 'h.to_note', 'h.created_at', 'u.name as by'])
+            ->groupBy('service_provider_id');
+    }
+
+    /**
+     * AT-452 item 9 (rentals-faults-work-orders.md §18.6) - the fault page's "Add a contractor" / "Add <type> to an existing contractor" open this
+     * screen with ?fault=<id>&mode=add|types. This only works out the way BACK (and whether the fault is covered now); nothing here changes the
+     * directory's own forms. A fault the user cannot view, or one of another agency, is simply not offered.
+     *
+     * @return array{id:int, url:string, type:string, category:?string, mode:string, covered:bool, trade_code:?string}|null
+     */
+    private function returnFault(Request $request, int $agencyId): ?array
+    {
+        $user = $request->user();
+        $mode = $request->query('mode') === 'types' ? 'types' : 'add';
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+
+        // AT-452 round 2 - the work order's own supplier card sends the agent here to add a contractor's email / mobile (?work_order=&provider=)
+        $woId = (int) $request->query('work_order', 0);
+        if ($woId > 0 && $user && $user->hasPermission('rental_work_orders.view')) {
+            $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->with('reportedFaultReport.faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($woId);
+            if ($wo) {
+                $type = $wo->reportedFaultReport?->faultType;
+                $class = $contractors->classifyFor($agencyId, $type?->name, $type?->category);
+                $provider = (int) $request->query('provider', 0) ?: null;
+
+                return [
+                    'id' => $wo->id, 'label' => 'work order #' . $wo->id, 'url' => route('corex.rental-work-orders.show', $wo), 'type' => $type?->name ?: 'this job',
+                    'category' => $type?->category, 'mode' => $provider ? 'details' : $mode, 'covered' => $class['suits']->isNotEmpty(),
+                    'trade_code' => $type?->category ? ($contractors->classifyTradeCode($agencyId, $type->category)) : null, 'provider' => $provider,
+                ];
+            }
+        }
+
+        $id = (int) $request->query('fault', 0);
+        if ($id <= 0 || ! $user || ! $user->hasPermission('rental_fault_reports.view')) {
+            return null;
+        }
+        $fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->with('faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        if (! $fault) {
+            return null;
+        }
+
+        return [
+            'id' => $fault->id,
+            'label' => 'fault report #' . $fault->id,
+            'url' => route('corex.rental-fault-reports.show', $fault),
+            'type' => $fault->faultType?->name ?: 'this fault',
+            'category' => $fault->faultType?->category,
+            'mode' => $mode,
+            'covered' => $contractors->hasContractorFor($fault),
+            'trade_code' => $contractors->tradeCodeFor($fault),
+            'provider' => null,
+        ];
     }
 
     public function store(Request $request)
     {
-        $data = $this->validated($request);
+        $data = $this->validated($request, true);
+        $callout = \Illuminate\Support\Arr::only($data, array_keys(SupplierCalloutFeeService::rules()));
         $agencyId = (int) $request->user()?->effectiveAgencyId();
         $provider = $this->service->findOrCreate($agencyId, $data, $request->user()->id);
+        // §20 - the fee is set on a supplier added just now; a match with an existing supplier is never overwritten from an "add" form.
+        if ($provider->wasRecentlyCreated) {
+            app(SupplierCalloutFeeService::class)->apply($provider, $callout['callout_fee_mode'] ?? null, $callout['callout_fee_amount'] ?? null, $callout['callout_fee_note'] ?? null, $request->user(), $request->wantsJson() ? SupplierCalloutFeeService::SOURCE_POPUP : SupplierCalloutFeeService::SOURCE_CREATE);
+        }
+        // The directory's own match-or-create also finds contractors that were ARCHIVED earlier (same specialty and email, or name) and leaves
+        // them archived. In the popup that would say "added" while nothing on the fault screen changes, so say what really happened instead.
+        if ($request->wantsJson() && $provider->trashed()) {
+            return response()->json([
+                'ok' => false,
+                'message' => $provider->name . ' is already in your contractor list but has been archived. Restore them from the contractor list, then add this kind of work to them there.',
+            ], 422);
+        }
         // AT-319 — capture the supplier's type(s) alongside the legacy single specialty.
         $this->syncServiceTypes($provider, $this->postedTypeCodes($request, $agencyId));
 
+        // AT-452 round 2 (H) - the fault / work order screens open this same form in a popup and save it over the page: JSON in, JSON out, same
+        // validation and the same write as the directory's own page. The contractor's history notes where they were added from.
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        if ($fault || $workOrder) {
+            $this->recordEvent($provider, 'created_from_fault', 'Added from ' . ($fault ? 'fault report #' . $fault->id : 'work order #' . $workOrder->id) . ' by ' . $request->user()->name . '.', $request->user(), $fault?->id, $workOrder?->id);
+        }
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'provider' => ['id' => $provider->id, 'name' => $provider->name, 'kind' => $provider->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($provider->kind), 'phone' => $provider->phone]] + $this->coverage($fault, $workOrder, $agencyId));
+        }
+
         return back()->with('success', 'Provider saved to the directory.');
+    }
+
+    /**
+     * AT-452 round 2 (H) - the "Add <type> to an existing contractor" popup: every active maintenance contractor of the agency with the fields of
+     * work they have now, whether they already have this one, and whether the agency's trade list HAS a trade for the type at all.
+     */
+    public function tradePicker(Request $request)
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        [$typeName, $category] = $this->typeOf($fault, $workOrder);
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        $code = $category ? $contractors->classifyTradeCode($agencyId, $category) : null;
+        $labels = AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->pluck('label', 'code');
+
+        $providers = AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->where('is_active', true)->whereNull('deleted_at')
+            ->maintenanceContractors()->pickerOrder()->with('serviceTypes')->get()
+            ->map(fn ($p) => [
+                'id' => $p->id, 'name' => $p->name,
+                'trades' => collect($p->typeCodes())->map(fn ($t) => $labels[$t] ?? $t)->values()->all(),
+                'has_trade' => $code !== null && in_array($code, $p->typeCodes(), true),
+            ])->values();
+
+        return response()->json([
+            'type' => $typeName, 'category' => $category, 'code' => $code,
+            'can_create_trade' => (bool) $request->user()->hasPermission('deals_v2.manage_pipeline'),
+            'contractors' => $providers,
+        ]);
+    }
+
+    /**
+     * AT-452 round 2 (H) - the popup's Save: add the fault's type (its field of work) to the ticked contractors. If the agency's trade list has no
+     * trade for it yet, `create_trade` adds one (only for someone who may manage the trade list). Written to each contractor's history: who, when,
+     * from which fault.
+     */
+    public function addTrade(Request $request)
+    {
+        $agencyId = (int) ($request->user()?->effectiveAgencyId() ?? 0);
+        $data = $request->validate(['provider_ids' => 'required|array|min:1', 'provider_ids.*' => 'integer', 'create_trade' => 'sometimes|boolean']);
+        [$fault, $workOrder] = $this->contextOf($request, $agencyId);
+        [$typeName, $category] = $this->typeOf($fault, $workOrder);
+        abort_unless($category, 422, 'This job has no type of work to add.');
+
+        $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        $code = $contractors->classifyTradeCode($agencyId, $category);
+        if ($code === null) {
+            if (empty($data['create_trade'])) {
+                return response()->json(['message' => 'Your trade list has no "' . $category . '" yet. Add it first, or ask someone who manages the trade list.'], 422);
+            }
+            abort_unless($request->user()->hasPermission('deals_v2.manage_pipeline'), 403, 'Only someone who manages the trade list can add a new trade.');
+            $type = AgencyServiceType::withoutGlobalScopes()->firstOrCreate(
+                ['agency_id' => $agencyId, 'code' => $category],
+                ['label' => $category, 'sort_order' => (int) AgencyServiceType::withoutGlobalScopes()->where('agency_id', $agencyId)->max('sort_order') + 1, 'is_active' => true],
+            );
+            $code = $type->code;
+        }
+
+        $added = [];
+        foreach (AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->maintenanceContractors()->whereIn('id', $data['provider_ids'])->get() as $p) {
+            if (in_array($code, $p->typeCodes(), true)) {
+                continue;
+            }
+            $this->syncServiceTypes($p, array_values(array_unique(array_merge($p->typeCodes(), [$code]))));
+            $this->recordEvent($p, 'trade_added', $typeName . ' (' . $category . ') added as a field of work by ' . $request->user()->name . ' from ' . ($fault ? 'fault report #' . $fault->id : 'work order #' . $workOrder->id) . '.', $request->user(), $fault?->id, $workOrder?->id);
+            $added[] = $p->name;
+        }
+
+        return response()->json(['ok' => true, 'added' => $added, 'message' => $added ? ($typeName . ' added to ' . implode(', ', $added)) : 'Nothing to change - they already do this work.'] + $this->coverage($fault, $workOrder, $agencyId));
+    }
+
+    /** @return array{0:?\App\Models\RentalFaultReport, 1:?\App\Models\RentalWorkOrder} the fault / work order the popup was opened from, in THIS agency only */
+    private function contextOf(Request $request, int $agencyId): array
+    {
+        $fault = $workOrder = null;
+        if ($id = (int) $request->input('fault_id', $request->query('fault', 0))) {
+            abort_unless($request->user()?->hasPermission('rental_fault_reports.view'), 403);
+            $fault = \App\Models\RentalFaultReport::withoutGlobalScopes()->with('faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        }
+        if (! $fault && ($id = (int) $request->input('work_order_id', $request->query('work_order', 0)))) {
+            abort_unless($request->user()?->hasPermission('rental_work_orders.view'), 403);
+            $workOrder = \App\Models\RentalWorkOrder::withoutGlobalScopes()->with('reportedFaultReport.faultType')->where('agency_id', $agencyId)->whereNull('deleted_at')->find($id);
+        }
+
+        return [$fault, $workOrder];
+    }
+
+    /** @return array{0:?string, 1:?string} the type name and category of the job */
+    private function typeOf(?\App\Models\RentalFaultReport $fault, ?\App\Models\RentalWorkOrder $workOrder): array
+    {
+        $type = $fault?->faultType ?? $workOrder?->reportedFaultReport?->faultType;
+
+        return [$type?->name, $type?->category];
+    }
+
+    /** Does a contractor suit the job NOW? (the screens clear their warning from this, without a reload) */
+    private function coverage(?\App\Models\RentalFaultReport $fault, ?\App\Models\RentalWorkOrder $workOrder, int $agencyId): array
+    {
+        $svc = app(\App\Services\Rentals\RentalFaultContractorService::class);
+        if ($fault) {
+            return ['covered' => $svc->hasContractorFor($fault)];
+        }
+        $type = $workOrder?->reportedFaultReport?->faultType;
+
+        return ['covered' => $svc->classifyFor($agencyId, $type?->name, $type?->category)['suits']->isNotEmpty()];
+    }
+
+    /** The contractor's own history line (who, when, what, from which fault). Append-only. */
+    private function recordEvent(AgencyServiceProvider $provider, string $event, string $note, $user, ?int $faultId, ?int $workOrderId): void
+    {
+        \Illuminate\Support\Facades\DB::table('agency_service_provider_events')->insert([
+            'agency_id' => (int) $provider->agency_id, 'service_provider_id' => $provider->id, 'event' => $event, 'note' => mb_substr($note, 0, 500),
+            'rental_fault_report_id' => $faultId, 'rental_work_order_id' => $workOrderId, 'user_id' => $user?->id, 'created_at' => now(),
+        ]);
     }
 
     /**
@@ -88,7 +347,7 @@ class SupplierDirectoryController extends Controller
         // ACTIVE type (shown "(archived)"). The tick UI only manages active codes; archived-tagged
         // codes ride through every save untouched until the type is restored/managed in Settings.
         $activeCodes = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
-            ->where('agency_id', (int) $provider->agency_id)->where('is_active', true)->pluck('code')->all();
+            ->where('agency_id', (int) $provider->agency_id)->where('is_active', true)->whereNull('legacy_specialty')->pluck('code')->all();
         $archivedTagged = array_values(array_diff($provider->typeCodes(), $activeCodes));
         $codes = array_values(array_unique(array_merge($codes, $archivedTagged)));
 
@@ -163,6 +422,50 @@ class SupplierDirectoryController extends Controller
         return back()->with('success', "Updated the address for {$provider->name}.");
     }
 
+    /**
+     * §20 - set a supplier's call-out fee from the directory (own route, same idiom as syncTypes / address: saving it never trips update()'s
+     * required-field rules). Yes needs an amount; No / Not known clear it. A change is written to the supplier's call-out history.
+     */
+    public function setCalloutFee(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $data = $request->validate(['callout_fee_mode' => 'required|in:yes,no,unknown'] + array_diff_key(SupplierCalloutFeeService::rules(), ['callout_fee_mode' => 1]), SupplierCalloutFeeService::messages(), SupplierCalloutFeeService::attributeNames());
+        $changed = app(SupplierCalloutFeeService::class)->apply($provider, $data['callout_fee_mode'], $data['callout_fee_amount'] ?? null, $data['callout_fee_note'] ?? null, $request->user(), SupplierCalloutFeeService::SOURCE_DIRECTORY);
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'changed' => $changed, 'suffix' => $provider->fresh()->calloutFeeSuffix()]);
+        }
+
+        return back()->with('success', $changed ? "Call-out fee updated for {$provider->name}: " . $provider->fresh()->calloutFeeSuffix() . '.' : "No change to the call-out fee for {$provider->name}.");
+    }
+
+    /** Restore a deactivated supplier (soft-delete discipline: nothing is ever hard-deleted, everything can come back). */
+    public function activate(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $provider->update(['is_active' => true]);
+
+        return back()->with('success', "{$provider->name} restored - offered in new pickers again.");
+    }
+
+    /** rentals-faults-work-orders.md section 21.1 - change what KIND of supplier this is (persist-on-change, same idiom as the service types). */
+    public function setKind(Request $request, AgencyServiceProvider $provider)
+    {
+        $this->authorizeAgency($request, $provider);
+        $data = $request->validate(['kind' => 'required|in:' . implode(',', array_keys(AgencyServiceProvider::KINDS))]);
+        $old = $provider->kind;
+        if ($old !== $data['kind']) {
+            $provider->update(['kind' => $data['kind']]);
+            $this->recordEvent($provider, 'kind_changed', 'Kind changed from ' . AgencyServiceProvider::kindLabel($old) . ' to ' . AgencyServiceProvider::kindLabel($data['kind']) . ' by ' . $request->user()->name . '.', $request->user(), null, null);
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['ok' => true, 'kind' => $provider->kind, 'label' => AgencyServiceProvider::kindLabel($provider->kind)]);
+        }
+
+        return back()->with('success', "{$provider->name} is now a " . strtolower(AgencyServiceProvider::kindLabel($provider->kind)) . '.');
+    }
+
     public function markPreferred(Request $request, AgencyServiceProvider $provider)
     {
         $this->authorizeAgency($request, $provider);
@@ -223,11 +526,45 @@ class SupplierDirectoryController extends Controller
 
     // ── helpers ──────────────────────────────────────────────────────────
 
-    private function validated(Request $request): array
+    private function validated(Request $request, bool $withCallout = false): array
     {
-        return $request->validate([
+        // rentals-faults-work-orders.md section 21.1 - a caretaker / insurer / owner's team / body corporate has no trade: it is always saved as "Other".
+        // The Trade / Specialty dropdown offers the agency's own service types ("type:CODE"). The type is ticked on the supplier (the source of truth the rental fault
+        // match reads) and the legacy `specialty` is derived from it so the property-sales pickers keep working.
+        $postedTrade = (string) $request->input('specialty', '');
+        if (str_starts_with($postedTrade, 'type:')) {
+            $code = substr($postedTrade, 5);
+            $row = AgencyServiceType::withoutGlobalScope(AgencyScope::class)->where('agency_id', (int) $request->user()?->effectiveAgencyId())->where('code', $code)->first(['label', 'legacy_specialty']);
+            if ($row && $row->legacy_specialty) {
+                // a property-sales role row: the stored value is the role itself, and it is never ticked as a work type
+                $request->merge(['specialty' => $row->legacy_specialty]);
+            } else {
+                $request->merge([
+                    'specialty' => AgencyServiceProvider::legacySpecialtyForType($code, $row?->label),
+                    'service_types' => array_values(array_unique(array_merge((array) $request->input('service_types', []), [$code]))),
+                ]);
+            }
+        }
+        $kind = (string) $request->input('kind', '');
+        if ($kind === 'bond_originator') {
+            $request->merge(['specialty' => 'bond_originator']);
+        } elseif ($kind === 'attorney_conveyancer') {
+            // an attorney keeps a real trade (Transfer / Bond attorney, Conveyancer) so the deal pickers still find it
+            $request->merge(['specialty' => in_array($request->input('specialty'), AgencyServiceProvider::ATTORNEY_SPECIALTIES, true) ? $request->input('specialty') : 'conveyancer']);
+        } elseif ($kind !== '' && $kind !== AgencyServiceProvider::KIND_CONTRACTOR) {
+            $request->merge(['specialty' => 'other']);
+        } else {
+            // a plain Contractor whose trade is an attorney / bond originator is saved with the matching kind
+            $derived = AgencyServiceProvider::kindFor((string) $request->input('specialty', ''), $kind);
+            if ($derived !== AgencyServiceProvider::KIND_CONTRACTOR) {
+                $request->merge(['kind' => $derived]);
+            }
+        }
+
+        $data = $request->validate(array_merge([
             'name' => 'required|string|max:191',
             'specialty' => 'required|string|in:' . implode(',', self::SPECIALTIES),
+            'kind' => 'sometimes|nullable|string|in:' . implode(',', array_keys(AgencyServiceProvider::KINDS)),
             'company' => 'nullable|string|max:191',
             'registration_number' => 'nullable|string|max:100',
             'email' => 'nullable|email|max:191',
@@ -236,7 +573,17 @@ class SupplierDirectoryController extends Controller
             'notes' => 'nullable|string',
             'is_preferred' => 'sometimes|boolean',
             'contact_id' => 'nullable|integer',
-        ]);
+        ], $withCallout ? SupplierCalloutFeeService::rules() : []), $withCallout ? SupplierCalloutFeeService::messages() : [], ($request->wantsJson() ? [
+            // the fault / work order popups talk in the agent's words ("The trade field is required."), the directory page is unchanged
+            'specialty' => 'trade', 'registration_number' => 'company registration number', 'is_preferred' => 'preferred contractor tick',
+        ] : []) + SupplierCalloutFeeService::attributeNames());
+
+        // a blank kind means "leave it as it is" (the column is never null)
+        if (array_key_exists('kind', $data) && ($data['kind'] === null || $data['kind'] === '')) {
+            unset($data['kind']);
+        }
+
+        return $data;
     }
 
     /**
@@ -254,7 +601,7 @@ class SupplierDirectoryController extends Controller
         // authoritative agency_id, bypassing ONLY AgencyScope (SoftDeletes kept, so an archived
         // type is never treated as valid).
         $valid = AgencyServiceType::withoutGlobalScope(AgencyScope::class)
-            ->where('agency_id', $agencyId)->where('is_active', true)->pluck('code')->all();
+            ->where('agency_id', $agencyId)->where('is_active', true)->whereNull('legacy_specialty')->pluck('code')->all();
 
         return array_values(array_unique(array_intersect($posted, $valid)));
     }
@@ -317,6 +664,13 @@ class SupplierDirectoryController extends Controller
             'created_by_id'       => $request->user()->id,
         ]));
 
+        // AT-452 round 2 (H) - the work order's "Add their details" popup saves a contact over the page (same validation, same write).
+        if ($request->wantsJson()) {
+            $this->recordEvent($provider, 'contact_added', 'Contact details added by ' . $request->user()->name . ' (' . trim(($data['email'] ?? '') . ' ' . ($data['phone'] ?? '')) . ').', $request->user(), null, $request->integer('work_order_id') ?: null);
+
+            return response()->json(['ok' => true, 'message' => 'Contact details added to ' . $provider->name . '.']);
+        }
+
         return back()->with('success', 'Contact added to ' . $provider->name . '.');
     }
 
@@ -338,7 +692,8 @@ class SupplierDirectoryController extends Controller
     private function row(AgencyServiceProvider $p): array
     {
         return [
-            'id' => $p->id, 'name' => $p->name, 'specialty' => $p->specialty,
+            'id' => $p->id, 'name' => $p->name, 'label' => $p->displayName(), 'specialty' => $p->specialty,
+            'kind' => $p->kind ?: AgencyServiceProvider::KIND_CONTRACTOR, 'kind_label' => AgencyServiceProvider::kindLabel($p->kind),
             'company' => $p->company, 'email' => $p->email, 'phone' => $p->phone,
             'is_preferred' => (bool) $p->is_preferred, 'is_active' => (bool) $p->is_active,
             // AT-364 — the fixed attorney capabilities (a firm can be both).
@@ -346,6 +701,7 @@ class SupplierDirectoryController extends Controller
             'is_bond_attorney' => (bool) $p->is_bond_attorney,
             // AT-319 — the AgencyServiceType codes this supplier handles (drives the picker filter).
             'types' => $p->typeCodes(),
+            'callout' => ['status' => $p->calloutFeeStatus(), 'amount' => $p->calloutFeeAmount(), 'suffix' => $p->calloutFeeSuffix()],
         ];
     }
 }

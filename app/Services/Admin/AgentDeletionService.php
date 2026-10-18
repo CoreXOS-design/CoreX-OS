@@ -42,12 +42,10 @@ class AgentDeletionService
      */
     public function preview(User $user): array
     {
-        $offMkt = Property::OFF_MARKET_STATUSES;
-
         $primary   = DB::table('properties')->whereNull('deleted_at')->where('agent_id', $user->id)->count();
         $secondary = DB::table('properties')->whereNull('deleted_at')->where('pp_second_agent_id', $user->id)->count();
-        $primaryHistoric   = DB::table('properties')->whereNull('deleted_at')->whereIn('status', $offMkt)->where('agent_id', $user->id)->count();
-        $secondaryHistoric = DB::table('properties')->whereNull('deleted_at')->whereIn('status', $offMkt)->where('pp_second_agent_id', $user->id)->count();
+        $primaryHistoric   = DB::table('properties')->whereNull('deleted_at')->tap(fn ($q) => Property::constrainOffMarket($q))->where('agent_id', $user->id)->count();
+        $secondaryHistoric = DB::table('properties')->whereNull('deleted_at')->tap(fn ($q) => Property::constrainOffMarket($q))->where('pp_second_agent_id', $user->id)->count();
         $contacts  = DB::table('contacts')->whereNull('deleted_at')->where('created_by_user_id', $user->id)->count();
         $events    = DB::table('calendar_events')->whereNull('deleted_at')->where('user_id', $user->id)->count();
         $tasks     = DB::table('command_tasks')->whereNull('deleted_at')->where('assigned_to', $user->id)->count();
@@ -275,14 +273,13 @@ class AgentDeletionService
 
         $counts = DB::transaction(function () use ($source, $target, $secondaryHandling, $actorId, $transferHistoricStock) {
             $now      = now();
-            $offMkt   = Property::OFF_MARKET_STATUSES;
 
             // ── Properties — ON-MARKET only by default (status-based split);
             //    ALL statuses when $transferHistoricStock is true ──
             $primaryChanged = 0;
             if ($secondaryHandling === 'promote') {
                 $promoted = DB::table('properties')->whereNull('deleted_at')
-                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
+                    ->when(!$transferHistoricStock, fn ($q) => Property::constrainOnMarket($q))
                     ->where('agent_id', $source->id)
                     ->whereNotNull('pp_second_agent_id')
                     ->where('pp_second_agent_id', '!=', $source->id)
@@ -294,19 +291,19 @@ class AgentDeletionService
                     $primaryChanged++;
                 }
                 $primaryChanged += DB::table('properties')->whereNull('deleted_at')
-                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
+                    ->when(!$transferHistoricStock, fn ($q) => Property::constrainOnMarket($q))
                     ->where('agent_id', $source->id)
                     ->update(['agent_id' => $target->id, 'updated_at' => $now]);
             } else {
                 $primaryChanged = DB::table('properties')->whereNull('deleted_at')
-                    ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
+                    ->when(!$transferHistoricStock, fn ($q) => Property::constrainOnMarket($q))
                     ->where('agent_id', $source->id)
                     ->update(['agent_id' => $target->id, 'updated_at' => $now]);
             }
 
             $secondaryChanged = 0;
             foreach (DB::table('properties')->whereNull('deleted_at')
-                        ->when(!$transferHistoricStock, fn ($q) => $q->whereNotIn('status', $offMkt))
+                        ->when(!$transferHistoricStock, fn ($q) => Property::constrainOnMarket($q))
                         ->where('pp_second_agent_id', $source->id)
                         ->get(['id', 'agent_id']) as $row) {
                 $newSecondary = ((int) $row->agent_id === (int) $target->id) ? null : $target->id;
@@ -318,7 +315,7 @@ class AgentDeletionService
             // Properties left with the departed agent (sold/historic) — for the audit detail.
             // Always zero when $transferHistoricStock moved everything.
             $historicLeft = DB::table('properties')->whereNull('deleted_at')
-                ->whereIn('status', $offMkt)
+                ->tap(fn ($q) => Property::constrainOffMarket($q))
                 ->where(fn ($q) => $q->where('agent_id', $source->id)->orWhere('pp_second_agent_id', $source->id))
                 ->count();
 

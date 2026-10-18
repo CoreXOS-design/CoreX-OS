@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Docuperfect\SignatureService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -29,6 +30,7 @@ use Tests\TestCase;
  */
 final class LapseGuardTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private User $agent;
@@ -146,7 +148,7 @@ final class LapseGuardTest extends TestCase
             'expiry_date' => now()->addDays(60)->toDateString(),
         ]);
 
-        $docType = \App\Models\Docuperfect\DocumentType::create(['slug' => 'mandate', 'label' => 'Mandate', 'sort_order' => 0, 'is_active' => true]);
+        $docType = \App\Models\Docuperfect\DocumentType::find($this->documentTypeId('mandate', 'Mandate'));
         $tpl = Template::create(['name' => 'Sole Mandate', 'template_type' => 'mandate', 'render_type' => 'web', 'blade_view' => 'x', 'is_esign' => true, 'fields_json' => [], 'document_type_id' => $docType->id]);
         $doc = Document::create(['name' => 'Sole Mandate', 'owner_id' => $this->agent->id, 'template_id' => $tpl->id, 'property_id' => $property->id]);
 

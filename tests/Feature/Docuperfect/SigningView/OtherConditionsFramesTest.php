@@ -201,12 +201,23 @@ final class OtherConditionsFramesTest extends TestCase
         $doc = $sigTpl->document;
         $doc->update(['web_template_data' => array_merge($doc->web_template_data ?? [], [
             'merged_html'     => '<p>3.7 ~~~~OTHER_CONDITIONS~~~~</p><div class="corex-signature-section">sign</div>',
-            'signed_initials' => ['seller' => ['data:image/png;base64,SELLERINK'], 'agent' => ['data:image/png;base64,AGENTINK']],
         ])]);
         // One agent frame + ONE party initial, then compose (bakes 1 ink).
         app(\App\Services\Docuperfect\LegacyOtherConditionsBridge::class)
             ->syncFramesToStructuredRows($sigTpl, [['content' => 'Frame X', 'source' => 'custom']]);
         $cond = DocumentCondition::where('signature_template_id', $sigTpl->id)->first();
+        // Ink is resolved PER CONDITION — signed_initials['{party}']['condition_{id}'] — and never from a
+        // party's adopted page-initial (that mirrored one mark onto every document; see
+        // InsertableBlockRenderer::resolveConditionInitial). The condition id only exists after the sync
+        // above, so each party's drawn ink is stored under its own condition key here.
+        $doc->refresh();
+        $doc->update(['web_template_data' => array_merge($doc->web_template_data ?? [], [
+            'signed_initials' => [
+                'seller' => ['condition_' . $cond->id => 'data:image/png;base64,SELLERINK'],
+                'agent'  => ['condition_' . $cond->id => 'data:image/png;base64,AGENTINK'],
+            ],
+        ])]);
+        $sigTpl = $sigTpl->fresh();
         ConditionInitial::create(['initialable_type' => DocumentCondition::class, 'initialable_id' => $cond->id, 'party_key' => 'seller', 'initialed_at' => now()]);
         app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)->composeAndStore($sigTpl);
         $doc->refresh();

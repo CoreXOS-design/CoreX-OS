@@ -22,6 +22,12 @@
             {{ session('success') }}
         </div>
     @endif
+    @if(session('warning'))
+        <div class="rounded-md px-4 py-3 text-sm font-medium"
+             style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 35%, transparent); color: var(--text-primary);">
+            {{ session('warning') }}
+        </div>
+    @endif
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm"
              style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">
@@ -53,7 +59,7 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to sign the out-inspection</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to sign an inspection</label>
                     <input type="number" name="out_inspection_signing_window_days" value="{{ old('out_inspection_signing_window_days', $signingWindowDays) }}"
                            min="1" max="60" required
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
@@ -75,6 +81,66 @@
                 </div>
                 <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="signing_link_enabled" value="0">
+                        <input type="checkbox" name="signing_link_enabled" value="1" @checked(old('signing_link_enabled', $signingLinkEnabled))>
+                        Let tenants and landlords sign an inspection from a personal link
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): the agent can send each party a personal link (email, WhatsApp or a QR code shown
+                        on the agent's phone), the party reads the whole report and signs from their own phone, and the
+                        signature is recorded on the inspection. Off: signing stays on the agent's own screen, on paper, or on
+                        the agent's device — the link controls disappear.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a personal signing link stays live</label>
+                    <input type="number" name="signing_link_expiry_days" value="{{ old('signing_link_expiry_days', $signingLinkExpiryDays) }}"
+                           min="1" max="365"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultSigningLinkExpiryDays }} days from the day the link is issued. After this the link stops
+                        working — the agent can issue a new one from the inspection.
+                    </p>
+                </div>
+                <div data-qa="inspection-rules">
+                    <p class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rules for reminders, cancelling, photos, checks, branding and the completion email</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">Each rule starts at the recommended value shown. Nothing here deletes anything; turn a rule off and the old behaviour returns at once.</p>
+                    @foreach($inspectionRules as $field => $rule)
+                        <div class="mb-3">
+                            <label class="flex items-start gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                                <input type="hidden" name="{{ $field }}" value="0">
+                                <input type="checkbox" name="{{ $field }}" value="1" class="mt-1" @checked(old($field, $rule['value']))>
+                                <span>{{ $rule['label'] }}</span>
+                            </label>
+                            <p class="text-xs mt-1 ml-6" style="color: var(--text-muted);">{{ $rule['explain'] }} Recommended: {{ $rule['default'] ? 'on' : 'off' }}.</p>
+                        </div>
+                    @endforeach
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days before the signing window closes that the first reminder goes out</label>
+                    <input type="number" name="signing_reminder_lead_days" value="{{ old('signing_reminder_lead_days', $signingReminderLeadDays) }}" min="0" max="30"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">Recommended {{ \App\Models\RentalInspectionSetting::DEFAULT_SIGNING_REMINDER_LEAD_DAYS }}. 0 means: remind only once the window has closed.</p>
+                </div>
+                <div data-qa="signatures-required">
+                    <p class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Signatures needed before an inspection can be completed</p>
+                    <p class="text-xs mb-2" style="color: var(--text-muted);">
+                        "Required" means the inspection cannot be completed until every tenant, the landlord and the agent have signed.
+                        "Optional" means it can be completed without them. The defaults are: In, Out and Interim required; Routine optional.
+                    </p>
+                    @foreach([
+                        'in' => ['signatures_required_in', 'In-inspection (move-in)'],
+                        'out' => ['signatures_required_out', 'Out-inspection (move-out)'],
+                        'interim' => ['signatures_required_interim', 'Interim inspection (planned, mid-tenancy)'],
+                        'ad_hoc' => ['signatures_required_routine', 'Routine inspection (unplanned, mid-tenancy)'],
+                    ] as $type => [$field, $label])
+                        <label class="flex items-center gap-2 text-sm font-semibold mb-1" style="color:var(--text-primary);">
+                            <input type="hidden" name="{{ $field }}" value="0">
+                            <input type="checkbox" name="{{ $field }}" value="1" @checked(old($field, $signaturesRequired[$type]))>
+                            {{ $label }} — signatures required
+                        </label>
+                    @endforeach
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="require_notes_blocks_progression" value="0">
                         <input type="checkbox" name="require_notes_blocks_progression" value="1" @checked(old('require_notes_blocks_progression', $requireNotesBlocksProgression))>
                         Block an inspection from moving on while a required note is missing
@@ -83,6 +149,19 @@
                         On (the default): an agent cannot send an inspection for signature or complete it while
                         an item graded with a state that "needs a reason" has no note. Off: the same list of
                         missing notes is still shown, but only as a warning.
+                    </p>
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="all_items_required_to_complete" value="0">
+                        <input type="checkbox" name="all_items_required_to_complete" value="1" @checked(old('all_items_required_to_complete', $allItemsRequiredToComplete))>
+                        Require every checklist item to be recorded before an inspection can be signed or completed
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): an incoming or outgoing inspection cannot be sent for signature or
+                        completed while any item in any room has not been recorded — the agent is shown exactly
+                        which rooms and items are left. "Not applicable" counts as recorded. Off: an inspection
+                        can be completed with items left unrecorded.
                     </p>
                 </div>
                 <div>
@@ -196,6 +275,124 @@
         </div>
     </form>
 
+    {{-- .ai/specs/rental-inspections.md §45.4 item 3 (Build I-2) — the agency's
+         OWN room types ("Roof space", "DB board", "Pool house"), on top of the 50
+         standard ones. A new type starts on the standard checklist until you give
+         it its own items in "Room type default items" below. "Archive" never
+         deletes: rooms already filed under a type keep it, the type just stops
+         being offered for new rooms, and "Restore" brings it back. A type's
+         internal key is generated once and never changes when it is renamed, so
+         renaming can never orphan an existing room. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.custom-room-types') }}" class="space-y-3"
+          x-data="{
+              rows: {{ Js::from(collect($customRoomTypes)->map(fn ($t) => ['key' => $t['key'], 'label' => $t['label'], 'archived' => $t['archived']])->values()) }},
+              addRow() { this.rows.push({ key: '', label: '', archived: false }); },
+              activeCount() { return this.rows.filter(r => !r.archived).length; },
+          }">
+        @csrf
+        <input type="hidden" name="custom_room_types_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Your own room types</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    CoreX offers 50 standard room types. If your inspections need one it does not list &mdash; a roof space, a
+                    DB board, a pool house &mdash; add it here and it appears in the room-type picker on every property, in the
+                    room-type checklists below and in the walking order. Archiving a type never touches rooms that already use it.
+                </p>
+
+                <template x-if="rows.length === 0">
+                    <p class="text-sm py-3" style="color: var(--text-muted);">
+                        You have not added any room types of your own yet &mdash; every property uses the 50 standard ones. Add one below if you need it.
+                    </p>
+                </template>
+
+                <template x-for="(row, i) in rows" :key="i">
+                    <div class="flex items-center gap-2">
+                        <input type="text" x-model="row.label" :name="`custom_room_types[${i}][label]`" maxlength="60"
+                               placeholder="Room type name" :readonly="row.archived"
+                               class="flex-1 rounded-md px-3 py-2 text-sm"
+                               :style="'border: 1px solid var(--border);' + (row.archived ? ' opacity:.55;' : '')">
+                        <input type="hidden" :name="`custom_room_types[${i}][key]`" :value="row.key">
+                        <input type="hidden" :name="`custom_room_types[${i}][archived]`" :value="row.archived ? '1' : '0'">
+                        <template x-if="row.archived">
+                            <span class="text-[11px] font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Archived</span>
+                        </template>
+                        <template x-if="row.key && !row.archived">
+                            <button type="button" @click="row.archived = true" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Archive</button>
+                        </template>
+                        <template x-if="row.key && row.archived">
+                            <button type="button" @click="row.archived = false" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--brand-button, #0ea5e9);">Restore</button>
+                        </template>
+                        <template x-if="!row.key">
+                            <button type="button" @click="rows.splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                        </template>
+                    </div>
+                </template>
+
+                <button type="button" @click="addRow()" class="corex-btn-outline text-xs">+ Add a room type</button>
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save room types</button>
+        </div>
+    </form>
+
+    {{-- .ai/specs/rental-inspections.md §55 - the standard room list per kind of property. A brand-new rental property has
+         no rooms; the agent presses "Build rooms from the standard checklist" on its first inspection and gets the list
+         for its kind of property, each room carrying its item list from "Room type default items" below. Bedrooms,
+         bathrooms and garages follow the property's own figures when it has them. Only used for a property with no rooms. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.room-templates') }}" class="space-y-3" data-qa="room-templates-form"
+          x-data="{
+              types: {{ Js::from(collect($roomTemplateTypeOptions)->map(fn ($o) => ['key' => $o['key'], 'label' => $o['label']])->values()) }},
+              lists: {{ Js::from($roomTemplates) }},
+              add(f) { this.lists[f].push({ type: this.types[0].key, count: 1 }); },
+          }">
+        @csrf
+        <input type="hidden" name="room_templates_submitted" value="1">
+
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Standard rooms for a new property</h3>
+            </div>
+            <div class="p-5 space-y-5">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The rooms CoreX builds for a rental property that has none yet, by kind of property, when an agent presses
+                    "Build rooms from the standard checklist". Each room comes with the items listed for its room type below.
+                    Bedrooms, bathrooms and garages use the property's own numbers when it has them, so the counts here only
+                    apply when those are blank. Properties that already have rooms are never changed.
+                </p>
+                @foreach($roomTemplateFamilies as $famKey => $famLabel)
+                    <div class="space-y-2" data-qa="room-template-{{ $famKey }}">
+                        <h4 class="text-sm font-semibold" style="color:var(--text-primary);">{{ $famLabel }}</h4>
+                <input type="hidden" name="room_templates[{{ $famKey }}][_present][type]" value="">  {{-- marks this kind as posted, so emptying its list saves an empty list --}}
+                        <template x-if="lists['{{ $famKey }}'].length === 0">
+                            <p class="text-xs" style="color: var(--text-muted);">No standard rooms for this kind of property &mdash; agents add its rooms by hand.</p>
+                        </template>
+                        <template x-for="(row, i) in lists['{{ $famKey }}']" :key="i">
+                            <div class="flex items-center gap-2">
+                                <select x-model="row.type" :name="`room_templates[{{ $famKey }}][${i}][type]`" class="flex-1 rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);">
+                                    <template x-for="t in types" :key="t.key"><option :value="t.key" x-text="t.label" :selected="t.key === row.type"></option></template>
+                                </select>
+                                <input type="number" min="1" max="{{ \App\Models\RentalInspectionSetting::ROOM_TEMPLATE_MAX_COUNT }}" x-model.number="row.count" :name="`room_templates[{{ $famKey }}][${i}][count]`"
+                                       class="w-20 rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);" aria-label="How many">
+                                <button type="button" @click="lists['{{ $famKey }}'].splice(i, 1)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
+                            </div>
+                        </template>
+                        <button type="button" @click="add('{{ $famKey }}')" class="corex-btn-outline text-xs">+ Add a room</button>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save standard rooms</button>
+        </div>
+    </form>
+
     {{-- Johan, 2026-09-20 — "we should have a setting somewhere on rentals
          that defines room types and what gets added - ceiling, walls,
          floors, windows, doors - that should be a std. if its a patio as
@@ -208,13 +405,16 @@
     <form method="POST" action="{{ route('corex.settings.rental-inspections.room-type-defaults') }}" class="space-y-3"
           x-data="{
               standard: {{ Js::from($standardRoomTypeItems) }},
-              allTypes: {{ Js::from($allSpaceTypes) }},
+              allTypes: {{ Js::from(array_values(array_diff($allSpaceTypes, collect($customRoomTypes)->where('archived', true)->pluck('key')->all()))) }},
+              labels: {{ Js::from($roomTypeLabels) }},
+              current: {{ Js::from($roomTypeCurrentItems) }},
               rows: {{ Js::from(collect($roomTypeOverrides)->map(fn ($items, $type) => ['type' => $type, 'items' => $items])->values()) }},
               picking: '',
+              labelOf(type) { return this.labels[type] || type; },
               availableTypes() { return this.allTypes.filter(t => !this.rows.some(r => r.type === t)); },
               addType() {
                   if (!this.picking) return;
-                  this.rows.push({ type: this.picking, items: [...this.standard] });
+                  this.rows.push({ type: this.picking, items: [...(this.current[this.picking] || this.standard)] });
                   this.picking = '';
               },
               removeType(i) { this.rows.splice(i, 1); },
@@ -228,22 +428,25 @@
             </div>
             <div class="p-5 space-y-4">
                 <p class="text-xs" style="color: var(--text-muted);">
-                    Every room type starts with the standard checklist —
-                    <span x-text="standard.join(', ')"></span> — until you customize it here. A type
-                    that needs fewer or different items, like a patio, is edited below; anything not
-                    listed keeps the standard checklist automatically.
+                    Every room type starts with CoreX's standard floor-to-ceiling checklist for that kind of
+                    room (a kitchen gets its sink, stove and cupboards; a bathroom its bath, basin and toilet;
+                    anything else gets <span x-text="standard.join(', ')"></span>) until you customize it here.
+                    A type that needs fewer or different items is edited below &mdash; it starts from the
+                    items it has today. Anything not listed keeps the standard checklist automatically, and a
+                    change here only affects rooms added from now on (an agent adds the new items to an existing
+                    property's room with &ldquo;Add missing standard items&rdquo; on that room).
                 </p>
 
                 <template x-if="rows.length === 0">
                     <p class="text-sm py-3" style="color: var(--text-muted);">
-                        No room types customized yet — every room type uses the standard checklist above.
+                        No room types customized yet — every room type uses its standard checklist.
                     </p>
                 </template>
 
                 <template x-for="(row, i) in rows" :key="row.type">
                     <div class="rounded-md p-4 space-y-2" style="border:1px solid var(--border);">
                         <div class="flex items-center justify-between">
-                            <span class="text-sm font-semibold" style="color:var(--text-primary);" x-text="row.type"></span>
+                            <span class="text-sm font-semibold" style="color:var(--text-primary);" x-text="labelOf(row.type)"></span>
                             <button type="button" @click="removeType(i)" class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--ds-crimson);">Remove</button>
                         </div>
                         <template x-for="(item, j) in row.items" :key="j">
@@ -266,7 +469,7 @@
                     <select x-model="picking" class="rounded-md px-3 py-2 text-sm" style="border:1px solid var(--border);">
                         <option value="">Customize a room type…</option>
                         <template x-for="type in availableTypes()" :key="type">
-                            <option :value="type" x-text="type"></option>
+                            <option :value="type" x-text="labelOf(type)"></option>
                         </template>
                     </select>
                     <button type="button" @click="addType()" class="corex-btn-outline text-xs" :disabled="!picking">+ Add</button>
@@ -289,7 +492,9 @@
          screen itself; this only sets where a newly added room starts. --}}
     <form method="POST" action="{{ route('corex.settings.rental-inspections.room-type-order') }}" class="space-y-3"
           x-data="{
-              order: {{ Js::from($roomTypeWalkingOrder) }},
+              order: {{ Js::from(array_values(array_diff($roomTypeWalkingOrder, collect($customRoomTypes)->where('archived', true)->pluck('key')->all()))) }},
+              labels: {{ Js::from($roomTypeLabels) }},
+              labelOf(type) { return this.labels[type] || type; },
               moveUp(i) { if (i === 0) return; const t = this.order[i - 1]; this.order[i - 1] = this.order[i]; this.order[i] = t; },
               moveDown(i) { if (i === this.order.length - 1) return; const t = this.order[i + 1]; this.order[i + 1] = this.order[i]; this.order[i] = t; },
           }">
@@ -308,7 +513,7 @@
                 </p>
                 <template x-for="(type, i) in order" :key="type">
                     <div class="flex items-center justify-between py-1.5" style="border-bottom:1px solid var(--border);">
-                        <span class="text-sm" style="color:var(--text-primary);" x-text="(i + 1) + '. ' + type"></span>
+                        <span class="text-sm" style="color:var(--text-primary);" x-text="(i + 1) + '. ' + labelOf(type)"></span>
                         <div class="flex items-center gap-1">
                             <button type="button" @click="moveUp(i)" :disabled="i === 0"
                                     class="text-xs font-semibold px-2 py-1 rounded-md" style="color: var(--text-secondary);">Move up</button>
@@ -440,6 +645,60 @@
         </div>
     </form>
 
+    {{-- §45.5 (Build I-3) — the agency's own words for how someone attended an inspection. The four ways
+         are fixed by the attendance record; only the labels are yours. A blank label keeps its default. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.attended-as-labels') }}" class="space-y-3">
+        @csrf
+        <input type="hidden" name="attended_as_labels_submitted" value="1">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">How someone attended an inspection</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The wording used on the attendance record, the signed report and the report link. The four ways are fixed; reword each to match your own paperwork.
+                </p>
+                @foreach(\App\Models\RentalInspectionSetting::DEFAULT_ATTENDED_AS_LABELS as $attendedKey => $attendedDefault)
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs w-40" style="color: var(--text-muted);">{{ $attendedDefault }} (default)</span>
+                        <input type="text" name="attended_as_labels[{{ $attendedKey }}]" maxlength="60" value="{{ old('attended_as_labels.' . $attendedKey, $attendedAsLabels[$attendedKey]) }}"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save wording</button>
+        </div>
+    </form>
+
+    {{-- §45.14 — the agency's own words for the three move-out classifications an agent can record against a marked
+         item. The three are fixed; only the wording is yours. A blank box keeps the default. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.move-out-classification-labels') }}" class="space-y-3">
+        @csrf
+        <input type="hidden" name="move_out_classification_labels_submitted" value="1">
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Move-out classifications</h3>
+            </div>
+            <div class="p-5 space-y-2">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The words an agent picks from when classifying a difference on the move-out comparison (what was already there at move-in, what the landlord carries, what is charged to the tenant). The three are fixed; reword each to match your own paperwork. Wording you change applies to the screen from now on.
+                </p>
+                @foreach(\App\Models\RentalInspectionSetting::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS as $moKey => $moDefault)
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs w-40" style="color: var(--text-muted);">{{ $moDefault }} (default)</span>
+                        <input type="text" name="move_out_classification_labels[{{ $moKey }}]" maxlength="60" value="{{ old('move_out_classification_labels.' . $moKey, $moveOutClassificationLabels[$moKey]) }}"
+                               class="flex-1 rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    </div>
+                @endforeach
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save wording</button>
+        </div>
+    </form>
+
     {{-- §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
          setting, default ON." Filing to the property is never optional
          (this toggle only governs the automatic EMAIL); the manual
@@ -473,6 +732,156 @@
         </div>
         <div class="flex justify-end">
             <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
+    {{-- §45.6 (Build I-4) — who else is copied on the completed report. The tenant(s) and landlord(s) always are. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.report-copies') }}" class="space-y-3" data-qa="report-copies-form">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Who else gets a copy of the report</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The tenant(s) and landlord(s) on the lease always receive the signed report. These are the extra copies.
+                </p>
+                <div>
+                    <label for="report_agency_copy_emails" class="block text-sm" style="color: var(--text-primary);">Agency copy address(es)</label>
+                    <input id="report_agency_copy_emails" type="text" name="report_agency_copy_emails" maxlength="2000"
+                           value="{{ old('report_agency_copy_emails', $reportAgencyCopyEmails) }}" placeholder="e.g. rentals@youragency.co.za"
+                           class="mt-1 w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">Separate several with commas. Leave empty for none. Up to {{ \App\Models\RentalInspectionSetting::MAX_REPORT_AGENCY_COPY_ADDRESSES }}.</p>
+                </div>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_inspector" value="0">
+                    <input type="checkbox" name="report_copy_inspector" value="1" @checked($reportCopyInspector)>
+                    Send a copy to the inspector who ran the inspection
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="report_copy_creator" value="0">
+                    <input type="checkbox" name="report_copy_creator" value="1" @checked($reportCopyCreator)>
+                    Send a copy to the agent who created the inspection
+                </label>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
+    {{-- §43 — which parties are notified on schedule/reschedule/cancel,
+         which channel(s), the minimum notice period, and the reminder
+         offset. WhatsApp is logged as queued, not actually sent — see
+         App\Services\Rentals\RentalInspectionNotificationService's own
+         docblock: there is no server-side WhatsApp sending API anywhere
+         in CoreX today. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.schedule-notifications') }}" class="space-y-3">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Schedule notifications</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">Who is notified when an inspection is scheduled, rescheduled, or cancelled.</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_tenant_enabled" value="0">
+                    <input type="checkbox" name="notify_tenant_enabled" value="1" @checked($notifyTenantEnabled)>
+                    Tenant(s)
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_landlord_enabled" value="0">
+                    <input type="checkbox" name="notify_landlord_enabled" value="1" @checked($notifyLandlordEnabled)>
+                    Landlord
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_inspector_enabled" value="0">
+                    <input type="checkbox" name="notify_inspector_enabled" value="1" @checked($notifyInspectorEnabled)>
+                    Inspector
+                </label>
+
+                <p class="text-xs mt-3" style="color: var(--text-muted);">Which channel(s) to notify through.</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_via_mail_enabled" value="0">
+                    <input type="checkbox" name="notify_via_mail_enabled" value="1" @checked($notifyViaMailEnabled)>
+                    Email
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="notify_via_whatsapp_enabled" value="0">
+                    <input type="checkbox" name="notify_via_whatsapp_enabled" value="1" @checked($notifyViaWhatsappEnabled)>
+                    WhatsApp
+                </label>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    There is no automated WhatsApp sending in CoreX today — turning this on logs a ready-to-send
+                    message on the inspection for an agent to send by hand, rather than pretending it went out on its own.
+                </p>
+
+                <div class="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                        <label class="text-xs font-medium">Minimum notice (days)</label>
+                        <input type="number" name="minimum_notice_days" min="0" max="90" value="{{ old('minimum_notice_days', $minimumNoticeDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">Warns the agent when booking inside this window — never blocks.</p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Reminder (days before)</label>
+                        <input type="number" name="reminder_days_before" min="0" max="30" value="{{ old('reminder_days_before', $reminderDaysBefore) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">0 turns the reminder off.</p>
+                    </div>
+                </div>
+
+                <p class="text-xs mt-3" style="color: var(--text-muted);">The reminder email is sent to the inspector as above. Tenants and landlords are only reminded if you switch it on here (the booking, change and cancellation notices above are separate).</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="remind_tenant_by_email" value="0">
+                    <input type="checkbox" name="remind_tenant_by_email" value="1" @checked($remindTenantByEmail)>
+                    Also send the reminder to the tenant(s)
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="remind_landlord_by_email" value="0">
+                    <input type="checkbox" name="remind_landlord_by_email" value="1" @checked($remindLandlordByEmail)>
+                    Also send the reminder to the landlord
+                </label>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save</button>
+        </div>
+    </form>
+
+    {{-- §45.7 (Build I-5) — due dates and the agency's own loaded interim dates. There is deliberately no "interim every N
+         months" setting: CoreX never works out an interim date — the agency loads the dates it wants on the Due tab. --}}
+    <form method="POST" action="{{ route('corex.settings.rental-inspections.due-dates') }}" class="space-y-3" data-qa="due-dates-form">
+        @csrf
+        <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+            <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+                <h3 class="text-sm font-bold" style="color:var(--text-primary);">Due inspections and reminders</h3>
+            </div>
+            <div class="p-5 space-y-3">
+                <p class="text-xs" style="color: var(--text-muted);">
+                    The agent responsible for a property is reminded (in CoreX and by email) when a move-in or move-out inspection
+                    is due, and about the interim inspection dates your agency has loaded on the Due tab. Tenants and landlords
+                    are never contacted by these reminders — they are invited when the inspection is booked.
+                </p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="raise_due_inspections_enabled" value="0">
+                    <input type="checkbox" name="raise_due_inspections_enabled" value="1" @checked($raiseDueInspectionsEnabled)>
+                    Remind the agent when a move-in or move-out inspection is due
+                </label>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-xs font-medium">Interim date reminder — days before</label>
+                        <input type="number" name="planned_date_lead_days" min="0" max="90" value="{{ old('planned_date_lead_days', $plannedDateLeadDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">How early the agent is first reminded about a date you loaded. 0 = on the day only.</p>
+                    </div>
+                    <div>
+                        <label class="text-xs font-medium">Move-out inspection shows as due — days before</label>
+                        <input type="number" name="out_due_lead_days" min="0" max="90" value="{{ old('out_due_lead_days', $outDueLeadDays) }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                        <p class="text-xs mt-1" style="color: var(--text-muted);">How long before a tenant moves out (or a fixed term ends) the move-out inspection starts showing as due. 0 = from the day itself.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="flex justify-end">
+            <button type="submit" class="corex-btn-primary text-sm">Save due-date settings</button>
         </div>
     </form>
 </div>

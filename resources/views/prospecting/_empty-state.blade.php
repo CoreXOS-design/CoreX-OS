@@ -118,11 +118,13 @@
                style="background: var(--brand-button); color: #fff;">
                 Configure prospecting setup →
             </a>
+            @feature('buyer-pipeline')
             <a href="{{ route('command-center.buyers.pipeline') }}"
                class="inline-flex items-center gap-1 px-4 py-2 rounded text-xs font-semibold no-underline transition hover:brightness-105"
                style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                 Go to buyer pipeline →
             </a>
+            @endfeature
         </div>
     </div>
 @endif

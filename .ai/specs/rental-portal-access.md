@@ -1,0 +1,845 @@
+# Rental Portal Access — Tenant, Landlord, Contractor + Notices (AT-445)
+
+**Status:** BUILT. Landed 2026-10-07. Approved design, Johan, 4 Oct 2026; corrections to the
+original design (web auth mechanism, token hashing, canonical landlord roles, scoping detail,
+document visibility, several spec-drift findings) given by Johan 2026-10-05, applied below.
+**Ticket:** AT-445. **Pillar:** Contact (tenant, landlord, contractor — every portal identity maps
+to a `Contact`), Property, Agent (`User`, as the one who still sees everything an agent sees today,
+unaffected).
+**Master spec:** `.ai/specs/rentals-rebuild.md`. **Absorbs and extends, does not duplicate:**
+`.ai/specs/rentals-faults-work-orders.md` §4 (the secure-link/`ClientUser` design for faults/work
+orders). That section's "no login for contractors, real login for tenant/owner" design was already
+**settled by Johan on 2026-09-29** (not "HELD", as the original draft of this spec claimed — that
+was stale framing describing an earlier version of that file) — this spec extends the same
+mechanism to leases, inspections, documents, and adds notices, which §4 did not cover.
+
+---
+
+## 1. What this stage does and why
+The audit confirmed a real, built, authenticated `ClientUser` + Sanctum + OTP system exists
+(`/api/v1/client-auth/*`, `/api/v1/client/*`) with real `Contact` identity mapping
+(`contacts.client_user_id`) — but carried **zero** rentals functionality before this ticket; it was
+used only for buyer/seller matches, consent, and testimonials, and was **API/bearer-token only** —
+no Blade web layout for an authenticated `ClientUser` session existed anywhere (the original spec's
+claim that one did was spec drift — buyer-portal/match pages are separate, public, token-gated
+pages, not `ClientUser` sessions). Contractors had no login mechanism of any kind. Breach
+notices/notice-to-vacate did not exist, not even as a spec. This stage extends the existing portal
+to tenants and landlords (adding the first web client of it), adds a no-login secure-link mechanism
+for contractors, and builds the notices feature from scratch.
+
+## 2. Tenant access (extends `ClientUser`, same login mechanism — no new auth system)
+A tenant signs in through the **existing** `ClientUser` OTP/password login
+(`/api/v1/client-auth/*`, unchanged) — no new password/OTP flow was built. Once authenticated, a
+tenant with a `Contact` linked to an active `lease_tenants` row sees:
+- **Lease** — read-only view of their own lease terms: rent, deposit, dates, landlord name(s) only
+  (no phone/email — an agent reaches the landlord off-portal).
+- **Documents** — any filed `Document` flagged `tenant_portal_visible` AND attached
+  (`document_contacts`) to this exact `Contact` — never a blanket "any document on the property",
+  which would leak a previous tenant's paperwork. (`rental-documents-spec.md` turned out to be the
+  e-sign *template* catalogue, not the generic document store — the real store is
+  `App\Models\Document`, which had no visibility concept before this ticket; `tenant_portal_visible`
+  / `landlord_portal_visible` are two new independent boolean columns added here.)
+- **Report a fault** — opens with the agency's own first-aid content FIRST (reuses the existing
+  fault-catalogue first-aid mechanism, `RentalFaultTypeService::renderFirstAidSteps()`), then one
+  submit action branching on which button the tenant pressed: "that fixed it" →
+  `RentalFaultReport::setOutcome(['outcome' => OUTCOME_RESOLVED_BY_FIRST_AID])` (status closes
+  immediately, no staff actor); "still a problem" → the exact same
+  `RentalFaultReportService::report()` an agent call uses, `captured_by_user_id` omitted,
+  `reported_by_contact_id` set to the tenant, `reported_channel='app'` (not `'portal'` — the
+  original draft invented a channel value that doesn't exist; `'app'` is the one already reserved
+  for self-service digital channel, covering both this web portal and Andre's future native app).
+- **Track status** — their own fault reports and work orders, read-only, status + timeline, scoped
+  to records tied to their own lease only. Never the landlord's contact details beyond name, never
+  a quote amount (not their spend to approve).
+- **Confirm a completed job** — "fixed" / "not fixed", contact-attributed, via
+  `RentalWorkOrder::confirmByTenant()` (new). Mirrors onto the 1:1 job card
+  (`rental_job_cards.tenant_confirmed_fixed`/`tenant_confirmed_by_contact_id`, new columns) when one
+  exists — AT-442's own migration comment explicitly deferred real tenant attribution to this
+  ticket ("tenant confirmation is recorded BY THE AGENT for now — tenant login is AT-445").
+
+## 3. Landlord access (extends `ClientUser`)
+A landlord signs in the same way, via their own `Contact`. Landlord-side role resolution uses the
+SAME canonical keys `Property::pivotRolesForContactRole('landlord')`/`Lease::landlordContacts()`
+already use — `contact_property.role IN ('landlord', 'lessor')` — never a hardcoded string
+duplicated in the portal layer. Sees:
+- **My properties and current tenancy** — occupancy history: tenant NAME and dates only, never ID
+  numbers, application documents, payslips, bank statements, or FICA files.
+- **Decisions** *(no longer a tab — see §24: a fault's decision is on the fault under Faults; a work order's quote / extra-work decision is on that work order under Work orders)* — fault reports awaiting the owner-approval route, and work-order quotes over the
+  spend limit. Approve / Decline / "I'll handle it myself" (note required) on a fault report drives
+  `RentalFaultReport::recordApproval()` — widened this ticket to accept `User|Contact` (a landlord's
+  own click is the evidence now, `evidence_type='portal'`, `recorded_by_contact_id` set,
+  `recorded_by_user_id` null; existing agent-recorded calls are completely unchanged). A work-order
+  quote decision is Approve/Decline only (no "handle it myself" — a contractor is already engaged)
+  via the identically-widened `RentalWorkOrder::recordApproval()`. No second approval system either
+  way — same `rental_approvals` table, same state machine.
+- **Property activity** — faults, work orders **with amounts**, inspections.
+- **Documents** — any filed `Document` flagged `landlord_portal_visible` and attached to this
+  contact (same mechanism as §2, independent flag).
+
+*(The AT-443 landlord property activity print report is a separate screen the audit found spec-only
+at the time of this build — omitted here per the build brief's own instruction; add it if/when its
+route lands.)*
+
+## 4. Contractor access — secure per-job link, no login (new, not extending `ClientUser`)
+Contractors get **no login** — a per-job secure link. New table `rental_secure_access_tokens`
+(`agency_id`, `rental_work_order_id` — flat FK, not polymorphic: this ticket scopes contractor links
+to work orders only — `agency_service_provider_id`, `token_hash` [SHA-256 of a 64-char random raw
+token; the raw value is generated, handed back once, and never persisted or logged],
+`expires_at`, `revoked_at`, `last_used_at`, `created_by_user_id`). `RentalSecureAccessToken::isLive()`
+is the single gate: false once expired, revoked, the work order is completed/cancelled, or the
+agency has turned `contractor_links_enabled` off. Regenerating a link revokes any previous live
+token first — at most one active link per work order (`RentalSecureAccessTokenService`).
+- **Upload quote** — `RentalWorkOrder::recordQuote()` (widened to accept a nullable `User` plus an
+  optional `$viaNote`) feeds the existing `RentalWorkOrderQuote` table exactly as an agent-entered
+  quote would, `captured_by_user_id` null, history entry tagged "via contractor link".
+- **After photos** — `RentalWorkOrderService::storePhoto()` (same widening), the SAME
+  `PropertyImageStorer` pipeline every other caller uses — a contractor upload is the fourth caller,
+  not a new pipeline.
+- **Mark done** — `RentalWorkOrderService`'s underlying `RentalWorkOrder::complete()` (same
+  widening), one more caller of the real completion path, defaulting `paid_by='not_yet_paid'` since
+  a contractor doesn't know the payment arrangement — an office follow-up, not a new field.
+- Rate-limited at the route level (`throttle:30,1`, the same middleware every other public
+  token-gated route in this app already uses, e.g. buyer-portal) — never a custom limiter.
+- A top-level controller (`App\Http\Controllers\ContractorSecureLinkController`, not under
+  `...\CoreX`), mirroring `RentalInspectionPublicController`'s own established pattern for
+  no-session public routes: no route-model binding, token resolved and liveness-checked explicitly,
+  the SAME "unavailable" response whether expired, revoked, unknown, or closed.
+
+## 5. Role-filtered, not duplicated
+Tenant, landlord, and contractor screens read the **same underlying records** an agent sees — faults,
+work orders, inspections, leases, documents — filtered by role and by the specific record's own
+scope, never a second copy of any table.
+
+## 6. Scoping — `RentalPortalScopeService` (BUILD_STANDARD §1c)
+One service is the single scoping layer for both audiences (`app/Services/Rentals/
+RentalPortalScopeService.php`). AgencyScope is **not** applied automatically for a `ClientUser`
+request (it resolves off the staff `Auth::user()`, which a `ClientUser` request never is) — every
+method here explicitly `withoutGlobalScopes()` and filters by `agency_id` manually, mirroring
+`ClientAuthService`'s own sanctioned bypass pattern:
+- `tenantLeaseIds()`/`tenantLease()`/`tenantFaultReport()`/`tenantWorkOrder()` etc. — resolved from
+  `lease_tenants.contact_id`, never a bare `Lease::find($id)`.
+- `landlordPropertyIds()`/`landlordProperty()` etc. — resolved from `contact_property` where
+  `role IN ('landlord','lessor')`.
+- A contractor's secure link resolves ONLY the one `rental_work_order_id` the token was minted for.
+- **Direct-URL-by-ID is blocked for all three audiences** — every single-record controller method
+  intersects the requested id against the caller's own resolved id set and returns 404/403, never
+  trusting a client-supplied id. Verified by `tests/Feature/RentalPortalAccess/PartyIsolationTest.php`
+  and `ContractorSecureLinkTest.php`.
+- **Archived records are invisible to the tenant / landlord portal (6 Oct 2026).** `withoutGlobalScopes()` also strips
+  SoftDeletes, so **every** query in `RentalPortalScopeService` pins `deleted_at IS NULL` explicitly — an archived
+  lease, fault report, work order, inspection, inventory, document, property or job card is neither listed nor openable
+  by id (404, exactly like an out-of-scope record), on the web shell and the API alike. `tenantLeaseIds()` returns only
+  the tenant's **live** leases, so archiving a lease takes everything that hangs off it (its faults, orders, inspections,
+  inventories, job cards) out of the tenant's reach in one place. The two portal controllers no longer run their own
+  scope-stripped queries: property / lease / pending-decision / fault-decision lookups go through the service
+  (`tenantProperty()`, `tenantLeaseIdForProperty()`, `landlordPropertyLeases()`, `landlordActiveLeaseId()`,
+  `landlordFaultReport()`, `landlordPendingFaultReports()`, `landlordPendingWorkOrders()`). Landlord property access
+  was already safe (the `contact→properties()` relation honours SoftDeletes). Notices are not exposed on the portal.
+  Proved per resource type by `tests/Feature/RentalPortalAccess/ArchivedRecordsHiddenFromPortalTest.php`
+  (job cards: `TenantLandlordJobCardApiTest`).
+
+## 7. Web authentication — Sanctum stateful SPA (cookie), corrected from the original draft
+The original draft assumed a web Blade layout already existed for `ClientUser` sessions and said
+tenant/landlord web pages would "reuse" it. **That layout did not exist** — the client portal was
+API/bearer-token only (Audit §10). Johan's correction: the web portal must **never** store a bearer
+token where the page's own JavaScript could read it back out (XSS = account takeover). The actual
+mechanism built:
+- Sanctum's stateful-SPA mode (`EnsureFrontendRequestsAreStateful`) is prepended **only** to the
+  `v1/client-auth`/`v1/client` route groups in `routes/api.php` — **not** re-added to the global
+  `api` middleware group, which `bootstrap/app.php` deliberately strips it from to keep the mobile
+  app's bearer-token flow immune to Origin/Referer tricks. Scoped this way, the rest of `/api`
+  (including the rest of this very mobile client API) is completely unaffected.
+- A new session guard, `client-web` (`config/auth.php`, provider `client_users` → `ClientUser`),
+  added to `config/sanctum.php`'s `guard` array alongside the untouched default `web`.
+- `ClientAuthController::login()`/`setPassword()` detect a stateful request
+  (`$request->attributes->get('sanctum')`, set by the middleware itself) and branch: stateful →
+  `Auth::guard('client-web')->login($clientUser)` + session regenerate, **no token in the response
+  body at all**; non-stateful (mobile) → completely unchanged, still issues a bearer token.
+- `config/sanctum.php`'s stateful-domain default now also includes `Sanctum::currentRequestHost()`
+  — the CURRENT request's own host — so the portal works on every environment (QA1/Staging/Prod/
+  demo/local) without per-environment `SANCTUM_STATEFUL_DOMAINS` wiring, while staying safely scoped
+  (only "this server, talking to itself" ever qualifies as stateful).
+- A pre-existing, guard-agnostic `Login`/`Logout` event listener in `AppServiceProvider` wrote every
+  login to `login_histories.user_id` (a `users` FK) unconditionally — this broke the moment a
+  `ClientUser` logged in via the new guard (FK violation). Fixed by scoping that listener to
+  `instanceof App\Models\User` — staff logins are completely unaffected; `ClientUser` logins already
+  have their own audit trail (`ClientAccessLog`).
+- Tested end-to-end: `tests/Feature/ClientAuth/ClientWebPortalSessionAuthTest.php` — stateful login
+  establishes a session and never returns a token; non-stateful login is unchanged; both stateful
+  and non-stateful unauthenticated requests are rejected (401).
+- **Web screens**: a single new Blade shell (`resources/views/rentals/portal/shell.blade.php`) —
+  mobile-first, Alpine.js, client-side "router" over one route (`GET /portal/{any?}`) — the FIRST
+  web client of `/api/v1/client/*`, calling it via same-origin `fetch()` with the session cookie.
+  Andre's mobile app remains the bearer-token client of the identical endpoints.
+
+## 8. Notices — breach / notice-to-vacate (new, confirmed absent by the audit)
+The original draft said this would reuse "the existing e-sign importer" (`Docuperfect\Template`).
+That system is **pipeline-gated** (CLAUDE.md) and built for multi-party signing — a one-way "send
+and log" notice doesn't need that machinery, and routing through it would have pulled this feature
+through signing-pipeline risk for no reason. Built instead as a small, self-contained system:
+- `RentalNoticeTemplate` (agency-owned, `notice_type` breach|notice_to_vacate, `body_html` with
+  `{{token}}` placeholders — same convention as the fault-type first-aid content) — full CRUD +
+  archive/restore, search/sort/filter/pagination (Settings → Rental Notice Templates).
+- Agent picks a lease (via "Send notice" on the Lease Hub) → picks a template → types figures as
+  `token=value` lines → chooses tenant and/or landlord → `RentalNoticeService::send()` renders the
+  template, generates a PDF (`RentalDocumentPdfService::noticePdf()` — the SAME dompdf convention
+  every other rentals PDF uses), files it as a `Document`, and emails it (`RentalNoticeMail`,
+  attached as PDF) — delivery is email only, per instruction.
+- Logged on the tenancy: `RentalNotice` row + a new `'notice'` entry type in
+  `LeaseTimelineService` (that file's own docblock had already reserved this exact extension point).
+- **Arrears figures**: no Stage 8 yet, so the agent types any figure manually — stated as a forward
+  dependency, not built twice, unchanged from the original design.
+
+## 9. Routes, nav, permissions, API
+- **Tenant/landlord portal routes:** `/api/v1/client/rentals/*` and `/api/v1/client/rentals/
+  landlord/*`, gated additionally by `rental-portal.enabled:{tenant|landlord}` middleware (§10) —
+  built under the existing `/api/v1/client/*` namespace.
+- **Contractor secure-link routes:** `/secure/work-orders/{token}/*` (show, quote, photo,
+  mark-done) — `routes/web.php`, `throttle:30,1`, no `ClientUser` session.
+- **Web portal shell:** `GET /portal/{any?}` (`routes/web.php`).
+- **Permissions:** portal END-USER access is gated by the agency settings in §10, not by
+  `config/corex-permissions.php` (the portal audience isn't a CoreX staff role) — unchanged from the
+  original design. New STAFF-side keys: `rental_portal.manage_settings`, `rental_notices.create`,
+  `rental_notice_templates.manage_settings`.
+
+## 10. Agency settings (Setup Wizard, CLAUDE.md non-negotiable #10a)
+New table `rental_portal_settings` (one row per agency, read-time default pattern), each toggle its
+own independent, has()-guarded saver — never one combined saver — per
+`agency-onboarding-setup.md` §6.1's warning that a shared saver requiring several fields at once
+will reject a wizard step render that only shows some of them:
+- `tenant_portal_enabled` / `landlord_portal_enabled` / `contractor_links_enabled` — default ON.
+- `contractor_secure_link_expiry_days` — default 14.
+- `notify_landlord_on_decision_needed` / `notify_tenant_on_status_change` — default ON. (There is
+  **no** `notify_agent_on_new_fault` setting — that notification already existed as live, generic
+  infrastructure: `RentalFaultReportService::notifyCreated()` → `NotificationDispatcher`, which
+  resolves channel per-USER via `NotificationPreferenceService`, a finer control than a second,
+  agency-wide toggle would be. The two settings that ARE new address genuinely new audiences —
+  landlord/tenant are portal identities, not CoreX staff `User`s, so the existing dispatcher can't
+  reach them.)
+- All six controls registered on the existing Rentals wizard step (`config/agency-onboarding-copy.php`),
+  each with its own saver entry, matching `RentalWorkOrderSettingsController`'s own established
+  shape for this exact reason.
+- `notify_landlord_on_decision_needed` fires from `RentalFaultReport::requestApproval()` and
+  `RentalWorkOrder::selectQuote()` (when a quote crosses the spend threshold).
+  `notify_tenant_on_status_change` fires from `RentalFaultReport::recordApproval()`,
+  `setOutcome()` (skipped for the tenant's own first-aid self-resolution — notifying someone of the
+  action they just took is noise), and `recordWorkOrderRaised()`.
+
+*(§8's `notice_email_only` setting from the original draft was not built as a stored toggle — there
+is no second channel yet to toggle against, so it would be vacuous. Email-only is the fixed,
+current behaviour; add the setting when/if a second channel is actually built.)*
+
+## 11. CRUD / list-screen floor — agent-side screens this stage adds
+- **Notices list** (`corex.rental-notices.{index,show}`): search (tenant name, property address via
+  the lease relation), sort (date sent, default newest-first), filter (notice type, date range),
+  agency scope, pagination, empty state. Not edited after sending — soft-delete floor only.
+- **Notice template CRUD** (`corex.rental-notice-templates.*`): search (name), sort (name/notice_type/
+  created_at), filter (notice_type, active/archived), archive/restore, pagination, empty state.
+- **Invite surfaces**: the existing "Client App Access" partial
+  (`corex.contacts.partials.client-app-access`) — unmodified — now also renders on the Lease Hub
+  (per tenant and landlord contact) and the property Rental tab (current lease's tenant(s) +
+  property's landlord(s)). Last-login was already shown by that partial; no new UI needed for it.
+
+## 12. Acceptance criteria
+- [x] A tenant can log in (OTP or password, same existing flow) and see only their own lease's data.
+- [x] A landlord can log in and approve/decline/"I'll handle it" on a real quote/fault report,
+      reusing the existing approval mechanism (now `User|Contact`-attributable).
+- [x] A contractor's secure link lets them upload a quote, upload after-photos, and mark done,
+      without any login, and the link stops working after expiry/revocation/completion.
+- [x] Direct-URL-by-ID access outside each audience's own scope is blocked for all three audiences —
+      covered by automated tests.
+- [x] A notice can be drafted from an agency-uploaded template, sent by email, and appears in the
+      tenancy log.
+- [x] All portal on/off settings and the contractor link-expiry setting are in the Setup Wizard.
+- [x] Notices list meets the full list-screen floor.
+- [x] The web portal session-cookie auth path is covered by an automated test, including the
+      unauthenticated-rejection case.
+
+## 13. Multi-agency
+No notice template, no first-aid copy, no portal wording assumes HFC. Every template is
+agency-uploaded (§8); every default (§10) is agency-neutral.
+
+## 14. Spec-drift found and resolved during build (for the record)
+The approved design (2026-10-04) contained several claims that didn't match the actual codebase,
+surfaced during Step 0 investigation and resolved with Johan before building (2026-10-05):
+1. §4's "HELD" framing for login-vs-secure-link was stale — already settled 2026-09-29.
+2. `reported_channel='portal'` doesn't exist as an enum value — built using the existing `'app'`
+   value instead.
+3. The proposed `rental_secure_access_tokens` polymorphic shape (`tokenable_type/id`, covering fault
+   reports too) was simplified to a flat `rental_work_order_id` FK, matching this ticket's actual
+   scope (work orders only).
+4. `rental-documents-spec.md` is the e-sign template catalogue, not a generic document store with a
+   visibility concept — the real target for the two new visibility flags is `App\Models\Document`.
+5. No Blade web layout existed for an authenticated `ClientUser` session — the client portal was
+   API/bearer-only. §7 above is the resolution: Sanctum stateful-SPA cookie auth, scoped narrowly,
+   plus the first web shell.
+6. The AT-443 landlord property activity report route did not exist at build time — omitted per
+   the build brief's own contingency instruction.
+
+## 15. Landlord "Request work / report a problem" (AT-447 follow-up, built 2026-10-05)
+
+**Small, additive amendment.** §3 above described the landlord as decide-only ("Decisions — fault
+reports awaiting the owner-approval route... Approve / Decline / 'I'll handle it myself'") — this
+section adds the one thing that was genuinely missing: a landlord can now also RAISE a problem
+themselves, on a property they own, from the portal.
+
+**What it does NOT change:** the landlord still never creates a work order directly and never picks
+a supplier — both of those stay exclusively an agent action, raised from the fault report the agent
+now sees once the landlord's request lands. This is a new way to CREATE a `rental_fault_reports` row,
+not a new way to commission work.
+
+- **New value**, `RentalFaultReport::REPORTED_BY_LANDLORD = 'landlord'` — distinct from
+  `owner_instructed` (an agent recording that the owner asked for something verbally/by phone/
+  WhatsApp); `landlord` means the landlord typed it into their own portal session directly. Never
+  offered on the agent-side "Report a Fault" create form — only
+  `ClientLandlordRentalsController::faultReportStore()` ever sets it. Rendered automatically by the
+  existing generic `ucfirst(str_replace('_', ' ', $faultReport->reported_by_type))` label everywhere
+  "Reported by" is already shown — no new template/match-statement needed.
+- **Route**: `POST /api/v1/client/rentals/landlord/properties/{property}/fault-reports` →
+  `ClientLandlordRentalsController::faultReportStore()`, gated by the SAME
+  `rental-portal.enabled:landlord` middleware and `RentalPortalScopeService::landlordProperty()`
+  ownership check (404 for a property the contact isn't a landlord/lessor on, including cross-agency)
+  as every other landlord-portal route in §6 — mirrors
+  `ClientTenantRentalsController::faultReportStore()` closely, minus the fault-type/first-aid step
+  (a landlord isn't asked "did that fix it" the way a tenant is — there is no self-resolution path
+  for a landlord's own request).
+- **Lease attachment**: the property's active lease if one exists, else `lease_id = null` — the same
+  vacancy-period allowance the agent-side create form already has.
+- **Lands exactly like any other fault report**: `RentalFaultReportService::report()` is the same
+  method the agent-side and tenant-side paths both call, so the new row appears in the agency's Fault
+  Reports list and the Command Centre's open-faults tile with NO extra wiring — both already query by
+  `status`, never by `reported_by_type` (confirmed directly against
+  `RentalCommandCentreService`'s own fault-report queries before writing this). An agent raises the
+  work order from it via the pre-existing `raiseWorkOrder()` action, choosing supplier or the internal
+  team exactly as for any other fault report.
+- **Isolation**: covered by the same party-isolation suite as the tenant path —
+  `tests/Feature/RentalPortalAccess/PartyIsolationTest.php` — a landlord can only raise on their own
+  property; a cross-agency landlord contact 404s, never leaks a row into the wrong agency's list.
+
+**Files:** `app/Models/RentalFaultReport.php` (new constant) ·
+`app/Http/Controllers/Api/V1/ClientLandlordRentalsController.php` (new `faultReportStore()`) ·
+`routes/api.php` (one new route) ·
+`tests/Feature/RentalPortalAccess/{RentalPortalWorkflowTest.php,PartyIsolationTest.php}` (new tests).
+
+---
+
+## 16. Agent-side portal access — one person is one login; link and invite on the lease screen (7 Oct 2026, QA1)
+**Trigger.** Johan, QA1 rentals test, 2026-10-07: on the new lease for a tenant (HFC contact 8966), under
+"Tenant portal access", **Create Client Login** answered "email already in use" — for a tenant who had no
+login at all. He asked how the logic works, wanted the dead end fixed, the link on the lease screen, and the
+link in the signed-lease email.
+
+**Root cause (not the login — the contact itself).** `ClientAuthService::isClientEmailTaken()` also counted any
+`Contact` carrying the email, and the create form pre-fills the contact's own email, so every contact with a real
+email collided with itself; with no `ClientUser` to attach to the controller fell through to a bare error and the
+card still said "Not configured". Fixed at the root by one service (below), not by loosening the check.
+
+### 16.1 How access works (the logic, written down)
+- A `ClientUser` is **one account per email address, system-wide** (unique active email). Any number of that
+  person's `contacts` rows point at it (`contacts.client_user_id`) — across agencies too (one Contact per agency).
+- The portal acts for the login through its contact(s) **in the agency it has selected**. Before this stage it
+  took only the first such contact; `RentalPortalScopeService::personContactIds()` now unions every contact of
+  that login in the agency (tenant leases, landlord properties, documents), so one login carries both roles even
+  when the person exists as two contact records. `ClientAuthService::contactForAgency()` is ordered, so the one
+  contact used for attribution (`reported_by_contact_id`) is stable.
+- **First-time access needs no agent action at all.** A person whose contact has a real email opens `/portal`,
+  enters the email, gets a code, chooses a password; `findOrCreateClientUser()` creates the login and links the
+  contacts carrying that email. The agent-side button only pre-creates it (so the card shows a status) and
+  sends the link.
+
+### 16.2 `RentalPortalAccessService` — the one agent-side path
+`attach($contact, ?email, ?actor, ?request, ?tempPassword)`: idempotent; the email defaults to the contact's own.
+- No login for the email → create it (origin agency = the contact's), attach. Login exists → **attach this
+  contact to it** (outcome `created | attached | already | switched`).
+- **Same-person rule** (so a stranger's login can never be opened onto this contact's data): the email must be on
+  this contact, or on another contact in this agency (mirror column or any saved email), or the login must already
+  be tied to a contact in this agency, or be an agent-managed placeholder address. Otherwise it is refused **in
+  plain words** ("…belongs to someone who is not on your contact list…" / "…managed by another agency…" / "That
+  email is not saved on <name>'s contact…") — never a bare "already in use".
+- No email → "<name> has no email address saved yet. Add one to the contact first". The lease card links to the
+  contact; nothing is typed on the lease screen, so the login always belongs to the person on file.
+- **Email changed on the contact** (or the login is a `@corexclient.co.za` placeholder that cannot receive mail):
+  the card shows "Contact email changed" with **Move the login to <new email>** (`switchToContactEmail`) — the
+  contact moves to the login for the new email; the old login is soft-deleted only when nobody else is on it and it
+  is the agency's to remove (a login managed by another agency is never touched).
+- Two tenants on one lease: each contact is attached on its own; a shared email is one login. A person who is
+  tenant on one lease and landlord on another is one login, both roles (16.1).
+- `enabledFor($agencyId, 'tenant'|'landlord')` = the agency's tenant / landlord portal toggle **and** the Rentals
+  features switch. Off → the card says so, no link is offered, nothing can be sent, no link in any email.
+
+### 16.3 Lease screen (the two cards only — `corex.leases._portal-access-person`)
+Per person: name, status (**Not set up · Pending OTP · Active · Must change password · Contact email changed ·
+No email on the contact · Portal access is switched off**), the login email, then:
+- not set up → one primary action **"Set up portal access & email the link"** (sets up, then sends) and a quiet
+  "Set up only";
+- set up → the personal link (`/portal?email=…` — the portal pre-fills the email and waits for **Continue**;
+  nothing is looked up or sent by opening the link) with **Copy**, **Email link / Resend invite** and **Share on
+  WhatsApp** (`WhatsAppNumberFormatter`, the contact's own dial code);
+- the old reset-password / sign-out-devices / remove actions stay on the contact page (a link points there).
+Routes `corex.leases.portal-access.{setup,invite,switch}` (`POST /corex/leases/{lease}/portal-access/{contact}/…`),
+`LeasePortalAccessController`: lease scope first (own / branch / agency via `guardRentalRecordScope`), permission
+`client_app.create_login`, and the contact must be one of THIS lease's tenants/landlords (anything else is a 404).
+The contact page's "Create Client Login" (`ClientLoginController::create`) now goes through the same service.
+Invites go through `RentalMailDispatcher` as the pressing agent (`RentalPortalInviteMail`, agency-branded,
+neutral wording) and are logged to `client_access_logs` (`portal_invite_sent`).
+
+### 16.4 Automatic access when a lease is signed + the link in the signed copy
+- **Agency setting `auto_portal_access_on_signing`** (`rental_portal_settings`, read-time default **ON**), a
+  has()-guarded saver `updateAutoPortalAccessOnSigning`, a toggle on Settings → Rental portal **and** a control on
+  the Setup Wizard Rentals step (§10a): *"Give tenant and landlord portal access automatically when a lease is
+  signed."* When ON, at signing every tenant and landlord with a real email gets their login
+  (`provisionForSignedLease`, best effort, after the commit — a fault never undoes the signing; a person without an
+  email, or whose email cannot be attached, is skipped and logged). OFF = fully manual and **no link in the mail**.
+  Fires from `LeaseSigningStateService::announceSigned()` (e-signed lease) and from
+  `LeaseCaptureService` after a signed paper copy is attached.
+- **The completion copy** (`SignatureService::sendCompletionEmails` → `SignedDocumentMail`) of a lease agreement
+  gains a **"Your CoreX portal"** block for each signer who is a tenant / landlord of that lease: what that role
+  can really do today, a button and the plain link, and the first-time note (code, then choose a password). Tenant:
+  *view your lease and the property, report a fault and follow it through to a fix, and see your documents.*
+  Landlord: *approve or decline repair decisions, see your properties and tenancy, and follow faults and jobs.*
+  (Copy lists only what the web portal's tabs offer — no statements, and inspections are API/mobile only, so neither
+  is promised.) A person who is both gets one link listing both. No block for any other document, for a signer who
+  is not a party to the lease, for a placeholder address, when that audience's portal is off, or when automatic
+  access is off.
+- **Paper copies.** Access is created automatically when a signed paper copy is attached, and (since §18) the parties
+  are emailed the copy and their link — the same as the e-sign path.
+
+### 16.5 Acceptance
+- [x] Create on a contact whose email is its own, with no login: creates and attaches (no "already in use").
+- [x] Existing login for the email: attached; stranger's login: plain refusal, nothing linked.
+- [x] No email, changed email, placeholder login, two tenants, one person in two roles: each handled (tests).
+- [x] Link with Copy / Email / WhatsApp / Resend on both cards; invite mail lists only what the role gets.
+- [x] Signing creates access (setting, default ON, also in the wizard); the signed copy carries the block; nothing
+      when the portal is off for the agency.
+- [x] Multi-agency (CLAUDE.md #9): no HFC wording; defaults neutral; the second agency sees its own branding and
+      its own toggles.
+- Tests: `tests/Feature/RentalPortalAccess/{LeasePortalAccessTest,LeasePortalSigningTest}.php`.
+
+**Files:** `app/Services/Rentals/RentalPortalAccessService.php` · `app/Exceptions/Rentals/PortalAccessException.php` ·
+`app/Http/Controllers/CoreX/LeasePortalAccessController.php` · `app/Http/Controllers/Contacts/ClientLoginController.php` ·
+`app/Mail/Rentals/RentalPortalInviteMail.php` + `resources/views/emails/rentals/{portal-invite,partials/portal-link-button}.blade.php` ·
+`resources/views/corex/leases/{_portal-access-person,show}.blade.php` · `resources/views/rentals/portal/shell.blade.php` (email pre-fill) ·
+`app/Services/Rentals/RentalPortalScopeService.php` · `app/Services/ClientAuthService.php` (ordered `contactForAgency`) ·
+`app/Mail/Signatures/SignedDocumentMail.php` + `emails/signatures/signed-document.blade.php` · `app/Services/Docuperfect/SignatureService.php` ·
+`app/Services/Rentals/{LeaseSigningStateService,LeaseCaptureService}.php` · `app/Models/RentalPortalSetting.php` +
+migration `2026_10_15_000300_…` · `RentalPortalSettingsController` · `AgencySetupWizardController` · `config/agency-onboarding-copy.php` ·
+`resources/views/corex/settings/rental-portal.blade.php` · `routes/web.php`.
+
+
+---
+
+## 17. "Unauthorized" after creating the portal password — a staff session in the same browser (7 Oct 2026, QA1)
+**Symptom (Johan, QA1).** Opened a tenant's personal link, entered the emailed code, was asked to choose a password, chose one
+and landed on "Unauthorized" — identically for the owner's link.
+
+**Cause (one sentence).** Sanctum decides who a browser request is by trying the staff `web` session before the portal's own, so
+in a browser that was also signed in as staff, the staff user answered for the portal's set-password call, and the portal
+refused it because that user is not a portal person (`ClientAuthController::setPassword` → 401 "Unauthorized.").
+In a clean browser the same path always worked (proved: `PortalLinkToHomeTest`, clean-browser cases).
+
+**Fix — the bug class, not the one call.**
+- New route middleware `client.auth` (`AuthenticateClientPortal`) replaces `auth:sanctum` on **every** client-portal route:
+  `/api/v1/client-auth/password/set`, the logged-in `/api/v1/client-auth/*` group and all of `/api/v1/client/*` (so the
+  rentals portal, matches, consent, testimonials, seller insights — tenant, owner and every other portal person). For the
+  duration of that request Sanctum is told to consult only the `client-web` session guard, then the bearer token (the
+  mobile app's path, unchanged); the setting is restored in `finally`, so staff and token APIs keep the default list.
+- A staff session therefore can neither answer for a portal request nor be disturbed by one. A staff session alone still
+  gets 401 from the portal API; a staff bearer token still gets 403 (`client.ability`).
+- **Portal sign-out / account deletion no longer ends the staff session.** They used to invalidate the whole session, which
+  signed a staff user in the same browser out. `ClientAuthController::endPortalSession()` removes only the portal login
+  (session key + guard user) and destroys the session only when no staff user is in it. It deliberately does **not** call
+  `SessionGuard::logout()`: that fires the global Logout event whose staff-only listeners
+  (`RevokeCommsGrantsOnLogout`, typed `User`) would 500 on a `ClientUser` — found by the test below.
+- **Existing logins need nothing.** Nothing was written wrongly: the failed call never set the password, so those
+  people simply open their link again (code, then choose a password). A login created from the lease screen
+  (Pending OTP) stays valid.
+- A new portal route must use `client.auth`, never a bare `auth:sanctum`.
+
+**Tests (`tests/Feature/RentalPortalAccess/PortalLinkToHomeTest.php`, 12):** the whole path over the real endpoints — personal link
+email → lookup → emailed code → verify → set password (activation token on that one call only) → portal home (`/me`, then the
+tenant's lease or the owner's property) — for tenant and owner, a brand-new login and an existing login, in a clean browser AND
+with a staff user already signed in (held in the cookie session, as a real browser holds it); plus: returning person signs in
+with the password in a staff browser; portal sign-out leaves the staff login in the session; a staff session alone and a staff
+bearer token never open the portal API. Every simulated request starts with cleared guards and the default `web` guard (in
+production each request is its own process; without this the test process leaks the previous request's user — and `Auth::shouldUse()`
+writes the default guard into config — which produced misleading 403s while the test was being built).
+
+---
+
+## 18. Paper-signed lease: the parties are emailed the copy and their portal link (7 Oct 2026, QA1 — Johan's ruling)
+**Ruling (Johan, 7 Oct 2026):** when a paper-signed (wet ink) lease is uploaded/attached, YES — the tenant(s) and owner get the lease
+copy by email and their portal link, same as the e-sign path, same rules.
+
+**What happens.** At the end of `LeaseCaptureService::capture()` with intent `paper_copy` — the only place a signed paper copy is
+attached (New Lease, the Renewal screen's "I already have the signed copy", the renewal upload and both APIs all go through it) —
+and after the lease has committed: (1) portal access is created for the parties (§16.4), then (2) `LeaseSignedCopyMailer::sendOnPaperAttach()`.
+- **Who receives** (as `SignatureService::sendCompletionEmails`): the lease's tenants and landlords, never the agent; **one mail per
+  distinct address** (a person who is both, or two tenants sharing an address, get one); a party with no email, or a placeholder
+  address, is skipped and **named in the tenancy log**.
+- **What:** the existing `SignedDocumentMail` — subject "Fully signed: Lease agreement — <address>", the signed copy attached under its
+  own file name **and its own type** (a photo or Word upload is no longer labelled PDF — `SignedDocumentMail` takes an optional
+  per-document `mime`; e-sign PDFs unchanged), and the per-person **"Your CoreX portal"** block under exactly the §16.4 rules
+  (automatic access on, that audience's portal on, real email, party of the lease).
+- **How (mail guard):** through `RentalMailDispatcher` as the agent who attached it — their own mailbox path, audited fallback to the shared
+  mailer, and the non-production redirect via the mail guard — never a plain `Mail::to()`.
+- **Logged:** one `lease_signed_copy_emailed` row in the tenancy log: who got it, who could not be reached, who has no email.
+- **No new setting:** the e-sign copy mail has none, Johan asked for "same as the e-sign path", and the portal block already follows the
+  agency's portal switches.
+
+**Never twice — the re-upload rule (reported to Johan).** `leases.signed_copy_emailed_at` is an atomic once-per-lease claim (`UPDATE … WHERE
+signed_copy_emailed_at IS NULL`, the same idea as `signature_templates.completion_emails_sent_at`), taken by the run that sends.
+- Double submit of the same screen: the capture key returns the existing lease before anything runs — nothing is mailed again.
+- Retry, or a different signed copy filed against the same lease later (a replacement): the claim is already set — **nobody is mailed
+  again.** Today the lease screens have no "replace the signed copy" action (a paper capture always makes a new lease or renewal term, each
+  with its own once-only mail), so this is a guard for any path added later; a corrected copy would have to be sent deliberately.
+- **Nothing delivered** (every address failed, or nobody has an email): the claim is **released** (or never taken), so the lease is not left
+  looking "sent" when nobody received it, and a later run can send. Partial delivery keeps the claim and names the failures in the log.
+- A mail fault never undoes the capture (best effort, after commit).
+
+**Tests (`LeasePaperCopyMailTest`, 16):** tenant and owner each get the copy + own link (agent never); access created first; tenancy-log row; one
+person on two roles = one mail listing both; two tenants one address = one mail; a party without an email skipped and named; nobody with an
+email = no mail, no claim; one portal off = copy without link; automatic access off = copy without link and no login; same screen twice; retry and
+a replaced copy; all-fail releases the claim and a later run sends; one failing address does not stop the rest; a renewal from a paper copy mails the
+renewal term's parties only; a photo upload keeps its own type; lease-only capture sends nothing.
+
+
+---
+
+## 19. The portal Documents area — signed lease agreement and distributed inspection reports (7 Oct 2026, QA1)
+**Trigger.** Johan, after retesting the portal links: *"We are a bit shy on data on these links? We have documents — so we can put the lease
+agreement here, we can put the inspection report here."* The Documents tab already existed for the tenant (names only, nothing openable, and
+only documents flagged by hand); the owner had no Documents tab in the web portal at all.
+
+**What each person sees — one list, built by `RentalPortalDocumentService` for both audiences, newest first, one row per document:**
+1. **Lease agreements** — the SIGNED agreement of every live lease the person is a party to (tenant: their `lease_tenants` rows; owner: every
+   lease on a property they own, earlier tenancies included — the owner already sees the occupancy history). "Signed" = signed and accepted
+   (`signed_at`), `signed` / `signed_on_paper`, or created from a completed signed agreement (`source` `esign_document` /
+   `uploaded_signed_copy`) **and** a filed document exists: the filed e-sign copy of the lease's envelope, else the attached wet-ink copy — the
+   same document `Lease::signedDocument()` names, read scope-free and agency-pinned. **A lease that is not signed is never shown** (a draft,
+   out for signing, awaiting the agent's approval, declined, voided, expired envelope). A signed renewal is **its own row** ("Lease renewal").
+2. **Inspection reports** — only reports that have been **distributed**, using cc6's definition (rental-inspections.md §47,
+   `RentalInspection::isDistributed()` = Completed, or an email copy logged as sent to a tenant/landlord): never a draft, one in progress, one
+   still in signing, or a cancelled one. Tenant: reports on their own lease(s); owner: reports on leases of their own properties. The row is the
+   signed PDF the completion step filed (`source_type` `rental_inspection_report`). The portal keeps **no rule of its own**: it calls
+   `RentalInspection::isDistributed()` (cc6, landed on QA1 the same day) and only adds "not cancelled". No inspection code was touched.
+   (`rental_inspections.lease_id` is required, so there is no lease-less inspection.)
+3. **Documents the agency shared on purpose** — the pre-existing `tenant_portal_visible` / `landlord_portal_visible` flag + contact attachment,
+   unchanged; merged into the same list (a document that is both a filed lease copy and flagged appears once, as the lease agreement).
+
+**What I chose where the spec was silent (reported to Johan).**
+- **Archived** lease → its documents AND its inspection reports are not shown: the standing rule (§6, 6 Oct) is that archived records are
+  invisible to the portal; the owner's reports follow their lease too. **Cancelled / ended / renewed** (not archived) → stay visible as history.
+- **Co-tenants** on one lease see the same lease documents (the list is per lease, not per contact record; one login across several contact
+  records unions them, §16).
+- **Owner** sees every signed lease and distributed report on their own properties, including earlier tenants' — the occupancy history they
+  already see; a tenant never sees another tenancy's documents or the owner's.
+- Soft-deleted documents never show; a document whose file is missing from disk stays listed but opening it is a clean 404.
+
+**Each row:** name (e.g. "Lease agreement — <address>", "Move-in inspection report — <address>"), type (+ subtype: Renewal / Move-in /
+Move-out / Interim / Ad hoc), date (signing date for a lease, completion date for a report), the property and the lease period it belongs to,
+**View** and **Download**. API `GET /api/v1/client/rentals/documents` and `…/landlord/documents` (existing keys `id, name, type, uploaded_at`
+kept for the mobile app; additive `kind, subtype, date, mime, size, belongs_to, view_url, download_url` + `meta`). Search (document name, type,
+property address, lease period), sort (newest first by default; name; type), filter (type, date range), pagination (25, max 100), real empty
+state (nothing yet) and a separate "no match — clear filters" state. The web portal shows one shared panel (`rentals/portal/_documents`) in the
+tenant's Documents tab and a new Documents tab for the owner.
+
+**Authorised downloads.** `GET /api/v1/client/rentals/documents/{document}/file` (and `…/landlord/documents/{document}/file`, `?download=1` to
+force a download): behind `client.auth` + `client.ability` + the audience's portal switch, and the id is looked up **in the caller's own list**
+(`findFor()` — the list and the file route share it), so an id that is not theirs — another party's, a draft, an archived lease's, a deleted
+document, another agency's, or one that does not exist — is a 404 with nothing leaked. No public URL, no storage path in any response. PDF and
+images open inline; anything else is always an attachment; `X-Content-Type-Options: nosniff`, `Cache-Control: private, no-store`. Every
+open/download writes `client_access_logs` (`document_viewed` / `document_downloaded`, document id, kind, role).
+
+**Reported, not changed:** the existing tenant/landlord API lists `ClientTenantRentalsController::inspections` / `ClientLandlordRentalsController::inspections` (via `RentalPortalScopeService::tenantInspections()` / `landlordInspections()`) return every non-archived inspection of the party's lease(s), drafts and ones still in signing included — the status filter §45.8 planned is not there. Outside this task, so unchanged; the Documents area does not use their output.
+
+**Not built (reported):** inventories, deposit/settlement schedules, notices, lease addenda that are not a separate lease, rent statements.
+
+**Tests — `tests/Feature/RentalPortalAccess/PortalDocumentsTest.php` (17):** a tenant sees exactly their signed leases (paper, e-signed renewal,
+cancelled-as-history), distributed reports on their leases and the shared document — and never a draft / out-for-signing lease, an archived
+lease, a deleted or unshared document, a previous tenant's or another property's lease or report, an in-progress / in-signing / draft /
+cancelled inspection or an archived lease's report; co-tenants see the same; "distributed" = completed or a sent copy; an owner sees their
+property's signed leases and reports (earlier tenancies included, archived excluded) and another owner only theirs; a party opens their own file
+(headers, bytes, audit rows); every cross-party / not-ready id is a 404 on both file routes (tenant↔owner, tenant↔tenant, owner↔owner,
+cross-agency, unknown id); no session or a staff session alone is 401; missing file = 404; image inline / Word as download; the portal switch
+closes the audience; search / sort / type / date / pagination / invalid filter; empty list; mobile keys kept; the page carries the panel for both audiences.
+
+
+---
+
+## 20. The portal Home — who to call, inspection dates, where the lease stands; and only SENT inspections in the list (8 Oct 2026, QA1)
+**Trigger.** Johan agreed the next portal items on 8 Oct 2026, for both tenant and owner: the managing agent's contact, inspection dates, lease end / renewal
+status, and the older inspections list to stop returning drafts. Rent statements, arrears, deposit and payments wait for the rental money build — **not here**.
+
+**The Home tab.** A new first tab, "Home", opened by default for both audiences (`rentals/portal/_home.blade.php`, one panel). One block per property —
+tenant: each property they rent; owner: each property they own (a vacant one shows "No current tenancy"). Compact, no helper text. API
+`GET /api/v1/client/rentals/overview` and `…/landlord/overview`, behind `client.auth` + `client.ability` + the audience's portal switch, built by
+`RentalPortalOverviewService` from `RentalPortalScopeService` only — never a bare find; agency and `deleted_at` pinned. The owner's response also carries
+`decisions_waiting` (the existing pending decisions), shown as one link to the Decisions tab. Nothing is stored; no migration, no setting.
+
+1. **Agent contact.** Name, designation, phone (cell first, else office phone), email (the outward-facing address, `User::outward_email`, never the login),
+   and the agency / branch details (agency name, branch name, phone, email, address — the branch's own first, the agency's where the branch has none).
+   Who is "the agent" (**amended 8 Oct 2026 — leases.md §17**): the lease now carries **two agents of its own**, the owner's agent and the
+   tenant's agent. The **tenant** portal shows the lease's **tenant's agent**; the **owner** portal shows the lease's **owner's agent**; if that
+   person is not an active user of the same agency (left, deactivated, archived, another agency) → the **property's agent** → the branch alone.
+   A lease whose agents were never filled in is read through the same default rules (`LeaseAgentService::effectiveIds`). The earlier
+   approver / creator fallback (`accepted_by_user_id` → `created_by_user_id` → `agent_id`) is gone. The office block is always present.
+2. **Inspection dates.** *Upcoming*: a booked date today or later whose recording has not reached signing (draft or in progress) — type, date, time, nothing
+   recorded. *Past*: inspections that have been **sent** — type, date, status ("Completed", or "Report sent" when a copy was emailed before the inspection was
+   marked complete); newest ten listed, the rest counted. **No report link on the home**: a report is opened from Documents under §19's rule (distributed +
+   signed lease etc.), unchanged. **cc6's "PDF only once ALL parties have signed" flag had not landed on QA1 when this was built** (cc6's worktree was level with
+   QA1): the hook needed is one boolean on the inspection, e.g. `RentalInspection::isFullySigned()` (every required party has a non-voided signed / wet-ink
+   signature), and the single place to call it is `RentalPortalDocumentService::inspectionIsShareable()` — add `&& $inspection->isFullySigned()` there. The portal
+   keeps no copy of that rule and no inspection code was touched.
+3. **Lease end and renewal.** From the lease record, in plain words, first match wins: *notice given* ("You have given notice" / "The tenant has given notice" /
+   "The landlord has given notice" / "Notice has been given by you" — notice date and move-out date) → *renewed* ("Lease renewed — New term …") →
+   *month-to-month* → *ended* → *renewal window* (the agency's own `expiry_notice_window_days` before the end date, days left) → *upcoming* ("Starts …") →
+   *running* ("Ends …, N days left"). Always: start, end, and the **notice period** — the agency's own `tenant_notice_period_days` (default 30). The lease shown
+   per property is the one in force, else the most recent that ran its course; a draft, cancelled or archived lease is never a home.
+
+**4. Only sent inspections in the list endpoint.** `GET /api/v1/client/rentals/inspections` and `…/landlord/inspections` (and Documents, which reads the same
+scope methods) now come from **one rule**, `RentalPortalScopeService::inspectionPortalState()`: *sent* = cc6's `RentalInspection::isDistributed()` (completed, or a
+copy logged as sent to a tenant / landlord), or *scheduled* = a future booked date as above; never a draft, one in signing that is not yet sent, a cancelled one, or
+a booked date that passed without a report. A scheduled row reports `status: "scheduled"` — a draft / in-progress state is never exposed. The old keys
+(`id, type, status, completed_at`) are kept for the mobile app; `type_label, when, status_label, date, time` are added.
+
+**Choices I made where the spec was silent (reported to Johan).** (The "agent on the lease" rule was replaced by leases.md §17.) A cancelled booking simply disappears (the parties were
+already told when it was cancelled); a booked date that passes without a report disappears rather than showing as "missed"; co-tenants and owners see the same
+rule as in §19.
+
+**Tests — `tests/Feature/RentalPortalAccess/PortalHomeTest.php`:** the agent on the lease with branch / agency details; each side sees its own agent (tenant: tenant's agent, owner: owner's agent); an agent who left → the property's agent → the
+branch; branch without details → the agency's; an agent of another agency never shown; every lease state and the wording for each side; the agency's own notice period
+and renewal window; draft / cancelled / archived lease is no home; upcoming + past inspections, nothing unsent, no report link, newest ten + count; the list endpoint
+(tenant and owner) returns sent + booked only and keeps the mobile keys; the owner home (one block per property, vacant property, tenant names); tenant ↔ tenant,
+owner ↔ owner, tenant ↔ owner, another agency; no session / staff session alone = 401; the portal switch closes each audience; the page has the Home panel for both.
+
+## 22. Portal round 2 — the agency logo on every page, the Home FAQ, inline lease details, and the tenant fault form (8 Oct 2026, QA1)
+**Trigger.** Johan's testing of the live tenant / owner links on QA1, 8 Oct 2026. QA1 only. Mobile first: every line of the screen is data or a control.
+Files: `shell.blade.php` (+ new partials `_photo-picker`, `_fault-aid`; `_home` edited), `RentalPortalShellController`, `RentalPortalFaqService`, `RentalFaultTypePortalView`,
+`ClientFaultTypeDocumentController`, `EnsurePortalSubmissionOnce` (`portal.once`), `EnforcePortalPhotoLimits` (`portal.photos`), migrations `2026_10_17_000200` (`portal_submissions`)
+and `2026_10_17_000300` (`rental_portal_settings` columns). Tests: `tests/Feature/RentalPortalAccess/PortalRound2Test.php` and `tests/js/portal-shell.test.mjs` (the page's own script run in Node).
+
+**P1 — the logo.** The header on every portal page (sign-in included) shows the agency's logo (`agencies.logo_path`); an agency without one shows its **name**. After sign-in the page asks
+`GET /api/v1/client/rentals/branding` (the signed-in person's own agency — never another's). Before sign-in the agency is only known when the personal link carried the email
+(`/portal?email=…`, §16): the shell looks that email up (portal-enabled contacts only) and embeds the branding **only when it points at exactly one agency**; any other first visit shows the
+neutral "My Rentals" until sign-in. (This is the same fact the Continue lookup already reveals; no new information leaves.) A broken logo URL falls back to the name (`@error`).
+
+**P2 — the Home FAQ, from the signed lease's own terms.**
+*Which lease fields hold notice / cancellation terms today* (checked in code and on the QA1 database, 8 Oct 2026):
+- `lease_agreement_terms.earliest_termination_date` — the agreement's clause 5.1.1, "earliest date notice may expire" (migration `2026_10_12_100001`, `LeaseAgreementTerms.php:35,49`, captured on the lease capture screen, `leases.md` §15.12 row 16). The **only** structured notice-related term on a lease.
+- `lease_agreement_terms.renewal_option_months` (renewal period) and `other_conditions` (free text — never parsed) and `extra` (JSON of template-specific values an agency's own field map declares).
+- **Not terms:** `leases.notice_date / notice_given_by / notice_note / move_out_date` record notice that HAS been given; `lease_settings.tenant_notice_period_days` is the agency's own standard (nullable; reads as 30 when never saved) and is not a statement about a lease.
+- **No field exists** for a per-lease notice length or for early-cancellation terms / penalty. The FAQ reads them from `extra.notice_period_days` and `extra.early_cancellation_terms` when an agency's agreement map carries them — no map does today.
+- **QA1 count:** of 27 live leases, 1 has a terms row at all (renewal months only); **0 carry an earliest termination date; 0 carry `extra`; 0 carry other conditions.** So on QA1 today **no lease shows an FAQ** — by design. To see one, type an "Earliest termination date" on a lease's capture screen.
+
+*Behaviour.* The Home keeps the agent block and the lease start and end; the "Notice period" line is gone (the API still returns `tenancy.notice_period_days` for the mobile app). Per property the overview returns `faq`
+(`RentalPortalFaqService::forLease`): a list of `{key, question, answer}`, rendered as a compact accordion (question = one line, tap to open). **A lease with none of its own terms (earliest date, `extra.notice_period_days`, `extra.early_cancellation_terms`) gets no FAQ at all.**
+Question 1 ("Can I give notice?" / owner: "Can the tenant give notice?") is shown when the lease has any term; question 2 ("What happens if I give notice before my lease expires?") only when the lease has an earliest termination date or early-cancellation terms.
+The notice **length** is the lease's own `extra.notice_period_days`, else the agency's standard **only if the agency has actually saved one**; the earliest date notice can be given is the earliest termination date less that length, printed only if it is still ahead of today. Draft, cancelled and expired leases show none.
+*Wording is an agency setting* (`rental_portal_settings.faq_{tenant|landlord}_{notice|early}_{question|answer}`, eight texts, neutral defaults in `RentalPortalSetting::FAQ_DEFAULTS` — no legal wording in code). Tokens: `{notice_days} {earliest_termination_date} {earliest_notice_date} {lease_end_date} {early_cancellation_terms}`; a `[[piece]]` is dropped whole when any `{value}` in it is missing; an answer that ends up empty drops its question; no raw token can reach the page. Settings page section "Home page FAQ" + Setup Wizard (Rentals step), one `has()`-guarded saver `updateFaqTexts`; blank = the default.
+
+**P3 — lease details inline.** On the Lease tab "View details ↓" opens the details directly beneath that lease's card (Rent, Deposit, Start, End or Month-to-month, Landlord) and "Hide details ↑" closes it; each lease is fetched once; opening another lease moves the open one. The old separate "Lease terms" card is gone.
+
+**P4 — the tenant fault form.**
+- *a. Double submit (BUG).* On 8 Oct 11:32:30 and 11:32:33 two identical faults (45, 46) were created three seconds apart: the button stayed live and nothing on the server compared the two. Now: the button goes off and reads "Sending… 40%" (real upload progress, XHR) with a progress bar; a clear success card ("Fault reported — your agent has been notified", "Done") replaces the form; a failed send keeps everything the person typed and the same key, so pressing again is safe. **Server guard (the class fix):** `portal.once` is on the whole `/api/v1/client/rentals/*` group — every state-changing portal request carries a key (`X-Submission-Key` header or `submission_key` field), the first does the work and its answer is kept in `portal_submissions`, a repeat gets that answer back (header `X-Portal-Replay: 1`) and does nothing; a request that arrives while the first is running waits for it (≤ ~15 s); a client with no key is guarded by a fingerprint of the request content (same person, same content, within 20 s = one press). Only a 2xx answer is kept as done; a refused attempt may retry on the same key. Rows are never deleted. **Audit of every portal form for the same bug:** tenant fault report, owner "Request work", the tenant's "is this finished?" answer (had `answerBusy` only client-side), the three owner decisions (fault, work order, extra-work variation — no guard at all) and the sign-in steps — all now disable while running and send a key; GET requests never touch the ledger.
+- *b. Photos.* Two controls — **Take photo** (camera, one per tap) and **From gallery** (multi-select) — and every pick **adds**; previews with × to remove before sending; "3 of 6 photos"; the same picture twice counts once. Photos are shrunk in the browser (longest side 1600 px, JPEG 80%; kept as they are when that would not make them smaller). Limits are agency settings: `fault_photo_max_count` (default 6, 1–10) and `fault_photo_max_mb` (default 8, 1–15, per photo as it arrives); the page checks them from the fault-types response (`limits`), the server enforces them (`portal.photos`, plain 422, nothing stored). The same picker serves the owner's "Request work" and the tenant's "not complete" answer. (The earlier single-photo behaviour was the page, not the server: it kept only the last file chooser result, and a phone camera hands over one photo per tap.)
+- *c. The "before you report" content.* Spec `rentals-faults-work-orders.md` §2/§3.2/§4.3 promises, between choosing the fault type and the form: the first-aid steps worked out for the property, the property's own valve / DB-board photo, the agency's uploaded images, PDFs and video links, and the urgency. The agent screen showed all of it; the tenant and owner portal returned **the steps text only** — documents, video links, valve / board photos and urgency never reached them, and the steps were squashed into one paragraph. Now one view (`RentalFaultTypePortalView`) feeds both pickers: steps with their line breaks, an emergency banner, the photos, the documents (images inline, video links, PDFs through the gated `…/fault-type-documents/{id}/file`), then **That fixed it / Still a problem**; a type with nothing to show goes straight to the form; the type can be changed at any time. *Honest note:* the steps panel itself did render on the deployed page in a headless-browser reproduction against QA1 data (property 6069, agency 1's 9 fault types); I could not reproduce "not showing" beyond the missing content above — see the report.
+
+**Choices made where the spec was silent (reported to Johan).** The FAQ shows nothing for a lease whose only notice information is the agency's standard period (Johan: "show nothing rather than a guess"); the portal's owner FAQ is worded for the owner; the pre-sign-in logo depends on the personal link's email.
+**Not done.** Per-lease notice length and early-cancellation terms have no capture field (so no lease has them); the capture screen was not touched. The mobile app still reads `tenancy.notice_period_days`.
+---
+
+### 22.1 Update (8 Oct 2026, later) — the FAQ now answers from the lease's own notice terms (`leases.md` §18)
+Every lease now holds its own notice period (length + unit), earliest notice date, early-cancellation answer / notice / penalty (captured or defaulted from the agency, editable per lease, back-filled on existing leases). The FAQ reads them and works real dates out for that lease: `{notice_period}`, `{notice_from}` ("now" / "from <date>"), `{earliest_notice_date}`, `{notice_by_date}`, `{earliest_termination_date}`, `{lease_end_date}`, `{early_cancellation_terms}` (built from the agency's own "allowed / not allowed" sentences, four new agency settings `faq_{tenant|landlord}_cancel_{yes|no}` with defaults, Settings + Setup Wizard), `{early_cancellation_notice}`, `{early_cancellation_penalty}`; `{notice_days}` still works for agencies that saved it. The default answers changed accordingly; an agency's own saved wording is untouched. A lease with no term of its own still shows no FAQ. **And no FAQ at all until an agent has confirmed the lease's notice terms against the signed lease (`leases.md` §18.7)** — back-filled agency defaults never reach a tenant or owner.
+---
+
+## 21. The owner's fault view and decision (8 Oct 2026, QA1 — fault flow F2/F3/F4/F7)
+
+The owner's portal Faults / Decisions tabs show a fault only after the agent has SENT it (or it is decided, or the owner reported it): `RentalFaultReport::scopeVisibleToOwner()`, used by every `RentalPortalScopeService::landlord*FaultReport*` method. They show the agent's sanitised version only — title, description, shared photos, agent note — never the tenant's original. New endpoint `GET /api/v1/client/rentals/landlord/fault-reports/{id}` (detail + contractor list for this type of work + read-only decision) and an extended `POST …/decision` (Approve/Decline with required reason; own contractor with optional name/phone; a listed contractor; or "my agent arranges it"). The shell's Decisions tab opens a review-and-decide card; "My requests" opens the same card read-only. Full rules: `rentals-faults-work-orders.md` §15.
+
+---
+
+## 23. The owner's and tenant's Jobs are WORK ORDERS only; appointment and progress (8 Oct 2026, QA1 — W2/W4/W6)
+
+The portal's Jobs read work orders (`RentalWorkOrderClientViewService`): plain stage (data: `config/rental-work-order-stages.php`), who is doing it, the appointment, the completion rounds and the photos the agency allows. The job card is internal: its portal endpoints are gone and nothing of it (crew names, sign-off, booking) is in the payload. The tenant's fault list/detail carries its linked work order (stage, who, appointment); the tenant is emailed when the appointment is set or changed. The owner's Jobs cards add: set/change the appointment (`POST …/landlord/work-orders/{id}/appointment`), report the work started/finished (`POST …/landlord/work-orders/{id}/progress`; not for the agency's internal crew). Full rules: `rentals-faults-work-orders.md` §16.
+
+## 24. Owner portal: no Decisions tab; Faults then Work orders; why an owner saw no tabs (8 Oct 2026, QA1 — Johan's 16:30 test + 16:32 ruling)
+
+**Why the owner (ClientUser #30) saw no Decisions tab at all.** Every landlord/tenant call goes through `ResolvesPortalContact::resolvePortalContact()`, which answered **409 "Select an agency first."** whenever `client_users.current_agency_id` was NULL; with every call 409 the shell's `detectRoles()` found no role and drew no tabs. The login had been created by the lease "send portal link" path (`RentalPortalAccessService::attach()`), which never set `current_agency_id`. **Fixed twice:** `attach()` now creates the login IN its agency, and `resolvePortalContact()` adopts (and saves) the agency when a login has none and is linked to exactly ONE agency (or is locked to one) — the same rule the sign-in endpoints use. A login linked to several agencies still gets the 409 and must pick one.
+
+**Tabs.** Owner: Home · Faults · Work orders · Properties · Documents. Tenant: Home · Faults · Work orders · … There is **no Decisions tab**. Faults and Work orders carry a red count when something needs the owner (fault awaiting the owner's decision; work-order quote or extra-work approval waiting) and the tenant's Work orders a count of completion checks waiting. Counts are loaded at sign-in.
+
+**What moved off the Decisions tab (and where it is now):**
+| Was on Decisions | Now |
+|---|---|
+| Fault awaiting the owner's decision | On the **fault** (Faults tab): "Needs your decision" banner, the agent's version, approve / decline-with-reason, contractor route. Home's "decisions waiting" link opens Faults. |
+| Work-order **quote** approval (Approve / Decline) | On that **work order's card** (Work orders tab), "Needs your decision". |
+| **Extra work** (variation) approval | On the **work order's card** it belongs to (`variationsFor(w.id)`); same approve / decline-with-note. |
+The `GET …/landlord/decisions` endpoint is unchanged (the shell reads it for the counts and to place the quote / variation cards); nothing server-side about the decisions themselves changed.
+
+**Email deep link.** The owner "A decision is needed" mail's button (“Review and decide”) opens `/portal?fault=<id>&email=<owner address>` — sign-in first, then straight onto that fault with the decision controls (the link forces the owner role for that visit, since one login can be both tenant and owner). A work-order decision mail opens the portal, where the card is on the work order.
+
+**Agent-reported faults** are invisible to the owner (list, detail → 404, no email) until "Save and send to owner"; the one mail then carries the fault link. Proven in `OwnerFaultScreenTest`.
+
+**Tests:** `tests/Feature/RentalFaultFlow/OwnerFaultScreenTest.php`.
+
+---
+
+## 25. Who is signed in, links made for somebody else, and the Tenant / Owner switch (8 Oct 2026, QA1 — Johan's identity ruling)
+
+**Suspected and DISPROVED: "the owner link opens the tenant's information".** Two genuinely separate sessions on QA1 for lease 94 (tenant `mtoloayanda93`, owner `ndlovu5308`), each signed in through the real sign-in path (look-up → emailed code → set password → browser-style session), then every portal endpoint fetched per session: the tenant's session resolved only the tenant role (leases 94 and 93; every `landlord/*` list empty), the owner's only the owner role (every tenant list empty). No owner name / phone / email / agent note / decision / contractor list reached the tenant; no tenant phone / email / original wording / documents reached the owner (the owner's property card shows the tenant's first name only, by design — §3). The tenant's own text on a fault is blank where the owner sees the agent's version. Locked in by `tests/Feature/RentalPortalAccess/PortalIdentityTest.php`.
+
+**What actually went wrong.** The page showed only a logo and "Log out", and `/portal?email=<owner>` with a session already signed in IGNORED the email (`init()` only pre-filled the sign-in form, which a signed-in browser never shows): the tenant's portal opened with nothing saying whose it was.
+
+**Built (all in `rentals/portal/shell.blade.php`, mobile-first):**
+1. **A "Signed in as <name> · Tenant|Owner view" line under the header, always** (name from `/client/me`; the role in view; the full email on press-and-hold/hover).
+2. **A link for someone else is never silently shown as this person's portal.** If the link's `?email=` is not the signed-in login → a card: "You are signed in as <name>. This link is for <masked email>." with ONE button, "Sign out and sign in as <masked email>" — it signs out and reloads on the same link, so the sign-in opens pre-filled. Nothing of the signed-in person's portal is fetched while the card is up. Same card for an owner fault link (`?fault=<id>`) when the person has no part in that repair ("This link is for a repair on a property you have no part in").
+3. **One login that is both tenant and owner** (e.g. can.assurance on Lease 21): a **Tenant | Owner** switch at the top (replaces "My Tenancy / My Properties"), the last side used is remembered (browser storage, per login, safe if blocked), and the owner email's "Review and decide" link always lands on the **Owner** view on that fault whichever side was last used (and makes Owner the remembered side). Both sides' data is loaded at sign-in, so switching is instant.
+
+**Tests:** `tests/js/portal-shell.test.mjs` (8 new: header line, wrong-email card, same email any case, nobody signed in, sign-out reload, fault link for the wrong person, remembered side + owner link override, properties on switch), `PortalIdentityTest` (4).
+
+## 26. The portal page runs `init()` once (8 Oct 2026, QA1 — first-load freeze report)
+
+Johan's test: on the first load of `/portal?email=<another person>` right after a deploy the page showed only "Signed in as …" and the renderer went unresponsive; the second try was fine. **Cause not reproduced** (the identity code of §25 settles on every path in the Node harness, including a slow session check). **What was found and fixed:** Alpine calls an `x-data` object's own `init()` by itself (alpinejs `module.cjs.js`: `reactiveData["init"] && evaluate(el, reactiveData["init"])`) and the page ALSO said `x-init="init()"`, so every load ran `init()` twice at the same moment — two `/me` checks, two role detections and two copies of every list request racing each other on a cold, just-deployed server. `init()` now returns at once if it has already started (`initStarted`). Tests: `tests/js/portal-shell.test.mjs` (once-only requests; a mismatched link with a slow check ends on the card, never a blank page). If the freeze happens again, capture the browser console and the Network tab before reloading — that is the evidence still missing.
+
+## 27. Every portal link says who it is for, which side, and where it lands (8 Oct 2026, QA1 - Johan: "email addressed to Ayanda (tenant), clicking the link shows Signed in as Siyabonga (owner)")
+
+**Cause.** Every rental mail built its portal link as `url('/portal')` with nothing on it about the recipient, so the link opened whoever was already signed in on that device, and the §25 "this link is for someone else" card could never fire (the link named nobody).
+
+**The class fix: ONE helper, `App\Support\PortalLink`, builds every portal link** - in every rentals Mailable and Notification (tenant, owner, fault, work order, appointment, inspection, lease, portal invite) and the lease screen's copy link. A link is `/portal?r=<signed recipient>&as=owner|tenant&<target>`:
+- `r` - the contact id and the address the mail was written to, signed with the app key (HMAC). Not guessable or forgeable; no readable address in the URL. The page reads it SERVER-side (`RentalPortalShellController::linkedEmail`), so the sign-in is pre-filled, the agency header shows before sign-in, and the card can name whose link it is. A tampered `r` is ignored. The personal link (lease-screen copy, portal invite, signed-lease copy) keeps its readable `?email=` and adds `r`; plain `?email=` links still work exactly as before.
+- `as` - the side the mail is written for. A person who is both tenant and owner on one lease (can.assurance on Lease 21) lands in THAT side, whichever they used last (the remembered side only applies to a link with no `as`).
+- target - one of `fault`, `wo`, `insp`, `lease`, `docs`; opened after sign-in: tenant fault -> Faults, work order -> Work orders, lease -> Lease, documents -> Documents; owner fault -> that fault with the decision controls, work order -> Work orders, inspection -> Home. A record the person has no part in, or a side the login does not have, gives a card ("This link is for a repair on a property you have no part in" / "...the owner side of the portal, and this login does not have it") - never somebody else's portal.
+
+**On open.** Nobody signed in: sign-in for that recipient, then land on the target (the URL survives sign-in). The right person signed in: land on the target in the right side. Someone else signed in: "You are signed in as X. This link is for Y" with the "Sign out and sign in as Y" button; nothing of X's is loaded; the link survives the reload so Y lands on the target.
+
+**Guard.** `tests/Feature/RentalPortalAccess/PortalMailLinkTest.php` fails if any file under `app/Mail`, `app/Notifications`, `app/Services/Rentals`, `app/Jobs/Rentals`, `app/Listeners`, `app/Http/Controllers/CoreX` or `resources/views/emails` writes a portal URL by hand, builds each linking mail and opens its link (recipient, side, record), and proves a both-roles person gets a link per side. JS: `tests/js/portal-shell.test.mjs`. The full table of mails/notifications (recipient, target, view): `/tmp/qa1-cc6-mail-links-2026-10-08.md`.
+
+**Header logo (the real cause of the Faults-tab freeze).** The page script has no render loop (every method a template calls while drawing is pure, enforced by a test; the owner's Faults tab costs one request per click and one per fault opened). What froze a real Chrome was the agency header logo: QA1's `agencies/1/logo.jpg` is 10629 x 3543 pixels (37.6 megapixels), drawn at 200 x 38 and decoded in full on every page and repaint. `App\Support\PortalLogo` makes a copy at most 640 px wide, once, beside the original (kept for PDFs, mail and the office); the portal page, `GET /api/v1/client/rentals/branding` and the crew page serve it. Any failure falls back to the original URL. Logo upload has no size limit today - a decision for later.
+
+## 28. Portal identity end to end - the page acts as the person the link was written for, on the side on screen, and nobody else (9 Oct 2026, QA1 - Johan: "still finding that the tenant and owner links, names etc are mixed up"; he tests tenant and owner in ONE browser)
+
+**Rule.** A link issued to person A shows A's portal with A's name, lease and side - or the card "This link is for someone else". It never shows B's data under A's link, never greets with the wrong name, and a person who is both owner and tenant lands on the side the link was written for. A page only ever acts as the person it is showing.
+
+**Audit of every way in** (before / after; full table in `/tmp/qa1-cc1-portal-identity-2026-10-08.md`). What section 27 had already fixed: the link names its recipient, side and target. What was still wrong, found by tracing every entry point:
+
+1. **The header name and every attribution came from "the lowest-id contact of the login", on both sides.** A login can carry several contacts in the agency (the same person captured as tenant and as owner, or two people sharing one address and so one login). `ClientAuthService::contactForAgency()` ordered by id and took the first; the portal header ("Signed in as ...") and every `reported_by_contact_id` (a fault reported from the Owner view, the owner's decisions) used it. Fix: **`App\Services\Rentals\PortalIdentityService`** is the one place that picks the contact - the contact that holds the SIDE being served (route `client.rentals.landlord.*` = owner, any other `client.rentals.*` = tenant), preferring the contact the link named, falling back to the lowest id (so a one-contact login is exactly as before). `ResolvesPortalContact` uses it; `GET /client/me` accepts `?as=tenant|owner` and returns `side_contacts` (the person's name on each side) and `owns_linked_contact`. The page greets by the contact of the side on screen and follows the Tenant | Owner switch.
+2. **A link named an address, not a person.** Two people can share an address (a couple on one lease): the same link, the same name for both. `PortalLink` now writes the exact contact into the signed reference (`forEmail(..., $contactId)`, `personal(..., $contactId)`); the lease-screen card link, the portal invite, the signed-lease copy (`mailBlockForLease($lease, $email, $recipientContactId)`), the inspection mails and the owner decision mail all pass it. The page sends it back on every request (`X-Portal-Contact`); the server uses it ONLY to choose among the login's own contacts - it changes a name and an attribution, never a permission.
+3. **The right person was called a stranger when their login sits on another address than the contact's** (email changed after the login was made; agent-made placeholder login). The page compared the link's address with the signed-in login. Now, when the link names a contact, the server answers `owns_linked_contact` and the page trusts that over the address.
+4. **Signing in ON the page skipped every check.** After a code + password or password sign-in the page set "authenticated" without asking who - so the "Signed in as" line stayed hidden and a link written for A could be signed into as B (the person edits the pre-filled address) and show B's portal under A's link. Both sign-in paths now run `afterSignIn()`: learn who signed in, run the same link check as a page load, then load the portal.
+5. **Two tabs, one browser.** ~~The browser holds ONE portal session however many tabs are open~~ - **OVERRULED 13 Oct 2026 by Johan, see §28.5.** Every tab now holds its own login, so a tab is never signed out by another tab. (`X-Portal-Expect` / 409 `session_changed` / `EnsurePortalSameLogin` stay for a request that has no tab token - an older page still open from before the change - and nothing else.)
+
+**Checked and sound (no change).** A staff session in the same browser never answers for the portal (`client.auth` consults only the `client-web` guard; `Auth::user()` inside a portal request is the portal person - proved again here). Mail greetings come from the recipient contact in every rentals mail, one mail per recipient with their own first name and their own link (tested for a two-tenant lease and a two-owner property). The signed reference cannot be forged or edited. `?email=` links still work. Remembered side is stored per login id.
+
+**Entry points covered by tests, each with another person signed in on the same device:** tenant and owner links to a fault, a work order, an inspection, the lease, the documents and the bare home (the lease-screen copy link and the portal invite are the "home" shapes); sign-in on the page as the right person and as the wrong person; staff in the same browser; two tabs. `tests/js/portal-shell.test.mjs` (the page script in Node, 11 new), `tests/Feature/RentalPortalAccess/PortalIdentityEntryPointsTest.php` (server side, 15).
+
+**Not changed (decisions for later, not done here).** `ClientAuthService::contactForAgency()` still returns the lowest-id contact for the mobile app and the buyer/seller endpoints (they have no tenant/owner side). Logo upload still has no size limit (section 27).
+
+### 28.5 Per-tab portal sign-in - any two logins in two tabs of one browser (13 Oct 2026, Johan: "links that's allowed both in chrome at the same time"; overrules the "one person per browser" rule above)
+
+**Why.** Johan demoed a lease he created live (two real people, two real emailed links) in two tabs of one Chrome window. The browser held ONE portal session cookie, so the second link's "Sign out and sign in as ..." signed the first tab out; the first tab then said "Someone else signed in on this browser". He hit it twice in front of a client. A correctness fix for every environment, not a demo trick.
+
+**Rule.** A link opened in a tab signs THAT tab in as that link's person. Other tabs - other people, or the same person on the other side - are never touched. There is no "This link is not for this account" dead end and no "Someone else signed in on this browser" for tabs that hold their own login. The same person and side in a new tab keeps working with no password.
+
+**How (all environments).**
+- **A tab's login is its own token.** Signing in on the page (`POST /client-auth/login` and `/password/set` with `tab: true`, from a same-origin browser page only) returns a Sanctum token named `Web portal (tab)` (`ability client`, `clientauth.tab.token_hours` = 12) instead of logging the browser's session cookie in. The page keeps it in `sessionStorage` (per tab, survives reloads, gone when the tab closes; memory only if storage is blocked) and sends it as `Authorization: Bearer` on every portal call and upload.
+- **A bearer always wins.** `AuthenticateClientPortal` consults ONLY the bearer token when a request has one; the shared session cookie (somebody else's portal login, or a staff login) never answers in its place. A request with no bearer behaves exactly as before (older tabs; the mobile app signs in the normal way and is untouched).
+- **The browser remembers who has signed in on it** - an encrypted HttpOnly cookie `portal_logins` of login ids (never a credential, unreadable by the page, `clientauth.tab.remember_cookie`). A tab with no token asks `POST /client-auth/tab-token` (`email`, `contact_id` from the link): it is handed a token only for a person already remembered on this browser - the link's person, or (for a link naming nobody) the most recent - or for a portal session from before this change. Anybody else gets 401 `needs_signin` and the page shows the normal sign-in, pre-filled for the link's person. A link alone never signs a new person in.
+- **Opening another person's link in a tab that holds a login** drops that tab's login (no server sign-out) and signs the link's person in on that tab.
+- **Log out** ends that tab's token and forgets that person for NEW tabs on this browser; other tabs, other people and the staff session are untouched. (A cookie-session logout no longer deletes tab tokens.)
+- **One person, both sides** in two tabs: each tab remembers its side in `sessionStorage` (`portal.tab.role`; the Tenant | Owner switch changes this tab only), a link's `?as=` still wins, and a brand-new tab starts on the side the login last used anywhere.
+- **Role check kept.** A tab that sends `X-Portal-Role` is still refused cross-side calls with 403 `role_mismatch` (`EnsurePortalRole`). QA tabs (below) always send it.
+- **Private files** (invoice, quote document, lease paper, fault-type document) are behind the login, which a plain link cannot carry: the page fetches them with the tab's token and opens/saves them from a blob (`openFile`). Public files (photos) open as normal links. A tab without a token (older page) opens them as normal links.
+- **The mismatch card survives in one case only:** a person who types a different address into the pre-filled sign-in form still gets "This link is not for this account" after signing in (a link written for A is never shown as B's portal).
+
+**QA1 only (the demo gate, unchanged: `APP_ENV=qa` AND `PORTAL_DEMO_SIGNIN`; route absent -> 404 elsewhere).** Every emailed owner / tenant / portal link signs its tab straight in - no emailed code, no password - for any contact on any lease, including ones made live during a demo: the page posts the link's SIGNED recipient reference (`r`) to `POST /api/v1/client-auth/qa-link-signin`, which creates the contact's login if it has none, sets its agency, logs `qa_link_signin` and returns a tab token. An unsigned or edited `r` signs nobody in (422). The tab is then a demo tab: fixed to the link's side (`?as=`) for its whole life and sending `X-Portal-Role`. The one-click `/demo-signin/{token}` links now also give their tab its own token, handed over in the URL FRAGMENT (`#tt=`, never sent to a server or logged; the page wipes it). **Outside the gate first-time contacts keep emailed code + password exactly as before** - Johan has not ruled otherwise. Logging out on QA1 and then reloading an emailed link signs it straight in again.
+
+**Tests:** `tests/Feature/RentalPortalAccess/PortalTabSigninTest.php` (two logins in two tabs for one lease and for two leases; one login, two sides, two tabs; logout in one tab leaves the other; bearer beats the cookie; role mismatch still 403; new tab for a remembered person needs no password, a stranger gets 401; older cookie session still honoured; token expiry; activation not overruled by another person's session; QA link sign-in for passwordless contacts, for a contact with no login, unsigned `r` refused; gate off = 404 + first-time flow unchanged; the demo link's fragment token), `PortalDemoSigninTest`, `tests/js/portal-shell.test.mjs` (tab token kept per tab, link for another person, QA auto sign-in, fragment, 401 restarts sign-in).
+
+
+## 30. Johan's night test (9 Oct 2026): the "work has started" 404s, and what each side may press
+The owner's *The work has started / finished* answered "Work order not found" because the press came from a stale OWNER tab that was sending as the TENANT who had signed in in another tab (the two-tabs case section 28 now stops with `X-Portal-Expect` / 409 `session_changed`). The tenant has no such buttons.
+
+**What each side may press (per spec):**
+| Who | Where | Can press |
+|---|---|---|
+| Tenant | Work orders | Only *Is this finished?* - *All done* / *Not complete* (note + photos) while a completion check waits on them. Nothing else: no "started", no "finished". |
+| Tenant | Faults | Report a fault; follow its progress line. |
+| Owner | Fault awaiting their decision | Approve (own contractor or the agency's) / Decline (with a reason). |
+| Owner | Work order | *Set / change the appointment* (only once the job is approved); *The work has started* only once the work order has gone to the contractor and has not started; *The work is finished* once it has gone to the contractor (not for the agency's own team, not while the tenant check is open); *Approve* / *Decline (with a reason)* while a quote waits for them. Buttons that would be refused are not shown - the card says why. |
+The tenant sees neither the contractor's name nor an appointment before the job is approved (`rental-work-orders.md` section 17.35).
+
+
+## 29. Portal pictures - thumbnails only, one date function, and what the page costs to paint (9 Oct 2026, QA1 - Johan: "every image shown in the portal ... served as a server-made thumbnail ... never the stored original in a 72px box")
+
+**Why.** A "the Faults tab froze" report on 8 Oct could not be reproduced in a real Chromium with the tenant's real payload (3 faults, 4.8 KB, no pictures), and a long-task observer in the owner's own Chrome showed zero long tasks - the stall was Chrome's screenshot capture. But the same investigation showed a real cost the page would pay as soon as a tab holds pictures: the portal handed the browser the STORED file. Measured in headless Chromium (desktop, 2x pixel ratio, same page): six 4032 x 3024 photos in the 70 px grid = 7.6 MB over the wire and 1,353 ms of image decoding on the first draw; the same six as 480 px copies = 250 KB and 40 ms (34x less). On an ordinary laptop that is seconds of blocked drawing, and screenshot tools time out on it.
+
+**Rule.** Every picture the portal shows - tenant or owner: the work order's photos, the completion rounds' photos (the tenant's and the crew's), the owner's view of a fault and of a request for extra work, the valve / DB-board photos and the images the agency attached to a fault type - comes from ONE service, `App\Services\Images\PortalImageService`, and carries two URLs:
+- `thumb_url` - at most 480 px on the longest side (JPEG q78). Every list, grid and card uses this. It is what sits in the 72 x 72 / 96 x 72 boxes.
+- `url` - at most 1600 px (JPEG q82). This is what opens when the picture is pressed. Never the stored original.
+
+A file that is already within the limit AND small (thumbnail: 60 KB, full: 600 KB, JPEG) is served as it is. The original is never touched (PDFs, mail and the office screens still use it). Copies are made on first use under `storage/app/public/portal-img/{480,1600}/`, named from the original's path + modification time + the size limit, so a replaced original gets fresh copies, and written to a temporary name then renamed so two requests never leave a half file. EXIF orientation is baked in first (on a private copy). This works for every way a picture arrives - tenant wizard, owner wizard, agent, crew, contractor, completion round - because the copy is made from the stored file at the moment the portal asks, not at upload. Anything that goes wrong (no GD, an unreadable file, more than 120 megapixels, a file that is not a picture, a link that is not ours, a missing file) returns the original URL for both, exactly as before: a picture is never lost because a resize failed.
+
+The page: every `<img>` uses `:src="x.thumb_url || x.url"`, `loading="lazy"` and `decoding="async"`; the link around it opens `x.url`. The sign-in header logo keeps its own small copy (`App\Support\PortalLogo`, 480 x 160, 20 KB on QA1). The photo picker previews a file the person has just chosen and not yet sent (already shrunk in the browser to 1600 px) - not a stored picture.
+
+**API.** Photo rows of the `/api/v1/client/rentals/*` endpoints gain `thumb_url`; `url` is now the capped full-view copy (the mobile app keeps working, and gets lighter pictures). Inspections in the portal expose dates and status only - no pictures - so there is nothing to convert there; any future inspection picture must go through the same service (the test below fails a bare `.url` in an image tag).
+
+**One date function.** `shell.blade.php` defined `fmtDay` twice in the same Alpine object; the later (`new Date(iso)`) silently won, which showed the previous day for a date-only value in any time zone west of UTC and returned a blank for an open end date. There is now exactly one: it reads the date as written (first 10 characters), formats with one cached `Intl.DateTimeFormat` (a new formatter per call was the biggest single app cost of drawing a fault's progress line), shows `—` for an open date and the raw text for garbage. Every caller was checked: Home tenancy start/end and inspection days (date-only), the lease detail start/end, the progress line's step dates (ISO with offset).
+
+**What the page costs to paint (measured, Chromium 148, desktop 1280 x 700 @2x, synthetic payloads - no real tenant data).** Faults tab with 3 faults x 8 steps: Paint 2.6 ms, Layout 12.8 ms, Style 3.0 ms, Raster 58 ms, screenshot 150 ms. No blur, no backdrop-filter, no gradient, no fixed layer, no endless animation anywhere in the portal views; the only paint extras are a 3 px ring shadow on the current progress dot, one invisible file input, and a 0.15 s width transition on the upload bar that only exists while a form is sending. (The shared Tailwind stylesheet contains `animate-pulse` / `animate-spin` / backdrop utilities, but no portal view uses a class from them.) Nothing to fix there.
+
+**Acceptance.** (1) `tests/Feature/Rentals/PortalImageServiceTest.php`: thumbnail <= 480 px and full <= 1600 px for a 3000 x 2250 original, original byte-identical afterwards, copies made once, a replaced original gets new copies, small files served as they are, PNG -> JPEG, absolute URLs, foreign / missing / path-walking / non-picture input returned unchanged, the work-order photo payload carries both URLs, and no portal view has an `<img>` that is not a thumbnail and lazy. (2) `tests/js/portal-shell.test.mjs`: one `fmtDay` and its formats (date-only, late-evening with offset, open date, garbage); every `<img>` is `thumb_url || url` and lazy.
+
+## 31. Who presses "started" / "finished": the tenant when someone lives there, the owner when nobody does (14 Oct 2026, QA1 - Johan's ruling; supersedes the owner half of W6, §23 / §30)
+- **Owner portal, work order card:** with a tenant in the property (an active lease) the owner sees the appointment, progress, quote, authorised amount, photos and shared invoices and keeps approve / decline / stop / query - but NO "set / change the appointment", NO "The work has started", NO "The work is finished". The card says: "Your tenant lives in the property, so they tell us when the work starts and finishes. You can follow it here." (`owner_progress_note`) and, for the appointment, "Your tenant lives in the property, so your agent arranges the appointment with them." With NO tenant the owner keeps all three (same handlers). The server refuses the owner's POST when a tenant lives there (422), not just the button.
+- **Tenant portal, Work orders tab:** two actions (block `data-tenant-progress`, flags `tenant_can_start` / `tenant_can_finish`, reason `tenant_progress_note`): **"The contractor has arrived - work has started"**; **"The work is finished"** (optional note + photos) with **"It is not fixed"** (reason required) as the alternative. Route `POST /api/v1/client/rentals/work-orders/{workOrder}/progress` (`portal.photos` middleware like the completion answer; the tenant's own work order only - an owner or another agency's tenant gets the same 404).
+- **When:** only once the cost is authorised and the go-ahead has gone, not while the owner has the job stopped, never after completion - the same rule for both people (`RentalWorkOrderService::progressBlock`).
+- **"Finished" never completes the work order:** it records the tenant's confirmation (a completion round via `tenant_portal`, answered) and tells the agent, who completes the job (final cost, what was found, who pays). "Not fixed" tells the agent and keeps the job open. Full detail and the fields the agent page reads: `rentals-faults-work-orders.md` §22.18.
+- **Cross-browser guard:** the portal's `:disabled` bindings stay `!!( )` booleans (`tests/js/portal-shell.test.mjs`).
+
+## QA demo sign-in (never on Staging/live)
+
+_13 Oct 2026, Johan: for a live demo on the QA1 test site both portals must be open and stay signed in, with no emailed code and no re-logging in._
+
+**What it is.** A one-click link per demo contact and side (owner / tenant). Opening it signs THIS browser's portal session in as that contact on that side and lands on the portal. It is a test-site tool and must be impossible anywhere else.
+
+**The gate (one test, `App\Support\PortalDemoSigninGate::open()`).** `APP_ENV` is `qa` AND `config('clientauth.demo_signin_enabled')` is true. The flag is `PORTAL_DEMO_SIGNIN` (default false); it is set to true only in QA1's own `.env`. `routes/web.php` calls `PortalDemoSigninGate::registerRoutes()`, which registers NOTHING unless the gate is open, so on Staging, live, local or with the flag off the URL is a plain 404. The controller and the artisan command re-check the gate, so a route registered by mistake (stale route table) still answers 404.
+
+**Tokens.** `portal_demo_signins`: one per contact and side, only the sha256 of the 48-character token is stored (shown once when issued), revocable (`revoked_at`), issuing again revokes the earlier link, `last_used_at` + `use_count`. A token opens exactly its own contact's login; a changed, unknown or revoked token is a 404. Every use writes a `demo_signin` row to `client_access_logs` (contact, role, token id, ip, agent).
+Issue / revoke: `php artisan portal:demo-signin {contactId} {owner|tenant} [--revoke]` (refuses outside the gate).
+
+**Session (replaced 13 Oct 2026, see §28.5).** The link no longer touches the browser's shared session at all: it mints a token for THIS TAB (handed over in the URL fragment) and remembers the person on the browser. A STAFF login in the same browser (`web` guard) is untouched; so is every other tab.
+
+**Two portals at once (superseded, §28.5).** This section used to explain that two windows of one browser share one session cookie, so the demo needed both contacts on ONE login. That limit is gone: every tab holds its own login, so any two logins - including the real, separate logins of a lease created live - sit side by side. Putting both demo contacts on one login is no longer needed (it still works).
+
+**Two tabs, one login (replaces the separate-logins arrangement, 13 Oct 2026 later the same morning).** The two demo contacts sit on ONE login again. One login = one session cookie, so two tabs never evict each other (the "someone else signed in" guard only fires when the LOGIN changes). The demo link lands on `/portal?...&as=owner|tenant&demo=1`. A demo tab (`demo=1`, remembered in that tab's `sessionStorage`) keeps its side per tab: the side comes from the tab's own URL / `sessionStorage` (never the shared `localStorage` key), a demo tab asks only about its own side (so it is never offered the other view), and every portal call carries `X-Portal-Role: owner|tenant`. `App\Http\Middleware\EnsurePortalRole` (alias `portal.role`, on the `rentals` portal group) refuses a call that belongs to the other side with 403 `role_mismatch` (owner endpoints are `/rentals/landlord/*`; branding and fault-type documents are neutral), so a tenant tab can never be handed owner data and an owner tab can never act as the tenant. No header (the mobile app, every normal tab) = no change. Tests: `tests/Feature/RentalPortalAccess/PortalRoleEnforcementTest.php`.
+
+**Files.** `config/clientauth.php`, `app/Support/PortalDemoSigninGate.php`, `app/Models/PortalDemoSignin.php`, `app/Http/Controllers/PortalDemoSigninController.php`, `app/Console/Commands/PortalDemoSigninCommand.php`, migration `2026_10_13_100000_create_portal_demo_signins_table.php`, `tests/Feature/RentalPortalAccess/PortalDemoSigninTest.php`.
+
+
+## Staff page survives a portal in the same browser (13 Oct 2026, QA1 - Sherry demo bug; cc1 owns this, cc4 owns "two portal tabs")
+
+**What happened.** Johan had a staff inspection page open, opened the owner and tenant portals in the same browser, logged one out, and every photo / observation save on the staff page came back **419** until he reloaded (the photos on #109 never saved). Cause: one browser holds the staff login and the portal login in ONE session cookie, and Laravel's `SessionGuard::login()` (`updateSession` -> `regenerate(true)`), `session()->regenerate()` and `regenerateToken()` each replace the session's CSRF token. The staff page still carried the old one. The portal logout (`ClientAuthController::endPortalSession`, `regenerateToken()`), the portal login (both stateful branches) and the QA demo sign-in all did it.
+
+**Rule (a bug CLASS, not an inspections fix).** While a staff login is in the session, nothing a portal does may change that session's CSRF token. `App\Support\StaffSafeSession` is the one place: `loginPortal($request, $guard, $user)` remembers the token, logs the portal person in (the session id is still renewed - that is the fixation protection), and puts the token back when a staff login shares the session; `rotateToken($request)` replaces the token on a portal logout only when no staff login needs it. With no staff login the behaviour is exactly Laravel's. Used by `ClientAuthController` (login x2, logout) and `PortalDemoSigninController`. **cc4:** per-tab portal sign-in in the same controller / middleware must keep going through these two calls (never call `->login()`, `regenerate()` or `regenerateToken()` on a session that can hold a staff login).
+
+**Second line of defence - the save never dies on a stale token** (staff pages can still go stale for reasons that are not a portal: a second staff login in another tab, a renewed session). `public/js/corex-connection-guard.js` (mounted on every staff page by `layouts/partials/_session-guard`) now sends every mutating same-origin request with the LIVE token: **fetch** - the stale rendered-in token is replaced; on a 419 the token is refreshed (`GET /api/v1/csrf-token`) and the same request is sent once more; if the session is really gone the caller receives a plain JSON message (status 419, "Your session has ended. Sign in again in a new tab, then send this again - what you captured is still on this screen.") instead of a raw error. **XMLHttpRequest** (photo uploads) - the token is refreshed just before the send. **Native forms** - the hidden `_token` is synced on submit. A tab coming back to the foreground refreshes its token. The photo uploader already keeps a failed batch on screen with Retry; its 419/401 message is now the plain one above. Screens covered: every page on `layouts.corex` / `layouts.corex-app` - i.e. the property page's inspection tab (items, photos, observations, tagging, attendance, signatures), the standalone inspection page and its signing panel, inventories (incl. capture), fault reports, work orders, job cards, completion, notices, applications. Proof: `tests/Feature/RentalPortalAccess/StaffPageSurvivesPortalTest.php`, `tests/js/connection-guard.mjs` (token swap, one retry, dead session, XHR, forms, other-origin untouched), `tests/Feature/Session/StaleTokenCoverageTest.php` (every full rental page sits on a guarded layout).
+
+### The staff login is never touched by a portal call - including the QA auto sign-in (14 Oct 2026, QA1 - cc5's walk: "opening a portal link in the same browser signs the AGENT out")
+**Cause (mine, introduced with the per-tab work at 6c17f3754).** `POST /api/v1/client-auth/qa-link-signin` is registered by `PortalDemoSigninGate::registerRoutes()`, which routes/web.php calls inside the `web` group, and the route also carried Sanctum's `EnsureFrontendRequestsAreStateful`, which runs its own EncryptCookies/StartSession stack. Two session stacks: the browser's session cookie was read a second time as an unknown session, a NEW empty session was started and its cookie replaced the staff cookie - the staff user was signed out the moment an owner/tenant link was opened with auto sign-in. (Not the CSRF rotation fixed above; portal logout, `tab-token`, tab login and the demo `GET /demo-signin` never touched the session id.) Traced in-process with a session spy: staff session read, then a second read of a brand-new empty id.
+**Rule.** One request = ONE session stack. A portal route is either in the `web` group (pages) or in the `api` group + Sanctum's stateful middleware (the `/api/v1/client-auth/*` calls) - never both. `qa-link-signin` is now `->withoutMiddleware('web')`. The portal guard `client-web` and the staff guard `web` share a browser session under separate keys; no portal call may replace the session id or remove the staff key.
+**Guards:** `tests/Feature/RentalPortalAccess/PortalNeverEndsStaffSessionTest.php` (no route runs both stacks; qa-link-signin, tab-token, tab login/logout and the old cookie login/logout each leave a REAL staff session cookie, id and login intact - an acting-as shortcut cannot reproduce this bug) and the real-browser script `scripts/qa1/portal-staff-survives.mjs` (staff + owner + tenant + demo tabs, switches with reloads, portal logout and re-open, then a staff POST with the page's own CSRF token).
+
+### Portal sign-in and link mail go out as the AGENCY, never as CoreX (14 Oct 2026, QA1)
+Same rule as the rental application's verification code (`rental-applications.md`, `OtpMail`): agency mail is the agency's own. **Sign-in code and password-reset code** (`ClientAuthOtpMail`, sent by `ClientAuthService::issueOtp` for both `POST /client-auth/otp/send` - activation and recovery - and `POST /client-auth/password/forgot`): the agency's logo (its name when it has none) on top, its name and address / phone / email / website at the bottom, its name as the sender, "Your <Agency> sign-in code: 123456" as the subject, replies to the agency's email. Nothing of CoreX. The agency is `ClientAuthService::agencyForSignIn()`: the agency of the person's contacts on that address - which is how a **first-time** owner / tenant with no login yet is found (the old rule looked only at an existing login, so a first-time code was never branded) - or, for a person with contacts at several agencies, the one their login is locked to / prefers. Otherwise (several agencies and no choice, or an address nobody knows) it is the **plain** code mail: no logo, sender "Portal sign-in", no CoreX text. An unknown address still sends nothing, so the mail never hints at whether an address is a client. **Portal link mails:** the invite ("<Agency> - your portal", "Your portal is ready"), the signed-lease copy's "Your portal" block and the lease screen's WhatsApp text no longer call it "your CoreX portal". **Portal pages:** the single page (`/portal`, which also answers unknown `/portal/...` paths, so there is no separate portal 404) shows the agency logo/name, or the neutral "My Rentals" until the agency is known - never "CoreX OS". **Tests:** `PortalMailAgencyBrandingTest` (renders the mails; nothing is sent). Reported, not changed: other client-facing pages and mails outside the portal that still say CoreX OS (404 / 403 guest pages, maintenance page, the e-sign gateway and consent footers, public agency-properties / auction footers, the Core Matches digest and presentation mail footers, the Certificate of Compliance request).
+
+
+### Notices from the portal (14 Oct 2026, QA1) - `lease-notices.md`
+The tenant's and the owner's portal each have a **Notices** tab (`GET|POST /api/v1/client/rentals[/landlord]/notices`, `ClientRentalNoticesController`, `RentalPortalNoticeService`): give notice (lease when more than one, date given, move-out / end date, reason, optional attachment up to 10 MB) and see where the notices **your own side** gave stand ("With your agent for review", "Accepted - your lease ends on ...", "Not accepted: <reason>"). Giving notice tells the lease agents (alert + email) and **nobody else**; the lease itself is untouched until an agent accepts. A tenant can give notice only on a lease they are a tenant on, an owner only on a lease at their own property (`RentalPortalScopeService`). The final notices an agent sends to a person appear in that person's **Documents** as kind **Notice** (`RentalPortalDocumentService::KIND_NOTICE`), only for the side they were sent to. The agent's internal note on a notice accepted as given is never shown; the reason on a rejected or corrected one is. Tests: `tests/Feature/LeaseNotices/LeaseNoticePortalTest.php`.
+- **14 Oct 2026: the portal's `/client-auth/tab-token` probe** answers `200 {token:null, needs_signin:true}` when sent with `probe:true` (no red 401 on a fresh browser); without `probe` it is still a 401. The agent's contractor-only appointment note is never in any tenant/owner payload. See `rentals-faults-work-orders.md` 22.20.
+
+### Audit fixes 2026-10-18 - portal sign-in, remembered logins, former tenants, owner-raised faults
+- **Password set/change (A-M1).** `POST /client-auth/password/set` accepts only a real Sanctum `PersonalAccessToken` as an activation token (`client-activation`) or a must-change login token. A cookie-session user (Sanctum's `TransientToken`, whose `can()` is always true) must send `current_password`, as `changePassword` does (422 otherwise); it no longer 500s after saving.
+- **"Logins remembered here" (A-L1).** Each entry of the `portal_logins` cookie is `{i: login id, t: real sign-in time, v: fingerprint of the password hash}`. An entry counts only while it is younger than `clientauth.tab.remember_max_days` (default 7, `PORTAL_TAB_REMEMBER_DAYS`) - an ABSOLUTE age from the real sign-in; reusing the memory for a new tab does not extend it - and while the password is unchanged. Setting or changing the password revokes the login's other web-portal tab tokens (the tab making the change keeps its own) and the browser that made the change keeps remembering them under the new password. Old id-only cookies are ignored once: the person signs in again.
+- **Former tenant (A-L2).** `RentalPortalScopeService::tenantActiveLeaseIds()` = leases in force (`status = active`; month-to-month is an active lease with the flag). Filing a fault report and a property's first-aid content (`tenantProperty()`, `tenantLeaseIdForProperty()`) need one; read-only history of the tenant's own past records (leases, fault reports, work orders, inspections, documents) still resolves through `tenantLeaseIds()`. Reported, not changed: the work-order "confirm fixed" action still follows `tenantLeaseIds()`.
+- **Owner-raised faults (A-L3, Johan 2026-10-18).** The tenant's fault list and by-id lookup drop `reported_by_type = landlord`; the tenant still sees faults they logged and faults the agent logged (including `owner_instructed`). A direct id request for an owner-raised fault 404s.
+- Tests: `PortalTabSigninTest`, `PartyIsolationTest`.

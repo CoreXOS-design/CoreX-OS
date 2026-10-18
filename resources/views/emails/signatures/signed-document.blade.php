@@ -39,6 +39,20 @@
             </div>
         @endif
 
+        @if(!empty($leaseNote))
+            <div style="background-color: #fffbeb; border-left: 4px solid #d69e2e; padding: 15px; margin: 20px 0;" data-lease-note>
+                <p style="margin: 0;">{{ $leaseNote }}</p>
+            </div>
+        @endif
+
+        @if(!empty($portal))
+            <div style="background-color: #f0f9ff; border-left: 4px solid #00b4d8; padding: 15px; margin: 20px 0;" data-portal-block>
+                <p style="margin: 0 0 6px;"><strong>Your portal</strong></p>
+                <p style="margin: 0;">In your portal you can {{ implode('; and ', $portal['offers']) }}.</p>
+                @include('emails.rentals.partials.portal-link-button', ['url' => $portal['url']])
+            </div>
+        @endif
+
         @if($envelopeUrl)
             <div style="text-align: center; margin: 30px 0;">
                 <a href="{{ $envelopeUrl }}" style="display: inline-block; background-color: #276749; color: #ffffff; padding: 14px 40px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
@@ -55,7 +69,7 @@
     </div>
 
     <div style="text-align: center; padding: 15px; color: #999; font-size: 11px;">
-        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? config('app.name') }}'s document signing system.</p>
+        <p style="margin: 0;">This email was sent by {{ $agentFooter['agency_name'] ?? \App\Support\ClientBrand::NEUTRAL }}'s document signing system.</p>
     </div>
 
 </body>

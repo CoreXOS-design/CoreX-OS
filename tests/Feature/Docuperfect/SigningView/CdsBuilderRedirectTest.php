@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Docuperfect\SigningView;
 
+use App\Models\Agency;
 use App\Models\Docuperfect\CdsDraft;
 use App\Models\Docuperfect\Template as DocuperfectTemplate;
 use App\Models\Permission;
@@ -48,7 +49,7 @@ final class CdsBuilderRedirectTest extends TestCase
         ]);
         $draft = CdsDraft::create([
             'user_id'            => $user->id,
-            'agency_id'          => $user->agency_id ?? 1,
+            'agency_id'          => $user->agency_id,
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => [],
@@ -143,7 +144,7 @@ final class CdsBuilderRedirectTest extends TestCase
         ]);
         $draft = CdsDraft::create([
             'user_id'            => $user->id,
-            'agency_id'          => $user->agency_id ?? 1,
+            'agency_id'          => $user->agency_id,
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => [],
@@ -209,7 +210,7 @@ final class CdsBuilderRedirectTest extends TestCase
         ]);
         $draft = CdsDraft::create([
             'user_id'            => $user->id,
-            'agency_id'          => $user->agency_id ?? 1,
+            'agency_id'          => $user->agency_id,
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => [],
@@ -262,7 +263,7 @@ final class CdsBuilderRedirectTest extends TestCase
             'email' => 'stranger-' . Str::random(8) . '@x.test',
             'password' => bcrypt('p'),
             'role' => 'agent',
-            'agency_id' => 1,
+            'agency_id' => $this->agencyId(),
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -281,7 +282,7 @@ final class CdsBuilderRedirectTest extends TestCase
         // The stranger's abandoned draft — old, never touched again.
         $abandoned = CdsDraft::create([
             'user_id'            => $strangerId,
-            'agency_id'          => 1,
+            'agency_id'          => $this->agencyId(),
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => ['tag-zombie' => ['field_name' => 'zombie_field']],
@@ -296,7 +297,7 @@ final class CdsBuilderRedirectTest extends TestCase
         // The editor's own draft — this is the one being saved for real.
         $draft = CdsDraft::create([
             'user_id'            => $editor->id,
-            'agency_id'          => 1,
+            'agency_id'          => $this->agencyId(),
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => ['tag-real' => ['field_name' => 'seller_email', 'party' => 'seller']],
@@ -376,7 +377,7 @@ final class CdsBuilderRedirectTest extends TestCase
         // by e.g. a closed tab that never clicked Save.
         $stray = CdsDraft::create([
             'user_id'            => $editor->id,
-            'agency_id'          => 1,
+            'agency_id'          => $this->agencyId(),
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => [],
@@ -389,7 +390,7 @@ final class CdsBuilderRedirectTest extends TestCase
 
         $draft = CdsDraft::create([
             'user_id'            => $editor->id,
-            'agency_id'          => 1,
+            'agency_id'          => $this->agencyId(),
             'template_name'      => $template->name,
             'cds_json'           => ['sections' => []],
             'mappings'           => [],
@@ -429,6 +430,17 @@ final class CdsBuilderRedirectTest extends TestCase
             ->assertStatus(200);
     }
 
+    private ?int $agencyId = null;
+
+    /** The one agency every fixture row in a test belongs to — created on demand, never assumed to pre-exist as id 1. */
+    private function agencyId(): int
+    {
+        return $this->agencyId ??= Agency::create([
+            'name' => 'CDS Redirect Test Agency',
+            'slug' => 'cds-redirect-' . Str::lower(Str::random(6)),
+        ])->id;
+    }
+
     private function seedAgentWithTemplatePermissions(): User
     {
         // Seed an owner-flagged role so PermissionService::userHasPermission
@@ -454,7 +466,7 @@ final class CdsBuilderRedirectTest extends TestCase
             'password' => bcrypt('p'),
             'role' => 'test_template_owner',
             'is_admin' => 1,
-            'agency_id' => 1,
+            'agency_id' => $this->agencyId(),
             'created_at' => now(),
             'updated_at' => now(),
         ]);

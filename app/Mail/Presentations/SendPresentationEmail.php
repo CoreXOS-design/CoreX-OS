@@ -52,7 +52,7 @@ final class SendPresentationEmail extends Mailable
         // Agency-configured from address overrides .env default when set.
         if ($agency?->email) {
             $envelope = new Envelope(
-                from: new \Illuminate\Mail\Mailables\Address($agency->email, $agency->name ?: 'CoreX OS'),
+                from: new \Illuminate\Mail\Mailables\Address($agency->email, $agency->name ?: \App\Support\ClientBrand::NEUTRAL),
                 subject: $this->delivery->subject_line ?: 'Your property market analysis',
             );
         }

@@ -43,6 +43,13 @@ final class ConditionInitialPartyKeyTest extends TestCase
     {
         $session   = $this->buildCanonicalTemplate111Session(sellerCount: 2, includeAgent: true);
         $template  = $session['signatureTemplate'];
+        // The party_key resolver reads parties_json (instance 1 = "seller", instance 2 = "seller_2"); the
+        // shared session builder does not write it, so the fixture states the two-seller roster itself.
+        $template->update(['parties_json' => [
+            ['role' => 'agent', 'role_label' => 'agent'],
+            ['role' => 'seller', 'role_index' => 1, 'role_label' => 'seller'],
+            ['role' => 'seller_2', 'role_index' => 2, 'role_label' => 'seller'],
+        ]]);
         $seller1   = $this->recipient($session['recipients'], 'seller', 1);
         $seller2   = $this->recipient($session['recipients'], 'seller', 2);
         $condition = $this->makeCondition($template->id);

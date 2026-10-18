@@ -163,6 +163,10 @@ class EmailArchiveIngestor
             ]);
 
             $contact->touchLastContacted($communication->occurred_at);
+            if ($direction === Communication::DIRECTION_OUTBOUND) {
+                // Lead response time: a message that actually went out is a genuine first contact.
+                $contact->recordAgentContact('message', $communication->occurred_at, $communication->owner_user_id);
+            }
 
             return self::RESULT_ARCHIVED;
         });

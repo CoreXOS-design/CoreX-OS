@@ -46,6 +46,14 @@ final class RentalWorkOrderQuoteTest extends TestCase
         ]);
     }
 
+    /** The OWNER's repair limit for the fixture property (section 22.6 - the only thing that decides who may authorise a cost). */
+    private function ownerLimit(?float $repair): void
+    {
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $this->property->id], [
+            'agency_id' => $this->agency->id, 'status' => 'confirmed_by_owner', 'repair_limit' => $repair, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+    }
+
     private function workOrder(array $attrs = []): RentalWorkOrder
     {
         return RentalWorkOrder::create(array_merge([
@@ -65,8 +73,9 @@ final class RentalWorkOrderQuoteTest extends TestCase
 
     // ── The gate itself ─────────────────────────────────────────────
 
-    public function test_selecting_a_quote_at_or_under_the_threshold_needs_no_approval(): void
+    public function test_selecting_a_quote_at_or_under_the_owners_limit_does_not_ask_the_owner_and_approves_nothing(): void
     {
+        $this->ownerLimit(500.0);
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 500]);
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote([
@@ -76,11 +85,13 @@ final class RentalWorkOrderQuoteTest extends TestCase
         $workOrder->selectQuote($quote, $this->admin);
 
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $workOrder->fresh()->owner_approval_status);
+        $this->assertNull($workOrder->fresh()->approved_amount, 'section 22.6: nothing is approved until the agent authorises it');
         $this->assertTrue($quote->fresh()->is_selected);
     }
 
     public function test_selecting_a_quote_over_the_threshold_requires_approval(): void
     {
+        $this->ownerLimit(500.0);
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 500]);
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote([
@@ -95,10 +106,10 @@ final class RentalWorkOrderQuoteTest extends TestCase
         $workOrder->fresh()->assignSupplier($this->supplier()->id, null, $this->admin);
     }
 
-    public function test_the_gate_uses_the_propertys_own_override_over_the_agency_default(): void
+    public function test_the_gate_uses_the_owners_own_limit_over_the_agency_default(): void
     {
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 500]);
-        $this->property->update(['rental_no_approval_spend_threshold' => 5000]);
+        $this->ownerLimit(5000.0);
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote([
             'agency_service_provider_id' => $this->supplier()->id, 'amount' => 4000, 'quote_date' => now(),
@@ -126,17 +137,30 @@ final class RentalWorkOrderQuoteTest extends TestCase
     public function test_editing_the_selected_quotes_amount_re_evaluates_the_gate(): void
     {
         RentalWorkOrderSetting::create(['agency_id' => $this->agency->id, 'no_approval_spend_threshold' => 500]);
+        $this->ownerLimit(500.0);
         $workOrder = $this->workOrder();
         $quote = $workOrder->recordQuote(['agency_service_provider_id' => $this->supplier()->id, 'amount' => 400, 'quote_date' => now()], $this->admin);
         $workOrder->selectQuote($quote, $this->admin);
         $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $workOrder->fresh()->owner_approval_status);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($workOrder->fresh(), $this->admin, []);   // the agent authorises R400 (section 22.6)
 
         $this->actingAs($this->admin)->put(route('corex.rental-work-orders.quotes.update', [$workOrder, $quote]), [
             'agency_service_provider_id' => $this->supplier()->id, 'amount' => 900, 'quote_date' => now()->format('Y-m-d'),
             'detail_text' => 'revised quote',
         ])->assertRedirect();
 
-        $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $workOrder->fresh()->owner_approval_status);
+        // BUILD 2 (§17.9.4) — a higher quote AFTER an approved amount exists no longer resets the approval: it opens a variation for the
+        // extra only (R400 approved -> R900 now = R500 extra, awaiting the owner), and the work order cannot go to the contractor
+        // until the owner has approved the revised quote.
+        $fresh = $workOrder->fresh();
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $fresh->owner_approval_status);
+        $this->assertSame('400.00', $fresh->approved_amount);
+        $variation = $fresh->openVariation();
+        $this->assertNotNull($variation);
+        $this->assertSame('500.00', $variation->extra_amount);
+        $this->assertSame('900.00', $variation->new_total);
+        $this->assertSame(\App\Models\RentalWorkOrderVariation::ORIGIN_EXTERNAL_QUOTE, $variation->origin);
+        $this->assertFalse(app(\App\Services\Rentals\RentalApprovalGateService::class)->authoriseToProceed($fresh, false)->authorised);
     }
 
     // ── Full CRUD / input-space ─────────────────────────────────────

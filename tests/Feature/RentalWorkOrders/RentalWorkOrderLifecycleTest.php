@@ -59,6 +59,11 @@ final class RentalWorkOrderLifecycleTest extends TestCase
 
     private function workOrder(array $attrs = []): RentalWorkOrder
     {
+        // section 22.6: a job that is already out with the contractor / under way was authorised before the test starts
+        if (in_array($attrs['status'] ?? null, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
+            $attrs += ['approval_basis' => RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED];
+        }
+
         return RentalWorkOrder::create(array_merge([
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
             'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
@@ -112,11 +117,13 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         $workOrder = RentalWorkOrder::firstOrFail();
         $this->assertSame(RentalWorkOrder::REPORTED_BY_FAULT_REPORT, $workOrder->reported_by_type);
         $this->assertSame($faultReport->id, $workOrder->reported_fault_report_id);
-        // Owner is not asked twice — inherited directly.
-        $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $workOrder->owner_approval_status);
+        // §17.3.3 — approval no longer rides the fault: the work order starts not_required with no approved amount;
+        // it is authorised by the quote / the owner's no-approval limit / an emergency capture, never inherited.
+        $this->assertSame(RentalWorkOrder::APPROVAL_NOT_REQUIRED, $workOrder->owner_approval_status);
+        $this->assertNull($workOrder->approved_amount);
     }
 
-    public function test_cannot_raise_a_work_order_from_a_fault_report_approved_via_owner_handles(): void
+    public function test_can_raise_a_work_order_from_a_fault_report_approved_via_owner_handles(): void
     {
         $faultReport = $this->faultReport();
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.approval.store', $faultReport), [
@@ -126,9 +133,10 @@ final class RentalWorkOrderLifecycleTest extends TestCase
 
         $this->actingAs($this->admin)->post(route('corex.rental-fault-reports.raise-work-order', $faultReport), [
             'title' => 'x', 'description' => 'x',
-        ])->assertSessionHasErrors();
+        ])->assertSessionHasNoErrors();
 
-        $this->assertSame(0, RentalWorkOrder::count());
+        // W1/W5 (8 Oct 2026): every approved fault gets a work order - the owner's own contractor included.
+        $this->assertSame(1, RentalWorkOrder::count());
     }
 
     public function test_cannot_raise_a_second_work_order_from_the_same_fault_report(): void
@@ -221,6 +229,14 @@ final class RentalWorkOrderLifecycleTest extends TestCase
     {
         $workOrder = $this->workOrder();
         $supplier = $this->supplier();
+        // BUILD 2 (§17.6.5) + section 22.6 — a work order only goes to a contractor once something authorises it: here a selected quote inside the
+        // owner's repair limit (R500) that the agent has authorised (a limit alone approves nothing).
+        \App\Models\RentalPropertyFaultSetting::withoutGlobalScopes()->updateOrCreate(['property_id' => $workOrder->property_id], [
+            'agency_id' => $workOrder->agency_id, 'status' => 'confirmed_by_owner', 'repair_limit' => 500, 'emergency_limit' => null, 'callout_mode' => 'no', 'version' => 1,
+        ]);
+        $quote = $workOrder->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 300, 'quote_date' => now()], $this->admin);
+        $workOrder->selectQuote($quote, $this->admin);
+        app(\App\Services\Rentals\RentalAuthorisationService::class)->authoriseCost($workOrder->fresh(), $this->admin, []);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $workOrder), [
             'agency_service_provider_id' => $supplier->id,

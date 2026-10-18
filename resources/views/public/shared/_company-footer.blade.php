@@ -7,7 +7,7 @@
 --}}
 @php
     /** @var \App\Models\Agency|null $agency */
-    $coName   = !empty($agency) ? ($agency->trading_name ?: $agency->name) : 'CoreX OS';
+    $coName   = !empty($agency) ? ($agency->trading_name ?: $agency->name) : \App\Support\ClientBrand::NEUTRAL;
     $coAddr   = !empty($agency) ? ($agency->address ?? null) : null;
     $coPhone  = !empty($agency) ? ($agency->phone ?? null) : null;
     $coEmail  = !empty($agency) ? ($agency->email ?? null) : null;
@@ -35,6 +35,5 @@
             @endif
         </div>
 
-        <div style="font-size:.625rem; margin-top:1rem; color:rgba(255,255,255,.4);">Powered by CoreX OS</div>
     </div>
 </footer>

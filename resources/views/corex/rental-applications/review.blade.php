@@ -83,8 +83,8 @@
     $propertyLabel = $rentalApplication->property
         ? optional($rentalApplication->property)->buildDisplayAddress()
         : $rentalApplication->property_address_override;
-    $headerContactName = $rentalApplication->contact->full_name
-        ?? trim(($rentalApplication->contact->first_name ?? '') . ' ' . ($rentalApplication->contact->last_name ?? ''));
+    $headerContactName = $rentalApplication->contact?->full_name
+        ?? trim(($rentalApplication->contact?->first_name ?? '') . ' ' . ($rentalApplication->contact?->last_name ?? ''));
     $headerTitleText = ($viewerRole === 'agent' ? 'Application Review' : 'Authorise') . ' — ' . $headerContactName;
     $headerPropertyFact = $propertyLabel ? ('Property: ' . $propertyLabel) : 'No property linked';
     // cc4, 2026-09-11 — Johan/cc4's E2E walk: "the review screen header can
@@ -255,7 +255,7 @@
                     row (which would just recreate the "lots of wasted
                     screen" complaint one row lower).
                 --}}
-                <h1 class="flex items-center gap-1.5 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
+                <h1 class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
                     <span class="truncate font-bold" style="min-width:0;">{{ $headerTitleText }}</span>
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
@@ -267,18 +267,31 @@
                          visual language for it. --}}
                     @php
                         $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
-                        $ficaBadgeClass = match($ficaStatus) {
-                            'complete' => 'ds-badge-success',
-                            'expiring' => 'ds-badge-warning',
+                        // Approve modal start values (Sherry walk): the property's own rent and deposit, never 0.00 to retype.
+                        $prefillProperty = $rentalApplication->property;
+                        $prefillRent = $rentalApplication->approved_rental_amount ?: ($prefillProperty && (float) $prefillProperty->rental_amount > 0 ? number_format((float) $prefillProperty->rental_amount, 2, '.', '') : '');
+                        $prefillDeposit = $rentalApplication->approved_deposit_amount ?: ($prefillProperty && (float) $prefillProperty->deposit_amount > 0 ? number_format((float) $prefillProperty->deposit_amount, 2, '.', '') : '');
+                        // 2026-10-08, Johan: the FICA gate lifts on SUBMITTED. An applicant who has submitted (compliance has
+                        // not finished verifying) is not "Outstanding" in red — they have done their part; it reads amber.
+                        $ficaGateInfo = $rentalApplication->ficaGateDescribe();
+                        $ficaSubmittedOnly = $ficaStatus === 'incomplete' && $ficaGateInfo['open'];
+                        $ficaBadgeClass = match(true) {
+                            $ficaSubmittedOnly => 'ds-badge-warning',
+                            $ficaStatus === 'complete' => 'ds-badge-success',
+                            $ficaStatus === 'expiring' => 'ds-badge-warning',
                             default => 'ds-badge-danger',
                         };
-                        $ficaBadgeLabel = match($ficaStatus) {
-                            'complete' => 'FICA Complete',
-                            'expiring' => 'FICA Expiring',
+                        $ficaBadgeLabel = match(true) {
+                            $ficaSubmittedOnly => 'FICA Submitted',
+                            $ficaStatus === 'complete' => 'FICA Complete',
+                            $ficaStatus === 'expiring' => 'FICA Expiring',
                             default => 'FICA Outstanding',
                         };
                     @endphp
-                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="FICA status for {{ $rentalApplication->contact?->full_name }}">{{ $ficaBadgeLabel }}</span>
+                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="{{ $ficaSubmittedOnly ? 'The applicant has submitted FICA — it is with us for review.' : ($ficaGateInfo['warning'] ?? 'FICA status for ' . $rentalApplication->contact?->full_name) }}">{{ $ficaBadgeLabel }}</span>
+                    @if(! $ficaGateInfo['open'] && $ficaGateInfo['url'])
+                        <a href="{{ $ficaGateInfo['url'] }}" class="text-xs underline flex-shrink-0" style="color: var(--ds-amber, #b45309);" data-qa="fica-gate-link">Request / complete FICA</a>
+                    @endif
                     {{-- Submission identity gate, 2026-09-13 — two DISTINCT
                          states, never folded into one ambiguous tile:
                          "still waiting on the applicant" vs "we can't even
@@ -407,8 +420,10 @@
                             @if($unsplitCount > 0)
                                 <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
                             @endif
-                            <button type="button" class="corex-btn-primary text-xs" :disabled="submittingForApproval"
+                            @unless($canApproveDirectly ?? false)
+                            <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
                                     @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
+                            @endunless
                         @endunless
                         <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="corex-btn-outline text-xs">Back to application</a>
                     @else
@@ -605,9 +620,24 @@
            agent would expect. Solid background + a bottom border, since
            this now sits ON TOP of the document's own page images while
            pinned, not beside them. */
+        /* QA1, 2026-10-07 — Johan, blocking his rentals test: "the income
+           highlighter is hidden underneath the header bar that shows '1 mark
+           Save 1 mark'." Root cause: this bar AND the pen rail beside the
+           document (document-highlighter-pages.blade.php — Income, Expense,
+           the other pens, Note, stroke, undo/redo) are both position:sticky
+           at top:0 of the SAME scroll box, and this bar (z-index 5) paints
+           over the rail, so once the document is scrolled the first pens
+           (Income is first) sit underneath it. Fix is one shared number: the
+           bar has a FIXED height (--rr-save-bar-h, content never wraps so
+           it can never grow past it) and the rail pins BELOW it at exactly
+           that offset. A fixed height, not a measured one, so there is no
+           script to drift and no first-paint flash. The rail takes only the
+           room under the bar — the document column is not narrowed at all. */
+        #continuousViewScroll { --rr-save-bar-h: 40px; }
         .rr-doc-save-bar {
             position: sticky; top: 0; z-index: 5;
-            background: var(--surface); padding: 6px 2px;
+            background: var(--surface); padding: 0 2px;
+            height: var(--rr-save-bar-h); box-sizing: border-box; flex-wrap: nowrap; white-space: nowrap;
             border-bottom: 1px solid transparent;
         }
         /* Loud only while there's something to lose — see the button's own
@@ -1327,7 +1357,7 @@
                             <div class="pb-2" style="border-bottom: 1px solid var(--border);"
                                  @if($index >= 10) x-show="showAllAudit" x-cloak @endif>
                                 <div style="color: var(--text-primary);">
-                                    <strong>{{ $entry->actor_label ?? ($entry->user->name ?? 'System') }}</strong>
+                                    <strong>{{ (! $entry->actor_label || $entry->actor_label === 'unattributed') ? ($entry->user->name ?? 'System') : $entry->actor_label }}</strong>
                                     &mdash; {{ $entry->human_summary ?? $entry->event_type }}
                                     @if($entry->is_override)
                                         <span class="ds-badge ds-badge-warning" title="This changed an existing decision.">OVERRIDE</span>
@@ -1578,7 +1608,7 @@
                                                  everything's saved — the absence of urgency is itself the
                                                  signal, same instinct as justSaved's own quiet confirmation
                                                  just below. --}}
-                                            <div class="flex items-center gap-3 mb-2 rr-doc-save-bar" :class="{ 'rr-doc-save-bar-dirty': dirty }">
+                                            <div class="flex items-center gap-3 mb-1 rr-doc-save-bar" :class="{ 'rr-doc-save-bar-dirty': dirty }">
                                                 <span class="text-xs font-semibold" style="color: var(--text-secondary);" x-show="!loading">
                                                     <span x-text="markCount()"></span> mark<span x-show="markCount() !== 1">s</span>
                                                 </span>
@@ -1635,10 +1665,10 @@
                 <span class="flex items-center gap-1.5">
                     {{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}
                     @if($viewerRole === 'agent')
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                        <span class="ds-badge ds-badge-pill ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
                               title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
                     @else
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                        <span class="ds-badge ds-badge-pill ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
                               title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
                     @endif
                 </span>
@@ -1678,14 +1708,21 @@
                     <div class="rounded-md px-3 py-2 text-xs mb-2" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
                         <p class="font-semibold mb-1.5">&check; Approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }} — not yet sent.</p>
                         @if($rentalApplication->approved_subject_to_fica_at)
-                            <p class="mb-2">FICA is still outstanding for this applicant. The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
+                            <p class="mb-2">@if(! empty($ficaSubmittedOnly))FICA has been submitted and is with compliance for verification.@else FICA is still outstanding for this applicant.@endif The approval will resolve automatically once compliance verifies FICA — no need to come back and check.</p>
                         @endif
-                        <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                        @if($rentalApplication->property_id)
+                            <p class="mb-2">The approval goes to the applicant for this property, and tells them the lease is next.</p>
+                        @else
+                            <p class="mb-2">Confirm what the tenant is looking for, then send the approval. If you skip this, the email still goes out with a general list of available rentals under their approved amount.</p>
+                        @endif
                         <div class="flex flex-wrap gap-2">
+                            @unless($rentalApplication->property_id)
                             <button type="button" @click="wishlistDrawerOpen = true" class="corex-btn-outline text-xs">
                                 {{ $existingWishlist ? 'Review tenant wishlist' : 'Add tenant wishlist' }}
                             </button>
-                            <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}">
+                            @endunless
+                            <form method="POST" action="{{ route('corex.rental-applications.review.send', $rentalApplication) }}"
+                                  data-confirm="Send the approval to {{ $rentalApplication->recipientEmail() ?: 'the applicant' }} now? It tells them they are approved for R{{ number_format($rentalApplication->approved_rental_amount, 2) }} a month{{ $rentalApplication->property_id ? ' for ' . ($rentalApplication->property?->addressFreeDescriptor() ?? 'the property') : '' }}{{ $rentalApplication->approved_subject_to_fica_at ? ', subject to FICA verification' : '' }}. It cannot be unsent.">
                                 @csrf
                                 <button type="submit" class="corex-btn-primary text-xs">Send approval to applicant</button>
                             </form>
@@ -1770,7 +1807,7 @@
                 @if($viewerRole === 'agent')
                     <div class="flex items-center justify-between gap-1 mb-1">
                         <label class="text-[11px] font-medium" style="color: var(--text-secondary);">Statement period</label>
-                        <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
                     </div>
                     {{-- BUG FIX, 2026-09-11 — Johan, live on QA1: "typing a
                          date straight through (20260901) produces
@@ -1839,7 +1876,14 @@
                  jump target"). --}}
             <div>
                 <p class="rr-ledger-group-label">Income</p>
-                <template x-if="incomeEntries().length === 0"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
+                @php $statedIncome = (float) ($rentalApplication->monthly_salary ?? 0); @endphp
+                <template x-if="incomeEntries().length === 0 && {{ $statedIncome > 0 ? 'true' : 'false' }}">
+                    <div class="flex items-center justify-between gap-2 text-[11px]" style="color: var(--text-secondary);" data-qa="stated-income">
+                        <span>Stated on the application: <strong>R{{ number_format($statedIncome, 0, '.', ' ') }}</strong> a month</span>
+                        <button type="button" class="corex-btn-outline text-xs" :disabled="reviewLocked || manualEntrySaving" @click="useStatedIncome(@js(number_format($statedIncome, 2, '.', '')))">Use this</button>
+                    </div>
+                </template>
+                <template x-if="incomeEntries().length === 0 && {{ $statedIncome > 0 ? 'false' : 'true' }}"><p class="text-[11px]" style="color: var(--text-muted);">None captured.</p></template>
                 <template x-for="(row, idx) in incomeEntries()" :key="row.id">
                     <div class="rr-ledger-row" :style="{ cursor: (row.document_id && !row.document_missing) ? 'pointer' : 'default' }" :title="row.document_missing ? 'This entry\'s document was removed — the figure is no longer backed by evidence you can check.' : (row.document_id ? 'Jump to this mark on the document' : '')" @click="jumpToMark(row)">
                         <span class="rr-ledger-badge" x-show="row.document_id && !row.document_missing" style="background: var(--ds-purple, #7c3aed);" x-text="idx + 1"></span>
@@ -2057,7 +2101,12 @@
         {{-- END Checklist accordion section. --}}
 
             {{-- Actions. --}}
-            <div class="pt-2" style="border-top: 1px solid var(--border);">
+            <style>
+    /* One height for every action button in this block: the filled button had no border, the outline one had 1px, so they differed by 2px. */
+    .rr-equal-btns .corex-btn-primary, .rr-equal-btns .corex-btn-outline { box-sizing: border-box; border: 1px solid transparent; min-height: 30px; display: inline-flex; align-items: center; justify-content: center; }
+    .rr-equal-btns .corex-btn-outline { border-color: var(--border); }
+</style>
+            <div class="pt-2 rr-equal-btns" style="border-top: 1px solid var(--border);">
                 @if($viewerRole === 'agent')
                     {{-- Stage 3, 2026-09-11 — for a figure with nothing to
                          highlight. A self-contained inline form (@click
@@ -2079,7 +2128,7 @@
                         {{-- .lazy — see the statement-period date fields' own comment above. --}}
                         <input type="date" class="corex-input text-xs w-full mb-1" x-model.lazy="manualEntry.entry_date" aria-label="Date">
                         <input type="text" class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_description" maxlength="255" placeholder="Description" aria-label="Description">
-                        <input type="number" step="0.01" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
+                        <input type="text" inputmode="decimal" autocomplete="off" data-manual-entry-amount class="corex-input text-xs w-full mb-1" x-model="manualEntry.entry_amount" placeholder="Amount" aria-label="Amount" @keydown.enter.prevent="saveManualEntry()">
                         <p class="text-[11px] mb-1" style="color: var(--ds-crimson, #dc2626);" x-show="manualEntryError" x-text="manualEntryError"></p>
                         <div class="flex items-center justify-end gap-2">
                             <button type="button" class="text-[11px]" style="color: var(--text-muted);" @click="cancelManualEntry()">Cancel</button>
@@ -2113,7 +2162,10 @@
                             <button type="button" data-qa="approve-application-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve application</button>
                             <button type="button" data-qa="decline-application-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline application</button>
                         @else
-                            <button type="button" data-qa="submit-for-approval" class="corex-btn-primary text-xs w-full mb-1.5" :disabled="submittingForApproval" @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : 'Submit for approval'"></button>
+                            {{-- Johan, 14 Oct 2026 (cc5 re-walk): ONE submit button. The header one (Johan's own placement rule above) is the only submit; this side-column twin did the same thing. --}}
+                            @if(!empty($oneStepNote))
+                                <p class="text-[11px] mb-1.5" style="color: var(--text-muted);" data-qa="one-step-note">{{ $oneStepNote }}</p>
+                            @endif
                         @endif
                     @endunless
                     @if($rentalApplication->generations->count() > 1)
@@ -2254,12 +2306,16 @@
                      endpoint) — there is no "always a first decision" override
                      path here, since $canApproveDirectly only renders while
                      the application is still pre-decision. --}}
-                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                <div x-show="approveModalOpen" x-cloak x-init="if (!approveAmount) approveAmount = @js($prefillRent); if (!approveDepositAmount) approveDepositAmount = @js($prefillDeposit);" class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve application</h3>
                         @if($rentalApplication->ficaOutstanding())
-                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="approve-fica-note">
+                                @if(! empty($ficaSubmittedOnly))
+                                    FICA has been submitted and is with compliance for verification — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @else
+                                    FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @endif
                             </p>
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
@@ -2330,7 +2386,7 @@
                      confirm()+unload-guard-suppress @submit pattern as
                      before this round; only the surrounding chrome (now a
                      modal instead of an always-visible card) changed. --}}
-                <div x-show="approveModalOpen" x-cloak class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
+                <div x-show="approveModalOpen" x-cloak x-init="if (!approveAmount) approveAmount = @js($prefillRent); if (!approveDepositAmount) approveDepositAmount = @js($prefillDeposit);" class="fixed inset-0 z-[100] flex items-center justify-center p-4" style="background: rgba(0,0,0,0.5);" @keydown.escape.window="approveModalOpen = false; approveConfirming = false">
                     <div class="w-full max-w-md rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="approveModalOpen = false; approveConfirming = false">
                         <h3 class="text-sm font-semibold mb-2" style="color: var(--text-primary);">Approve</h3>
                         @if($alreadyDecided && $canOverride)
@@ -2343,8 +2399,12 @@
                              One button throughout; this is the only thing
                              that changes depending on live FICA state. --}}
                         @if($rentalApplication->ficaOutstanding())
-                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);">
-                                FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                            <p class="rounded-md px-3 py-2 text-xs mb-3" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #b45309); border: 1px solid var(--ds-amber, #f59e0b);" data-qa="approve-fica-note">
+                                @if(! empty($ficaSubmittedOnly))
+                                    FICA has been submitted and is with compliance for verification — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @else
+                                    FICA is still outstanding for this applicant — approving now records this as <strong>Approved, subject to FICA verification</strong>, not a plain approval.
+                                @endif
                             </p>
                         @endif
                         <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Monthly amount</label>
@@ -2488,7 +2548,8 @@
                             <p class="text-xs mb-2" style="color: var(--text-muted);">Sends this back to the agent, not the applicant.</p>
                             <textarea x-model="moreInfoReason" rows="3" class="corex-input text-xs w-full mb-3" placeholder="What's missing? (required)"></textarea>
                             <form method="POST" action="{{ route('corex.rental-applications.authorisation.request-more-info', $rentalApplication) }}"
-                                  @submit="if (!confirm('Send this back to the agent for more information?')) { $event.preventDefault(); return; } window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
+                                  data-confirm="Send this back to the agent for more information?" data-confirm-label="Send back"
+                                  @submit="window.__raSuppressUnloadGuard = true; $refs.moreInfoReasonField.value = moreInfoReason">
                                 @csrf
                                 <input type="hidden" name="reason" x-ref="moreInfoReasonField">
                                 <div class="flex justify-end gap-2">
@@ -2840,8 +2901,11 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 this.manualEntryError = 'Choose Income or Expense first.';
                 return;
             }
-            const amount = parseFloat(this.manualEntry.entry_amount);
-            if (this.manualEntry.entry_amount === '' || Number.isNaN(amount)) {
+            // Money is typed as text (a native number box eats the "." mid-typing);
+            // the raw string goes to the server, whose sanitizer is the only place
+            // that interprets "40,638.40" / "40638,40" / "R40 638.40".
+            const amount = String(this.manualEntry.entry_amount ?? '').trim();
+            if (!/\d/.test(amount)) {
                 this.manualEntryError = 'Enter an amount.';
                 return;
             }
@@ -2867,7 +2931,7 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 });
                 if (!res.ok) {
                     const body = await res.json().catch(() => ({}));
-                    this.manualEntryError = body.error || 'Could not save this entry.';
+                    this.manualEntryError = body.error || (body.errors ? Object.values(body.errors)[0]?.[0] : null) || 'Could not save this entry.';
                     this.manualEntrySaving = false;
                     return;
                 }
@@ -2878,6 +2942,12 @@ function rentalCaptureLedger({ initialCaptureEntries, manualCaptureCreateUrl, ca
                 this.manualEntryError = 'Network error — this entry was not saved.';
             }
             this.manualEntrySaving = false;
+        },
+        // The applicant typed their income on the form: one click confirms it as the income line instead of retyping it.
+        async useStatedIncome(amount) {
+            if (this.reviewLocked || this.manualEntrySaving) return;
+            this.manualEntry = { entry_type: 'income', entry_date: new Date().toISOString().slice(0, 10), entry_description: 'Stated on the application', entry_amount: String(amount) };
+            await this.saveManualEntry();
         },
         incomeEntries() {
             return this.captureEntries.filter(e => e.entry_type === 'income');
@@ -3612,8 +3682,10 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                 const data = await res.json().catch(() => ({}));
                 if (res.ok && data.ok) {
                     this.agentActionError = false;
-                    this.agentActionStatus = 'Submitted to the authoriser.';
-                    setTimeout(() => window.location.reload(), 900);
+                    // Johan, 2026-10-08: not-yet-submitted FICA warns, it never stops — the warning rides along
+                    // with the success and stays up a little longer before the page reloads.
+                    this.agentActionStatus = 'Submitted to the authoriser.' + (data.fica_warning ? ' Note: ' + data.fica_warning : '');
+                    setTimeout(() => window.location.reload(), data.fica_warning ? 4500 : 900);
                 } else if (res.status === 409 && data.reason === 'generation_conflict') {
                     this.handleGenerationConflict(data);
                 } else {
@@ -4184,8 +4256,8 @@ function rentalReviewPropertyLink({ searchUrl, linkUrl, currentLabel }) {
             this.$refs.propertyIdInput.value = p.id;
             this.$refs.linkForm.submit();
         },
-        clear() {
-            if (!confirm('Clear the linked property? The affordability check will show "cannot be calculated" until a property is linked again.')) return;
+        async clear() {
+            if (!(await window.corexConfirm({ title: 'Clear the linked property', message: 'Clear the linked property? The affordability check will show "cannot be calculated" until a property is linked again.', confirmLabel: 'Clear it', danger: true }))) return;
             this.$refs.propertyIdInput.value = '';
             this.$refs.linkForm.submit();
         },

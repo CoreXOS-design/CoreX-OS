@@ -2,8 +2,10 @@
 
 namespace Tests\Feature\Docuperfect;
 
+use App\Models\Agency;
 use App\Models\Docuperfect\FieldGroup;
 use App\Models\Docuperfect\NamedField;
+use App\Models\User;
 use App\Services\Docuperfect\CdsBindingSuggester;
 use App\Services\Docuperfect\CdsParserService;
 use App\Services\Docuperfect\CdsRendererService;
@@ -26,9 +28,17 @@ class CdsImportBindingConvergenceTest extends TestCase
 
     private int $fgId;
 
+    private int $agencyId;
+
     protected function setUp(): void
     {
         parent::setUp();
+
+        // A real agency row: field-group agency_id is a foreign key and the schema
+        // snapshot carries tables, not rows (same pattern as CdsLeaseBindingConvergenceTest).
+        $this->agencyId = Agency::create(['name' => 'Convergence Test Agency', 'slug' => 'convergence-test-' . uniqid()])->id;
+
+        $creator = User::factory()->create(['agency_id' => $this->agencyId, 'role' => 'super_admin']);
 
         $first = NamedField::create(['name' => 'Seller First Name', 'field_type' => 'text', 'source_type' => 'contact', 'source_column' => 'first_name', 'source_contact_type' => 'Seller']);
         $last  = NamedField::create(['name' => 'Seller Last Name', 'field_type' => 'text', 'source_type' => 'contact', 'source_column' => 'last_name', 'source_contact_type' => 'Seller']);
@@ -46,14 +56,15 @@ class CdsImportBindingConvergenceTest extends TestCase
         NamedField::create(['name' => 'Commission Percent', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'commission_percent']);
 
         $fg = FieldGroup::create([
-            'agency_id' => 1,
+            'agency_id' => $this->agencyId,
+            'created_by' => $creator->id,
             'name' => 'Seller full',
             'fields' => [
                 ['named_field_id' => $first->id],
                 ['named_field_id' => $last->id],
                 ['named_field_id' => $idnf->id],
             ],
-            'layout' => 'inline',
+            'layout' => 'horizontal',
             'is_global' => true,
         ]);
         $this->fgId = $fg->id;
@@ -72,7 +83,7 @@ class CdsImportBindingConvergenceTest extends TestCase
     public function test_identity_token_binds_to_field_group_with_witness_editable(): void
     {
         $cds = ['sections' => [$this->para([$this->ph('seller_full_name_and_surname', 'Seller - Full name and surname')])]];
-        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'][0];
+        $b = (new CdsBindingSuggester($this->agencyId))->suggest($cds)['bindings'][0];
 
         $this->assertSame('field_group', $b['mappingType']);
         $this->assertSame($this->fgId, $b['fieldGroupId']);
@@ -89,7 +100,7 @@ class CdsImportBindingConvergenceTest extends TestCase
             $this->ph('seller_email', 'Seller - Email'),
             $this->ph('property_street', 'Property - Street'),
         ])]];
-        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'];
+        $b = (new CdsBindingSuggester($this->agencyId))->suggest($cds)['bindings'];
 
         $this->assertSame('sf:contact_seller', $b[0]['typeKey']);
         $this->assertEqualsCanonicalizing(['owner_party', 'agent'], $b[0]['editable_by']);   // address
@@ -111,7 +122,7 @@ class CdsImportBindingConvergenceTest extends TestCase
             $this->ph('document_mandate_expiry_date', 'Document - Mandate expiry date'),
             $this->ph('document_other_conditions', 'Document - Other conditions'),
         ])]];
-        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'];
+        $b = (new CdsBindingSuggester($this->agencyId))->suggest($cds)['bindings'];
 
         $this->assertSame('sf:computed', $b[0]['typeKey']);            // in words → computed, NOT the figure
         $this->assertSame([], $b[0]['editable_by']);
@@ -127,7 +138,7 @@ class CdsImportBindingConvergenceTest extends TestCase
             $this->ph('seller_physical_address', 'Seller - Physical address'),
             $this->ph('document_commission_percentage', 'Document - Commission percentage'),
         ])]];
-        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'][1];
+        $b = (new CdsBindingSuggester($this->agencyId))->suggest($cds)['bindings'][1];
 
         $this->assertSame('named_field', $b['mappingType']);
         $nf = NamedField::find($b['namedFieldId']);
@@ -139,11 +150,16 @@ class CdsImportBindingConvergenceTest extends TestCase
     public function test_duplicate_column_disambiguates_to_the_matching_name(): void
     {
         // A rental-context duplicate must NOT win the sale-document token.
+        // The migrated catalogue already carries real property.complex_name fields (e.g. "Complex Name"),
+        // which legitimately out-score the test's own pair on the token words. Retire them for this test
+        // (soft delete, rolled back with the test transaction) so it isolates exactly the
+        // "Complex" vs "Rental Complex" scenario it exists to prove.
+        NamedField::query()->where('source_type', 'property')->where('source_column', 'complex_name')->delete();
         NamedField::create(['name' => 'Rental Complex', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'complex_name', 'sort_order' => 80]);
         $wanted = NamedField::create(['name' => 'Complex', 'field_type' => 'text', 'source_type' => 'property', 'source_column' => 'complex_name', 'sort_order' => 110]);
 
         $cds = ['sections' => [$this->para([$this->ph('property_complex_estate_name', 'Property - Complex / Estate name')])]];
-        $b = (new CdsBindingSuggester(1))->suggest($cds)['bindings'][0];
+        $b = (new CdsBindingSuggester($this->agencyId))->suggest($cds)['bindings'][0];
 
         $this->assertSame($wanted->id, $b['namedFieldId'], 'must pick "Complex" over "Rental Complex" for a sale doc');
     }
@@ -154,7 +170,7 @@ class CdsImportBindingConvergenceTest extends TestCase
             $this->ph('seller_physical_address', 'Seller - Physical address'),
             $this->ph('property_street', 'Property - Street'),
         ])]];
-        $this->assertSame('Seller', (new CdsBindingSuggester(1))->suggest($cds)['primary_role']);
+        $this->assertSame('Seller', (new CdsBindingSuggester($this->agencyId))->suggest($cds)['primary_role']);
     }
 
     public function test_underscore_signature_lines_become_shared_sig_only(): void

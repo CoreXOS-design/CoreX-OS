@@ -36,7 +36,7 @@ class AgencyFeatureService
     private array $cache = [];
 
     /**
-     * Switchboard-origin keys (spec §7.2): these SIX resolve through their
+     * Switchboard-origin keys (spec §7.2): these SEVEN resolve through their
      * EXISTING store, NOT agency_features — so the settings switchboard, the
      * onboarding wizard, and this gate can never disagree about them, and the
      * already-shipped canonical savers stay the single write path.
@@ -52,6 +52,10 @@ class AgencyFeatureService
         'core-matches'    => ['type' => 'perf',   'key' => 'matches_enabled',          'default' => true],
         'multi-branch'    => ['type' => 'agency', 'key' => 'split_branches_enabled',   'default' => false],
         'public-website'  => ['type' => 'agency', 'key' => 'website_enabled',           'default' => false],
+        // 2026-10-07 — Assistants already had an agency kill switch (Company Settings, onboarding
+        // wizard, My Assistants menu). The Features key reads THAT column rather than a second store,
+        // so there is one switch for the feature, not two that can disagree. Ships OFF by design.
+        'assistants'      => ['type' => 'agency', 'key' => 'assistants_enabled',        'default' => false],
     ];
 
     /**

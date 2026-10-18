@@ -15,12 +15,17 @@ return [
     |
     */
 
-    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS', sprintf(
-        '%s%s',
-        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1',
-        '',
-        // Sanctum::currentRequestHost(),
-    ))),
+    // AT-445 — appends the CURRENT request's own host so the tenant/landlord
+    // web portal (routes/web.php, same-origin Blade pages) is always treated
+    // as "frontend" on every environment (QA1/Staging/Prod/demo/local)
+    // without per-environment SANCTUM_STATEFUL_DOMAINS wiring. This stays
+    // safely scoped: fromFrontend() only matches a request whose Origin/
+    // Referer equals this list, so it can never make a genuinely
+    // cross-origin request stateful — only "this server, talking to
+    // itself" qualifies.
+    'stateful' => explode(',', env('SANCTUM_STATEFUL_DOMAINS',
+        'localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1' . Sanctum::currentRequestHost()
+    )),
 
     /*
     |--------------------------------------------------------------------------
@@ -34,7 +39,12 @@ return [
     |
     */
 
-    'guard' => ['web'],
+    // AT-445 — 'client-web' checked alongside the default 'web' guard so a
+    // stateful (cookie) request authenticates as the session's ClientUser
+    // for /api/v1/client/* routes. Nothing else in CoreX uses Sanctum's
+    // stateful-SPA mode against the 'web' guard, so this is additive, not a
+    // behaviour change for existing stateful requests (there are none).
+    'guard' => ['web', 'client-web'],
 
     /*
     |--------------------------------------------------------------------------

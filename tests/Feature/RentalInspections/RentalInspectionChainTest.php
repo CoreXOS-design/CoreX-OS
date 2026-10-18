@@ -269,7 +269,7 @@ final class RentalInspectionChainTest extends TestCase
 
         $resp = $this->postJson(
             route('corex.properties.rental-inspections.next', [$this->property, $in]),
-            ['type' => 'out'],
+            ['type' => 'out', 'confirm_stack' => true],
         );
 
         $resp->assertCreated();
@@ -515,19 +515,23 @@ final class RentalInspectionChainTest extends TestCase
 
         // The row container is a real CSS Grid with two columns — never a
         // flex pair of two independently-run loops (the exact shape Johan
-        // rejected: "not by luck").
+        // rejected: "not by luck"). The grid now lives in the stylesheet
+        // rule for .rir-compare-row (it used to be an inline style on each
+        // row div), so assert the rule itself.
         self::assertMatchesRegularExpression(
-            '/<div class="rir-compare-row[^"]*" style="display:grid; grid-template-columns:1fr 1fr;/',
+            '/\.rir-compare-row\s*\{\s*display:grid;\s*grid-template-columns:1fr 1fr;/',
             $html
         );
 
-        // Immediately inside that row: two .rir-compare-cell divs back to
-        // back — the left reads chainPredecessor through the read-only
-        // accessor (conditionForInspection), the right reads tailSection()
-        // through the live/editable one (selectedConditionFor) — proving
-        // they are the SAME row's two siblings, not two separate lists.
+        // Immediately inside that row: two .rir-compare-cell siblings — the
+        // left (wrapped in a <template x-if="chainPredecessor">, so a first
+        // inspection with no predecessor collapses to a solo row) reads
+        // chainPredecessor through the read-only accessor
+        // (conditionForInspection), the right reads tailSection() through
+        // the live/editable one (selectedConditionFor) — proving they are
+        // the SAME row's two siblings, not two separate lists.
         self::assertMatchesRegularExpression(
-            '/<div class="rir-compare-row[^"]*"[^>]*>\s*<div class="rir-compare-cell[^"]*">.*?conditionForInspection\(chainPredecessor.*?<\/div>\s*<div class="rir-compare-cell[^"]*">.*?selectedConditionFor\(tailSection\(\)/s',
+            '/<div class="rir-compare-row[^"]*"[^>]*>\s*<template x-if="chainPredecessor">\s*<div class="rir-compare-cell[^"]*">.*?conditionForInspection\(chainPredecessor.*?<\/template>\s*<div class="rir-compare-cell[^"]*">.*?selectedConditionFor\(tailSection\(\)/s',
             $html
         );
     }
@@ -554,9 +558,9 @@ final class RentalInspectionChainTest extends TestCase
     /**
      * The standalone Compare section is being removed (cc2) — every photo
      * tile on both cells must open cc2's shared openCompareViewer() modal,
-     * with the SAME call shape already used elsewhere on this page
-     * ('item', 'item_' + item.id, null, item). Never the old, now-orphaned
-     * openInspectionPhoto() single-viewer path from either cell.
+     * passing the cell's own inspection (openCompareViewer(photo, insp)).
+     * Never the old, now-orphaned openInspectionPhoto() single-viewer path
+     * from either cell.
      */
     public function test_both_comparison_cells_open_the_shared_compare_viewer_on_photo_click(): void
     {
@@ -568,21 +572,28 @@ final class RentalInspectionChainTest extends TestCase
         $resp = $this->get(route('corex.properties.show', $this->property->id));
         $html = $resp->getContent();
 
-        // >= 4, not an exact count: rental-inspection-recording.blade.php
-        // is included TWICE (the active and completed x-show branches —
-        // see show.blade.php's own FIX docblock on why), each rendering
-        // BOTH cells of the shared item-cell partial with this exact call
-        // — 2 cells x 2 branches = 4 from this file alone. The still-
-        // present (not yet removed — that's cc2's own, separate change)
-        // standalone Compare section already used this identical call
-        // shape too, so the real page total is higher; asserting the
-        // floor this file is responsible for avoids coupling to whether
-        // cc2 has removed that section yet.
+        // Current call shape (item-cell partial): the tile image on each cell
+        // calls openCompareViewer(tile.photo, <that cell's inspection>) —
+        // chainPredecessor on the read-only left cell, chainTail on the
+        // live right cell. (This used to be openCompareViewer('item',
+        // 'item_' + item.id, null, item), the pre-photo-matching signature.)
+        // The left cell's tile image AND its "linked" badge both call it,
+        // and the recording partial is included in two x-show branches (see
+        // show.blade.php's own FIX docblock), so the predecessor call
+        // appears >= 4 times; the live tail tile at least once. Floors, not
+        // exact counts, so an unrelated extra caller can't break this.
         self::assertGreaterThanOrEqual(
             4,
-            substr_count($html, "openCompareViewer('item', 'item_' + item.id, null, item)"),
-            'both the predecessor and tail item-cell photo tiles must call the same shared viewer'
+            substr_count($html, 'openCompareViewer(tile.photo, chainPredecessor)'),
+            'the predecessor (read-only) cell photo tiles must open the shared compare viewer'
         );
+        self::assertGreaterThanOrEqual(
+            1,
+            substr_count($html, 'openCompareViewer(tile.photo, chainTail)'),
+            'the tail (live) cell photo tiles must open the same shared compare viewer'
+        );
+        // Never the old, orphaned single-photo viewer, from either cell.
+        self::assertStringNotContainsString('@click="tile.photo && openInspectionPhoto(', $html);
     }
 
     /**
@@ -647,5 +658,94 @@ final class RentalInspectionChainTest extends TestCase
         // completed inspection still needs — it must NOT be skipped.
         self::assertStringContainsString('rir-compare-row', $editableHtml);
         self::assertStringContainsString('rir-compare-row', $readOnlyHtml);
+    }
+
+    // ── Spec §57 (14 Oct 2026, property 21222) — a cancelled or archived link drops out of the chain. ──
+
+    public function test_cancelling_the_inspection_started_on_top_of_a_draft_makes_the_draft_the_tail_again(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $in->forceFill(['status' => RentalInspection::STATUS_COMPLETED])->save();
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $routine = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        self::assertTrue(RentalInspection::chainTailFor($this->property)->is($routine));
+
+        $routine->cancel($this->agent, 'started by mistake');
+
+        self::assertTrue(RentalInspection::chainTailFor($this->property)->is($out), 'the draft Out is the current inspection again');
+        self::assertNull($out->fresh()->nextInChain, 'a cancelled inspection is not "next in this chain"');
+        $payload = RentalInspection::tabPayloadFor($this->property);
+        self::assertSame($out->id, $payload['chain_tail']->id);
+        self::assertSame($in->id, $payload['chain_predecessor']->id);
+        self::assertTrue($out->fresh()->isRecordable());
+        self::assertSame($out->id, $routine->fresh()->previous_inspection_id, 'the cancelled row keeps its own link as history');
+    }
+
+    public function test_a_new_next_can_be_started_after_the_one_on_top_was_cancelled(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $routine = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $routine->cancel($this->agent, 'mistake');
+
+        $again = RentalInspection::startNext($out, RentalInspection::TYPE_INTERIM, $this->agent);
+
+        self::assertSame($out->id, $again->previous_inspection_id);
+        self::assertTrue(RentalInspection::chainTailFor($this->property)->is($again));
+        self::assertTrue($out->fresh()->nextInChain->is($again));
+        $this->expectException(\LogicException::class);
+        RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent); // still never two live successors
+    }
+
+    public function test_cancelling_a_middle_inspection_points_its_follower_at_the_one_before_it(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $routine = RentalInspection::startNext($in, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $out = RentalInspection::startNext($routine, RentalInspection::TYPE_OUT, $this->agent);
+
+        $routine->cancel($this->agent, 'never happened');
+
+        self::assertSame($in->id, $out->fresh()->previous_inspection_id);
+        self::assertTrue($out->fresh()->previousInspection->is($in));
+        self::assertTrue($in->fresh()->nextInChain->is($out));
+        self::assertSame($in->id, RentalInspection::tabPayloadFor($this->property)['chain_predecessor']->id);
+    }
+
+    public function test_archiving_the_tail_makes_the_one_before_it_the_tail_and_restoring_it_is_refused_once_something_new_follows(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $routine = RentalInspection::startNext($out, RentalInspection::TYPE_AD_HOC, $this->agent);
+        $routine->delete();
+
+        self::assertTrue(RentalInspection::chainTailFor($this->property)->is($out));
+
+        RentalInspection::startNext($out, RentalInspection::TYPE_INTERIM, $this->agent);
+        $this->expectException(\LogicException::class);
+        $routine->restore();
+    }
+
+    public function test_property_tab_next_asks_before_stacking_on_an_inspection_that_is_still_open(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $out = RentalInspection::startNext($in, RentalInspection::TYPE_OUT, $this->agent);
+        $url = route('corex.properties.rental-inspections.next', [$this->property, $out]);
+
+        $this->postJson($url, ['type' => 'ad_hoc'])
+            ->assertStatus(409)
+            ->assertJsonPath('reason', 'open_inspection')
+            ->assertJsonPath('inspection_id', $out->id);
+        self::assertSame(0, RentalInspection::where('previous_inspection_id', $out->id)->count(), 'nothing was created by the warning');
+
+        $this->postJson($url, ['type' => 'ad_hoc', 'confirm_stack' => true])->assertCreated();
+        self::assertSame(1, RentalInspection::where('previous_inspection_id', $out->id)->count());
+    }
+
+    public function test_property_tab_next_does_not_ask_when_the_inspection_is_finished(): void
+    {
+        $in = $this->makeInspection(RentalInspection::TYPE_IN);
+        $in->forceFill(['status' => RentalInspection::STATUS_COMPLETED])->save();
+
+        $this->postJson(route('corex.properties.rental-inspections.next', [$this->property, $in]), ['type' => 'out'])->assertCreated();
     }
 }

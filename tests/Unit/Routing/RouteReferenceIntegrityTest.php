@@ -233,8 +233,14 @@ final class RouteReferenceIntegrityTest extends TestCase
         // from the current request, an entirely different API from the
         // global route() URL-generation helper this check cares about.
         // Found as a genuine false match during this guard's own first run.
-        if (preg_match_all('/(?<!->)\broute\(\s*[\'"]([a-zA-Z0-9_.\-]+)[\'"]/', $contents, $m)) {
-            $names = array_merge($names, $m[1]);
+        //
+        // Scanner precision (2026-10-07): only a COMPLETE literal counts — the closing quote must be followed by
+        // `,` or `)`. `route('admin.agency-timelines.' . $name, ...)` is a literal PREFIX of a name built at run
+        // time (admin/agency-timelines/show.blade.php), not a route name, and a name that starts with a dot is an
+        // ellipsis placeholder in a docblock example (components/document-view-link.blade.php). Both were reported
+        // as unregistered routes; neither is a reference to anything.
+        if (preg_match_all('/(?<!->)\broute\(\s*[\'"]([a-zA-Z0-9_.\-]+)[\'"]\s*[,)]/', $contents, $m)) {
+            $names = array_merge($names, array_filter($m[1], fn ($n) => !str_starts_with($n, '.')));
         }
 
         // Variable-assigned route names: collect every `$var = 'name';`

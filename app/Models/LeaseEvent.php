@@ -1,0 +1,104 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+/**
+ * .ai/specs/rental-renewals.md §8 — append-only renewal/outcome event log.
+ * Never updated or deleted once recorded — a reversal writes a NEW row
+ * (event_type = '..._reversed'), it never removes the original.
+ */
+class LeaseEvent extends Model
+{
+    public $timestamps = false;
+
+    public const TYPE_MONTH_TO_MONTH_SET = 'month_to_month_set';
+    public const TYPE_MONTH_TO_MONTH_REVERSED = 'month_to_month_reversed';
+    public const TYPE_NOTICE_RECORDED = 'notice_recorded';
+    public const TYPE_NOTICE_REVERSED = 'notice_reversed';
+    public const TYPE_NOTICE_OUTCOME_CHANGED = 'notice_outcome_changed';
+    // .ai/specs/lease-notices.md - the life of a notice given by the tenant or the landlord
+    public const TYPE_NOTICE_RECEIVED = 'notice_received';
+    public const TYPE_NOTICE_DECIDED = 'notice_decided';
+    public const TYPE_NOTICE_SENT = 'notice_sent';
+    public const TYPE_NOTICE_EDITED = 'notice_edited';
+    // .ai/specs/rental-notices.md - breach notices and notices to vacate
+    public const TYPE_BREACH_ISSUED = 'breach_issued';
+    public const TYPE_BREACH_REMEDIED = 'breach_remedied';
+    public const TYPE_VACATE_ISSUED = 'vacate_issued';
+    public const TYPE_BREACH_EDITED = 'breach_edited';
+    public const TYPE_RENEWAL_DRAFT_CREATED = 'renewal_draft_created';
+    public const TYPE_RENEWAL_ACTIVATED = 'renewal_activated';
+    public const TYPE_RENEWAL_DRAFT_CANCELLED = 'renewal_draft_cancelled';
+    /** A renewal signed (and approved) before its start date: the running lease stays active, the renewal waits for its start. */
+    public const TYPE_RENEWAL_SIGNED_AWAITING_START = 'renewal_signed_awaiting_start';
+    /** The tenancy ended on its move-out / end date (out-inspection confirmed vacant, date reached). */
+    public const TYPE_TENANCY_ENDED = 'tenancy_ended';
+    /** An admin pressed "Run today's lease date checks now" with an as-of date (rental-renewals.md §22.1) - so the log shows the dates were simulated. */
+    public const TYPE_DATE_CHECKS_RUN = 'date_checks_run_manually';
+
+    // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1). All <= 40 characters (event_type is string(40)).
+    // They reach the tenancy log with no change to LeaseTimelineService (it lists every LeaseEvent row).
+    public const TYPE_LEASE_CREATED = 'lease_created';
+    public const TYPE_AGREEMENT_PREPARED = 'agreement_prepared';
+    public const TYPE_AGREEMENT_OUT_FOR_SIGNING = 'agreement_out_for_signing';
+    public const TYPE_AGREEMENT_EDITED = 'agreement_edited';
+    public const TYPE_AGREEMENT_DIFFERENCES_CONFIRMED = 'agreement_differences_confirmed';
+    public const TYPE_AGREEMENT_NEEDS_CONFIRMATION = 'agreement_needs_confirmation';
+    public const TYPE_AGREEMENT_SIGNED = 'agreement_signed';
+    public const TYPE_AGREEMENT_ACCEPTED = 'agreement_accepted';
+    public const TYPE_LEASE_ACTIVATED_BY_SIGNING = 'lease_activated_by_signing';
+    public const TYPE_AGREEMENT_DECLINED = 'agreement_declined';
+    public const TYPE_AGREEMENT_VOIDED = 'agreement_voided';
+    public const TYPE_AGREEMENT_EXPIRED = 'agreement_expired';
+    public const TYPE_SIGNED_NOT_ACTIVATED = 'signed_not_activated';
+    public const TYPE_LEASE_SIGNED_ON_PAPER = 'lease_signed_on_paper';
+    /** rental-portal-access.md §18 — the paper-signed copy (and portal link) emailed to the tenant(s) and landlord(s). */
+    public const TYPE_LEASE_SIGNED_COPY_EMAILED = 'lease_signed_copy_emailed';
+    public const TYPE_LEASE_EDITED = 'lease_edited';
+    /** leases.md §3.8 — archive and restore, with who / why. */
+    public const TYPE_LEASE_ARCHIVED = 'lease_archived';
+    public const TYPE_LEASE_RESTORED = 'lease_restored';
+    /** Johan, 2026-10-07 — lease rent above the amount the tenant was approved for, confirmed by the agent with a reason (or by the agency's own warn setting). */
+    public const TYPE_RENT_ABOVE_APPROVED_CONFIRMED = 'rent_above_approved_confirmed';
+    // LEASE-AGREEMENT END
+
+    /** leases.md §17 — the owner's agent or the tenant's agent changed (who, from, to, when). One row per side changed. */
+    public const TYPE_LEASE_AGENT_CHANGED = 'lease_agent_changed';
+    /** leases.md §17.6 — an existing lease's two agents filled in by `leases:backfill-agents` (reversible; the rule used is in metadata). */
+    public const TYPE_LEASE_AGENTS_BACKFILLED = 'lease_agents_backfilled';
+    /** leases.md §18 — the notice / early-cancellation terms edited (who, which terms, from, to). All <= 40 characters. */
+    public const TYPE_NOTICE_TERMS_CHANGED = 'lease_notice_terms_changed';
+    /** leases.md §18.5 — an existing lease's notice terms filled from the agency defaults by `leases:backfill-notice-terms` (reversible). */
+    public const TYPE_NOTICE_TERMS_BACKFILLED = 'lease_notice_terms_backfilled';
+    /** leases.md §18.7 — an agent confirmed the notice terms against the signed lease (who, when). */
+    public const TYPE_NOTICE_TERMS_CONFIRMED = 'lease_notice_terms_confirmed';
+
+    protected $fillable = [
+        'lease_id',
+        'event_type',
+        'description',
+        'actor_user_id',
+        'metadata',
+        'occurred_at',
+        'created_at',
+    ];
+
+    protected $casts = [
+        'metadata' => 'array',
+        'occurred_at' => 'datetime',
+        'created_at' => 'datetime',
+    ];
+
+    public function lease(): BelongsTo
+    {
+        return $this->belongsTo(Lease::class);
+    }
+
+    public function actorUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'actor_user_id');
+    }
+}

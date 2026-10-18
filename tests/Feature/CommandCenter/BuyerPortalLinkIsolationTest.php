@@ -40,11 +40,13 @@ final class BuyerPortalLinkIsolationTest extends TestCase
         return [$agency, $branch, $agent];
     }
 
-    private function contactFor(Agency $agency, Branch $branch): Contact
+    /** $owner = the agent whose OWN contact it is (an agent only sees contacts they own, by their contact scope). */
+    private function contactFor(Agency $agency, Branch $branch, ?User $owner = null): Contact
     {
         return Contact::withoutGlobalScopes()->create([
             'agency_id' => $agency->id, 'branch_id' => $branch->id,
             'first_name' => 'B', 'last_name' => 'Buyer',
+            'agent_id' => $owner?->id, 'created_by_user_id' => $owner?->id,
         ]);
     }
 
@@ -68,7 +70,7 @@ final class BuyerPortalLinkIsolationTest extends TestCase
     public function test_can_generate_a_portal_link_for_own_contact(): void
     {
         [$agencyA, $branchA, $agentA] = $this->agencyWithAgent('a');
-        $myContact = $this->contactFor($agencyA, $branchA);
+        $myContact = $this->contactFor($agencyA, $branchA, $agentA);
 
         $this->actingAs($agentA)
             ->post('/corex/command-center/buyers/portal-links/generate', ['contact_id' => $myContact->id])

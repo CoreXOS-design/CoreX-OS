@@ -67,46 +67,129 @@ class RentalInspectionSetting extends Model
     ];
 
     /**
-     * Johan, 2026-09-20: "we should have a setting somewhere on rentals that
-     * defines room types and what gets added - ceiling, walls, floors,
-     * windows, doors - that should be a std." The generic fallback for any
-     * space type below that isn't in DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE — a
-     * type Retha's real vocabulary doesn't cover, or a future addition to
-     * config('property-spaces.all_space_types') this constant never has to
-     * be updated for.
+     * .ai/specs/rental-inspections.md §45.4 item 1 (Build I-2) — the neutral,
+     * floor-to-ceiling baseline every inspection checklist starts from.
+     * Johan, 2026-09-20: "ceiling, walls, floors, windows, doors — that should
+     * be a std"; approved 6 Oct 2026 (Q9a) as a floor-to-ceiling default list.
+     * Replaces the thin five-item list this constant used to hold (45 of the 50
+     * space types fell back to it: no skirting, no lights, no sockets).
+     *
+     * This is also the generic fallback for any room type no family below
+     * claims — a future addition to config('property-spaces.all_space_types'),
+     * or an agency's own custom room type — so nothing ever seeds an empty
+     * checklist.
      */
-    public const DEFAULT_ROOM_TYPE_ITEMS = ['Ceiling', 'Walls', 'Floors', 'Windows', 'Doors'];
+    public const DEFAULT_ROOM_TYPE_ITEMS = [
+        'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+        'Light fittings', 'Light switches', 'Plug sockets',
+    ];
 
     /**
-     * 2026-09-21, conductor (transcribed from Retha's real inspection form) —
-     * "we are seeding a skeleton and calling it a checklist" once actual
-     * agent numbers showed under 6 items/room against her real 18-line
-     * kitchen. These are the SYSTEM default for these five types — used
-     * only where an agency has not configured its own list for that type
-     * (roomTypeItemDefaultsFor()'s array_merge always lets an agency's own
-     * customRoomTypeOverridesFor() entry win outright, unchanged by this).
-     * Transcribed exactly as given, not assumed to be a superset of the
-     * generic baseline above — her Bedroom has no separate Floors/Windows/
-     * Doors lines at all, so it genuinely doesn't get them here either.
+     * §45.4 item 1 — the baseline per room FAMILY: the building elements every
+     * interior shares (DEFAULT_ROOM_TYPE_ITEMS) plus the family's own
+     * fittings. Which family a room type belongs to is ROOM_TYPE_FAMILY below;
+     * a type in neither map is the 'other' family. An agency's own saved list
+     * for a type (customRoomTypeOverridesFor()) always wins over all of this —
+     * defaults never overwrite an agency override.
+     *
+     * @var array<string, array<int, string>>
+     */
+    public const DEFAULT_ROOM_FAMILY_ITEMS = [
+        'living' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Curtain rails and blinds',
+        ],
+        'bedroom' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Built-in cupboards', 'Curtain rails and blinds',
+        ],
+        'kitchen' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+            'Sink and taps', 'Stove, hob and oven', 'Extractor', 'Cupboards and tops',
+        ],
+        'bathroom' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Extractor fan', 'Mirror', 'Geyser access',
+        ],
+        'outbuilding' => [
+            'Ceiling', 'Walls', 'Floors', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+        ],
+        'covered_outdoor' => [
+            'Roof or ceiling', 'Floor or paving', 'Walls or pillars', 'Railings and gates', 'Doors',
+            'Light fittings', 'Plug sockets',
+        ],
+        'outdoor' => [
+            'Fences and gates', 'Boundary and retaining walls', 'Paving and floors', 'Garden and lawn',
+            'Roof, gutters and downspouts', 'Outside taps and irrigation', 'Light fittings', 'Plug sockets',
+        ],
+        'other' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets',
+        ],
+    ];
+
+    /**
+     * §45.4 item 1 — which family each of the 50 standard space types
+     * (config('property-spaces.all_space_types')) belongs to. Every one of the
+     * 50 is listed explicitly (a test pins that), so a type is never in the
+     * 'other' family by an accident of being forgotten here.
+     *
+     * @var array<string, string>
+     */
+    public const ROOM_TYPE_FAMILY = [
+        'Lounge' => 'living', 'TV Room' => 'living', 'Dining Room' => 'living', 'Reception Room' => 'living',
+        'Bar' => 'living', 'Boardroom' => 'living', 'Braai Room' => 'living', 'Study' => 'living',
+        'Office' => 'living', 'Loft' => 'living', 'Flatlet' => 'living', 'Studio' => 'living',
+        'Gym' => 'living', 'Clubhouse' => 'living',
+        'Bedroom' => 'bedroom', 'Domestic Room' => 'bedroom',
+        'Kitchen' => 'kitchen', 'Scullery' => 'kitchen', 'Laundry Room' => 'kitchen',
+        'Bathroom' => 'bathroom', 'Domestic Bathroom' => 'bathroom', 'Outside Toilet' => 'bathroom',
+        'Garage' => 'outbuilding', 'Parking' => 'outbuilding', 'Storeroom' => 'outbuilding', 'Shed' => 'outbuilding',
+        'Workshop' => 'outbuilding', 'Cellar' => 'outbuilding', 'Stable' => 'outbuilding', 'Pool Shed' => 'outbuilding',
+        'Wendy House' => 'outbuilding', 'Boathouse' => 'outbuilding', 'Greenhouse' => 'outbuilding',
+        'Sauna' => 'outbuilding', 'Changing Room' => 'outbuilding',
+        'Patio' => 'covered_outdoor', 'Veranda' => 'covered_outdoor', 'Courtyard' => 'covered_outdoor',
+        'Gazebo' => 'covered_outdoor', 'Lapa' => 'covered_outdoor',
+        'Garden' => 'outdoor', 'Pool' => 'outdoor', 'Jacuzzi' => 'outdoor', 'Squash Court' => 'outdoor',
+        'Tennis Court' => 'outdoor', 'Boat Launch' => 'outdoor', 'Jetty' => 'outdoor', 'Yard' => 'outdoor',
+        'Entrance Hall' => 'other', 'Linen Room' => 'other',
+    ];
+
+    /**
+     * §45.4 item 1 — the few types whose own fittings differ from their
+     * family's. Everything not named here takes its family's list. (This
+     * constant used to hold the transcribed lists for Kitchen/Bathroom/
+     * Bedroom/Garage/Yard as the system default; those are now covered by
+     * the families above, and any agency that saved its own list for a type —
+     * Home Finders Coastal did, for 33 types — keeps it untouched.)
+     *
+     * @var array<string, array<int, string>>
      */
     public const DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE = [
-        'Kitchen' => [
-            'Walls', 'Ceiling', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
-            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Stoves',
-            'Stove Plates', 'Oven', 'Tops', 'Hinges', 'Cupboard Doors', 'Door Frames',
+        'Garage' => [
+            'Ceiling', 'Walls', 'Floors', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Garage door and motor',
         ],
-        'Bathroom' => [
-            'Ceiling', 'Extractor Fan', 'Walls', 'Tiles', 'Light Fittings', 'Light Switches',
-            'Bath', 'Shower', 'Basin', 'Toilet', 'Taps', 'Towel Rails', 'Blinds',
-            'Curtain Rails', 'Door',
+        'Parking' => ['Floors', 'Roof or shade structure', 'Boundary walls and gates', 'Light fittings'],
+        'Pool' => [
+            'Pool surface and tiles', 'Pump and motor', 'Pipes and fittings', 'Pool cleaner',
+            'Pool cover or net', 'Pool fence and gate', 'Pool lights',
         ],
-        'Bedroom' => [
-            'Walls', 'Ceilings', 'Ceiling Fans', 'Aircon', 'Light Fittings', 'Light Switches',
-            'Carpet', 'Tiles', 'Blinds', 'Curtain Rails', 'Plug Sockets', 'Cupboard Doors',
-            'Hinges', 'Mirror',
+        'Scullery' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Sink and taps', 'Cupboards and tops',
         ],
-        'Garage' => ['Ceiling', 'Doors', 'Floors', 'Lights', 'Light Fittings', 'Walls', 'Windows'],
-        'Yard' => ['Fences and Gates', 'Retaining Wall', 'Garden', 'Gutters', 'Downspouts', 'Roof'],
+        'Laundry Room' => [
+            'Ceiling', 'Walls', 'Skirting', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Plug sockets', 'Sink and taps', 'Cupboards and tops',
+        ],
+        'Outside Toilet' => [
+            'Ceiling', 'Walls', 'Floor covering', 'Windows', 'Doors',
+            'Light fittings', 'Light switches', 'Toilet', 'Basin', 'Taps',
+        ],
     ];
 
     /**
@@ -272,6 +355,70 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
 
+    /** §46 — signing an inspection by a personal link: on, and live for 30 days from when it is issued. */
+    public const DEFAULT_SIGNING_LINK_ENABLED = true;
+    public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
+
+    /**
+     * §49 — Johan, 8 Oct 2026: do the three signatures (every tenant, the landlord, the agent) have to be in before an
+     * inspection of this type can be completed? The agency's own setting, per type. In, Out and Interim (planned) are
+     * required; Routine (unplanned) is optional. Keyed by the STORED type value; the column is `signatures_required_<key>`.
+     */
+    public const SIGNATURE_REQUIREMENT_COLUMNS = [
+        'in' => 'signatures_required_in',
+        'out' => 'signatures_required_out',
+        'interim' => 'signatures_required_interim',
+        'ad_hoc' => 'signatures_required_routine',
+    ];
+    public const DEFAULT_SIGNATURES_REQUIRED = [
+        'in' => true,
+        'out' => true,
+        'interim' => true,
+        'ad_hoc' => false,
+    ];
+
+    /**
+     * §52 — the business rules the 8 Oct 2026 walk turned into agency settings. column => [recommended default, label,
+     * explain, affects]. Read at run time through ruleFor() (null in the table = "use the default"); the settings page, the saver and
+     * the Setup Wizard all read THIS list, so a rule cannot exist in one place and be missing from another.
+     */
+    public const INSPECTION_RULES = [
+        'signing_window_reminders_enabled' => [true,
+            'Remind the agent when the signing window is about to close, and when it has',
+            'When someone still has not signed, the agent is reminded (in CoreX and by email) a few days before the signing window closes and again the day after it has closed. Nothing happens automatically to the inspection.',
+            'Whether the agent gets a reminder about a report people have not signed yet. On by default; the number of days before closing is set below.'],
+        'calendar_include_lease_agents' => [true,
+            'Put a booked inspection on the calendar of the lease\'s owner\'s agent and tenant\'s agent as well',
+            'A booked inspection normally sits on the inspector\'s calendar only. With this on, the other agent(s) on the lease see it too, so nobody is surprised.',
+            'Whether the lease\'s other agent(s) also get the booking on their calendar. On by default; off keeps it on the inspector\'s calendar only.'],
+        'cancel_signed_requires_edit' => [true,
+            'An inspection people have already signed must go through "Edit report" before it can be cancelled',
+            'Cancelling a signed report would leave the signatures standing on a cancelled record. With this on, the agent presses Edit report first (which clears the signatures and keeps a record of why), then cancels.',
+            'Whether a signed report can be cancelled directly. On by default: Edit report first, so no signature is left standing on a cancelled report.'],
+        'photos_required_to_sign' => [false,
+            'Do not allow "Ready to sign" while items have no photo',
+            'The count of items without a photo is always shown at Ready to sign. Turn this on to make it a hard stop instead of a warning.',
+            'Whether missing photos only warn (off, the default) or stop Ready to sign (on).'],
+        'empty_checklist_blocks_signing' => [true,
+            'Do not allow "Ready to sign" on an inspection with no rooms or items',
+            'An inspection with nothing to inspect would otherwise be signed and sent as an empty report. With this on, the agent must add rooms and items first. Only applies while "every item recorded" is on.',
+            'Whether an inspection with no rooms or items can be marked ready to sign. On by default: it cannot.'],
+        'routine_follows_full_checks' => [true,
+            'A Routine inspection needs the same checks as the others (every item recorded, required notes, attendance)',
+            'Signatures for Routine are decided by their own setting. This setting decides the other checks. Off keeps a Routine inspection a light check with none of them.',
+            'Whether a Routine inspection must have every item recorded, required notes and attendance before Ready to sign / Complete. On by default; off keeps Routine light.'],
+        'hold_pdf_when_refused' => [true,
+            'When a person refused to sign, do not attach the PDF to the completion email they receive',
+            'The completed report is still sent to the agency copy addresses and the people who did sign; the person who refused gets the email without the PDF (the agent can still hand it over by choice).',
+            'Whether the person who refused to sign gets the completion email without the PDF. On by default.'],
+        'report_shows_agency_branding' => [true,
+            'Put the agency name, logo and the agent\'s contact details on the inspection report and PDF',
+            'The same logo and name the tenant and owner portal shows, plus the inspecting agent\'s name, role, phone and email, at the top of the report a tenant or landlord receives.',
+            'Whether the report and PDF open with the agency logo, name and the agent\'s contact details. On by default.'],
+    ];
+    /** §52 — how many days before the signing window closes the first reminder goes out. */
+    public const DEFAULT_SIGNING_REMINDER_LEAD_DAYS = 2;
+
     /**
      * §41, 2026-09-28, Johan's ruling — "auto-send on/off is an agency
      * setting, default ON." When true, a completed inspection's signed
@@ -284,6 +431,11 @@ class RentalInspectionSetting extends Model
      * (that part was never optional).
      */
     public const DEFAULT_AUTO_SEND_REPORT_ENABLED = true;
+    /** §45.6 — the inspector and the creating agent are copied on the completed report unless the agency says otherwise. */
+    public const DEFAULT_REPORT_COPY_INSPECTOR = true;
+    public const DEFAULT_REPORT_COPY_CREATOR = true;
+    /** Sanity ceiling on the agency copy list — a mistyped paste must not become a mass mail-out. */
+    public const MAX_REPORT_AGENCY_COPY_ADDRESSES = 10;
 
     protected $fillable = [
         'agency_id',
@@ -293,14 +445,48 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels',
         'room_type_item_defaults',
         'room_type_walking_order',
+        'custom_room_types',
+        'room_templates',
         'condition_states',
         'photo_note_classifications',
         'baseline_condition_key',
         'require_notes_blocks_progression',
+        'all_items_required_to_complete',
+        'attended_as_labels',
+        'move_out_classification_labels',
         'omr_mark_threshold',
         'public_link_expiry_days',
+        // §46 — signing by personal link.
+        'signing_link_enabled',
+        'signing_link_expiry_days',
+        // §52 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
+        'signing_window_reminders_enabled', 'signing_reminder_lead_days', 'calendar_include_lease_agents', 'cancel_signed_requires_edit',
+        'photos_required_to_sign', 'empty_checklist_blocks_signing', 'routine_follows_full_checks', 'hold_pdf_when_refused', 'report_shows_agency_branding',
+        // §49 — are the three signatures required to complete an inspection of each type?
+        'signatures_required_in',
+        'signatures_required_out',
+        'signatures_required_interim',
+        'signatures_required_routine',
         'auto_pair_photos_enabled',
         'auto_send_report_enabled',
+        // §45.6 (Build I-4) — who else gets a copy of a completed report.
+        'report_agency_copy_emails',
+        'report_copy_inspector',
+        'report_copy_creator',
+        // §43 — schedule/reschedule/cancel notifications.
+        'notify_tenant_enabled',
+        'notify_landlord_enabled',
+        'notify_inspector_enabled',
+        'notify_via_mail_enabled',
+        'notify_via_whatsapp_enabled',
+        'remind_tenant_by_email',
+        'remind_landlord_by_email',
+        'minimum_notice_days',
+        'reminder_days_before',
+        // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
+        'planned_date_lead_days',
+        'out_due_lead_days',
+        'raise_due_inspections_enabled',
     ];
 
     protected $casts = [
@@ -310,14 +496,84 @@ class RentalInspectionSetting extends Model
         'inspection_feature_labels' => 'array',
         'room_type_item_defaults' => 'array',
         'room_type_walking_order' => 'array',
+        'custom_room_types' => 'array',
+        'room_templates' => 'array',
         'condition_states' => 'array',
         'photo_note_classifications' => 'array',
         'require_notes_blocks_progression' => 'boolean',
+        'all_items_required_to_complete' => 'boolean',
+        'attended_as_labels' => 'array',
+        'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
+        'signing_link_enabled' => 'boolean',
+        'signing_link_expiry_days' => 'integer',
+        'signing_window_reminders_enabled' => 'boolean', 'signing_reminder_lead_days' => 'integer', 'calendar_include_lease_agents' => 'boolean',
+        'cancel_signed_requires_edit' => 'boolean', 'photos_required_to_sign' => 'boolean', 'empty_checklist_blocks_signing' => 'boolean',
+        'routine_follows_full_checks' => 'boolean', 'hold_pdf_when_refused' => 'boolean', 'report_shows_agency_branding' => 'boolean',
+        'signatures_required_in' => 'boolean',
+        'signatures_required_out' => 'boolean',
+        'signatures_required_interim' => 'boolean',
+        'signatures_required_routine' => 'boolean',
         'auto_pair_photos_enabled' => 'boolean',
         'auto_send_report_enabled' => 'boolean',
+        'report_copy_inspector' => 'boolean',
+        'report_copy_creator' => 'boolean',
+        'notify_tenant_enabled' => 'boolean',
+        'notify_landlord_enabled' => 'boolean',
+        'notify_inspector_enabled' => 'boolean',
+        'notify_via_mail_enabled' => 'boolean',
+        'notify_via_whatsapp_enabled' => 'boolean',
+        'remind_tenant_by_email' => 'boolean',
+        'remind_landlord_by_email' => 'boolean',
+        'minimum_notice_days' => 'integer',
+        'reminder_days_before' => 'integer',
+        'planned_date_lead_days' => 'integer',
+        'out_due_lead_days' => 'integer',
+        'raise_due_inspections_enabled' => 'boolean',
     ];
+
+    /**
+     * §45.7 item 6 (Build I-5) — the due-date settings. Read-time defaults like every resolver here: nothing saved reads as
+     * the default, nothing is written on read. There is deliberately NO interim interval setting (Johan, 6 Oct, Q6 — nothing
+     * in CoreX computes an interim date; the agency loads its own).
+     */
+    public const DEFAULT_PLANNED_DATE_LEAD_DAYS = 14;
+    public const DEFAULT_OUT_DUE_LEAD_DAYS = 7;
+    public const DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED = true;
+
+    /** Days before a LOADED interim date that the agent is first reminded (0 = remind on the day only). */
+    public static function plannedDateLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('planned_date_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_PLANNED_DATE_LEAD_DAYS;
+    }
+
+    /** Days before a lease's out-inspection is due that it starts showing as due (0 = only from the day itself). */
+    public static function outDueLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_OUT_DUE_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('out_due_lead_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_OUT_DUE_LEAD_DAYS;
+    }
+
+    /** Whether the daily scan reminds the agent about In/Out inspections that are due. On the Due tab and Command Centre regardless. */
+    public static function raiseDueInspectionsEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('raise_due_inspections_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_RAISE_DUE_INSPECTIONS_ENABLED;
+    }
 
     /**
      * Property 5792, Johan: "whether the requirement BLOCKS progression or
@@ -337,6 +593,102 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('require_notes_blocks_progression');
 
         return $value !== null ? (bool) $value : self::DEFAULT_REQUIRE_NOTES_BLOCKS_PROGRESSION;
+    }
+
+    /**
+     * §45.3 (Build I-1) — whether an in/out inspection can complete (or go out for signature) while a
+     * checklist item is still ungraded. N/A counts as graded. Default ON; an agency that wants to
+     * complete with gaps turns it off and the same list is still shown, as a warning.
+     */
+    public const DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE = true;
+
+    public static function allItemsRequiredToCompleteFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('all_items_required_to_complete');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_ALL_ITEMS_REQUIRED_TO_COMPLETE;
+    }
+
+    /**
+     * §45.5 (Build I-3) — the words for HOW someone attended an inspection. The four keys are fixed
+     * (RentalInspectionAttendance::attendedAsKeys()); only the labels are the agency's own. These
+     * defaults are neutral placeholders — the printed wording is Johan's call (§45.11).
+     */
+    public const DEFAULT_ATTENDED_AS_LABELS = [
+        'self' => 'In person',
+        'representative' => 'On behalf of the party',
+        'co_occupant' => 'Co-occupant',
+        'other' => 'Other',
+    ];
+
+    /** @return array<string, string> key => label, always all four keys */
+    public static function attendedAsLabelsFor(?int $agencyId): array
+    {
+        $stored = null;
+        if ($agencyId) {
+            $stored = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('attended_as_labels');
+            $stored = is_string($stored) ? json_decode($stored, true) : $stored;
+        }
+
+        $labels = self::DEFAULT_ATTENDED_AS_LABELS;
+        if (is_array($stored)) {
+            foreach ($labels as $key => $default) {
+                $candidate = isset($stored[$key]) && is_string($stored[$key]) ? trim($stored[$key]) : '';
+                if ($candidate !== '') {
+                    $labels[$key] = $candidate;
+                }
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
+     * §45.14 — the words for the three move-out classifications an agent can record against a marked item. The keys
+     * are fixed (RentalInspectionItemFinding::DISPOSITION_*) and are all the code ever reads — logic never depends
+     * on wording; only the labels are the agency's own. The defaults are the wording the screen has always used.
+     */
+    public const DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS = [
+        RentalInspectionItemFinding::DISPOSITION_PRE_EXISTING => 'Pre-existing',
+        RentalInspectionItemFinding::DISPOSITION_LANDLORD_COST => 'Landlord\'s responsibility',
+        RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT => 'Charge to tenant',
+    ];
+
+    /** @return array<string, string> key => label, always all three keys */
+    public static function moveOutClassificationLabelsFor(?int $agencyId): array
+    {
+        $stored = null;
+        if ($agencyId) {
+            $stored = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('move_out_classification_labels');
+            $stored = is_string($stored) ? json_decode($stored, true) : $stored;
+        }
+
+        $labels = self::DEFAULT_MOVE_OUT_CLASSIFICATION_LABELS;
+        if (is_array($stored)) {
+            foreach ($labels as $key => $default) {
+                $candidate = isset($stored[$key]) && is_string($stored[$key]) ? trim($stored[$key]) : '';
+                if ($candidate !== '') {
+                    $labels[$key] = $candidate;
+                }
+            }
+        }
+
+        return $labels;
+    }
+
+    /**
+     * Every disposition key => the words THIS agency's screen shows: the two fixed ones (fair wear and tear /
+     * flagged) as shipped, plus the three the agency may reword. Keys and order are exactly
+     * RentalInspectionItemFinding::DISPOSITION_LABELS — validation keeps using that, never these labels.
+     *
+     * @return array<string, string>
+     */
+    public static function dispositionLabelsFor(?int $agencyId): array
+    {
+        return array_replace(RentalInspectionItemFinding::DISPOSITION_LABELS, self::moveOutClassificationLabelsFor($agencyId));
     }
 
     public static function faultReportWindowDaysFor(?int $agencyId): int
@@ -367,6 +719,71 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+    }
+
+    /** §46 — whether this agency lets parties sign an inspection from a personal link. Read-time default: on. */
+    public static function signingLinkEnabledFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_LINK_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_link_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_SIGNING_LINK_ENABLED;
+    }
+
+    /**
+     * §49 — must an inspection of this type carry the three signatures before it can be completed? Read-time default per
+     * type (DEFAULT_SIGNATURES_REQUIRED): In / Out / Interim required, Routine optional. An unknown type is treated as
+     * required — the stricter reading — never silently optional.
+     */
+    public static function signaturesRequiredFor(?int $agencyId, ?string $type): bool
+    {
+        $column = self::SIGNATURE_REQUIREMENT_COLUMNS[(string) $type] ?? null;
+        if ($column === null) {
+            return true;
+        }
+        $default = self::DEFAULT_SIGNATURES_REQUIRED[(string) $type];
+        if (! $agencyId) {
+            return $default;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
+
+        return $value !== null ? (bool) $value : $default;
+    }
+
+    /** §52 — one of INSPECTION_RULES for this agency, with its recommended default when the agency never set it. */
+    public static function ruleFor(?int $agencyId, string $column): bool
+    {
+        $default = (bool) (self::INSPECTION_RULES[$column][0] ?? false);
+        if (! $agencyId || ! isset(self::INSPECTION_RULES[$column])) {
+            return $default;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column);
+
+        return $value !== null ? (bool) $value : $default;
+    }
+
+    /** §52 — days before the signing window closes that the first reminder goes out. Read-time default: 2. */
+    public static function signingReminderLeadDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_REMINDER_LEAD_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_reminder_lead_days');
+
+        return $value !== null ? max(0, (int) $value) : self::DEFAULT_SIGNING_REMINDER_LEAD_DAYS;
+    }
+
+    /** §46 — days a personal signing link stays live from the day it is issued. Read-time default: 30. */
+    public static function signingLinkExpiryDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_SIGNING_LINK_EXPIRY_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('signing_link_expiry_days');
+
+        return $value !== null && (int) $value > 0 ? (int) $value : self::DEFAULT_SIGNING_LINK_EXPIRY_DAYS;
     }
 
     /**
@@ -402,6 +819,68 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('auto_send_report_enabled');
 
         return $value !== null ? (bool) $value : self::DEFAULT_AUTO_SEND_REPORT_ENABLED;
+    }
+
+    /**
+     * §45.6 — the agency's own copy address(es) for a completed report, valid + lower-cased + de-duplicated,
+     * in the order saved. Empty list when none are set (the default — an agency chooses to add one; nothing
+     * is assumed). Every address is re-validated at read time too, so a bad value that reached the column by
+     * some other route can never reach the mailer.
+     *
+     * @return array<int, string>
+     */
+    public static function reportAgencyCopyEmailsFor(?int $agencyId): array
+    {
+        if (! $agencyId) {
+            return [];
+        }
+
+        return self::parseEmailList((string) static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_agency_copy_emails'))['valid'];
+    }
+
+    public static function reportCopyInspectorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REPORT_COPY_INSPECTOR;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_copy_inspector');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REPORT_COPY_INSPECTOR;
+    }
+
+    public static function reportCopyCreatorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REPORT_COPY_CREATOR;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('report_copy_creator');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REPORT_COPY_CREATOR;
+    }
+
+    /**
+     * Splits a typed/pasted list (commas, semicolons, spaces or new lines) into valid and invalid addresses.
+     * Trimmed, lower-cased, de-duplicated; order kept.
+     *
+     * @return array{valid: array<int, string>, invalid: array<int, string>}
+     */
+    public static function parseEmailList(string $raw): array
+    {
+        $valid = [];
+        $invalid = [];
+        foreach (preg_split('/[\s,;]+/', trim($raw)) ?: [] as $candidate) {
+            $candidate = mb_strtolower(trim($candidate));
+            if ($candidate === '') {
+                continue;
+            }
+            if (filter_var($candidate, FILTER_VALIDATE_EMAIL) === false) {
+                $invalid[] = $candidate;
+                continue;
+            }
+            $valid[$candidate] = $candidate;
+        }
+
+        return ['valid' => array_values($valid), 'invalid' => $invalid];
     }
 
     /**
@@ -493,11 +972,261 @@ class RentalInspectionSetting extends Model
         $overrides = self::customRoomTypeOverridesFor($agencyId);
 
         $defaults = [];
-        foreach (config('property-spaces.all_space_types', []) as $type) {
-            $defaults[$type] = self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+        foreach (self::knownRoomTypeKeysFor($agencyId) as $type) {
+            $defaults[$type] = self::defaultItemsForType($type);
         }
 
         return array_merge($defaults, $overrides);
+    }
+
+    /**
+     * §45.4 item 1 — the SYSTEM default checklist for one room type, before
+     * any agency override: the type's own list if it has one, else its
+     * family's, else the generic baseline. An agency's own custom room type
+     * is in no family, so it lands on the generic baseline.
+     *
+     * @return array<int, string>
+     */
+    public static function defaultItemsForType(string $type): array
+    {
+        if (isset(self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type])) {
+            return self::DEFAULT_ROOM_TYPE_ITEMS_BY_TYPE[$type];
+        }
+
+        $family = self::ROOM_TYPE_FAMILY[$type] ?? 'other';
+
+        return self::DEFAULT_ROOM_FAMILY_ITEMS[$family] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+    }
+
+    /** How many custom room types an agency may hold (active + archived) — absorbs a runaway list, never errors. */
+    public const MAX_CUSTOM_ROOM_TYPES = 200;
+
+    /** Longest custom room-type label; property_rooms.type is varchar(60) and the key is derived from it. */
+    public const CUSTOM_ROOM_TYPE_LABEL_MAX = 60;
+
+    /** Every custom key starts with this, so one can never equal a standard type's name (none starts with it). */
+    public const CUSTOM_ROOM_TYPE_KEY_PREFIX = 'custom_';
+
+    /**
+     * §45.4 item 3 — the agency's OWN room types: every one it has ever added,
+     * archived ones included (an archived type is kept so rooms already filed
+     * under it keep resolving). Read-time default: nothing saved = none.
+     *
+     * @return array<int, array{key: string, label: string, archived: bool}>
+     */
+    public static function customRoomTypesFor(?int $agencyId): array
+    {
+        $raw = null;
+        if ($agencyId) {
+            $raw = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('custom_room_types');
+            $raw = is_string($raw) ? json_decode($raw, true) : $raw;
+        }
+
+        $types = [];
+        $seen = [];
+        foreach (is_array($raw) ? $raw : [] as $row) {
+            $key = trim((string) ($row['key'] ?? ''));
+            $label = trim((string) ($row['label'] ?? ''));
+            if ($key === '' || $label === '' || isset($seen[$key])) {
+                continue;
+            }
+            $seen[$key] = true;
+            $types[] = ['key' => $key, 'label' => $label, 'archived' => (bool) ($row['archived'] ?? false)];
+        }
+
+        return $types;
+    }
+
+    /**
+     * §45.4 item 3 — what an agent may PICK for a new room: the 50 standard
+     * types (key = label, as they have always been stored) then the agency's
+     * own active custom types. Archived custom types are not offered.
+     *
+     * @return array<int, array{key: string, label: string, custom: bool}>
+     */
+    public static function roomTypeOptionsFor(?int $agencyId): array
+    {
+        $options = [];
+        foreach (config('property-spaces.all_space_types', []) as $type) {
+            $options[] = ['key' => $type, 'label' => $type, 'custom' => false];
+        }
+        foreach (self::customRoomTypesFor($agencyId) as $custom) {
+            if (! $custom['archived']) {
+                $options[] = ['key' => $custom['key'], 'label' => $custom['label'], 'custom' => true];
+            }
+        }
+
+        return $options;
+    }
+
+    /** @return array<int, string> the keys a NEW room may be created with (validation list). */
+    public static function selectableRoomTypeKeysFor(?int $agencyId): array
+    {
+        return array_column(self::roomTypeOptionsFor($agencyId), 'key');
+    }
+
+    /**
+     * Every key a room can already carry — the standard 50 plus ALL the
+     * agency's custom types, archived included. Used wherever existing rooms
+     * must still resolve (walking order, item defaults, sort position).
+     *
+     * @return array<int, string>
+     */
+    public static function knownRoomTypeKeysFor(?int $agencyId): array
+    {
+        return array_merge(
+            config('property-spaces.all_space_types', []),
+            array_column(self::customRoomTypesFor($agencyId), 'key'),
+        );
+    }
+
+    /** A room type's display label: a custom type's label, else the key itself (standard types ARE their label). */
+    public static function roomTypeLabelFor(?int $agencyId, string $key): string
+    {
+        foreach (self::customRoomTypesFor($agencyId) as $custom) {
+            if ($custom['key'] === $key) {
+                return $custom['label'];
+            }
+        }
+
+        return $key;
+    }
+
+    /**
+     * §45.4 item 3 — fold a submitted custom-room-type list into the saved
+     * one. Pure (no DB), so the settings page and the Setup Wizard run the
+     * exact same rules and a test can drive it directly. Rules:
+     *  - a submitted row whose key matches a saved type keeps that key
+     *    (a rename never re-keys, so rooms already filed under it never
+     *    orphan); a row with no known key is NEW and gets a generated key —
+     *    a posted key is never trusted;
+     *  - a saved ACTIVE type missing from the submission is ARCHIVED (the
+     *    UI's "Remove" is an archive; a saved ARCHIVED one that is not
+     *    submitted stays archived — the wizard never renders those);
+     *  - a label that is empty is ignored; a label that duplicates a standard
+     *    type or another of the agency's own (case/space-insensitive, archived
+     *    included) is skipped and reported, never saved twice;
+     *  - the list is capped at MAX_CUSTOM_ROOM_TYPES.
+     *
+     * @param  array<int, array{key: string, label: string, archived: bool}>  $existing
+     * @param  array<int, mixed>  $submitted
+     * @return array{types: array<int, array{key: string, label: string, archived: bool}>, skipped: array<int, array{label: string, reason: string}>}
+     */
+    public static function mergeCustomRoomTypes(array $existing, array $submitted): array
+    {
+        $norm = fn (string $s) => mb_strtolower(trim(preg_replace('/\s+/u', ' ', $s)));
+
+        $byKey = [];
+        foreach ($existing as $row) {
+            $byKey[$row['key']] = $row;
+        }
+
+        $taken = [];
+        foreach (config('property-spaces.all_space_types', []) as $standard) {
+            $taken[$norm($standard)] = 'standard';
+        }
+
+        $result = [];
+        $seenKeys = [];
+        $skipped = [];
+
+        $submittedKeys = [];
+        foreach ($submitted as $row) {
+            $k = is_array($row) ? trim((string) ($row['key'] ?? '')) : '';
+            if ($k !== '') {
+                $submittedKeys[$k] = true;
+            }
+        }
+
+        foreach ($submitted as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $label = trim(preg_replace('/\s+/u', ' ', (string) ($row['label'] ?? '')));
+            $label = mb_substr($label, 0, self::CUSTOM_ROOM_TYPE_LABEL_MAX);
+            $postedKey = trim((string) ($row['key'] ?? ''));
+            $archived = filter_var($row['archived'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+            if ($postedKey !== '' && isset($byKey[$postedKey])) {
+                // An existing type: keep its key. A blank label leaves the saved one alone.
+                $current = $byKey[$postedKey];
+                $seenKeys[$postedKey] = true;
+                $newLabel = $label !== '' ? $label : $current['label'];
+
+                $clash = $taken[$norm($newLabel)] ?? null;
+                foreach ($result as $kept) {
+                    if ($norm($kept['label']) === $norm($newLabel)) {
+                        $clash = 'custom';
+                    }
+                }
+                if ($clash !== null && $norm($newLabel) !== $norm($current['label'])) {
+                    $skipped[] = ['label' => $newLabel, 'reason' => $clash === 'standard'
+                        ? 'that is already a standard room type'
+                        : 'you already have a room type with that name'];
+                    $newLabel = $current['label'];
+                }
+
+                $result[] = ['key' => $postedKey, 'label' => $newLabel, 'archived' => $archived];
+
+                continue;
+            }
+
+            if ($label === '') {
+                continue;
+            }
+
+            $normLabel = $norm($label);
+            if (isset($taken[$normLabel])) {
+                $skipped[] = ['label' => $label, 'reason' => 'that is already a standard room type'];
+
+                continue;
+            }
+            $duplicate = false;
+            foreach (array_merge($result, $existing) as $other) {
+                if ($norm($other['label']) === $normLabel) {
+                    // Removed and re-added in one save: the same type, not a duplicate — keep its key, un-archive it.
+                    if (isset($byKey[$other['key']]) && ! isset($submittedKeys[$other['key']]) && ! isset($seenKeys[$other['key']]) && ! ($other['archived'] ?? false)) {
+                        $seenKeys[$other['key']] = true;
+                        $result[] = ['key' => $other['key'], 'label' => $label, 'archived' => false];
+                        $duplicate = true;
+                        break;
+                    }
+                    $skipped[] = ['label' => $label, 'reason' => $other['archived'] ?? false
+                        ? 'you already have that room type, archived — restore it instead'
+                        : 'you already have a room type with that name'];
+                    $duplicate = true;
+                    break;
+                }
+            }
+            if ($duplicate) {
+                continue;
+            }
+
+            if (count($result) + count(array_diff_key($byKey, $seenKeys)) >= self::MAX_CUSTOM_ROOM_TYPES) {
+                $skipped[] = ['label' => $label, 'reason' => 'the limit of ' . self::MAX_CUSTOM_ROOM_TYPES . ' room types has been reached'];
+
+                continue;
+            }
+
+            $usedKeys = array_merge(array_keys($byKey), array_column($result, 'key'));
+            $slug = trim(\Illuminate\Support\Str::slug(mb_substr($label, 0, 40), '_'), '_');
+            $base = self::CUSTOM_ROOM_TYPE_KEY_PREFIX . ($slug !== '' ? $slug : 'type');
+            $key = $base;
+            for ($n = 2; in_array($key, $usedKeys, true); $n++) {
+                $key = $base . '_' . $n;
+            }
+
+            $result[] = ['key' => $key, 'label' => $label, 'archived' => false];
+        }
+
+        // Saved types the submission left out: active -> archived, archived -> stays archived.
+        foreach ($existing as $row) {
+            if (! isset($seenKeys[$row['key']])) {
+                $result[] = ['key' => $row['key'], 'label' => $row['label'], 'archived' => true];
+            }
+        }
+
+        return ['types' => array_values($result), 'skipped' => $skipped];
     }
 
     /**
@@ -515,6 +1244,171 @@ class RentalInspectionSetting extends Model
         $defaults = self::roomTypeItemDefaultsFor($agencyId);
 
         return $defaults[$spaceType] ?? self::DEFAULT_ROOM_TYPE_ITEMS;
+    }
+
+    // ── §55 — the standard room list per kind of property ──────────────────────────────────────────
+
+    /** The kinds of property a room list is kept for, in the order the settings screen shows them. */
+    public const ROOM_TEMPLATE_FAMILIES = [
+        'house' => 'House',
+        'flat' => 'Apartment / Flat',
+        'townhouse' => 'Townhouse',
+        'other' => 'Any other property',
+    ];
+
+    /** Fewest / most rooms of one type a standard list may ask for. */
+    public const ROOM_TEMPLATE_MAX_COUNT = 20;
+
+    /**
+     * Built-in starting lists (type => how many) for every agency until it edits its own. Neutral: no agency's
+     * layout is assumed. Bedrooms, bathrooms and garages follow the property's own figures when it has them
+     * (see roomsToBuildFor), so these counts only apply to a property whose figures are blank.
+     */
+    public const DEFAULT_ROOM_TEMPLATES = [
+        'house' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 3], ['type' => 'Bathroom', 'count' => 2],
+            ['type' => 'Garage', 'count' => 1], ['type' => 'Garden', 'count' => 1],
+        ],
+        'flat' => [
+            ['type' => 'Lounge', 'count' => 1], ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 2],
+            ['type' => 'Bathroom', 'count' => 1], ['type' => 'Patio', 'count' => 1], ['type' => 'Parking', 'count' => 1],
+        ],
+        'townhouse' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Dining Room', 'count' => 1],
+            ['type' => 'Kitchen', 'count' => 1], ['type' => 'Bedroom', 'count' => 2], ['type' => 'Bathroom', 'count' => 2],
+            ['type' => 'Garage', 'count' => 1], ['type' => 'Patio', 'count' => 1], ['type' => 'Garden', 'count' => 1],
+        ],
+        'other' => [
+            ['type' => 'Entrance Hall', 'count' => 1], ['type' => 'Lounge', 'count' => 1], ['type' => 'Kitchen', 'count' => 1],
+            ['type' => 'Bedroom', 'count' => 1], ['type' => 'Bathroom', 'count' => 1],
+        ],
+    ];
+
+    /** Which room list a property's type name uses. The agency's own type names are free text, so match on the words in them. */
+    public static function roomTemplateFamilyFor(?string $propertyType): string
+    {
+        $t = strtolower(trim((string) $propertyType));
+        if ($t === '') {
+            return 'other';
+        }
+        if (preg_match('/apartment|flat|studio|bachelor|penthouse|\bunit\b/', $t)) {
+            return 'flat';
+        }
+        if (preg_match('/town\s?house|cluster|duplex|simplex|sectional|complex/', $t)) {
+            return 'townhouse';
+        }
+        if (preg_match('/\b(house|home|cottage|villa|bungalow|freestanding|free-standing)\b/', $t)) {
+            return 'house';
+        }
+
+        return 'other';
+    }
+
+    /**
+     * The agency's room list for a family, as saved or the built-in default. A saved list that has gone stale
+     * (a type no longer known) loses just those rows; a saved EMPTY list is respected as "no standard rooms".
+     *
+     * @return array<int, array{type: string, count: int}>
+     */
+    public static function roomTemplateFor(?int $agencyId, string $family): array
+    {
+        $family = array_key_exists($family, self::ROOM_TEMPLATE_FAMILIES) ? $family : 'other';
+        $saved = self::roomTemplateOverridesFor($agencyId);
+
+        $rows = array_key_exists($family, $saved) ? $saved[$family] : self::DEFAULT_ROOM_TEMPLATES[$family];
+        $known = self::knownRoomTypeKeysFor($agencyId);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $type = (string) ($row['type'] ?? '');
+            if ($type === '' || ! in_array($type, $known, true)) {
+                continue;
+            }
+            $out[] = ['type' => $type, 'count' => max(1, min(self::ROOM_TEMPLATE_MAX_COUNT, (int) ($row['count'] ?? 1)))];
+        }
+
+        return $out;
+    }
+
+    /** Only what the agency has saved (family => rows) - the settings form's starting point is the merged view below. */
+    public static function roomTemplateOverridesFor(?int $agencyId): array
+    {
+        $raw = null;
+        if ($agencyId) {
+            $raw = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('room_templates');
+            $raw = is_string($raw) ? json_decode($raw, true) : $raw;
+        }
+
+        return is_array($raw) ? array_filter($raw, fn ($rows, $family) => array_key_exists($family, self::ROOM_TEMPLATE_FAMILIES) && is_array($rows), ARRAY_FILTER_USE_BOTH) : [];
+    }
+
+    /** @return array<string, array<int, array{type: string, count: int}>> every family's current list (saved or built-in). */
+    public static function roomTemplatesFor(?int $agencyId): array
+    {
+        $out = [];
+        foreach (array_keys(self::ROOM_TEMPLATE_FAMILIES) as $family) {
+            $out[$family] = self::roomTemplateFor($agencyId, $family);
+        }
+
+        return $out;
+    }
+
+    /**
+     * The rooms to create for one property: [{type, label}], in the agency's walking order. A type asked for once
+     * is labelled by its name ("Kitchen"); more than once is numbered ("Bedroom 1", "Bedroom 2"), the same
+     * labelling the advertising Spaces use. Bedrooms, bathrooms and garages take the property's own count when it has one.
+     *
+     * @return array<int, array{type: string, label: string}>
+     */
+    public static function roomsToBuildFor(?int $agencyId, ?string $propertyType, ?int $bedrooms = null, ?int $bathrooms = null, ?int $garages = null): array
+    {
+        $own = ['Bedroom' => $bedrooms, 'Bathroom' => $bathrooms, 'Garage' => $garages];
+        $rooms = [];
+        foreach (self::roomTemplateFor($agencyId, self::roomTemplateFamilyFor($propertyType)) as $row) {
+            $count = $row['count'];
+            if (isset($own[$row['type']]) && (int) $own[$row['type']] > 0) {
+                $count = min(self::ROOM_TEMPLATE_MAX_COUNT, (int) $own[$row['type']]);
+            }
+            for ($n = 1; $n <= $count; $n++) {
+                $rooms[] = ['type' => $row['type'], 'label' => $count === 1 ? $row['type'] : $row['type'] . ' ' . $n];
+            }
+        }
+
+        usort($rooms, fn ($a, $b) => self::defaultRoomSortOrderFor($agencyId, $a['type'], $a['label']) <=> self::defaultRoomSortOrderFor($agencyId, $b['type'], $b['label']));
+
+        return $rooms;
+    }
+
+    /**
+     * Fold a submitted list (family => [{type, count}]) into what is stored. Only families posted are touched; a
+     * type that is not known, a blank row and a duplicate type in one list are dropped; counts are clamped.
+     * Pure (no DB) so the settings page and the Setup Wizard apply identical rules.
+     *
+     * @return array<string, array<int, array{type: string, count: int}>>
+     */
+    public static function mergeRoomTemplates(array $existing, array $submitted, ?int $agencyId): array
+    {
+        $known = self::knownRoomTypeKeysFor($agencyId);
+        $result = $existing;
+        foreach (array_keys(self::ROOM_TEMPLATE_FAMILIES) as $family) {
+            if (! array_key_exists($family, $submitted)) {
+                continue;
+            }
+            $rows = [];
+            $seen = [];
+            foreach ((array) $submitted[$family] as $row) {
+                $type = trim((string) ($row['type'] ?? ''));
+                if ($type === '' || ! in_array($type, $known, true) || isset($seen[$type])) {
+                    continue;
+                }
+                $seen[$type] = true;
+                $rows[] = ['type' => $type, 'count' => max(1, min(self::ROOM_TEMPLATE_MAX_COUNT, (int) ($row['count'] ?? 1)))];
+            }
+            $result[$family] = $rows;
+        }
+
+        return $result;
     }
 
     /**
@@ -542,13 +1436,14 @@ class RentalInspectionSetting extends Model
         }
         $order = is_array($order) && $order !== [] ? $order : self::DEFAULT_ROOM_TYPE_WALKING_ORDER;
 
-        $catalog = config('property-spaces.all_space_types', []);
+        $catalog = self::knownRoomTypeKeysFor($agencyId);
         $order = array_values(array_intersect($order, $catalog));
 
         $missing = array_values(array_diff($catalog, $order));
         if ($missing !== []) {
             $defaultMissing = array_values(array_intersect(self::DEFAULT_ROOM_TYPE_WALKING_ORDER, $missing));
-            $order = array_merge($order, $defaultMissing);
+            // Then anything with no default position — an agency's own custom type.
+            $order = array_merge($order, $defaultMissing, array_values(array_diff($missing, $defaultMissing)));
         }
 
         return $order;
@@ -692,6 +1587,38 @@ class RentalInspectionSetting extends Model
     }
 
     /**
+     * §15 (AT-447) — the inspection Follow-up block's own filter: the SAME
+     * underlying question as conditionNeedsAttentionFor() ("does this
+     * condition mean something needs doing"), reusing the agency's EXISTING
+     * configured severity — deliberately not a second, independently-
+     * configurable flag, per this class's own Architectural Law against
+     * exactly that (see severity's own docblock above — `needs_attention`
+     * was already merged into `severity` once for this reason).
+     *
+     * The ONE deliberate difference from conditionNeedsAttentionFor(): an
+     * unmapped/legacy condition key defaults to `false` here, not
+     * conditionSeverityFor()'s `red` fallback. That fallback exists to make
+     * an agent LOOK at something unclassified while actively recording —
+     * the right default for a live data-entry screen. It is the WRONG
+     * default for a list of actions nobody asked the system to propose:
+     * Johan, 2026-10-05, QA1 property walk — an "N/A" observation (already
+     * fixed by reusing severity at all: N/A is configured grey) and a
+     * stray "OK CC1" value (not configured anywhere — a value that reached
+     * the column through a path that bypassed the agency's own vocabulary,
+     * e.g. an OMR scan import) both appeared in the Follow-up block as if
+     * they were faults.
+     */
+    public static function conditionNeedsFollowUpFor(?int $agencyId, string $conditionKey): bool
+    {
+        $state = collect(self::conditionStatesFor($agencyId))->firstWhere('key', $conditionKey);
+        if ($state === null) {
+            return false;
+        }
+
+        return in_array($state['severity'] ?? 'blue', ['red', 'amber'], true);
+    }
+
+    /**
      * .ai/specs/rental-inspections.md §36 — the agency's own configured
      * severity for one condition key: `blue`/`red`/`amber`/`grey`, driving
      * the selected condition button's colour (every rendering — editable,
@@ -777,5 +1704,120 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_mark_threshold');
 
         return $value !== null ? (float) $value : self::DEFAULT_OMR_MARK_THRESHOLD;
+    }
+
+    /**
+     * .ai/specs/rental-inspections.md §43 — which parties are notified on
+     * schedule/reschedule/cancel, which channel(s), the minimum notice an
+     * agent should give (warns, never blocks — enforced by the controller,
+     * not here), and whether/when a reminder fires. All default ON except
+     * WhatsApp (see RentalInspectionNotificationService's own docblock for
+     * why that channel is logged as queued rather than actually sent).
+     *
+     * 2026-10-18 (Johan, release audit C-F2) — the day-before REMINDER to a tenant / landlord is the exception: it
+     * is opt-in through its own two switches (remind_tenant_by_email / remind_landlord_by_email, default OFF when
+     * never saved), separate from the scheduled / rescheduled / cancelled notices above.
+     */
+    public const DEFAULT_NOTIFY_TENANT_ENABLED = true;
+    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = true;
+    public const DEFAULT_REMIND_TENANT_BY_EMAIL = false;
+    public const DEFAULT_REMIND_LANDLORD_BY_EMAIL = false;
+    public const DEFAULT_NOTIFY_INSPECTOR_ENABLED = true;
+    public const DEFAULT_NOTIFY_VIA_MAIL_ENABLED = true;
+    public const DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED = false;
+    public const DEFAULT_MINIMUM_NOTICE_DAYS = 1;
+    public const DEFAULT_REMINDER_DAYS_BEFORE = 1;
+
+    public static function notifyTenantFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_TENANT_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_tenant_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_TENANT_ENABLED;
+    }
+
+    public static function notifyLandlordFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_LANDLORD_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_landlord_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_LANDLORD_ENABLED;
+    }
+
+    public static function notifyInspectorFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_INSPECTOR_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_inspector_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_INSPECTOR_ENABLED;
+    }
+
+    public static function notifyViaMailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_VIA_MAIL_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_via_mail_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_VIA_MAIL_ENABLED;
+    }
+
+    public static function notifyViaWhatsappFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_via_whatsapp_enabled');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED;
+    }
+
+    /** C-F2 - the day-before reminder to the tenant(s). Opt-in: a never-saved value is OFF. */
+    public static function remindTenantByEmailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMIND_TENANT_BY_EMAIL;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('remind_tenant_by_email');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REMIND_TENANT_BY_EMAIL;
+    }
+
+    /** C-F2 - the day-before reminder to the landlord. Opt-in: a never-saved value is OFF. */
+    public static function remindLandlordByEmailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMIND_LANDLORD_BY_EMAIL;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('remind_landlord_by_email');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REMIND_LANDLORD_BY_EMAIL;
+    }
+
+    public static function minimumNoticeDaysFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_MINIMUM_NOTICE_DAYS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('minimum_notice_days');
+
+        return $value !== null ? (int) $value : self::DEFAULT_MINIMUM_NOTICE_DAYS;
+    }
+
+    /** 0 = reminder off, per spec. */
+    public static function reminderDaysBeforeFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMINDER_DAYS_BEFORE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('reminder_days_before');
+
+        return $value !== null ? (int) $value : self::DEFAULT_REMINDER_DAYS_BEFORE;
     }
 }

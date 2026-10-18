@@ -1,0 +1,1006 @@
+<?php
+
+namespace App\Services\Rentals;
+
+use App\Events\Rentals\RentalEmergencyApprovalRecorded;
+use App\Events\Rentals\RentalVariationDecided;
+use App\Events\Rentals\RentalVariationRaised;
+use App\Models\Contact;
+use App\Models\Property;
+use App\Models\RentalApproval;
+use App\Models\RentalApprovalDecision;
+use App\Models\RentalEmergencyApproval;
+use App\Models\RentalJobCard;
+use App\Models\RentalJobCardLine;
+use App\Models\RentalWorkOrder;
+use App\Models\RentalWorkOrderQuote;
+use App\Models\RentalWorkOrderSetting;
+use App\Models\RentalWorkOrderVariation;
+use App\Models\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * .ai/specs/rental-work-orders.md §17.6.3 — the ONLY place the system decides
+ * "does this need the owner?". No other code may. Every call that reaches a
+ * decision writes a `rental_approval_decisions` row citing the term it relied on
+ * (the term's key, its value, where the value came from, the amount tested and
+ * the ceiling it was tested against), and the same sentence is stored in `note`
+ * so a later change of a term never rewrites history (§17.6.4).
+ *
+ * BUILT in Build 2 (§17.21.3); rewritten by rentals-faults-work-orders.md §22.6: NOTHING IS APPROVED BY ITSELF and the authorised amount is a HARD LOCK - no
+ * tolerance, no limit and no R0.01 can pass an amount above it (it goes to the owner as a request for the extra). The old variation tolerance % is no longer read.
+ */
+class RentalApprovalGateService
+{
+    public function __construct(private RentalJobCardVatService $vat)
+    {
+    }
+
+    // ───────────────────────── the terms ─────────────────────────
+
+    /** The two owner work terms in force for a property, with where each came from (§17.6.1). */
+    public function termsFor(Property $property): WorkTerms
+    {
+        if (($ownerLimit = \App\Services\Rentals\RentalOwnerFaultSettings::limitInForce($property)) !== null) {
+            // the owner's own answer (rentals-faults-work-orders.md section 22) - the ONE place the repair limit lives
+            $limit = $ownerLimit;
+            $limitSource = WorkTerms::SOURCE_PROPERTY;
+        } elseif ($property->rental_no_approval_spend_threshold !== null) {
+            $limit = (float) $property->rental_no_approval_spend_threshold;   // legacy fallback: no owner answer yet; no longer editable anywhere
+            $limitSource = WorkTerms::SOURCE_PROPERTY;
+        } else {
+            $limit = RentalWorkOrderSetting::spendThresholdFor($property->agency_id);
+            $limitSource = RentalWorkOrderSetting::hasAgencySpendThreshold($property->agency_id)
+                ? WorkTerms::SOURCE_AGENCY_DEFAULT
+                : WorkTerms::SOURCE_CONSTANT;
+        }
+
+        return new WorkTerms($limit, $limitSource);
+    }
+
+    /** Same terms for a work order whose property row is somehow unavailable: the agency defaults only. */
+    private function termsForWorkOrder(RentalWorkOrder $workOrder): WorkTerms
+    {
+        if ($workOrder->property) {
+            return $this->termsFor($workOrder->property);
+        }
+
+        return new WorkTerms(
+            RentalWorkOrderSetting::spendThresholdFor($workOrder->agency_id),
+            RentalWorkOrderSetting::hasAgencySpendThreshold($workOrder->agency_id) ? WorkTerms::SOURCE_AGENCY_DEFAULT : WorkTerms::SOURCE_CONSTANT,
+        );
+    }
+
+    // ───────────────────────── first quote ─────────────────────────
+
+    /**
+     * §17.6.3 — the existing selectQuote() rule moved here unchanged: amount <= the no-approval limit →
+     * auto-approved (basis no_approval_limit, owner_approval_status not_required, approved_amount = amount);
+     * otherwise needs_owner (status pending). The amount is ALWAYS the owner-facing one.
+     */
+    public function evaluateQuote(RentalWorkOrder $workOrder, float $ownerFacingAmount, ?User $by, ?RentalWorkOrderQuote $quote = null): GateDecision
+    {
+        // Section 22.6: NOTHING IS APPROVED BY ITSELF. The repair limit only decides WHO may authorise: inside it an agent may (and must press Authorise);
+        // above it - or when the owner has not set one - the owner is asked. Read only through the owner-settings resolver (null = must ask).
+        $amount = round($ownerFacingAmount, 2);
+        $limit = $workOrder->property ? RentalOwnerFaultSettings::for($workOrder->property)->repairLimit() : null;
+
+        if ($limit !== null && round($amount * 100) <= round($limit * 100)) {
+            $decision = new GateDecision(
+                authorised: false,
+                decision: RentalApprovalDecision::DECISION_NEEDS_AGENT,
+                basis: null,
+                termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
+                termValue: $limit,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
+                amountTested: $amount,
+                limitAmount: $limit,
+                note: $this->money($amount) . " is inside the owner's repair limit of " . $this->money($limit)
+                    . ' - an agent can authorise it. Nothing is approved until someone presses Authorise.',
+            );
+            $workOrder->forceFill([
+                'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED,
+                'approved_amount' => null,
+                'approval_basis' => null,
+            ])->save();
+        } else {
+            $decision = new GateDecision(
+                authorised: false,
+                decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
+                basis: null,
+                termKey: RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
+                termValue: $limit,
+                termSource: RentalApprovalDecision::SOURCE_OWNER,
+                amountTested: $amount,
+                limitAmount: $limit,
+                note: $limit === null
+                    ? $this->money($amount) . " - the owner has not set a repair limit for this property, so the owner is asked to approve it."
+                    : $this->money($amount) . " is above the owner's repair limit of " . $this->money($limit) . ' - the owner is asked to approve it.',
+            );
+            $workOrder->forceFill([
+                'owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING,
+                'approved_amount' => null,
+                'approval_basis' => null,
+            ])->save();
+        }
+
+        $this->record($workOrder, $decision, $by, quote: $quote);
+
+        return $decision;
+    }
+
+    // ───────────────────────── the owner's own decision on a quote ─────────────────────────
+
+    /**
+     * §17.6.4 — the owner (portal) or the agent capturing the owner's reply decided on the work order's quote. Called by
+     * RentalWorkOrder::recordApproval() after it wrote the evidence row. An approval makes the selected quote's
+     * owner-facing amount the approved baseline that variations are measured against; a decline clears the baseline.
+     */
+    public function recordOwnerDecision(RentalWorkOrder $workOrder, bool $approved, User|Contact $by, string $evidenceType, ?RentalWorkOrderQuote $quote, ?Carbon $decidedAt = null, array $extra = []): void
+    {
+        $decidedAt ??= now();
+        $amount = $quote?->ownerFacingAmount();
+        $isUser = $by instanceof User;
+
+        if ($approved) {
+            $workOrder->forceFill([
+                'approved_amount' => $amount ?? $workOrder->approved_amount,
+                'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION,
+            ])->save();
+        } else {
+            $workOrder->forceFill(['approved_amount' => null, 'approval_basis' => null])->save();
+        }
+
+        $channel = $isUser ? 'by ' . str_replace('_', ' ', $evidenceType) : 'in the portal';
+        $sentence = ($approved ? 'Approved' : 'Declined') . ' by the owner ' . $channel . ' on ' . $this->when($decidedAt)
+            . ($amount !== null ? ' — ' . $this->money($amount) : '') . ($isUser ? ' (recorded by ' . $by->name . ')' : '');
+
+        RentalApprovalDecision::create([
+            'agency_id' => $workOrder->agency_id,
+            'rental_work_order_id' => $workOrder->id,
+            'rental_work_order_quote_id' => $quote?->id,
+            'decided_by' => $isUser ? RentalApprovalDecision::BY_USER : RentalApprovalDecision::BY_OWNER,
+            'decided_by_user_id' => $isUser ? $by->id : null,
+            'decided_by_contact_id' => $isUser ? null : $by->id,
+            'decision' => $approved ? RentalApprovalDecision::DECISION_APPROVED : RentalApprovalDecision::DECISION_DECLINED,
+            'basis' => RentalWorkOrder::BASIS_OWNER_DECISION,
+            'term_key' => RentalApprovalDecision::TERM_OWNER_DECISION,
+            'term_source' => RentalApprovalDecision::SOURCE_OWNER,
+            'amount_tested' => $amount ?? 0,
+            'note' => $sentence,
+        ]);
+
+        // section 22.6: the owner's decision on the cost leaves an authorisation record whichever door it came through
+        app(RentalAuthorisationService::class)->mirrorOwnerQuoteDecision($workOrder, $approved, $by, $evidenceType, $amount, $decidedAt, $extra);
+    }
+
+    // ───────────────────────── variations ─────────────────────────
+
+    /**
+     * §17.6.3 / §22.6 — the variation rule, compared with `approved_amount` only:
+     * 1 emergency → emergency_covered; 2 a decrease (or no baseline) → no change, writes nothing;
+     * 3 anything above the authorised amount - even R0.01 - needs the owner (section 22.6: a hard lock, no limit and no tolerance can pass it).
+     * $record = false lets assessAfterLineChange() write the row itself once the
+     * variation exists (so the row can point at it).
+     */
+    public function evaluateVariation(RentalWorkOrder $workOrder, float $newTotal, ?User $by, bool $record = true, ?RentalWorkOrderVariation $variation = null): GateDecision
+    {
+        $newTotal = round($newTotal, 2);
+
+        if ($this->isEmergency($workOrder)) {
+            $decision = new GateDecision(
+                authorised: true,
+                decision: RentalApprovalDecision::DECISION_EMERGENCY_COVERED,
+                basis: RentalWorkOrder::BASIS_EMERGENCY,
+                termKey: RentalApprovalDecision::TERM_EMERGENCY,
+                termSource: RentalApprovalDecision::SOURCE_EMERGENCY,
+                amountTested: $newTotal,
+                note: 'Emergency work the owner agreed to — an agreement made before costs were authorised one by one; the final amount is settled afterwards.',
+            );
+            if ($record) {
+                $this->record($workOrder, $decision, $by, variation: $variation);
+            }
+
+            return $decision;
+        }
+
+        if ($workOrder->approved_amount === null) {
+            return GateDecision::noChange('Nothing has been approved yet, so there is nothing to compare against.');
+        }
+
+        $baseline = round((float) $workOrder->approved_amount, 2);
+
+        if ($newTotal <= $baseline) {
+            return GateDecision::noChange('A lower or equal total never needs approval.');
+        }
+
+        // section 22.6 - THE AUTHORISED AMOUNT IS A HARD LOCK (Johan, 13 Oct 2026): not the repair limit, not a tolerance, not R0.01. Anything above it is a request
+        // for the extra, decided by the owner (their link, or the agent recording what they said); until then the job cannot close.
+        $decision = new GateDecision(
+            authorised: false,
+            decision: RentalApprovalDecision::DECISION_NEEDS_OWNER,
+            basis: null,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION,
+            termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal,
+            baselineAmount: $baseline,
+            limitAmount: $baseline,
+            note: 'The new total of ' . $this->money($newTotal) . ' is above what was authorised (' . $this->money($baseline) . ') - the owner is asked to approve the extra of ' . $this->money(round($newTotal - $baseline, 2)) . '.',
+        );
+
+        if ($record) {
+            $this->record($workOrder, $decision, $by, variation: $variation);
+        }
+
+        return $decision;
+    }
+
+    /**
+     * Called after any change that can raise a card's accepted total (accepting crew lines, adding / editing /
+     * restoring a line, repricing). Does nothing while the work order has no approved amount yet (the normal
+     * "send the quote" path applies) and never touches emergency work. Otherwise it creates, revises or withdraws
+     * the work order's variation (§17.7).
+     */
+    public function assessAfterLineChange(RentalJobCard $card, ?User $by): ?RentalWorkOrderVariation
+    {
+        $workOrder = $card->workOrder()->first();
+        if (! $workOrder || $workOrder->approved_amount === null) {
+            return null;
+        }
+        if ($this->isEmergency($workOrder) || in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            return null;
+        }
+        if (! RentalWorkOrderSetting::capturePricesOnJobCardsFor($workOrder->agency_id)) {
+            return null;
+        }
+
+        $card->recalcTotal();
+        $card->refresh();
+        $newTotal = round($this->vat->inclusiveTotal($card), 2);
+        $baseline = round((float) $workOrder->approved_amount, 2);
+
+        $result = DB::transaction(function () use ($workOrder, $card, $by, $newTotal, $baseline) {
+            $open = $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->first();
+
+            if ($newTotal <= $baseline) {
+                if ($open) {
+                    $this->withdraw($open, 'The job total is back within what the owner approved.', $by);
+                }
+
+                return null;
+            }
+
+            $decision = $this->evaluateVariation($workOrder, $newTotal, $by, false);
+            if ($decision->decision === 'no_change' || $decision->decision === RentalApprovalDecision::DECISION_EMERGENCY_COVERED) {
+                return null;
+            }
+
+            $newLines = $this->newLinesSinceApproval($workOrder, $card);
+            $linesExplain = round((float) $newLines->sum(fn (RentalJobCardLine $l) => $this->lineOwnerFacing($l)), 2);
+            $extra = round($newTotal - $baseline, 2);
+            $priceChange = max(0.0, round($extra - $linesExplain, 2));
+            $origin = $newLines->contains(fn (RentalJobCardLine $l) => $l->origin !== RentalJobCardLine::ORIGIN_OFFICE)
+                ? RentalWorkOrderVariation::ORIGIN_CREW_LINES
+                : RentalWorkOrderVariation::ORIGIN_OFFICE_EDIT;
+
+            // needs the owner
+            if ($open) {
+                $open->forceFill([
+                    'revision' => (int) $open->revision + 1,
+                    'extra_amount' => $extra,
+                    'new_total' => $newTotal,
+                    'price_change_amount' => $priceChange,
+                    'term_basis' => $decision->termKey,
+                    'term_value' => $decision->termValue,
+                    'term_source' => $decision->termSource,
+                    'baseline_amount' => $baseline,
+                ])->save();
+                $this->linkLines($open, $newLines);
+                $this->record($workOrder, $decision, $by, variation: $open);
+                $this->logVariation($workOrder, $by, 'variation_raised', 'Request to the owner revised (revision ' . $open->revision . '): new total ' . $this->money($newTotal));
+
+                return [$open->fresh(), true];
+            }
+
+            $variation = $this->createVariation($workOrder, $card, $by, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER, $origin, $baseline, $newTotal, $extra, $priceChange);
+            $this->linkLines($variation, $newLines);
+            $this->record($workOrder, $decision, $by, variation: $variation);
+            $this->logVariation($workOrder, $by, 'variation_raised', 'Extra work of ' . $this->money($extra) . ' needs the owner — ' . $decision->note);
+
+            return [$variation, true];
+        });
+
+        if (! $result) {
+            return null;
+        }
+        [$variation, $announce] = $result;
+        if ($announce) {
+            $this->announceVariation($variation, $by);
+        }
+
+        return $variation;
+    }
+
+    /**
+     * §17.9.4 — a HIGHER external quote selected AFTER the owner approved an amount opens (or revises) a variation
+     * (origin external_quote) instead of resetting the approval. A lower or equal quote changes nothing.
+     */
+    public function assessExternalQuote(RentalWorkOrder $workOrder, RentalWorkOrderQuote $quote, ?User $by): ?RentalWorkOrderVariation
+    {
+        if ($workOrder->approved_amount === null || $this->isEmergency($workOrder)) {
+            return null;
+        }
+        $newTotal = round($quote->ownerFacingAmount(), 2);
+        $baseline = round((float) $workOrder->approved_amount, 2);
+
+        $variation = DB::transaction(function () use ($workOrder, $quote, $by, $newTotal, $baseline) {
+            $open = $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->first();
+            if ($newTotal <= $baseline) {
+                if ($open) {
+                    $this->withdraw($open, 'The selected quote is back within what the owner approved.', $by);
+                }
+
+                return null;
+            }
+
+            $decision = $this->evaluateVariation($workOrder, $newTotal, $by, false);
+            if ($decision->decision === 'no_change') {
+                return null;
+            }
+            $extra = round($newTotal - $baseline, 2);
+
+            if ($open) {
+                $open->forceFill([
+                    'revision' => (int) $open->revision + 1, 'extra_amount' => $extra, 'new_total' => $newTotal, 'price_change_amount' => $extra,
+                    'baseline_amount' => $baseline, 'rental_work_order_quote_id' => $quote->id,
+                    'term_basis' => $decision->termKey, 'term_value' => $decision->termValue, 'term_source' => $decision->termSource,
+                ])->save();
+                $this->record($workOrder, $decision, $by, variation: $open, quote: $quote);
+                $this->logVariation($workOrder, $by, 'variation_raised', 'Request to the owner revised (revision ' . $open->revision . '): new total ' . $this->money($newTotal));
+
+                return $open->fresh();
+            }
+
+            $variation = $this->createVariation($workOrder, null, $by, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER, RentalWorkOrderVariation::ORIGIN_EXTERNAL_QUOTE, $baseline, $newTotal, $extra, $extra, $quote);
+            $this->record($workOrder, $decision, $by, variation: $variation, quote: $quote);
+            $this->logVariation($workOrder, $by, 'variation_raised', 'A higher quote of ' . $this->money($newTotal) . ' needs the owner — ' . $decision->note);
+
+            return $variation;
+        });
+
+        if ($variation) {
+            $this->announceVariation($variation, $by);
+        }
+
+        return $variation;
+    }
+
+    /**
+     * Section 22.6 - the final cost / invoice came in ABOVE what was authorised: the difference goes to the owner as a request for the extra (origin
+     * final_invoice), who is emailed; the close waits for their decision. Idempotent: an open request is revised, never duplicated.
+     */
+    public function raiseFinalInvoiceVariation(RentalWorkOrder $workOrder, float $finalAmount, ?User $by): RentalWorkOrderVariation
+    {
+        $newTotal = round($finalAmount, 2);
+        $baseline = round((float) $workOrder->approved_amount, 2);
+        $extra = round($newTotal - $baseline, 2);
+        $decision = new GateDecision(
+            authorised: false, decision: RentalApprovalDecision::DECISION_NEEDS_OWNER, basis: null,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION, termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $baseline,
+            note: 'The final cost of ' . $this->money($newTotal) . ' is above what was authorised (' . $this->money($baseline) . ') - the difference of '
+                . $this->money($extra) . ' is sent to the owner to approve.',
+        );
+
+        $variation = DB::transaction(function () use ($workOrder, $by, $decision, $baseline, $newTotal, $extra) {
+            $open = $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->first();
+            if ($open) {
+                $open->forceFill(['revision' => (int) $open->revision + 1, 'extra_amount' => $extra, 'new_total' => $newTotal, 'price_change_amount' => $extra, 'baseline_amount' => $baseline])->save();
+                $this->record($workOrder, $decision, $by, variation: $open);
+                $this->logVariation($workOrder, $by, 'variation_raised', 'Request to the owner revised (revision ' . $open->revision . '): final cost ' . $this->money($newTotal));
+
+                return $open->fresh();
+            }
+            $variation = $this->createVariation($workOrder, $workOrder->jobCard, $by, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER,
+                RentalWorkOrderVariation::ORIGIN_FINAL_INVOICE, $baseline, $newTotal, $extra, $extra);
+            $this->record($workOrder, $decision, $by, variation: $variation);
+            $this->logVariation($workOrder, $by, 'variation_raised', 'The final cost of ' . $this->money($newTotal) . ' is ' . $this->money($extra) . ' above what was authorised - sent to the owner.');
+
+            return $variation;
+        });
+        $this->announceVariation($variation, $by);
+
+        return $variation;
+    }
+
+    /**
+     * Spec 22.17 - the contractor asks, on their link, for extra money BEFORE doing extra work. Nothing above the authorised amount is ever accepted (the hard lock):
+     * the request is a variation awaiting the owner (emailed; the agents are told), decided on their link or by the agent recording what they said. One open
+     * request at a time. $ownerFacingExtra is what the owner would pay on top (the contractor's extra plus the agency's fee on it, if any); $note is the
+     * contractor's own sentence (their amount and reason).
+     *
+     * @throws \LogicException when there is nothing authorised yet to add to, or a request is already waiting
+     */
+    public function raiseContractorExtra(RentalWorkOrder $workOrder, float $ownerFacingExtra, string $note): RentalWorkOrderVariation
+    {
+        if (! $workOrder->hasApprovedBaseline()) {
+            throw new \LogicException('Nothing has been authorised on this job yet, so there is nothing to add extra money to.');
+        }
+        $baseline = round((float) $workOrder->approved_amount, 2);
+        $extra = round($ownerFacingExtra, 2);
+        $newTotal = round($baseline + $extra, 2);
+        $decision = new GateDecision(
+            authorised: false, decision: RentalApprovalDecision::DECISION_NEEDS_OWNER, basis: null,
+            termKey: RentalApprovalDecision::TERM_OWNER_DECISION, termSource: RentalApprovalDecision::SOURCE_OWNER,
+            amountTested: $newTotal, baselineAmount: $baseline, limitAmount: $baseline,
+            note: 'The contractor asked for extra money: ' . $this->money($extra) . ' on top of the authorised ' . $this->money($baseline) . ' - the owner is asked to approve it first.',
+        );
+
+        $variation = DB::transaction(function () use ($workOrder, $decision, $baseline, $newTotal, $extra, $note) {
+            if ($workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->lockForUpdate()->exists()) {
+                throw new \LogicException('A request for extra money is already waiting for the owner. Please wait for the answer.');
+            }
+            $variation = $this->createVariation($workOrder, null, null, $decision, RentalWorkOrderVariation::STATUS_AWAITING_OWNER,
+                RentalWorkOrderVariation::ORIGIN_CONTRACTOR, $baseline, $newTotal, $extra, $extra);
+            $variation->forceFill(['note' => mb_substr($note, 0, 1000)])->save();
+            $this->record($workOrder, $decision, null, variation: $variation);
+            $this->logVariation($workOrder, null, 'variation_raised', 'The contractor asked for extra money (' . $this->money($extra) . ' on top of what was authorised) - sent to the owner. ' . $note);
+
+            return $variation;
+        });
+        $this->announceVariation($variation, null);
+
+        return $variation;
+    }
+
+    /** The owner-facing figure of one line (VAT-inclusive when the card's VAT is frozen; else its selling total). */
+    private function lineOwnerFacing(RentalJobCardLine $line): float
+    {
+        return (float) ($line->vat_incl_snapshot ?? $line->line_total ?? 0);
+    }
+
+    /** @return \Illuminate\Support\Collection<int, RentalJobCardLine> accepted, unlinked lines added/accepted after the approved baseline */
+    private function newLinesSinceApproval(RentalWorkOrder $workOrder, RentalJobCard $card)
+    {
+        $since = $this->baselineMoment($workOrder);
+
+        return $card->lines()
+            ->where('office_status', RentalJobCardLine::OFFICE_ACCEPTED)
+            ->whereNull('rental_work_order_variation_id')
+            ->whereRaw('COALESCE(office_decided_at, created_at) > ?', [$since->toDateTimeString()])
+            ->get();
+    }
+
+    /** When the current approved baseline was set: the latest approving decision (or approved variation). */
+    private function baselineMoment(RentalWorkOrder $workOrder): Carbon
+    {
+        $decision = RentalApprovalDecision::query()
+            ->where('rental_work_order_id', $workOrder->id)
+            ->whereNull('rental_work_order_variation_id')
+            ->whereIn('decision', [RentalApprovalDecision::DECISION_AUTO_APPROVED, RentalApprovalDecision::DECISION_APPROVED])
+            ->orderByDesc('created_at')->orderByDesc('id')->first();
+        $variation = RentalWorkOrderVariation::query()
+            ->where('rental_work_order_id', $workOrder->id)
+            ->where('status', RentalWorkOrderVariation::STATUS_APPROVED)
+            ->orderByDesc('decided_at')->first();
+
+        $moments = array_filter([$decision?->created_at, $variation?->decided_at]);
+        if ($moments) {
+            return collect($moments)->max();
+        }
+
+        return ($workOrder->quotes()->where('is_selected', true)->first()?->created_at) ?? Carbon::createFromTimestamp(0);
+    }
+
+    private function createVariation(RentalWorkOrder $workOrder, ?RentalJobCard $card, ?User $by, GateDecision $decision, string $status, string $origin, float $baseline, float $newTotal, float $extra, float $priceChange, ?RentalWorkOrderQuote $quote = null): RentalWorkOrderVariation
+    {
+        return RentalWorkOrderVariation::create([
+            'agency_id' => $workOrder->agency_id,
+            'rental_work_order_id' => $workOrder->id,
+            'rental_job_card_id' => $card?->id,
+            'rental_work_order_quote_id' => $quote?->id,
+            'revision' => 1,
+            'status' => $status,
+            'origin' => $origin,
+            'baseline_amount' => $baseline,
+            'extra_amount' => $extra,
+            'new_total' => $newTotal,
+            'price_change_amount' => $priceChange,
+            'term_basis' => $decision->termKey,
+            'term_value' => $decision->termValue,
+            'term_source' => $decision->termSource,
+            'term_text' => RentalWorkOrderSetting::quoteEstimateTermFor($workOrder->agency_id),
+            'raised_by_user_id' => $by?->id,
+            'raised_at' => now(),
+            'decided_at' => $status === RentalWorkOrderVariation::STATUS_AUTO_APPROVED ? now() : null,
+        ]);
+    }
+
+    /** @param \Illuminate\Support\Collection<int, RentalJobCardLine> $lines */
+    private function linkLines(RentalWorkOrderVariation $variation, $lines): void
+    {
+        foreach ($lines as $line) {
+            $line->forceFill(['rental_work_order_variation_id' => $variation->id])->save();
+        }
+    }
+
+    private function withdraw(RentalWorkOrderVariation $variation, string $why, ?User $by): void
+    {
+        $variation->forceFill([
+            'status' => RentalWorkOrderVariation::STATUS_WITHDRAWN,
+            'decided_at' => now(),
+            'decision_note' => $why,
+        ])->save();
+        $variation->workOrder?->updates()->create([
+            'agency_id' => $variation->agency_id, 'update_type' => 'variation_decided',
+            'note' => 'Variation withdrawn — ' . $why, 'created_by_user_id' => $by?->id,
+        ]);
+    }
+
+    /** Cancelling a work order or card withdraws its open variations (§17.7.2). */
+    public function withdrawOpenVariations(RentalWorkOrder $workOrder, string $why, ?User $by): void
+    {
+        $workOrder->variations()->where('status', RentalWorkOrderVariation::STATUS_AWAITING_OWNER)->get()
+            ->each(fn (RentalWorkOrderVariation $v) => $this->withdraw($v, $why, $by));
+    }
+
+    private function logVariation(RentalWorkOrder $workOrder, ?User $by, string $type, string $note): void
+    {
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => $type, 'note' => $note, 'created_by_user_id' => $by?->id,
+        ]);
+    }
+
+    /** After the transaction: tell the owner, the agent, and the rest of the system (never fails the office's action). */
+    private function announceVariation(RentalWorkOrderVariation $variation, ?User $by): void
+    {
+        try {
+            $service = app(RentalWorkOrderService::class);
+            if ($variation->isAwaitingOwner()) {
+                $service->sendOwnerVariation($variation, $by);
+            }
+            $service->notifyVariationRaised($variation);
+        } catch (\Throwable $e) {
+            Log::warning('Variation announcement failed', ['variation_id' => $variation->id, 'error' => $e->getMessage()]);
+        }
+
+        RentalVariationRaised::dispatch($variation, $by?->id);
+    }
+
+    /**
+     * Record the owner's (or the agent-captured) decision on a variation, at the revision the owner saw (a stale
+     * revision is refused). $decision: approve | approved | decline | declined. $evidence: revision?, note?, via
+     * (portal | agent_capture), and for an agent capture: evidence_type, evidence_text, evidence_file_path?, decided_at?.
+     * $actor: ['user' => User] or ['contact' => Contact].
+     *
+     * @param array<string, mixed> $evidence
+     * @param array<string, mixed> $actor
+     */
+    public function recordVariationDecision(RentalWorkOrderVariation $variation, string $decision, array $evidence, array $actor): void
+    {
+        $answered = [];
+        $approved = match (strtolower(trim($decision))) {
+            'approve', 'approved' => true,
+            'decline', 'declined' => false,
+            default => throw new \InvalidArgumentException('The decision must be approve or decline.'),
+        };
+
+        DB::transaction(function () use ($variation, $approved, $evidence, $actor, &$answered) {
+            /** @var RentalWorkOrderVariation $locked */
+            $locked = RentalWorkOrderVariation::withoutGlobalScopes()->lockForUpdate()->findOrFail($variation->id);
+            if (! $locked->isAwaitingOwner()) {
+                throw new \LogicException('This request is not waiting for a decision any more.');
+            }
+            if (isset($evidence['revision']) && $evidence['revision'] !== null && (int) $evidence['revision'] !== (int) $locked->revision) {
+                throw new StaleVariationRevision('This request changed — please refresh and look at the latest version.');
+            }
+
+            $workOrder = RentalWorkOrder::withoutGlobalScopes()->findOrFail($locked->rental_work_order_id);
+            $user = $actor['user'] ?? null;
+            $contact = $actor['contact'] ?? null;
+            $via = $evidence['via'] ?? ($contact ? RentalWorkOrderVariation::VIA_PORTAL : RentalWorkOrderVariation::VIA_AGENT_CAPTURE);
+            $decidedAt = isset($evidence['decided_at']) && $evidence['decided_at'] ? Carbon::parse($evidence['decided_at']) : now();
+            $note = isset($evidence['note']) ? trim((string) $evidence['note']) : null;
+
+            $locked->forceFill([
+                'status' => $approved ? RentalWorkOrderVariation::STATUS_APPROVED : RentalWorkOrderVariation::STATUS_DECLINED,
+                'decided_at' => $decidedAt,
+                'decided_by_user_id' => $user?->id,
+                'decided_by_contact_id' => $contact?->id,
+                'decided_via' => $via,
+                'decision_note' => $note ?: null,
+            ])->save();
+
+            $recordedBy = $user ? ' (recorded by ' . $user->name . ')' : '';
+            $channel = $via === RentalWorkOrderVariation::VIA_PORTAL
+                ? 'in the portal'
+                : 'by ' . str_replace('_', ' ', (string) ($evidence['evidence_type'] ?? 'the owner'));
+            $sentence = ($approved ? 'Approved' : 'Declined') . ' by the owner ' . $channel . ' on ' . $this->when($decidedAt)
+                . ' — the extra work of ' . $this->money((float) $locked->extra_amount) . ' (new total ' . $this->money((float) $locked->new_total) . ')' . $recordedBy;
+
+            if ($approved) {
+                $workOrder->forceFill([
+                    'approved_amount' => $locked->new_total,
+                    'approval_basis' => RentalWorkOrder::BASIS_OWNER_DECISION,
+                    'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED,
+                ])->save();
+            } else {
+                // the declined extra comes out of every total; the main job continues on the approved scope
+                // (explicit, scope-free reads: a portal decision has no staff user to resolve the agency from)
+                RentalJobCardLine::withoutGlobalScopes()->where('rental_work_order_variation_id', $locked->id)
+                    ->get()->each(fn (RentalJobCardLine $l) => $l->forceFill(['office_status' => RentalJobCardLine::OFFICE_DECLINED_BY_OWNER])->save());
+                $cardId = $locked->rental_job_card_id ?? RentalJobCard::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)->value('id');
+                if ($cardId) {
+                    RentalJobCard::withoutGlobalScopes()->find($cardId)?->recalcTotal();
+                }
+            }
+
+            RentalApprovalDecision::create([
+                'agency_id' => $workOrder->agency_id,
+                'rental_work_order_id' => $workOrder->id,
+                'rental_work_order_variation_id' => $locked->id,
+                'rental_work_order_quote_id' => $locked->rental_work_order_quote_id,
+                'decided_by' => $contact ? RentalApprovalDecision::BY_OWNER : RentalApprovalDecision::BY_USER,
+                'decided_by_user_id' => $user?->id,
+                'decided_by_contact_id' => $contact?->id,
+                'decision' => $approved ? RentalApprovalDecision::DECISION_APPROVED : RentalApprovalDecision::DECISION_DECLINED,
+                'basis' => RentalWorkOrder::BASIS_OWNER_DECISION,
+                'term_key' => RentalApprovalDecision::TERM_OWNER_DECISION,
+                'term_source' => RentalApprovalDecision::SOURCE_OWNER,
+                'amount_tested' => $locked->new_total,
+                'baseline_amount' => $locked->baseline_amount,
+                'note' => $sentence . ($note ? ' — "' . $note . '"' : ''),
+            ]);
+
+            RentalApproval::create([
+                'agency_id' => $workOrder->agency_id,
+                'rental_work_order_variation_id' => $locked->id,
+                'decision' => $approved ? RentalApproval::DECISION_APPROVED : RentalApproval::DECISION_DECLINED,
+                'evidence_type' => $via === RentalWorkOrderVariation::VIA_PORTAL ? RentalApproval::EVIDENCE_PORTAL : ($evidence['evidence_type'] ?? RentalApproval::EVIDENCE_VERBAL_NOTE),
+                'evidence_text' => $via === RentalWorkOrderVariation::VIA_PORTAL ? $note : ($evidence['evidence_text'] ?? $note),
+                'evidence_file_path' => $evidence['evidence_file_path'] ?? null,
+                'decided_at' => $decidedAt,
+                'recorded_by_user_id' => $user?->id,
+                'recorded_by_contact_id' => $contact?->id,
+            ]);
+
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'variation_decided',
+                'note' => $sentence, 'created_by_user_id' => $user?->id,
+            ]);
+
+            RentalVariationDecided::dispatch($locked->refresh(), $approved ? 'approved' : 'declined', (string) $via, $user?->id);
+            $answered = [$workOrder, $locked->origin === RentalWorkOrderVariation::ORIGIN_CONTRACTOR, $approved, (float) $locked->extra_amount];
+        });
+
+        // 13 Oct 2026 (Sherry walk): the contractor who asked for the extra money is told the answer (the page showed it only on their next visit)
+        if (! empty($answered) && $answered[1]) {
+            [$wo, , $wasApproved, $extra] = $answered;
+            app(RentalWorkOrderService::class)->emailContractorUpdate(
+                $wo,
+                $wasApproved ? 'Extra work approved' : 'Extra work not approved',
+                $wasApproved
+                    ? 'The owner has agreed to the extra work you asked for (' . $this->money($extra) . '). You may do it; the authorised amount for the job has gone up.'
+                    : 'The owner did not agree to the extra work you asked for (' . $this->money($extra) . '). Please do not do it - the job carries on at the amount already authorised.',
+            );
+        }
+    }
+
+    // ───────────────────────── authorisation to proceed ─────────────────────────
+
+    /**
+     * §17.6.5 + rentals-faults-work-orders.md §22.6 — may work start / be scheduled / be completed by the crew? NOTHING IS APPROVED BY ITSELF: authorised
+     * only when the job is not paused by the owner AND any of: the owner approved (their link, or an agent recorded their decision); the cost has an
+     * authorisation record (the agent under the owner's repair / emergency limit); an approval made before records existed (old emergency agreement,
+     * grandfathered work, the old limit rule); the owner's own contractor; pricing is switched off for the agency. A quote that is merely selected, or a
+     * crew job card that is merely priced, authorises nothing. NOT authorised while the owner is being asked, after a decline, or when nothing is priced.
+     *
+     * $record = false makes it a pure read (for a screen deciding whether to enable a button) — it then writes nothing.
+     */
+    public function authoriseToProceed(RentalWorkOrder $workOrder, bool $record = true): GateDecision
+    {
+        // section 22.7 - PAUSED BY OWNER beats every other basis (emergency, grandfathered, owner's own contractor): nothing starts, is scheduled or sent
+        if ($held = app(RentalOwnerHoldService::class)->holdReason($workOrder)) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: $held);
+        }
+        // W3 (8 Oct 2026): the owner's OWN contractor - the owner decided on the fault, arranges and pays the contractor; the
+        // agency prices, quotes and authorises nothing, so there is nothing for this gate to hold back.
+        if ($workOrder->isOwnerContractor()) {
+            return new GateDecision(true, 'no_change', RentalWorkOrder::BASIS_OWNER_DECISION, note: "The owner arranges and pays their own contractor.");
+        }
+
+        if ($this->isEmergency($workOrder)) {
+            return new GateDecision(true, RentalApprovalDecision::DECISION_EMERGENCY_COVERED, RentalWorkOrder::BASIS_EMERGENCY, note: 'Approved to proceed as emergency work — the owner agreed.');
+        }
+        if ($workOrder->approval_basis === RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED) {
+            return new GateDecision(true, 'no_change', RentalWorkOrder::BASIS_LEGACY_GRANDFATHERED, note: 'Already under way before approvals were recorded.');
+        }
+
+        // An outside contractor's whole job is their quote: while a higher (revised) quote waits for the owner there is no approved
+        // scope to start on. (An internal job carries on with the approved scope; only the extra waits — §17.7.2.)
+        if (! $workOrder->jobCard && ($open = $workOrder->openVariation())) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: (float) $open->new_total,
+                note: 'The contractor\'s revised quote (' . $this->money((float) $open->new_total) . ') is waiting for the owner\'s approval — the work order can go out once the owner has approved it.');
+        }
+
+        $status = $workOrder->owner_approval_status;
+        if ($status === RentalWorkOrder::APPROVAL_APPROVED) {
+            return new GateDecision(true, 'no_change', $workOrder->approval_basis ?? RentalWorkOrder::BASIS_OWNER_DECISION, note: 'The owner approved this work.');
+        }
+        if ($status === RentalWorkOrder::APPROVAL_PENDING) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'This job has not been approved by the owner yet — it is waiting for the owner\'s decision.');
+        }
+        if ($status === RentalWorkOrder::APPROVAL_DECLINED) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, note: 'The owner declined this work.');
+        }
+
+        // not_required. Section 22.6: nothing is approved by itself - the cost needs an authorisation record (the agent under the owner's repair /
+        // emergency limit, the owner on their link, or the agent recording what the owner said). Work approved before records existed keeps working.
+        $auth = app(RentalAuthorisationService::class);
+        if ($auth->hasCostAuthority($workOrder)) {
+            $row = $auth->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+
+            return new GateDecision(true, 'no_change', $workOrder->approval_basis, note: $row ? $auth->recordTextFor($row) : 'Approved before authorisation records were kept.');
+        }
+
+        $card = $workOrder->jobCard;
+        // pricing off for the agency: nothing can ever be priced, so there is no amount for anyone to authorise
+        if ($card && ! RentalWorkOrderSetting::capturePricesOnJobCardsFor($workOrder->agency_id)) {
+            return new GateDecision(true, 'no_change', note: 'Pricing is switched off for this agency.');
+        }
+        $m = $auth->costMeasure($workOrder);
+        if ($m['amount'] !== null) {
+            return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED, amountTested: $m['amount'],
+                note: 'The cost (' . $this->money($m['amount']) . ') has not been authorised yet - authorise it under "Approve the cost" on the work order, or get the owner to.');
+        }
+
+        return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED,
+            note: 'Nothing has been priced or approved for this job yet - price it (a quote or the crew\'s price) and authorise the cost, or type the amount if it is a small job you already know the price of.');
+    }
+
+    /**
+     * §17.6.5 for a job card: judged through its work order. A card with NO work order (older rows; §17.3 makes sure new
+     * ones always have one) has nothing to authorise a cost against, so it is refused (unless pricing is off): the office creates the work order first.
+     */
+    public function authoriseCard(RentalJobCard $card, bool $record = true): GateDecision
+    {
+        $workOrder = $card->workOrder()->first();
+        if ($workOrder) {
+            return $this->authoriseToProceed($workOrder, $record);
+        }
+        if (! RentalWorkOrderSetting::capturePricesOnJobCardsFor($card->agency_id)) {
+            return new GateDecision(true, 'no_change', note: 'Pricing is switched off for this agency.');
+        }
+
+        return new GateDecision(false, RentalApprovalDecision::DECISION_BLOCKED,
+            note: 'This job has no work order, so its cost cannot be authorised - ask the office to create the work order, price it and authorise the cost.');
+    }
+
+    /** The refusal every guard site throws (the plain-language message of authoriseToProceed()). */
+    public function assertAuthorised(RentalWorkOrder $workOrder): void
+    {
+        $decision = $this->authoriseToProceed($workOrder);
+        if (! $decision->authorised) {
+            throw new \LogicException($decision->note);
+        }
+    }
+
+    // ───────────────────────── emergency work ─────────────────────────
+
+    /**
+     * §17.8 — capture the owner's emergency agreement (no amount). $data: approved_by_name, owner_contact_id?,
+     * approved_via, approved_at, reason, reported_by_crew_name?, notes?, attachment_path?. There is no override:
+     * this record IS the owner's agreement.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function recordEmergency(RentalWorkOrder $workOrder, array $data, User $by): RentalEmergencyApproval
+    {
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This work order is already closed.');
+        }
+
+        $name = trim((string) ($data['approved_by_name'] ?? ''));
+        $reason = trim((string) ($data['reason'] ?? ''));
+        $via = (string) ($data['approved_via'] ?? '');
+        if ($name === '') {
+            throw new \InvalidArgumentException('Say who at the owner\'s end agreed to the work.');
+        }
+        if ($reason === '') {
+            throw new \InvalidArgumentException('Say why this is emergency work.');
+        }
+        if (! in_array($via, RentalEmergencyApproval::VIAS, true)) {
+            throw new \InvalidArgumentException('Say how the owner agreed (phone, WhatsApp, email, in person or other).');
+        }
+        $approvedAt = isset($data['approved_at']) && $data['approved_at'] ? Carbon::parse($data['approved_at']) : now();
+        if ($approvedAt->isFuture()) {
+            throw new \InvalidArgumentException('The time the owner agreed cannot be in the future.');
+        }
+
+        $ownerContactId = $data['owner_contact_id'] ?? null;
+        if ($ownerContactId) {
+            $allowed = $this->ownerContacts($workOrder)->pluck('id')->map(fn ($id) => (int) $id)->all();
+            if (! in_array((int) $ownerContactId, $allowed, true)) {
+                throw new \InvalidArgumentException('That contact is not an owner of this property.');
+            }
+        }
+
+        return DB::transaction(function () use ($workOrder, $data, $by, $name, $reason, $via, $approvedAt, $ownerContactId) {
+            $locked = RentalWorkOrder::withoutGlobalScopes()->lockForUpdate()->findOrFail($workOrder->id);
+            if ($locked->activeEmergencyApproval()) {
+                throw new \LogicException('An emergency approval is already recorded for this work order — void it first if it was a mistake.');
+            }
+
+            $approval = RentalEmergencyApproval::create([
+                'agency_id' => $locked->agency_id,
+                'rental_work_order_id' => $locked->id,
+                'approved_by_name' => $name,
+                'owner_contact_id' => $ownerContactId ?: null,
+                'approved_via' => $via,
+                'approved_at' => $approvedAt,
+                'reason' => $reason,
+                'reported_by_crew_name' => ($data['reported_by_crew_name'] ?? null) ?: null,
+                'notes' => ($data['notes'] ?? null) ?: null,
+                'attachment_path' => $data['attachment_path'] ?? null,
+                'recorded_by_user_id' => $by->id,
+            ]);
+
+            $locked->forceFill([
+                'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED,
+                'approval_basis' => RentalWorkOrder::BASIS_EMERGENCY,
+                'approved_amount' => null,
+                'emergency_approval_id' => $approval->id,
+            ])->save();
+
+            $viaLabel = str_replace('_', ' ', $via);
+            $sentence = 'Approved as emergency work on ' . $this->when($approvedAt) . " (owner agreed by {$viaLabel} to {$name}, recorded by {$by->name})";
+            RentalApprovalDecision::create([
+                'agency_id' => $locked->agency_id,
+                'rental_work_order_id' => $locked->id,
+                'decided_by' => RentalApprovalDecision::BY_EMERGENCY,
+                'decided_by_user_id' => $by->id,
+                'decision' => RentalApprovalDecision::DECISION_EMERGENCY_COVERED,
+                'basis' => RentalWorkOrder::BASIS_EMERGENCY,
+                'term_key' => RentalApprovalDecision::TERM_EMERGENCY,
+                'term_source' => RentalApprovalDecision::SOURCE_EMERGENCY,
+                'amount_tested' => 0,
+                'note' => $sentence,
+            ]);
+            $locked->updates()->create([
+                'agency_id' => $locked->agency_id, 'update_type' => 'emergency_approved',
+                'note' => $sentence . ' — reason: ' . $reason, 'created_by_user_id' => $by->id,
+            ]);
+
+            // an open request for extra money is moot: no variation applies to emergency work
+            $this->withdrawOpenVariations($locked, 'The work was approved as emergency work.', $by);
+
+            $workOrder->refresh();
+            RentalEmergencyApprovalRecorded::dispatch($approval, $by->id);
+
+            return $approval;
+        });
+    }
+
+    /**
+     * §17.8.3 — void a mistaken emergency approval (reason required) and re-run the gate on whatever quote is
+     * selected (else the work order goes back to waiting for the owner). Returns a plain warning when work is
+     * already under way, so the office is told.
+     */
+    public function voidEmergency(RentalEmergencyApproval $approval, string $reason, User $by): ?string
+    {
+        $reason = trim($reason);
+        if ($reason === '') {
+            throw new \InvalidArgumentException('Say why the emergency approval is being voided.');
+        }
+        if ($approval->isVoided()) {
+            throw new \LogicException('This emergency approval was already voided.');
+        }
+
+        return DB::transaction(function () use ($approval, $reason, $by) {
+            $approval->forceFill(['voided_at' => now(), 'voided_by_user_id' => $by->id, 'void_reason' => $reason])->save();
+            $workOrder = RentalWorkOrder::withoutGlobalScopes()->lockForUpdate()->findOrFail($approval->rental_work_order_id);
+
+            $workOrder->forceFill(['emergency_approval_id' => null, 'approval_basis' => null, 'approved_amount' => null])->save();
+            $selected = $workOrder->quotes()->where('is_selected', true)->first();
+            if ($selected) {
+                $this->evaluateQuote($workOrder, $selected->ownerFacingAmount(), $by, $selected);
+            } else {
+                $workOrder->forceFill(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING])->save();
+                $this->record($workOrder, new GateDecision(false, RentalApprovalDecision::DECISION_NEEDS_OWNER, termKey: RentalApprovalDecision::TERM_OWNER_DECISION, termSource: RentalApprovalDecision::SOURCE_OWNER, amountTested: 0.0,
+                    note: 'Emergency approval voided (' . $reason . ') — the owner\'s approval is needed again.'), $by);
+            }
+
+            $workOrder->updates()->create([
+                'agency_id' => $workOrder->agency_id, 'update_type' => 'emergency_voided',
+                'note' => 'Emergency approval voided: ' . $reason, 'created_by_user_id' => $by->id,
+            ]);
+
+            $card = $workOrder->jobCard;
+            $underWay = in_array($workOrder->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)
+                || ($card && in_array($card->status, [RentalJobCard::STATUS_SCHEDULED, RentalJobCard::STATUS_IN_PROGRESS], true));
+
+            return $underWay
+                ? 'Work is already under way on this job without the owner\'s approval — get the owner\'s agreement or approve the quote now.'
+                : null;
+        });
+    }
+
+    /** True when an active (un-voided) emergency approval covers this work order. */
+    public function isEmergency(RentalWorkOrder $workOrder): bool
+    {
+        return $workOrder->approval_basis === RentalWorkOrder::BASIS_EMERGENCY && $workOrder->activeEmergencyApproval() !== null;
+    }
+
+    /** The property's owner/landlord contacts — the only people an emergency approval can be attributed to. */
+    public function ownerContacts(RentalWorkOrder $workOrder)
+    {
+        $property = $workOrder->property;
+        if (! $property) {
+            return collect();
+        }
+        $roles = ['seller', 'owner', 'landlord', 'lessor'];
+
+        return $property->contacts()->get()
+            ->filter(fn ($c) => in_array(strtolower(trim((string) ($c->pivot->role ?? ''))), $roles, true))
+            ->unique('id')->values();
+    }
+
+    // ───────────────────────── decision rows ─────────────────────────
+
+    private function record(RentalWorkOrder $workOrder, GateDecision $d, ?User $by, ?RentalWorkOrderVariation $variation = null, ?RentalWorkOrderQuote $quote = null): RentalApprovalDecision
+    {
+        return RentalApprovalDecision::create([
+            'agency_id' => $workOrder->agency_id,
+            'rental_work_order_id' => $workOrder->id,
+            'rental_work_order_variation_id' => $variation?->id,
+            'rental_work_order_quote_id' => $quote?->id,
+            'decided_by' => $d->decision === RentalApprovalDecision::DECISION_EMERGENCY_COVERED ? RentalApprovalDecision::BY_EMERGENCY : RentalApprovalDecision::BY_SYSTEM,
+            'decided_by_user_id' => $by?->id,
+            'decision' => $d->decision,
+            // `basis` and `term_key` are NOT NULL on the table: a refusal still cites the term it was tested against.
+            'basis' => $d->basis ?? match ($d->termKey) {
+                RentalApprovalDecision::TERM_VARIATION_TOLERANCE => RentalWorkOrder::BASIS_VARIATION_TOLERANCE,
+                RentalApprovalDecision::TERM_OWNER_DECISION => RentalWorkOrder::BASIS_OWNER_DECISION,
+                RentalApprovalDecision::TERM_EMERGENCY => RentalWorkOrder::BASIS_EMERGENCY,
+                default => RentalWorkOrder::BASIS_NO_APPROVAL_LIMIT,
+            },
+            'term_key' => $d->termKey ?? RentalApprovalDecision::TERM_NO_APPROVAL_LIMIT,
+            'term_value' => $d->termValue,
+            'term_source' => $d->termSource,
+            'amount_tested' => $d->amountTested ?? 0,
+            'baseline_amount' => $d->baselineAmount,
+            'limit_amount' => $d->limitAmount,
+            'note' => $d->note,
+        ]);
+    }
+
+    // ───────────────────────── words ─────────────────────────
+
+    private function money(float $amount): string
+    {
+        return 'R' . number_format($amount, 2, '.', ',');
+    }
+
+    private function pct(float $pct): string
+    {
+        return rtrim(rtrim(number_format($pct, 2, '.', ''), '0'), '.') . ' %';
+    }
+
+    private function when(?Carbon $at = null): string
+    {
+        return ($at ?? now())->format('j M H:i');
+    }
+
+    private function sourceLabel(string $source, bool $wrap = true): string
+    {
+        $text = match ($source) {
+            WorkTerms::SOURCE_PROPERTY => 'set on this property',
+            WorkTerms::SOURCE_AGENCY_DEFAULT => 'agency default',
+            default => 'built-in default',
+        };
+
+        return $wrap ? "({$text})" : $text;
+    }
+}

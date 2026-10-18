@@ -7,6 +7,7 @@ namespace Tests\Feature\Docuperfect;
 use App\Models\Docuperfect\DocumentType;
 use App\Services\Docuperfect\DocumentTypeClassifier;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\SeedsWetInkDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,7 @@ use Tests\TestCase;
 final class DocumentTypeClassifierTest extends TestCase
 {
     use RefreshDatabase;
+    use SeedsWetInkDocumentTypes;
 
     /**
      * The lawful (e-signable) document types.
@@ -36,9 +38,10 @@ final class DocumentTypeClassifierTest extends TestCase
      * absent here while being present on any real environment. Create them, so this test proves
      * the classifier's behaviour rather than the test database's quirks.
      *
-     * The five ALIENATION types are deliberately NOT created here: the migration under test is
-     * what must guarantee those, and test_every_alienation_type_resolves_to_a_real_document_type_row
-     * is what proves it.
+     * The five ALIENATION types are deliberately NOT hand-declared here: they come from running
+     * the real migration that guarantees them (SeedsWetInkDocumentTypes — the snapshot bootstrap
+     * does not replay it), and test_every_alienation_type_resolves_to_a_real_document_type_row
+     * is what proves they resolve.
      */
     protected function setUp(): void
     {
@@ -57,6 +60,8 @@ final class DocumentTypeClassifierTest extends TestCase
                 DocumentType::query()->create(['slug' => $slug, 'label' => $label, 'is_active' => true]);
             }
         }
+
+        $this->seedWetInkDocumentTypes();
     }
 
     private function classify(string $name, ?string $body = null): ?string

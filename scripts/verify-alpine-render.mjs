@@ -170,8 +170,12 @@ function makeSandbox() {
         // the PPRA sample-picker's search() with a plain ReferenceError-
         // shaped false failure (2026-09-28, same class as the FormData gap
         // above) despite `new URLSearchParams(...)` working correctly in
-        // every real browser this component actually runs in.
+        // every real browser this component actually runs in. Same reasoning
+        // for `URL` itself — missing entirely broke the company-settings
+        // page's pre-existing switchAgency() (a plain `new URL(...)` call,
+        // unrelated to the change under test that surfaced it, 2026-10-05).
         URLSearchParams,
+        URL,
         fetch: () => Promise.resolve({ ok: true, json: () => Promise.resolve({}) }),
         confirm: () => true,
         setTimeout, clearTimeout, setInterval, clearInterval,

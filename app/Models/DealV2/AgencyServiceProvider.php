@@ -37,7 +37,180 @@ class AgencyServiceProvider extends Model
         'is_preferred',
         'is_active',
         'created_by_id',
+        'kind',
+        'callout_fee_mode',
+        'callout_fee_amount',
+        'callout_fee_note',
     ];
+
+    // .ai/specs/rentals-faults-work-orders.md §20 - the call-out fee. Callers use the methods below, never the columns.
+    public const CALLOUT_YES = 'yes';
+    public const CALLOUT_NO = 'no';
+    public const CALLOUT_UNKNOWN = 'unknown';
+    public const CALLOUT_MODES = [self::CALLOUT_YES, self::CALLOUT_NO, self::CALLOUT_UNKNOWN];
+
+    /**
+     * THE one label for a supplier wherever one is searched, picked or listed (13 Oct 2026, Johan: a contractor added as "Steve" of "Cape Town
+     * Contractors" was identified only as "Steve"). Business name first, then the contact person: "Cape Town Contractors - Steve". Only one name
+     * -> just that name; the same text in both -> once.
+     */
+    public static function labelFor(?string $company, ?string $name): string
+    {
+        $c = trim((string) $company);
+        $n = trim((string) $name);
+        if ($c !== '' && $n !== '' && mb_strtolower($c) !== mb_strtolower($n)) {
+            return $c . ' - ' . $n;
+        }
+
+        return $c !== '' ? $c : ($n !== '' ? $n : 'Unnamed supplier');
+    }
+
+    public function displayName(): string
+    {
+        return self::labelFor($this->company, $this->name);
+    }
+
+    /**
+     * THE one search: business name, contact person, email, phone, trade (the supplier's trade AND every trade ticked on it, by code or label).
+     * "Cape", "Steve", "contractors", "plumb" all find a supplier called "Steve" of "Cape Town Contractors" with the Plumbing trade.
+     */
+    public function scopeMatching(Builder $query, ?string $term): Builder
+    {
+        $term = trim((string) $term);
+        if ($term === '') {
+            return $query;
+        }
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term) . '%';
+        $table = $query->getModel()->getTable();
+
+        return $query->where(function ($w) use ($like, $table) {
+            $w->where($table . '.name', 'like', $like)->orWhere($table . '.company', 'like', $like)->orWhere($table . '.email', 'like', $like)
+                ->orWhere($table . '.phone', 'like', $like)->orWhere($table . '.specialty', 'like', $like)
+                ->orWhereRaw(
+                    "exists (select 1 from agency_service_provider_service_types e left join agency_service_types t on t.agency_id = e.agency_id and t.code = e.service_type and t.deleted_at is null"
+                    . " where e.service_provider_id = {$table}.id and e.deleted_at is null and (e.service_type like ? or t.label like ?))",
+                    [$like, $like]
+                );
+        });
+    }
+
+    /** 'yes' | 'no' | 'unknown' (a supplier nobody has asked is 'unknown'). */
+    public function calloutFeeStatus(): string
+    {
+        return in_array($this->callout_fee_mode, self::CALLOUT_MODES, true) ? $this->callout_fee_mode : self::CALLOUT_UNKNOWN;
+    }
+
+    /** The fee in rand incl. VAT, or null unless the supplier charges one. */
+    public function calloutFeeAmount(): ?float
+    {
+        return $this->calloutFeeStatus() === self::CALLOUT_YES && $this->callout_fee_amount !== null ? (float) $this->callout_fee_amount : null;
+    }
+
+    public function calloutFeeNote(): ?string
+    {
+        return $this->calloutFeeStatus() === self::CALLOUT_YES && trim((string) $this->callout_fee_note) !== '' ? trim((string) $this->callout_fee_note) : null;
+    }
+
+    /** The picker text: "call-out R750" / "no call-out fee" / "call-out fee not known". */
+    public function calloutFeeSuffix(): string
+    {
+        return match ($this->calloutFeeStatus()) {
+            self::CALLOUT_YES => 'call-out ' . self::formatRand((float) $this->calloutFeeAmount()),
+            self::CALLOUT_NO => 'no call-out fee',
+            default => 'call-out fee not known',
+        };
+    }
+
+    /** The sentence for a notice ("Call-out fee: R750 (waived if the job goes ahead)"), or null unless the supplier charges one. */
+    public function calloutFeeLine(): ?string
+    {
+        $amount = $this->calloutFeeAmount();
+        if ($amount === null) {
+            return null;
+        }
+
+        return 'Call-out fee: ' . self::formatRand($amount) . ($this->calloutFeeNote() ? ' (' . $this->calloutFeeNote() . ')' : '');
+    }
+
+    /** @param iterable<AgencyServiceProvider> $providers @return array<string, array{name:string, text:?string, status:string}> id => name, the inline call-out notice (null when there is nothing to say) and the answer */
+    public static function noticeMap(iterable $providers): array
+    {
+        $map = [];
+        foreach ($providers as $p) {
+            $map[(string) $p->id] = ['name' => $p->displayName(), 'text' => $p->calloutFeeNotice(), 'status' => $p->calloutFeeStatus()];
+        }
+
+        return $map;
+    }
+
+    /** R750, R1 200, R750.50 - whole rand without cents, a space for thousands. */
+    public static function formatRand(float $amount): string
+    {
+        return 'R' . number_format($amount, fmod($amount, 1.0) === 0.0 ? 0 : 2, '.', ' ');
+    }
+
+    /** The inline notice shown when this supplier is chosen to go and inspect / quote; null when there is nothing to say (no fee). */
+    public function calloutFeeNotice(): ?string
+    {
+        return match ($this->calloutFeeStatus()) {
+            self::CALLOUT_YES => $this->displayName() . ' charges a call-out fee of ' . self::formatRand((float) $this->calloutFeeAmount()) . '. The owner will be told.',
+            self::CALLOUT_UNKNOWN => "We don't know if " . $this->displayName() . ' charges a call-out fee - check before sending.',
+            default => null,
+        };
+    }
+
+    /**
+     * AT-452 family (rentals-faults-work-orders.md section 21.1) - the KIND of supplier. Every existing row is a contractor. Kind does NOT change who
+     * is offered as a repair contractor (see scopeMaintenanceContractors); it is shown beside the name and drives "Who looks at faults first".
+     */
+    public const KIND_CONTRACTOR = 'contractor';
+    public const KINDS = [
+        'contractor' => 'Contractor',
+        'caretaker' => 'Caretaker / complex manager',
+        'owner_team' => "Owner's own maintenance team",
+        'insurer' => 'Insurer / insurance assessor',
+        'body_corporate' => 'Body corporate / managing agent',
+        // 13 Oct 2026 - property-transaction firms. They are NEVER offered as a rental contractor or a first responder (see NON_MAINTENANCE_KINDS).
+        'attorney_conveyancer' => 'Attorney / conveyancer',
+        'bond_originator' => 'Bond originator',
+    ];
+
+    /** Kinds that never do maintenance: kept out of every rental contractor picker and out of "Who looks at faults first", whatever their trade says. */
+    public const NON_MAINTENANCE_KINDS = ['attorney_conveyancer', 'bond_originator'];
+
+    /** The trades that make a firm an attorney / conveyancer (kind 'attorney_conveyancer'). */
+    public const ATTORNEY_SPECIALTIES = ['transfer_attorney', 'bond_attorney', 'conveyancer'];
+
+    /**
+     * The kind a supplier should carry, given its trade: a Transfer / Bond attorney or conveyancer is an "Attorney / conveyancer", a bond originator is a
+     * "Bond originator". Only a plain Contractor (or no kind) is re-derived - a kind somebody chose on purpose is never overridden.
+     */
+    public static function kindFor(?string $specialty, ?string $kind = null): string
+    {
+        $kind = $kind ?: self::KIND_CONTRACTOR;
+        if ($kind !== self::KIND_CONTRACTOR) {
+            return $kind;
+        }
+
+        return match (true) {
+            in_array($specialty, self::ATTORNEY_SPECIALTIES, true) => 'attorney_conveyancer',
+            $specialty === 'bond_originator' => 'bond_originator',
+            default => $kind,
+        };
+    }
+
+    protected static function booted(): void
+    {
+        // Every way of creating a supplier (directory form, deal inline add, deal register attorney firm) gets the right kind from its trade.
+        static::creating(function (self $p) {
+            $p->kind = self::kindFor($p->specialty, $p->kind);
+        });
+    }
+
+    public static function kindLabel(?string $kind): string
+    {
+        return self::KINDS[$kind ?: self::KIND_CONTRACTOR] ?? self::KINDS[self::KIND_CONTRACTOR];
+    }
 
     /**
      * AT-364 — the FIXED attorney capabilities and the boolean column each maps to. A firm can
@@ -45,6 +218,24 @@ class AgencyServiceProvider extends Model
      * service types: these two roles never rename/archive, so they are plain booleans, not pivot
      * codes. The legacy single `specialty` enum stays the primary classifier and is untouched.
      */
+    /**
+     * The ONE bridge between an agency's service types (Settings -> Service types: the source of truth for a contractor's trade) and the legacy `specialty`
+     * enum the property-sales side still reads (deal pipelines, DR work orders). A service type code/label -> the nearest legacy value; anything else is "other".
+     * Never used to DECIDE a rental match - that reads the supplier's ticked service types - only to keep `specialty` filled in for the old pickers.
+     */
+    public static function legacySpecialtyForType(?string $code, ?string $label = null): string
+    {
+        $hay = strtolower(trim((string) $code . ' ' . (string) $label));
+        return match (true) {
+            str_contains($hay, 'plumb') => 'plumber',
+            str_contains($hay, 'fence') => 'electric_fence',
+            str_contains($hay, 'beetle'), str_contains($hay, 'entomolog') => 'entomologist',
+            (bool) preg_match('/\bgas\b/', $hay) => 'gas',
+            str_contains($hay, 'electr'), (bool) preg_match('/\bcoc\b/', $hay) => 'electrician',
+            default => 'other',
+        };
+    }
+
     public const ATTORNEY_CAPABILITY_COLUMNS = [
         'transfer_attorney' => 'is_transfer_attorney',
         'bond_attorney'     => 'is_bond_attorney',
@@ -76,6 +267,7 @@ class AgencyServiceProvider extends Model
     }
 
     protected $casts = [
+        'callout_fee_amount' => 'decimal:2',
         'is_preferred' => 'boolean',
         'is_active' => 'boolean',
         'is_transfer_attorney' => 'boolean',
@@ -129,6 +321,37 @@ class AgencyServiceProvider extends Model
             $w->where('is_transfer_attorney', true)
               ->orWhere('is_bond_attorney', true)
               ->orWhereIn('specialty', array_keys(self::ATTORNEY_CAPABILITY_COLUMNS));
+        });
+    }
+
+    /**
+     * Suppliers that do MAINTENANCE WORK - what a repair's quote, work order or invoice picker may offer (Johan, 8 Oct 2026: the lists were
+     * offering conveyancing attorneys and bond originators). How supplier types are stored: `agency_service_providers.specialty` is a fixed set
+     * (electrician, entomologist, plumber, gas, electric_fence, transfer_attorney, bond_attorney, conveyancer, bond_originator, external_agency,
+     * other); a firm may ALSO carry the two attorney flags (`is_transfer_attorney`, `is_bond_attorney` - both at once allowed); and each agency
+     * has its own configurable service types (`agency_service_types` via `agency_service_provider_service_types`: Electrical COC, Plumbing...).
+     * Maintenance contractors = everyone who is NOT one of the property-transaction roles: no attorney flag, a kind that is not attorney / bond originator, and a specialty that is not
+     * transfer_attorney / bond_attorney / conveyancer / bond_originator / external_agency. "other" stays in (an unclassified contractor).
+     */
+    public const NON_MAINTENANCE_SPECIALTIES = ['transfer_attorney', 'bond_attorney', 'conveyancer', 'bond_originator', 'external_agency'];
+
+    public function scopeMaintenanceContractors(Builder $q): Builder
+    {
+        return $q->where('is_transfer_attorney', false)->where('is_bond_attorney', false)
+            ->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES)
+            ->whereNotIn('kind', self::NON_MAINTENANCE_KINDS);
+    }
+
+    /** Validation twin of {@see self::scopeMaintenanceContractors()}: an id that exists, in this agency, and is a maintenance contractor (or $alsoAllowId, an existing choice left as it was). */
+    public static function maintenanceExistsRule(int $agencyId, ?int $alsoAllowId = null): \Illuminate\Validation\Rules\Exists
+    {
+        return \Illuminate\Validation\Rule::exists('agency_service_providers', 'id')->where(function ($q) use ($agencyId, $alsoAllowId) {
+            $q->where('agency_id', $agencyId)->whereNull('deleted_at')->where(function ($w) use ($alsoAllowId) {
+                $w->where(fn ($m) => $m->where('is_transfer_attorney', 0)->where('is_bond_attorney', 0)->whereNotIn('specialty', self::NON_MAINTENANCE_SPECIALTIES)->whereNotIn('kind', self::NON_MAINTENANCE_KINDS));
+                if ($alsoAllowId) {
+                    $w->orWhere('id', $alsoAllowId);
+                }
+            });
         });
     }
 

@@ -21,6 +21,14 @@
  * Session keep-alive (the heartbeat + CSRF-token refresh from AT-220) is UNCHANGED
  * underneath — it still slides the session so an open tab never expires.
  *
+ * AT-454 follow-up (13 Oct 2026, Sherry demo) - THE SAVE NEVER DIES ON A STALE TOKEN:
+ *   Every mutating same-origin request (fetch, XMLHttpRequest, native form) is sent with the LIVE CSRF token, not the one the
+ *   page was rendered with. A page's token can go stale for reasons that are not the agent's doing (another tab signed in or
+ *   out, the session was renewed). fetch: on a 419 the token is refreshed and the request is sent ONCE more; if the session
+ *   is really gone the caller gets a plain JSON message (status 419) instead of a raw error, and its screen keeps what was
+ *   typed / captured. XHR (photo uploads): the token is refreshed just before the send. Forms: the hidden _token is synced
+ *   on submit. The tab also refreshes its token when it comes back to the foreground.
+ *
  * Exception families that OPT OUT of the save-block (documented, see shouldGuard):
  *   • GET forms / read requests — not mutating, never gated.
  *   • data-noguard on a <form>, or the fetch/axios `X-CoreX-NoGuard` header — an
@@ -45,9 +53,85 @@
         _online: (typeof navigator !== 'undefined' && 'onLine' in navigator) ? navigator.onLine : true,
         _tokenSinks: [],
         _heartbeat: null,
+        _freshAt: 0,
+        _freshPromise: null,
+        _visAt: 0,
+        EXPIRED_MESSAGE: 'Your session has ended. Sign in again in a new tab, then send this again - what you captured is still on this screen.',
+
+        /* ── The live CSRF token: the page-wide <meta>, kept fresh by every ping / heartbeat / refresh ── */
+        liveToken: function () {
+            var m = (typeof document !== 'undefined' && document.querySelector) ? document.querySelector('meta[name="csrf-token"]') : null;
+            return (m && m.getAttribute && m.getAttribute('content')) || null;
+        },
+        /* Refresh the token now (de-duplicated for 2 s so a batch of uploads costs one call). Fail-open: resolves the
+           meta token if the refresh itself fails. */
+        freshToken: function () {
+            var self = this, now = Date.now();
+            if (this._freshPromise && now - this._freshAt < 2000) return this._freshPromise;
+            this._freshAt = now;
+            this._freshPromise = this.refreshToken().then(function (t) { if (t) self._applyToken(t); return t || self.liveToken(); });
+            return this._freshPromise;
+        },
+        _sameOrigin: function (input) {
+            var u = (input && typeof input === 'object' && input.href) ? input.href : (typeof input === 'string' ? input : '');
+            if (!u) return false;
+            if (u.charAt(0) === '/' && u.charAt(1) !== '/') return true;
+            var origin = (typeof location !== 'undefined' && location.origin) ? location.origin : null;
+            if (origin && u.indexOf(origin) === 0) return true;
+            return !/^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(u); // a bare relative path
+        },
+        /* Return a copy of fetch's init carrying `token` in X-CSRF-TOKEN (replacing a stale one; `force` adds it). */
+        _withToken: function (init, token, force) {
+            if (!token) return init;
+            var out = {}, k;
+            if (init) { for (k in init) { if (Object.prototype.hasOwnProperty.call(init, k)) out[k] = init[k]; } }
+            var h = out.headers;
+            if (!h) { if (force) out.headers = { 'X-CSRF-TOKEN': token }; }
+            else if (typeof h.get === 'function' && typeof h.set === 'function') {
+                if (h.get('X-CSRF-TOKEN') || force) { var c = new Headers(h); c.set('X-CSRF-TOKEN', token); out.headers = c; }
+            } else if (Array.isArray(h)) {
+                var found = false;
+                var arr = h.map(function (pair) { if (String(pair[0]).toLowerCase() === 'x-csrf-token') { found = true; return [pair[0], token]; } return pair; });
+                if (!found && force) arr.push(['X-CSRF-TOKEN', token]);
+                out.headers = arr;
+            } else {
+                var o = {}, f = false;
+                Object.keys(h).forEach(function (key) { if (key.toLowerCase() === 'x-csrf-token') { o[key] = token; f = true; } else o[key] = h[key]; });
+                if (!f && force) o['X-CSRF-TOKEN'] = token;
+                out.headers = o;
+            }
+            if (typeof FormData !== 'undefined' && out.body instanceof FormData && out.body.has('_token')) out.body.set('_token', token);
+            return out;
+        },
+        _expired: function () {
+            try { window.dispatchEvent(new CustomEvent('corex:session-expired')); } catch (e) {}
+            var msg = JSON.stringify({ message: this.EXPIRED_MESSAGE });
+            if (typeof Response !== 'undefined') return new Response(msg, { status: 419, headers: { 'Content-Type': 'application/json' } });
+            return { status: 419, ok: false, json: function () { return Promise.resolve({ message: Guard.EXPIRED_MESSAGE }); } };
+        },
+        /* A mutating same-origin fetch: live token on the way out; on 419 refresh and send once more. */
+        _sendGuarded: function (input, init) {
+            var self = this;
+            var isReq = (typeof Request !== 'undefined') && input instanceof Request;
+            if (isReq || !this._sameOrigin(input)) return _nativeFetch(input, init);
+            return _nativeFetch(input, this._withToken(init, this.liveToken(), false)).then(function (res) {
+                if (res.status !== 419) return res;
+                return self.refreshToken().then(function (fresh) {
+                    if (!fresh) return self._expired();
+                    self._applyToken(fresh);
+                    return _nativeFetch(input, self._withToken(init, fresh, true)).then(function (r2) { return r2.status === 419 ? self._expired() : r2; });
+                });
+            });
+        },
+        _syncFormToken: function (form) {
+            var t = this.liveToken();
+            var inp = t && form && form.querySelector ? form.querySelector('input[name="_token"]') : null;
+            if (inp && inp.value !== t) inp.value = t;
+        },
 
         /* ── Pre-flight ping (the TRUTH). Resolves true=reachable, false=down. ── */
         ping: function () {
+            var self = this;
             var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
             var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, PING_TIMEOUT) : null;
             return _nativeFetch(PING_URL, {
@@ -58,6 +142,10 @@
                 signal: ctrl ? ctrl.signal : undefined
             }).then(function (r) {
                 if (timer) clearTimeout(timer);
+                if (r.status === 200 && typeof r.json === 'function') {
+                    // the ping IS a token refresh: keep the page-wide token live before the save goes out
+                    return r.json().then(function (j) { if (j && j.token) self._applyToken(j.token); return true; }, function () { return true; });
+                }
                 return r.status === 200; // 200 = reachable AND authed; 401/302/5xx = treat as down
             }).catch(function () {
                 if (timer) clearTimeout(timer);
@@ -158,6 +246,7 @@
             document.addEventListener('submit', function (e) {
                 var form = e.target;
                 if (!(form instanceof HTMLFormElement)) return;
+                self._syncFormToken(form);
                 if (form.__coreXGuardPassed) { form.__coreXGuardPassed = false; return; } // our own re-submit
                 if (!self._isMutatingForm(form) || self._optedOut(form)) return;
 
@@ -179,9 +268,50 @@
                 if (!MUTATING[method] || noguard) return _nativeFetch(input, init);
                 return self.preflight().then(function (proceed) {
                     if (!proceed) { var e = new Error('offline'); e.coreXOffline = true; throw e; }
-                    return _nativeFetch(input, init);
+                    return self._sendGuarded(input, init);
                 });
             };
+
+            // (d) XMLHttpRequest (photo uploads stream through XHR for progress): token refreshed just before the send.
+            var XHR = window.XMLHttpRequest;
+            if (XHR && XHR.prototype && !XHR.prototype.__coreXToken) {
+                var _open = XHR.prototype.open, _send = XHR.prototype.send, _setH = XHR.prototype.setRequestHeader, _abort = XHR.prototype.abort;
+                XHR.prototype.__coreXToken = true;
+                XHR.prototype.open = function (m, u, a) {
+                    this.__cx = { method: String(m || 'GET').toUpperCase(), url: u, async: a !== false, csrf: false, noguard: false, aborted: false };
+                    return _open.apply(this, arguments);
+                };
+                XHR.prototype.setRequestHeader = function (k, v) {
+                    var cx = this.__cx, name = String(k).toLowerCase();
+                    if (cx && name === 'x-csrf-token') { cx.csrf = true; return; }  // set at send time, with the live token
+                    if (cx && name === 'x-corex-noguard') cx.noguard = true;
+                    return _setH.call(this, k, v);
+                };
+                XHR.prototype.abort = function () { if (this.__cx) this.__cx.aborted = true; return _abort.apply(this, arguments); };
+                XHR.prototype.send = function (body) {
+                    var x = this, cx = this.__cx;
+                    if (!cx || !MUTATING[cx.method] || !cx.async || cx.noguard || !self._sameOrigin(cx.url)) {
+                        if (cx && cx.csrf) { try { _setH.call(x, 'X-CSRF-TOKEN', self.liveToken() || ''); } catch (e) {} }
+                        return _send.call(x, body);
+                    }
+                    self.freshToken().then(function (t) {
+                        if (cx.aborted) return;
+                        try { _setH.call(x, 'X-CSRF-TOKEN', t || self.liveToken() || ''); } catch (e) {}
+                        _send.call(x, body);
+                    });
+                };
+            }
+
+            // (e) Back in the foreground (e.g. after a portal tab): bring this tab's token up to date.
+            var wake = function () {
+                if (typeof document !== 'undefined' && document.hidden) return;
+                var now = Date.now();
+                if (now - self._visAt < 20000) return;
+                self._visAt = now;
+                self.freshToken();
+            };
+            if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('visibilitychange', wake);
+            if (window.addEventListener) window.addEventListener('focus', wake);
 
             // (c) axios request interceptor — single shared instance (bootstrap.js).
             if (window.axios && window.axios.interceptors) {
@@ -221,6 +351,8 @@
         },
         _applyToken: function (t) {
             if (!t) return;
+            var m = (typeof document !== 'undefined' && document.querySelector) ? document.querySelector('meta[name="csrf-token"]') : null;
+            if (m && m.setAttribute) m.setAttribute('content', t);
             this._tokenSinks.forEach(function (fn) { try { fn(t); } catch (e) {} });
         },
         startHeartbeat: function (setToken, intervalMs) {

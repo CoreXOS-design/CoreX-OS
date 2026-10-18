@@ -122,7 +122,7 @@
         $garages    = $property->garages;
         $size       = $property->size_m2 ? number_format($property->size_m2) . ' M²' : null;
 
-        // Branding — branch logo → agency logo → CoreX wordmark fallback (handled in partial).
+        // Branding — branch logo → agency logo → the agency's name as text (handled in partial).
         $logoPath   = $property->branch?->logo_path ?: $property->agency?->logo_path;
         $logoUrl    = $logoPath ? asset('storage/' . $logoPath) : null;
         $agencyName = strtoupper($property->agency?->name ?? '');

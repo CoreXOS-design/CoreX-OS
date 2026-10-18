@@ -41,7 +41,13 @@ skipped; purged contact → 410), thumbnails only, cheap queries.
   `agency_id`, `generated_by_user_id`). No `expires_at` — revocation is the gate.
 - **Matches**: `PropertyMatchScoringService::getMatchesForBuyer()` → cached
   `property_buyer_matches` rows (`score`, `tier`), score-desc. Properties loaded
-  keyed by id (`withoutGlobalScopes`, whereIn).
+  keyed by id (`withoutGlobalScopes`, whereIn) — **and never an archived listing**
+  (fixed 2026-10-07): `withoutGlobalScopes()` is needed because the page has no signed-in
+  user, but it also lifts the soft-delete scope, so the query now re-adds
+  `deleted_at IS NULL` and drops `status = 'archived'` explicitly. A cached match whose
+  listing is not shown is removed from the match list itself, so the tier lists and the
+  "N properties we think you'll like" headline agree. Rule for every public buyer page /
+  share link: an archived or soft-deleted listing is never served.
 - **Preferences**: the contact's primary `ContactMatch` (wishlist).
 - **Agent**: `link.generated_by_user_id` → `User`, fallback `contact.agent_id`.
 - **Responses**: `buyer_property_responses` (enum interested / not_interested /

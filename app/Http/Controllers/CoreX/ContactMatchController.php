@@ -166,6 +166,16 @@ class ContactMatchController extends Controller
         $savedFrom = $request->query('saved_from', '');
         $savedTo   = $request->query('saved_to', '');
 
+        // AT-455 (Andre, 2026-10-14): Buyer Pipeline status filter (New / Warm /
+        // Cold …) on the contact. Only the statuses this agency keeps on the
+        // board are offered — a status the Core Matches gate excludes (default
+        // Won + Lost) never has a row here, so it is not a choice. Resolved
+        // below once the gate's agency is known.
+        $buyerState = (string) $request->query('buyer_state', '');
+        if (! in_array($buyerState, \App\Services\BuyerStateService::PIPELINE_STATES, true)) {
+            $buyerState = '';
+        }
+
         // Agent filter — manager scopes only, same validation precedent as
         // before (an id outside the viewer's own agent list is dropped,
         // not trusted).
@@ -175,6 +185,18 @@ class ContactMatchController extends Controller
             $agentsQuery = User::agencyMembers()->where('is_active', 1)->orderBy('name');
             if ($scope === 'branch') {
                 $agentsQuery->where('branch_id', $branchId);
+            }
+            // AT-455 (Andre, 2026-10-14): only staff who actually own a saved
+            // search on this board. Listing every active member (assistants,
+            // admins, seeded or test accounts) read as "agents from other
+            // agencies" and every such pick returned an empty board. Same
+            // agent_id the filter below applies to; same BranchScope bypass the
+            // board itself uses on Agency scope (a manager sees all branches).
+            if (\Schema::hasColumn('contact_matches', 'agent_id')) {
+                $agentsQuery->whereIn('users.id', ContactMatch::query()
+                    ->when($scope === 'agency', fn ($q) => $q->withoutGlobalScope(BranchScope::class))
+                    ->whereNotNull('agent_id')
+                    ->select('agent_id'));
             }
             $agents  = $agentsQuery->get(['id', 'name']);
             $agentId = $request->query('agent_id');
@@ -210,6 +232,13 @@ class ContactMatchController extends Controller
         // ALREADY correctly-scoped Contact set (below), and it was the
         // other half of this same nested-bypass trap.
         $gateAgencyId = (int) $user->effectiveAgencyId();
+        $buyerStateOptions = array_values(array_filter(
+            \App\Services\BuyerStateService::PIPELINE_STATES,
+            fn (string $s) => ! \App\Services\Matching\CoreMatchBuyerGate::isExcluded($s, $gateAgencyId)
+        ));
+        if ($buyerState !== '' && ! in_array($buyerState, $buyerStateOptions, true)) {
+            $buyerState = '';
+        }
         $matchConstraints = function ($q) use ($listingType, $statusFilter, $savedFrom, $savedTo, $scope, $branchId, $agentId, $gateAgencyId) {
             // ContactMatch carries BranchScope (via BelongsToBranch), NOT
             // just BelongsToAgency — found during a same-class-bug sweep
@@ -292,8 +321,33 @@ class ContactMatchController extends Controller
                         ->orWhere('email', 'like', "%{$search}%");
                 });
             })
-            ->with('type')
+            ->when($buyerState !== '', fn ($q) => $q->where('buyer_state', $buyerState))
+            ->with(['type', 'agent:id,name'])
             ->withCount('contactNotes');
+
+        // AT-455 (Andre, 2026-10-14): on Branch / Agency scope the board groups
+        // contacts under an agent, so the agent name leads the order and the
+        // chosen sort applies within each agent's group. The grouping agent is
+        // the contact's primary agent, or — for a contact with none — the agent
+        // of their latest search that passes the current filters (the same
+        // agent_id the Agent filter applies to, so a filtered board never files
+        // a contact under somebody else). Unassigned last. Raw SQL on purpose:
+        // no model global scopes inside a correlated subquery.
+        if ($scope !== 'own') {
+            if (is_null($contactsQuery->getQuery()->columns)) {
+                $contactsQuery->select('contacts.*');
+            }
+            $contactsQuery->selectRaw(
+                'COALESCE('
+                . '(SELECT u1.name FROM users u1 WHERE u1.id = contacts.agent_id), '
+                . '(SELECT u2.name FROM contact_matches cm JOIN users u2 ON u2.id = cm.agent_id '
+                . ' WHERE cm.contact_id = contacts.id AND cm.deleted_at IS NULL'
+                . ($agentId !== null ? ' AND cm.agent_id = ?' : '')
+                . ' ORDER BY cm.created_at DESC LIMIT 1)'
+                . ') AS core_matches_agent_name',
+                $agentId !== null ? [$agentId] : []
+            )->orderByRaw('core_matches_agent_name IS NULL')->orderBy('core_matches_agent_name');
+        }
 
         // Sort aggregates — same rule: a plain correlated subquery via
         // addSelect(), built from a top-level ContactMatch::query(), never
@@ -479,6 +533,10 @@ class ContactMatchController extends Controller
             }
         }
 
+        // Whose notes the viewer may READ from the "N notes" pill: the Role Manager scope buyer_notes.view
+        // (own / branch / agency) — BuyerNotesAccess, one rule shared with the Intelligence tab.
+        $buyerNotesViewableIds = app(\App\Services\Buyers\BuyerNotesAccess::class)->visibleContactIds($user, $pageContactIds);
+
         // Who the viewer may write a note for from this board — the contact-notes store route's
         // own rules, evaluated up front so no "+ Note" button is shown that would only 404/403:
         // contacts access permission, the contact bound under its normal ContactScope (own/branch/
@@ -531,15 +589,24 @@ class ContactMatchController extends Controller
 
         $totalMatches = $allMatches->count();
 
-        return view('corex.core-matches.index', compact(
-            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'pipelineMovableContactIds',
+        $viewData = compact(
+            'rows', 'contacts', 'matchCounts', 'totalMatches', 'noteableContactIds', 'buyerNotesViewableIds', 'pipelineMovableContactIds',
             'listingType', 'isRentalEntry', 'isAllRoute', 'indexRouteName', 'counterpartRouteName',
             'scope', 'availableScopes', 'canSeeAll', 'agents', 'agentId', 'branchId', 'splitOn',
-            'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort',
+            'search', 'statusFilter', 'savedFrom', 'savedTo', 'sort', 'buyerState', 'buyerStateOptions',
             'hasAgentColumn', 'assignedAgentNames', 'reassignmentByMatch', 'flagAgentNames',
             'alsoEnquiredByContact', 'reassignableContactIds', 'moveBuyerAgents',
             'hasWorkingWindowSetting', 'workingWindowDays',
-        ));
+        ) + ['nextPageUrl' => $contacts->nextPageUrl()];
+
+        // AT-455: the board's contact list loads its next batch of contacts by
+        // itself when scrolled to its end — same route, same filters, same
+        // 25-contact page; only the two fragments the list appends come back.
+        if ($request->ajax()) {
+            return view('corex.core-matches._page', $viewData);
+        }
+
+        return view('corex.core-matches.index', $viewData);
     }
 
     /**

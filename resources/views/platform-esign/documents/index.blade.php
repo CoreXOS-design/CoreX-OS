@@ -19,21 +19,21 @@
     ])
 
     <form method="GET" class="rounded-md p-3 flex flex-col flex-wrap lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
-        <input type="text" name="q" value="{{ $q }}" placeholder="Search title, agency, signer name or email…" class="ds-field flex-1">
-        <select name="status" class="list-header-filter" onchange="this.form.submit()">
+        <input type="text" name="q" value="{{ $q }}" placeholder="Search title, agency, signer name or email…" class="list-header-filter flex-1 {{ $q !== '' ? 'is-active' : '' }}">
+        <select name="status" class="list-header-filter {{ $status !== '' ? 'is-active' : '' }}" onchange="this.form.submit()">
             <option value="">All statuses</option>
             @foreach(\App\Models\PlatformEsign\Document::STATUSES as $k => $l)<option value="{{ $k }}" @selected($status === $k)>{{ $l }}</option>@endforeach
             <option value="archived" @selected($status === 'archived')>Archived</option>
         </select>
-        <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">Sent from <input type="date" name="from" value="{{ $from }}" class="ds-field"></label>
-        <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">to <input type="date" name="to" value="{{ $to }}" class="ds-field"></label>
-        <button class="corex-btn-primary">Search</button>
-        @if($q !== '' || $status !== '' || $from || $to)<a href="{{ route('platform-esign.documents.index') }}" class="corex-btn-outline">Clear</a>@endif
+        <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">Sent from <input type="date" name="from" value="{{ $from }}" class="list-header-filter {{ filled($from) ? 'is-active' : '' }}"></label>
+        <label class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">to <input type="date" name="to" value="{{ $to }}" class="list-header-filter {{ filled($to) ? 'is-active' : '' }}"></label>
+        <button class="corex-btn-primary text-sm" style="height:2.25rem;">Search</button>
+        @if($q !== '' || $status !== '' || $from || $to)<a href="{{ route('platform-esign.documents.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>@endif
     </form>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
+            <table class="min-w-full text-sm ds-table">
                 <thead><tr style="background: var(--surface-2);">
                     <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('title', 'Document') !!}</th>
                     <th class="{{ $th }}" style="color: var(--text-muted);">Signers</th>

@@ -10,6 +10,7 @@ use App\Models\Property;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Tests\Concerns\FindsOrCreatesDocumentTypes;
 use Tests\TestCase;
 
 /**
@@ -18,6 +19,7 @@ use Tests\TestCase;
  */
 class MobilePropertyDriveTest extends TestCase
 {
+    use FindsOrCreatesDocumentTypes;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -77,7 +79,7 @@ class MobilePropertyDriveTest extends TestCase
 
     public function test_lists_documents_filed_on_the_property_with_folder_counts(): void
     {
-        $type = DocumentType::create(['slug' => 'mandate', 'label' => 'Mandate', 'sort_order' => 1, 'is_active' => true]);
+        $type = DocumentType::find($this->documentTypeId('mandate', 'Mandate', ['sort_order' => 1]));
         $this->makeDocument(['document_type_id' => $type->id]);
         $this->makeDocument(['original_name' => 'Unfiled scan.pdf', 'document_type_id' => null]);
 

@@ -11,7 +11,7 @@
 
 @section('corex-content')
 @php
-    $capColor   = $capPeriod->is_capped ? 'var(--ds-amber,#f59e0b)' : 'var(--brand-button)';
+    $capColor   = $capPeriod->checkCap() ? 'var(--ds-amber,#f59e0b)' : 'var(--brand-button)';
     $tierMaxGci = (float) ($tier1Agents->max('month_gci') ?? 0);
     $revMax     = (float) max(1, collect($monthlyData)->max('revShare') ?? 0);
     $revHasAny  = collect($monthlyData)->sum('revShare') > 0;
@@ -61,7 +61,7 @@
                     <div class="flex items-center justify-between gap-2">
                         <div class="text-[11px] font-semibold uppercase tracking-wider" style="color:var(--text-muted);">
                             Cap · {{ $capPercent }}%
-                            @if($capPeriod->is_capped)
+                            @if($capPeriod->checkCap())
                                 <span class="ds-badge ds-badge-warning ml-1">Capped</span>
                             @endif
                         </div>
@@ -72,8 +72,10 @@
                     </div>
                     <div class="flex items-center justify-between gap-2 text-xs tabular-nums">
                         <span style="color:var(--text-secondary);"><span class="font-semibold" style="color:var(--text-primary);">R {{ number_format($capProgress, 0) }}</span> / R {{ number_format($capTotal, 0) }}</span>
-                        <span style="color:{{ $capPeriod->is_capped ? 'var(--ds-amber,#f59e0b)' : 'var(--text-secondary)' }};">
-                            @if($capPeriod->is_capped)
+                        <span style="color:{{ $capPeriod->checkCap() ? 'var(--ds-amber,#f59e0b)' : 'var(--text-secondary)' }};">
+                            @if(! $capPeriod->hasCap())
+                                No cap set
+                            @elseif($capPeriod->checkCap())
                                 100% commission
                             @else
                                 R {{ number_format($capRemaining, 0) }} to go
@@ -162,13 +164,11 @@
                             </td>
                             <td class="px-4 py-2.5 whitespace-nowrap align-top">
                                 @if($typeBadge['var'])
-                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                          style="background:color-mix(in srgb, {{ $typeBadge['var'] }} 12%, transparent); color:{{ $typeBadge['var'] }}; border:1px solid color-mix(in srgb, {{ $typeBadge['var'] }} 25%, transparent);">
+                                    <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $typeBadge['var'] }};">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 @else
-                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 @endif

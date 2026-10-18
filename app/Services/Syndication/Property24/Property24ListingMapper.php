@@ -130,7 +130,7 @@ class Property24ListingMapper
             $commercial = [];
             if ($property->gross_price) $commercial['grossPrice'] = (float) $property->gross_price;
             if ($property->net_price) $commercial['netPrice'] = (float) $property->net_price;
-            if ($property->lease_start_date) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
+            if ($this->shouldSendAvailableFrom($property)) $commercial['availabilityDate'] = $property->lease_start_date->format('Y-m-d');
             // .ai/specs/rental-property-tab.md §5, Part 4 — closes P24-G4
             // (.ai/audits/syndication-mapping-audit-2026-07-05.md:45): lease_type
             // is now an agency-editable list (PropertySettingItem::GROUP_LEASE_TYPE)
@@ -154,7 +154,7 @@ class Property24ListingMapper
         }
 
         // Occupation date
-        if ($property->lease_start_date) {
+        if ($this->shouldSendAvailableFrom($property)) {
             $listing['occupationDate'] = $property->lease_start_date->format('Y-m-d\TH:i:s');
         }
 
@@ -206,6 +206,24 @@ class Property24ListingMapper
         }
 
         return $listing;
+    }
+
+    /**
+     * .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05 (3):
+     * whether `lease_start_date` (reused as "available from" both for an
+     * ordinary rental's own move-in date and for the notice-readvertise
+     * path, §15 GATE 2) reaches P24 at all. Gates BOTH of this mapper's
+     * existing consumers of that column — the generic `occupationDate`
+     * (fires for any listing type) and `commercialInfo.availabilityDate`
+     * (commercial-typed only) — so one property-level setting governs the
+     * field everywhere it's sent, not just the notice flow. Default true:
+     * matches this mapper's own pre-existing, always-on behaviour, so an
+     * agency only sees a change if it explicitly turns this off.
+     */
+    private function shouldSendAvailableFrom(Property $property): bool
+    {
+        return $property->lease_start_date !== null
+            && (bool) ($property->show_available_from_on_portals ?? true);
     }
 
     /**
@@ -1529,52 +1547,59 @@ class Property24ListingMapper
 
     private function resolveContactAgentIds(Property $property, int $agencyId): array
     {
-        // Build an agency-scoped client so credentials come from the property's
-        // agency row (not the now-empty .env). Without this the client falls
-        // back to env creds, authenticates as nobody, and returns zero agents
-        // — which P24 then rejects as "must have one or more agents".
-        $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
-        $client = new Property24ApiClient($agency);
-        // Scope the lookup to the property's resolved agency — otherwise a
-        // property under agency B would pull agents from agency A's feed.
-        $result = $client->getAgents((string) $agencyId);
-
-        if (!$result['success']) return [];
-
-        $agents = $result['data'] ?? [];
-        $ids = [];
-
         // Agents who opted out of P24 must never be attached to a syndicated
         // listing, even if a stale P24 record still carries their sourceReference.
-        $excludedUserIds = \App\Models\User::withTrashed()
-            ->whereIn('id', array_filter([$property->agent_id, $property->pp_second_agent_id]))
-            ->where('exclude_from_p24', true)
-            ->pluck('id')
-            ->all();
+        $userIds = array_values(array_filter([$property->agent_id, $property->pp_second_agent_id]));
+        $users = \App\Models\User::withTrashed()->whereIn('id', $userIds)->get()->keyBy('id');
 
-        // Primary agent
-        if ($property->agent_id && !in_array((int) $property->agent_id, $excludedUserIds, true)) {
-            $sourceRef = 'CoreX-Agent-' . $property->agent_id;
-            foreach ($agents as $agent) {
-                if (($agent['sourceReference'] ?? '') === $sourceRef) {
-                    $ids[] = (int) $agent['id'];
-                    break;
+        // Refresh cost contract (CLAUDE.md "Portal sync"): the stored (p24_agent_id,
+        // p24_agent_agency_id) pair answers "which P24 agent is this?" with ZERO HTTP —
+        // the same rule Property24SyndicationService::resolveRegisteredAgentId() follows.
+        // P24's agent list (a 15-90s, 610KB response) is scanned only for an agent with
+        // no stored pair under THIS agency, so an unchanged refresh never pays for it.
+        $ids = [];
+        $unresolved = [];
+        foreach ($userIds as $userId) {
+            $user = $users->get((int) $userId);
+            if ($user && $user->exclude_from_p24) {
+                continue;
+            }
+            if ($user && !empty($user->p24_agent_id) && (int) $user->p24_agent_agency_id === $agencyId) {
+                $ids[] = (int) $user->p24_agent_id;
+            } else {
+                $ids[] = null;               // keep the primary-then-second order
+                $unresolved[] = (int) $userId;
+            }
+        }
+
+        if ($unresolved !== []) {
+            // Build an agency-scoped client so credentials come from the property's
+            // agency row (not the now-empty .env). Without this the client falls
+            // back to env creds, authenticates as nobody, and returns zero agents
+            // — which P24 then rejects as "must have one or more agents".
+            $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+            $client = new Property24ApiClient($agency);
+            // Scope the lookup to the property's resolved agency — otherwise a
+            // property under agency B would pull agents from agency A's feed.
+            $result = $client->getAgents((string) $agencyId);
+            $agents = $result['success'] ? ($result['data'] ?? []) : [];
+
+            $position = 0;
+            foreach ($ids as $i => $id) {
+                if ($id !== null) {
+                    continue;
+                }
+                $sourceRef = 'CoreX-Agent-' . $unresolved[$position++];
+                foreach ($agents as $agent) {
+                    if (($agent['sourceReference'] ?? '') === $sourceRef) {
+                        $ids[$i] = (int) $agent['id'];
+                        break;
+                    }
                 }
             }
         }
 
-        // Second agent
-        if ($property->pp_second_agent_id && !in_array((int) $property->pp_second_agent_id, $excludedUserIds, true)) {
-            $sourceRef = 'CoreX-Agent-' . $property->pp_second_agent_id;
-            foreach ($agents as $agent) {
-                if (($agent['sourceReference'] ?? '') === $sourceRef) {
-                    $ids[] = (int) $agent['id'];
-                    break;
-                }
-            }
-        }
-
-        return $ids;
+        return array_values(array_filter($ids, fn ($id) => $id !== null));
     }
 
     private function buildShowdays(Property $property): array

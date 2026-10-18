@@ -21,10 +21,7 @@ class AgencyServiceProviderService
             ->active()
             ->when($specialty, fn ($q) => $q->capableOf($specialty)) // AT-364 — attorney pickers surface capability-flagged firms too
 
-            ->when($term, function ($q) use ($term) {
-                $t = '%' . trim($term) . '%';
-                $q->where(fn ($w) => $w->where('name', 'like', $t)->orWhere('company', 'like', $t)->orWhere('email', 'like', $t));
-            })
+            ->matching($term)   // the ONE supplier search (AgencyServiceProvider::scopeMatching)
             ->pickerOrder()
             ->limit($limit)
             ->get();
@@ -48,12 +45,17 @@ class AgencyServiceProviderService
         }
 
         $specialty = $data['specialty'] ?? 'other';
+        // rentals-faults-work-orders.md section 21.1 - a caretaker and a contractor with the same name are two suppliers, never merged.
+        $kind = array_key_exists($data['kind'] ?? '', AgencyServiceProvider::KINDS) ? $data['kind'] : AgencyServiceProvider::KIND_CONTRACTOR;
+        // 13 Oct 2026 - an attorney / bond originator trade carries its own kind, so the duplicate check below matches the rows the data fix re-kinded
+        $kind = AgencyServiceProvider::kindFor($specialty, $kind);
         $name = trim((string) ($data['name'] ?? ''));
         $email = isset($data['email']) ? strtolower(trim((string) $data['email'])) : null;
 
         $existing = AgencyServiceProvider::query()
             ->withoutGlobalScopes()->where('agency_id', $agencyId)
             ->where('specialty', $specialty)
+            ->where('kind', $kind)
             ->when($email, fn ($q) => $q->whereRaw('LOWER(email) = ?', [$email]),
                    fn ($q) => $q->whereRaw('LOWER(TRIM(name)) = ?', [strtolower($name)]))
             ->first();
@@ -84,6 +86,7 @@ class AgencyServiceProviderService
             'is_preferred' => (bool) ($data['is_preferred'] ?? false),
             'is_active' => true,
             'created_by_id' => $userId,
+            'kind' => $kind,
         ]);
     }
 

@@ -130,9 +130,22 @@ final class TrackedPropertyController extends Controller
 
         $intelligence = $this->buildIntelligence($trackedProperty, (int) $agencyId);
 
+        // Decision 2 (structured address matching, 2026-10-07): properties already on file that are only a POSSIBLE
+        // match — promote asks the agent instead of silently creating a second property beside them.
+        $possibleMatches = [];
+        if (! $trackedProperty->isPromoted()) {
+            $evidence = app(\App\Services\Prospecting\PropertyDuplicateMatchEvidence::class);
+            $possibleMatches = array_map(function ($pm) use ($trackedProperty, $evidence) {
+                $pm['panel'] = $evidence->panelRows($trackedProperty, $pm['property']);
+
+                return $pm;
+            }, app(TrackedPropertyMatchOrCreateService::class)->possiblePropertyMatches($trackedProperty));
+        }
+
         return view('corex.tracked-properties.show', [
             'tp' => $trackedProperty,
             'intelligence' => $intelligence,
+            'possibleMatches' => $possibleMatches,
         ]);
     }
 
@@ -150,12 +163,22 @@ final class TrackedPropertyController extends Controller
                 ->with('status', 'This property is already in agency stock.');
         }
 
+        // Decision 2 (structured address matching, 2026-10-07): a property that is only a POSSIBLE match is never
+        // linked or duplicated silently — promote stops and asks (same / different); this screen shows the
+        // candidates and posts the agent's answer back here.
+        $decision = $request->input('match_decision');
+        $chosenId = (int) $request->input('possible_property_id', 0);
         try {
             $property = app(TrackedPropertyMatchOrCreateService::class)
                 ->promoteToStock(
                     trackedPropertyId: (int) $trackedProperty->id,
                     promotingUserId: (int) $user->id,
+                    forceCreate: $decision === 'different',
+                    linkToPropertyId: ($decision === 'same' && $chosenId > 0) ? $chosenId : null,
+                    askOnPossible: true,
                 );
+        } catch (\App\Services\Prospecting\PossiblePropertyMatchException $e) {
+            return redirect()->route('corex.tracked-properties.show', $trackedProperty)->with('error', $e->getMessage());
         } catch (\DomainException $e) {
             // promoteToStock throws when the promoting user has no branch_id.
             return back()->with('error', $e->getMessage());

@@ -88,9 +88,9 @@
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Search clauses..."
                        onchange="this.form.submit()"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+                       class="list-header-filter w-full {{ filled(request('search')) ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
             </div>
-            <select name="visibility" onchange="this.form.submit()" class="list-header-filter">
+            <select name="visibility" onchange="this.form.submit()" class="list-header-filter {{ filled(request('visibility')) ? 'is-active' : '' }}">
                 <option value="">All visibility</option>
                 <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
                 <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
@@ -146,7 +146,7 @@
     @else
         <div class="space-y-3">
             @foreach($clauses as $clause)
-            <div class="rounded-md p-4 transition-all duration-300" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
+            <div class="rounded-md p-4 transition-all duration-300 list-row-hover" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ editing: false }">
                 <div x-show="!editing">
                     <div class="flex items-start justify-between gap-3">
                         <div class="min-w-0">

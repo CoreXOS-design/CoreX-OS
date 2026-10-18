@@ -72,12 +72,13 @@ final class ListingShareTest extends TestCase
         $html = $this->renderShare($p);
 
         $this->assertStringContainsString('Share', $html);
-        // Share targets are wired (copy / WhatsApp / email).
-        $this->assertStringContainsString('wa.me', $html);
-        $this->assertStringContainsString('mailto:', $html);
-        // The exact public_url is bound into the component (@js JSON-encodes it,
-        // escaping slashes — assert the encoded form so the test is robust).
-        $this->assertStringContainsString(trim(json_encode($p->public_url), '"'), $html);
+        // The chooser component carries the share targets (copy / WhatsApp / email are built in its script).
+        $this->assertStringContainsString('corexPropertyShareChooser', $html);
+        // 2026-08-24 audit: the shared link is the attributed CoreX preview page (no title slug), NOT the
+        // external company-website public_url — and the sharing agent's own id is bound in for "my details".
+        $this->assertStringContainsString(trim(json_encode(route('corex.properties.preview', $p)), '"'), $html);
+        $this->assertStringContainsString('myId: ' . $this->user->id, $html);
+        $this->assertStringNotContainsString(trim(json_encode($p->public_url), '"'), $html);
     }
 
     public function test_hidden_for_non_shareable_status(): void

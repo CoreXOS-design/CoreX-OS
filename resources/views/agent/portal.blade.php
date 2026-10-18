@@ -218,7 +218,9 @@
                         <div class="ds-progress-bar {{ $isCapped ? 'ds-bar-amber' : 'ds-bar-green' }}" style="width:{{ $capPercent }}%;"></div>
                     </div>
                 </div>
+                @feature('commission-management')
                 <a href="{{ route('commission.dashboard') }}" class="text-xs font-medium no-underline" style="color:var(--brand-icon);">View Full Earnings &rarr;</a>
+                @endfeature
             </div>
             @endunless
 
@@ -1474,7 +1476,7 @@
             <button type="button" class="pg-sub" @click="sub.documents = '{{ $navKey }}'" :aria-current="sub.documents === '{{ $navKey }}' ? 'page' : null">{{ $docCfg['label'] }}<span class="pg-dot" style="background:{{ $docDotColors[$navStatus] ?? 'var(--text-muted)' }};" title="{{ $statusPills[$navStatus]['text'] ?? '' }}"></span></button>
             @endforeach
             @unless($isAssistant ?? false)
-            @if($ppraLetterCanReceive ?? false)
+            @if(($ppraLetterCanReceive ?? false) && feature('ppra-employment-letters'))
             <button type="button" class="pg-sub" @click="sub.documents = 'ppra_employment_letter'" :aria-current="sub.documents === 'ppra_employment_letter' ? 'page' : null">PPRA Employment Letter</button>
             @endif
             @endunless
@@ -1620,6 +1622,7 @@
                  enclosing tab === 'compliance' check stayed false while viewing Documents, so the
                  pane never rendered — a blank area with no error, for every user, every time. --}}
             @unless($isAssistant ?? false)
+            @feature('ppra-employment-letters')
             <div x-show="sub.documents === 'ppra_employment_letter'" x-cloak class="pg-pane pg-pane-col">
                 <div style="font-size:0.8125rem; font-weight:700; color:var(--text-primary); margin-bottom:12px;">PPRA FFC Employment Letter</div>
 
@@ -1674,6 +1677,7 @@
                 <p style="font-size:0.75rem; color:var(--text-muted);">No letters yet.</p>
                 @endif
             </div>
+            @endfeature
             @endunless
         </div>
     </div>

@@ -433,6 +433,8 @@ class Contact extends Model
      */
     public function ficaStatus(): string
     {
+        $currentMonths = \App\Services\Compliance\FicaWindows::currentMonths($this->agency_id ? (int) $this->agency_id : null);
+
         // Check new FICA submission system first
         $approvedSubmission = $this->ficaSubmissions()
             ->where('status', 'approved')
@@ -441,7 +443,7 @@ class Contact extends Model
 
         if ($approvedSubmission) {
             $verifiedAt = $approvedSubmission->verified_at;
-            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id)) {
+            if ($verifiedAt && $verifiedAt->diffInMonths(now()) >= $currentMonths) {
                 return 'expiring';
             }
             return 'complete';
@@ -455,7 +457,7 @@ class Contact extends Model
         $latest = $ficaDocs->sortByDesc('pivot.signed_at')->first();
         if ($latest && $latest->pivot->signed_at) {
             $signedAt = \Carbon\Carbon::parse($latest->pivot->signed_at);
-            if ($signedAt->diffInMonths(now()) >= \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id)) {
+            if ($signedAt->diffInMonths(now()) >= $currentMonths) {
                 return 'expiring';
             }
             return 'complete';
@@ -494,7 +496,7 @@ class Contact extends Model
         $state = \App\Support\Compliance\FicaQuickState::resolve(
             $submissions,
             $legacySignedAt,
-            \App\Models\Agency::ficaExpiringMonthsFor($this->agency_id),
+            \App\Services\Compliance\FicaWindows::currentMonths($this->agency_id ? (int) $this->agency_id : null),
         );
 
         if ($memoable) {
@@ -549,7 +551,7 @@ class Contact extends Model
             $out[$c->id] = \App\Support\Compliance\FicaQuickState::resolve(
                 $subs[$c->id] ?? collect(),
                 $legacy[$c->id] ?? null,
-                \App\Models\Agency::ficaExpiringMonthsFor($c->agency_id),
+                \App\Services\Compliance\FicaWindows::currentMonths($c->agency_id ? (int) $c->agency_id : null),
             );
         }
 
@@ -1998,6 +2000,19 @@ class Contact extends Model
         $at = $at ? \Illuminate\Support\Carbon::parse($at) : now();
         $this->forceFill(['contacted_marked_at' => $at])->save();
         $this->recomputeLastContacted();
+
+        // Lead response time (Johan, 2026-10-07): the explicit contacted action IS a genuine first contact.
+        $this->recordAgentContact('contacted_action', $at);
+    }
+
+    /**
+     * Announce a GENUINE contact with this contact (contacted action, message sent, link shared, appointment
+     * feedback) so any open portal enquiry of theirs records its first response. A note never calls this.
+     * Spec: .ai/specs/lead-response-time.md.
+     */
+    public function recordAgentContact(string $channel, ?\Carbon\CarbonInterface $at = null, ?int $byUserId = null): void
+    {
+        event(new \App\Events\Contact\ContactContactedByAgent($this, $channel, $at, $byUserId ?? auth()->id()));
     }
 
     /**

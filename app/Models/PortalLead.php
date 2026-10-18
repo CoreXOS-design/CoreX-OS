@@ -37,6 +37,11 @@ class PortalLead extends Model
         'lead_source_raw',
         'received_at',
         'notified_at',
+        // Lead response time — the first genuine response, recorded once (LeadResponseRecorder).
+        'first_response_at',
+        'first_response_by_user_id',
+        'first_response_channel',
+        'response_tracked',
     ];
 
     protected $casts = [
@@ -45,6 +50,8 @@ class PortalLead extends Model
         'lead_source_raw' => 'array',
         'received_at'     => 'datetime',
         'notified_at'     => 'datetime',
+        'first_response_at' => 'datetime',
+        'response_tracked' => 'boolean',
     ];
 
     public function agency(): BelongsTo

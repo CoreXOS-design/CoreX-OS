@@ -73,6 +73,13 @@ final class ReviewCompTableAddressTest extends TestCase
             'property_type' => 'sectional', 'asking_price_inc' => 1_200_000,
             'status' => 'draft', 'currency' => 'ZAR',
         ]);
+        // Comps already hydrated from the current property (AT-27 C1a freshness
+        // marker later than the property's updated_at) — review renders, no re-hydrate redirect.
+        \App\Models\PresentationSnapshot::create([
+            'agency_id' => $agencyId, 'presentation_id' => $presentation->id,
+            'generated_by_user_id' => $user->id,
+            'snapshot_json' => '{}', 'generated_at' => now()->addMinute(),
+        ]);
         $version = PresentationVersion::create([
             'agency_id' => $agencyId, 'presentation_id' => $presentation->id,
             'blueprint_version' => 'test',

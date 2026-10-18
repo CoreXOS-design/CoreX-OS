@@ -10,12 +10,15 @@
     $pills = [
         ['route' => 'tools.ad-manager',           'label' => 'Ad Manager',       'match' => 'tools.ad-manager'],
         ['route' => 'tools.ad-manager.templates', 'label' => 'Template Manager', 'match' => 'tools.ad-manager.templates*'],
+        ['route' => 'tools.ad-manager.articles',  'label' => 'Article Library',  'match' => 'tools.ad-manager.articles*'],
+        // AT-456 Part D — gated by the Role Manager key; a user without it never sees the pill.
+        ['route' => 'tools.ad-manager.scheduled', 'label' => 'Scheduled Posts',  'match' => 'tools.ad-manager.scheduled*', 'permission' => 'ad_manager.schedule_posts'],
     ];
 @endphp
 <div class="rounded-md p-1.5 flex flex-wrap items-center justify-center gap-1 overflow-x-auto {{ $inHeader ? 'self-start md:self-auto' : '' }}"
      style="background: var(--surface); border: 1px solid var(--border);">
     @foreach($pills as $p)
-        @if(\Illuminate\Support\Facades\Route::has($p['route']))
+        @if(\Illuminate\Support\Facades\Route::has($p['route']) && (empty($p['permission']) || (auth()->user()?->hasPermission($p['permission']) ?? false)))
             @php $active = request()->routeIs($p['match']); @endphp
             <a href="{{ route($p['route']) }}"
                @if($active) aria-current="page" @endif

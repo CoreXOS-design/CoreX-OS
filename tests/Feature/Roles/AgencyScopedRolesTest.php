@@ -122,11 +122,11 @@ final class AgencyScopedRolesTest extends TestCase
         $this->assertCount(count($expected), $keys, 'no duplicates');
     }
 
-    public function test_a_new_agency_starts_at_bare_minimum_even_if_the_template_grants_are_over_broad(): void
+    public function test_a_new_agency_starts_at_the_config_defaults_even_if_the_template_grants_are_over_broad(): void
     {
-        // Johan, 2026-10-12: "each role should get bare minimum ... until an admin gives permissions
-        // they should stay like that." The global template's grants had drifted far past the config
-        // (office_admin ~312 vs 6); cloning them gave every new agency that access.
+        // Grants come from the config defaults, never from the template's own role_permissions rows (those can
+        // hold anything). Johan 14 Oct widened the defaults to everything HFC's role holds - but the role/permission
+        // EDITING and impersonation keys stay out of office_admin's default.
         $this->seedTemplateRole('office_admin', ['access_role_manager', 'edit_permissions', 'impersonate_users', 'run_payroll']);
         $this->seedTemplateRole('agent', ['compliance.manage', 'finance.view', 'roles.view', 'contacts.delete']);
         $this->seedTemplateRole('assistant', ['access_role_manager']);
@@ -136,13 +136,13 @@ final class AgencyScopedRolesTest extends TestCase
         $officeAdmin = $this->grantedKeys('office_admin', $agency->id);
         $this->assertEqualsCanonicalizing($this->configKeysFor('office_admin'), $officeAdmin);
         $this->assertNotContains('access_role_manager', $officeAdmin, 'an office admin must not start with Role Manager');
-        $this->assertNotContains('run_payroll', $officeAdmin);
+        foreach (['edit_permissions', 'impersonate_users', 'change_user_roles', 'roles.edit'] as $k) {
+            $this->assertNotContains($k, $officeAdmin, "an office admin must not start with {$k}");
+        }
 
         $agent = $this->grantedKeys('agent', $agency->id);
         $this->assertEqualsCanonicalizing($this->configKeysFor('agent'), $agent);
-        foreach (['compliance.manage', 'finance.view', 'roles.view', 'contacts.delete'] as $k) {
-            $this->assertNotContains($k, $agent, "an agent must not start with {$k}");
-        }
+        $this->assertNotContains('access_role_manager', $agent);
 
         $this->assertSame([], $this->grantedKeys('assistant', $agency->id), 'the assistant role stays at zero grants');
     }

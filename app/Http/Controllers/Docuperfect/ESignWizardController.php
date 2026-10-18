@@ -17,7 +17,6 @@ use App\Models\Docuperfect\SignatureRequest;
 use App\Models\Docuperfect\SignatureTemplate;
 use App\Models\Docuperfect\Template;
 use App\Models\Property;
-use App\Models\Rental\RentalProperty;
 use App\Services\CandidatePractitionerService;
 use App\Services\Docuperfect\SignatureService;
 use App\Services\Docuperfect\SignatureSurfaceNormalizer;
@@ -33,6 +32,24 @@ use Illuminate\Support\Facades\Schema;
 
 class ESignWizardController extends Controller
 {
+    /**
+     * Does this template have stored page images to preview? A WEB (Blade) template can carry a page_count (6 for
+     * the lease agreement) but has no page-N.png files — it renders as live HTML — so asking the page-image route
+     * for them 404'd (six console 404s on every step page). Only a template whose first image really exists gets
+     * image URLs; anything else is previewed from its live HTML as before.
+     */
+    private function templateHasPageImages(Template $template): bool
+    {
+        if ((int) $template->page_count <= 0) {
+            return false;
+        }
+
+        $dir = "docuperfect/templates/{$template->id}";
+
+        return \Illuminate\Support\Facades\Storage::exists("{$dir}/page-0.png")
+            || \Illuminate\Support\Facades\Storage::exists("{$dir}/page-0.jpg");
+    }
+
     /**
      * Test render: minimal page to verify template page images + field overlays.
      */
@@ -349,13 +366,13 @@ class ESignWizardController extends Controller
                         $tpl = null;
                     }
                 }
-                if ($tpl && $tpl->page_count > 0) {
+                if ($tpl && $this->templateHasPageImages($tpl)) {
                     for ($n = 0; $n < $tpl->page_count; $n++) {
                         $pageImages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
                     }
                 }
             }
-        } elseif ($template && $template->page_count > 0) {
+        } elseif ($template && $this->templateHasPageImages($template)) {
             for ($n = 0; $n < $template->page_count; $n++) {
                 $pageImages[] = route('docuperfect.page.image', ['id' => $template->id, 'page' => $n]);
             }
@@ -443,11 +460,11 @@ class ESignWizardController extends Controller
             $propertySource = $stepData['property']['_property_source'] ?? null;
             $propDefaults = [];
             if ($propertyId) {
-                if ($propertySource === 'properties') {
-                    $propRecord = Property::find($propertyId);
-                } else {
-                    $propRecord = RentalProperty::find($propertyId);
-                }
+                // AT-439 — the legacy RentalProperty fallback is retired; property_id
+                // only ever resolves against the real Property pillar now (see
+                // DocumentController::sendToRentals(), the one write path that used
+                // to be able to set a rental_properties id here).
+                $propRecord = $propertySource === 'properties' ? Property::find($propertyId) : null;
                 if ($propRecord) {
                     // Sales: price field
                     $price = $propRecord->price ?? null;
@@ -670,6 +687,10 @@ class ESignWizardController extends Controller
             'flowId'         => $flow->id,
             'manualFields'   => $manualFields,
             'contactTypes'   => $contactTypes,
+            // Step 5: which fields can be saved back onto the contact / property they pre-fill from (the inline "Also update …?" tick).
+            'writeBackMeta'  => $step === 5
+                ? app(\App\Services\Docuperfect\AgreementRecordWriteBack::class)->meta($expandedWizardFields ?: $allWizardFields, $stepData, $request->user())
+                : [],
         ]);
     }
 
@@ -965,9 +986,25 @@ class ESignWizardController extends Controller
         $flow->current_step = max($flow->current_step, $nextStep);
         $flow->save();
 
+        // Fill & review committed: what the agent supplied that CoreX did not already know goes back onto the contact / property it
+        // pre-fills from, so every later document and renewal fills itself (leases.md "Agreement write-back"). The flow is already
+        // saved, so a failure here can never lose the agent's work or stop them moving on.
+        $writtenBack = [];
+        if ($stepKey === 'fill_review') {
+            try {
+                $writtenBack = app(\App\Services\Docuperfect\AgreementRecordWriteBack::class)->apply(
+                    $stepData['fields'] ?? [], $stepData, (array) ($data['fieldValues'] ?? []), (array) ($data['writeBack'] ?? []),
+                    $request->user(), (int) $flow->id
+                );
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         return response()->json([
             'success'   => true,
             'next_step' => $nextStep,
+            'written_back' => $writtenBack,
             'redirect'  => route('docuperfect.esign.step', ['flow' => $flow->id, 'step' => $nextStep]),
         ]);
     }
@@ -1121,8 +1158,10 @@ class ESignWizardController extends Controller
     /**
      * API: search properties for autocomplete.
      *
-     * Searches both `properties` (main pillar) and `rental_properties` tables.
-     * Returns unified results with source indicator.
+     * AT-439 — searched both `properties` and the legacy `rental_properties`
+     * table; the latter is retired (2 demo rows, no contacts/tenant data —
+     * `properties` already returns everything it did, and more, via the
+     * `contact_property` pivot). `properties` only, now.
      */
     public function searchProperties(Request $request)
     {
@@ -1198,44 +1237,6 @@ class ESignWizardController extends Controller
             ];
         }
 
-        // 2. Search rental_properties table
-        $rentalProps = RentalProperty::where(function ($query) use ($q) {
-            $query->where('address_line_1', 'like', "%{$q}%")
-                ->orWhere('full_address', 'like', "%{$q}%")
-                ->orWhere('suburb', 'like', "%{$q}%");
-        })
-            ->active()
-            ->limit(10)
-            ->get();
-
-        foreach ($rentalProps as $rp) {
-            $rpAddr = $rp->full_address ?: $rp->address_line_1;
-            if (!empty($rp->suburb) && $rpAddr && !str_contains($rpAddr, $rp->suburb)) {
-                $rpAddr .= ', ' . $rp->suburb;
-            }
-
-            $results[] = [
-                'id'                => $rp->id,
-                'source'            => 'rental_properties',
-                'address'           => $rpAddr,
-                'suburb'            => $rp->suburb ?? '',
-                'erf_no'            => '',
-                'complex_name'      => '',
-                'unit_number'       => '',
-                'property_type'     => $rp->property_type ?? '',
-                'rental_amount'     => $rp->monthly_rental,
-                'deposit_amount'    => null,
-                'commission_percent'=> null,
-                'marketing_fee'     => null,
-                'lease_start_date'  => null,
-                'lease_end_date'    => null,
-                'lessor_name'       => $rp->landlord_name,
-                'lessor_id'         => null,
-                'beds'              => null,
-                'baths'             => null,
-                'display'           => $rpAddr,
-            ];
-        }
 
         return response()->json(array_slice($results, 0, 10));
     }
@@ -1980,8 +1981,10 @@ class ESignWizardController extends Controller
                     }
                 }
                 if ($tpl && $tpl->page_count > 0) {
-                    for ($n = 0; $n < $tpl->page_count; $n++) {
-                        $allPages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
+                    if ($this->templateHasPageImages($tpl)) {
+                        for ($n = 0; $n < $tpl->page_count; $n++) {
+                            $allPages[] = route('docuperfect.page.image', ['id' => $tplId, 'page' => $n]);
+                        }
                     }
                     $totalPageCount += $tpl->page_count;
                 }
@@ -2532,8 +2535,10 @@ class ESignWizardController extends Controller
     private function buildFillReviewSigningParties(array $stepData, Template $template, $user): array
     {
         $propSource = $stepData['property']['_property_source'] ?? null;
-        $isSalesContext = ($propSource === 'properties')
-            || (! $propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+        // The TEMPLATE decides sale vs lease (signing parties > category/type > property
+        // source > name). The property source alone never does: a lease is built on a
+        // property in agency stock too, so 'properties' used to print Seller/Buyer on it.
+        $isSalesContext = $template->isSalesDocument($propSource);
         $parties = [['role' => 'agent', 'name' => $user->name, 'display' => $user->name]];
         foreach ($stepData['recipients']['recipients'] ?? [] as $r) {
             $role = $r['role'] ?? 'party';
@@ -3067,8 +3072,8 @@ class ESignWizardController extends Controller
             // Resolve generic roles (owner_party, acquiring_party) to concrete roles
             // based on property source so downstream code uses seller/landlord/buyer/tenant
             $propSource = $stepData['property']['_property_source'] ?? null;
-            $isSalesContext = ($propSource === 'properties')
-                || (!$propSource && str_contains(strtolower($template->name ?? ''), 'sell'));
+            // The TEMPLATE decides sale vs lease — see buildFillReviewSigningParties().
+            $isSalesContext = $template->isSalesDocument($propSource);
             $partiesForSigning = [];
             $partiesForSigning[] = [
                 'role' => 'agent',
@@ -3612,9 +3617,8 @@ class ESignWizardController extends Controller
                 // Auto-create FICA submission if required and contact has none approved
                 $ficaSubId = null;
                 if ($ficaRequired && $contactId) {
-                    $hasApprovedFica = FicaSubmission::where('contact_id', $contactId)
-                        ->whereIn('status', ['submitted', 'under_review', 'agent_approved', 'approved'])
-                        ->exists();
+                    // The one FICA gate (Johan, 2026-10-08): submitted — or further — is enough.
+                    $hasApprovedFica = \App\Services\Compliance\FicaGate::isOpen($contactId);
                     if (! $hasApprovedFica) {
                         $existingDraft = FicaSubmission::where('contact_id', $contactId)
                             ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved'])
@@ -3635,7 +3639,7 @@ class ESignWizardController extends Controller
                             // 2026-10-11 hotfix — also renews a lapsed link,
                             // not only a missing one: this send's signing link
                             // runs 14 days, so must the FICA link it leads to.
-                            $existingDraft->keepLinkAliveUntil(now()->addDays(14));
+                            $existingDraft->keepLinkAliveUntil(now()->addDays(max(\App\Services\Compliance\FicaWindows::DEFAULT_LINK_EXPIRY_DAYS, \App\Services\Compliance\FicaWindows::linkExpiryDays((int) ($existingDraft->agency_id ?: $user->effectiveAgencyId())))));
                             $existingDraft->requested_by = $user->id;
                             if (empty($existingDraft->agency_id)) {
                                 $existingDraft->agency_id = $user->effectiveAgencyId()
@@ -3666,7 +3670,7 @@ class ESignWizardController extends Controller
                                     'branch_id'        => $user->effectiveBranchId(),
                                     'requested_by'     => $user->id,
                                     'token'            => Str::random(64),
-                                    'token_expires_at' => now()->addDays(14),
+                                    'token_expires_at' => now()->addDays(\App\Services\Compliance\FicaWindows::linkExpiryDays((int) $ficaAgencyId)),
                                     'status'           => 'draft',
                                 ]);
                                 $ficaSubId = $ficaSub->id;
@@ -3854,6 +3858,13 @@ class ESignWizardController extends Controller
             $flow->step_data = $flowStepData;
             $flow->current_step = 6; // Step 6 is the final wizard step — do not advance past it
             $flow->save();
+
+            // LEASE-AGREEMENT BEGIN (leases.md §15.4 step 6 — Build L3a): a flow launched from a lease tells the
+            // lease which envelope and document it became. A no-op for every other flow; never throws.
+            if ($flow->lease_id) {
+                app(\App\Services\Rentals\LeaseSigningLauncher::class)->linkEnvelope($flow, $sigTemplate, $document);
+            }
+            // LEASE-AGREEMENT END
 
             // Auto-advance-past-setup safety gate (see comment above the
             // transaction). Mirrors setup()'s own preconditions exactly:
@@ -4305,44 +4316,13 @@ class ESignWizardController extends Controller
                     }
                 }
             }
-            // BL-3: rental/letting docs select a rental_properties row, which
-            // has NO contact_property pivot and NO contacts relationship —
-            // only the denormalised landlord_name/landlord_email/landlord_phone
-            // scalars (no tenant data exists on that table). Before this branch
-            // the block above was gated on source==='properties', so letting
-            // e-sign started with zero recipients. Synthesise the landlord
-            // recipient from those scalars, gated by the template's allowed
-            // esign roles, in the same shape as the sales branch. Tenant cannot
-            // be auto-resolved from rental_properties — manual-add covers it.
-            elseif ($propertyId && $propertySource === 'rental_properties') {
-                $rentalProp = RentalProperty::find($propertyId);
-                if ($rentalProp && (!empty($rentalProp->landlord_name) || !empty($rentalProp->landlord_email))) {
-                    $signingParties = $template->signing_parties ?? [];
-                    $defaultOwnerRole = collect($signingParties)->first(fn($r) => $r !== 'agent' && $r !== 'creator')
-                        ?? ($template->isSalesDocument($propertySource) ? 'seller' : 'landlord');
-                    $allowedEsignRoles = $this->buildAllowedEsignRoles($signingParties);
-
-                    // The landlord maps to esign_role 'lessor'. Skip only if the
-                    // template explicitly restricts roles and excludes lessor.
-                    $landlordAllowed = empty($allowedEsignRoles) || in_array('lessor', $allowedEsignRoles, true);
-                    if ($landlordAllowed) {
-                        $name = trim($rentalProp->landlord_name ?? '');
-                        $nameParts = $name !== '' ? preg_split('/\s+/', $name, 2) : ['', ''];
-                        $recipients[] = [
-                            'order'       => count($recipients) + 1,
-                            'role'        => $defaultOwnerRole,
-                            'name'        => $name,
-                            'first_name'  => $nameParts[0] ?? '',
-                            'last_name'   => $nameParts[1] ?? '',
-                            'id_number'   => '',
-                            'email'       => $rentalProp->landlord_email ?? '',
-                            'cell'        => $rentalProp->landlord_phone ?? '',
-                            'address'     => $rentalProp->full_address ?? '',
-                            '_contact_id' => null,
-                        ];
-                    }
-                }
-            }
+            // AT-439 — the legacy "BL-3" rental_properties branch (synthesising a
+            // landlord-only recipient from denormalised scalars, no tenant
+            // support) is retired. property_id no longer resolves against
+            // rental_properties, so the 'properties' branch above — which reads
+            // the real contact_property pivot and already resolves BOTH
+            // landlord/lessor AND tenant/lessee roles, entities included — is the
+            // only path now, for sales and rental documents alike.
         }
 
         // Deliberately NO entity expansion here — see expandRecipientsForMerge().
@@ -6626,7 +6606,7 @@ class ESignWizardController extends Controller
      * slug (e.g. "seller_name_surname_id") and type "field_group_display".
      * The actual value is resolved later by autoFillFieldGroups().
      */
-    private function buildFieldsFromMappings(array $fieldMappings): array
+    public function buildFieldsFromMappings(array $fieldMappings): array
     {
         // Pre-load all referenced named fields for proper field_name derivation
         $namedFieldIds = collect($fieldMappings)->pluck('namedFieldId')->filter()->unique()->values();
@@ -7502,7 +7482,29 @@ class ESignWizardController extends Controller
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
 
+        if ($refusal = $this->leaseFlowPaperRefusal($flow)) {
+            return $refusal;
+        }
+
         return $this->prepareDownloadOnly($request, $flow, $flow->template);
+    }
+
+    /**
+     * LEASE-AGREEMENT (leases.md §15.4 / §15.5): an agreement launched from a lease is signed by e-signature. The
+     * download-only and wet-ink delivery modes never tell the lease which envelope it became (the lease would stay
+     * "being prepared" for ever and its tenant would never get the signed copy and portal link). A lease signed on paper
+     * is attached on the lease screen ("I already have the signed copy"), which activates it properly.
+     */
+    private function leaseFlowPaperRefusal(Flow $flow): ?\Illuminate\Http\RedirectResponse
+    {
+        if (! $flow->lease_id) {
+            return null;
+        }
+
+        return redirect()->route('docuperfect.esign.step', [$flow->id, 6])->with(
+            'error',
+            'A lease agreement is signed by e-signature. If it has already been signed on paper, attach the signed copy on the lease screen instead ("I already have the signed copy").'
+        );
     }
 
     /**
@@ -7516,6 +7518,10 @@ class ESignWizardController extends Controller
         $user = $request->user();
         $flow = Flow::where('user_id', $user->id)->findOrFail($flowId);
         $flow->load('template');
+
+        if ($refusal = $this->leaseFlowPaperRefusal($flow)) {
+            return $refusal;
+        }
 
         $template = $flow->template;
 
@@ -8260,6 +8266,14 @@ class ESignWizardController extends Controller
             'awaiting'         => $allTemplates->whereIn('status', $awaitingStatuses)->values(),
             'completed'        => $allTemplates->where('status', SignatureTemplate::STATUS_COMPLETED)->values(),
             'cancelled'        => $allTemplates->where('status', SignatureTemplate::STATUS_CANCELLED)->values(),
+            // AT-445 (Johan, 2026-10-05) — a document whose outstanding signing link TTL lapsed
+            // (ExpireSignatureRequests → SignatureService::expireOutstandingRequests()) was in NO
+            // bucket, same defect class as AT-299/BUG-2/AT-373 above: it stayed in $allTemplates
+            // but was never matched into any $groups entry, so it vanished from the page even
+            // though nothing was ever deleted. Surfaced as a dedicated, collapsed "Expired"
+            // section (mirrors Cancelled) deep-linking to signatures.audit, the one document
+            // screen with no status gate.
+            'expired'          => $allTemplates->where('status', SignatureTemplate::STATUS_EXPIRED)->values(),
         ];
 
         // Candidate documents needing authorisation (shared queue for full-status users)
@@ -8291,6 +8305,20 @@ class ESignWizardController extends Controller
         }
 
         $groups['needs_authorisation'] = $needsAuthorisation;
+
+        // AT-445 (fix the CLASS, not just the expired instance) — this is the 4th time a real
+        // SignatureTemplate status has had no bucket (AT-299 flagged, BUG-2 returned, AT-373
+        // amendment_chain_review, now expired). Rather than wait for a 5th, catch anything from
+        // $allTemplates not already placed in a status-keyed bucket above and surface it under
+        // "Other" with its raw status label, so a future unbucketed status degrades to a visible
+        // row instead of silently disappearing. finalization_failed is excluded from this
+        // id-dedup on purpose — it is a cross-cutting flag (finalization_status), not a status
+        // bucket, and a template legitimately belongs there AND in its normal status bucket.
+        $bucketedIds = collect($groups)
+            ->except('finalization_failed', 'needs_authorisation')
+            ->flatMap(fn ($bucket) => $bucket->pluck('id'))
+            ->unique();
+        $groups['other'] = $allTemplates->reject(fn ($tpl) => $bucketedIds->contains($tpl->id))->values();
 
         // Recipient supporting-document uploads (SignedDocumentVersion kind='supporting') —
         // the optional docs recipients attach on the signing screen. Surface them to the
@@ -8360,6 +8388,8 @@ class ESignWizardController extends Controller
             'awaiting_signatures' => $groups['awaiting']->count(),
             'completed'           => $groups['completed']->count(),
             'cancelled'           => $groups['cancelled']->count(),
+            'expired'             => $groups['expired']->count(), // AT-445 — lapsed signing link TTL
+            'other'               => $groups['other']->count(), // AT-445 catch-all — any unbucketed status
         ];
 
         return view('docuperfect.esign.my-documents', [
@@ -8400,63 +8430,19 @@ class ESignWizardController extends Controller
 
         $reason = $request->input('cancellation_reason');
 
-        // Collect pending requests BEFORE cancelling (for notification)
-        $pendingRequests = $signatureTemplate->requests()
-            ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
-            ->get();
+        // leases.md §15.15 (Build L3b) — the cancel itself (links stop working, status, audit entry, the announcement
+        // the Lease Hub listens to, the notice to waiting parties) lives in SignatureService::cancelEnvelope(), so a
+        // lease being cancelled with its agreement out makes exactly the same changes. Behaviour unchanged.
+        $notified = app(\App\Services\Docuperfect\SignatureService::class)->cancelEnvelope(
+            $signatureTemplate,
+            $user,
+            $reason,
+            $request->ip(),
+            $request->userAgent(),
+        );
 
-        DB::transaction(function () use ($signatureTemplate, $user, $request, $reason) {
-            // Cancel all pending/waiting signature requests
-            $signatureTemplate->requests()
-                ->whereIn('status', ['waiting', 'pending', 'viewed', 'partially_signed'])
-                ->update(['status' => 'cancelled']);
-
-            // Set template status to cancelled with reason
-            $signatureTemplate->update([
-                'status' => SignatureTemplate::STATUS_CANCELLED,
-                'cancellation_reason' => $reason,
-                'cancelled_by' => $user->id,
-                'cancelled_at' => now(),
-            ]);
-
-            // Audit log
-            SignatureAuditLog::log(
-                $signatureTemplate,
-                SignatureAuditLog::ACTION_CANCELLED,
-                SignatureAuditLog::ACTOR_USER,
-                $user->name,
-                $user->email,
-                $user->id,
-                null,
-                $request->ip(),
-                $request->userAgent(),
-                ['reason' => $reason]
-            );
-        });
-
-        // Notify all pending/waiting parties of the cancellation
         $documentName = $signatureTemplate->document->name ?? 'Untitled';
-        foreach ($pendingRequests as $sigReq) {
-            if (!empty($sigReq->signer_email)) {
-                try {
-                    \Illuminate\Support\Facades\Mail::to($sigReq->signer_email)->send(
-                        (new \App\Mail\Signatures\DocumentCancelledMail(
-                            signerName: $sigReq->signer_name ?? 'Signer',
-                            documentName: $documentName,
-                            agentName: $user->name,
-                            cancellationReason: $reason,
-                        ))->fromAgent($user)
-                    );
-                } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::error('Failed to send cancellation email', [
-                        'request_id' => $sigReq->id,
-                        'signer_email' => $sigReq->signer_email,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-        }
 
-        return back()->with('status', 'Document "' . $documentName . '" has been cancelled. ' . $pendingRequests->count() . ' waiting parties notified.');
+        return back()->with('status', 'Document "' . $documentName . '" has been cancelled. ' . $notified . ' waiting parties notified.');
     }
 }

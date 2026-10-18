@@ -39,13 +39,13 @@
             </svg>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}"
                    placeholder="Search pack or buyer…"
-                   class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                   class="list-header-filter w-full text-sm {{ ($filters['q'] ?? '') !== '' ? 'is-active' : '' }}"
+                   style="padding-left:2.5rem;">
         </div>
 
         {{-- Agent — only above 'own' scope (an own-scope agent's list is already theirs) --}}
         @if($agents->isNotEmpty())
-        <select name="agent_id" onchange="this.form.submit()" class="list-header-filter">
+        <select name="agent_id" onchange="this.form.submit()" class="list-header-filter {{ ($filters['agent_id'] ?? '') !== '' ? 'is-active' : '' }}">
             <option value="">All agents</option>
             @foreach($agents as $a)
                 <option value="{{ $a->id }}" {{ (string) ($filters['agent_id'] ?? '') === (string) $a->id ? 'selected' : '' }}>{{ $a->name }}</option>
@@ -54,7 +54,7 @@
         @endif
 
         {{-- Status --}}
-        <select name="status" onchange="this.form.submit()" class="list-header-filter">
+        <select name="status" onchange="this.form.submit()" class="list-header-filter {{ ($filters['status'] ?? '') !== '' ? 'is-active' : '' }}">
             <option value="" {{ ($filters['status'] ?? '') === '' ? 'selected' : '' }}>All statuses</option>
             @foreach(\App\Models\ViewingPack::STATUSES as $s)
                 <option value="{{ $s }}" {{ ($filters['status'] ?? '') === $s ? 'selected' : '' }}>{{ ucfirst($s) }}</option>
@@ -95,7 +95,9 @@
                     {{ $showArchived ? 'Archived packs will appear here.' : 'Open a buyer in the Buyer Pipeline and click “Build Viewing Pack”.' }}
                 </p>
                 @unless($showArchived)
+                    @feature('buyer-pipeline')
                     <a href="{{ route('command-center.buyers.pipeline') }}" class="corex-btn-primary no-underline">Open Buyer Pipeline</a>
+                    @endfeature
                 @endunless
             </div>
         @else

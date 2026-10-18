@@ -322,10 +322,10 @@ final class ImapUidIncrementalPollTest extends TestCase
                 100 => $this->rfc822Header('msg-100@test', 'newclient@example.test', 'Message A'),
                 101 => $this->rfc822Header('msg-101@test', 'newclient@example.test', 'Message B'),
                 102 => $this->rfc822Header('msg-102@test', 'newclient@example.test', 'Message C'),
-                103 => $this->rfc822Header('msg-103@test', 'newclient@example.test', 'Message D -- never reached this run'),
+                103 => $this->rfc822Header('msg-103@test', 'newclient@example.test', 'Message D -- slow fetch, still completes'),
                 104 => $this->rfc822Header('msg-104@test', 'newclient@example.test', 'Message E -- never reached this run'),
             ],
-            hangOnUid: 103, // the budget fires while fetching D's header -- its fate is UNKNOWN
+            hangOnUid: 103, // D's fetch is slow (3s vs a 1s budget); the budget is only noticed between messages
         );
         app()->instance('test.fakeImapClient', $this->fakeClient($conn));
         $folder = new FakeImapFolder($conn, uidsAvailableNow: [100, 101, 102, 103, 104]);
@@ -336,13 +336,18 @@ final class ImapUidIncrementalPollTest extends TestCase
         $this->assertSame('read_timeout', $result['reason']);
 
         $this->mailbox->refresh();
-        $this->assertSame(102, $this->mailbox->last_uid_seen, 'checkpoint must land EXACTLY on the last PROVEN message -- not 103 (mid-flight, unknown fate), not 101 or less (real progress was made and must not be discarded)');
+        // The watchdog is checked at the poller's own safe points (between messages), never inside
+        // the third-party fetch (pcntl_async_signals(false), 2026-09-09 — the Message::$folder_path
+        // crash fix). So the slow fetch of D (103) FINISHES and D is fully ingested = proven; the
+        // expired budget is noticed before E (104) is touched. The invariant is unchanged: the
+        // checkpoint lands EXACTLY on the last message whose outcome is proven.
+        $this->assertSame(103, $this->mailbox->last_uid_seen, 'checkpoint must land EXACTLY on the last PROVEN message (D finished before the budget was noticed) -- not 104 (never touched), not 102 or less (real progress must not be discarded)');
         $this->assertNotNull($this->mailbox->inbox_uid_validity, 'a checkpoint establishes a real UID cursor even on a first pass that never fully completes -- the whole point of the fix');
 
         $pending = CommunicationPending::where('agency_id', $this->mailbox->agency_id)->get();
-        $this->assertSame(3, $pending->count(), 'exactly A, B, C were proven ingested -- D and E were never touched');
+        $this->assertSame(4, $pending->count(), 'exactly A, B, C, D were proven ingested -- E was never touched');
         $subjects = $pending->pluck('subject')->sort()->values()->all();
-        $this->assertSame(['Message A', 'Message B', 'Message C'], $subjects);
+        $this->assertSame(['Message A', 'Message B', 'Message C', 'Message D -- slow fetch, still completes'], $subjects);
 
         $this->assertNull($this->mailbox->backfill_completed_at, 'an interrupted run must never be recorded as a completed backfill');
 
@@ -352,7 +357,7 @@ final class ImapUidIncrementalPollTest extends TestCase
         $conn->hangOnUid = null;
         config(['communications.imap_poll_budget_seconds' => 50]);
         $this->pollerWithFakeFolder($folder)->poll($this->mailbox);
-        $this->assertSame(['UID', '103:*'], $conn->lastSearchTerms, 'resumption must ask for exactly the unproven range, never re-walk the proven prefix');
+        $this->assertSame(['UID', '104:*'], $conn->lastSearchTerms, 'resumption must ask for exactly the unproven range, never re-walk the proven prefix');
     }
 
     /**
@@ -544,6 +549,8 @@ final class FakeImapFolder
 final class FakeImapQuery
 {
     private ?int $minUid = null;
+    private ?int $perPage = null;
+    private int $page = 1;
 
     public function __construct(private FakeImapConnection $conn, private array $uidsAvailableNow, private bool $hangOnGet)
     {
@@ -571,7 +578,11 @@ final class FakeImapQuery
         return $this;
     }
 
-    public function get(): \Illuminate\Support\Collection
+    /**
+     * The poller counts matches with search()->count() before paging, so the first real network
+     * read is search() — that is where a hung server blocks (hangOnGet).
+     */
+    public function search(): static
     {
         if ($this->hangOnGet) {
             // Simulate the pcntl watchdog firing mid-read, exactly like the real
@@ -579,9 +590,36 @@ final class FakeImapQuery
             sleep(3);
         }
 
-        $uids = $this->minUid !== null
+        return $this;
+    }
+
+    /** @return list<int> the UIDs matching the current criterion */
+    private function matching(): array
+    {
+        return $this->minUid !== null
             ? array_values(array_filter($this->uidsAvailableNow, fn ($u) => $u >= $this->minUid))
-            : $this->uidsAvailableNow;
+            : array_values($this->uidsAvailableNow);
+    }
+
+    public function count(): int
+    {
+        return count($this->matching());
+    }
+
+    public function limit(int $perPage, int $page = 1): static
+    {
+        $this->perPage = $perPage;
+        $this->page = $page;
+
+        return $this;
+    }
+
+    public function get(): \Illuminate\Support\Collection
+    {
+        $uids = $this->matching();
+        if ($this->perPage !== null) {
+            $uids = array_slice($uids, ($this->page - 1) * $this->perPage, $this->perPage);
+        }
 
         return collect($uids)->map(fn ($uid) => new class($uid) {
             public function __construct(private int $uid) {}

@@ -9,6 +9,7 @@ use App\Models\ContactMatch;
 use App\Models\Property;
 use App\Models\RentalApplication;
 use App\Models\RentalApplicationApprovalEmailSetting;
+use App\Services\Compliance\MarketingReadinessService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Support\Collection;
 
@@ -60,10 +61,7 @@ class RentalApplicationPropertyMatcher
                 'include_hidden' => false,
             ]);
 
-            return $this->applyCeiling($matched, $amount)
-                ->sortByDesc(fn (Property $p) => $p->effectivePrice())
-                ->take($max)
-                ->values();
+            return $this->pick($matched, $application, $amount, $max);
         }
 
         return $this->fallback($application, $amount, $max);
@@ -82,10 +80,87 @@ class RentalApplicationPropertyMatcher
             ->onMarket()
             ->get();
 
-        return $this->applyCeiling($onMarket, $amount)
+        return $this->pick($onMarket, $application, $amount, $max);
+    }
+
+    /**
+     * The one place both branches finish: ceiling, then price descending, then
+     * "is this something a tenant can actually rent and open", then the cap.
+     * The filters run lazily over the price-sorted list so the (queried)
+     * marketability check only runs until the cap is filled.
+     *
+     * QA1, 2026-10-07 — Johan's test of application 438: the email offered
+     * "1 Bedroom Commercial Property" to a residential tenant, and every line
+     * was dead text. Both come from here: nothing excluded non-residential
+     * stock, and nothing checked that the listing the email now LINKS to is
+     * actually open to the public.
+     *
+     * @param  Collection<int, Property>  $candidates
+     * @return Collection<int, Property>
+     */
+    private function pick(Collection $candidates, RentalApplication $application, float $amount, int $max): Collection
+    {
+        $allowNonResidential = $this->applicationIsForNonResidential($application);
+        $readiness = app(MarketingReadinessService::class);
+
+        return $this->applyCeiling($candidates, $amount)
             ->sortByDesc(fn (Property $p) => $p->effectivePrice())
+            ->lazy()
+            ->filter(fn (Property $p) => $p->isRental()
+                && ! Property::matchesOffMarketStatus((string) $p->status)
+                && ($allowNonResidential || self::isResidential($p))
+                && $readiness->isMarketable($p))
             ->take($max)
-            ->values();
+            ->values()
+            ->collect();
+    }
+
+    /**
+     * A residential tenant must never be offered commercial, industrial,
+     * farm or vacant-land stock. Both columns are checked because the data
+     * disagrees with itself: on QA1, 33 rental rows are filed category
+     * "Residential" with property_type "Commercial Property", and 4 more are
+     * category "Commercial" — either signal alone would let one through.
+     */
+    public static function isResidential(Property $p): bool
+    {
+        $category = strtolower(trim((string) ($p->category ?? '')));
+        if ($category !== '' && $category !== 'residential') {
+            return false;
+        }
+
+        $type = strtolower(trim((string) ($p->property_type ?? '')));
+
+        return ! preg_match('/commercial|industrial|retail|office|warehouse|farm|agricultur|vacant|land|plot|smallholding/', $type);
+    }
+
+    /**
+     * The application is for a non-residential let only when the property the
+     * agent linked to it is itself non-residential — an application has no
+     * other commercial marker today. No linked property = residential.
+     */
+    private function applicationIsForNonResidential(RentalApplication $application): bool
+    {
+        $linked = $application->property_id ? Property::withoutGlobalScopes()->find($application->property_id) : null;
+
+        return $linked !== null && ! self::isResidential($linked);
+    }
+
+    /**
+     * The tenant's "View all properties that match" link: their own shared
+     * wishlist page, which exists only when an active rental wishlist does.
+     * Null when there is none — the email then shows no such button rather
+     * than a link to somebody else's, or to an unfiltered list.
+     */
+    public function viewAllUrl(RentalApplication $application): ?string
+    {
+        $wishlist = $this->activeRentalWishlist($application->contact);
+
+        if (! $wishlist || ! $wishlist->isCountable()) {
+            return null;
+        }
+
+        return $wishlist->share_slug || $wishlist->share_token ? $wishlist->sharedUrl() : null;
     }
 
     /**

@@ -406,7 +406,7 @@
       <div class="inlineRow">
         <div class="field" style="flex:2">
           <label>Property Address</label>
-          <input id="propAddress" data-tour="tools-commission-address" type="text" value="" placeholder="e.g. 12 Smith Street, Shelly Beach"/>
+          <input id="propAddress" data-tour="tools-commission-address" type="text" value="" placeholder="e.g. 12 Main Road, Suburb"/>
         </div>
         <div class="field small">
           <label>Property Type</label>
@@ -568,7 +568,7 @@
       <div class="inlineRow">
         <div class="field" style="flex:2">
           <label>Property Address</label>
-          <input type="text" data-tour="tools-cma-address" x-model="form.address" placeholder="e.g. 12 Smith Street, Shelly Beach">
+          <input type="text" data-tour="tools-cma-address" x-model="form.address" placeholder="e.g. 12 Main Road, Suburb">
         </div>
         <div class="field small">
           <label>Property Type</label>
@@ -1051,10 +1051,10 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, m => ({ '&': '&amp;', '<
 // --- STATE ---
 
 const DEFAULT_SETTINGS = {
-  companyName: {!! json_encode(config('app.name')) !!},
-  address: "The Emporium Shop 5, Shelly Beach, Margate",
-  tel: "(039) 315 0857",
-  ffc: "2023116041",
+  companyName: {!! json_encode($printSettings['companyName'] ?? 'Agency') !!},
+  address: "",
+  tel: "",
+  ffc: "",
   logoUrl: "",
 };
 

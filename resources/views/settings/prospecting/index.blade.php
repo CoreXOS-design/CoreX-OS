@@ -13,6 +13,8 @@
             </div>
             {{-- MIC funnel phase 2 — agency stale-claim warn/release thresholds. --}}
             <a href="{{ route('settings.prospecting.stale-rules.edit') }}" class="inline-flex items-center gap-1 text-xs font-semibold no-underline rounded-md px-3 py-2" style="background:rgba(255,255,255,0.12); color:#fff;">Stale-claim rules →</a>
+            {{-- Structured address matching (2026-10-07) — admin-only match-strictness settings. --}}
+            <a href="{{ route('settings.prospecting.address-matching.edit') }}" class="inline-flex items-center gap-1 text-xs font-semibold no-underline rounded-md px-3 py-2" style="background:rgba(255,255,255,0.12); color:#fff;">Address matching →</a>
             {{-- AT-246 — Regions door retired from nav; region assignment lives on
                  the single P24 Suburb Mappings surface. --}}
         </div>

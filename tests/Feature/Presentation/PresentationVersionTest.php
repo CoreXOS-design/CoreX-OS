@@ -30,6 +30,7 @@ class PresentationVersionTest extends TestCase
     private function createPresentation(Branch $branch, User $user): Presentation
     {
         return Presentation::create([
+            'agency_id'          => \App\Models\Agency::firstOrCreate(['slug' => 'test-agency'], ['name' => 'Test Agency'])->id,
             'branch_id'          => $branch->id,
             'created_by_user_id' => $user->id,
             'title'              => 'Test Presentation',
@@ -202,11 +203,23 @@ class PresentationVersionTest extends TestCase
         $branch       = $this->createBranch();
         $presentation = $this->createPresentation($branch, $user);
 
+        // The compile endpoint's PDF readiness gate needs a prior version with an Executive Summary.
+        PresentationVersion::create([
+            'agency_id'          => $presentation->agency_id,
+            'presentation_id'    => $presentation->id,
+            'compiled_by'        => $user->id,
+            'blueprint_version'  => 'v1',
+            'data_snapshot_json' => json_encode(['sections' => []]),
+            'compiled_at'        => now()->subMinute(),
+            'ai_summary_text'    => 'Seeded executive summary.',
+        ]);
+
         $response = $this->actingAs($user)
             ->post("/presentations/{$presentation->id}/compile");
 
         $response->assertRedirect("/presentations/{$presentation->id}");
-        $this->assertSame(1, PresentationVersion::count());
+        // the seeded version + the one this compile created
+        $this->assertSame(2, PresentationVersion::count());
     }
 
     public function test_compile_endpoint_requires_auth(): void

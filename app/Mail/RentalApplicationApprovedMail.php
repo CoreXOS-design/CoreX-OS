@@ -47,29 +47,64 @@ class RentalApplicationApprovedMail extends Mailable implements ShouldQueue
         public Collection $properties,
         public bool $isSubjectToFica = false,
         public ?string $ficaContinueUrl = null,
+        public bool $ficaSubmitted = false,
     ) {
         // Queueable already declares $queue — set it via onQueue() rather than
         // redeclaring the property (fatals as an incompatible trait-property
         // redeclaration; see RentalApplicationReturnedMail's own note).
         $this->onQueue('mail');
         $this->applicantName = $application->contact->full_name ?: 'there';
-        $this->agencyName = $application->agency->name ?? config('mail.from.name', 'CoreX OS');
+        $this->agencyName = $application->agency->name ?? \App\Support\ClientBrand::NEUTRAL_RENTALS;
         $this->amount = number_format((float) $application->approved_rental_amount, 2);
     }
 
     public function envelope(): Envelope
     {
+        // Three honest states: FICA still to do / FICA submitted and being checked / nothing outstanding.
         return new Envelope(
-            subject: $this->isSubjectToFica
+            subject: $this->isSubjectToFica && ! $this->ficaSubmitted
                 ? "You're approved, subject to FICA verification — {$this->agencyName}"
-                : "Congratulations — you're approved to rent! — {$this->agencyName}",
+                : ($this->isSubjectToFica
+                    ? "You're approved — we are checking your FICA documents — {$this->agencyName}"
+                    : "Congratulations — you're approved to rent! — {$this->agencyName}"),
         );
     }
 
     public function content(): Content
     {
+        // QA1, 2026-10-07 — Johan: "the properties must be clickable so the
+        // tenant can start viewing them." Each line links to the property's
+        // public, view-only listing page (Property route
+        // public.agency.properties.show — the page the listing-share-link spec
+        // names for sharing a listing), built from the application's OWN
+        // agency slug, never a fixed one. The email still carries no street
+        // address (descriptor + suburb only); the page it links to is the
+        // listing as already advertised publicly.
+        $agencySlug = (string) ($this->application->agency->slug ?? '');
+
+        $cards = $this->properties->map(fn ($property) => [
+            'descriptor' => $property->addressFreeDescriptor(),
+            'suburb' => trim((string) ($property->suburb ?: $property->town)),
+            'price' => number_format($property->effectivePrice(), 0),
+            'url' => $agencySlug !== ''
+                ? route('public.agency.properties.show', ['agencySlug' => $agencySlug, 'property' => $property->id])
+                : null,
+        ]);
+
+        // The property they APPLIED for (a named property): the email is about that property and the lease that follows - no
+        // unrelated listings. Only an application with no property of its own gets the matched list.
+        $named = $this->application->property_id ? $this->application->property : null;
+        $namedCard = $named ? [
+            'descriptor' => $named->addressFreeDescriptor(),
+            'suburb' => trim((string) ($named->suburb ?: $named->town)),
+        ] : null;
+
         return new Content(view: 'emails.rental-application-approved', with: [
+            'namedCard' => $namedCard,
+            'ficaSubmitted' => $this->ficaSubmitted,
             'properties' => $this->properties,
+            'propertyCards' => $cards,
+            'viewAllUrl' => app(\App\Services\RentalApplications\RentalApplicationPropertyMatcher::class)->viewAllUrl($this->application),
             'isSubjectToFica' => $this->isSubjectToFica,
             'ficaContinueUrl' => $this->ficaContinueUrl,
         ]);

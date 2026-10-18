@@ -52,6 +52,12 @@ final class AiUsageEvent extends Model
     public const SOURCE_PRESENTATION_EVIDENCE = 'presentation_evidence';
     /** Ellie's tool-using chat loop (.ai/specs/ellie-v2.md §4). */
     public const SOURCE_ELLIE_CHAT            = 'ellie_chat';
+    /** AT-456 gap fix — the legacy "AI Buddy" chat proxy (hf-ai /chat → Anthropic); token counts are an estimate. */
+    public const SOURCE_ELLIE_CHAT_PROXY      = 'ellie_chat_proxy';
+    /** AT-456 Part B — the AI Template Builder in Template Manager. */
+    public const SOURCE_AD_TEMPLATE           = 'ad_template';
+    /** AT-456 Part C — the Article Library pipeline (always the system bucket, agency NULL). */
+    public const SOURCE_ARTICLE_LIBRARY       = 'article_library';
 
     protected $fillable = [
         'agency_id',

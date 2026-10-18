@@ -118,43 +118,6 @@ final class RentalApplicationRound8FixesTest extends TestCase
 
     // ── RA-02: assessment panel — every SA money spelling, each field ────
 
-    // Round 9 (item 5) — monthly_income/other_monthly_income/monthly_expenses
-    // became growable item lists; see RentalApplicationRound9AffordabilityTest
-    // for the money-format + auto-row-add + soft-delete-sync coverage.
-    public function test_assessment_income_items_accept_every_south_african_money_spelling(): void
-    {
-        $agent = $this->agent();
-        $cases = ['8,500' => '8500.00', '8 500' => '8500.00', 'R8 500' => '8500.00', '8500.50' => '8500.50'];
-
-        foreach ($cases as $typed => $expected) {
-            $app = $this->application();
-            $this->actingAs($agent)->post(
-                route('corex.rental-applications.review.assessment', $app),
-                ['income_items' => [['description' => 'Salary', 'amount' => $typed]]]
-            )->assertSessionDoesntHaveErrors();
-
-            $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-            $this->assertSame($expected, $assessment->incomeItems->first()->amount, "income item typed '{$typed}' must store as {$expected}.");
-        }
-    }
-
-    public function test_assessment_expense_items_accept_every_south_african_money_spelling(): void
-    {
-        $agent = $this->agent();
-        $cases = ['8,500' => '8500.00', '8 500' => '8500.00', 'R8 500' => '8500.00', '8500.50' => '8500.50'];
-
-        foreach ($cases as $typed => $expected) {
-            $app = $this->application();
-            $this->actingAs($agent)->post(
-                route('corex.rental-applications.review.assessment', $app),
-                ['expense_items' => [['description' => 'Rent', 'amount' => $typed]]]
-            )->assertSessionDoesntHaveErrors();
-
-            $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
-            $this->assertSame($expected, $assessment->expenseItems->first()->amount, "expense item typed '{$typed}' must store as {$expected}.");
-        }
-    }
-
     // ── RA-02: settings — qualifying ratio, every SA money spelling ──────
 
     public function test_qualifying_formula_accepts_every_south_african_style_number(): void
@@ -237,4 +200,10 @@ final class RentalApplicationRound8FixesTest extends TestCase
         $response->assertOk();
         $response->assertDontSee('Added after submission');
     }
+
+    // ── Retired 2026-10-07 (cc3 red-test pass) ───────────────────────────────
+    // saveAssessment() no longer accepts income_items/expense_items (2026-09-11 capture-ledger rework: the highlighter mark IS the ledger line); the ledger takes a parsed numeric amount.
+    // Removed, not skipped: test_assessment_income_items_accept_every_south_african_money_spelling, test_assessment_expense_items_accept_every_south_african_money_spelling
+    // See .ai/specs/rental-applications.md ("Pre-existing, unrelated test debt" under the
+    // qualifyingResult() removal) — the subject of these tests no longer exists.
 }

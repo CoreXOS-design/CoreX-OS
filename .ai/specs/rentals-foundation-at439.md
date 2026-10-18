@@ -1,0 +1,482 @@
+# Rentals Foundation (AT-439) — Single Lease Store, Legacy Retirement, List Standard, Context Bar
+
+**Status:** SPEC ONLY. Code for "AT-439 part 1" is being built concurrently by another lane in its
+own worktree (`at439-rentals-foundation-2026-10-04`) — this spec does not assume or depend on that
+lane's in-progress code; it specs the full Stage 1 scope so the two converge, not diverge.
+**Ticket:** AT-439. **Date:** 2026-10-04. **Pillar:** Property (every retired/retained table ultimately
+describes a property), Contact (tenant/landlord), Agent (`User`).
+**Master spec:** `.ai/specs/rentals-rebuild.md` — read its §1 (shared standards) before this file;
+not repeated here.
+**Johan's rulings folded in (2026-10-04, see master spec Addendum 1):** no legacy-data migration/
+matching/review-list; retire (not merge) the legacy Rentals menu group once its dependencies move.
+
+---
+
+## 1. What this stage does and why
+
+Four lease-shaped data stores exist today (audit Part 2): `rentals` (58-59 rows, legacy, still
+writable), `lease_records` (2 rows, legacy, still writable), `rental_properties` (2 rows, legacy,
+still writable), `leases` (35 rows, the intended source of truth, the only one with a real enforced
+property+tenant FK chain). Two Rentals nav groups render simultaneously (Stage-1 investigation item
+B) with no cross-link. A user cannot tell from the UI that "Rentals" and "Leases" are different,
+disconnected stores for the same real-world facts. This stage makes `leases` the **only** lease
+store any live code path reads or writes, retires the legacy nav group and its dead-end
+controllers, and ships the two shared UI primitives (list standard, context bar) every later stage
+depends on.
+
+---
+
+## 2. Single lease store — `leases` only, everything else retired from live code paths
+
+### 2.1 What "retired" means here (per Johan's ruling, not a data migration)
+No row in `rentals`, `lease_records`, or `rental_properties` is touched, moved, hard-deleted, or
+migrated. Only **code paths** change: every controller/service/command that currently reads or
+writes one of these three tables is repointed at `leases` (and its children — `lease_tenants`,
+`LeaseEscalation`) or retired outright if its only purpose was serving the legacy table. The three
+legacy tables and their rows stay in the database as historical record, reachable only via direct DB
+access (Tinker/admin), never via application code, from the moment Stage 1 ships.
+
+### 2.2 Every live reader/writer that must move or retire, by table (audit Stage-1 investigation item D)
+
+**`rentals` (59 rows, STILL WRITABLE today):**
+| Caller | File:line | Disposition |
+|---|---|---|
+| `RentalsController` full CRUD | `app/Http/Controllers/.../RentalsController.php` (`Rental::create()` at line 359) | **Retired** — the controller itself is removed once nothing else needs it (§3) |
+| `RentalAgent` / `RentalAmountVersion` child relations | model relations on `Rental` | Retired with the controller |
+| `RentalCalendarSource.php:105,180` | Command Center calendar feed | **Repointed** to read from `leases` (active leases with a `start_date`/`end_date` in the relevant window) — this is a live feature, not dead code, and must not silently lose calendar entries |
+| `RentalWorksheetInclusionService.php:35,99` + `WorksheetController.php:943` | agent commission worksheets | **Repointed** to `leases` — same reasoning, a live commission-calculation path |
+| Nav: `corex-sidebar.blade.php:2895` AND `navigation.blade.php:24` | two separate nav entries | **Retired**, both, in the same pass (§3) |
+
+**`lease_records` (2 rows, STILL WRITABLE today):**
+| Caller | File:line | Disposition |
+|---|---|---|
+| `Docuperfect\LeaseController::renew()` | creates new rows, line 78 | **Retired** — renewal now happens against `leases` (Stage 6 builds the real renewal flow; this stage only stops new `lease_records` writes) |
+| `SignatureService::createLeaseRecord()` | writes legacy table, line 5382 | **Retired** — the e-sign cascade already also calls `createLeaseFromSignedDocument()` (writes `leases` directly, audit Part 3 item F) going forward; the legacy write is simply removed, the `leases` write path is untouched |
+| `RentalDivisionController::activeLeases()`/`expiredLeases()` | lines 139-161, a second dashboard pair reading only `lease_records`' 2 rows | **Retired** with the controller (§3) |
+| `CheckLeaseExpiry.php` | reads+writes status, queries `lease_records` exclusively | **Repointed to `leases`/`end_date`** — this is Stage 6 (Renewals) scope, not Stage 1; Stage 1 only ensures no NEW `lease_records` rows get created so Stage 6 isn't chasing a moving target (see audit Part 1 item E) |
+| `LeaseExpirationAlert.php:14` | notification class tied to `lease_records` | Retired/repointed alongside `CheckLeaseExpiry` in Stage 6 |
+| `SignatureTemplate.php:333` (`hasOne`) | model relation | Retired — no code calls it once `createLeaseRecord()` is removed |
+
+**`rental_properties` (2 rows, STILL WRITABLE today):**
+| Caller | File:line | Disposition |
+|---|---|---|
+| `RentalPropertyController` full CRUD | `RentalProperty::create()` line 47 | **Retired** with the legacy nav group (§3) |
+| `RentalDivisionController.php:48,105` | legacy dashboard | Retired with the controller |
+| `Docuperfect\Document.php:75` | `belongsTo(RentalProperty::class,'property_id')` — the documented ID-space collision where `docuperfect_documents.property_id` points at `RentalProperty`, not the real `Property` | **This is the one genuinely load-bearing dependency and the reason the legacy menu cannot simply be deleted on day one.** Every e-sign prefill path below reads through this relation. It must be repointed to resolve the real `Property` (via `LeasePropertyResolver::matchOneByAddress()`, already used elsewhere for exactly this purpose — audit Part 3 item F) BEFORE `RentalProperty`/its controller is retired, or every rental e-sign document's prefill breaks silently. |
+| `SupportingBatchPrefillResolver.php:63` | e-sign prefill | Repointed alongside `Document.php:75` |
+| `DocumentController.php:382` | e-sign prefill | Repointed alongside `Document.php:75` |
+| `ESignWizardController.php:450,1203,4318` | e-sign prefill (three call sites) | Repointed alongside `Document.php:75` |
+
+**Sequencing inside Stage 1 (not optional — order matters):** the `rental_properties`/`Document`
+dependency chain must be repointed at real `Property` **before** `RentalPropertyController`/the
+legacy nav entries are removed, or every rental e-sign document silently loses its property prefill.
+`RentalCalendarSource` and the Worksheet commission path must be repointed at `leases` **before**
+`RentalsController` is removed, for the same reason. The legacy nav group (§3) is the LAST thing
+removed in this stage, once every dependency above has moved.
+
+### 2.3 Multi-agency fix included in this retirement (audit Part 4, Finding reported there, fixed here)
+`RentalsController.php` hardcodes two real HFC employees' names (`'Maggie Venter'`, `'Retha Kelly'`)
+directly into commission-bucket calculation logic — a direct CLAUDE.md non-negotiable #9 violation.
+Retiring the controller (§2.2, §3) removes this violation as a side-effect of the retirement, not as
+a separate patch — there is no surviving code path that needs this logic preserved, since the
+Worksheet commission path is repointed at `leases` (§2.2) independently of this controller.
+
+---
+
+## 3. Legacy Rentals menu group — exactly what is retired (Johan's ruling, Addendum 1B)
+
+**Retired, once §2.2's dependency moves are complete — not before:**
+
+| Item | File:line | Why safe to retire |
+|---|---|---|
+| Nav group, Alpine key `rentals`, hidden under System Developer → Hidden | `corex-sidebar.blade.php:2879-2909` | Confirmed (Stage-1 investigation item B) gated `@permission('view_rentals') @feature('rentals')`, default ON for every agency today — removing it removes the only remaining entry point into every controller below |
+| `rentals.index` route + `RentalsController` | `routes/web.php:1778-1790` | Full CRUD retired per §2.2; no delete/archive capability existed on this controller at all (audit Part 4) — nothing to preserve |
+| `rental.dashboard` route + `RentalDivisionController@dashboard` | nav line 2897 | Reads only `lease_records`/`rental_properties` (2+2 rows) — dead weight once those tables stop being written |
+| `rental.signatures` route + `RentalDivisionController@signatures` | nav line 2900 | Same — reads `LeaseRecord`/`SignatureService` dashboard query, superseded by the new Lease Hub (Stage 2) |
+| `rental.active-leases` / `rental.expired-leases` + `RentalDivisionController@activeLeases()`/`expiredLeases()` | nav lines 2903-2904, controller lines 139-161 | Shows only the 2 `lease_records` rows, blind to the 35 real `leases` rows — actively misleading, superseded by Leases list (already built) and the Command Centre (Stage 3) |
+| Second duplicate nav entry for `rentals.index` | `navigation.blade.php:24` | Same route as above, different file — removed in the same pass |
+
+**Confirm-nothing-else-calls-it check (per instruction):** every remaining caller found by the audit
+against these specific routes/controllers is listed in §2.2's tables above and is repointed BEFORE
+this section's removal, not left behind. No other caller of `RentalsController`, `RentalDivisionController`,
+or `RentalPropertyController` was found by either investigation pass.
+
+**What is explicitly NOT retired in this stage:** the Group-1 (new) nav entries
+(`corex-sidebar.blade.php:1008-1205` — Rental Applications, Leases, Rental Inspections, Rental Fault
+Types, Rental Fault Reports, Rental Work Orders, Contacts/Properties/Pipeline/Core-Matches rental
+lenses) are untouched; they are the Stage-1 rebuild's actual nav home and are extended, not replaced,
+by later stages (Stage 3 adds the Command Centre as a new first item in this same group — see
+`rental-command-centre.md` §2).
+
+### 3.1 Known, demonstrated, unrelated sidebar bug — fix in the same pass (same file, directly adjacent)
+Stage-1 investigation item A: the `rental-applications` group's own active-state matcher
+(`corex-sidebar.blade.php:207-212`) never lists the four route-name patterns for Leases/Inspections/
+Fault Reports/Work Orders, so the Rentals panel never auto-expands on those four pages — confirmed by
+running `Str::is()` against every branch, zero matches anywhere. **Smallest correct fix** (already
+identified by the investigation, not re-derived here): add `'corex.leases.*'`,
+`'corex.rental-inspections.*'`, `'corex.rental-fault-reports.*'`, `'corex.rental-work-orders.*'`,
+`'corex.rental-fault-types.*'` to the `routeIs(...)` list at lines 207-208. Low risk — the chain is
+`elseif`-ordered, confirmed no collision with any earlier branch. Ship in the same Stage 1 commit as
+the menu retirement since both touch the same file and the same investigation surfaced both.
+
+---
+
+## 4. The shared list standard (built once in this stage, consumed by every later stage)
+
+**Component:** one Blade partial (e.g. `resources/views/corex/rentals/partials/_rental-list-controls.blade.php`)
+plus its Alpine controller, parameterised by: scope-permission-key, status-tile config (label, status
+value(s), icon), search-field list, sort-column list + default, filter list. Leases, Inspections,
+Fault Reports, and Work Orders adopt it in this stage (replacing each one's current bespoke "Showing:"-
+less markup — Stage-1 investigation item C confirmed the query-layer scope already exists on all
+four via `visibleTo($user, $scope)`, only the UI control and the per-record guard are missing).
+
+### 4.1 Per-screen close-out of the Stage-1-investigation Finding C gap
+For each of Leases, Fault Reports, Work Orders, Inspections, this stage:
+1. Adds the Own|Branch|All UI switch (pattern already built on Rental Applications —
+   `rental-applications/index.blade.php:153-164`) to that screen's index view.
+2. Adds the per-record scope guard to `show()`/`pdf()`/`form()`/`report()`/`printForSignature()` on
+   each controller (pattern already built — `Concerns\AuthorizesRentalApplicationAccess::guardRentalApplication()`,
+   `app/Http/Controllers/Concerns/AuthorizesRentalApplicationAccess.php:20-48`) — closing the
+   documented gap where `pdf()`'s own docblock admits "same query-layer scoping as show()" is false
+   today (Stage-1 investigation item C, exact lines: `RentalFaultReportController.php` show 226-237/
+   pdf 243-250; `RentalWorkOrderController.php` show 197-214/pdf 222-230; `RentalInspectionController.php`
+   show 183-212/form 278-287/report 298-315/printForSignature 326+; `LeaseController.php` show 200-211).
+
+This closes BUILD_STANDARD.md §1c's "direct-URL access by ID is blocked, not just unlinked" floor on
+all four screens, not just Rental Applications.
+
+### 4.2 Standard fields (this stage; later stages add entity-specific columns on top)
+- **Search:** tenant name, property address, lease/reference number (named per entity in its own
+  controller — this spec states the shared mechanism, not the per-entity field list, which already
+  exists per-entity in `leases.md`/`rental-work-orders.md`/`rental-inspections.md`/`rental-inventory.md`).
+- **Sort:** every sensible column + stated default (already stated per-entity in those same specs;
+  unchanged by this stage — only the missing UI control is added).
+- **Filter:** status (via the clickable tiles), date range, own/branch/all.
+- **Pagination:** existing per-entity page sizes, unchanged.
+- **Empty state:** "no results for this filter" vs. "nothing recorded yet" — distinct copy per
+  entity, written in that entity's own spec.
+
+---
+
+## 5. The rental context bar (built once, included everywhere)
+
+See master spec §1.2 for the full chip list and the FK chain it reads (already real end-to-end,
+audit Part 3). Built as one Blade component
+(`resources/views/corex/rentals/partials/_rental-context-bar.blade.php`) taking a `Lease` (or a
+`Property` with no active lease, for the vacancy case) and rendering: Property · Lease · Application ·
+Inspections (n) · Faults (n) · Work orders (n) · Inventory · Documents · Tenant · Landlord, current
+one highlighted via a `$current` prop. Included on: Property's Rental tab, the Lease hub (Stage 2),
+every Application/Inspection/Fault/Work-Order/Job-Card/Inventory detail screen. No per-screen
+reimplementation in any later stage — they `@include` this component.
+
+---
+
+## 6. Routes, nav, CRUD, permissions — this stage's own additions
+
+This stage adds no new entity (no new table, no new CRUD surface of its own) — it is a retirement +
+shared-component stage. Accordingly:
+- **No new permission keys.** The retired routes' permission keys (`view_rentals`, `manage_rentals`,
+  `access_rental_signatures`) are themselves retired from `config/corex-permissions.php` once the
+  routes are gone — do not leave orphaned permission rows a Role Manager screen still offers to grant
+  for a feature that no longer exists.
+- **No new settings**, hence nothing new to add to the Setup Wizard.
+- **API:** no new endpoints. (`leases:migrate-legacy` artisan command: left as-is, unused, not
+  removed — it is a one-time tool, not a live code path, and removing it is out of this stage's
+  scope per CLAUDE.md non-negotiable #1's spirit of not deleting working tooling without being asked.)
+
+---
+
+## 7. Acceptance criteria
+
+- [x] `leases` is the only table any live controller/service/command reads or writes for lease data.
+- [x] Every caller in §2.2's tables is repointed or retired, in the stated order. (Landed as two
+      commits, 2026-10-05 — see §10.)
+- [x] The legacy nav group (§3) is gone from the sidebar and from `navigation.blade.php`.
+- [x] `RentalsController`, `RentalDivisionController`, `RentalPropertyController` and their routes
+      are removed; `Rental`, `RentalProperty`, `Docuperfect\LeaseRecord` models' write paths are
+      removed (models themselves may remain for read-only historical Tinker access — not required to
+      delete the model class, only its write/controller paths).
+- [x] `rentals`, `lease_records`, `rental_properties` tables and rows are untouched in the database.
+- [x] The §3.1 sidebar active-state bug is fixed — confirmed already landed by a concurrent lane
+      before this round reached it (see §10).
+- [ ] Leases/Fault Reports/Work Orders/Inspections all have the Own|Branch|All UI switch and the
+      per-record scope guard on show/pdf/form/report/printForSignature. (Not in this round's scope —
+      §4's shared list standard; unchanged by the 2026-10-05 retirement landing.)
+- [x] The HFC-employee-name hardcode (§2.3) no longer exists anywhere in the codebase.
+- [x] No orphaned permission keys remain in Role Manager for retired routes — **with one correction
+      to this criterion's original scope, see §10.2**: `manage_rentals` is deliberately KEPT, not
+      retired alongside `view_rentals`/`access_rental_signatures`, because a dependency this spec
+      never named (`RentalPermissionsController`) still requires it.
+- [ ] The shared list-standard component and context-bar component exist and are adopted by at least
+      the four screens named in §4. (Not in this round's scope.)
+
+---
+
+## 8. Open questions for Johan
+
+None remaining for this stage — both original items were closed by his 2026-10-04 ruling (master
+spec §4, Addendum 1). One item surfaced during investigation and flagged, not decided, here:
+sequencing of the rental-inspections mobile API gap (audit top gap #4) against this rebuild — not
+blocking Stage 1, but worth Johan naming which stage (if any) in this eight-stage plan should pick it
+up, since none of the eight currently do.
+
+---
+
+## 9. AT-439 follow-up (2026-10-05) — display price reads the active lease; landlord chip dead-end fixed
+
+Two display-only follow-ups, per Johan's 2026-10-04 ruling folded into §1.3 of the master spec
+(`rentals-rebuild.md`): "rent and dates live on the LEASE; the property only links to it."
+
+### 9.1 Item A — `Property::effectivePrice()` never read the active lease
+
+`effectivePrice()`/`formattedPrice()` read `properties.rental_amount` directly for a rental
+listing and never looked at `leases`, so a property with an active lease showing a different
+(renegotiated) rent displayed the stale original asking figure everywhere (confirmed on QA1:
+property 5792 showed R7150 while its active lease #10 carries R8000). `effectivePrice()` and
+`formattedPrice()` are themselves **unchanged** — syndication (P24/PP), matching, and
+notifications all read them and must keep doing so exactly as before.
+
+Added instead: `Property::activeLease()` (hasOne `Lease`, `status='active'`, most recent
+`start_date`) and two new display-only methods, `displayRentalPrice()` /
+`formattedDisplayPrice()` — active lease's `rental_amount` first, `properties.rental_amount`
+only when no active lease exists; identical to `effectivePrice()`/`formattedPrice()` for a sale
+listing. Wired into the four on-screen call sites that actually render a price outside
+syndication/matching/notifications:
+
+| Screen | File:line |
+|---|---|
+| Properties list — grid card, grid card (hero), "owned by other" compact row, table row | `resources/views/corex/properties/index.blade.php` (4 call sites) |
+| Property header/overview | `resources/views/corex/properties/show.blade.php` (2 call sites) |
+| Shared shell-header partial (property show + rental-inventory capture screen) | `resources/views/corex/properties/partials/_property-shell-header.blade.php` |
+
+Eager-loaded (`->with([..., 'activeLease'])`) on `PropertyController::index()`'s list query and
+`PropertyController::show()`'s `$property->load([...])` — no N+1, covered by a query-count test.
+
+**Not touched, found and reported, not fixed (explicitly out of scope per instruction):**
+- `resources/views/corex/properties/ad.blade.php` and `live-preview.blade.php` (public live
+  listing page) still call `formattedPrice()`/`effectivePrice()` — these are marketing/public
+  surfaces, not the four named screens; left exactly as they were.
+- `resources/views/emails/rental-application-approved.blade.php` — same reasoning.
+- Every matching/syndication/notification/AI-toolkit caller of `effectivePrice()` (P24/PP
+  mappers, `MatchingService`, `RentalApplicationPropertyMatcher`, `BuyerIntelligenceService`,
+  Ellie, etc.) — unchanged, as instructed.
+- Rentals Command Centre (`rental-command-centre` views/controller/service) — audited directly;
+  it does not display a rental price anywhere today, so there was nothing to fix there.
+- The property's own Rental tab (`show.blade.php`, the existing-rental branch) already reads the
+  active lease directly for its own "Active lease: ... R.../mo" block (a separate, pre-existing
+  query, not `effectivePrice()`) — confirmed already correct, left untouched.
+- 3 rental properties on QA1 are `withdrawn` while still carrying an active lease (ids 5294,
+  5577, 5792) — reported per instruction, not changed; QA1 is demo data (STANDARDS.md
+  Standard −1q), no status was altered.
+
+### 9.2 Item B — shared `<x-rental-context-bar>` landlord chip no longer dead-ends
+
+The landlord chip rendered a bare "Not linked" with no next step when a property had no
+landlord/lessor contact tagged — every other dead-end case on this shared bar already had one
+(the Lease Hub's own landlord line, `corex/leases/show.blade.php`, already shows "No landlord
+linked" + a "Link landlord" link into the property's Contacts tab). One change, in the shared
+component only (`resources/views/components/rental-context-bar.blade.php`): when the chip's
+already-computed `$landlords` collection is empty, the chip renders "No landlord linked" + a
+"Link landlord" link to `corex.properties.show` with `tab=contacts`, reusing the existing
+`$landlords` variable — no second `Lease::landlordContacts()` implementation. Takes effect on
+every screen that includes the bar (Lease Hub, Property Rental tab, Inspection/Fault
+Report/Work Order show screens) with this one edit.
+
+---
+
+## 10. Landing report — 2026-10-05, Johan's "do it today" ruling
+
+Landed as **two commits** on `at439-esign-rentalproperty-retire-2026-10-05`, per Johan's explicit
+sequencing instruction (e-sign is live-critical, lands and is tested independently first):
+
+**Commit 1 — e-sign prefill repoint.** Closed the one write-side seam
+(`DocumentController::sendToRentals()`, was `'property_id' => 'required|exists:rental_properties,id'`)
+that could put a `rental_properties` id into `docuperfect_documents.property_id`; repointed it to
+`Property::findLinkableForRentalApplication()` (the existing hardened own/branch/agency-scoped
+lookup, reused rather than re-derived). Removed the now-unreachable `RentalProperty` fallback
+branches this enabled: `SupportingBatchPrefillResolver`'s address fallback,
+`ESignWizardController`'s property-search merge, its step-4 rent/deposit/commission/marketing-fee
+defaults, and its landlord-only recipient synthesis ("BL-3"). `Document::property()` repointed to
+the real `Property` model. Proven with 4 new tests
+(`tests/Feature/Docuperfect/SigningView/RentalPropertyRetiredPrefillTest.php`) covering landlord+
+tenant, landlord-only, sectional-title, and company-landlord properties — all pass, 24 assertions.
+**Finding, not in §2.2's original table:** the existing `'properties'`-source recipient branch
+already resolves tenants via the real `contact_property` pivot — something `RentalProperty` never
+supported at all (its own code comment admitted "manual-add covers it"). The repoint is a net
+capability improvement, not just parity.
+
+**Commit 2 — menu/route/view retirement + Command Centre calendar repoint.** Per Johan's
+2026-10-05 rulings (superseding this spec's original §2.2/§3/§6 in the specific places listed
+below):
+
+1. **Calendar — repointed, not deleted** (this spec's §2.2 originally only named the
+   `rentals`/Worksheet dependency as needing repoint before retirement; Johan's 2026-10-05 ruling
+   extended this explicitly to the calendar). `RentalCalendarSource` had **3 methods across 2
+   legacy tables**, not the 1 this spec's audit citation implied —
+   `leaseExpiryFromLeaseRecords()` (lease_records, actually the CANONICAL source, not a fallback),
+   `leaseExpiryFromRentals()` (rentals, the real fallback), and `rentDue()` (rentals again, missed
+   entirely by every prior audit pass). All repointed to `leases`/`lease_escalations`, which carry
+   `agency_id`/`branch_id` directly — simpler than the legacy joins, same Own/Branch/All downstream
+   scoping. `PropertyCalendarSource::leaseExpiryFallback()`'s own `lease_records` exists-check
+   moved to `leases` in the same commit (missed by this spec entirely — without this fix, every
+   property with both a `leases` row and a static `properties.lease_end_date` would have started
+   double-counting a `lease_expiry` event the day this landed). `ReconcileCalendarEvents` gained a
+   one-time, idempotent cleanup step soft-deleting `CalendarEvent` rows still keyed on the retired
+   `Docuperfect\LeaseRecord::class`/`Rental::class` source types — `upsertEvent()` has no
+   "delete what a source stopped producing" step by design, so without this the old rows would
+   have sat stale forever. 5 new tests, all pass.
+2. **Worksheet commission — deleted, not repointed** (Johan's 2026-10-05 ruling: "HFC does NOT use
+   the old rental commission worksheet" — a stronger instruction than this spec's original §2.2,
+   which only said *repoint* `RentalWorksheetInclusionService`/`WorksheetController.php:943` to
+   `leases`). Deleted `RentalWorksheetInclusionService` outright (its only callers were
+   `RentalsController`, now gone, and an unscheduled test-only artisan command, also removed) and
+   deleted the separate, redundant inline `Rental::query()` block inside
+   `WorksheetController::calculate()` this spec's own audit had NOT distinguished from the service
+   — they were two independent implementations of the same thing, not one calling the other. The
+   matching "Rentals (This Period)" card in `worksheet/index.blade.php` is removed.
+3. **Menu/routes** — the hidden sidebar panel, `navigation.blade.php`'s duplicate entry, and every
+   route this spec named are retired. Per Johan's explicit 2026-10-05 instruction ("old URLs must
+   redirect... never 404"), every GET route that was a real navigable page now redirects to its
+   modern equivalent instead of being deleted outright — `rentals.index`/`.create`/`.edit` →
+   `corex.leases.index`; `rental.dashboard` → `corex.rentals.command-centre.index`; `rental.signatures`
+   → `docuperfect.dashboard`; `rental.active-leases`/`.expired-leases` → `corex.leases.index` with a
+   `?status=` filter; `rental.settings.properties.*` → `corex.properties.*`; `rental.settings`/
+   `.reminders.index` → `corex.settings`. POST/PUT form-submit endpoints with no surviving form
+   (store/update/toggle/search) are removed outright, not redirected — there is no page left that
+   could submit to them. `RentalsController`, `RentalDivisionController`, `RentalPropertyController`
+   class files deleted, along with their views; `RentalWorksheetInclusionService` deleted.
+   `app/Support/Tours/defs/rentals-deals.php`'s 5 Rentals-division tour entries removed (not
+   flagged by this spec at all) — every one anchored on a route that now redirects instantly, so
+   none of their DOM selectors could ever be found again.
+4. **Settings page** — the "Rental Properties" link block and the whole "Email Reminders" form
+   block removed from `corex/settings.blade.php`'s Rentals section; "Rental Document Types" is
+   **unchanged** (Johan's explicit 2026-10-05 ruling — `RentalDocumentTypeController` stays
+   untouched, confirmed still live via the e-sign document editor's own document-type dropdown).
+   `SettingsController` stops loading `$rentalReminderSettings`.
+
+### 10.1 New finding this round, not anticipated by either prior audit or this spec
+
+**`RentalPermissionsController` / `rentals.permissions` route / `can_capture_rentals` user flag —
+completely unflagged until this pass.** A separate, small admin screen
+(`resources/views/rentals/permissions.blade.php`, `GET/POST /rentals/permissions`) toggling a
+per-user `can_capture_rentals` boolean, gated by the `manage_rentals` permission. It has **no nav
+link anywhere** — reachable only by typing the URL — and is **not** part of the hidden Rentals
+panel this stage retires. `can_capture_rentals` itself is also read by the admin user
+create-edit/index screens (a standing per-user toggle, origin and current purpose unclear beyond
+this one now-removed Worksheet display gate). **Not touched. Not decided here.** Flagging for
+Johan: is this screen still wanted (worth a real nav entry), or is it itself dead weight from the
+same era as the rest of this retirement?
+
+### 10.2 Deviation from §6/§7's original permission-key criterion
+
+§6 originally stated all three keys (`view_rentals`, `manage_rentals`, `access_rental_signatures`)
+retire together once their routes are gone. **`manage_rentals` is the one exception** — confirmed
+live and load-bearing for `RentalPermissionsController` (§10.1), which this spec never knew about.
+Removing it would have 403'd that screen for every user. `view_rentals` and
+`access_rental_signatures` have zero remaining consumers (routes, tours, or code) and are fully
+removed from `config/corex-permissions.php` (both the permission-definition list and every
+role-default array). `rentals.view`/`.create`/`.edit`/`.archive` (a different, dotted-action
+permission family, module-tagged `rentals` but designed generically — "same shared-key-across-roles
+pattern as documents.view/.create", per its own 2026-09-07 comment) are **unrelated** to this
+retirement and were not touched.
+
+### 10.3 Pre-existing test collateral found and fixed
+
+`tests/Feature/MultiTenancy/AgencyScanFixesTest.php` (AT-424) pinned 4 cross-agency-isolation tests
+directly on `RentalsController`'s now-deleted CRUD routes (`rentals.store`/`.update`/`.edit`/
+`.index`). Removed (with an explanatory comment) rather than left to fail — the attack surface
+they guarded (creating/editing a `rentals` row via that controller) no longer exists for any agency
+to attack. No other test file referenced anything retired in this round.
+
+---
+
+## 11. QA1-walk follow-up, 2026-10-05 — Job Cards create button; list-filter property picker, qualifying properties only
+
+Three items Johan found testing QA1. §4 above still has the shared list-standard component itself
+("the Own|Branch|All UI switch... built once, consumed by every later stage") as a separate, not-yet-
+built item — nothing here depends on it or substitutes for it.
+
+### 11.1 Job Cards list had no "New Job Card" button
+
+Every sibling list (Fault Reports → "Report a Fault", Work Orders → "New Work Order") has a create
+button in its header; Job Cards (`rental-job-cards/index.blade.php`) did not — the only header
+control was "Print list". The create screen itself (`corex.rental-job-cards.create`) already works
+fine opened cold (no `property_id`/`lease_id`/`fault_report_id` query param → renders its own
+property picker with nothing pre-selected) — it was simply unreachable from the list. Fixed: added
+`@permission('rental_job_cards.create') <a href="...">New Job Card</a> @endpermission`, same pattern
+and same `corex-btn-primary` class as the other two lists, forwarding `property_id`/`lease_id` from
+the querystring exactly as `rental-work-orders/index.blade.php` already does.
+
+**Found, not fixed (reported per non-negotiable #2 — explicitly out of this item's scope):** the job
+card create screen's own property picker (`rental-job-cards/create.blade.php`, reached only when no
+`property_id`/`lease_id`/`fault_report_id` is pre-supplied) is a plain, unscoped, alphabetical
+`<select>` capped at 500 rows — the exact shape §14.16 item #2 of `rental-work-orders.md` already
+fixed on the Work Order create screen (replaced with a searchable, scoped, debounced picker). Job
+Cards' own create screen was never given the same fix. Flagged for Johan; not changed here because
+the instruction for this round was the list button only, and the create-form picker is explicitly
+the CREATE form's own concern (§11.3 below leaves every create-form picker untouched by design).
+
+### 11.2 Leases list — landlord shown under tenant
+
+See `leases.md` §7.1 for the full writeup (search field, export column, eager-load, the
+never-a-tenant-as-landlord guarantee). Summarised here only because it's part of the same QA1-walk
+round: `Lease::landlordContacts()` (already tenant-safe, AT-444) now reuses an eager-loaded
+`property.contacts` collection instead of re-querying per row.
+
+### 11.3 List-filter property picker — qualifying properties only, one shared mechanism
+
+Johan's finding: the property filter on Leases/Fault Reports/Work Orders/Job Cards "currently offers
+every property" and should only offer properties that actually have a record in that section.
+**Investigated first, per non-negotiable #2/#3 — reported here because what was found differs from
+the premise, not silently reinterpreted:** none of the six rentals list screens (Leases, Fault
+Reports, Work Orders, Job Cards, Inspections, Rental Applications) had a property **dropdown** on
+their list/filter UI at all before this round. `property_id`/`lease_id` filtering existed on Leases/
+Fault Reports/Work Orders already (not Job Cards — added here, see below) but was reachable only via
+a link from elsewhere (the property tab, a lease page, the rental context bar's chips), rendered
+back as a read-only clearable badge, never a dropdown a user could pick from directly. The *only*
+existing "offers every property" dropdown lived on the CREATE forms
+(`RentalWorkOrderController::searchProperties()`, `RentalApplicationController::searchProperties()`,
+plus three inline unscoped `<select>`s on Leases/Fault Reports/Job Cards' own create screens) — which
+the task explicitly says must stay untouched.
+
+**What was built, given that:** a real, user-facing, search-as-you-type property filter was added to
+each of the four named list screens (Leases, Fault Reports, Work Orders, Job Cards) — restricted, from
+the first line of code, to properties that actually have a record in that section visible to the
+acting user. Inspections and Rental Applications were checked and confirmed to have no such dropdown
+either — per the task's own "apply the same rule if they have the same dropdown," nothing was added
+there (no dropdown existed to restrict).
+
+**One shared mechanism** (`App\Http\Controllers\Concerns\SearchesQualifyingRentalProperties`, fix-
+the-class per BUILD_STANDARD §6): `searchQualifyingRentalProperties(Request $request, string
+$sectionModelClass, string $propertyIdColumn = 'property_id')` builds `Property::query()
+->where('listing_type','rental')->visibleTo($user)->whereIn('id', <$sectionModelClass>::query()
+->visibleTo($user, $scope)->when($archived, fn($q) => $q->onlyTrashed())->select($propertyIdColumn)
+->distinct())->searchAddress($term)` — every caller supplies only its own section model class; the
+own/branch/agency scoping (the section's own `scopeVisibleTo()`, the exact same one each list's own
+query already uses), the property-level scoping (`Property::scopeVisibleTo()`), the address search,
+and the archived-state rule can never drift per screen because there is exactly one query shape.
+
+**Per-screen wiring, each a separately-named endpoint so no CREATE-form picker is ever touched:**
+
+| Screen | New endpoint | Section model | Notes |
+|---|---|---|---|
+| Leases | `corex.leases.search-properties` | `Lease` | No existing endpoint of any name — new. |
+| Fault Reports | `corex.rental-fault-reports.search-properties` | `RentalFaultReport` | No existing endpoint — new. |
+| Work Orders | `corex.rental-work-orders.search-filter-properties` | `RentalWorkOrder` | Deliberately NOT `search-properties` — that name is already the CREATE form's own unscoped picker (AT-442 fix #2); reusing it would have broken the create screen's own contract. |
+| Job Cards | `corex.rental-job-cards.search-properties` | `RentalJobCard` | No existing endpoint — new. Job Cards' list also gained a real `property_id` query filter in `index()` itself (it had none before this round) and `$filteredProperty` resolution for the picker's own label pre-fill. |
+
+Each list's filter `<form>` gained the same Alpine widget already proven on the Work Order/Rental
+Application CREATE screens (debounced text input → fetch → click-to-select → hidden `property_id`
+input) — copied verbatim in shape, not reinvented, per the INVESTIGATE → COPY → ADAPT pattern.
+
+**Archived state**: the picker takes the list's own `archived` flag — ticking "Show archived" on the
+list and then searching the picker offers properties with an *archived* record in that section,
+matching what the list itself is currently showing (never a live+archived mix).
+
+**Tests**: `LeaseListStandardTest`, `RentalFaultReportListStandardTest`,
+`RentalWorkOrderListStandardTest`, and the new `RentalJobCardListScreenTest` each cover: only
+qualifying properties returned, cross-agency isolation (another agency's qualifying property never
+appears), own-scope narrowing (Leases), the archived-state split (Fault Reports), and — explicitly —
+that the CREATE form's own picker still offers a property with zero records in that section
+(`RentalWorkOrderListStandardTest::test_create_forms_own_property_picker_still_offers_properties_with_no_work_order`),
+proving item 3 did not regress the thing it was told to leave alone.

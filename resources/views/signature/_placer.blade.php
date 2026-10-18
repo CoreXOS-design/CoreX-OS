@@ -56,7 +56,7 @@
             </template>
             <template x-if="!configured && !impersonating">
                 <p class="text-xs rounded p-2" style="background:#fffbeb; color:#92400e;">
-                    You haven't set up a saved signature + PIN yet. Set them in My Portal first.
+                    You haven't set up a saved signature + PIN yet. <a href="{{ route('agent.portal') }}#profile" target="_blank" rel="noopener" class="underline font-semibold" data-qa="set-signature-link">Set them in My Portal &rarr; Profile &rarr; Signature &amp; PIN</a> first, then come back and press Unlock.
                 </p>
             </template>
             <input type="password" x-model="pin" inputmode="numeric" autocomplete="off"

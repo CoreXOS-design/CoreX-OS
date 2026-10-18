@@ -69,13 +69,12 @@ final class CloneLabelRewriteTest extends TestCase
         $recipients = $this->fakeRecipients(['seller', 'seller', 'seller', 'seller']);
         $out = app(RoleBlockExpansionService::class)->expandWithLooping(null, $html, $recipients);
 
-        // No spurious "Seller 3" / "Seller 4" tokens injected anywhere
-        // except the prepended block headers.
-        $countSeller3 = substr_count($out, 'Seller 3');
-        $countSeller4 = substr_count($out, 'Seller 4');
-        // Header only — exactly 1 occurrence each.
-        $this->assertSame(1, $countSeller3);
-        $this->assertSame(1, $countSeller4);
+        // The prepended block header is "Seller - {name}" (Johan's agency-facing format). No spurious indexed
+        // "Seller 3" / "Seller 4" tokens may be injected anywhere in the body, and each header appears once.
+        $this->assertSame(0, substr_count($out, 'Seller 3'));
+        $this->assertSame(0, substr_count($out, 'Seller 4'));
+        $this->assertSame(1, substr_count($out, 'Seller - S3'));
+        $this->assertSame(1, substr_count($out, 'Seller - S4'));
     }
 
     public function test_input_values_with_seller_word_are_not_rewritten(): void

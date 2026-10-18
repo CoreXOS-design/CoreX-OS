@@ -65,17 +65,19 @@ final class DealPipelineDefaultTemplatesTest extends TestCase
 
         $result = $this->provisioner->provisionDefaultsForAgency($agencyId, $creator->id);
 
-        // WS-V5 — corrected SA-conveyancing templates: bond 19 + cash 12 + sale_of_2nd 20.
+        // WS-V5 corrected SA-conveyancing templates (bond 19 / cash 12 / sale_of_2nd 20); AT-334 (2026-07-29)
+        // then removed the two FICA steps from each — FICA is Compliance-owned, not a pipeline step:
+        // bond 17 + cash 10 + sale_of_2nd 18 = 45.
         $this->assertSame(3, $result['created']);
-        $this->assertSame(51, $result['steps_created'], '19 (bond) + 12 (cash) + 20 (sale_of_2nd)');
+        $this->assertSame(45, $result['steps_created'], '17 (bond) + 10 (cash) + 18 (sale_of_2nd)');
         [$tpls, $steps] = $this->tally($agencyId);
         $this->assertSame(3, $tpls);
-        $this->assertSame(51, $steps);
+        $this->assertSame(45, $steps);
 
         // The bond template is the default; each type present exactly once.
         $bond = DealPipelineTemplate::withoutGlobalScopes()->where('agency_id', $agencyId)->where('deal_type', 'bond')->first();
         $this->assertTrue((bool) $bond->is_default);
-        $this->assertSame(19, $bond->steps()->count());
+        $this->assertSame(17, $bond->steps()->count());
         // Trigger links resolved (after_step points at a real sibling id).
         $this->assertNotNull($bond->steps()->where('name', 'Bond Approved')->first()->trigger_step_id);
     }
@@ -148,6 +150,6 @@ final class DealPipelineDefaultTemplatesTest extends TestCase
         $resp->assertRedirect(route('deals-v2.pipeline.index'));
         [$tpls, $steps] = $this->tally($agencyId);
         $this->assertSame(3, $tpls);
-        $this->assertSame(51, $steps);
+        $this->assertSame(45, $steps);
     }
 }

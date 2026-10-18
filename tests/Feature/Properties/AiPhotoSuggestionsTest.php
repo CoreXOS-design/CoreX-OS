@@ -141,7 +141,8 @@ class AiPhotoSuggestionsTest extends TestCase
         $res->assertOk();
         $res->assertSee('AI scanned your photos');     // modal markup rendered
         $res->assertSee('_aiSuggestions');              // payload blob present
-        $res->assertSee('"hasSuggestions":true', false);
+        // @js() emits the payload through JSON.parse('…') with the quotes escaped as \u0022, so match either form.
+        $this->assertMatchesRegularExpression('/hasSuggestions(?:\\\\u0022|")\s*:\s*true/', $res->getContent());
     }
 
     public function test_update_with_ai_review_flag_stamps_reviewed(): void

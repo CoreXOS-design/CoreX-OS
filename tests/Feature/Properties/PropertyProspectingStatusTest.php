@@ -116,7 +116,10 @@ final class PropertyProspectingStatusTest extends TestCase
         $property = $this->prospectingProperty();
 
         $controller = app(PropertyController::class);
-        $response = $controller->convertFromProspecting(Request::create('/x', 'POST'), $property);
+        // The action records a note as the acting user — read from the request, so the request needs one.
+        $request = Request::create('/x', 'POST');
+        $request->setUserResolver(fn () => $this->user);
+        $response = $controller->convertFromProspecting($request, $property);
 
         $this->assertSame('draft', $property->fresh()->status);
         $this->assertSame(302, $response->getStatusCode());
@@ -139,7 +142,9 @@ final class PropertyProspectingStatusTest extends TestCase
         $property = $this->prospectingProperty();
 
         $controller = app(PropertyController::class);
-        $controller->markNotSelling(Request::create('/x', 'POST'), $property);
+        $request = Request::create('/x', 'POST');
+        $request->setUserResolver(fn () => $this->user); // the note is recorded as the acting user, read from the request
+        $controller->markNotSelling($request, $property);
 
         $this->assertSame(Property::STATUS_NOT_SELLING, $property->fresh()->status);
         $this->assertTrue($property->fresh()->isNotSelling());
@@ -168,6 +173,8 @@ final class PropertyProspectingStatusTest extends TestCase
         $request = Request::create('/corex/properties', 'GET', ['status' => Property::STATUS_PROSPECTING]);
         $request->setUserResolver(fn () => $this->user);
         $request->setLaravelSession(app('session.store'));
+        // index() reads the route NAME (AT-401: Rentals → Properties is this same action behind a second route).
+        $request->setRouteResolver(fn () => (new \Illuminate\Routing\Route('GET', '/corex/properties', []))->name('corex.properties.index'));
         app()->instance('request', $request);
 
         $controller = app(PropertyController::class);

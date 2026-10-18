@@ -86,8 +86,8 @@
                 </svg>
                 <input type="text" name="search" value="{{ $searchTerm }}"
                        placeholder="Search address or contact…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                       class="list-header-filter w-full {{ $searchTerm !== '' ? 'is-active' : '' }}"
+                       style="padding-left:2.25rem;">
             </div>
 
             @if($canPickAgent)
@@ -228,16 +228,16 @@
             $deedsQueueIds = [];
             $deedsCounts = ['new' => 0, 'match' => 0, 'look' => 0, 'tva' => 0];
             $deedsTagStyle = fn (string $tone) => match ($tone) {
-                'green'   => 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);',
-                'amber'   => 'background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);',
-                'crimson' => 'background: color-mix(in srgb, var(--ds-crimson, #dc2626) 15%, transparent); color: var(--ds-crimson, #dc2626);',
-                default   => 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);',
+                'green'   => '--ds-badge-c: var(--ds-green, #059669);',
+                'amber'   => '--ds-badge-c: var(--ds-amber, #f59e0b);',
+                'crimson' => '--ds-badge-c: var(--ds-crimson, #dc2626);',
+                default   => '--ds-badge-c: var(--brand-icon, #0ea5e9);',
             };
         @endphp
             @foreach($captures as $tp)
                 @php
                     $addr = collect([
-                        trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')),
+                        $tp->streetLine(),
                         $tp->complex_name,
                         $tp->suburb,
                         $tp->town,
@@ -271,7 +271,7 @@
                         $headline = collect([$schemeLabel, $tp->suburb])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
                         if ($headline === '') $headline = $addr; // no scheme/complex name captured — fall back rather than show nothing
                         $secondaryAddr = collect([
-                            trim(($tp->street_number ?? '') . ' ' . ($tp->street_name ?? '')),
+                            $tp->streetLine(),
                             $tp->town,
                             $tp->province,
                         ])->filter(fn ($v) => trim((string) $v) !== '')->implode(', ');
@@ -433,7 +433,7 @@
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Owner differs', 'amber', 'look'];
                     } elseif ($stockStatus['property'] ?? null) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Same property?', 'amber', 'match'];
-                    } elseif (!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates'])) {
+                    } elseif (!empty($stockStatus['ambiguousCandidates']) || !empty($stockStatus['gpsOnlyCandidates']) || !empty($stockStatus['possibleMatches'])) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['Possible match', 'amber', 'match'];
                     } elseif ($tpPredatesThisCapture) {
                         [$rowTag, $rowTagTone, $rowTagGroup] = ['On file', 'crimson', 'look'];
@@ -651,6 +651,11 @@
                                         @endif
                                     </div>
                                 @endif
+                                @if(!empty($stockStatus['possibleMatches']))
+                                    {{-- Decision 2 (structured address matching): a property that is only a POSSIBLE match
+                                         exists — never "Add as a new property" silently; the agent answers same / different. --}}
+                                    @include('corex.deeds-capture._possible-matches', ['tp' => $tp, 'possible' => $stockStatus['possibleMatches']])
+                                @else
                                 <form id="promote-form-{{ $tp->id }}" method="POST" action="{{ route('corex.deeds-capture.promote', $tp->id) }}"
                                       onsubmit="return confirm('Add this as a new property and link the owner? Any ticked contact numbers below will be added too.');">
                                     @csrf
@@ -658,6 +663,7 @@
                                         Add as a new property
                                     </button>
                                 </form>
+                                @endif
                             @endif
                             {{-- Remove (2026-08-13) — soft delete, reversible; wrong details / duplicates. --}}
                             <form method="POST" action="{{ route('corex.deeds-capture.dismiss', $tp->id) }}"
@@ -936,7 +942,7 @@
                                      now only ever renders for a CONFIDENT, single-candidate match — an
                                      ambiguous case surfaces below the Promote button instead (see
                                      $stockStatus['ambiguousCandidates']), listing every candidate. --}}
-                                <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">
+                                <span class="ds-badge ds-badge-pill ds-badge-success">
                                     Confident match
                                 </span>
                             </div>
@@ -985,9 +991,7 @@
                                             <td class="py-1.5 pr-3 align-top" style="color: var(--text-secondary); white-space: nowrap;">
                                                 {{ $row['label'] }}
                                                 @if($row['used'])
-                                                    <span class="text-[9px] font-semibold ml-1 px-1 py-0.5 rounded"
-                                                          style="background: color-mix(in srgb, var(--brand-icon, #2563eb) 15%, transparent); color: var(--brand-icon, #2563eb);"
-                                                          title="The matcher used this field to propose this match">USED TO MATCH</span>
+                                                    <span class="ds-badge ds-badge-pill ds-badge-info ml-1" title="The matcher used this field to propose this match">USED TO MATCH</span>
                                                 @endif
                                             </td>
                                             <td class="py-1.5 pr-3 align-top" style="color: {{ $rowColor }};">{{ $row['existing'] ?? 'Not recorded' }}</td>
@@ -1227,7 +1231,7 @@
                         <div class="text-[13px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $headline !== '' ? $headline : 'This property' }}</div>
                         <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-muted);">{{ $rowOwnerLabel }} · scraped by {{ $tp->deedsCapturedBy->name ?? 'Unknown' }}</div>
                     </div>
-                    <span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="{{ $deedsTagStyle($rowTagTone) }}">{{ $rowTag }}</span>
+                    <span class="ds-badge ds-badge-pill flex-shrink-0" style="{{ $deedsTagStyle($rowTagTone) }};">{{ $rowTag }}</span>
                 </button>
                 @endpush
             @endforeach
@@ -1250,7 +1254,7 @@
                         <div class="text-[13px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $tvaName }}</div>
                         <div class="text-[11px] mt-0.5 truncate" style="color: var(--text-muted);">Virtual Agent capture · no matching property</div>
                     </div>
-                    <span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md whitespace-nowrap flex-shrink-0" style="{{ $deedsTagStyle('brand') }}">Numbers</span>
+                    <span class="ds-badge ds-badge-pill flex-shrink-0" style="{{ $deedsTagStyle('brand') }};">Numbers</span>
                 </button>
                 @endpush
                 @push('deedsInspectorPanels')
@@ -1311,17 +1315,23 @@
                 <div class="flex items-center justify-between gap-2 px-3 py-2.5 flex-shrink-0">
                     <span class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">{{ $captures->total() + $tvaStandalone->count() }} waiting</span>
                     <div class="flex items-center gap-1.5 flex-wrap justify-end">
-                        @if($deedsCounts['new'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('green') }}">{{ $deedsCounts['new'] }} new</span>@endif
-                        @if($deedsCounts['match'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('amber') }}">{{ $deedsCounts['match'] }} {{ $deedsCounts['match'] === 1 ? 'match' : 'matches' }}</span>@endif
-                        @if($deedsCounts['look'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('crimson') }}">{{ $deedsCounts['look'] }} need a look</span>@endif
-                        @if($deedsCounts['tva'] > 0)<span class="text-[10.5px] font-semibold px-2 py-0.5 rounded-md" style="{{ $deedsTagStyle('brand') }}">{{ $deedsCounts['tva'] }} numbers</span>@endif
+                        @if($deedsCounts['new'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('green') }};">{{ $deedsCounts['new'] }} new</span>@endif
+                        @if($deedsCounts['match'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('amber') }};">{{ $deedsCounts['match'] }} {{ $deedsCounts['match'] === 1 ? 'match' : 'matches' }}</span>@endif
+                        @if($deedsCounts['look'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('crimson') }};">{{ $deedsCounts['look'] }} need a look</span>@endif
+                        @if($deedsCounts['tva'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('brand') }};">{{ $deedsCounts['tva'] }} numbers</span>@endif
                     </div>
                 </div>
                 <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll" data-scroll-region>
                     @stack('deedsQueueRows')
                 </div>
                 @if($captures->hasPages())
-                    <div class="px-3 py-2 flex-shrink-0 text-xs" style="border-top: 1px solid var(--border);">{{ $captures->links() }}</div>
+                    {{-- Compact pager for the 380px queue column: the full page-number bar
+                         overflowed the column once it reached seven pages (Andre, 2026-10-14).
+                         Range text on its own line, Previous / Next below it. --}}
+                    <div class="px-3 py-2 flex-shrink-0 text-xs space-y-1.5" style="border-top: 1px solid var(--border);">
+                        <div style="color: var(--text-muted);">{{ number_format($captures->firstItem()) }}–{{ number_format($captures->lastItem()) }} of {{ number_format($captures->total()) }} · page {{ $captures->currentPage() }} of {{ $captures->lastPage() }}</div>
+                        {{ $captures->links('pagination::simple-tailwind') }}
+                    </div>
                 @endif
             </div>
 

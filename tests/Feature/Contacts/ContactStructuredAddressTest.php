@@ -467,11 +467,19 @@ final class ContactStructuredAddressTest extends TestCase
         ], $extra));
     }
 
-    /** contacts.update requires the core fields; merge in the bits under test. */
+    /**
+     * contacts.update requires the core fields and at least one parent contact type;
+     * merge in the bits under test. The schema snapshot already carries the fixed
+     * 'Owner' parent, so find it rather than inserting a second one.
+     */
     private function payload(array $extra): array
     {
+        $ownerTypeId = (int) (\App\Models\ContactType::where('name', 'Owner')->whereNull('esign_role')->value('id')
+            ?? \App\Models\ContactType::create(['name' => 'Owner', 'esign_role' => null])->id);
+
         return array_merge([
             'first_name' => 'Sam', 'last_name' => 'Seller', 'phone' => '0825551111',
+            'parent_type_ids' => [$ownerTypeId],
         ], $extra);
     }
 
@@ -491,6 +499,9 @@ final class ContactStructuredAddressTest extends TestCase
         ]);
         $suburbId = (int) DB::table('p24_suburbs')->insertGetId([
             'p24_id' => 301, 'p24_city_id' => $cityId, 'name' => 'Uvongo', 'slug' => 'uvongo-' . Str::random(5),
+            // A listing may only use a suburb Property24 has confirmed (AT-104 existence
+            // guard in AppliesP24Location) — the location sync stamps p24_verified_at.
+            'p24_verified_at' => now(),
             'created_at' => now(), 'updated_at' => now(),
         ]);
 

@@ -445,3 +445,20 @@ Legacy rows with NULL origin are treated as unrestricted (any agency may manage)
 ## Mobile prompt
 
 A standalone mobile-app prompt (`.ai/specs/client-auth-MOBILE-PROMPT.md`) will be written **after** this API ships and the endpoints have been smoke-tested, so it can reference real request/response shapes rather than guesses.
+
+## Addendum 7 Oct 2026 — agent-side "Create client login" attaches, it never dead-ends
+`ClientLoginController::create` (contact page) and the lease screen's portal cards both go through
+`App\Services\Rentals\RentalPortalAccessService::attach()`: a person is one login (one `client_users` row per
+email); create = create-or-attach, after a same-person check, with plain-words refusals. The old
+`isClientEmailTaken()` also counted the contact's own email and so blocked every contact that had one — it is now
+used only to generate unique placeholder addresses. Full logic: `.ai/specs/rental-portal-access.md` §16.
+
+## Addendum 7 Oct 2026 (2) — portal routes authenticate as the portal person, whoever else is signed in in that browser
+All client-portal routes use `client.auth` (`AuthenticateClientPortal`) instead of `auth:sanctum`: Sanctum consults only the `client-web`
+session guard, then the bearer token, for these requests. A staff `web` session in the same browser used to answer first and make the
+set-password call fail with "Unauthorized". Portal sign-out/account deletion remove only the portal login from the session. Details and
+tests: `.ai/specs/rental-portal-access.md` §17. A new portal route must use `client.auth`, never a bare `auth:sanctum`.
+
+## Addendum 7 Oct 2026 (3) — the portal Documents area
+Tenant and owner Documents list (signed lease agreements, distributed inspection reports, agency-shared documents) and the authorised
+`…/documents/{document}/file` routes: `.ai/specs/rental-portal-access.md` §19.

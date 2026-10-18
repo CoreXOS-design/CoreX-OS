@@ -34,6 +34,28 @@ class AgencyFeatureGateTest extends TestCase
         parent::tearDown();
     }
 
+    /**
+     * The real registry defaults EVERY module ON (6c0083033 — "full toolkit, minus go-live switches"), so
+     * there is no real default-OFF module left to exercise the gate with. Register synthetic ones: a
+     * standalone default-off module, and a default-off child that depends on a default-off parent.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $def = fn (string $label, array $dependsOn = []) => [
+            'label' => $label, 'category' => 'Test', 'explain' => 'Test module.', 'affects' => 'Nothing.',
+            'default' => false, 'core' => false, 'depends_on' => $dependsOn,
+            'nav_permission' => [], 'sidebar_section' => null,
+            'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        ];
+        config([
+            'corex-features.zz-module' => $def('ZZ Module'),
+            'corex-features.zz-parent' => $def('ZZ Parent'),
+            'corex-features.zz-child'  => $def('ZZ Child', ['zz-parent']),
+        ]);
+    }
+
     private function svc(): AgencyFeatureService
     {
         $s = app(AgencyFeatureService::class);
@@ -72,9 +94,9 @@ class AgencyFeatureGateTest extends TestCase
     {
         $agency = $this->agency();
 
-        // presentations default ON, rentals default OFF (config/corex-features.php).
+        // presentations default ON; zz-module default OFF (injected in setUp — the real registry now defaults every module ON, 6c0083033).
         $this->assertTrue($this->svc()->enabled('presentations', $agency));
-        $this->assertFalse($this->svc()->enabled('rentals', $agency));
+        $this->assertFalse($this->svc()->enabled('zz-module', $agency));
     }
 
     // ── 2. Per-agency override ───────────────────────────────────────────────
@@ -83,10 +105,10 @@ class AgencyFeatureGateTest extends TestCase
     {
         $agency = $this->agency();
 
-        $this->override($agency, 'rentals', true);      // default off → forced on
+        $this->override($agency, 'zz-module', true);      // default off → forced on
         $this->override($agency, 'presentations', false); // default on → forced off
 
-        $this->assertTrue($this->svc()->enabled('rentals', $agency));
+        $this->assertTrue($this->svc()->enabled('zz-module', $agency));
         $this->assertFalse($this->svc()->enabled('presentations', $agency));
     }
 
@@ -108,14 +130,14 @@ class AgencyFeatureGateTest extends TestCase
     {
         $agency = $this->agency();
 
-        // leave depends_on payroll; both default OFF.
-        $this->override($agency, 'leave', true); // child forced on...
-        // ...but payroll (parent) is still off (default), so leave resolves off.
-        $this->assertFalse($this->svc()->enabled('leave', $agency), 'child off while parent off');
+        // zz-child depends_on zz-parent; both default OFF.
+        $this->override($agency, 'zz-child', true); // child forced on...
+        // ...but zz-parent is still off (default), so zz-child resolves off.
+        $this->assertFalse($this->svc()->enabled('zz-child', $agency), 'child off while parent off');
 
         // Turn the parent on → child (still on) now resolves on.
-        $this->override($agency, 'payroll', true);
-        $this->assertTrue($this->svc()->enabled('leave', $agency), 'child on once parent on');
+        $this->override($agency, 'zz-parent', true);
+        $this->assertTrue($this->svc()->enabled('zz-child', $agency), 'child on once parent on');
     }
 
     // ── 5. Global env kill-switch (outer AND) ────────────────────────────────
@@ -141,16 +163,16 @@ class AgencyFeatureGateTest extends TestCase
         $agency = $this->agency();
         $admin  = $this->admin($agency);
 
-        Route::middleware(['web', 'auth', 'feature:rentals'])
-            ->get('/__test/rentals', fn () => 'ok')->name('test.rentals');
+        Route::middleware(['web', 'auth', 'feature:zz-module'])
+            ->get('/__test/zz-module', fn () => 'ok')->name('test.zz-module');
 
-        // rentals default OFF → 404 (invisible, not 403).
-        $this->actingAs($admin)->get('/__test/rentals')->assertNotFound();
+        // zz-module default OFF → 404 (invisible, not 403).
+        $this->actingAs($admin)->get('/__test/zz-module')->assertNotFound();
 
         // Turn it on for this agency, bust the memo, retry → 200.
-        $this->override($agency, 'rentals', true);
+        $this->override($agency, 'zz-module', true);
         app(AgencyFeatureService::class)->forget();
-        $this->actingAs($admin)->get('/__test/rentals')->assertOk()->assertSee('ok');
+        $this->actingAs($admin)->get('/__test/zz-module')->assertOk()->assertSee('ok');
     }
 
     // ── 7. Multi-tenant isolation ────────────────────────────────────────────
@@ -160,10 +182,10 @@ class AgencyFeatureGateTest extends TestCase
         $a = $this->agency('Home Finders Coastal');
         $b = $this->agency('Blue Horizon Properties');
 
-        $this->override($a, 'rentals', true); // only A enables rentals
+        $this->override($a, 'zz-module', true); // only A enables rentals
 
-        $this->assertTrue($this->svc()->enabled('rentals', $a));
-        $this->assertFalse($this->svc()->enabled('rentals', $b), 'B must not see A\'s override');
+        $this->assertTrue($this->svc()->enabled('zz-module', $a));
+        $this->assertFalse($this->svc()->enabled('zz-module', $b), 'B must not see A\'s override');
     }
 
     // ── 8. Request cache — one query per agency per request ──────────────────
@@ -181,10 +203,10 @@ class AgencyFeatureGateTest extends TestCase
         });
 
         // Five reads across different keys → one query for the whole map.
-        $svc->enabled('rentals', $agency);
+        $svc->enabled('zz-module', $agency);
         $svc->enabled('presentations', $agency);
-        $svc->enabled('payroll', $agency);
-        $svc->enabled('leave', $agency);
+        $svc->enabled('zz-parent', $agency);
+        $svc->enabled('zz-child', $agency);
         $svc->all($agency);
 
         $this->assertSame(1, $count, 'the resolved map is computed once per agency per request');
@@ -227,8 +249,8 @@ class AgencyFeatureGateTest extends TestCase
         // payroll + leave both default OFF and the owner has NO agency, so without
         // the bypass they resolve false (the bug: Super Admin lost Branch Manager
         // items an agency admin could see). The owner-global bypass turns them on.
-        $this->assertTrue($this->svc()->enabled('payroll'), 'owner (no agency) sees a default-off module');
-        $this->assertTrue($this->svc()->enabled('leave'), 'owner (no agency) sees a depends_on child too');
+        $this->assertTrue($this->svc()->enabled('zz-parent'), 'owner (no agency) sees a default-off module');
+        $this->assertTrue($this->svc()->enabled('zz-child'), 'owner (no agency) sees a depends_on child too');
 
         // The typo guard still runs first — an unknown key stays false even for the owner.
         $this->assertFalse($this->svc()->enabled('totally-made-up-module'), 'owner never masks a bad key');
@@ -243,13 +265,13 @@ class AgencyFeatureGateTest extends TestCase
         // Passing an explicit agency = "show me THIS agency's real config" (the
         // switcher preview). The bypass must NOT fire — payroll is off for them.
         $this->assertFalse(
-            $this->svc()->enabled('payroll', $agency),
+            $this->svc()->enabled('zz-parent', $agency),
             'an explicit agency resolves that agency\'s true config, never bypassed'
         );
 
         // ...and once the agency turns it on, the owner sees it on — normal resolution.
-        $this->override($agency, 'payroll', true);
-        $this->assertTrue($this->svc()->enabled('payroll', $agency));
+        $this->override($agency, 'zz-parent', true);
+        $this->assertTrue($this->svc()->enabled('zz-parent', $agency));
     }
 
     public function test_non_owner_with_no_agency_gets_no_bypass(): void
@@ -264,7 +286,7 @@ class AgencyFeatureGateTest extends TestCase
         ]);
         $this->actingAs($user);
 
-        $this->assertFalse($this->svc()->enabled('payroll'), 'non-owner never bypasses feature gating');
+        $this->assertFalse($this->svc()->enabled('zz-parent'), 'non-owner never bypasses feature gating');
     }
 
     // ── 10. @feature directive + feature() helper ────────────────────────────
@@ -278,12 +300,12 @@ class AgencyFeatureGateTest extends TestCase
         // @feature is a Blade::if directive. Whitespace MUST precede each directive
         // (Blade's \B@ regex skips an @ that follows a word char), and the plain
         // @else is the generic else (@elsefeature would be an else-IF needing an arg).
-        $tpl = "@feature('rentals') ON @else OFF @endfeature";
+        $tpl = "@feature('zz-module') ON @else OFF @endfeature";
 
         app(AgencyFeatureService::class)->forget();
         $this->assertStringContainsString('OFF', Blade::render($tpl));
 
-        $this->override($agency, 'rentals', true);
+        $this->override($agency, 'zz-module', true);
         app(AgencyFeatureService::class)->forget();
         $this->assertStringContainsString('ON', Blade::render($tpl));
 
@@ -298,12 +320,12 @@ class AgencyFeatureGateTest extends TestCase
         $svc = app(AgencyFeatureService::class);
         $svc->forget();
 
-        $this->assertFalse($svc->enabled('rentals', $agency)); // caches map (rentals off)
+        $this->assertFalse($svc->enabled('zz-module', $agency)); // caches map (rentals off)
 
-        $this->override($agency, 'rentals', true);
-        event(new AgencyFeatureToggled($agency->id, 'rentals', true, null)); // listener forgets
+        $this->override($agency, 'zz-module', true);
+        event(new AgencyFeatureToggled($agency->id, 'zz-module', true, null)); // listener forgets
 
-        $this->assertTrue($svc->enabled('rentals', $agency), 'cache busted → fresh read sees the new row');
+        $this->assertTrue($svc->enabled('zz-module', $agency), 'cache busted → fresh read sees the new row');
     }
 
     // ── Phase 2: switchboard store adapter ───────────────────────────────────
@@ -346,14 +368,14 @@ class AgencyFeatureGateTest extends TestCase
         // Turn a default-off module ON and a default-on module OFF; omit others.
         $this->actingAs($admin)
             ->post(route('corex.settings.features.update'), [
-                'rentals' => '1',   // default off -> on
+                'zz-module' => '1',   // default off -> on
                 'payroll' => '0',   // present "0" -> off (explicit)
                 // (document-library omitted entirely -> left alone)
             ])
             ->assertRedirect();
 
-        $this->assertTrue($this->svc()->enabled('rentals', $agency->fresh()));
-        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'rentals', 'enabled' => true]);
+        $this->assertTrue($this->svc()->enabled('zz-module', $agency->fresh()));
+        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'zz-module', 'enabled' => true]);
         $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'payroll', 'enabled' => false]);
         // Omitted key was never written (absent => leave alone, §6.1).
         $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'document-library']);
@@ -369,13 +391,13 @@ class AgencyFeatureGateTest extends TestCase
             ->post(route('corex.settings.features.update'), [
                 'core-matches' => '0',   // switchboard — must be ignored here
                 'properties'   => '0',   // core — must be ignored
-                'rentals'      => '1',   // module — written
+                'zz-module'      => '1',   // module — written
             ])
             ->assertRedirect();
 
         $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'core-matches']);
         $this->assertDatabaseMissing('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'properties']);
-        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'rentals', 'enabled' => true]);
+        $this->assertDatabaseHas('agency_features', ['agency_id' => $agency->id, 'feature_key' => 'zz-module', 'enabled' => true]);
     }
 
     public function test_features_page_saver_requires_permission(): void
@@ -402,7 +424,7 @@ class AgencyFeatureGateTest extends TestCase
 
         // A default-OFF module feature gets an explicit ON row (deploy hides nothing).
         $this->assertDatabaseHas('agency_features', [
-            'agency_id' => $agency->id, 'feature_key' => 'rentals', 'enabled' => true,
+            'agency_id' => $agency->id, 'feature_key' => 'zz-module', 'enabled' => true,
         ]);
         // Switchboard-origin keys are skipped (owned by their existing store / Phase 2 adapter).
         $this->assertDatabaseMissing('agency_features', [
