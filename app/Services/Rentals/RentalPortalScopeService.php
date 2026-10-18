@@ -79,6 +79,27 @@ class RentalPortalScopeService
             ->all();
     }
 
+    /**
+     * The leases this tenant may still ACT on: those currently in force (status active - a month-to-month tenancy is an active lease with the
+     * month-to-month flag, so it counts). A tenant whose lease has expired or been cancelled keeps read-only access to their own past records
+     * (tenantLeaseIds above) but may no longer file fault reports or open the property's first-aid content (audit 2026-10-18 A-L2).
+     */
+    public function tenantActiveLeaseIds(Contact $contact): array
+    {
+        $ids = $this->tenantLeaseIds($contact);
+        if (! $ids) {
+            return [];
+        }
+
+        return Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->where('status', Lease::STATUS_ACTIVE)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->all();
+    }
+
     public function isTenant(Contact $contact): bool
     {
         return LeaseTenant::query()->whereIn('contact_id', $this->personContactIds($contact))->exists();
@@ -151,10 +172,19 @@ class RentalPortalScopeService
         return in_array($propertyId, $this->tenantPropertyIds($contact), true);
     }
 
-    /** One of the tenant's own live properties (via a live lease), or null — archived properties 404 too. */
+    /**
+     * One of the tenant's own live properties (via a lease still IN FORCE), or null — archived properties 404 too, and so does the property of a
+     * lease that has ended: this gates the write action (filing a fault report) and the property's first-aid content (A-L2).
+     */
     public function tenantProperty(Contact $contact, int $propertyId): ?\App\Models\Property
     {
-        if (!$this->tenantOwnsProperty($contact, $propertyId)) {
+        $active = Lease::withoutGlobalScopes()
+            ->where('agency_id', $contact->agency_id)
+            ->whereNull('deleted_at')
+            ->whereIn('id', $this->tenantActiveLeaseIds($contact))
+            ->where('property_id', $propertyId)
+            ->exists();
+        if (! $active) {
             return null;
         }
 
@@ -164,17 +194,18 @@ class RentalPortalScopeService
             ->find($propertyId);
     }
 
-    /** The tenant's own live lease on this property, for attaching a new fault report. */
+    /** The tenant's own lease IN FORCE on this property, for attaching a new fault report. */
     public function tenantLeaseIdForProperty(Contact $contact, int $propertyId): ?int
     {
         return Lease::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->where('property_id', $propertyId)
-            ->whereIn('id', $this->tenantLeaseIds($contact))
+            ->whereIn('id', $this->tenantActiveLeaseIds($contact))
             ->value('id');
     }
 
+    /** A maintenance request the OWNER raised on the lease is the owner's, not the tenant's to see (A-L3, Johan 2026-10-18): both tenant fault lookups drop it. */
     public function tenantFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
     {
         $leaseIds = $this->tenantLeaseIds($contact);
@@ -183,6 +214,7 @@ class RentalPortalScopeService
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('lease_id', $leaseIds)
+            ->where(fn ($q) => $q->whereNull('reported_by_type')->orWhere('reported_by_type', '!=', RentalFaultReport::REPORTED_BY_LANDLORD))
             ->find($faultReportId);
     }
 
@@ -192,6 +224,7 @@ class RentalPortalScopeService
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+            ->where(fn ($q) => $q->whereNull('reported_by_type')->orWhere('reported_by_type', '!=', RentalFaultReport::REPORTED_BY_LANDLORD))
             ->orderByDesc('reported_at')
             ->get();
     }

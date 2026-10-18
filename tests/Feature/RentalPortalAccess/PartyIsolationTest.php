@@ -248,4 +248,70 @@ class PartyIsolationTest extends TestCase
 
         $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->where('property_id', $propertyA->id)->count());
     }
+
+    /** Audit 2026-10-18 A-L3 (Johan): a request the OWNER raised on the lease is not the tenant's to see - by list or by id. */
+    public function test_tenant_does_not_see_maintenance_requests_the_owner_raised_on_their_lease(): void
+    {
+        $agency = $this->makeAgency('Owner Raised Agency');
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
+        $property = $this->makeProperty($agency, $agent, 'Unit O');
+        $lease = $this->makeLease($agency, $property);
+        $tenant = $this->makeContact($agency, ['first_name' => 'Tina']);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+
+        $make = fn (string $by, string $title) => RentalFaultReport::create([
+            'agency_id' => $agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id, 'lease_id' => $lease->id,
+            'reported_by_type' => $by, 'reported_channel' => RentalFaultReport::CHANNEL_APP, 'title' => $title, 'description' => $title,
+            'status' => RentalFaultReport::STATUS_REPORTED, 'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(),
+        ]);
+        $own = $make(RentalFaultReport::REPORTED_BY_TENANT, 'Tenant logged');
+        $byAgent = $make(RentalFaultReport::REPORTED_BY_AGENT_NOTICED, 'Agent logged');
+        $byOwner = $make(RentalFaultReport::REPORTED_BY_LANDLORD, 'Owner asked for work');
+
+        Sanctum::actingAs($this->clientUserFor($tenant), ['client']);
+
+        $ids = collect($this->getJson('/api/v1/client/rentals/fault-reports')->assertOk()->json('fault_reports'))->pluck('id')->all();
+        $this->assertContains($own->id, $ids);
+        $this->assertContains($byAgent->id, $ids);
+        $this->assertNotContains($byOwner->id, $ids);
+        $this->getJson('/api/v1/client/rentals/fault-reports/' . $own->id)->assertOk();
+        $this->getJson('/api/v1/client/rentals/fault-reports/' . $byAgent->id)->assertOk();
+        $this->getJson('/api/v1/client/rentals/fault-reports/' . $byOwner->id)->assertStatus(404);
+    }
+
+    /** Audit 2026-10-18 A-L2: a former tenant keeps read-only history but cannot file a fault report or open the property's first-aid content. */
+    public function test_former_tenant_cannot_file_a_fault_report_or_open_first_aid_but_still_reads_their_history(): void
+    {
+        $agency = $this->makeAgency('Former Tenant Agency');
+        $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
+        $property = $this->makeProperty($agency, $agent, 'Unit F');
+        $lease = $this->makeLease($agency, $property);
+        $tenant = $this->makeContact($agency, ['first_name' => 'Tina']);
+        LeaseTenant::create(['lease_id' => $lease->id, 'contact_id' => $tenant->id, 'is_primary' => true]);
+        $type = \App\Models\RentalFaultType::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'name' => 'Geyser', 'category' => 'Plumbing', 'urgency' => 'urgent', 'first_aid_steps' => 'Switch it off.', 'is_default' => false, 'sort_order' => 1, 'is_active' => true]);
+        $past = RentalFaultReport::create([
+            'agency_id' => $agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id, 'lease_id' => $lease->id,
+            'reported_by_type' => RentalFaultReport::REPORTED_BY_TENANT, 'reported_by_contact_id' => $tenant->id, 'reported_channel' => RentalFaultReport::CHANNEL_APP,
+            'title' => 'Old leak', 'description' => 'leak', 'status' => RentalFaultReport::STATUS_REPORTED,
+            'owner_approval_status' => RentalFaultReport::APPROVAL_NOT_REQUIRED, 'reported_at' => now(),
+        ]);
+
+        Sanctum::actingAs($this->clientUserFor($tenant), ['client']);
+        $url = '/api/v1/client/rentals/properties/' . $property->id;
+        $body = ['rental_fault_type_id' => $type->id, 'resolution' => 'still_a_problem', 'title' => 'Burst pipe', 'description' => 'wet'];
+
+        // while the lease is in force (active, month-to-month included) both work
+        $this->getJson($url . '/fault-types')->assertOk();
+        $this->postJson($url . '/fault-reports', $body)->assertStatus(201);
+
+        // the lease ends: the write action and the property-specific content are gone, the history is not
+        $lease->forceFill(['status' => Lease::STATUS_EXPIRED])->save();
+        $before = RentalFaultReport::withoutGlobalScopes()->where('property_id', $property->id)->count();
+        $this->getJson($url . '/fault-types')->assertStatus(404);
+        $this->postJson($url . '/fault-reports', ['title' => 'Another burst pipe'] + $body)->assertStatus(404);   // a different body: an identical one would be replayed by the duplicate-submit guard
+        $this->assertSame($before, RentalFaultReport::withoutGlobalScopes()->where('property_id', $property->id)->count(), 'nothing was filed');
+        $this->getJson('/api/v1/client/rentals/fault-reports/' . $past->id)->assertOk();
+        $this->assertContains($past->id, collect($this->getJson('/api/v1/client/rentals/fault-reports')->json('fault_reports'))->pluck('id')->all());
+        $this->getJson('/api/v1/client/rentals/leases/' . $lease->id)->assertOk();
+    }
 }
