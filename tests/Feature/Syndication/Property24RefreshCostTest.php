@@ -82,11 +82,18 @@ class Property24RefreshCostTest extends TestCase
             'agent_id'  => $agent->id,
             'p24_ref'   => '117411168',
             'p24_syndication_status' => 'active',
+            // A live listing is already on the map; without coordinates the submit path geocodes it (a Google call,
+            // counted by Http::assertSentCount) - not a P24 cost, and not what this contract measures.
+            'latitude'  => -30.8600000,
+            'longitude' => 30.3700000,
         ]);
 
         // Fingerprint the CURRENT gallery + agent profile as "what P24 already
         // holds" — i.e. the state immediately after a successful sync.
         $property->forceFill(['p24_image_signature' => $property->p24ImageSignature()])->saveQuietly();
+        // Fingerprint the agent as the service sees it: re-read from the database (a factory model in memory lacks
+        // DB defaults such as is_active, which would make the fingerprint differ and force a profile push).
+        $agent = $agent->fresh();
         $agent->forceFill(['p24_profile_signature' => $this->profileSignature($agent)])->saveQuietly();
 
         return $property->fresh();
@@ -209,6 +216,10 @@ class Property24RefreshCostTest extends TestCase
             'price'         => 1500000,
             'suburb'        => 'Margate',
             'address'       => '1 Test Road',
+            // Already split, as on a real saved listing - otherwise the first save derives them, which counts as an
+            // address change and geocodes (a Google call this contract does not measure).
+            'street_number' => '1',
+            'street_name'   => 'Test Road',
             'description'   => 'A well-kept family home a short walk from the beach.',
             'p24_suburb_id' => $this->verifiedP24SuburbId(),
         ], $attrs)));
