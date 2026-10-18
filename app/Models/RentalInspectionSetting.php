@@ -479,6 +479,8 @@ class RentalInspectionSetting extends Model
         'notify_inspector_enabled',
         'notify_via_mail_enabled',
         'notify_via_whatsapp_enabled',
+        'remind_tenant_by_email',
+        'remind_landlord_by_email',
         'minimum_notice_days',
         'reminder_days_before',
         // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates.
@@ -522,6 +524,8 @@ class RentalInspectionSetting extends Model
         'notify_inspector_enabled' => 'boolean',
         'notify_via_mail_enabled' => 'boolean',
         'notify_via_whatsapp_enabled' => 'boolean',
+        'remind_tenant_by_email' => 'boolean',
+        'remind_landlord_by_email' => 'boolean',
         'minimum_notice_days' => 'integer',
         'reminder_days_before' => 'integer',
         'planned_date_lead_days' => 'integer',
@@ -1706,17 +1710,18 @@ class RentalInspectionSetting extends Model
      * .ai/specs/rental-inspections.md §43 — which parties are notified on
      * schedule/reschedule/cancel, which channel(s), the minimum notice an
      * agent should give (warns, never blocks — enforced by the controller,
-     * not here), and whether/when a reminder fires. The inspector and the mail
-     * channel default ON; WhatsApp defaults OFF (see
-     * RentalInspectionNotificationService's own docblock for why that channel
-     * is logged as queued rather than actually sent).
+     * not here), and whether/when a reminder fires. All default ON except
+     * WhatsApp (see RentalInspectionNotificationService's own docblock for
+     * why that channel is logged as queued rather than actually sent).
      *
-     * 2026-10-18 (Johan, release audit C-F2) — tenants and landlords are OUTSIDE people: they are emailed
-     * only once the agency has switched it on (Settings > Rental Inspections, or the Setup Wizard). A column
-     * that is null (never saved) resolves to OFF; an agency that saved a value keeps exactly what it saved.
+     * 2026-10-18 (Johan, release audit C-F2) — the day-before REMINDER to a tenant / landlord is the exception: it
+     * is opt-in through its own two switches (remind_tenant_by_email / remind_landlord_by_email, default OFF when
+     * never saved), separate from the scheduled / rescheduled / cancelled notices above.
      */
-    public const DEFAULT_NOTIFY_TENANT_ENABLED = false;
-    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = false;
+    public const DEFAULT_NOTIFY_TENANT_ENABLED = true;
+    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = true;
+    public const DEFAULT_REMIND_TENANT_BY_EMAIL = false;
+    public const DEFAULT_REMIND_LANDLORD_BY_EMAIL = false;
     public const DEFAULT_NOTIFY_INSPECTOR_ENABLED = true;
     public const DEFAULT_NOTIFY_VIA_MAIL_ENABLED = true;
     public const DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED = false;
@@ -1771,6 +1776,28 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('notify_via_whatsapp_enabled');
 
         return $value !== null ? (bool) $value : self::DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED;
+    }
+
+    /** C-F2 - the day-before reminder to the tenant(s). Opt-in: a never-saved value is OFF. */
+    public static function remindTenantByEmailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMIND_TENANT_BY_EMAIL;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('remind_tenant_by_email');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REMIND_TENANT_BY_EMAIL;
+    }
+
+    /** C-F2 - the day-before reminder to the landlord. Opt-in: a never-saved value is OFF. */
+    public static function remindLandlordByEmailFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_REMIND_LANDLORD_BY_EMAIL;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('remind_landlord_by_email');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_REMIND_LANDLORD_BY_EMAIL;
     }
 
     public static function minimumNoticeDaysFor(?int $agencyId): int

@@ -67,7 +67,7 @@ class RentalInspectionNotificationService
     {
         $agencyId = $inspection->agency_id;
 
-        foreach ($this->recipientsFor($inspection, $agencyId) as $recipient) {
+        foreach ($this->recipientsFor($inspection, $agencyId, $event) as $recipient) {
             if (RentalInspectionSetting::notifyViaMailFor($agencyId) && $recipient['email']) {
                 $this->sendMail($inspection, $recipient, $eventLabel, $reason);
             } elseif (RentalInspectionSetting::notifyViaMailFor($agencyId) && ! $recipient['email']) {
@@ -85,17 +85,23 @@ class RentalInspectionNotificationService
     /**
      * @return array<int, array{role:string, name:string, email:?string, phone:?string, contact_id:?int, user_id:?int}>
      */
-    private function recipientsFor(RentalInspection $inspection, ?int $agencyId): array
+    private function recipientsFor(RentalInspection $inspection, ?int $agencyId, string $event = ''): array
     {
         $recipients = [];
 
-        if (RentalInspectionSetting::notifyTenantFor($agencyId)) {
+        // C-F2 (Johan, 2026-10-18): the day-before REMINDER to a tenant / landlord has its own opt-in switch (default OFF);
+        // the scheduled / rescheduled / cancelled notices keep notify_tenant_enabled / notify_landlord_enabled.
+        $isReminder = $event === RentalInspectionNotification::EVENT_REMINDER;
+        $tellTenant = $isReminder ? RentalInspectionSetting::remindTenantByEmailFor($agencyId) : RentalInspectionSetting::notifyTenantFor($agencyId);
+        $tellLandlord = $isReminder ? RentalInspectionSetting::remindLandlordByEmailFor($agencyId) : RentalInspectionSetting::notifyLandlordFor($agencyId);
+
+        if ($tellTenant) {
             foreach ($this->tenantContacts($inspection) as $contact) {
                 $recipients[] = $this->contactRecipient(RentalInspectionNotification::PARTY_TENANT, $contact);
             }
         }
 
-        if (RentalInspectionSetting::notifyLandlordFor($agencyId)) {
+        if ($tellLandlord) {
             // Johan's instruction, verbatim: the SAME resolution
             // Lease::landlordContacts() uses — never a tenant fallback —
             // but NOT that method's own call, for a reason specific to this

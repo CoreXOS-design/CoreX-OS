@@ -745,14 +745,14 @@ return [
             // All seven on the SAME saver (updateScheduleNotifications) —
             // see that method's own docblock for why none of them is
             // force-defaulted when this step is the one being saved.
-            ['key' => 'notify_tenant_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+            ['key' => 'notify_tenant_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
              'label' => 'Notify the tenant(s) when an inspection is scheduled, rescheduled or cancelled',
              'explain' => 'Whether the tenant(s) on the lease are told when an inspection affecting their tenancy is booked, moved, or called off.',
-             'affects' => 'Whether a tenant ever hears about an inspection (booking, change, cancellation and the reminder) before the agent arrives. Off until you turn it on - tenants are never emailed by surprise.'],
-            ['key' => 'notify_landlord_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'affects' => 'Whether a tenant ever hears about an inspection before the agent arrives. On by default.'],
+            ['key' => 'notify_landlord_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
              'label' => 'Notify the landlord when an inspection is scheduled, rescheduled or cancelled',
              'explain' => 'Whether the property\'s landlord (resolved the same way the rest of CoreX resolves a landlord — never a guess at "the only contact on file") is told when an inspection is booked, moved, or called off.',
-             'affects' => 'Whether a landlord ever hears about an inspection (booking, change, cancellation and the reminder) before it happens. Off until you turn it on - landlords are never emailed by surprise.'],
+             'affects' => 'Whether a landlord ever hears about an inspection before it happens. On by default.'],
             ['key' => 'notify_inspector_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
              'label' => 'Notify the inspector when an inspection is scheduled, rescheduled or cancelled',
              'explain' => 'Whether the agent actually booked to do the inspection (who may not be whoever booked it) is sent their own notification.',
@@ -769,9 +769,17 @@ return [
              'label' => 'Usual notice period for booking an inspection (days)',
              'explain' => 'How much advance notice an inspection would normally be booked with.',
              'affects' => 'An agent booking inside this window still succeeds — they just see a flag that it\'s shorter notice than usual. Never blocks. 1 day suits most agencies.'],
+            ['key' => 'remind_tenant_by_email', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Also email the tenant(s) the day-before reminder',
+             'explain' => 'The reminder (sent the number of days before the inspection set below) always goes to the inspector. This also sends it to the tenant(s) on the lease. The booking, change and cancellation notices above are separate and are not affected.',
+             'affects' => 'Whether a tenant gets a reminder email shortly before the inspector arrives. Off until you turn it on - tenants are never reminded by surprise.'],
+            ['key' => 'remind_landlord_by_email', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Also email the landlord the day-before reminder',
+             'explain' => 'Same as the tenant reminder, for the property\'s landlord. The booking, change and cancellation notices above are separate and are not affected.',
+             'affects' => 'Whether a landlord gets a reminder email shortly before the inspection. Off until you turn it on - landlords are never reminded by surprise.'],
             ['key' => 'reminder_days_before', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 1, 'min' => 0, 'max' => 30,
              'label' => 'Send a reminder this many days before a scheduled inspection',
-             'explain' => 'A reminder notification, sent through the same parties/channels configured above, this many days before the booked date.',
+             'explain' => 'A reminder notification this many days before the booked date. It always goes to the inspector; tenants and landlords get it only if you tick their reminder boxes above.',
              'affects' => 'Whether anyone is reminded ahead of the inspection, and how far ahead. 0 turns the reminder off entirely. 1 day suits most agencies.'],
             // §45.7 (Build I-5) — due dates and the agency's own loaded interim dates. All three on ONE narrow saver
             // (RentalInspectionSettingsController::updateDueDates, registered above) — every field has()/filled()-guarded.

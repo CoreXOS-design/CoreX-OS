@@ -827,6 +827,8 @@ class AgencySetupWizardController extends Controller
                     'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),
                     'notify_landlord_enabled' => \App\Models\RentalInspectionSetting::notifyLandlordFor($agency->id),
                     'notify_inspector_enabled' => \App\Models\RentalInspectionSetting::notifyInspectorFor($agency->id),
+                    'remind_tenant_by_email' => \App\Models\RentalInspectionSetting::remindTenantByEmailFor($agency->id),
+                    'remind_landlord_by_email' => \App\Models\RentalInspectionSetting::remindLandlordByEmailFor($agency->id),
                     'notify_via_mail_enabled' => \App\Models\RentalInspectionSetting::notifyViaMailFor($agency->id),
                     'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
                     'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),

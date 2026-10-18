@@ -117,6 +117,8 @@ class RentalInspectionSettingsController extends Controller
             'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
             'notifyLandlordEnabled' => RentalInspectionSetting::notifyLandlordFor($agencyId),
             'notifyInspectorEnabled' => RentalInspectionSetting::notifyInspectorFor($agencyId),
+            'remindTenantByEmail' => RentalInspectionSetting::remindTenantByEmailFor($agencyId),
+            'remindLandlordByEmail' => RentalInspectionSetting::remindLandlordByEmailFor($agencyId),
             'notifyViaMailEnabled' => RentalInspectionSetting::notifyViaMailFor($agencyId),
             'notifyViaWhatsappEnabled' => RentalInspectionSetting::notifyViaWhatsappFor($agencyId),
             'minimumNoticeDays' => RentalInspectionSetting::minimumNoticeDaysFor($agencyId),
@@ -720,6 +722,7 @@ class RentalInspectionSettingsController extends Controller
         foreach ([
             'notify_tenant_enabled', 'notify_landlord_enabled', 'notify_inspector_enabled',
             'notify_via_mail_enabled', 'notify_via_whatsapp_enabled',
+            'remind_tenant_by_email', 'remind_landlord_by_email',
         ] as $field) {
             if ($request->has($field)) {
                 $attributes[$field] = $request->boolean($field);
