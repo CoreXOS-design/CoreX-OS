@@ -5048,3 +5048,12 @@ Johan: *"neither. if a tenant reports before agent closes it fine. but agent can
 - **P4 - buttons and appointment fit the stage.** Before work starts the green button is *The work has started*; *The work is finished* is plain until then. The appointment box (and "Change the appointment") is offered only before the work has started; once it has, it disappears (`owner_work_started`).
 Tests: `RentalMaintenanceFlow/TenantCheckNeverBlocksClosingTest.php`, `OwnerCardPolishTest.php`; older tests that asserted the holding stage / window / auto-reopen were updated (see the 9 Oct report).
 
+
+---
+
+## Audit fix 2026-10-18 — VAT types and job-card money basis
+
+- **Archived VAT types keep pricing.** A job-card line's VAT type (and a catalogue item's default VAT type) now resolves including archived types, so archiving a type can never drop an open line to 0% VAT.
+- **Archive guard.** A VAT type cannot be archived while it is the agency's default, or while any open job card (not completed/cancelled, no quote sent yet) still has a live line on it. The message says how many open job cards use it. Quoted/completed cards carry their own VAT snapshot and do not block.
+- **Report "Selling"** (job-card report) is on the same excl-VAT basis as Cost and Margin.
+- **Margin on a frozen card** reads the line's frozen `vat_excl_snapshot`, not the agency's live VAT registration.

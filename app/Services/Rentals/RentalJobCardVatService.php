@@ -60,7 +60,7 @@ class RentalJobCardVatService
             return ['rate' => null, 'label' => null, 'excl' => null, 'vat' => null, 'incl' => null];
         }
 
-        $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
+        $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::withTrashed()->find($line->rental_vat_type_id)) : null;
         $rate = $this->rateFor($type, $line->custom_vat_rate);
         $label = $type?->name ?? 'No VAT';
 
@@ -77,7 +77,7 @@ class RentalJobCardVatService
      */
     public function effectiveTypeLabel(RentalJobCardLine $line): string
     {
-        $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
+        $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::withTrashed()->find($line->rental_vat_type_id)) : null;
 
         return $type ? $type->shortLabel() : 'None';
     }
@@ -115,7 +115,7 @@ class RentalJobCardVatService
             return ['rate' => null, 'label' => null, 'excl' => $excl, 'vat' => null, 'incl' => $excl];
         }
 
-        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::withTrashed()->find($item->default_rental_vat_type_id)) : null;
         $rate = $this->rateFor($type, $item->default_custom_vat_rate);
         $vat = round($excl * $rate / 100, 2);
 
@@ -144,7 +144,7 @@ class RentalJobCardVatService
             return $excl;
         }
 
-        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::withTrashed()->find($item->default_rental_vat_type_id)) : null;
         $rate = $this->rateFor($type, $item->default_custom_vat_rate);
 
         return round($excl * (1 + $rate / 100), 2);
@@ -364,7 +364,7 @@ class RentalJobCardVatService
             return $excl;
         }
 
-        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::withTrashed()->find($item->default_rental_vat_type_id)) : null;
         $rate = $this->rateFor($type, $item->default_custom_vat_rate);
 
         return round($excl * (1 + $rate / 100), 2);
@@ -397,7 +397,7 @@ class RentalJobCardVatService
             $rate = (float) $line->vat_rate_snapshot;
             $label = $line->vat_type_name_snapshot;
         } else {
-            $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::find($line->rental_vat_type_id)) : null;
+            $type = $line->rental_vat_type_id ? ($line->vatType ?? RentalVatType::withTrashed()->find($line->rental_vat_type_id)) : null;
             $rate = $this->rateFor($type, $line->custom_vat_rate);
             $label = $type?->name ?? 'No VAT';
         }

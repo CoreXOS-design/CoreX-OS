@@ -572,7 +572,10 @@ class RentalReportService
         $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
         $costVat = $canViewCosts ? ($vatService ?? app(RentalJobCardVatService::class)) : null;
 
-        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat) {
+        $sellingPricing = $pricing ?? app(RentalPricingService::class);
+        $sellingExcl = fn (RentalJobCard $c): float => $sellingPricing->marginFor($c)['sellingExcl'];
+
+        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat, $sellingExcl) {
             // §17.4.6 — a crew's pending line is not work done and not money: ACCEPTED lines only.
             $lines = $c->lines->filter(fn ($l) => $l->isAccepted());
             $labourHours = (float) $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
@@ -593,7 +596,9 @@ class RentalReportService
                 // layer renders it blank rather than "R 0.00".
                 // §17.17 — this is SELLING (what the owner is charged), formerly mislabelled "Total cost". The agency's own cost is
                 // `total_cost` below, view_costs only.
-                'total_selling' => $c->total_amount !== null ? (float) $c->total_amount : null,
+                // Audit D-L4: on the SAME basis as Cost and Margin — excl VAT — never the raw capture-mode total_amount (which is
+                // incl VAT for an agency that captures incl). Null when the card has no price at all.
+                'total_selling' => $c->total_amount !== null ? $sellingExcl($c) : null,
             ];
 
             if ($canViewCosts) {
