@@ -113,8 +113,12 @@ final class RentalInventoryPublicLinkLifecycleTest extends TestCase
 
     private function postAcceptance(string $token, Contact $buyer)
     {
+        // Audit A-M5 — the buyer is identified by the per-buyer token the agent's email carries, not by a body field.
+        // A dead link has no token (-> 404 either way), so a placeholder stands in for it.
+        $buyerToken = RentalInventory::findByPublicToken($token)?->buyerAcceptanceTokenFor($buyer) ?? ($buyer->id . '.' . str_repeat('0', 64));
+
         return $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $token), [
-            'buyer_contact_id' => $buyer->id,
+            'buyer_token' => $buyerToken,
             'disposition' => 'signed',
             'signature_image' => 'data:image/png;base64,' . base64_encode('fake-image-bytes'),
         ]);

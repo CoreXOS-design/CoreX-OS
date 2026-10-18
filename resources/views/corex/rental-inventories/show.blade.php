@@ -476,7 +476,7 @@
                     @if($acceptance->party_signature_path)
                         <div class="mt-1"><img src="{{ $acceptance->party_signature_path }}" alt="Buyer signature" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></div>
                     @elseif($acceptance->wet_ink_upload_path)
-                        <div class="mt-1"><a href="{{ $acceptance->wet_ink_upload_path }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan</a></div>
+                        <div class="mt-1"><a href="{{ $acceptance->wetInkFileUrl() }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan</a></div>
                     @endif
                 </div>
             </div>

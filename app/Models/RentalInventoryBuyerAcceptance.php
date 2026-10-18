@@ -66,25 +66,7 @@ class RentalInventoryBuyerAcceptance extends Model
      */
     public static function capture(RentalInventory $inventory, Contact $buyer, string $disposition, array $attributes = []): self
     {
-        if (! $inventory->buyerAcceptanceOfferedFor()) {
-            throw new \LogicException('Buyer acceptance is not offered on this inventory — it requires a completed sale-property inventory with a committed (accepted-offer) deal.');
-        }
-
-        $isEligibleBuyer = $inventory->eligibleBuyerContacts()->contains(fn (Contact $c) => (int) $c->id === (int) $buyer->id);
-        if (! $isEligibleBuyer) {
-            throw new \InvalidArgumentException('This contact is not a buyer on the property\'s current committed deal.');
-        }
-
-        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
-            throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
-        }
-
-        $alreadyAccepted = $inventory->buyerAcceptances()
-            ->where('buyer_contact_id', $buyer->id)
-            ->exists();
-        if ($alreadyAccepted) {
-            throw new \LogicException('This buyer has already recorded their acceptance of this inventory.');
-        }
+        self::assertCanCapture($inventory, $buyer, $disposition);
 
         if ($disposition === self::DISPOSITION_SIGNED) {
             if (empty($attributes['party_signature_path'])) {
@@ -107,6 +89,36 @@ class RentalInventoryBuyerAcceptance extends Model
         ]));
     }
 
+    /**
+     * The eligibility checks capture() enforces, callable on their own so the
+     * public route can refuse BEFORE it writes any uploaded file (audit
+     * A-H1: a rejected attempt used to leave its file on disk).
+     *
+     * @throws \LogicException|\InvalidArgumentException
+     */
+    public static function assertCanCapture(RentalInventory $inventory, Contact $buyer, string $disposition): void
+    {
+        if (! $inventory->buyerAcceptanceOfferedFor()) {
+            throw new \LogicException('Buyer acceptance is not offered on this inventory — it requires a completed sale-property inventory with a committed (accepted-offer) deal.');
+        }
+
+        $isEligibleBuyer = $inventory->eligibleBuyerContacts()->contains(fn (Contact $c) => (int) $c->id === (int) $buyer->id);
+        if (! $isEligibleBuyer) {
+            throw new \InvalidArgumentException('This contact is not a buyer on the property\'s current committed deal.');
+        }
+
+        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
+            throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
+        }
+
+        $alreadyAccepted = $inventory->buyerAcceptances()
+            ->where('buyer_contact_id', $buyer->id)
+            ->exists();
+        if ($alreadyAccepted) {
+            throw new \LogicException('This buyer has already recorded their acceptance of this inventory.');
+        }
+    }
+
     /** Same canvas-capture storage pattern as RentalInventorySignature::storeCanvasImage(), own folder. */
     public static function storeCanvasImage(string $base64, int $propertyId): string
     {
@@ -119,12 +131,98 @@ class RentalInventoryBuyerAcceptance extends Model
         return \Illuminate\Support\Facades\Storage::url($path);
     }
 
-    /** Same real-file storage pattern as RentalInventorySignature::storeWetInkUpload(), own folder. */
+    /** Audit A-H1 — wet-ink scans are stored on the PRIVATE disk and referenced as "private:<disk path>"; legacy rows hold a public "/storage/..." URL. */
+    public const PRIVATE_PREFIX = 'private:';
+
+    /** Content-sniffed MIME -> the ONLY extension we ever write (the client's filename/extension is never used). */
+    private const WET_INK_EXTENSIONS = [
+        'application/pdf' => 'pdf',
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/heic' => 'heic',
+        'image/heif' => 'heic',
+    ];
+
+    /**
+     * Audit A-H1 (2026-10-18) — this is reached by an unauthenticated
+     * visitor, so the file used to land on the public disk under the
+     * browser-supplied extension (a PNG-header file named x.html was then
+     * served by nginx as HTML on our own domain). Now: private disk,
+     * server-generated name, extension from the sniffed MIME via a fixed
+     * allow-list, served only through fileResponse() behind an
+     * own/branch-checked agent route. Same shape as
+     * RentalInspectionSignature::storeWetInkUpload().
+     *
+     * @throws \InvalidArgumentException when the file type is not allowed
+     */
     public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
     {
-        $filename = uniqid('wetink_', true) . '.' . ($file->getClientOriginalExtension() ?: $file->extension());
-        $path = $file->storeAs("properties/{$propertyId}/rental-inventory-buyer-acceptances", $filename, 'public');
+        $extension = self::WET_INK_EXTENSIONS[strtolower((string) $file->getMimeType())] ?? null;
+        if ($extension === null) {
+            throw new \InvalidArgumentException('The uploaded page must be a PDF, JPG, PNG or HEIC file.');
+        }
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+        $filename = 'wetink_' . bin2hex(random_bytes(16)) . '.' . $extension;
+        $path = $file->storeAs("rental-inventory-buyer-acceptances/{$propertyId}", $filename, 'local');
+        if ($path === false) {
+            throw new \LogicException('The uploaded page could not be stored.');
+        }
+
+        return self::PRIVATE_PREFIX . $path;
+    }
+
+    /** Remove a just-stored private scan again (used when the acceptance it was uploaded for is then refused). */
+    public static function discardStoredWetInk(?string $stored): void
+    {
+        if ($stored && str_starts_with($stored, self::PRIVATE_PREFIX)) {
+            \Illuminate\Support\Facades\Storage::disk('local')->delete(substr($stored, strlen(self::PRIVATE_PREFIX)));
+        }
+    }
+
+    /** The URL the agent's inventory page links for the wet-ink scan: the checked route for a private file, the stored URL as-is for a legacy public one. */
+    public function wetInkFileUrl(): ?string
+    {
+        $stored = $this->wet_ink_upload_path;
+        if (! $stored) {
+            return null;
+        }
+        if (! str_starts_with($stored, self::PRIVATE_PREFIX)) {
+            return $stored;
+        }
+
+        return route('corex.rental-inventories.buyer-acceptances.wet-ink-file', [
+            'rentalInventory' => $this->rental_inventory_id,
+            'acceptance' => $this->id,
+        ]);
+    }
+
+    /**
+     * Stream the wet-ink scan. Only image/PDF types are ever served inline,
+     * with nosniff + a sandboxing CSP — exactly RentalInspectionSignature::
+     * fileResponse(), so an old public-era upload with a hostile payload
+     * cannot execute as a page either.
+     */
+    public function wetInkFileResponse(): \Symfony\Component\HttpFoundation\Response
+    {
+        $read = RentalInspectionSignature::readStored($this->wet_ink_upload_path);
+        abort_if($read === null, 404);
+
+        [$bytes, $mime] = $read;
+        abort_unless(in_array($mime, ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'application/pdf'], true), 404);
+
+        $headers = [
+            'Content-Type' => $mime,
+            'Content-Disposition' => 'inline',
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store',
+            'Referrer-Policy' => 'no-referrer',
+        ];
+        // A PDF must NOT get the sandbox CSP (Chrome's PDF viewer will not render inside it); an
+        // application/pdf body with nosniff cannot execute as a page.
+        if ($mime !== 'application/pdf') {
+            $headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
+        }
+
+        return response($bytes, 200, $headers);
     }
 }

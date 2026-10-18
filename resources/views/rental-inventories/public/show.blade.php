@@ -168,7 +168,7 @@
              touches the completed inventory above; a separate record
              entirely (RentalInventoryBuyerAcceptance). --}}
         @if($outstandingBuyers->isNotEmpty())
-            <div id="buyer-acceptance" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6" x-data="buyerAcceptanceSigning({{ Js::from($inventory->public_token) }})">
+            <div id="buyer-acceptance" class="bg-white rounded-2xl shadow-sm border border-slate-200 p-6" x-data="buyerAcceptanceSigning({{ Js::from($inventory->public_token) }}, {{ Js::from($buyerToken) }})">
                 <h2 class="text-sm font-bold uppercase tracking-wide text-slate-600 mb-3">Buyer acceptance</h2>
                 <p class="text-sm text-slate-500 mb-3">Please review the inventory above, then sign below to confirm you accept it as part of the sale.</p>
                 @foreach($outstandingBuyers as $buyer)
@@ -208,7 +208,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/signature_pad@4.1.7/dist/signature_pad.umd.min.js"></script>
     <script>
-    function buyerAcceptanceSigning(token) {
+    function buyerAcceptanceSigning(token, buyerToken) {
         return {
             csrf: document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
             activeSigningKey: null,
@@ -237,7 +237,7 @@
             async saveWetInk(buyerId) {
                 if (!this.wetInkFile) return;
                 const form = new FormData();
-                form.append('buyer_contact_id', buyerId);
+                form.append('buyer_token', buyerToken);
                 form.append('disposition', 'wet_ink');
                 form.append('wet_ink_file', this.wetInkFile);
                 await this.submitForm(buyerId, form);
@@ -248,7 +248,7 @@
                     const res = await fetch(`/rental-inventory-report/${token}/buyer-acceptance`, {
                         method: 'POST',
                         headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ buyer_contact_id: buyerId, ...extra }),
+                        body: JSON.stringify({ buyer_token: buyerToken, ...extra }),
                     });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) { throw new Error(data.message || 'Something went wrong.'); }

@@ -57,6 +57,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
 
         $this->documentTypeId('inventory_list', 'Inventory List');
         Storage::fake('public');
+        Storage::fake('local');
         Mail::fake();
         // Outside production the distribution service suppresses every send unless a redirect address
         // is configured (see SignedDocumentDistributionService) — set one so the agent "send" path runs.
@@ -214,7 +215,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         \Illuminate\Support\Facades\Auth::logout();
 
         $response = $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->fresh()->public_token), [
-            'buyer_contact_id' => $buyer->id,
+            'buyer_token' => $inventory->fresh()->buyerAcceptanceTokenFor($buyer),
             'disposition' => 'signed',
             'signature_image' => 'data:image/png;base64,' . base64_encode('fake-image-bytes'),
         ]);
@@ -238,7 +239,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         \Illuminate\Support\Facades\Auth::logout();
 
         $response = $this->post(route('rental-inventories.public.buyer-acceptance.store', $inventory->fresh()->public_token), [
-            'buyer_contact_id' => $buyer->id,
+            'buyer_token' => $inventory->fresh()->buyerAcceptanceTokenFor($buyer),
             'disposition' => 'wet_ink',
             'wet_ink_file' => UploadedFile::fake()->create('acceptance.pdf', 100, 'application/pdf'),
         ], ['Accept' => 'application/json']);
@@ -247,6 +248,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         $acceptance = RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->first();
         self::assertSame('wet_ink', $acceptance->disposition);
         self::assertNotNull($acceptance->wet_ink_upload_path);
+        self::assertStringStartsWith('private:', $acceptance->wet_ink_upload_path, 'the scan must be stored on the private disk');
     }
 
     public function test_public_endpoint_refuses_an_invalid_token(): void
@@ -254,7 +256,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         \Illuminate\Support\Facades\Auth::logout();
 
         $this->postJson(route('rental-inventories.public.buyer-acceptance.store', 'not-a-real-token'), [
-            'buyer_contact_id' => 1,
+            'buyer_token' => '1.' . str_repeat('a', 64),
             'disposition' => 'signed',
             'signature_image' => 'data:image/png;base64,' . base64_encode('x'),
         ])->assertStatus(404);
@@ -288,5 +290,234 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         $this->postJson(route('corex.rental-inventories.buyer-acceptances.send', [$inventory, $randomContact]))
             ->assertStatus(409);
         Mail::assertNothingSent();
+    }
+
+    // ── Audit fixes 2026-10-18 (A-H1, A-H2, A-M3, A-M4, A-M5) ────────────
+
+    /** A completed sale inventory with one committed buyer, a live public link, and a second user who can see only their own records. */
+    private function sharedLinkFixture(): array
+    {
+        [$property, $inventory] = $this->completedSaleInventory();
+        $buyer = Contact::create([
+            'agency_id' => $this->agency->id, 'first_name' => 'Tok', 'last_name' => 'Buyer',
+            'email' => 'ba-tok-' . uniqid() . '@example.test', 'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->grantDeal($property, $buyer);
+        $inventory = $inventory->fresh(['property']);
+        $inventory->generatePublicLink();
+
+        return [$property, $inventory->fresh(['property']), $buyer];
+    }
+
+    private function colleague(): User
+    {
+        // Same agency AND branch, default agent role = own scope: cannot see $this->agent's inventory.
+        return User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+    }
+
+    public function test_the_shared_link_alone_cannot_record_a_buyer_acceptance(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+        $url = route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token);
+        $sig = 'data:image/png;base64,' . base64_encode('x');
+
+        // The old way: buyer id in the body, shared token only.
+        $this->postJson($url, ['buyer_contact_id' => $buyer->id, 'disposition' => 'signed', 'signature_image' => $sig])->assertStatus(404);
+        // A forged buyer token (right shape, wrong HMAC).
+        $this->postJson($url, ['buyer_token' => $buyer->id . '.' . str_repeat('0', 64), 'disposition' => 'signed', 'signature_image' => $sig])->assertStatus(404);
+
+        self::assertSame(0, RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->count());
+    }
+
+    public function test_the_buyer_comes_from_the_token_not_the_request_body(): void
+    {
+        [$property, $inventory, $buyer] = $this->sharedLinkFixture();
+        $other = Contact::create([
+            'agency_id' => $this->agency->id, 'first_name' => 'Other', 'last_name' => 'Buyer',
+            'email' => 'ba-other-' . uniqid() . '@example.test', 'created_by_user_id' => $this->agent->id,
+        ]);
+        Deal::query()->where('property_id', $property->id)->first()->contacts()->attach($other->id, ['role' => 'buyer']);
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'buyer_contact_id' => $other->id, // ignored
+            'disposition' => 'signed',
+            'signature_image' => 'data:image/png;base64,' . base64_encode('x'),
+        ])->assertStatus(201);
+
+        self::assertSame([$buyer->id], RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->pluck('buyer_contact_id')->map(fn ($i) => (int) $i)->all());
+    }
+
+    public function test_failure_responses_do_not_reveal_which_contact_ids_exist(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+        $url = route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token);
+        $payload = fn (string $tok) => ['buyer_token' => $tok, 'disposition' => 'signed', 'signature_image' => 'data:image/png;base64,' . base64_encode('x')];
+
+        $realId = $this->postJson($url, $payload($buyer->id . '.' . str_repeat('1', 64)));
+        $missingId = $this->postJson($url, $payload('99999999.' . str_repeat('1', 64)));
+
+        self::assertSame($realId->getStatusCode(), $missingId->getStatusCode());
+        self::assertSame($realId->getContent(), $missingId->getContent());
+    }
+
+    public function test_a_buyer_token_stops_working_when_the_public_link_is_regenerated(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        $oldToken = $inventory->buyerAcceptanceTokenFor($buyer);
+        $inventory->generatePublicLink();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->fresh()->public_token), [
+            'buyer_token' => $oldToken, 'disposition' => 'signed', 'signature_image' => 'data:image/png;base64,' . base64_encode('x'),
+        ])->assertStatus(404);
+    }
+
+    public function test_the_public_page_shows_a_signing_block_only_for_the_buyer_whose_personal_link_it_is(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->get(route('rental-inventories.public.show', $inventory->public_token))
+            ->assertOk()->assertDontSee('id="buyer-acceptance"', false);
+
+        $this->get($inventory->buyerAcceptanceUrlFor($buyer))
+            ->assertOk()->assertSee('id="buyer-acceptance"', false)->assertSee('Tok Buyer');
+
+        $this->get(route('rental-inventories.public.show', ['token' => $inventory->public_token, 'buyer' => '1.' . str_repeat('f', 64)]))
+            ->assertOk()->assertDontSee('id="buyer-acceptance"', false);
+    }
+
+    public function test_the_emailed_link_is_the_buyers_personal_link(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+
+        $this->postJson(route('corex.rental-inventories.buyer-acceptances.send', [$inventory, $buyer]))->assertStatus(200);
+
+        Mail::assertSent(SignedDocumentDistributionMail::class, function (SignedDocumentDistributionMail $mail) use ($inventory, $buyer) {
+            return $mail->publicUrl === $inventory->fresh()->buyerAcceptanceUrlFor($buyer)
+                && str_contains((string) $mail->publicUrl, 'buyer=' . $buyer->id . '.');
+        });
+    }
+
+    public function test_send_is_refused_for_a_colleagues_inventory_and_sends_and_changes_nothing(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        $before = $inventory->public_token;
+        $colleague = $this->colleague();
+        // The colleague may see the BUYER contact (their own record) — only the inventory is out of scope,
+        // so this proves the inventory check itself and not the contact binding.
+        $buyer->forceFill(['created_by_user_id' => $colleague->id])->save();
+        $this->actingAs($colleague);
+
+        $this->postJson(route('corex.rental-inventories.buyer-acceptances.send', [$inventory, $buyer]))->assertStatus(404);
+
+        Mail::assertNothingSent();
+        self::assertSame($before, $inventory->fresh()->public_token);
+    }
+
+    public function test_print_for_signature_is_refused_for_a_colleagues_inventory(): void
+    {
+        [$property, $inventory] = $this->completedSaleInventory();
+        $this->actingAs($this->colleague());
+
+        $this->get(route('corex.rental-inventories.print-for-signature', $inventory))->assertStatus(404);
+        self::assertNull($inventory->fresh()->public_token, 'a refused request must not mint a link either');
+    }
+
+    public function test_print_for_signature_no_longer_creates_a_public_link(): void
+    {
+        [, $inventory] = $this->completedSaleInventory();
+        self::assertNull($inventory->fresh()->public_token);
+
+        $this->get(route('corex.rental-inventories.print-for-signature', $inventory))->assertOk();
+
+        self::assertNull($inventory->fresh()->public_token, 'a GET under view permission must not write a public link');
+    }
+
+    public function test_supersede_wet_ink_is_refused_for_a_colleagues_inventory(): void
+    {
+        [, $inventory] = $this->completedSaleInventory();
+        $signature = $inventory->signatures()->first();
+        $this->actingAs($this->colleague());
+
+        $this->postJson(route('corex.rental-inventories.signatures.supersede-wet-ink', [$inventory, $signature]), [
+            'wet_ink_file' => UploadedFile::fake()->create('scan.pdf', 50, 'application/pdf'),
+        ])->assertStatus(404);
+    }
+
+    public function test_wet_ink_scan_is_stored_privately_with_a_server_chosen_extension(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->post(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'disposition' => 'wet_ink',
+            'wet_ink_file' => UploadedFile::fake()->create('evil.html', 10, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(201);
+
+        $stored = RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->value('wet_ink_upload_path');
+        self::assertStringStartsWith('private:rental-inventory-buyer-acceptances/', $stored);
+        self::assertStringEndsWith('.pdf', $stored, 'the client-supplied .html extension must never be used');
+        Storage::disk('local')->assertExists(substr($stored, strlen('private:')));
+        self::assertSame([], Storage::disk('public')->allFiles(), 'nothing may land on the public disk');
+    }
+
+    public function test_an_ineligible_attempt_writes_no_file(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        RentalInventoryBuyerAcceptance::capture($inventory, $buyer, 'signed', ['party_signature_path' => '/fake/first.png']);
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->post(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'disposition' => 'wet_ink',
+            'wet_ink_file' => UploadedFile::fake()->create('again.pdf', 10, 'application/pdf'),
+        ], ['Accept' => 'application/json'])->assertStatus(422);
+
+        self::assertSame([], Storage::disk('local')->allFiles());
+        self::assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_an_oversized_signature_image_is_refused(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'disposition' => 'signed',
+            'signature_image' => 'data:image/png;base64,' . str_repeat('A', 1500000),
+        ])->assertStatus(422);
+
+        self::assertSame(0, RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->count());
+    }
+
+    public function test_the_agent_can_view_the_private_scan_through_the_checked_route_and_a_colleague_cannot(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        $path = 'rental-inventory-buyer-acceptances/' . $inventory->property_id . '/wetink_test.pdf';
+        Storage::disk('local')->put($path, '%PDF-1.4 test');
+        $acceptance = RentalInventoryBuyerAcceptance::capture($inventory, $buyer, 'wet_ink', ['wet_ink_upload_path' => 'private:' . $path]);
+
+        $url = $acceptance->wetInkFileUrl();
+        self::assertStringContainsString('/wet-ink-file', $url);
+
+        $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $this->actingAs($this->colleague());
+        $this->get($url)->assertStatus(404);
+    }
+
+    public function test_a_legacy_public_scan_value_is_still_linked_as_is(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        $acceptance = RentalInventoryBuyerAcceptance::capture($inventory, $buyer, 'wet_ink', ['wet_ink_upload_path' => '/storage/properties/1/rental-inventory-buyer-acceptances/old.pdf']);
+
+        self::assertSame('/storage/properties/1/rental-inventory-buyer-acceptances/old.pdf', $acceptance->wetInkFileUrl());
     }
 }

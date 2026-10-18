@@ -387,6 +387,7 @@ class RentalInventoryRecordingController extends Controller
      */
     public function supersedeWetInkSignature(Request $request, RentalInventory $rentalInventory, RentalInventorySignature $signature, SignedDocumentDistributionService $distributionService): JsonResponse
     {
+        $this->assertVisible($request, $rentalInventory);
         abort_unless((int) $signature->rental_inventory_id === (int) $rentalInventory->id, 404);
         $rentalInventory->assertEditable();
 

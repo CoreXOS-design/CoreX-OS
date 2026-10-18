@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Mail\Distribution\SignedDocumentDistributionMail;
 use App\Models\Contact;
@@ -23,12 +24,14 @@ use Illuminate\Http\Request;
  */
 class RentalInventoryBuyerAcceptanceController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     /**
      * POST /corex/rental-inventories/{inventory}/buyer-acceptances/{contact}/send
-     * — emails the buyer their own signing link (the inventory's existing
-     * public share link, generated if none is live yet — same "a printed/
-     * shared link never 404s" contract RentalInventory::report() already
-     * uses). Refuses outright unless buyerAcceptanceOfferedFor() is true
+     * — emails the buyer their own signing link: the inventory's public
+     * share link (generated if none is live yet) carrying THIS buyer's own
+     * token (audit A-M5), so only this buyer's acceptance can be recorded
+     * through it. The shared link on its own accepts no buyer signature. Refuses outright unless buyerAcceptanceOfferedFor() is true
      * and $contact is genuinely one of the property's committed-deal
      * buyers — no partial trust in whatever the client sends.
      */
@@ -38,6 +41,8 @@ class RentalInventoryBuyerAcceptanceController extends Controller
         Contact $contact,
         SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
+        $this->assertVisible($request, $rentalInventory);
+
         if (! $rentalInventory->buyerAcceptanceOfferedFor()) {
             return response()->json(['message' => 'Buyer acceptance is not offered on this inventory.'], 409);
         }
@@ -61,7 +66,7 @@ class RentalInventoryBuyerAcceptanceController extends Controller
             documentLabel: 'Inventory report — please review and sign to accept',
             propertyAddress: $rentalInventory->property?->buildDisplayAddress() ?? '',
             emailSubject: 'Please review and sign to accept — ' . ($rentalInventory->property?->buildDisplayAddress() ?? 'inventory report'),
-            publicUrl: $rentalInventory->publicShareUrl(),
+            publicUrl: $rentalInventory->buyerAcceptanceUrlFor($contact),
         );
 
         $result = $distributionService->sendGenericMail($contact->email, $mail, $agent);

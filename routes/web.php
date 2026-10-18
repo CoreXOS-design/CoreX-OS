@@ -4326,6 +4326,10 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // docblock for why this is deliberately its own controller.
         Route::post('/{rentalInventory}/buyer-acceptances/{contact}/send', [\App\Http\Controllers\CoreX\RentalInventoryBuyerAcceptanceController::class, 'send'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.buyer-acceptances.send');
+        // Audit A-H1 — a buyer's uploaded wet-ink scan lives on the private disk; served here,
+        // own/branch-checked, with nosniff + a sandbox CSP (no longer a public /storage URL).
+        Route::get('/{rentalInventory}/buyer-acceptances/{acceptance}/wet-ink-file', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'buyerAcceptanceWetInkFile'])
+            ->name('corex.rental-inventories.buyer-acceptances.wet-ink-file');
         // §14 — the move-out (current) side's own photo evidence, from the
         // comparison screen. Uploads AND tags to this line in ONE request.
         Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])

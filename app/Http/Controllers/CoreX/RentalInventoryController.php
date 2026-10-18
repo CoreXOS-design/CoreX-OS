@@ -210,11 +210,14 @@ class RentalInventoryController extends Controller
      */
     public function printForSignature(Request $request, RentalInventory $rentalInventory, \App\Services\Rentals\RentalInventoryReportPdfService $service)
     {
+        $this->assertVisible($request, $rentalInventory);
+
         $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'createdBy']);
 
-        if (! $rentalInventory->publicLinkIsValid()) {
-            $rentalInventory->generatePublicLink();
-        }
+        // Read-only, same as report(): this GET (view permission) no longer
+        // mints or rotates the public link (audit A-H2) — that would also
+        // invalidate a link already emailed. A PDF with no live link simply
+        // omits the QR; the link is created at completion / by resend-report.
 
         $pdf = $service->generateForSignature($rentalInventory);
 
@@ -250,6 +253,19 @@ class RentalInventoryController extends Controller
             'rows' => $service->compare($rentalInventory),
             'dispositionPresets' => RentalInventorySetting::dispositionPresetsFor($rentalInventory->agency_id),
         ]);
+    }
+
+    /**
+     * Audit A-H1 — serve a buyer's wet-ink scan from the private disk.
+     * Own/branch visibility is re-checked on the bound inventory, and the
+     * acceptance must belong to it.
+     */
+    public function buyerAcceptanceWetInkFile(Request $request, RentalInventory $rentalInventory, \App\Models\RentalInventoryBuyerAcceptance $acceptance)
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $acceptance->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        return $acceptance->wetInkFileResponse();
     }
 
     public function cancel(Request $request, RentalInventory $rentalInventory): RedirectResponse
