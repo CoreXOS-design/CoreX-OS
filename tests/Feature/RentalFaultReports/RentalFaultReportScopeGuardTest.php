@@ -110,4 +110,59 @@ final class RentalFaultReportScopeGuardTest extends TestCase
             ->get(route('corex.rental-fault-reports.show', $faultReport))
             ->assertOk();
     }
+
+    /** Audit 2026-10-18 (A-L11): the "Report a fault" form pre-filled from any property / lease id in the agency. */
+    public function test_report_a_fault_form_refuses_a_property_or_lease_outside_the_users_scope(): void
+    {
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'rental_fault_reports.create', 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        foreach (['properties.view', 'leases.view'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
+        PermissionService::clearCache();
+
+        $lease = \App\Models\Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'status' => \App\Models\Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now()->subDays(10), 'created_by_user_id' => $this->other->id,
+        ]);
+
+        $this->actingAs($this->own)->get(route('corex.rental-fault-reports.create', ['property_id' => $this->property->id]))->assertNotFound();
+        $this->actingAs($this->own)->get(route('corex.rental-fault-reports.create', ['lease_id' => $lease->id]))->assertNotFound();
+    }
+
+    /** Audit 2026-10-18 (A-L10): a fault type of another agency was accepted by a plain exists: rule. */
+    public function test_store_refuses_another_agencys_fault_type(): void
+    {
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'rental_fault_reports.create', 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'properties.view', 'agency_id' => $this->agency->id], ['scope' => 'all']);
+        PermissionService::clearCache();
+
+        $otherAgency = Agency::create(['name' => 'Other Agency', 'slug' => 'other-' . uniqid()]);
+        $foreignType = \App\Models\RentalFaultType::withoutGlobalScopes()->create([
+            'agency_id' => $otherAgency->id, 'name' => 'Foreign type', 'urgency' => \App\Models\RentalFaultType::URGENCY_ROUTINE, 'is_active' => true,
+        ]);
+        $ownType = \App\Models\RentalFaultType::withoutGlobalScopes()->create([
+            'agency_id' => $this->agency->id, 'name' => 'Own type', 'urgency' => \App\Models\RentalFaultType::URGENCY_ROUTINE, 'is_active' => true,
+        ]);
+
+        $payload = [
+            'property_id' => $this->property->id, 'reported_by_type' => RentalFaultReport::REPORTED_BY_AGENT_NOTICED,
+            'reported_channel' => RentalFaultReport::CHANNEL_IN_PERSON, 'title' => 'Leaking tap', 'description' => 'Drips.',
+        ];
+
+        $this->actingAs($this->own)->post(route('corex.rental-fault-reports.store'), $payload + ['rental_fault_type_id' => $foreignType->id])
+            ->assertSessionHasErrors('rental_fault_type_id');
+        $this->assertSame(0, RentalFaultReport::withoutGlobalScopes()->where('rental_fault_type_id', $foreignType->id)->count());
+
+        $this->actingAs($this->own)->post(route('corex.rental-fault-reports.store'), $payload + ['rental_fault_type_id' => $ownType->id])
+            ->assertSessionHasNoErrors();
+    }
+
+    /** The list's property filter label must not name a property the user cannot see. */
+    public function test_index_filter_label_ignores_a_property_outside_the_users_scope(): void
+    {
+        $this->faultReportOwnedByOther();
+        $res = $this->actingAs($this->own)->get(route('corex.rental-fault-reports.index', ['property_id' => $this->property->id]))->assertOk();
+
+        $this->assertNull($res->viewData('filteredProperty'));
+    }
 }

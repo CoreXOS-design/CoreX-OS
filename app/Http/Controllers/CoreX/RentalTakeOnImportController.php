@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
+use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\RentalTakeOnColumnMapping;
@@ -24,6 +25,8 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalTakeOnImportController extends Controller
 {
+    use EnforcesRecordVisibility;
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -138,6 +141,8 @@ class RentalTakeOnImportController extends Controller
 
     public function mapColumns(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser, RentalTakeOnColumnMappingSuggester $suggester)
     {
+        $this->assertVisible($request, $run);
+
         $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
 
         $loadMappingId = $request->get('load_mapping');
@@ -158,6 +163,8 @@ class RentalTakeOnImportController extends Controller
 
     public function confirmMapping(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser)
     {
+        $this->assertVisible($request, $run);
+
         $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
         $validKeys = RentalTakeOnFieldSchema::keys();
 
@@ -258,6 +265,7 @@ class RentalTakeOnImportController extends Controller
 
             foreach ($parser->parseWithMapping($absolutePath, $extension, $mapping) as $parsed) {
                 $row = RentalTakeOnImportRow::create([
+                    'agency_id' => $run->agency_id,
                     'run_id' => $run->id,
                     'row_number' => $parsed['row_number'],
                     'payload_json' => $parsed['payload'],
@@ -321,8 +329,10 @@ class RentalTakeOnImportController extends Controller
         return strtolower(pathinfo($run->source_filename ?? '', PATHINFO_EXTENSION)) === 'csv' ? 'csv' : 'xlsx';
     }
 
-    public function preview(RentalTakeOnImportRun $run)
+    public function preview(Request $request, RentalTakeOnImportRun $run)
     {
+        $this->assertVisible($request, $run);
+
         $rows = $run->rows()->orderBy('row_number')->paginate(50);
 
         return view('corex.rentals.take-on-import.preview', compact('run', 'rows'));
@@ -330,6 +340,10 @@ class RentalTakeOnImportController extends Controller
 
     public function confirmRow(Request $request, RentalTakeOnImportRow $row, RentalTakeOnConfirmService $confirmService)
     {
+        // The row's own agency is enforced by BelongsToAgency on route binding;
+        // here the PARENT run's own/branch scope is enforced before any write.
+        $this->assertVisible($request, $row->run()->withTrashed()->firstOrFail());
+
         $result = $confirmService->confirmRow($row, $request->user()->id);
         $this->touchRunCompletion($row->run);
 
@@ -342,6 +356,8 @@ class RentalTakeOnImportController extends Controller
 
     public function confirmBulk(Request $request, RentalTakeOnImportRun $run, RentalTakeOnConfirmService $confirmService)
     {
+        $this->assertVisible($request, $run);
+
         $ids = (array) $request->input('ids', []);
         $rows = $run->rows()
             ->whereIn('id', $ids)
@@ -362,16 +378,20 @@ class RentalTakeOnImportController extends Controller
         return back()->with('status', "Imported {$confirmed} of " . count($ids) . ' selected rows.');
     }
 
-    public function excludeRow(RentalTakeOnImportRow $row)
+    public function excludeRow(Request $request, RentalTakeOnImportRow $row)
     {
+        $this->assertVisible($request, $row->run()->withTrashed()->firstOrFail());
+
         $row->update(['status' => RentalTakeOnImportRow::STATUS_EXCLUDED]);
         $this->touchRunCompletion($row->run);
 
         return back()->with('status', 'Row excluded.');
     }
 
-    public function cancel(RentalTakeOnImportRun $run)
+    public function cancel(Request $request, RentalTakeOnImportRun $run)
     {
+        $this->assertVisible($request, $run);
+
         if (in_array($run->status, [RentalTakeOnImportRun::STATUS_COMPLETED], true)) {
             return back()->withErrors(['run' => 'A completed batch cannot be cancelled — archive it instead.']);
         }
@@ -382,15 +402,19 @@ class RentalTakeOnImportController extends Controller
         return redirect()->route('corex.rentals.take-on-import.index')->with('status', 'Import batch cancelled.');
     }
 
-    public function show(RentalTakeOnImportRun $run)
+    public function show(Request $request, RentalTakeOnImportRun $run)
     {
+        $this->assertVisible($request, $run);
+
         $rows = $run->rows()->orderBy('row_number')->paginate(50);
 
         return view('corex.rentals.take-on-import.show', compact('run', 'rows'));
     }
 
-    public function errorsCsv(RentalTakeOnImportRun $run)
+    public function errorsCsv(Request $request, RentalTakeOnImportRun $run)
     {
+        $this->assertVisible($request, $run);
+
         $rows = $run->rows()
             ->where(function ($q) {
                 $q->whereNotNull('errors_json')->orWhereNotNull('warnings_json');
@@ -415,8 +439,10 @@ class RentalTakeOnImportController extends Controller
         }, $filename, ['Content-Type' => 'text/csv']);
     }
 
-    public function archive(RentalTakeOnImportRun $run, RentalTakeOnArchiveService $archiveService)
+    public function archive(Request $request, RentalTakeOnImportRun $run, RentalTakeOnArchiveService $archiveService)
     {
+        $this->assertVisible($request, $run);
+
         $counts = $archiveService->archive($run);
 
         $archived = $counts['archived'];
@@ -430,9 +456,10 @@ class RentalTakeOnImportController extends Controller
         return redirect()->route('corex.rentals.take-on-import.index')->with('status', $message);
     }
 
-    public function restore(string $runId, RentalTakeOnArchiveService $archiveService)
+    public function restore(Request $request, string $runId, RentalTakeOnArchiveService $archiveService)
     {
         $run = RentalTakeOnImportRun::withTrashed()->findOrFail($runId);
+        $this->assertVisible($request, $run);
         $run->restore();
         $archiveService->restore($run);
 

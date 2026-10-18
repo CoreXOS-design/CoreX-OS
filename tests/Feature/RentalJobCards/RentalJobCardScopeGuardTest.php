@@ -99,4 +99,35 @@ final class RentalJobCardScopeGuardTest extends TestCase
             ->get(route('corex.rental-job-cards.show', $jobCard))
             ->assertOk();
     }
+
+    /** Audit 2026-10-18 (A-M7): store() took a colleague's work order / property by id with a plain `exists:`. */
+    public function test_store_refuses_a_work_order_or_property_outside_the_users_scope(): void
+    {
+        foreach (['rental_job_cards.create', 'rental_work_orders.view', 'properties.view', 'leases.view', 'rental_fault_reports.view'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
+        PermissionService::clearCache();
+
+        $theirCard = $this->jobCardOwnedByOther();
+        $cardsBefore = RentalJobCard::withoutGlobalScopes()->count();
+
+        $this->actingAs($this->own)
+            ->post(route('corex.rental-job-cards.store'), ['title' => 'Hijack', 'rental_work_order_id' => $theirCard->rental_work_order_id])
+            ->assertNotFound();
+        $this->actingAs($this->own)
+            ->post(route('corex.rental-job-cards.store'), ['title' => 'Hijack', 'property_id' => $this->property->id])
+            ->assertNotFound();
+
+        $this->assertSame($cardsBefore, RentalJobCard::withoutGlobalScopes()->count());
+
+        // Their OWN property is fine.
+        $mine = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'agent_id' => $this->own->id,
+            'title' => 'My own property', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        $this->actingAs($this->own)
+            ->post(route('corex.rental-job-cards.store'), ['title' => 'Mine', 'property_id' => $mine->id])
+            ->assertSessionHasNoErrors()->assertRedirect();
+        $this->assertSame($cardsBefore + 1, RentalJobCard::withoutGlobalScopes()->count());
+    }
 }
