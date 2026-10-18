@@ -139,13 +139,13 @@
                             <div class="aitp-checks">
                                 @foreach($aiPanel['mustIncludes'] as $opt)
                                     <div style="min-width:0;">
-                                        <label class="aitp-check" @if($opt['key'] === 'contact' && ! $aiPanel['hasWebsite']) data-disabled="1" @endif>
+                                        <label class="aitp-check" @if($opt['key'] === 'contact' && ! $aiPanel['hasContact']) data-disabled="1" @endif>
                                             <input type="checkbox" value="{{ $opt['key'] }}" x-model="must"
-                                                   @if($opt['key'] === 'contact' && ! $aiPanel['hasWebsite']) disabled @else :disabled="loading" @endif>
+                                                   @if($opt['key'] === 'contact' && ! $aiPanel['hasContact']) disabled @else :disabled="loading" @endif>
                                             <span>{{ $opt['label'] }}</span>
                                         </label>
-                                        @if($opt['key'] === 'contact' && ! $aiPanel['hasWebsite'])
-                                            <span class="aitp-hint" style="display:block; margin-left:24px;">No website is set up for your agency yet. Add it in Company Settings to use this.</span>
+                                        @if($opt['key'] === 'contact' && ! $aiPanel['hasContact'])
+                                            <span class="aitp-hint" style="display:block; margin-left:24px;">No website or phone number is set up for your agency yet. Add them in Company Settings to use this.</span>
                                         @endif
                                     </div>
                                 @endforeach

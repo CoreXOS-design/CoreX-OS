@@ -315,7 +315,7 @@ class AdTemplateManagerController extends Controller
             'agent_phone' => (string) ($user->cell ?: $user->phone ?: ''),
             'agent_designation' => (string) ($user->designation ?: 'Property Practitioner'),
             'agent_avatar' => Property::adSafeImageUrl($user->profilePhotoUrl()),
-            'agency_name' => $name, 'website' => (string) ($agency?->website_url ?? ''),
+            'agency_name' => $name, 'website' => (string) ($agency?->website_url ?? ''), 'agency_phone' => trim((string) ($agency?->phone ?? '')),
             'logo' => $logoPath ? Property::adSafeImageUrl(asset('storage/' . $logoPath)) : null,
             'watermark' => strtoupper($name),
             // AT-456 §B.9-1 — neutral made-up values for the new facts, so a preview of a template that uses them

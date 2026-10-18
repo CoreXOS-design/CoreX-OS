@@ -3889,6 +3889,7 @@ class Property extends Model
 
             'agency_name'       => $agency?->name ?? '',
             'website'           => $agency?->website_url ?: '',
+            'agency_phone'      => trim((string) ($agency?->phone ?? '')),
             'logo'              => $logoUrl,
             'watermark'         => strtoupper((string) ($agency?->name ?? '')),
 

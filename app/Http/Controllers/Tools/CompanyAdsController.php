@@ -264,7 +264,7 @@ class CompanyAdsController extends Controller
             'occasions'    => CompanyAdLibrary::occasions(),
             'library'      => CompanyAdLibrary::grouped(),
             'mustIncludes' => CompanyAdBuilderService::mustIncludesForPanel(),
-            'hasWebsite'   => trim((string) $agency->website_url) !== '',
+            'hasContact'   => CompanyAdBuilderService::contactFields($agency) !== [],
             'captionMax'   => CompanyAdBuilderService::CAPTION_MAX,
         ];
     }

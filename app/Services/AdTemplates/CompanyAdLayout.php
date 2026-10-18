@@ -23,7 +23,7 @@ class CompanyAdLayout
     public const ALLOWED_FIELDS = [
         'custom_image',
         'agent_name', 'agent_email', 'agent_phone', 'agent_designation', 'agent_avatar',
-        'logo', 'agency_logo', 'agency_name', 'website', 'watermark',
+        'logo', 'agency_logo', 'agency_name', 'website', 'agency_phone', 'watermark',
         'custom_text', 'badge', 'line', 'shape', 'color_block', 'gradient', 'ribbon',
     ];
 
@@ -118,6 +118,7 @@ class CompanyAdLayout
         return [
             'agency_name'       => $name,
             'website'           => (string) ($agency?->website_url ?? ''),
+            'agency_phone'      => trim((string) ($agency?->phone ?? '')),
             'logo'              => $logoPath ? Property::adSafeImageUrl(asset('storage/' . $logoPath)) : null,
             'watermark'         => strtoupper($name),
             'agent_name'        => strtoupper((string) $user->name),

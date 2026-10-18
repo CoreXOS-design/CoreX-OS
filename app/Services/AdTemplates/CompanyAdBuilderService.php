@@ -57,13 +57,12 @@ final class CompanyAdBuilderService
 
     /** The optional ticks (spec §8 item 6). The agency logo / name is not a tick: it is always on a company ad. */
     public const MUST_INCLUDES = [
-        'contact' => 'Our contact details (website)',
+        'contact' => 'Our contact details (website and phone)',
         'me'      => 'Me (my photo and contact details)',
     ];
-    /** What a tick requires on every design shown. */
+    /** What a tick requires on every design shown ('contact' is the agency's own: see contactFields()). */
     private const REQUIRED = [
-        'contact' => ['website'],
-        'me'      => ['agent_name', 'agent_phone', 'agent_avatar'],
+        'me' => ['agent_name', 'agent_phone', 'agent_avatar'],
     ];
     /** "Me" elements only appear when "Me" is ticked - a company ad is the agency speaking, not whoever pressed the button. */
     private const ME_FIELDS = ['agent_name', 'agent_email', 'agent_phone', 'agent_designation', 'agent_avatar'];
@@ -406,7 +405,7 @@ final class CompanyAdBuilderService
             $out['missing'][] = 'the picture (one custom_image element)';
         }
         foreach ($keys as $key) {
-            foreach (self::REQUIRED[$key] ?? [] as $field) {
+            foreach ($key === 'contact' ? self::contactFields($agency) : (self::REQUIRED[$key] ?? []) as $field) {
                 if (! in_array($field, $fields, true)) {
                     $out['missing'][] = $field;
                 }
@@ -414,6 +413,20 @@ final class CompanyAdBuilderService
         }
 
         return $out;
+    }
+
+    /**
+     * "Our contact details": the agency's website and its phone number - each only when the agency has it on file
+     * (Company Settings), so an agency without a website is never asked for an empty element.
+     *
+     * @return array<int, string>
+     */
+    public static function contactFields(?Agency $agency): array
+    {
+        return array_values(array_filter([
+            trim((string) ($agency?->website_url ?? '')) !== '' ? 'website' : null,
+            trim((string) ($agency?->phone ?? '')) !== '' ? 'agency_phone' : null,
+        ]));
     }
 
     /** Does a piece of the model's own text spell out the agency's name? (Case, spacing and punctuation ignored.) */
@@ -462,6 +475,7 @@ final class CompanyAdBuilderService
     {
         $size = AdLayoutValidator::SIZES[$generation->ad_size];
         $keys = $this->keys($generation);
+        $agency = Agency::query()->find($agencyId);
 
         $user = 'Design ' . $count . ' different company ad option' . ($count === 1 ? '' : 's') . " for {$size['label']}.\n\n";
         if ($generation->occasion && CompanyAdLibrary::isOccasion($generation->occasion)) {
@@ -488,7 +502,7 @@ final class CompanyAdBuilderService
             $user .= "\nThere is NO picture: design with type, colour blocks, shapes, gradients, lines and icons only. Do not use custom_image.\n";
         }
 
-        $user .= $this->mustIncludeBlock($keys);
+        $user .= $this->mustIncludeBlock($keys, $agency);
 
         if ($attempt > 1 && $previousErrors !== []) {
             $user .= "\nYour previous answer was rejected for these reasons — fix every one of them:\n- " . implode("\n- ", array_slice($previousErrors, 0, 12)) . "\n";
@@ -515,11 +529,12 @@ final class CompanyAdBuilderService
     }
 
     /** @param array<int, string> $keys */
-    private function mustIncludeBlock(array $keys): string
+    private function mustIncludeBlock(array $keys, ?Agency $agency): string
     {
         $out = '';
-        if (in_array('contact', $keys, true)) {
-            $out .= "- The agency's contact details: a website element.\n";
+        $contact = self::contactFields($agency);
+        if (in_array('contact', $keys, true) && $contact !== []) {
+            $out .= "- The agency's contact details: " . implode(' and ', array_map(fn ($f) => "the {$f} element", $contact)) . ".\n";
         }
         if (in_array('me', $keys, true)) {
             $out .= "- The person sending it: agent_avatar (their photo), agent_name and agent_phone (agent_email and agent_designation are optional).\n";

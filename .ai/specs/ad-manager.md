@@ -155,6 +155,8 @@ All render at the 4 platform presets and adapt to missing data (no broken layout
 New catalogue fields: `custom_text`, `agency_logo` (real logo image), `status_badge`,
 `reference`, `address`, `agent_phone`, `agency_name`, `website`, `line` (divider),
 `badge` (pill), `shape` (circle/rect), `gradient` (overlay).
+`agency_phone` (2026-10-18, company-ads.md §14d): the agency's main phone number from Company Settings
+(`agencies.phone`), Branding group, next to Website; empty when the agency has none.
 
 **Agent 2 (co-listing) fields** (AT-124): the Agent group exposes a full second
 set — `agent_2_name`, `agent_2_email`, `agent_2_phone`, `agent_2_designation`,

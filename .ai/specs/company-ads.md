@@ -292,7 +292,7 @@ Schema snapshot not re-dumped (same batch-step posture as AT-456 §B.10).
   brand names, no house numbers. Re-encoded to JPEG ≤ 1600 px (about 20 MB in total).
 
 **Decisions made while building (beyond the text above)**
-- **Agency phone:** §6 said "agency website/phone". The render kernel has no agency-phone element (only `website`),
+- **Agency phone** (resolved 2026-10-18 — see §14d): §6 said "agency website/phone". The render kernel has no agency-phone element (only `website`),
   and adding one would change every property template's palette too — outside E-1's scope. A company ad shows a
   number through the agent phone element or as custom text. Raise with Johan if an agency phone element is wanted.
 - **Custom video is not offered** on company ads (the spec lists pictures only; a scheduled post is a still picture).
@@ -403,6 +403,20 @@ the two Other Agency Stock guards, `MetaInsightsTokenLeakTest`, `CompanyAdsTest`
 - [ ] Johan tests on QA2 (needs a connected Facebook / Instagram test account; Meta App Review is still pending, so only
   app Testers can connect. A scheduled post on QA2 goes out only when `php artisan marketing:publish-due` is run there —
   QA2 has no scheduler cron. Post now needs neither).
+
+## 14d. Agency Phone block (2026-10-18, branch `agency-phone-ad-block-2026-10-18`)
+
+Johan said yes to the §14a open item. A new **Agency Phone** block (`agency_phone`) in the Ad Builder's Branding group,
+next to Website — for property templates and company ads alike. It shows the agency's main phone number from Company
+Settings (`agencies.phone`, the number that already exists there: no new setting, nothing for the Setup Wizard); empty
+when the agency has none. Wired into the render kernel (palette + defaults), the AI validator's element list (so both AI
+creators may use it), listing ad data (`Property::adData`), the Template Manager sample, and company-ad brand data and
+allowed elements. Company-ad AI tick renamed **"Our contact details (website and phone)"**: every design shown must hold
+the website element and the agency_phone element — each only when the agency has that on file; the tick is disabled
+only when it has neither. Always the requesting / owning agency's own number.
+**Deploy:** code only — no migration, no `npm run build`; view/route/config clear + fpm reload.
+**Proof:** `tests/Feature/Tools/AgencyPhoneAdBlockTest.php` (4 tests); AI template, company ads, Template Manager,
+kernel building-block and Ad Manager scope tests re-run green (244).
 
 ## 17. Open items for Johan
 

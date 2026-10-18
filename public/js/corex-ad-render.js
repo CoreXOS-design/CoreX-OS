@@ -231,6 +231,8 @@
         agent_2_avatar:      { w: 80,  h: 80, objectFit: 'cover', borderRadius: 16, shapeType: 'circle' },
         agency_name:      { w: 280, h: 32,  fontSize: 15, fontWeight: '800', color: '#ffffff', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.06, padding: 6 },
         website:          { w: 260, h: 26,  fontSize: 11, fontWeight: '700', color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', textAlign: 'left', letterSpacing: 0.12, padding: 4, preview: 'WWW.AGENCY.CO.ZA' },
+        // The agency's main phone number (Company Settings), e.g. for a company ad's "call us" line.
+        agency_phone:     { w: 220, h: 26,  fontSize: 13, fontWeight: '700', color: '#ffffff', textAlign: 'left', padding: 4, preview: '012 345 6789' },
         logo:             { w: 180, h: 56,  fontSize: 28, color: '#ffffff', padding: 0 },
         agency_logo:      { w: 200, h: 70,  objectFit: 'contain', borderRadius: 0 },
         custom_text:      { w: 300, h: 50,  fontSize: 20, fontWeight: '700', color: '#ffffff', textTransform: 'none', textAlign: 'left', letterSpacing: 0, padding: 8, text: 'Your text' },
@@ -320,6 +322,7 @@
         { type: 'agency_logo', group: 'branding', label: 'Agency Logo (image)', iconBg: '#00b4d8' },
         { type: 'agency_name', group: 'branding', label: 'Agency Name',         iconBg: '#0b2a4a' },
         { type: 'website',     group: 'branding', label: 'Website',             iconBg: '#0b2a4a' },
+        { type: 'agency_phone', group: 'branding', label: 'Agency Phone',       iconBg: '#0b2a4a' },
         { type: 'watermark',   group: 'branding', label: 'Watermark',           iconBg: '#334155' },
         { type: 'qr',          group: 'branding', label: 'QR Code to Listing',  iconBg: '#0b2a4a' },
         { type: 'custom_text', group: 'decorative', label: 'Custom Text',  iconBg: '#6d28d9' },
