@@ -465,6 +465,8 @@
                  layouts/partials/tour-header-launcher.blade.php (Johan + Andre's
                  decision), not here in the sidebar. If a tour-enabled page omits
                  that header partial, the engine degrades to a floating button. --}}
+            {{-- Alert bell: top of the menu, left of the Ellie button (Johan, 2026-10-18) --}}
+            @include('components.alert-bell')
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
             @endauth
             {{-- Mobile-only: close sidebar for a full-screen page --}}
@@ -3535,7 +3537,6 @@
                 <div class="corex-user-name">{{ $user->name }}</div>
                 <div class="corex-user-role">{{ $userRole }}</div>
             </div>
-            @include('components.alert-bell')
             {{-- Theme Toggle --}}
             <button type="button" class="corex-theme-toggle" id="corexThemeToggle" title="Toggle light/dark theme" onclick="(function(){var d=document.documentElement,dark=d.classList.toggle('dark');var t=dark?'dark':'light';localStorage.setItem('corex-theme',t);fetch('{{ route('profile.theme') }}',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':document.querySelector('meta[name=csrf-token]').content,'Accept':'application/json'},body:JSON.stringify({theme:t})});})()">
                 <svg class="corex-icon-moon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" style="width:1rem;height:1rem">

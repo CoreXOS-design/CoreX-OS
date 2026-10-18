@@ -271,6 +271,23 @@ final class AlertBellTest extends TestCase
         $this->assertStringContainsString('href="' . route('corex.alerts.index') . '"', $html);
     }
 
+    public function test_the_bell_sits_in_the_menus_top_bar_left_of_ellie_not_in_the_user_block(): void
+    {
+        $html = $this->actingAs($this->user())->get(route('corex.alerts.index'))->assertOk()->getContent();
+
+        $logo    = strpos($html, 'class="corex-sidebar-logo"');
+        $bell    = strpos($html, 'data-alert-bell ');
+        $ellie   = strpos($html, 'id="help-widget-slot"');
+        $profile = strpos($html, 'class="corex-user-profile"');
+        $this->assertNotFalse($logo);
+        $this->assertNotFalse($bell);
+        $this->assertTrue($logo < $bell && $bell < $ellie, 'the bell is in the top bar, just before the Ellie button');
+        $this->assertSame(1, substr_count($html, 'data-alert-bell '), 'one bell only');
+        $this->assertGreaterThan($bell, $profile, 'not in the user block any more');
+        // Near the top the panel opens downward.
+        $this->assertStringContainsString("r.top < window.innerHeight / 2", $html);
+    }
+
     // ── one title rule for rentals ─────────────────────────────────────────────────────────
 
     public function test_the_title_helper_appends_once_and_normalises_the_dash(): void

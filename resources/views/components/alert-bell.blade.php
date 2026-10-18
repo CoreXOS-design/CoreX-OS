@@ -1,6 +1,6 @@
 {{--
-    The alert bell button (spec notification-system-overview.md section 16). Sits beside the theme toggle in the left menu's user block, same size
-    and class as it. Only the button lives here: the count badge, the panel and the toasts are all driven by components/alert-popups.blade.php,
+    The alert bell button (spec notification-system-overview.md section 16). Sits in the left menu's top bar, left of the Ellie button (moved there
+    from the user block, Johan 2026-10-18); same size and class as the theme toggle. Only the button lives here: the count badge, the panel and the toasts are all driven by components/alert-popups.blade.php,
     which is included once per staff layout (layouts/partials/_staff-alerts.blade.php).
 --}}
 <button type="button" class="corex-theme-toggle" data-alert-bell aria-label="Alerts" aria-haspopup="true" aria-expanded="false" title="Alerts" style="position:relative;">
