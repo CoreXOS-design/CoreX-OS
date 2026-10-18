@@ -169,7 +169,7 @@
                     @foreach($ads as $ad)
                         <tr style="border-top:1px solid var(--border); {{ $ad->trashed() ? 'opacity:.65;' : '' }}">
                             <td class="px-4 py-2">
-                                <div class="cads-thumb" data-ad-thumb="{{ $ad->id }}" aria-hidden="true"></div>
+                                <div class="adt-thumb" data-ad-thumb="{{ $ad->id }}" role="img" aria-label="Preview of {{ $ad->name }}"></div>
                             </td>
                             <td class="px-4 py-3 font-semibold">
                                 {{ $ad->name }}
@@ -331,8 +331,6 @@
 </div>
 
 <style>
-    .cads-thumb { width: 96px; height: 96px; border-radius: 6px; overflow: hidden; position: relative; background: var(--surface-2); border: 1px solid var(--border); }
-    .cads-thumb > .cads-thumb-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
     .cads-stage { position: fixed; left: -100000px; top: 0; pointer-events: none; }
     .cads-stage > div { position: relative; overflow: hidden; }
     .cadpost-overlay { position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -341,7 +339,7 @@
         background: var(--surface); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0, 0, 0, .35); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-<script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
+@include('tools.ad-manager._ad-preview-thumbs')
 <script>
 function companyAdsList(cfg) {
     return {
@@ -354,25 +352,11 @@ function companyAdsList(cfg) {
 
         init() {
             this.$nextTick(() => {
-                document.querySelectorAll('[data-ad-thumb]').forEach(box => this.thumb(box));
+                window.corexDrawAdThumbs(this.layouts, this.brand, { placeholders: false });
             });
         },
 
         /** Draw a row's ad scaled down into its 96 px box, letterboxed to keep the aspect. */
-        thumb(box) {
-            const entry = this.layouts[box.dataset.adThumb];
-            if (!entry || !window.CoreXAd) return;
-            const l = entry.layout || {};
-            const w = l.canvasW || 1200, h = l.canvasH || 628;
-            const scale = Math.min(box.clientWidth / w, box.clientHeight / h);
-            const inner = document.createElement('div');
-            inner.className = 'cads-thumb-inner';
-            inner.style.width = w + 'px';
-            inner.style.height = h + 'px';
-            inner.style.transform = 'translate(' + ((box.clientWidth - w * scale) / 2) + 'px,' + ((box.clientHeight - h * scale) / 2) + 'px) scale(' + scale + ')';
-            box.appendChild(inner);
-            window.CoreXAd.renderLayout(l, this.brand, inner, { paintBackground: true });
-        },
 
         /** A row's Download button. */
         download(id) {

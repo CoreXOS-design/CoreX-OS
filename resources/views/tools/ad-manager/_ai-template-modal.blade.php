@@ -10,7 +10,7 @@
 --}}
 @include('tools.ad-manager._ai-dialog-shell')
 
-<script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
+@include('tools.ad-manager._ad-kernel-script')
 <div x-data="aiTemplatePanel(@js([
         'usage'    => $aiPanel['usage'],
         'sample'   => $aiPanel['sample'],

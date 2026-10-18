@@ -22,6 +22,14 @@
     };
     $arrow = fn (string $key) => $f['sort'] === $key ? ($f['dir'] === 'asc' ? ' ▲' : ' ▼') : '';
     $th = 'text-left text-[11px] font-semibold uppercase tracking-wider px-4 py-2.5 whitespace-nowrap';
+
+    // The Default design of the rows on THIS page only, keyed by id — the browser draws the previews from them.
+    $previewLayouts = $templates->getCollection()->mapWithKeys(function ($t) {
+        $layout = (array) $t->layout_json;
+        unset($layout['variants']);
+
+        return [$t->id => ['layout' => $layout]];
+    })->all();
 @endphp
 
 <div class="w-full space-y-5">
@@ -133,6 +141,7 @@
             <table class="w-full text-sm" style="color:var(--text-primary);">
                 <thead style="background:var(--surface-2); color:var(--text-secondary);">
                     <tr>
+                        <th class="{{ $th }}">Preview</th>
                         <th class="{{ $th }}"><a href="{{ $sortUrl('name') }}" style="color:inherit;">Name{{ $arrow('name') }}</a></th>
                         <th class="{{ $th }}"><a href="{{ $sortUrl('creator') }}" style="color:inherit;">Created by{{ $arrow('creator') }}</a></th>
                         <th class="{{ $th }}">Canvas</th>
@@ -145,6 +154,9 @@
                 <tbody>
                     @foreach($templates as $t)
                         <tr style="border-top:1px solid var(--border); {{ $t->trashed() ? 'opacity:.65;' : '' }}">
+                            <td class="px-4 py-2">
+                                <div class="adt-thumb" data-ad-thumb="{{ $t->id }}" role="img" aria-label="Preview of {{ $t->name }}"></div>
+                            </td>
                             <td class="px-4 py-3 font-semibold">
                                 {{ $t->name }}
                                 @if($t->ai_generated)
@@ -196,6 +208,15 @@
         <div>{{ $templates->links() }}</div>
     @endif
 </div>
+
+@include('tools.ad-manager._ad-preview-thumbs')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // A made-up listing (demo photos) in the user's own agency's brand; placeholders show an element's sample text
+        // where the sample listing has no value (e.g. a rental-only fact on a sale template).
+        window.corexDrawAdThumbs(@js($previewLayouts), @js($previewData), { placeholders: true });
+    });
+</script>
 
 {{-- ══ Create with AI (AT-456 Part B; pop-up rebuilt in §B.10) ═══════════════════════════ --}}
 @if($aiPanel)

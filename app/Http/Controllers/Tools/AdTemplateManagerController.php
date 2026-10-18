@@ -133,6 +133,8 @@ class AdTemplateManagerController extends Controller
                 'sort' => $sort, 'dir' => $dir, 'from' => $from, 'to' => $to,
             ],
             'canBuild'     => $user->hasPermission('access_properties'),
+            // Row previews (Johan 2026-10-18): drawn against a made-up listing in the user's OWN agency's brand.
+            'previewData'  => $this->samplePropertyData($user, Agency::query()->find((int) $user->effectiveAgencyId())),
         ] + $this->aiPanelData($user));
     }
 

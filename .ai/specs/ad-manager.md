@@ -2494,6 +2494,16 @@ page (`tools/pdf-suite/_switcher.blade.php`). The Ad Manager gets the identical 
 with two pills: **Ad Manager** (the existing bulk generator) and **Template Manager**.
 The sidebar keeps its single *Ad Manager* entry (it stays highlighted on both pages).
 
+### 19.1a Row previews (2026-10-18, Johan: "it should show the actual template like a preview and not just the name")
+Both tabs (Property templates, Company ads) open every row with a **Preview**: the row's ad drawn by the render kernel,
+scaled down and letterboxed into a 176 x 132 box (120 x 90 on a phone). One shared partial
+(`tools/ad-manager/_ad-preview-thumbs.blade.php`, `window.corexDrawAdThumbs`) for both tabs; the kernel script comes from
+`_ad-kernel-script.blade.php` (`@once`, so a page that also has an AI pop-up loads it once). Property templates draw their
+Default design against the same made-up listing as the AI pop-up (`samplePropertyData`: licensed demo photos, the user's
+OWN agency name/logo/website/phone, the user as the agent), with element placeholders where the sample has no value;
+company ads draw against the agency's brand data, as before (now the same bigger size). Only the rows on the current
+page are sent to the browser. Test: `TemplateManagerPreviewsTest`.
+
 ### 19.2 Pillars
 
 - **Agency** — READ + tenancy. `PropertyAdTemplate` is `BelongsToAgency` (`AgencyScope`);
