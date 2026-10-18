@@ -30,7 +30,10 @@ use Illuminate\Validation\Rule;
  * E-3: Post now / Schedule from the list, through the Post Scheduler's own endpoints).
  *
  * Scoping: CompanyAd / CompanyAdImage are BelongsToAgency, so every query and every route-model lookup here is
- * confined to the user's agency at the query layer — another agency's id is a 404. Company ads are agency-wide
+ * confined to the user's agency at the query layer — another agency's id is a 404. On top of that, every query is
+ * pinned to the user's CURRENT agency (effectiveAgencyId) and every route-bound record is re-checked against it
+ * (ownAd): an owner-role account that has not switched into an agency is not limited by AgencyScope, and must
+ * still only ever see and change the company ads of the agency it is working in (isolation audit 2026-10-18). Company ads are agency-wide
  * brand assets: the list is the whole agency (no own/branch narrowing, spec §5). Changing one needs
  * `ad_manager.company_ads` (route middleware + re-checked here).
  */
@@ -60,7 +63,7 @@ class CompanyAdsController extends Controller
 
         $occasions = CompanyAdLibrary::occasions();
 
-        $query = CompanyAd::query()->with('user:id,name');
+        $query = CompanyAd::query()->where('company_ads.agency_id', $this->agencyId($request))->with('user:id,name');
 
         if ($status === 'archived') {
             $query->onlyTrashed();
@@ -123,7 +126,7 @@ class CompanyAdsController extends Controller
 
         return view('tools.ad-manager.company-ads', [
             'ads'          => $ads,
-            'agencyHasAny' => CompanyAd::withTrashed()->exists(),
+            'agencyHasAny' => CompanyAd::withTrashed()->where('agency_id', $this->agencyId($request))->exists(),
             'filters'      => [
                 'q' => $search, 'status' => $status, 'creator' => $creator, 'occasion' => $occasion,
                 'sort' => $sort, 'dir' => $dir, 'from' => $from, 'to' => $to,
@@ -205,6 +208,7 @@ class CompanyAdsController extends Controller
     {
         $this->assertMayManage($request);
         $user = $request->user();
+        abort_unless((int) $generation->agency_id === $this->agencyId($request), 404);
         abort_unless((int) $generation->user_id === (int) $user->id, 403);
         abort_unless($generation->kind === AiTemplateGeneration::KIND_COMPANY_AD, 404);
 
@@ -273,6 +277,9 @@ class CompanyAdsController extends Controller
     public function builder(Request $request, ?CompanyAd $companyAd = null)
     {
         $this->assertMayManage($request);
+        if ($companyAd !== null) {
+            $this->ownAd($request, $companyAd);
+        }
 
         $agency = Agency::find($request->user()->effectiveAgencyId());
 
@@ -299,6 +306,7 @@ class CompanyAdsController extends Controller
         [$layout, $canvas] = CompanyAdLayout::sanitize($data['layout_json'], (int) $request->user()->effectiveAgencyId());
 
         $ad = CompanyAd::create([
+            'agency_id'   => $this->agencyId($request),
             'user_id'     => $request->user()->id,
             'name'        => $data['name'],
             'occasion'    => $data['occasion'] ?? null,
@@ -312,6 +320,7 @@ class CompanyAdsController extends Controller
     public function update(Request $request, CompanyAd $companyAd): JsonResponse
     {
         $this->assertMayManage($request);
+        $this->ownAd($request, $companyAd);
         $data = $this->validated($request);
 
         [$layout, $canvas] = CompanyAdLayout::sanitize($data['layout_json'], (int) $companyAd->agency_id);
@@ -330,8 +339,10 @@ class CompanyAdsController extends Controller
     public function duplicate(Request $request, CompanyAd $companyAd): RedirectResponse
     {
         $this->assertMayManage($request);
+        $this->ownAd($request, $companyAd);
 
         $copy = CompanyAd::create([
+            'agency_id'    => $companyAd->agency_id,
             'user_id'      => $request->user()->id,
             'name'         => Str::limit('Copy of ' . $companyAd->name, 100, ''),
             'occasion'     => $companyAd->occasion,
@@ -348,6 +359,7 @@ class CompanyAdsController extends Controller
     public function archive(Request $request, CompanyAd $companyAd): RedirectResponse
     {
         $this->assertMayManage($request);
+        $this->ownAd($request, $companyAd);
         $companyAd->delete(); // SoftDeletes — never a hard delete (non-negotiable #1)
 
         return back()->with('success', '"' . $companyAd->name . '" archived. Restore it any time from the Archived filter.');
@@ -356,6 +368,7 @@ class CompanyAdsController extends Controller
     public function restore(Request $request, CompanyAd $companyAd): RedirectResponse
     {
         $this->assertMayManage($request);
+        $this->ownAd($request, $companyAd);
         $companyAd->restore();
 
         return back()->with('success', '"' . $companyAd->name . '" restored.');
@@ -407,6 +420,7 @@ class CompanyAdsController extends Controller
         Storage::disk('public')->put($path, $bytes);
 
         $image = CompanyAdImage::create([
+            'agency_id' => $agencyId,
             'user_id' => $request->user()->id,
             'path'    => $path,
             'width'   => $nw,
@@ -423,6 +437,18 @@ class CompanyAdsController extends Controller
             'occasion'    => ['nullable', 'string', Rule::in(array_keys(CompanyAdLibrary::occasions()))],
             'layout_json' => 'required|array',
         ]);
+    }
+
+    /** The agency the user is working in (agency.required guarantees one). */
+    private function agencyId(Request $request): int
+    {
+        return (int) $request->user()->effectiveAgencyId();
+    }
+
+    /** A route-bound company ad must belong to the agency the user is working in — otherwise it does not exist (404). */
+    private function ownAd(Request $request, CompanyAd $companyAd): void
+    {
+        abort_unless((int) $companyAd->agency_id === $this->agencyId($request), 404);
     }
 
     private function assertMayManage(Request $request): void

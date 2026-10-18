@@ -184,7 +184,8 @@ final class ScheduledPostService
         if (! CompanyAd::userMayManage($user)) {
             throw new ScheduleException('You are not allowed to post company ads.');
         }
-        $ad = CompanyAd::query()->find($companyAdId);
+        // Pinned to the agency the user is working in, also for an owner account the agency scope does not limit.
+        $ad = CompanyAd::query()->where('agency_id', (int) $user->effectiveAgencyId())->find($companyAdId);
         if (! $ad) {
             throw new ScheduleException('That company ad is no longer available (it may have been archived).');
         }
@@ -359,7 +360,7 @@ final class ScheduledPostService
         }
 
         if ($post->company_ad_id !== null) {
-            if (! CompanyAd::userMayManage($owner) || ! CompanyAd::query()->find($post->company_ad_id)) {
+            if (! CompanyAd::userMayManage($owner) || ! CompanyAd::query()->where('agency_id', $post->agency_id)->find($post->company_ad_id)) {
                 throw new ScheduleException('The company ad for this post is no longer available, or its owner may no longer post company ads.');
             }
         } else {

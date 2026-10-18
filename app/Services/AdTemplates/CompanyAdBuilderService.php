@@ -200,7 +200,7 @@ final class CompanyAdBuilderService
             $row   = AiTemplateGeneration::query()->whereKey($generation->id)->lockForUpdate()->firstOrFail();
             $saved = (array) $row->saved_company_ad_ids;
 
-            if (isset($saved[$index]) && ($existing = CompanyAd::query()->find($saved[$index]))) {
+            if (isset($saved[$index]) && ($existing = CompanyAd::query()->where('agency_id', $row->agency_id)->find($saved[$index]))) {
                 return $existing;
             }
 

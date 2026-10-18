@@ -418,6 +418,14 @@ only when it has neither. Always the requesting / owning agency's own number.
 **Proof:** `tests/Feature/Tools/AgencyPhoneAdBlockTest.php` (4 tests); AI template, company ads, Template Manager,
 kernel building-block and Ad Manager scope tests re-run green (244).
 
+## 14e. Agency isolation audit (2026-10-18) — `.ai/audits/2026-10-18-company-ads-agency-isolation-audit.md`
+
+Every company-ads query is pinned to the user's current agency (`effectiveAgencyId`) and every route-bound company ad /
+AI request is re-checked against it (404 otherwise), so an owner account that has not used the agency switcher (not
+limited by AgencyScope) still only sees and changes the agency it is working in. Store / duplicate / upload write the
+agency explicitly. Posting looks the ad up in the poster's agency only. Proof: `CompanyAdsAgencyIsolationTest`.
+Reported, not changed: the property Template Manager list and Scheduled Posts have the same owner-account behaviour.
+
 ## 17. Open items for Johan
 
 None blocking. Approve the spec (or say what to change) and E-1 starts.
