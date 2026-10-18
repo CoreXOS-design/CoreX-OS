@@ -534,6 +534,18 @@
     ],
     "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
   },
+  "corex.rental-inventories.signatures.wet-ink-file": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "File-download endpoint for a party's uploaded wet-ink scan, opened from a link on the inventory page. Not a page, so it has no sidebar entry."
+  },
+  "corex.rental-inventories.buyer-acceptances.wet-ink-file": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "File-download endpoint for a buyer's uploaded wet-ink scan, opened from a link on the inventory page. Not a page, so it has no sidebar entry."
+  },
   "corex.rental-inventories.comparison": {
     "flags": [
       "NO_ITEM"

@@ -35,6 +35,8 @@ class RentalInventoryPublicController extends Controller
             return view('rental-inspections.public.unavailable');
         }
 
+        $buyerId = $inventory->buyerIdFromAcceptanceToken($request->query('buyer'));
+
         $inventory->load([
             'property', 'lease.tenants.contact',
             'lines.room', 'lines.moveInPhotos',
@@ -65,8 +67,36 @@ class RentalInventoryPublicController extends Controller
             // §24 ruling — every buyer who has not yet recorded acceptance,
             // rendered as its own signing block; empty (and the block
             // hidden entirely) unless buyerAcceptanceOfferedFor() is true.
-            'outstandingBuyers' => $inventory->outstandingBuyerAcceptances(),
+            //
+            // Audit A-M5 — the shared link is held by tenant, landlord and
+            // seller too, so it shows NO signing block on its own: only the
+            // personal link emailed to one buyer (?buyer=<token>) shows
+            // that buyer's block, and only that one.
+            'outstandingBuyers' => $buyerId === null
+                ? collect()
+                : $inventory->outstandingBuyerAcceptances()->filter(fn (Contact $c) => (int) $c->id === $buyerId)->values(),
+            'buyerToken' => $buyerId === null ? null : $request->query('buyer'),
         ]);
+    }
+
+    /**
+     * Audit A-H1 — a party's wet-ink scan is on the private disk; this is the
+     * token-authorised way the public page (and only it) may fetch one. Same
+     * uniform 404 as the page itself for a bad/expired/revoked token, and the
+     * file must belong to THAT inventory.
+     */
+    public function signatureWetInkFile(Request $request, string $token, int $signature)
+    {
+        $inventory = RentalInventory::findByPublicToken($token);
+        abort_if(! $inventory, 404);
+
+        $row = \App\Models\RentalInventorySignature::withoutGlobalScopes()
+            ->where('id', $signature)
+            ->where('rental_inventory_id', $inventory->id)
+            ->first();
+        abort_if(! $row, 404);
+
+        return $row->wetInkFileResponse();
     }
 
     /**
@@ -74,49 +104,73 @@ class RentalInventoryPublicController extends Controller
      * the buyer's own capture: on-screen (a canvas signature, same as every
      * other party's) or wet-ink (an uploaded photo/scan of a paper
      * signature) — Johan's own words, "on screen or wet-ink." No CoreX
-     * login; the SAME token that opened the page is the only credential.
-     * Never touches RentalInventory::assertEditable() — the completed
-     * record is never reopened by this write.
+     * login. Never touches RentalInventory::assertEditable() — the
+     * completed record is never reopened by this write.
+     *
+     * Audit A-M5 (2026-10-18) — the inventory's public token is shared with
+     * the tenant, landlord and seller, so it is NOT enough on its own: the
+     * buyer is taken from `buyer_token`, the per-buyer credential in the
+     * link emailed to that buyer (RentalInventory::buyerAcceptanceTokenFor()),
+     * never from a contact id in the request body. A missing/forged token
+     * and an unknown/foreign contact all answer the SAME 404, so the route
+     * cannot be used to probe which contact ids exist.
+     *
+     * Audit A-H1 — eligibility is checked BEFORE any file is written.
      */
     public function storeBuyerAcceptance(Request $request, string $token): JsonResponse
     {
+        $unavailable = fn () => response()->json(['message' => 'This link is no longer available.'], 404);
+
         $inventory = RentalInventory::findByPublicToken($token);
         if (! $inventory) {
-            return response()->json(['message' => 'This link is no longer available.'], 404);
+            return $unavailable();
         }
 
-        $validated = $request->validate([
-            'buyer_contact_id' => ['required', 'integer', 'exists:contacts,id'],
-            'disposition' => ['required', 'string', 'in:' . implode(',', [
-                RentalInventoryBuyerAcceptance::DISPOSITION_SIGNED,
-                RentalInventoryBuyerAcceptance::DISPOSITION_WET_INK,
-            ])],
-            'signature_image' => ['nullable', 'string'],
-            'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
-        ]);
+        $buyerId = $inventory->buyerIdFromAcceptanceToken($request->input('buyer_token'));
+        if ($buyerId === null) {
+            return $unavailable();
+        }
 
         // withoutGlobalScopes() — this is an unauthenticated public route
         // with no "current agency" to scope against, same as
         // RentalInventory::findByPublicToken() above. The explicit
-        // agency_id match below is the real boundary: it stops the
-        // buyer_contact_id parameter being used to probe a DIFFERENT
-        // agency's contact record now that scoping is bypassed.
-        $buyer = Contact::withoutGlobalScopes()->find($validated['buyer_contact_id']);
+        // agency_id match below keeps the contact inside this inventory's
+        // own agency.
+        $buyer = Contact::withoutGlobalScopes()->find($buyerId);
         if (! $buyer || (int) $buyer->agency_id !== (int) $inventory->agency_id) {
-            return response()->json(['message' => 'Buyer not found.'], 404);
+            return $unavailable();
         }
 
-        $attributes = [];
-        if (! empty($validated['signature_image'])) {
-            $attributes['party_signature_path'] = RentalInventoryBuyerAcceptance::storeCanvasImage($validated['signature_image'], $inventory->property_id);
-        }
-        if ($request->hasFile('wet_ink_file')) {
-            $attributes['wet_ink_upload_path'] = RentalInventoryBuyerAcceptance::storeWetInkUpload($request->file('wet_ink_file'), $inventory->property_id);
-        }
+        $validated = $request->validate([
+            'disposition' => ['required', 'string', 'in:' . implode(',', [
+                RentalInventoryBuyerAcceptance::DISPOSITION_SIGNED,
+                RentalInventoryBuyerAcceptance::DISPOSITION_WET_INK,
+            ])],
+            // ~1 MB of base64 — a canvas signature PNG is a few KB.
+            'signature_image' => ['nullable', 'string', 'max:1400000'],
+            'wet_ink_file' => ['nullable', 'file', 'max:10240', 'mimes:pdf,jpg,jpeg,png,heic'],
+        ]);
 
         try {
+            RentalInventoryBuyerAcceptance::assertCanCapture($inventory, $buyer, $validated['disposition']);
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        // Only the evidence for the chosen disposition is ever written.
+        $attributes = [];
+        try {
+            if ($validated['disposition'] === RentalInventoryBuyerAcceptance::DISPOSITION_SIGNED && ! empty($validated['signature_image'])) {
+                $attributes['party_signature_path'] = RentalInventoryBuyerAcceptance::storeCanvasImage($validated['signature_image'], $inventory->property_id);
+            }
+            if ($validated['disposition'] === RentalInventoryBuyerAcceptance::DISPOSITION_WET_INK && $request->hasFile('wet_ink_file')) {
+                $attributes['wet_ink_upload_path'] = RentalInventoryBuyerAcceptance::storeWetInkUpload($request->file('wet_ink_file'), $inventory->property_id);
+            }
+
             $acceptance = RentalInventoryBuyerAcceptance::capture($inventory, $buyer, $validated['disposition'], $attributes);
         } catch (\InvalidArgumentException|\LogicException $e) {
+            RentalInventoryBuyerAcceptance::discardStoredWetInk($attributes['wet_ink_upload_path'] ?? null);
+
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
