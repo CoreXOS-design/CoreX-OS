@@ -424,7 +424,8 @@ Every company-ads query is pinned to the user's current agency (`effectiveAgency
 AI request is re-checked against it (404 otherwise), so an owner account that has not used the agency switcher (not
 limited by AgencyScope) still only sees and changes the agency it is working in. Store / duplicate / upload write the
 agency explicitly. Posting looks the ad up in the poster's agency only. Proof: `CompanyAdsAgencyIsolationTest`.
-Reported, not changed: the property Template Manager list and Scheduled Posts have the same owner-account behaviour.
+The property Template Manager list and Scheduled Posts had the same owner-account behaviour — locked the same way on
+Johan's go (`OwnerAgencyLockTest`).
 
 ## 17. Open items for Johan
 

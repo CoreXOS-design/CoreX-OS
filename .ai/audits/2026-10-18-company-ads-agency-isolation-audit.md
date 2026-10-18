@@ -49,7 +49,12 @@ update, duplicate, archive, restore, AI save; store / duplicate / upload write t
   AI requests vs pictures and saved ads, posts vs ads, posts with both/neither subject). QA2 currently holds 0 company
   ads, 1 uploaded picture, 1 company-ad AI request, 0 company-ad posts.
 
-## Reported, NOT changed (outside what Company Ads built — Johan's call)
+## Reported — FIXED 2026-10-18 on Johan's go ("yes do that"), test `OwnerAgencyLockTest`
+R1 and R2 below are fixed: the Template Manager list (+ its "has any" check) and Scheduled Posts (`visibleTo`, so the list
+and Edit / Cancel / Reschedule) are pinned to the agency being worked in; Archive / Restore of another agency's template
+is a 404. Ordinary users unchanged. The Ad Builder itself (opening a template by direct link) was not part of this.
+
+## Originally reported (outside what Company Ads built)
 - **R1 — the property Template Manager list** (`AdTemplateManagerController::index`, `PropertyAdTemplate::query()` not
   pinned) has the same owner-account behaviour as F1: an owner with a home agency who has not switched sees every
   agency's property templates there.

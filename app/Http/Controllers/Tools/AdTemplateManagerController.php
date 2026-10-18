@@ -65,7 +65,9 @@ class AdTemplateManagerController extends Controller
         $from    = $this->validDate($request->query('from'));
         $to      = $this->validDate($request->query('to'));
 
-        $query = PropertyAdTemplate::query()->with('user:id,name');
+        // Pinned to the agency being worked in: an owner account that has not used the agency switcher is not limited by
+        // AgencyScope and must still only see this agency's templates (owner agency lock, Johan 2026-10-18).
+        $query = PropertyAdTemplate::query()->where('property_ad_templates.agency_id', (int) $user->effectiveAgencyId())->with('user:id,name');
 
         if ($status === 'archived') {
             $query->onlyTrashed();
@@ -121,7 +123,7 @@ class AdTemplateManagerController extends Controller
         });
 
         // "Is the library empty" (vs. "nothing matches") for the right empty state.
-        $agencyHasAny = PropertyAdTemplate::withTrashed()->exists();
+        $agencyHasAny = PropertyAdTemplate::withTrashed()->where('agency_id', (int) $user->effectiveAgencyId())->exists();
 
         return view('tools.ad-manager.templates', [
             'templates'    => $templates,
@@ -347,6 +349,8 @@ class AdTemplateManagerController extends Controller
 
     private function authorizeTemplate(PropertyAdTemplate $template): void
     {
+        // Another agency's template does not exist from here (404) - for an owner account too (owner agency lock).
+        abort_unless((int) $template->agency_id === (int) auth()->user()->effectiveAgencyId(), 404);
         if (! $template->canBeManagedBy(auth()->user())) {
             abort(403);
         }

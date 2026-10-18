@@ -111,6 +111,14 @@ class PropertyMarketingPost extends Model
      */
     public function scopeVisibleTo($query, User $user)
     {
+        // Always the agency being worked in - also for an owner account that has not used the agency switcher, which
+        // AgencyScope does not limit (owner agency lock, Johan 2026-10-18). No agency = nothing.
+        $agencyId = (int) $user->effectiveAgencyId();
+        if ($agencyId <= 0) {
+            return $query->whereRaw('1 = 0');
+        }
+        $query->where('property_marketing_posts.agency_id', $agencyId);
+
         $scope = PermissionService::getDataScope($user, 'properties');
 
         if ($scope === 'all') {
