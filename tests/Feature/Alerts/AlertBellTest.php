@@ -286,7 +286,7 @@ final class AlertBellTest extends TestCase
         $this->assertGreaterThan($bell, $profile, 'not in the user block any more');
         // Looks like the Ellie button beside it: its own borderless style, not the theme toggle's boxed one; with a hover.
         $this->assertMatchesRegularExpression('/<button type="button" class="corex-alert-bell" data-alert-bell /', $html);
-        $this->assertStringContainsString('.corex-alert-bell:hover', $html);
+        $this->assertStringContainsString('.corex-alert-bell:hover { background: color-mix(in srgb, var(--corex-sidebar-hover', $html);
         $this->assertSame(1, substr_count($html, '.corex-alert-bell {'), 'its style is printed once');
         // Near the top the panel opens downward.
         $this->assertStringContainsString("r.top < window.innerHeight / 2", $html);
