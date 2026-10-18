@@ -270,6 +270,15 @@ final class AiTemplateBuilderService
                 throw new AiTemplateLimitReachedException($usage['limit'], $usage['resets_at']);
             }
 
+            // Failed attempts do not use the allowance but every paid one costs real money (AT-456 audit D-M2):
+            // after the platform's daily limit of them, refuse before any AI call. Same lock as the allowance.
+            $maxFailed = $this->spendGuard->settings()['max_failed_per_day'];
+            if ($this->paidFailuresToday($agencyId) >= $maxFailed) {
+                throw new AiTemplateGenerationFailedException(
+                    'Too many attempts that did not produce a usable design today — try again tomorrow, or reword your idea.'
+                );
+            }
+
             return $create();
         } finally {
             $lock->release();
@@ -617,6 +626,13 @@ final class AiTemplateBuilderService
         $feedback = [];
 
         for ($round = 1; $round <= 2 && ! $paused; $round++) {
+            // Re-check the pause before every round (AT-456 audit D-M3): round 1's own spend may have just
+            // tripped the cut-out, and round 2 must not even be prepared (let alone sent) after that.
+            if ($round > 1 && $this->spendGuard->isPaused($this->spendGuard->resolveAgencyId($agencyId))) {
+                $paused = true;
+                break;
+            }
+
             $elapsed = microtime(true) - $started;
             if ($elapsed > ($round === 1 ? self::VARIANT_START_BUDGET_SECS : self::VARIANT_RETRY_BUDGET_SECS)) {
                 Log::warning('AiTemplateBuilder: no time left for property-type versions', ['generation' => $generation->id, 'round' => $round, 'elapsed' => (int) $elapsed]);
@@ -1196,6 +1212,24 @@ PROMPT;
         }
 
         return null;
+    }
+
+    /**
+     * Generations (property templates and company ads share the table) that ended `failed` after a paid call
+     * (cost_zar > 0) during the agency's current day. Failed attempts that cost nothing never count.
+     */
+    public function paidFailuresToday(int $agencyId): int
+    {
+        $tz = (Agency::query()->withoutGlobalScopes()->find($agencyId))?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $dayStart = Carbon::now($tz)->startOfDay()->setTimezone((string) config('app.timezone'));
+
+        return AiTemplateGeneration::query()
+            ->withoutGlobalScope(AgencyScope::class)
+            ->where('agency_id', $agencyId)
+            ->where('status', AiTemplateGeneration::STATUS_FAILED)
+            ->where('cost_zar', '>', 0)
+            ->where('created_at', '>=', $dayStart)
+            ->count();
     }
 
     /** @return \Illuminate\Database\Eloquent\Builder<AiTemplateGeneration> */

@@ -42,6 +42,12 @@ final class ArticleLibraryAuditFixesTest extends TestCase
     /** HTTP status the faked brief model answers with; tests change it between runs. */
     private int $briefStatus = 200;
 
+    /** When true the faked brief model answers with text that is not JSON (an unreadable answer). */
+    private bool $briefUnreadable = false;
+
+    /** When true the faked relevance (fast) model answers with text that is not JSON. */
+    private bool $filterUnreadable = false;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -412,6 +418,79 @@ final class ArticleLibraryAuditFixesTest extends TestCase
         $this->assertSame(1, LibraryArticle::count());
     }
 
+    public function test_an_item_with_an_unreadable_answer_is_given_up_on_after_two_attempts(): void
+    {
+        // AT-456 audit D-L2: it used to be paid for again every run, indefinitely.
+        $this->useOnlySource('https://feeds.test/prop');
+        $this->fakeWorld(['https://feeds.test/prop' => $this->feed([['Stuck story', 'https://news.test/stuck', 'Stuck.']])]);
+        $this->briefUnreadable = true;
+
+        app(ArticleLibraryService::class)->run();
+        $this->assertSame(1, $this->briefCalls);
+
+        app(ArticleLibraryService::class)->run();
+        $this->assertSame(2, $this->briefCalls, 'a second attempt is still allowed');
+
+        app(ArticleLibraryService::class)->run();
+        app(ArticleLibraryService::class)->run();
+        $this->assertSame(2, $this->briefCalls, 'after two failed attempts the item is remembered and not paid for again');
+        $this->assertSame(0, LibraryArticle::count());
+    }
+
+    public function test_one_unreadable_answer_then_a_good_one_still_writes_the_article(): void
+    {
+        $this->useOnlySource('https://feeds.test/prop');
+        $this->fakeWorld(['https://feeds.test/prop' => $this->feed([['Wobbly story', 'https://news.test/wobbly', 'Wobbly.']])]);
+        $this->briefUnreadable = true;
+        app(ArticleLibraryService::class)->run();
+
+        $this->briefUnreadable = false;
+        $second = app(ArticleLibraryService::class)->run();
+
+        $this->assertSame(1, $second['created']);
+    }
+
+    public function test_items_in_an_unreadable_relevance_answer_are_given_up_on_after_two_attempts(): void
+    {
+        $this->useOnlySource('https://feeds.test/prop');
+        $this->fakeWorld(['https://feeds.test/prop' => $this->feed([['Filter story', 'https://news.test/filter', 'Filter.']])]);
+        $this->filterUnreadable = true;
+
+        $filterCalls = 0;
+        $counted = function () use (&$filterCalls) {
+            $filterCalls = collect(Http::recorded())->filter(fn ($pair) => str_contains($pair[0]->url(), 'api.anthropic.com'))->count();
+        };
+
+        $first = app(ArticleLibraryService::class)->run();
+        $this->assertSame('failed', $first['status']);
+        $counted();
+        $this->assertSame(1, $filterCalls);
+
+        app(ArticleLibraryService::class)->run();
+        $counted();
+        $this->assertSame(2, $filterCalls);
+
+        $third = app(ArticleLibraryService::class)->run();
+        $counted();
+        $this->assertSame(2, $filterCalls, 'the stuck item is no longer put in front of the (paid) relevance call');
+        $this->assertSame(0, $third['new_items']);
+    }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // 8c. The run lock outlives every run (AT-456 audit D-L1)
+    // ═════════════════════════════════════════════════════════════════════
+
+    public function test_every_run_stops_starting_briefs_well_before_the_run_lock_expires(): void
+    {
+        $cls  = new \ReflectionClass(ArticleLibraryService::class);
+        $max  = $cls->getReflectionConstant('MAX_RUN_SECONDS')->getValue();
+        $lock = $cls->getReflectionConstant('LOCK_SECONDS')->getValue();
+        $brief = $cls->getReflectionConstant('BRIEF_TIMEOUT_SECS')->getValue();
+
+        // The last brief can start right at the deadline and take its full timeout; the lock must still be held.
+        $this->assertLessThan($lock, $max + $brief, 'a scheduled run (no web budget) could outlive its lock');
+    }
+
     // ═════════════════════════════════════════════════════════════════════
     // 8b. Tag filter list: cached, invalidated, not read per render
     // ═════════════════════════════════════════════════════════════════════
@@ -510,6 +589,8 @@ final class ArticleLibraryAuditFixesTest extends TestCase
     {
         $this->briefCalls  = 0;
         $this->briefStatus = $briefStatus;
+        $this->briefUnreadable = false;
+        $this->filterUnreadable = false;
         $fast = config('services.anthropic.models.fast');
 
         Http::fake(function ($request) use ($feeds, $words, $briefPrefix, $title, $excerpt, $fast) {
@@ -520,6 +601,12 @@ final class ArticleLibraryAuditFixesTest extends TestCase
                 $prompt = (string) ($body['messages'][0]['content'] ?? '');
 
                 if (($body['model'] ?? '') === $fast) {
+                    if ($this->filterUnreadable) {
+                        return Http::response([
+                            'content' => [['type' => 'text', 'text' => 'sorry, I cannot do that']],
+                            'usage'   => ['input_tokens' => 1500, 'output_tokens' => 40],
+                        ], 200);
+                    }
                     preg_match_all('/^(\d+)\. /m', $prompt, $m);
 
                     return Http::response([
@@ -529,6 +616,12 @@ final class ArticleLibraryAuditFixesTest extends TestCase
                 }
 
                 $this->briefCalls++;
+                if ($this->briefUnreadable) {
+                    return Http::response([
+                        'content' => [['type' => 'text', 'text' => 'this is not json at all']],
+                        'usage'   => ['input_tokens' => 900, 'output_tokens' => 450],
+                    ], 200);
+                }
                 if ($this->briefStatus !== 200) {
                     return Http::response(['error' => ['type' => 'invalid_request_error', 'message' => 'nope']], $this->briefStatus);
                 }

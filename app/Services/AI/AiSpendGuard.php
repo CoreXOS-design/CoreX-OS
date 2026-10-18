@@ -41,7 +41,9 @@ use Throwable;
  * holds the spend that paused it.
  *
  * Known limit (spec §A.2): spend is recorded after a call, so one in-flight
- * call can overshoot the cut-out by its own cost.
+ * call can overshoot the cut-out by its own cost. A BATCH of concurrent calls
+ * (AnthropicGateway::generateMany) is held to the cut-out up front instead,
+ * via reserveBatch() (AT-456 audit D-M3).
  *
  * Failure posture: a broken guard must not take AI down with it, so lookup
  * errors log and allow. The pause itself, once written, always holds.
@@ -55,11 +57,14 @@ final class AiSpendGuard
     public const KEY_CUTOUT_ZAR   = 'ai_cutout_threshold_zar';
     public const KEY_WINDOW_HOURS = 'ai_guard_window_hours';
     public const KEY_RECIPIENTS   = 'ai_alert_recipients';
+    /** AT-456 audit D-M2: failed-but-paid AI template / company-ad generations an agency may have per day. */
+    public const KEY_MAX_FAILED_PER_DAY = 'ai_template_max_failed_per_day';
 
     public const DEFAULT_ALERT_ZAR    = 30.0;
     public const DEFAULT_CUTOUT_ZAR   = 50.0;
     public const DEFAULT_WINDOW_HOURS = 24;
     public const DEFAULT_RECIPIENTS   = ['andre@corexos.co.za'];
+    public const DEFAULT_MAX_FAILED_PER_DAY = 5;
 
     // ── System-bucket state (no agency row to hold it) ─────────────────────
     public const KEY_SYSTEM_PAUSED_AT       = 'ai_system_paused_at';
@@ -78,13 +83,14 @@ final class AiSpendGuard
     private const LOCK_WAIT_SECONDS = 5;
 
     /**
-     * @return array{alert_zar: float, cutout_zar: float, window_hours: int, recipients: array<int, string>}
+     * @return array{alert_zar: float, cutout_zar: float, window_hours: int, recipients: array<int, string>, max_failed_per_day: int}
      */
     public function settings(): array
     {
         $alert  = (float) DevSetting::get(self::KEY_ALERT_ZAR, (string) self::DEFAULT_ALERT_ZAR);
         $cutout = (float) DevSetting::get(self::KEY_CUTOUT_ZAR, (string) self::DEFAULT_CUTOUT_ZAR);
         $window = (int) DevSetting::get(self::KEY_WINDOW_HOURS, (string) self::DEFAULT_WINDOW_HOURS);
+        $failed = (int) DevSetting::get(self::KEY_MAX_FAILED_PER_DAY, (string) self::DEFAULT_MAX_FAILED_PER_DAY);
 
         $raw        = DevSetting::get(self::KEY_RECIPIENTS);
         $decoded    = $raw === null ? self::DEFAULT_RECIPIENTS : json_decode((string) $raw, true);
@@ -95,6 +101,7 @@ final class AiSpendGuard
             'cutout_zar'   => $cutout > 0 ? $cutout : self::DEFAULT_CUTOUT_ZAR,
             'window_hours' => $window > 0 ? $window : self::DEFAULT_WINDOW_HOURS,
             'recipients'   => $recipients,
+            'max_failed_per_day' => $failed > 0 ? $failed : self::DEFAULT_MAX_FAILED_PER_DAY,
         ];
     }
 
@@ -151,8 +158,10 @@ final class AiSpendGuard
      */
     public function evaluate(?int $agencyId): void
     {
+        $afterLock = null;
+
         try {
-            Cache::lock('ai-spend-guard:' . ($agencyId ?? 'system'), self::LOCK_SECONDS)
+            $afterLock = Cache::lock('ai-spend-guard:' . ($agencyId ?? 'system'), self::LOCK_SECONDS)
                 ->block(self::LOCK_WAIT_SECONDS, fn () => $this->evaluateLocked($agencyId));
         } catch (LockTimeoutException) {
             // Another request is evaluating this bucket right now on near-identical
@@ -163,6 +172,125 @@ final class AiSpendGuard
                 'error'     => $e->getMessage(),
             ]);
         }
+
+        // The alert / cut-out EMAIL goes out only now, after the lock is released (AT-456 audit D-L3):
+        // a slow SMTP server must never hold the lock past its 10 s expiry, which would make other
+        // evaluations give up silently and let a second one in before the alert was recorded.
+        if ($afterLock instanceof \Closure) {
+            try {
+                $afterLock();
+            } catch (Throwable $e) {
+                Log::warning('AiSpendGuard: sending the spend email failed', [
+                    'agency_id' => $agencyId,
+                    'error'     => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Reserve room for a batch of calls that will run at the same time (AT-456 audit D-M3).
+     *
+     * Spend is only recorded after a call comes back, so a batch of N concurrent calls (the AI Template
+     * Builder asks one call per ticked property type) would all pass the pause check together and
+     * overshoot the cut-out by far more than "one in-flight call". Before such a batch starts, this
+     * compares the window spend + the maximum cost of batches already reserved but not yet recorded + this
+     * batch's own conservative maximum cost against the cut-out, inside the guard's lock. If it would
+     * cross, nothing is reserved and AiPausedException is thrown (the existing "AI paused" path).
+     *
+     * A single call is unaffected - it keeps going through assertAllowed() / the pause check only.
+     *
+     * @param  int|null $agencyId           Already resolved (null = system bucket).
+     * @param  float    $estimatedMaxZar    The batch's worst-case cost (all tokens used, every call).
+     * @param  int      $holdSeconds        Safety expiry for the reservation if release is never reached.
+     * @return string   Token for releaseBatch(); '' when the guard itself is unavailable (fail open).
+     * @throws AiPausedException
+     */
+    public function reserveBatch(?int $agencyId, float $estimatedMaxZar, int $holdSeconds = 300): string
+    {
+        $token = '';
+
+        try {
+            Cache::lock('ai-spend-guard:' . ($agencyId ?? 'system'), self::LOCK_SECONDS)
+                ->block(self::LOCK_WAIT_SECONDS, function () use ($agencyId, $estimatedMaxZar, $holdSeconds, &$token) {
+                    if ($this->isPausedFresh($agencyId)) {
+                        throw new AiPausedException($agencyId);
+                    }
+
+                    $cutout   = $this->settings()['cutout_zar'];
+                    $reserved = array_sum(array_column($this->liveReservations($agencyId), 0));
+
+                    if ($this->windowSpend($agencyId) + $reserved + $estimatedMaxZar >= $cutout) {
+                        Log::warning('AiSpendGuard: batch refused - it could cross the cut-out', [
+                            'agency_id'  => $agencyId,
+                            'estimate'   => round($estimatedMaxZar, 2),
+                            'reserved'   => round($reserved, 2),
+                            'cutout_zar' => $cutout,
+                        ]);
+
+                        throw new AiPausedException($agencyId);
+                    }
+
+                    $token = bin2hex(random_bytes(8));
+                    $all   = $this->liveReservations($agencyId);
+                    $all[$token] = [$estimatedMaxZar, time() + max(30, $holdSeconds)];
+                    Cache::put($this->reservationKey($agencyId), $all, now()->addSeconds(max(30, $holdSeconds) + 60));
+                });
+        } catch (AiPausedException $e) {
+            throw $e;
+        } catch (LockTimeoutException) {
+            Log::warning('AiSpendGuard: could not lock the bucket to reserve a batch - allowing it', ['agency_id' => $agencyId]);
+        } catch (Throwable $e) {
+            Log::warning('AiSpendGuard: batch reservation failed - allowing the batch', ['agency_id' => $agencyId, 'error' => $e->getMessage()]);
+        }
+
+        return $token;
+    }
+
+    /**
+     * Release a batch reservation once its calls have been recorded in the ledger (or have failed).
+     */
+    public function releaseBatch(?int $agencyId, string $token): void
+    {
+        if ($token === '') {
+            return;
+        }
+
+        try {
+            Cache::lock('ai-spend-guard:' . ($agencyId ?? 'system'), self::LOCK_SECONDS)
+                ->block(self::LOCK_WAIT_SECONDS, function () use ($agencyId, $token) {
+                    $all = $this->liveReservations($agencyId);
+                    unset($all[$token]);
+                    if ($all === []) {
+                        Cache::forget($this->reservationKey($agencyId));
+                    } else {
+                        Cache::put($this->reservationKey($agencyId), $all, now()->addMinutes(10));
+                    }
+                });
+        } catch (Throwable $e) {
+            // Best effort: the reservation expires on its own.
+            Log::warning('AiSpendGuard: could not release a batch reservation', ['agency_id' => $agencyId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * @return array<string, array{0: float, 1: int}> token => [max cost, expires at (unix)]
+     */
+    private function liveReservations(?int $agencyId): array
+    {
+        $all = Cache::get($this->reservationKey($agencyId), []);
+        if (! is_array($all)) {
+            return [];
+        }
+
+        $now = time();
+
+        return array_filter($all, fn ($r) => is_array($r) && isset($r[0], $r[1]) && (int) $r[1] > $now);
+    }
+
+    private function reservationKey(?int $agencyId): string
+    {
+        return 'ai-spend-guard:reserved:' . ($agencyId ?? 'system');
     }
 
     /**
@@ -335,10 +463,14 @@ final class AiSpendGuard
     // Internals
     // ─────────────────────────────────────────────────────────────────────
 
-    private function evaluateLocked(?int $agencyId): void
+    /**
+     * Decide and WRITE the state (alert-sent marker, pause) under the lock; return the email to send once the
+     * lock is released, if any.
+     */
+    private function evaluateLocked(?int $agencyId): ?\Closure
     {
         if ($this->isPausedFresh($agencyId)) {
-            return; // already cut out — calls are refused; nothing more to trip
+            return null; // already cut out — calls are refused; nothing more to trip
         }
 
         $settings = $this->settings();
@@ -346,18 +478,16 @@ final class AiSpendGuard
         $now      = Carbon::now();
 
         if ($spend >= $settings['cutout_zar']) {
-            $this->pause($agencyId, $spend, $settings, $now);
-
-            return;
+            return $this->pause($agencyId, $spend, $settings, $now);
         }
 
         if ($spend < $settings['alert_zar']) {
-            return;
+            return null;
         }
 
         $sentAt = $this->alertSentAtFresh($agencyId);
         if ($sentAt !== null && $sentAt->greaterThan($now->copy()->subHours($settings['window_hours']))) {
-            return; // at most one alert per bucket per window
+            return null; // at most one alert per bucket per window
         }
 
         // A failed send must not use up the once-per-window alert: after a failure, back off
@@ -365,7 +495,7 @@ final class AiSpendGuard
         // per AI call) and try again once the interval has passed.
         $retryKey = $this->alertRetryKey($agencyId);
         if (Cache::has($retryKey)) {
-            return;
+            return null;
         }
 
         Log::warning('AI SPEND ALERT', [
@@ -374,24 +504,30 @@ final class AiSpendGuard
             'alert_zar' => $settings['alert_zar'],
         ]);
 
-        if (! $this->sendMail(AiSpendAlertMail::KIND_ALERT, $agencyId, $spend, $settings['alert_zar'], $settings)) {
-            Cache::put($retryKey, 1, now()->addMinutes(self::ALERT_MAIL_RETRY_MINUTES));
-
-            return; // not marked sent — the next evaluation after the back-off tries again
-        }
-
+        // Mark the alert sent BEFORE mailing, inside the lock (AT-456 audit D-L3): any evaluation that gets the
+        // lock after this sees it and stays quiet, even if the mail itself is slow. The mail is sent after the
+        // lock is released; if that send fails the marker is taken back so the alert is retried after the back-off.
         $this->writeAlertSentAt($agencyId, $now);
 
-        AiSpendGuardEvent::create([
-            'agency_id'     => $agencyId,
-            'type'          => AiSpendGuardEvent::TYPE_ALERT,
-            'spend_zar'     => $spend,
-            'threshold_zar' => $settings['alert_zar'],
-            'occurred_at'   => $now,
-        ]);
+        return function () use ($agencyId, $spend, $settings, $now, $retryKey): void {
+            if (! $this->sendMail(AiSpendAlertMail::KIND_ALERT, $agencyId, $spend, $settings['alert_zar'], $settings)) {
+                Cache::put($retryKey, 1, now()->addMinutes(self::ALERT_MAIL_RETRY_MINUTES));
+                $this->clearAlertSentAt($agencyId, $now); // not sent after all - the next evaluation after the back-off tries again
+
+                return;
+            }
+
+            AiSpendGuardEvent::create([
+                'agency_id'     => $agencyId,
+                'type'          => AiSpendGuardEvent::TYPE_ALERT,
+                'spend_zar'     => $spend,
+                'threshold_zar' => $settings['alert_zar'],
+                'occurred_at'   => $now,
+            ]);
+        };
     }
 
-    private function pause(?int $agencyId, float $spend, array $settings, Carbon $now): void
+    private function pause(?int $agencyId, float $spend, array $settings, Carbon $now): \Closure
     {
         $reason = sprintf(
             'Spent R %s in the last %d hours (cut-out R %s).',
@@ -430,7 +566,10 @@ final class AiSpendGuard
             'cutout_zar' => $settings['cutout_zar'],
         ]);
 
-        $this->sendMail(AiSpendAlertMail::KIND_CUTOUT, $agencyId, $spend, $settings['cutout_zar'], $settings);
+        // The pause is already written; the email goes out after the lock is released (see evaluate()).
+        return function () use ($agencyId, $spend, $settings): void {
+            $this->sendMail(AiSpendAlertMail::KIND_CUTOUT, $agencyId, $spend, $settings['cutout_zar'], $settings);
+        };
     }
 
     /**
@@ -540,6 +679,26 @@ final class AiSpendGuard
         }
 
         DB::table('agencies')->where('id', $agencyId)->update(['ai_alert_last_sent_at' => $at]);
+    }
+
+    /**
+     * Take back the alert-sent marker written by writeAlertSentAt($at) - but only if it is still that value,
+     * so a cut-out that superseded the alert in the meantime keeps its own marker.
+     */
+    private function clearAlertSentAt(?int $agencyId, Carbon $at): void
+    {
+        $current = $this->alertSentAtFresh($agencyId);
+        if ($current === null || $current->toDateTimeString() !== $at->toDateTimeString()) {
+            return;
+        }
+
+        if ($agencyId === null) {
+            DevSetting::set(self::KEY_SYSTEM_ALERT_SENT_AT, null);
+
+            return;
+        }
+
+        DB::table('agencies')->where('id', $agencyId)->update(['ai_alert_last_sent_at' => null]);
     }
 
     private function toCarbon(mixed $value): ?Carbon

@@ -508,6 +508,14 @@
                                        style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
                                 <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">Spend is added up over this many hours (1–168).</span>
                             </label>
+                            <label class="block">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Failed AI designs per agency per day</span>
+                                <input type="number" step="1" min="1" max="100" name="ai_template_max_failed_per_day"
+                                       value="{{ old('ai_template_max_failed_per_day', $aiSpend['max_failed_per_day']) }}"
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">"Create with AI" attempts that were paid for but gave no usable design do not use the monthly allowance. After this many in one day an agency is asked to try again tomorrow.</span>
+                            </label>
                         </div>
                     </div>
 

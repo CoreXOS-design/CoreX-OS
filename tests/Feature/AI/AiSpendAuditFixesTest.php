@@ -99,8 +99,10 @@ final class AiSpendAuditFixesTest extends TestCase
         $this->assertSame(1, $calls, 'A timed-out long document call must not be re-sent (it multiplies the cost).');
     }
 
-    public function test_a_timed_out_request_without_documents_still_retries(): void
+    public function test_a_timed_out_request_without_documents_is_not_retried_either(): void
     {
+        // AT-456 audit D-M1: a timeout means the provider may still bill the call, and re-sends leave no ledger
+        // row - so no request is ever re-sent after a timeout, documents or not.
         $calls = 0;
         Http::fake(function () use (&$calls) {
             $calls++;
@@ -114,7 +116,192 @@ final class AiSpendAuditFixesTest extends TestCase
 
         app(AnthropicGateway::class)->generate($request);
 
-        $this->assertSame(3, $calls, 'Every other caller keeps its existing retry behaviour.');
+        $this->assertSame(1, $calls, 'A timed-out request must be sent once, never re-sent.');
+    }
+
+    public function test_a_connection_that_could_not_be_opened_is_still_retried(): void
+    {
+        $calls = 0;
+        Http::fake(function () use (&$calls) {
+            $calls++;
+            throw new ConnectionException('cURL error 7: Failed to connect to api.anthropic.com port 443');
+        });
+
+        $request = new NarrativeRequest(
+            narrativeType: 'plain_connect', cacheKey: 'plain-connect:' . uniqid(), modelAlias: 'quality',
+            systemPrompt: 's', userPrompt: 'u', forceRefresh: true, fallbackData: ['text' => 'templated'],
+        );
+
+        app(AnthropicGateway::class)->generate($request);
+
+        $this->assertSame(3, $calls, 'Nothing was sent, so a connect failure is safe to retry.');
+    }
+
+    public function test_a_structured_answer_with_no_json_in_it_comes_back_unreadable_not_as_a_crash(): void
+    {
+        Http::fake(fn () => Http::response([
+            'content' => [['type' => 'text', 'text' => 'sorry, I cannot do that']], 'usage' => ['input_tokens' => 10, 'output_tokens' => 10],
+        ], 200));
+        $request = new NarrativeRequest(
+            narrativeType: 'plain_text_answer', cacheKey: 'plain-text:' . uniqid(), modelAlias: 'fast',
+            systemPrompt: 's', userPrompt: 'u', forceRefresh: true, fallbackData: ['text' => 'templated'],
+        );
+
+        $response = app(AnthropicGateway::class)->generateStructured($request, ['keep' => [1]]);
+
+        $this->assertNull($response->outputJson);
+        $this->assertSame('sorry, I cannot do that', $response->outputText);
+    }
+
+    public function test_a_failed_call_with_no_fallback_leaves_a_zero_cost_ledger_row(): void
+    {
+        Http::fake(function () {
+            throw new ConnectionException('cURL error 28: Operation timed out');
+        });
+        $agency = $this->agency('Failing Co');
+
+        $request = new NarrativeRequest(
+            narrativeType: 'no_fallback', cacheKey: 'no-fallback:' . uniqid(), modelAlias: 'quality',
+            systemPrompt: 's', userPrompt: 'u', forceRefresh: true, agencyId: $agency->id,
+        );
+
+        try {
+            app(AnthropicGateway::class)->generate($request);
+            $this->fail('A failed call with no fallback must throw.');
+        } catch (\App\Exceptions\AI\NarrativeGenerationException) {
+        }
+
+        $rows = AiUsageEvent::where('agency_id', $agency->id)->get();
+        $this->assertCount(1, $rows, 'the failed call is on the usage page, not a silent gap');
+        $this->assertEquals(0.0, (float) $rows[0]->cost_zar, 'no cost figure is invented for a call whose billing is unknown');
+        $this->assertTrue((bool) $rows[0]->fallback);
+    }
+
+    // ── M3. A batch of concurrent calls is held to the cut-out up front ──
+
+    public function test_a_batch_that_could_cross_the_cutout_is_refused_before_any_call(): void
+    {
+        Mail::fake();
+        $agency = $this->agency('Batch Co');
+        $this->spend($agency->id, 45.00); // under the R50 cut-out, over the R30 alert
+        Http::fake();
+
+        // 3 calls x 10 000 output tokens on the quality model is about R7.4 worst case: 45 + 7.4 > 50.
+        $requests = [];
+        foreach (['a', 'b', 'c'] as $k) {
+            $requests[$k] = $this->batchRequest($agency->id, $k, 10000);
+        }
+
+        $out = app(AnthropicGateway::class)->generateMany($requests);
+
+        foreach (['a', 'b', 'c'] as $k) {
+            $this->assertInstanceOf(AiPausedException::class, $out[$k]);
+        }
+        Http::assertNothingSent();
+    }
+
+    public function test_a_batch_that_fits_under_the_cutout_goes_ahead_and_releases_its_reservation(): void
+    {
+        Mail::fake();
+        $agency = $this->agency('Roomy Co');
+        $this->spend($agency->id, 10.00);
+        Http::fake(fn () => Http::response([
+            'content' => [['type' => 'text', 'text' => 'ok']], 'usage' => ['input_tokens' => 10, 'output_tokens' => 10],
+        ], 200));
+
+        $requests = ['a' => $this->batchRequest($agency->id, 'a', 4000), 'b' => $this->batchRequest($agency->id, 'b', 4000)];
+        $out      = app(AnthropicGateway::class)->generateMany($requests);
+
+        $this->assertSame('ok', $out['a']->outputText);
+        $this->assertSame('ok', $out['b']->outputText);
+        Http::assertSentCount(2);
+        $this->assertNull(Cache::get('ai-spend-guard:reserved:' . $agency->id), 'the reservation is released once the calls are recorded');
+    }
+
+    public function test_concurrent_batches_reserve_against_each_other(): void
+    {
+        $agency = $this->agency('Two Batches Co');
+        $this->spend($agency->id, 10.00);
+
+        // Cut-out R50, spent R10: a first batch of R25 fits; a second R25 would reach R60 together - refused.
+        $first = $this->guard->reserveBatch($agency->id, 25.0);
+        $this->assertNotSame('', $first);
+
+        try {
+            $this->guard->reserveBatch($agency->id, 25.0);
+            $this->fail('The second batch must be refused while the first is still in flight.');
+        } catch (AiPausedException) {
+        }
+
+        // Once the first batch is done (its spend is in the ledger) the room is counted from the ledger instead.
+        $this->guard->releaseBatch($agency->id, $first);
+        $this->assertNotSame('', $this->guard->reserveBatch($agency->id, 25.0));
+    }
+
+    public function test_a_single_call_through_generate_many_is_not_held_back_by_the_estimate(): void
+    {
+        Mail::fake();
+        $agency = $this->agency('Single Co');
+        $this->spend($agency->id, 49.00);
+        Http::fake(fn () => Http::response([
+            'content' => [['type' => 'text', 'text' => 'ok']], 'usage' => ['input_tokens' => 10, 'output_tokens' => 10],
+        ], 200));
+
+        $out = app(AnthropicGateway::class)->generateMany(['only' => $this->batchRequest($agency->id, 'only', 10000)]);
+
+        $this->assertSame('ok', $out['only']->outputText, 'a single call behaves exactly as before');
+    }
+
+    // ── L3. The spend email goes out after the lock is released, the alert is recorded before it ──
+
+    public function test_the_alert_email_is_sent_after_the_lock_is_released_and_the_alert_is_already_recorded(): void
+    {
+        $agency = $this->agency('Slow Mail Co');
+        $this->spend($agency->id, 35.00);
+
+        $lockFreeWhileMailing = null;
+        $recordedWhileMailing = null;
+        $delivered = Mockery::mock();
+        $delivered->shouldReceive('send')->once();
+        Mail::shouldReceive('to')->once()->andReturnUsing(function () use ($agency, &$lockFreeWhileMailing, &$recordedWhileMailing, $delivered) {
+            $probe = Cache::lock('ai-spend-guard:' . $agency->id, 10);
+            $lockFreeWhileMailing = $probe->get();
+            if ($lockFreeWhileMailing) {
+                $probe->release();
+            }
+            $recordedWhileMailing = \Illuminate\Support\Facades\DB::table('agencies')->where('id', $agency->id)->value('ai_alert_last_sent_at') !== null;
+
+            return $delivered;
+        });
+
+        $this->guard->evaluate($agency->id);
+
+        $this->assertTrue($lockFreeWhileMailing, 'the guard lock must not be held while the email is being sent');
+        $this->assertTrue($recordedWhileMailing, 'the alert is marked sent before the email, so a second evaluation cannot send it twice');
+    }
+
+    public function test_the_cutout_email_also_goes_out_after_the_lock_is_released(): void
+    {
+        $agency = $this->agency('Slow Cut Co');
+        $this->spend($agency->id, 60.00);
+
+        $lockFreeWhileMailing = null;
+        $delivered = Mockery::mock();
+        $delivered->shouldReceive('send')->once();
+        Mail::shouldReceive('to')->once()->andReturnUsing(function () use ($agency, &$lockFreeWhileMailing, $delivered) {
+            $probe = Cache::lock('ai-spend-guard:' . $agency->id, 10);
+            $lockFreeWhileMailing = $probe->get();
+            if ($lockFreeWhileMailing) {
+                $probe->release();
+            }
+
+            return $delivered;
+        });
+
+        $this->guard->evaluate($agency->id);
+
+        $this->assertTrue($lockFreeWhileMailing);
+        $this->assertTrue($this->guard->isPaused($agency->id));
     }
 
     // ── 3. Paused fallback must not linger or clobber a good narrative ──
@@ -302,6 +489,14 @@ final class AiSpendAuditFixesTest extends TestCase
     }
 
     // ── helpers ──
+
+    private function batchRequest(int $agencyId, string $key, int $maxTokens): NarrativeRequest
+    {
+        return new NarrativeRequest(
+            narrativeType: 'batch', cacheKey: 'batch:' . $key . ':' . uniqid(), modelAlias: 'quality', systemPrompt: 's', userPrompt: 'u',
+            maxTokens: $maxTokens, agencyId: $agencyId, forceRefresh: true,
+        );
+    }
 
     private function request(string $key, int $agencyId, bool $forceRefresh = false): NarrativeRequest
     {

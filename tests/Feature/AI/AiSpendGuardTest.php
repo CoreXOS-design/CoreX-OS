@@ -319,6 +319,20 @@ class AiSpendGuardTest extends TestCase
         $this->assertSame(0, AiSpendGuardEvent::where('type', 'settings')->count());
     }
 
+    public function test_the_failed_attempts_per_day_limit_defaults_to_5_and_is_saved_from_dev_settings(): void
+    {
+        $this->assertSame(5, $this->guard->settings()['max_failed_per_day']);
+
+        $this->actingAs($this->owner())
+            ->put(route('admin.dev-settings.update'), $this->settingsPayload(30, 50, 24, ['ops@example.com']) + ['ai_template_max_failed_per_day' => 8])
+            ->assertRedirect();
+        $this->assertSame(8, $this->guard->settings()['max_failed_per_day']);
+
+        $this->put(route('admin.dev-settings.update'), $this->settingsPayload(30, 50, 24, ['ops@example.com']) + ['ai_template_max_failed_per_day' => 0])
+            ->assertSessionHasErrors('ai_spend');
+        $this->assertSame(8, $this->guard->settings()['max_failed_per_day']);
+    }
+
     public function test_an_empty_email_list_is_refused(): void
     {
         $this->actingAs($this->owner())
