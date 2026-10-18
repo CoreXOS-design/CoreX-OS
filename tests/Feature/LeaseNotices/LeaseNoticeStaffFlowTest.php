@@ -392,4 +392,25 @@ final class LeaseNoticeStaffFlowTest extends TestCase
         $this->assertStringContainsString('Notice accepted', $lines);
         $this->assertStringContainsString('was told the notice was accepted', $lines);
     }
+
+    /** Audit 2026-10-18 (A-M8): the API used to write the move-out date and outcome straight onto the lease, skipping review. */
+    public function test_the_api_notice_endpoints_record_a_case_for_review_and_never_touch_the_lease(): void
+    {
+        $this->actingAs($this->agent)->postJson('/api/v1/leases/' . $this->lease->id . '/renewal/tenant-notice', [
+            'notice_date' => Carbon::today()->toDateString(), 'intended_end_date' => $this->tomorrowPlus(70), 'reason' => 'Job transfer',
+        ])->assertOk()->assertJsonPath('notice.status', LeaseNotice::STATUS_RECEIVED)->assertJsonPath('notice.via', LeaseNotice::VIA_AGENT);
+
+        $notice = LeaseNotice::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame(Lease::NOTICE_BY_TENANT, $notice->given_by);
+        $this->assertSame($this->agent->id, $notice->recorded_by_user_id);
+        $lease = $this->lease->fresh();
+        $this->assertNull($lease->notice_date, 'the lease is untouched until a reviewer accepts the notice');
+        $this->assertNull($lease->notice_given_by);
+
+        // a second landlord notice is its own case; a repeat of the same party is refused by the service, not written
+        $this->actingAs($this->agent)->postJson('/api/v1/leases/' . $this->lease->id . '/renewal/tenant-notice', [
+            'notice_date' => Carbon::today()->toDateString(), 'intended_end_date' => $this->tomorrowPlus(80),
+        ])->assertStatus(422);
+        $this->assertSame(1, LeaseNotice::withoutGlobalScopes()->count());
+    }
 }

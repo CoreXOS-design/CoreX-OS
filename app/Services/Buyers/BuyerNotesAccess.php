@@ -59,6 +59,16 @@ class BuyerNotesAccess
         // own visibility rule and is replaced by this setting for NOTES only.
         $query = Contact::query()->withoutGlobalScope(ContactScope::class)->whereIn('contacts.id', $ids);
 
+        // Owner agency lock (Johan, 2026-10-18): AgencyScope is lifted for an owner-role account that has not used the agency
+        // switcher, so pin it to the agency it is working in - the same rule as PropertyMarketingPost::scopeVisibleTo().
+        if ($user->isOwnerRole()) {
+            $workingAgencyId = (int) $user->effectiveAgencyId();
+            if ($workingAgencyId <= 0) {
+                return [];
+            }
+            $query->where('contacts.agency_id', $workingAgencyId);
+        }
+
         if ($scope === 'own') {
             $query->whereIn('contacts.agent_id', $user->dataIdentityIds());
         } elseif ($scope === 'branch') {

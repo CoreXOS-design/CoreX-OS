@@ -40,9 +40,9 @@ trait AuthorizesRentalRecordScope
         $scope = \App\Services\PermissionService::getDataScope($user, $permissionKey);
 
         if ($scope === 'all') {
-            if ($user->isOwnerRole()) {
-                return;
-            }
+            // Owner agency lock (Johan, 2026-10-18): an owner-role account used to pass here for ANY agency's record. It is now held
+            // to the agency it is working in (effectiveAgencyId()), exactly like everyone else - an owner reaches another agency's
+            // records by switching into that agency first.
             if ((int) $record->agency_id === (int) ($user->effectiveAgencyId() ?? 0)) {
                 return;
             }

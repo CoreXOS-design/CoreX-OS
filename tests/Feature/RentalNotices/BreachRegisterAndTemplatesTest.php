@@ -238,4 +238,17 @@ final class BreachRegisterAndTemplatesTest extends TestCase
         $this->actingAs($this->agent)->get(route('corex.breaches.document', [$breach->id, 'breach']))->assertOk()->assertDownload();
         $this->actingAs($this->agent)->get(route('corex.breaches.document', [$breach->id, 'vacate']))->assertNotFound();
     }
+
+    /** Audit 2026-10-18 (A-L7): an arbitrary ?sort= column used to reach orderBy() (a 500 for a bad name, a probe for hidden columns). */
+    public function test_the_sent_notices_list_ignores_a_sort_column_that_is_not_on_the_whitelist(): void
+    {
+        // a row must exist, otherwise paginate() never runs the ordered select and a bad column goes unnoticed
+        \App\Models\RentalNotice::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'notice_type' => 'breach', 'sent_at' => now(), 'sent_by_user_id' => $this->agent->id,
+        ]);
+
+        $this->actingAs($this->agent)->get(route('corex.rental-notices.index', ['sort' => 'no_such_column']))->assertOk();
+        $this->actingAs($this->agent)->get(route('corex.rental-notices.index', ['sort' => 'sent_by_user_id; drop table x']))->assertOk();
+        $this->actingAs($this->agent)->get(route('corex.rental-notices.index', ['sort' => 'notice_type']))->assertOk();
+    }
 }

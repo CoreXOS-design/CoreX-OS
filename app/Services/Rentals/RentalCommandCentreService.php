@@ -144,6 +144,9 @@ class RentalCommandCentreService
 
     private function applyDirectPropertyScope(Builder $query, User $user, string $scope): Builder
     {
+        // Owner agency lock (2026-10-18): an owner account sees only the agency it is working in.
+        RentalDataScope::pinOwnerToWorkingAgency($query, $user, 'properties.agency_id');
+
         if ($scope === 'all') {
             return $query;
         }
@@ -166,6 +169,12 @@ class RentalCommandCentreService
      */
     public function applyPropertyIdScope(Builder $query, User $user, string $scope, string $propertyIdColumn): Builder
     {
+        // Owner agency lock (2026-10-18): the records must sit on a property of the agency the owner is working in.
+        if ($user->isOwnerRole()) {
+            $workingAgencyId = (int) $user->effectiveAgencyId();
+            $query->whereIn($propertyIdColumn, fn ($q) => $q->select('id')->from('properties')->where('agency_id', $workingAgencyId > 0 ? $workingAgencyId : -1));
+        }
+
         if ($scope === 'all') {
             return $query;
         }
@@ -363,6 +372,9 @@ class RentalCommandCentreService
                 . 'AND pl2.status = ? AND pl2.deleted_at IS NULL ORDER BY pl2.id DESC LIMIT 1) as pending_renewal_draft_lease_id',
                 [Lease::STATUS_DRAFT]
             );
+
+        // Owner agency lock (2026-10-18): an owner account sees only the agency it is working in.
+        RentalDataScope::pinOwnerToWorkingAgency($query, $user, 'properties.agency_id');
 
         if ($scope === 'branch') {
             $query->where('properties.branch_id', $user->effectiveBranchId());

@@ -333,8 +333,10 @@ class RentalFaultReportController extends Controller
      */
     public function create(Request $request): View
     {
-        $property = $request->get('property_id') ? Property::findOrFail($request->get('property_id')) : null;
-        $lease = $request->get('lease_id') ? Lease::findOrFail($request->get('lease_id')) : null;
+        // Audit 2026-10-18 (A-L11): both lookups go through the user's own/branch/agency scope - an id outside it is a 404,
+        // not a form pre-filled with someone else's address, tenants and landlord.
+        $property = $request->get('property_id') ? Property::query()->visibleTo($request->user())->findOrFail($request->get('property_id')) : null;
+        $lease = $request->get('lease_id') ? Lease::query()->visibleTo($request->user())->findOrFail($request->get('lease_id')) : null;
         $lease?->load('tenants.contact');
 
         // Opened from the list with nothing chosen (Johan, 8 Oct 2026): not a 500-line dropdown of properties with duplicates and no search, but a
@@ -383,7 +385,8 @@ class RentalFaultReportController extends Controller
             // .ai/specs/rentals-faults-work-orders.md §2.2 — optional; a
             // report can still be free-text-only if nothing in the catalogue
             // fits.
-            'rental_fault_type_id' => ['nullable', 'exists:rental_fault_types,id'],
+            // Audit 2026-10-18 (A-L10): the type must be one of THIS agency's own (live) fault types.
+            'rental_fault_type_id' => ['nullable', \Illuminate\Validation\Rule::exists('rental_fault_types', 'id')->where('agency_id', $agencyId)->whereNull('deleted_at')],
             'reported_by_type' => ['required', 'in:' . implode(',', [
                 RentalFaultReport::REPORTED_BY_TENANT,
                 RentalFaultReport::REPORTED_BY_AGENT_NOTICED,

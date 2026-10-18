@@ -484,4 +484,25 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         // must never fall back to the tenant.
         Mail::assertNothingQueued();
     }
+
+    /** Audit 2026-10-18 (A-M7): a lease_id that is not on the work order's property must not put the wrong tenant on the card. */
+    public function test_a_lease_from_another_property_is_not_put_on_a_card_built_for_a_work_order(): void
+    {
+        $workOrder = RentalWorkOrder::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->admin->id,
+            'title' => 'Leaky roof', 'description' => 'x', 'status' => RentalWorkOrder::STATUS_REPORTED,
+            'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $foreignLease = $this->lease($this->otherProperty);
+
+        $card = app(RentalJobCardService::class)->createStandalone([
+            'title' => 'Second card',
+            'rental_work_order_id' => $workOrder->id,
+            'lease_id' => $foreignLease->id,
+        ], $this->admin);
+
+        $this->assertSame($this->property->id, (int) $card->property_id);
+        $this->assertNotSame($foreignLease->id, (int) $card->lease_id);
+    }
 }

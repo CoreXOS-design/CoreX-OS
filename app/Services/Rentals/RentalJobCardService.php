@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\Lease;
 use App\Models\Property;
 use App\Models\RentalCatalogueItem;
 use App\Models\RentalFaultReport;
@@ -88,6 +89,19 @@ class RentalJobCardService
 
             if (!$property) {
                 $property = Property::findOrFail($attributes['property_id']);
+            }
+
+            // Audit 2026-10-18 (A-M7): the lease must belong to the property the card is actually about. A lease_id posted
+            // next to a work order / fault report for a different property would otherwise put the wrong tenant on the card;
+            // fall back to the source record's own lease (which is already on this property) or none.
+            if ($leaseId) {
+                $leaseProperty = Lease::query()->whereKey($leaseId)->value('property_id');
+                if ($leaseProperty === null || (int) $leaseProperty !== (int) $property->id) {
+                    $sourceLeaseId = $workOrder?->lease_id ?? $faultReport?->lease_id;
+                    $leaseId = ($sourceLeaseId && (int) Lease::query()->whereKey($sourceLeaseId)->value('property_id') === (int) $property->id)
+                        ? $sourceLeaseId
+                        : null;
+                }
             }
 
             // BUILD 3 BEGIN — §17.3.1: no job card ever exists without its work order. A card created with no work

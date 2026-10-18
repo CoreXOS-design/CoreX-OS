@@ -5048,3 +5048,8 @@ Johan: *"neither. if a tenant reports before agent closes it fine. but agent can
 - **P4 - buttons and appointment fit the stage.** Before work starts the green button is *The work has started*; *The work is finished* is plain until then. The appointment box (and "Change the appointment") is offered only before the work has started; once it has, it disappears (`owner_work_started`).
 Tests: `RentalMaintenanceFlow/TenantCheckNeverBlocksClosingTest.php`, `OwnerCardPolishTest.php`; older tests that asserted the holding stage / window / auto-reopen were updated (see the 9 Oct report).
 
+
+## Audit fix 2026-10-18 (rentals ops batch)
+- **A-M6** Moving a job card to a different crew (`RentalJobCard::assignCrew`) revokes every live per-job crew link on the card and logs `link_revoked`; the office issues a fresh link for the new crew. Test: `CrewJobLinkTokenTest`.
+- **A-M7** `RentalJobCardController::store` requires each supplied property / lease / work order / fault report id to be `visibleTo($user)` (404 otherwise); `RentalJobCardService::createStandalone` drops a `lease_id` that is not on the resolved property (falls back to the work order's / fault report's own lease). Tests: `RentalJobCardScopeGuardTest`, `RentalJobCardAt442FollowUpTest`.
+- **A-L8/L9** Work order `create()` only pre-fills from an inspection the user may see; `store()`/`storeBatch()` require every observation to belong to an inspection of the posted property that the user may see (and the named inspection to be that one). Test: `RentalWorkOrderAuditFixesTest`.

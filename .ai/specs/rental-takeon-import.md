@@ -428,3 +428,6 @@ month-to-month row with no end date.
 - Writing a scheduled escalation clause onto `leases` (§6).
 - Importing historical inspection records (§6).
 - Any notification/invite to tenants or landlords (§5.3 — guaranteed absent, not just unbuilt).
+
+## Audit fix 2026-10-18 (A-M2)
+`rental_take_on_import_rows` now carries its own `agency_id` (`BelongsToAgency`; migration `2026_11_16_100000_add_agency_id_to_rental_take_on_import_rows`, backfilled from the parent run). Every run and row action in `RentalTakeOnImportController` (show, preview, issues CSV, map/confirm mapping, confirm-bulk, confirm/exclude row, cancel, archive, restore) first checks the parent run with `RentalTakeOnImportRun::visibleTo($user)` (own/branch/agency) and answers 404 otherwise, before any read or write. Tests: `RentalTakeOnImportHttpTest`.

@@ -206,4 +206,29 @@ final class CrewJobLinkTokenTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.crew-link.issue', $open))->assertSessionHasErrors('crew_link');
         $this->assertSame(0, RentalSecureAccessToken::withoutGlobalScopes()->where('rental_job_card_id', $open->id)->count());
     }
+
+    /** Audit 2026-10-18 (A-M6): the old crew's per-job link must die when the card is moved to another crew. */
+    public function test_moving_the_job_to_another_crew_kills_the_first_crews_link(): void
+    {
+        $card = $this->makeJobCard();
+        $issued = $this->issue($card);
+        $this->get('/secure/job-cards/' . $issued['raw_token'])->assertSee('Fix the geyser');
+
+        $other = \App\Models\RentalCrew::create([
+            'agency_id' => $this->agency->id, 'name' => 'Team 2', 'email' => 'team2@example.invalid',
+            'phone' => '082 000 0000', 'created_by_user_id' => $this->admin->id,
+        ]);
+        $card->fresh()->assignCrew($other, $this->admin);
+
+        $this->get('/secure/job-cards/' . $issued['raw_token'])->assertSee('no longer available')->assertDontSee('Fix the geyser');
+        $taskId = $card->tasks()->first()->id;
+        $this->postJson('/secure/job-cards/' . $issued['raw_token'] . '/tasks/' . $taskId . '/tick')->assertOk()->assertSee('no longer available');
+        $this->assertFalse($card->tasks()->first()->fresh()->is_done);
+        $this->assertSame(1, $card->updates()->where('update_type', 'link_revoked')->count());
+
+        // Re-assigning to the SAME crew changes nothing; a fresh link for the new crew works.
+        $fresh = $this->issue($card->fresh());
+        $card->fresh()->assignCrew($other, $this->admin);
+        $this->get('/secure/job-cards/' . $fresh['raw_token'])->assertSee('Fix the geyser');
+    }
 }
