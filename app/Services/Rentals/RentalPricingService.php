@@ -215,9 +215,15 @@ class RentalPricingService
         foreach ($card->lines->filter(fn (RentalJobCardLine $l) => $l->isAccepted()) as $line) {
             $sellExcl = null;
             if ($line->line_total !== null) {
-                $sellExcl = $registered && $agency
-                    ? (float) ($this->vat->lineVat($line, $agency, $mode)['excl'] ?? $line->line_total)
-                    : (float) $line->line_total;
+                // A frozen card's line carries its own excl figure (audit D-L5): read it, so a later change to the agency's
+                // VAT registration can't turn the incl figure into "excl". Only an unfrozen line is worked out live.
+                if ($registered && $card->vat_snapshotted_at !== null && $line->vat_excl_snapshot !== null) {
+                    $sellExcl = (float) $line->vat_excl_snapshot;
+                } elseif ($registered && $agency) {
+                    $sellExcl = (float) ($this->vat->lineVat($line, $agency, $mode)['excl'] ?? $line->line_total);
+                } else {
+                    $sellExcl = (float) $line->line_total;
+                }
                 $sellingExcl += $sellExcl;
             } else {
                 $incomplete = true;

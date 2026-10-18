@@ -344,4 +344,93 @@ final class RentalJobCardVatTest extends TestCase
         $this->assertSame('Box', $line->unit);
         $this->assertSame('part', $line->type);
     }
+
+    // ── Audit 2026-10-18 D-H1 — archiving a VAT type must never change what an open card charges ──
+
+    public function test_an_archived_vat_type_still_charges_its_rate_on_the_lines_already_using_it(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_EXCL]);
+        PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $standard = $this->standardType();
+
+        $jobCard = $this->makeJobCard();
+        $this->service->addLine($jobCard, ['description' => 'Geyser', 'quantity' => 1, 'unit_price' => 10000, 'rental_vat_type_id' => $standard->id], $this->admin);
+
+        // Legacy/forced archive (the controller now refuses this while a card is open) — pricing must not drop to 0%.
+        $standard->archive();
+
+        $breakdown = $this->vat->breakdown($jobCard->fresh('lines'));
+        $this->assertEquals(10000.0, $breakdown['subtotalExcl']);
+        $this->assertEquals(1500.0, $breakdown['totalVat'], 'An archived VAT type must keep charging its rate, not fall to 0%.');
+        $this->assertEquals(11500.0, $breakdown['totalIncl']);
+        $this->assertEquals(11500.0, $this->vat->inclusiveTotal($jobCard->fresh('lines')));
+        $this->assertSame('Standard', $this->vat->effectiveTypeLabel($jobCard->fresh('lines')->lines->first()));
+
+        // ...and the quote that freezes it carries the VAT.
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $jobCard))->assertRedirect();
+        $this->assertEquals(1500.0, (float) $jobCard->lines()->first()->vat_amount_snapshot);
+    }
+
+    public function test_an_archived_default_vat_type_still_prices_a_catalogue_default_in_incl_mode(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_INCL]);
+        PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $standard = $this->standardType();
+        $item = RentalCatalogueItem::create([
+            'agency_id' => $this->agency->id, 'rental_catalogue_item_type_id' => $this->partTypeId(),
+            'code' => 'TAP', 'description' => 'Tap', 'rental_catalogue_unit_id' => $this->eachUnitId(), 'default_price' => 100, 'sort_order' => 1,
+            'default_rental_vat_type_id' => $standard->id, 'created_by_user_id' => $this->admin->id,
+        ]);
+
+        $standard->archive();
+
+        $this->assertEquals(115.0, $this->vat->catalogueDefaultPriceForLine($item->fresh(), $this->agency->fresh()));
+    }
+
+    public function test_archiving_the_default_vat_type_is_refused(): void
+    {
+        $standard = $this->standardType();
+        $this->assertTrue($standard->is_default);
+
+        $this->actingAs($this->admin)->delete(route('admin.vat-types.archive', [$this->agency, $standard]))
+            ->assertRedirect()->assertSessionHas('error');
+
+        $this->assertDatabaseHas('rental_vat_types', ['id' => $standard->id, 'deleted_at' => null]);
+    }
+
+    public function test_archiving_a_vat_type_used_by_an_open_job_card_is_refused_and_says_how_many(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_EXCL]);
+        PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $custom = $this->customType();
+
+        foreach ([1, 2] as $n) {
+            $card = $this->makeJobCard();
+            $this->service->addLine($card, ['description' => "Line {$n}", 'quantity' => 1, 'unit_price' => 100, 'rental_vat_type_id' => $custom->id, 'custom_vat_rate' => 10], $this->admin);
+        }
+
+        $resp = $this->actingAs($this->admin)->delete(route('admin.vat-types.archive', [$this->agency, $custom]));
+        $resp->assertRedirect();
+        $this->assertStringContainsString('2 open job cards use it', (string) session('error'));
+        $this->assertDatabaseHas('rental_vat_types', ['id' => $custom->id, 'deleted_at' => null]);
+    }
+
+    public function test_archiving_a_vat_type_is_allowed_once_its_cards_are_frozen_or_closed(): void
+    {
+        $this->agency->update(['vat_registered' => true, 'vat_capture_mode' => Agency::VAT_CAPTURE_EXCL]);
+        PerformanceSetting::set('vat_rate', '15', $this->agency->id);
+        $custom = $this->customType();
+
+        $quoted = $this->makeJobCard();
+        $this->service->addLine($quoted, ['description' => 'Quoted', 'quantity' => 1, 'unit_price' => 100, 'rental_vat_type_id' => $custom->id, 'custom_vat_rate' => 10], $this->admin);
+        $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $quoted))->assertRedirect();
+
+        $closed = $this->makeJobCard();
+        $this->service->addLine($closed, ['description' => 'Closed', 'quantity' => 1, 'unit_price' => 100, 'rental_vat_type_id' => $custom->id, 'custom_vat_rate' => 10], $this->admin);
+        $closed->forceFill(['status' => RentalJobCard::STATUS_CANCELLED])->save();
+
+        $this->assertSame(0, $custom->openJobCardCount());
+        $this->actingAs($this->admin)->delete(route('admin.vat-types.archive', [$this->agency, $custom]))->assertRedirect();
+        $this->assertSoftDeleted('rental_vat_types', ['id' => $custom->id]);
+    }
 }
