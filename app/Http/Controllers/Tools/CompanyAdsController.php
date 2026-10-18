@@ -2,10 +2,18 @@
 
 namespace App\Http\Controllers\Tools;
 
+use App\Exceptions\AI\AiPausedException;
+use App\Exceptions\AI\AiTemplateGenerationFailedException;
+use App\Exceptions\AI\AiTemplateLimitReachedException;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\AiTemplateGeneration;
 use App\Models\CompanyAd;
 use App\Models\CompanyAdImage;
+use App\Services\AdTemplates\AdLayoutValidator;
+use App\Services\AdTemplates\AdTemplateStyles;
+use App\Services\AdTemplates\AiTemplateBuilderService;
+use App\Services\AdTemplates\CompanyAdBuilderService;
 use App\Services\AdTemplates\CompanyAdLayout;
 use App\Services\AdTemplates\CompanyAdLibrary;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +25,8 @@ use Illuminate\Validation\Rule;
 
 /**
  * Company Ads — the second tab of the Template Manager (Tools → Ad Manager → Template Manager → Company ads).
- * Spec: .ai/specs/company-ads.md (step E-1: list, CRUD, Ad Builder company mode, uploads, library, download).
+ * Spec: .ai/specs/company-ads.md (E-1: list, CRUD, Ad Builder company mode, uploads, library, download;
+ * E-2: the "Create company ad with AI" pop-up - generateWithAi / saveAiOption).
  *
  * Scoping: CompanyAd / CompanyAdImage are BelongsToAgency, so every query and every route-model lookup here is
  * confined to the user's agency at the query layer — another agency's id is a 404. Company ads are agency-wide
@@ -121,7 +130,139 @@ class CompanyAdsController extends Controller
             'occasions'    => $occasions,
             'canManage'    => CompanyAd::userMayManage($user),
             'brandData'    => CompanyAdLayout::brandData($user, $agency),
+            'aiPanel'      => $this->aiPanelData($user, $agency),
         ]);
+    }
+
+    /**
+     * POST api.v1.ad-manager.company-ads.ai.generate (spec §8). One request = one unit of the agency's shared monthly
+     * allowance (only when at least one design comes back).
+     */
+    public function generateWithAi(Request $request, CompanyAdBuilderService $builder, AiTemplateBuilderService $allowance): JsonResponse
+    {
+        $this->assertMayManage($request);
+        $user = $request->user();
+
+        $data = $request->validate([
+            'idea'                => ['required', 'string', 'max:' . AiTemplateBuilderService::IDEA_MAX_CHARS],
+            'occasion'            => ['nullable', 'string', Rule::in(array_keys(CompanyAdLibrary::occasions()))],
+            'ad_size'             => ['required', 'string', Rule::in(array_keys(CompanyAdLayout::CANVAS_SIZES))],
+            'style'               => ['nullable', 'string', Rule::in(array_merge([AdTemplateStyles::AUTO], AdTemplateStyles::keys()))],
+            'picture'             => ['required', 'string', Rule::in(CompanyAdBuilderService::MODES)],
+            'library_picture'     => ['nullable', 'required_if:picture,' . CompanyAdBuilderService::MODE_LIBRARY, 'string', 'max:255'],
+            'company_ad_image_id' => ['nullable', 'required_if:picture,' . CompanyAdBuilderService::MODE_PLACE, 'integer'],
+            'look_image'          => ['nullable', 'required_if:picture,' . CompanyAdBuilderService::MODE_LOOK, 'file', 'mimes:jpg,jpeg,png', 'mimetypes:image/jpeg,image/png', 'max:5120'],
+            'must_include'        => ['nullable', 'array', 'max:' . count(CompanyAdBuilderService::MUST_INCLUDES)],
+            'must_include.*'      => ['string', Rule::in(array_keys(CompanyAdBuilderService::MUST_INCLUDES))],
+        ], [
+            'idea.required'                   => 'Say what the ad is for first, for example "Merry Christmas from all of us".',
+            'library_picture.required_if'     => 'Please choose a picture from the library.',
+            'company_ad_image_id.required_if' => 'Please upload the picture to put in your ad.',
+            'look_image.required_if'          => 'Please upload the post whose look you want to copy.',
+            'look_image.max'                  => 'The picture must be 5 MB or smaller.',
+            'look_image.mimes'                => 'The picture must be a JPG or PNG.',
+            'look_image.mimetypes'            => 'The picture must be a JPG or PNG.',
+        ]);
+
+        $file = $request->file('look_image');
+        if ($file !== null && @getimagesize($file->getRealPath()) === false) {
+            return response()->json(['ok' => false, 'kind' => 'invalid', 'message' => 'That file is not a readable picture.'], 422);
+        }
+
+        try {
+            $generation = $builder->generate(
+                $user, $data['idea'], $data['ad_size'], $data['occasion'] ?? null, $data['picture'],
+                isset($data['company_ad_image_id']) ? (int) $data['company_ad_image_id'] : null,
+                $data['library_picture'] ?? null, $file,
+                $data['style'] ?? AdTemplateStyles::AUTO, (array) ($data['must_include'] ?? []),
+            );
+        } catch (AiPausedException $e) {
+            return response()->json(['ok' => false, 'kind' => 'paused', 'message' => AiPausedException::MESSAGE], 503);
+        } catch (AiTemplateLimitReachedException $e) {
+            return response()->json(['ok' => false, 'kind' => 'limit', 'message' => $e->getMessage()] + $this->usagePayload($allowance, $user), 429);
+        } catch (AiTemplateGenerationFailedException $e) {
+            return response()->json(['ok' => false, 'kind' => 'failed', 'message' => $e->getMessage()] + $this->usagePayload($allowance, $user), 422);
+        }
+
+        $options = [];
+        foreach ((array) $generation->options_json as $i => $opt) {
+            $options[] = ['index' => $i, 'name' => $opt['name'], 'layout' => $opt['layout'], 'caption' => (string) ($opt['caption'] ?? ''),
+                'style' => $opt['style'] ?? null, 'style_name' => AdTemplateStyles::get($opt['style'] ?? null)['name'] ?? null];
+        }
+
+        return response()->json(['ok' => true, 'generation_id' => $generation->id, 'options' => $options] + $this->usagePayload($allowance, $user));
+    }
+
+    /**
+     * POST api.v1.ad-manager.company-ads.ai.save — keep one design as a company ad. The browser sends only the design's
+     * number, a name and the (edited) caption; the layout is the one the server stored.
+     */
+    public function saveAiOption(Request $request, AiTemplateGeneration $generation, CompanyAdBuilderService $builder): JsonResponse
+    {
+        $this->assertMayManage($request);
+        $user = $request->user();
+        abort_unless((int) $generation->user_id === (int) $user->id, 403);
+        abort_unless($generation->kind === AiTemplateGeneration::KIND_COMPANY_AD, 404);
+
+        $data = $request->validate([
+            'option'  => ['required', 'integer', 'min:0', 'max:' . (CompanyAdBuilderService::OPTIONS - 1)],
+            'name'    => ['nullable', 'string', 'max:100'],
+            'caption' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        try {
+            $ad = $builder->saveOption($generation, (int) $data['option'], $user, $data['name'] ?? null, array_key_exists('caption', $data) ? (string) $data['caption'] : null);
+        } catch (AiTemplateGenerationFailedException $e) {
+            return response()->json(['ok' => false, 'message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'ok'       => true,
+            'id'       => $ad->id,
+            'name'     => $ad->name,
+            'caption'  => (string) $ad->caption,
+            'layout'   => $ad->layout_json,
+            'edit_url' => route('tools.ad-manager.company-ads.builder.edit', $ad->id),
+        ]);
+    }
+
+    /** @return array<string, mixed> */
+    private function usagePayload(AiTemplateBuilderService $allowance, $user): array
+    {
+        $usage = $allowance->usage((int) $user->effectiveAgencyId());
+
+        return ['usage' => [
+            'limit' => $usage['limit'], 'used' => $usage['used'], 'remaining' => $usage['remaining'],
+            'resets_on' => $usage['resets_at']->format('j F Y'),
+        ]];
+    }
+
+    /**
+     * What the "Create company ad with AI" pop-up needs on first paint, or null when this user may not use it. The previews
+     * render with the requesting agency's own brand and the signed-in user (CompanyAdLayout::brandData).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function aiPanelData($user, ?Agency $agency): ?array
+    {
+        if (! CompanyAd::userMayManage($user) || ! $agency) {
+            return null;
+        }
+        $usage = app(AiTemplateBuilderService::class)->usage((int) $agency->id);
+
+        return [
+            'usage'        => [
+                'limit' => $usage['limit'], 'used' => $usage['used'], 'remaining' => $usage['remaining'],
+                'resets_on' => $usage['resets_at']->format('j F Y'),
+            ],
+            'styles'       => AdTemplateStyles::forPanel(),
+            'sizes'        => collect(CompanyAdLayout::CANVAS_SIZES)->map(fn ($wh, $k) => ['key' => $k, 'label' => AdLayoutValidator::SIZES[$k]['label'], 'w' => $wh[0], 'h' => $wh[1]])->values()->all(),
+            'occasions'    => CompanyAdLibrary::occasions(),
+            'library'      => CompanyAdLibrary::grouped(),
+            'mustIncludes' => CompanyAdBuilderService::mustIncludesForPanel(),
+            'hasWebsite'   => trim((string) $agency->website_url) !== '',
+            'captionMax'   => CompanyAdBuilderService::CAPTION_MAX,
+        ];
     }
 
     /** The Ad Builder in company mode (spec §6) — the same editor and render kernel as property templates. */

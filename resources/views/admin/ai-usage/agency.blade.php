@@ -112,7 +112,8 @@
                 <h2 class="text-sm font-semibold" style="color:var(--text-primary);">AI template generations</h2>
                 <p class="text-xs mt-1" style="color:var(--text-muted);">
                     {{ $templateUsage['used'] }} of {{ $templateUsage['limit'] }} used this month
-                    (resets {{ $templateUsage['resets_at']->format('j F Y') }}) · {{ $templatesSaved }} AI template{{ $templatesSaved === 1 ? '' : 's' }} saved in total.
+                    (Property templates {{ $templateUsageByKind['property_template'] ?? 0 }} · Company ads {{ $templateUsageByKind['company_ad'] ?? 0 }};
+                    resets {{ $templateUsage['resets_at']->format('j F Y') }}) · {{ $templatesSaved }} AI template{{ $templatesSaved === 1 ? '' : 's' }} saved in total.
                     One generation = one idea submitted; a failed attempt is not counted.
                 </p>
             </div>

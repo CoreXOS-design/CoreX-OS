@@ -208,6 +208,8 @@ class AiUsageController extends Controller
             'guardHistory'  => $guardHistory,
             // AT-456 Part B — this month's AI template allowance + how many AI templates are saved.
             'templateUsage' => $this->templateBuilder->usage((int) $agency->id),
+            // Company Ads §10 — the same count split by what was made (property templates / company ads share the pool).
+            'templateUsageByKind' => $this->templateBuilder->usedThisMonthByKind((int) $agency->id),
             'templatesSaved' => (int) DB::table('property_ad_templates')->where('agency_id', $agency->id)->where('ai_generated', true)->count(),
             'agency'     => $agency,
             'month'      => $monthCarbon->format('Y-m'),

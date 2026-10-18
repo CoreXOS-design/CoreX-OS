@@ -543,6 +543,15 @@ Route::middleware('auth')->group(function () {
         Route::post('/ad-manager/company-ads/images', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'uploadImage'])
             ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])
             ->name('ad-manager.company-ads.images');
+        // Company Ads E-2 — "Create company ad with AI" (JSON). Same gates as the company-ads writes; generation is throttled
+        // on top of the shared monthly allowance (one pool with property templates). Spec: .ai/specs/company-ads.md §8, §13.
+        Route::post('/ad-manager/company-ads/ai/generate', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'generateWithAi'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])
+            ->name('ad-manager.company-ads.ai.generate');
+        Route::post('/ad-manager/company-ads/ai/{generation}/save', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'saveAiOption'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('generation')
+            ->name('ad-manager.company-ads.ai.save');
 
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');

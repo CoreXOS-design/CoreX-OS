@@ -137,6 +137,22 @@ final class AiTemplateBuilderService
     }
 
     /**
+     * This month's count for one agency split by kind (the AI usage page, .ai/specs/company-ads.md §10). Same rows as
+     * usedThisMonth(), so the two always add up to it.
+     *
+     * @return array{property_template: int, company_ad: int}
+     */
+    public function usedThisMonthByKind(int $agencyId): array
+    {
+        $rows = $this->usedQuery($agencyId)->selectRaw('kind, COUNT(*) AS n')->groupBy('kind')->pluck('n', 'kind');
+
+        return [
+            AiTemplateGeneration::KIND_PROPERTY_TEMPLATE => (int) ($rows[AiTemplateGeneration::KIND_PROPERTY_TEMPLATE] ?? 0),
+            AiTemplateGeneration::KIND_COMPANY_AD        => (int) ($rows[AiTemplateGeneration::KIND_COMPANY_AD] ?? 0),
+        ];
+    }
+
+    /**
      * Generate three template options for an idea.
      *
      * @throws AiPausedException                   AI is paused for the agency — nothing was called.
@@ -191,6 +207,7 @@ final class AiTemplateBuilderService
             return AiTemplateGeneration::create([
                 'agency_id'            => $agencyId,
                 'user_id'              => $user->id,
+                'kind'                 => AiTemplateGeneration::KIND_PROPERTY_TEMPLATE,
                 'idea'                 => $idea,
                 'ad_size'              => $sizeKey,
                 'style'                => $style,
@@ -230,14 +247,14 @@ final class AiTemplateBuilderService
     /**
      * Check the month's allowance and create the pending row that reserves one unit, atomically
      * per agency. The lock is released before the (slow) model call — the pending row is what
-     * keeps the slot taken from then on.
+     * keeps the slot taken from then on. Shared with CompanyAdBuilderService: one pool, one lock (decision C2).
      *
      * @param callable(): AiTemplateGeneration $create
      *
      * @throws AiTemplateLimitReachedException     The month's allowance is spent.
      * @throws AiTemplateGenerationFailedException Another request for this agency held the lock too long.
      */
-    private function reserveAllowance(int $agencyId, callable $create): AiTemplateGeneration
+    public function reserveAllowance(int $agencyId, callable $create): AiTemplateGeneration
     {
         $lock = Cache::lock('ai-template-allowance:' . $agencyId, self::ALLOWANCE_LOCK_HOLD_SECS);
 
@@ -266,7 +283,9 @@ final class AiTemplateBuilderService
     public function saveOption(AiTemplateGeneration $generation, int $index, User $user, ?string $name = null): PropertyAdTemplate
     {
         $options = (array) $generation->options_json;
-        if ($generation->status !== AiTemplateGeneration::STATUS_SUCCESS || ! isset($options[$index])) {
+        // A company-ad request is saved as a company ad (CompanyAdBuilderService), never as a property template.
+        if (($generation->kind ?? AiTemplateGeneration::KIND_PROPERTY_TEMPLATE) !== AiTemplateGeneration::KIND_PROPERTY_TEMPLATE
+            || $generation->status !== AiTemplateGeneration::STATUS_SUCCESS || ! isset($options[$index])) {
             throw new AiTemplateGenerationFailedException('That template option no longer exists. Please generate again.');
         }
         // Decision 19: a design that lacks a ticked item is never offered - and never saved, even if a stale browser (or a
@@ -1001,9 +1020,9 @@ PROMPT;
 
     /**
      * The requesting agency's own brand — never anyone else's. Colours come from the agency
-     * record; with none set the model is told to pick a neutral palette.
+     * record; with none set the model is told to pick a neutral palette. (Also used for company ads.)
      */
-    private function brandBlock(int $agencyId, bool $logoRequired = false): string
+    public function brandBlock(int $agencyId, bool $logoRequired = false): string
     {
         $agency = Agency::query()->find($agencyId);
         if ($agency === null) {
@@ -1039,19 +1058,33 @@ PROMPT;
      *
      * @return array{type: string, media_type: string, data: string}|null
      */
-    private function loadReference(AiTemplateGeneration $generation): ?array
+    public function loadReference(AiTemplateGeneration $generation): ?array
     {
         $path = $generation->reference_image_path;
         if ($path === null || ! Storage::disk(self::REFERENCE_DISK)->exists($path)) {
             return null;
         }
 
-        $bytes = (string) Storage::disk(self::REFERENCE_DISK)->get($path);
+        return $this->imageBlock((string) Storage::disk(self::REFERENCE_DISK)->get($path));
+    }
+
+    /**
+     * Picture bytes as an Anthropic image block - scaled down to REFERENCE_SEND_MAX_PX when bigger - or null when they are
+     * not a JPG/PNG. Also used for a company ad's placed or library picture.
+     *
+     * @return array{type: string, media_type: string, data: string}|null
+     */
+    public function imageBlock(string $bytes): ?array
+    {
         // The media type is what the bytes ARE, never what the file was called: a JPEG named
         // .png would otherwise be rejected by the AI service.
         $type = $this->sniffType($bytes);
         if ($type === null) {
             return null;
+        }
+        $info = @getimagesizefromstring($bytes);
+        if (is_array($info) && max((int) $info[0], (int) $info[1]) > self::REFERENCE_SEND_MAX_PX) {
+            $bytes = $this->downscale($bytes, $type, (int) $info[0], (int) $info[1]) ?? $bytes;
         }
 
         return [
@@ -1075,7 +1108,7 @@ PROMPT;
      * Extension and media type come from the image itself. An image too large for the AI service
      * is refused in plain words (over 8000 px a side) or scaled down (over 1568 px) before storing.
      */
-    private function storeReference(UploadedFile $file, int $agencyId): string
+    public function storeReference(UploadedFile $file, int $agencyId): string
     {
         $bytes = (string) @file_get_contents($file->getRealPath());
         $info  = @getimagesizefromstring($bytes);
@@ -1125,7 +1158,7 @@ PROMPT;
         return $out !== '' ? $out : null;
     }
 
-    private function markFailed(AiTemplateGeneration $generation, string $reason): void
+    public function markFailed(AiTemplateGeneration $generation, string $reason): void
     {
         $generation->status         = AiTemplateGeneration::STATUS_FAILED;
         $generation->failure_reason = mb_substr($reason, 0, 255);
@@ -1133,7 +1166,7 @@ PROMPT;
     }
 
     /** @return array<string, mixed>|null */
-    private function parseJson(string $text): ?array
+    public function parseJson(string $text): ?array
     {
         $direct = json_decode($text, true);
         if (is_array($direct)) {

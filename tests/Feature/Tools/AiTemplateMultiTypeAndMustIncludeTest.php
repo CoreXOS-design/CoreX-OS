@@ -59,7 +59,9 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $this->seedTypes($a, ['House']);
         $this->actingAs($user);
         $html = $this->renderIndex($user);
-        $partial = (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-template-modal.blade.php'));
+        // The pop-up plus the dialog shell it shares with the company-ad pop-up (styles, viewer and dialog behaviour live there).
+        $partial = (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-template-modal.blade.php'))
+            . (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-dialog-shell.blade.php'));
 
         // Structure: teleported to <body> (no page container can stretch it), real dialog semantics.
         $this->assertStringContainsString('x-teleport="body"', $html);

@@ -26,8 +26,12 @@ class AiTemplateGeneration extends Model
     public const STATUS_SUCCESS = 'success';
     public const STATUS_FAILED  = 'failed';
 
+    /** What the request was for (.ai/specs/company-ads.md §4). Both kinds share one monthly allowance (decision C2). */
+    public const KIND_PROPERTY_TEMPLATE = 'property_template';
+    public const KIND_COMPANY_AD        = 'company_ad';
+
     protected $fillable = [
-        'agency_id', 'user_id', 'idea', 'ad_size', 'property_type', 'property_types_json', 'must_include_json', 'style', 'match_existing', 'example_template_ids_json',
+        'agency_id', 'user_id', 'kind', 'occasion', 'image_mode', 'company_ad_image_id', 'library_picture', 'saved_company_ad_ids', 'idea', 'ad_size', 'property_type', 'property_types_json', 'must_include_json', 'style', 'match_existing', 'example_template_ids_json',
         'reference_image_path', 'reference_image_purged_at',
         'status', 'failure_reason', 'cost_zar', 'options_json', 'validation_log_json', 'saved_template_ids',
     ];
@@ -41,6 +45,7 @@ class AiTemplateGeneration extends Model
         'match_existing'            => 'boolean',
         'example_template_ids_json' => 'array',
         'saved_template_ids'        => 'array',
+        'saved_company_ad_ids'      => 'array',
         'reference_image_purged_at' => 'datetime',
     ];
 

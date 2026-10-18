@@ -1,5 +1,5 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- Template Manager → Company ads — spec .ai/specs/company-ads.md §5 (step E-1) --}}
+{{-- Template Manager → Company ads — spec .ai/specs/company-ads.md §5 (E-1) and the AI pop-up §8 (E-2) --}}
 @extends('layouts.corex')
 
 {{-- Thumbnails and downloads are drawn by the SAME render kernel + fonts as the Ad Builder (ad-manager.md §12). --}}
@@ -26,7 +26,8 @@
     $layouts = $ads->getCollection()->mapWithKeys(fn ($ad) => [$ad->id => ['name' => $ad->name, 'layout' => $ad->layout_json]])->all();
 @endphp
 
-<div class="w-full space-y-5" x-data="companyAdsList(@js(['layouts' => $layouts, 'brand' => $brandData]))" x-init="init()">
+<div class="w-full space-y-5" x-data="companyAdsList(@js(['layouts' => $layouts, 'brand' => $brandData]))" x-init="init()"
+     x-on:company-ad-download.window="downloadLayout($event.detail)">
 
     {{-- ── Page header (branded) ───────────────────────────────── --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -37,6 +38,13 @@
             </div>
             <div class="flex items-center gap-3 flex-wrap">
                 @include('tools.ad-manager._switcher', ['inHeader' => true])
+                @if($aiPanel)
+                    <button type="button" class="corex-btn-outline text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto"
+                            data-cadai="open" @click="$dispatch('open-company-ad-ai')">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/></svg>
+                        Create with AI
+                    </button>
+                @endif
                 @if($canManage)
                     <a href="{{ route('tools.ad-manager.company-ads.builder') }}" class="corex-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
@@ -125,6 +133,9 @@
                 <p class="text-sm mb-4" style="color:var(--text-muted);">Make a Merry Christmas, Happy Easter or "closed for the holidays" ad in your agency's colours. There's a library of seasonal pictures you can use for free.</p>
                 @if($canManage)
                     <a href="{{ route('tools.ad-manager.company-ads.builder') }}" class="corex-btn-primary text-sm px-4 py-2">Make your first company ad</a>
+                @endif
+                @if($aiPanel)
+                    <button type="button" class="corex-btn-outline text-sm px-4 py-2 ml-2" @click="$dispatch('open-company-ad-ai')">Or let the AI design one</button>
                 @endif
             @elseif($filtersActive)
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">
@@ -250,11 +261,15 @@ function companyAdsList(cfg) {
             window.CoreXAd.renderLayout(l, this.brand, inner, { paintBackground: true });
         },
 
-        /** Draw the ad at its real size off-screen and save it as a PNG. */
-        async download(id) {
-            const entry = this.layouts[id];
-            if (!entry || this.busy) return;
-            this.busy = id;
+        /** A row's Download button. */
+        download(id) {
+            return this.downloadLayout(this.layouts[id], id);
+        },
+
+        /** Draw an ad ({name, layout}) at its real size off-screen and save it as a PNG. Also used by the AI pop-up. */
+        async downloadLayout(entry, busyKey = 'ai') {
+            if (!entry || !entry.layout || this.busy) return;
+            this.busy = busyKey;
             const stage = this.$refs.stage;
             let restore = () => {};
             try {
@@ -286,4 +301,8 @@ function companyAdsList(cfg) {
     };
 }
 </script>
+
+@if($aiPanel)
+    @include('tools.ad-manager._company-ad-ai-modal')
+@endif
 @endsection

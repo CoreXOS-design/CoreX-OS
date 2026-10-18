@@ -1,6 +1,6 @@
 # Company Ads — seasonal / brand ads in Template Manager, with their own AI creator
 
-> Status: **Spec APPROVED by Johan 2026-10-18 ("sounds all good"). Step E-1 BUILT on QA2 2026-10-18 — awaiting Johan's test.** E-2 (AI pop-up) and E-3 (post / schedule) not started.
+> Status: **Spec APPROVED by Johan 2026-10-18 ("sounds all good"). Steps E-1 and E-2 BUILT on QA2 2026-10-18 — awaiting Johan's test.** E-3 (post / schedule) not started.
 > Drafted 2026-10-18 on QA2. Extends `at456-ai-tools-scheduler-and-spend-safety.md` (§B AI Template Builder,
 > §D Post Scheduler) and `ad-manager.md` (§12 render kernel, §13 Ad Builder, §19 Template Manager).
 > Pillars: **Agency** (brand, scope, allowance), **Agent** (creator, poster). Property: none (by design — see §2).
@@ -300,6 +300,62 @@ Schema snapshot not re-dumped (same batch-step posture as AT-456 §B.10).
 
 **Proof:** `tests/Feature/Tools/CompanyAdsTest.php` (via `scripts/lane-test.sh`). `AdTemplateManagerTest` re-run for
 the property tab.
+- [ ] Johan tests on QA2.
+
+## 14b. E-2 as built (2026-10-18, branch `company-ads-e2-2026-10-18`)
+
+**Deploy:** `php artisan migrate` (one migration: `2026_11_14_100000_company_ads_e2_generation_columns` adds `kind`
+(default `property_template`, so every existing row is unchanged), `occasion`, `image_mode`, `company_ad_image_id`,
+`library_picture` and `saved_company_ad_ids` to `ai_template_generations`). Then view/route/config clear + fpm reload.
+**No `npm run build`.** Schema snapshot not re-dumped (same posture as E-1).
+
+**What exists**
+- **Create with AI** button on the Company ads tab header (and in the empty state) for users with `ad_manager.company_ads`
+  → the pop-up `_company-ad-ai-modal.blade.php`. Inputs exactly as §8: occasion (+ Other), idea, picture (none / library
+  thumbnails filtered by occasion / upload → "Put this picture in my ad" or "Copy the look of this post" with the
+  "we'll copy the layout and style only…" line), ad size, style, ticks *Our contact details (website)* and *Me*. The
+  contact tick is disabled with a note when the agency has no website on file. Each design card: preview, View full
+  size, style, name, editable suggested post text (≤ 300), Save → Download + Open in Ad Builder.
+- **Reused, not copied:** the dialog styles, the full-size viewer and the open/close/focus/viewer behaviour moved out of
+  the property pop-up into `_ai-dialog-shell.blade.php` (`corexAiDialogShell()`, included `@once`) and
+  `_ai-dialog-viewer.blade.php`; both pop-ups use them. The property pop-up's rendered markup is unchanged.
+- **Service** `CompanyAdBuilderService`: input checks first (an uploaded picture must be THIS agency's
+  `company_ad_images` row with its file present; a library picture must be a real library file), then `AiSpendGuard`,
+  then the SAME allowance lock and pending-row reservation as property templates (`AiTemplateBuilderService::
+  reserveAllowance`, now shared). One model call + at most one targeted retry; only complete designs are shown; zero =
+  friendly failure, not counted. Ledger source `ad_template`. "Copy the look" files go through the same private storage
+  and 7-day purge as property reference images.
+- **Validator company mode** (`AdLayoutValidator::validateAndRepair($o, $size, MODE_COMPANY)`): allowed types =
+  `CompanyAdLayout::ALLOWED_FIELDS`; a listing element is removed and logged; a second picture box is removed; no
+  property photo needed; when no agency name / logo is on the design an `agency_name` on its own dark pill is added
+  bottom-left (strict mode reports it). A picture address from the model is never kept.
+- **After the validator, per design:** the server fills the one `custom_image` with the chosen picture; for *None* and
+  *Copy the look* every picture box is removed first, so the uploaded post can never appear on an ad. A design without
+  the chosen picture, or without what was ticked, is retried once and then dropped. The model's own words that spell
+  the agency's name (custom text / badge / ribbon) are removed and a watermark's typed words cleared (it then shows the
+  agency's own name). Agent elements only when *Me* is ticked. The caption is plain text (markup and control characters
+  stripped, line breaks kept), capped at 300.
+- **Save** (`api.v1.ad-manager.company-ads.ai.save`): the browser sends option number, name and the edited caption; the
+  stored layout goes through `CompanyAdLayout::sanitize` again and becomes a `company_ads` row (`ai_generated`, `ai_idea`,
+  `occasion`, `caption`). Idempotent per design. Only the user who asked may save; a property-template request can never
+  be saved as a company ad (404) and a company-ad request can never be saved as a property template.
+- **Endpoints** (named, in the Admin → API catalogue): `api.v1.ad-manager.company-ads.ai.generate` (throttle 8/min) and
+  `api.v1.ad-manager.company-ads.ai.save`, both behind `access_ad_manager` + `ad_manager.company_ads` + agency + feature flag.
+- **AI usage page** (`/admin/ai-usage/{agency}`): "N of 20 used this month (Property templates X · Company ads Y; resets …)".
+
+**Decisions made while building**
+- "Our contact details (website/phone)" checks for the **website** element only — the ad kernel has no agency-phone
+  element (same gap as E-1 §14a). The person's own phone comes with the *Me* tick.
+- Unticked *Me* removes agent elements (a company ad is the agency speaking, not whoever pressed the button) — the same
+  "extras only when ticked" rule as the property creator (decision 20).
+- `library_picture` and `saved_company_ad_ids` columns were added beyond §4's list: the first records which library
+  picture a request used, the second makes saving idempotent without mixing company-ad ids into `saved_template_ids`.
+- Download from a saved design card uses the list page's own capture path (one download implementation).
+
+**Proof:** `tests/Feature/Tools/CompanyAdAiBuilderTest.php` (15 tests, recorded AI answers). Re-run green: all seven
+AT-456 AI template test files, `AdBuildingBlocksKernelTest`, `CompanyAdsTest`, `AdTemplateManagerTest`,
+`AiTemplateUsageAdminTest` (217 tests). Two of those (`AiTemplateExtrasOnlyWhenTicked`, `AiTemplateMultiTypeAndMustInclude`)
+now read the shared shell file next to the pop-up file — their assertions are unchanged.
 - [ ] Johan tests on QA2.
 
 ## 17. Open items for Johan

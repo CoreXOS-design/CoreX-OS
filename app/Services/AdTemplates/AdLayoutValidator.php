@@ -34,6 +34,11 @@ namespace App\Services\AdTemplates;
  * unknowable here). A gradient is judged by its opaque stops.
  *
  * Canvas sizes mirror CANVAS_PRESETS in public/js/corex-ad-render.js; a test fails if they drift.
+ *
+ * Company mode (.ai/specs/company-ads.md §8): the same rules, for a company ad instead of a property template. Only the
+ * brand / agent / decorative element types are allowed (CompanyAdLayout::ALLOWED_FIELDS; a listing element is repaired
+ * by removal), plus at most ONE custom_image - the AI never supplies its picture, the caller fills it in. No property
+ * photo is required; instead the agency must be on the ad (agency_name, logo or agency_logo), added by repair if missing.
  */
 final class AdLayoutValidator
 {
@@ -87,8 +92,23 @@ final class AdLayoutValidator
         'transparent' => 'rgba(0,0,0,0)',
     ];
 
-    /** Fields that show a property photo or logo. */
-    private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo'];
+    /** Which kind of layout is being checked. */
+    public const MODE_PROPERTY = 'property';
+    public const MODE_COMPANY  = 'company';
+
+    /**
+     * Element types only a company ad may use (not in FIELDS: a property template has no picture of its own). The picture's
+     * address is never taken from the AI - the caller fills it with the user's own upload or a library picture.
+     */
+    private const COMPANY_ONLY_FIELDS = [
+        'custom_image' => ['label' => 'Custom Image', 'help' => 'THE picture of this ad (the system puts the picture in; you only place and size the box) - at most one'],
+    ];
+
+    /** The elements that put the agency on a company ad; one of them is required. */
+    public const AGENCY_MARK_FIELDS = ['agency_name', 'logo', 'agency_logo'];
+
+    /** Fields that show a property photo or logo (and, on a company ad, its picture). */
+    private const IMAGE_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'agent_avatar', 'agency_logo', 'custom_image'];
 
     /** Fields that draw a block of colour and carry no text. (QR and the photo collage draw pictures, no words.) */
     private const BLOCK_FIELDS = ['color_block', 'shape', 'gradient', 'line', 'qr', 'collage'];
@@ -236,6 +256,27 @@ final class AdLayoutValidator
     ];
 
     /** Every font the AI may use (also the style library's font check). */
+    /**
+     * The element types allowed in a mode, with their one-line description (fed to the prompt as well).
+     *
+     * @return array<string, array{label: string, help: string}>
+     */
+    public static function fieldsFor(string $mode): array
+    {
+        if ($mode !== self::MODE_COMPANY) {
+            return self::FIELDS;
+        }
+        $out = [];
+        foreach (CompanyAdLayout::ALLOWED_FIELDS as $field) {
+            $meta = self::FIELDS[$field] ?? self::COMPANY_ONLY_FIELDS[$field] ?? null;
+            if ($meta !== null) {
+                $out[$field] = $meta;
+            }
+        }
+
+        return $out;
+    }
+
     public static function fontNames(): array
     {
         return self::FONTS;
@@ -265,11 +306,11 @@ final class AdLayoutValidator
      * @param  array<string, mixed> $option  Decoded JSON from the model.
      * @return array{ok: bool, name: string, layout: ?array<string, mixed>, errors: array<int, string>}
      */
-    public function validate(array $option, string $sizeKey): array
+    public function validate(array $option, string $sizeKey, string $mode = self::MODE_PROPERTY): array
     {
         $repairs = [];
 
-        return $this->run($option, $sizeKey, false, $repairs) + ['repairs' => []];
+        return $this->run($option, $sizeKey, false, $repairs, $mode) + ['repairs' => []];
     }
 
     /**
@@ -289,15 +330,15 @@ final class AdLayoutValidator
      * @param  array<string, mixed> $option
      * @return array{ok: bool, name: string, layout: ?array<string, mixed>, errors: array<int, string>, repairs: array<int, string>}
      */
-    public function validateAndRepair(array $option, string $sizeKey): array
+    public function validateAndRepair(array $option, string $sizeKey, string $mode = self::MODE_PROPERTY): array
     {
         $repairs = [];
         $size    = self::SIZES[$sizeKey] ?? null;
         if ($size !== null) {
-            $option = $this->repairRaw($option, $size['w'], $size['h'], $repairs);
+            $option = $this->repairRaw($option, $size['w'], $size['h'], $repairs, $mode);
         }
 
-        $result = $this->run($option, $sizeKey, true, $repairs);
+        $result = $this->run($option, $sizeKey, true, $repairs, $mode);
         $result['repairs'] = array_values(array_unique($repairs));
 
         return $result;
@@ -308,7 +349,7 @@ final class AdLayoutValidator
      * @param  array<int, string>   $repairs
      * @return array{ok: bool, name: string, layout: ?array<string, mixed>, errors: array<int, string>}
      */
-    private function run(array $option, string $sizeKey, bool $repair, array &$repairs): array
+    private function run(array $option, string $sizeKey, bool $repair, array &$repairs, string $layoutMode = self::MODE_PROPERTY): array
     {
         $errors = [];
         $size   = self::SIZES[$sizeKey] ?? null;
@@ -355,13 +396,21 @@ final class AdLayoutValidator
 
         $elements = [];
         foreach ($rawElements as $i => $raw) {
-            $built = $this->buildElement(is_array($raw) ? $raw : [], $i, count($elements) + 1, $cw, $ch, $errors);
+            $built = $this->buildElement(is_array($raw) ? $raw : [], $i, count($elements) + 1, $cw, $ch, $errors, $layoutMode);
             if ($built !== null) {
                 $elements[] = $built;
             }
         }
 
-        if (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true))) {
+        if ($layoutMode === self::MODE_COMPANY) {
+            // A company ad is the agency speaking: its name or logo is always on it; it has at most one picture.
+            if (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::AGENCY_MARK_FIELDS, true))) {
+                $errors[] = 'A company ad must show the agency: include agency_name, logo or agency_logo.';
+            }
+            if (collect($elements)->where('field', 'custom_image')->count() > 1) {
+                $errors[] = 'A company ad has at most one custom_image (its picture).';
+            }
+        } elseif (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true))) {
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage).';
         }
 
@@ -398,7 +447,7 @@ final class AdLayoutValidator
      * @param  array<int, string>   $repairs
      * @return array<string, mixed>
      */
-    private function repairRaw(array $option, int $cw, int $ch, array &$repairs): array
+    private function repairRaw(array $option, int $cw, int $ch, array &$repairs, string $mode = self::MODE_PROPERTY): array
     {
         // Canvas colours: tidy the syntax, and a see-through canvas becomes opaque.
         foreach (['canvasBg', 'canvasBgFrom', 'canvasBgTo'] as $k) {
@@ -420,7 +469,9 @@ final class AdLayoutValidator
             return $option;
         }
 
-        $kept = [];
+        $permitted  = self::fieldsFor($mode);
+        $kept       = [];
+        $hasPicture = false;
         foreach ($option['elements'] as $i => $raw) {
             if (! is_array($raw)) {
                 $kept[] = $raw;
@@ -429,9 +480,20 @@ final class AdLayoutValidator
             $field = $raw['field'] ?? null;
             $tag   = 'Element ' . ($i + 1) . (is_string($field) ? " ({$field})" : '');
 
-            if (! is_string($field) || ! isset(self::FIELDS[$field])) {
+            if ($mode === self::MODE_COMPANY && is_string($field) && isset(self::FIELDS[$field]) && ! isset($permitted[$field])) {
+                $repairs[] = "{$tag}: a listing element has no place on a company ad, so it was left out.";
+                continue;
+            }
+            if (! is_string($field) || ! isset($permitted[$field])) {
                 $repairs[] = "{$tag}: an element type that does not exist was left out.";
                 continue;
+            }
+            if ($field === 'custom_image') {
+                if ($hasPicture) {
+                    $repairs[] = "{$tag}: a company ad has one picture, so a second picture box was left out.";
+                    continue;
+                }
+                $hasPicture = true;
             }
 
             // Text elements that carry their own words must have some, else there is nothing to draw.
@@ -548,6 +610,18 @@ final class AdLayoutValidator
             $raw = $this->repairByType($raw, $field, $tag, $cw, $ch, $repairs);
 
             $kept[] = $raw;
+        }
+
+        // A company ad without the agency on it gets the agency's name, bottom left on its own dark pill (always readable).
+        if ($mode === self::MODE_COMPANY
+            && ! collect($kept)->contains(fn ($e) => is_array($e) && in_array($e['field'] ?? null, self::AGENCY_MARK_FIELDS, true))) {
+            $inset  = self::EXAMPLE_INSET;
+            $kept[] = [
+                'field' => 'agency_name', 'x' => $inset, 'y' => $ch - $inset - 64, 'w' => min(520, $cw - 2 * $inset), 'h' => 64,
+                'zIndex' => 100, 'fontSize' => 28, 'fontWeight' => '700', 'color' => '#ffffff', 'textAlign' => 'center',
+                'bgColor' => '#000000', 'bgOpacity' => 0.85, 'borderRadius' => 8, 'padding' => 10,
+            ];
+            $repairs[] = 'The agency was not on the ad, so its name was added at the bottom left.';
         }
         $option['elements'] = $kept;
 
@@ -880,8 +954,9 @@ final class AdLayoutValidator
      * this class's own constants, so the prompt can never promise a limit the validator does not
      * enforce (or the other way round).
      */
-    public function promptLimits(int $cw, int $ch, array $forbidden = []): string
+    public function promptLimits(int $cw, int $ch, array $forbidden = [], string $mode = self::MODE_PROPERTY): string
     {
+        $company = $mode === self::MODE_COMPANY;
         // Decision 20: an extra the user did not tick (qr, collage, ribbon, show_day, feature_pills) is not mentioned at all.
         $on      = static fn (string $field): bool => ! in_array($field, $forbidden, true);
         $geoNames = array_keys(array_filter(['ribbons' => 'ribbon', 'pills' => 'feature_pills', 'the QR code' => 'qr'], $on));
@@ -911,7 +986,8 @@ final class AdLayoutValidator
             . "A line or block across the whole width is x=0 with w={$cw}; across the whole height is y=0 with h={$ch}; inset by a margin of {$inset}px it is x={$inset} with w={$insetW} (the width MINUS the margin on BOTH sides). "
             . "The usual mistake is a divider line given the full width ({$cw}) but an x greater than 0, which runs past the right edge (x + w is then more than {$cw}).\n"
             . "1b. CHECK BEFORE YOU ANSWER: for every element in every option, add x + w and y + h; the first must be at most {$cw} and the second at most {$ch}, and x and y must not be negative. Fix any element that fails before you write the answer.\n"
-            . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . " elements per option, and at least one property photo (image_1 to image_5).\n"
+            . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . ' elements per option, '
+            . ($company ? "at most one custom_image, and the agency always on the ad (agency_name, logo or agency_logo).\n" : "and at least one property photo (image_1 to image_5).\n")
             . "3. Font size: fontSize is at least {$min} on every text element (the watermark is exempt). Never write a smaller number.\n"
             . "4. Contrast: text must reach {$con}:1 against what is directly behind it (its own pill, else the nearest block/shape/gradient under it, else the canvas). "
             . "A pill (bgColor + bgOpacity), block or gradient stop only counts as 'behind the text' when its opacity is {$bm} or more; use 0.8 or more. "
@@ -929,7 +1005,8 @@ final class AdLayoutValidator
             . "12. Script fonts ({$script}) are for a few headline words only: allowed on {$okScript}; at most " . self::MAX_SCRIPT_TEXT . ' characters; fontSize at least ' . self::MIN_SCRIPT_FONT_SIZE
             . ". Never on a price, phone number, address, listing fact or any body text.\n"
             . ($on('feature_pills') ? '13. feature_pills: the box must be tall enough: one pill is about fontSize x 1.2 + padding x 1.2 pixels high; a column needs pillCount of those plus the pillGap between them. You cannot choose which features show - the listing supplies its own.' . "\n" : '')
-            . '14. Photo effects, masks' . ($on('collage') ? ' and collages' : ' ') . ' apply to photos only (image_1 to image_5' . ($on('collage') ? ', collage); a collage counts as a property photo.' : ').')
+            . ($company ? '14. Photo effects and masks apply to the picture (custom_image) only.'
+                : '14. Photo effects, masks' . ($on('collage') ? ' and collages' : ' ') . ' apply to photos only (image_1 to image_5' . ($on('collage') ? ', collage); a collage counts as a property photo.' : ').'))
             . ' duoColor1 / duoColor2 (only used when photoEffect is duotone) follow the colour rule in 4b.' . "\n";
     }
 
@@ -1041,13 +1118,14 @@ final class AdLayoutValidator
      * @param array<int, string> $errors
      * @return array<string, mixed>|null
      */
-    private function buildElement(array $raw, int $index, int $order, int $cw, int $ch, array &$errors): ?array
+    private function buildElement(array $raw, int $index, int $order, int $cw, int $ch, array &$errors, string $mode = self::MODE_PROPERTY): ?array
     {
-        $field = $raw['field'] ?? null;
-        $tag   = 'Element ' . ($index + 1) . (is_string($field) ? " ({$field})" : '');
+        $field   = $raw['field'] ?? null;
+        $tag     = 'Element ' . ($index + 1) . (is_string($field) ? " ({$field})" : '');
+        $permitted = self::fieldsFor($mode);
 
-        if (! is_string($field) || ! isset(self::FIELDS[$field])) {
-            $errors[] = "{$tag}: unknown element type. Allowed: " . implode(', ', array_keys(self::FIELDS)) . '.';
+        if (! is_string($field) || ! isset($permitted[$field])) {
+            $errors[] = "{$tag}: unknown element type. Allowed: " . implode(', ', array_keys($permitted)) . '.';
 
             return null;
         }
@@ -1163,7 +1241,7 @@ final class AdLayoutValidator
     private function baseElement(int $order, string $field): array
     {
         $el = [
-            'id' => $order, 'field' => $field, 'label' => self::FIELDS[$field]['label'],
+            'id' => $order, 'field' => $field, 'label' => (self::FIELDS[$field] ?? self::COMPANY_ONLY_FIELDS[$field])['label'],
             'x' => 0, 'y' => 0, 'w' => 200, 'h' => 60, 'zIndex' => $order,
             'rotation' => 0, 'hidden' => false, 'locked' => false, 'elOpacity' => 1,
             'fontFamily' => 'Figtree', 'fontSize' => 18, 'fontWeight' => '600', 'color' => '#ffffff',

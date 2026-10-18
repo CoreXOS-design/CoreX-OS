@@ -351,7 +351,9 @@ final class AiTemplateExtrasOnlyWhenTickedTest extends TestCase
     {
         [$agency, $user] = $this->agencyWithUser();
         $html    = $this->renderIndex($user);
-        $partial = (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-template-modal.blade.php'));
+        // The pop-up plus the dialog shell it shares with the company-ad pop-up (styles, viewer and dialog behaviour live there).
+        $partial = (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-template-modal.blade.php'))
+            . (string) file_get_contents(resource_path('views/tools/ad-manager/_ai-dialog-shell.blade.php'));
 
         // Both the preview itself and an explicit button open it.
         $this->assertStringContainsString('@click="openViewer(opt)"', $html);
