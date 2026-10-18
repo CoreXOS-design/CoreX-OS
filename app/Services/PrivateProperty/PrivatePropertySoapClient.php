@@ -3,6 +3,7 @@
 namespace App\Services\PrivateProperty;
 
 use App\Models\Agency;
+use App\Support\ExternalPublishingGuard;
 use Illuminate\Support\Facades\Log;
 
 class PrivatePropertySoapClient
@@ -11,6 +12,21 @@ class PrivatePropertySoapClient
     private ?\SoapClient $client = null;
     private ?Agency $agency = null;
     private ?array $cfgCache = null;
+
+    /**
+     * SOAP operations that CHANGE something on Private Property. Everything else this client calls is a read
+     * (feeds, stats, lookups, summaries). ExternalPublishingGuard refuses these on a copy of live.
+     */
+    private const WRITE_OPERATIONS = [
+        'UpdateAgent',
+        'UpdateAgentImage',
+        'UpdateListing',
+        'ListingStatusUpdate',
+        'ListingShowdayUpdate',
+        'UpdateUniqueAgentID',
+        'UpdateUniqueListingID',
+        'UpdateListingVideoOrMatterport',
+    ];
 
     public function __construct(PrivatePropertyTokenService $tokenService)
     {
@@ -78,6 +94,21 @@ class PrivatePropertySoapClient
      */
     public function call(string $method, array $params): array
     {
+        // One warning line, no SOAP call, no retry. Lowest common point of every PP write.
+        if (in_array($method, self::WRITE_OPERATIONS, true) && ! ExternalPublishingGuard::isAllowed()) {
+            ExternalPublishingGuard::logRefusedWrite(
+                ExternalPublishingGuard::CHANNEL_PRIVATE_PROPERTY,
+                $method,
+                $params['PropertyId'] ?? $params['UniqueListingId'] ?? $params['ListingImport']['PropertyId'] ?? null,
+            );
+
+            return [
+                'error'   => true,
+                'refused' => true,
+                'message' => ExternalPublishingGuard::userMessage(),
+            ];
+        }
+
         $this->log('info', "SOAP call: {$method}", ['params' => $this->sanitizeForLog($params)]);
 
         $maxAttempts = 2;

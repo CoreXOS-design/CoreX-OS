@@ -153,6 +153,7 @@ class Lease extends Model
         'end_date' => 'date',
         'is_month_to_month' => 'boolean',
         'cancelled_at' => 'datetime',
+        'overdue_alerted_at' => 'datetime',
         'notice_date' => 'date',
         'move_out_date' => 'date',
         'migrated_escalation_percent' => 'decimal:2',

@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionNotification;
 use App\Models\RentalInspectionSetting;
+use App\Models\Agency;
+use App\Services\Features\AgencyFeatureService;
 use App\Services\Rentals\RentalInspectionNotificationService;
 use Illuminate\Console\Command;
 
@@ -30,13 +32,22 @@ class SendRentalInspectionReminders extends Command
     public function handle(RentalInspectionNotificationService $notificationService): int
     {
         $sent = 0;
+        $featureOn = [];
 
         RentalInspection::query()
             ->whereNotNull('scheduled_for')
             ->whereIn('status', [RentalInspection::STATUS_DRAFT, RentalInspection::STATUS_IN_PROGRESS, RentalInspection::STATUS_AWAITING_SIGNATURE])
             ->where('scheduled_for', '>=', now()->toDateString())
-            ->chunk(100, function ($inspections) use ($notificationService, &$sent) {
+            ->chunk(100, function ($inspections) use ($notificationService, &$sent, &$featureOn) {
                 foreach ($inspections as $inspection) {
+                    // An agency with Rentals / Inspections switched off is never emailed on its behalf (C-F2, release audit 2026-10-18).
+                    $agencyId = (int) $inspection->agency_id;
+                    $featureOn[$agencyId] ??= (($agency = Agency::find($agencyId)) !== null)
+                        && app(AgencyFeatureService::class)->enabled('rental-inspections', $agency);
+                    if (! $featureOn[$agencyId]) {
+                        continue;
+                    }
+
                     $reminderDays = RentalInspectionSetting::reminderDaysBeforeFor($inspection->agency_id);
                     if ($reminderDays <= 0) {
                         continue;

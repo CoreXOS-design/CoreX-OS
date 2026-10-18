@@ -16,6 +16,8 @@ use App\Services\Compliance\MarketingReadinessService;
 use App\Services\Features\AgencyFeatureService;
 use App\Services\MetaOAuthService;
 use App\Services\MetaPublishingService;
+use App\Support\ExternalPublishingGuard;
+use App\Support\ExternalPublishingRefused;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -115,6 +117,14 @@ class ScheduledPostPublisher
      */
     public function publishClaimed(PropertyMarketingPost $post, string $context = self::CONTEXT_SCHEDULED): bool
     {
+        // A copy of live must never post to a real page. Checked FIRST (before the token refresh in preflight) and
+        // recorded as a failed post with a plain reason - never left 'scheduled', so it cannot go out later by surprise.
+        if (! ExternalPublishingGuard::isAllowed()) {
+            $this->fail($post, ExternalPublishingGuard::userMessage());
+
+            return false;
+        }
+
         try {
             $reason = $this->preflight($post, $account);
             if ($reason !== null) {
@@ -135,6 +145,10 @@ class ScheduledPostPublisher
             $platformPostId = $post->platform === 'instagram'
                 ? $this->publisher->publishToInstagram($account, $copy, $images)
                 : $this->publisher->publishToFacebook($account, $copy, $images);
+        } catch (ExternalPublishingRefused $e) {
+            $this->fail($post, $e->getMessage());
+
+            return false;
         } catch (\Throwable $e) {
             Log::error('ScheduledPostPublisher: publish failed for post ' . $post->id . ': ' . $this->scrub($e->getMessage()));
             $this->fail($post, $this->explain($post->platform, $e->getMessage(), $context));

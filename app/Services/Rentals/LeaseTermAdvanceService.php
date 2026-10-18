@@ -6,7 +6,9 @@ use App\Models\Lease;
 use App\Models\LeaseEvent;
 use App\Models\LeaseSetting;
 use App\Models\RentalInspection;
+use App\Models\Agency;
 use App\Models\User;
+use App\Services\Features\AgencyFeatureService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -41,6 +43,7 @@ class LeaseTermAdvanceService
         $due = Lease::withoutGlobalScopes()
             ->whereNull('deleted_at')
             ->where('status', Lease::STATUS_DRAFT)
+            ->whereNotIn('agency_id', $this->agencyIdsWithLeasesOff())
             ->whereNotNull('previous_lease_id')
             ->whereDate('start_date', '<=', $today)
             ->where(fn ($q) => $this->signedConstraint($q))
@@ -74,6 +77,22 @@ class LeaseTermAdvanceService
         }
 
         return $out;
+    }
+
+    /**
+     * Agencies that have the Leases feature switched off. The nightly batch skips their leases entirely (the registry promises
+     * "existing leases and their dates are untouched" - C-F5, release audit 2026-10-18). Single-lease runs (an agent pressing a button
+     * on a lease) go through the same two methods and are filtered the same way; those screens are already gated by the switch.
+     *
+     * @return array<int, int>
+     */
+    private function agencyIdsWithLeasesOff(): array
+    {
+        $features = app(AgencyFeatureService::class);
+
+        return Agency::all()
+            ->filter(fn (Agency $agency) => ! $features->enabled('rental-leases', $agency))
+            ->pluck('id')->map(fn ($id) => (int) $id)->all();
     }
 
     /** "Signed and approved" - the one definition the nightly job and the single-lease run both read. */
@@ -136,6 +155,7 @@ class LeaseTermAdvanceService
             $lease,
             "Lease #{$lease->id} ended - out-inspection confirmed vacant",
             $today,
+            withoutPortalPush: true,
         );
 
         return true;
@@ -155,6 +175,7 @@ class LeaseTermAdvanceService
         $candidates = Lease::withoutGlobalScopes()
             ->whereNull('deleted_at')
             ->where('status', Lease::STATUS_ACTIVE)
+            ->whereNotIn('agency_id', $this->agencyIdsWithLeasesOff())
             ->whereNull('renewed_lease_id')
             ->whereRaw('COALESCE(move_out_date, end_date) IS NOT NULL AND COALESCE(move_out_date, end_date) <= ?', [$today])
             ->whereHas('inspections', fn ($q) => $q->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED))
