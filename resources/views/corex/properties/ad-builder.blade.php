@@ -4,7 +4,8 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ $template ? 'Edit Template — ' . $template->name : 'New Ad Template' }}</title>
+    @php $companyMode = $companyMode ?? false; @endphp
+    <title>{{ $companyMode ? ($template ? 'Edit Company Ad — ' . $template->name : 'New Company Ad') : ($template ? 'Edit Template — ' . $template->name : 'New Ad Template') }}</title>
     @include('corex.properties._ad-fonts')
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
@@ -288,14 +289,14 @@
 {{-- ═══ BRANDED HEADER (UI_DESIGN_SYSTEM.md §2.4 Pattern A) — full width ═══ --}}
 <header style="flex-shrink:0;background:var(--brand-default,#0b2a4a);padding:11px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;">
     <div style="display:flex;align-items:center;gap:12px;min-width:0;">
-        <a href="{{ $fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index')) }}" title="Back"
+        <a href="{{ $companyMode ? route('tools.ad-manager.templates.company') : ($fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index'))) }}" title="Back"
            style="display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;background:rgba(255,255,255,0.12);color:#fff;text-decoration:none;flex-shrink:0;transition:background 0.15s;"
            onmouseover="this.style.background='rgba(255,255,255,0.22)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'">
             <svg style="width:15px;height:15px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         </a>
         <div style="min-width:0;">
-            <h1 style="font-size:18px;font-weight:700;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $template ? 'Edit Ad Template' : 'Ad Builder' }}</h1>
-            <p style="font-size:12px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $property ? $property->title : 'Design a reusable marketing template' }}</p>
+            <h1 style="font-size:18px;font-weight:700;color:#fff;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $companyMode ? ($template ? 'Edit Company Ad' : 'New Company Ad') : ($template ? 'Edit Ad Template' : 'Ad Builder') }}</h1>
+            <p style="font-size:12px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ $companyMode ? 'A brand ad from your agency — not tied to a listing' : ($property ? $property->title : 'Design a reusable marketing template') }}</p>
         </div>
     </div>
     @if($property)
@@ -309,14 +310,23 @@
 
 {{-- ═══ TOOLBAR — document-level actions ═══ --}}
 <div id="toolbar">
-    <a href="{{ $fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index')) }}" class="tb-btn">
+    <a href="{{ $companyMode ? route('tools.ad-manager.templates.company') : ($fromTemplates ? route('tools.ad-manager.templates') : ($property ? route('corex.properties.ad', $property) : route('corex.properties.index'))) }}" class="tb-btn">
         <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
         Back
     </a>
 
     <div style="width:1px;height:20px;background:var(--chrome-border);"></div>
 
-    <input id="tpl-name-input" type="text" x-model="name" placeholder="Template name…">
+    <input id="tpl-name-input" type="text" x-model="name" :placeholder="companyMode ? 'Ad name…' : 'Template name…'">
+    @if($companyMode)
+        {{-- Company Ads (.ai/specs/company-ads.md §5) — the occasion files the ad and filters the picture library. --}}
+        <select x-model="occasion" @change="dirty = true" class="tb-btn" title="Occasion" style="padding:5px 8px;font-size:11px;background:var(--chrome-input);color:var(--chrome-text);">
+            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="">Other occasion</option>
+            @foreach($companyOccasions as $occKey => $occLabel)
+                <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="{{ $occKey }}">{{ $occLabel }}</option>
+            @endforeach
+        </select>
+    @endif
     <span class="dirty-dot" x-show="dirty" title="Unsaved changes"></span>
 
     {{-- Property context chip --}}
@@ -331,10 +341,10 @@
 
         {{-- Canvas size (theme-aware; option colours set so the native dropdown is readable) --}}
         <select x-model="canvasPreset" @change="applyPreset()" class="tb-btn" style="padding:5px 8px;font-size:11px;background:var(--chrome-input);color:var(--chrome-text);">
-            <template x-for="(p, key) in CoreXAd.CANVAS_PRESETS" :key="key">
+            <template x-for="(p, key) in canvasPresetChoices" :key="key">
                 <option style="background:var(--chrome-surface);color:var(--chrome-text);" :value="key" x-text="p.label"></option>
             </template>
-            <option style="background:var(--chrome-surface);color:var(--chrome-text);" value="custom">Custom size…</option>
+            <option x-show="!companyMode" style="background:var(--chrome-surface);color:var(--chrome-text);" value="custom">Custom size…</option>
         </select>
         {{-- Custom W×H --}}
         <template x-if="canvasPreset==='custom'">
@@ -357,9 +367,17 @@
         {{-- Save --}}
         <button class="tb-btn primary" @click="save()" :disabled="saving" title="Save (Ctrl+S)">
             <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
-            <span x-text="saving ? 'Saving…' : (savedId ? 'Save' : 'Save Template')"></span>
+            <span x-text="saving ? 'Saving…' : (savedId ? 'Save' : (companyMode ? 'Save Ad' : 'Save Template'))"></span>
         </button>
 
+        {{-- Company Ads — Download the finished picture (spec §5). Rendered by the same capture() as everything else. --}}
+        <template x-if="companyMode">
+            <button class="tb-btn" @click="downloadPicture()" :disabled="exporting" title="Download this ad as a picture">
+                <svg style="width:12px;height:12px;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/></svg>
+                <span x-text="exporting ? 'Preparing…' : 'Download'"></span>
+            </button>
+        </template>
+        @unless($companyMode)
         {{-- Use on this property (only if saved + property context) --}}
         <template x-if="savedId && propertyId">
             <a :href="useOnPropertyUrl" class="tb-btn primary" style="background:#0b8f53;border-color:#0b8f53;">
@@ -380,6 +398,7 @@
                 <span x-text="exporting ? 'Exporting…' : 'Use for Marketing'"></span>
             </button>
         </template>
+        @endunless
     </div>
 </div>
 
@@ -538,10 +557,10 @@
 
     {{-- ── LEFT: FIELD CATALOGUE ── --}}
     <div id="sidebar">
-        <template x-for="grp in CoreXAd.FIELD_GROUPS" :key="grp.key">
+        <template x-for="grp in CoreXAd.FIELD_GROUPS.filter(g => paletteFields.some(x => x.group === g.key))" :key="grp.key">
             <div class="sb-group">
                 <div class="sb-label" x-text="grp.label"></div>
-                <template x-for="f in CoreXAd.FIELDS.filter(x => x.group === grp.key)" :key="f.type">
+                <template x-for="f in paletteFields.filter(x => x.group === grp.key)" :key="f.type">
                     <div class="sb-field" draggable="true" @dragstart="sidebarDragStart($event, f)" @click="addField(f)">
                         <span class="sb-icon" :style="'background:' + f.iconBg" x-html="groupIcon(grp.key)"></span>
                         <span x-text="f.label"></span>
@@ -871,10 +890,31 @@
                     <template x-if="sel.field === 'custom_image' || sel.field === 'custom_video'">
                         <div>
                             <div class="pp-row">
-                                <label x-text="sel.field === 'custom_video' ? 'Video file' : 'Image file'"></label>
-                                <input type="file" :accept="sel.field === 'custom_video' ? 'video/*' : 'image/*'" @change="uploadMedia($event)"
+                                <label x-text="sel.field === 'custom_video' ? 'Video file' : (companyMode ? 'Upload a picture' : 'Image file')"></label>
+                                <input type="file" :accept="sel.field === 'custom_video' ? 'video/*' : (companyMode ? 'image/jpeg,image/png,image/webp' : 'image/*')" @change="uploadMedia($event)"
                                        style="font-size:11px;color:var(--chrome-text-soft);">
                             </div>
+                            {{-- Company Ads — the built-in library of seasonal pictures (spec §4). Free to use, no credit needed. --}}
+                            @if($companyMode)
+                            <template x-if="library.length">
+                                <div class="pp-row" style="display:block;">
+                                    <label style="display:block;margin-bottom:6px;">Or choose from the library</label>
+                                    <select x-model="libraryOccasion" style="width:100%;margin-bottom:8px;">
+                                        <template x-for="g in library" :key="g.occasion">
+                                            <option :value="g.occasion" x-text="g.label"></option>
+                                        </template>
+                                    </select>
+                                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+                                        <template x-for="pic in libraryPictures" :key="pic.url">
+                                            <button type="button" @click="useLibraryPicture(pic.url)" :title="pic.alt"
+                                                    :style="'padding:0;border-radius:6px;overflow:hidden;cursor:pointer;aspect-ratio:4/3;background:var(--chrome-surface-2);border:2px solid ' + (sel.src === pic.url ? 'var(--brand-icon,#00b4d8)' : 'transparent') + ';'">
+                                                <img :src="pic.url" :alt="pic.alt" loading="lazy" style="width:100%;height:100%;object-fit:cover;display:block;">
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                            @endif
                             <div class="pp-hint" style="color:#19c37d;" x-show="sel.src">✓ Uploaded — drag to resize on the canvas.</div>
                             <div class="pp-hint" x-show="sel.field === 'custom_video'">Video plays in the live preview. A downloaded PNG captures a single still frame.</div>
                             <div class="pp-row">
@@ -1526,6 +1566,13 @@ function builder() {
         dirty:     false,
 
         propertyData:  @json($propertyData ?? null),
+        // Company Ads (.ai/specs/company-ads.md §6) — the same builder, limited to brand / agent / decorative elements.
+        companyMode:   @json($companyMode),
+        companyFields: @json($companyFields ?? []),
+        companyCanvases: @json($companyCanvases ?? []),
+        library:       @json($companyLibrary ?? []),
+        occasion:      @json($companyOccasion ?? '') || '',
+        libraryOccasion: null,
         propertyId:    @json($property?->id ?? null),
         propertyAdUrl: @json($property ? route('corex.properties.ad', $property) : null),
         // §18 — the agency's own Property Type names, for the "Design for"
@@ -1627,6 +1674,30 @@ function builder() {
                 ? this.variants
                 : { ...this.variants, [this.activeVariantType]: packed };
             return { ...defaultLayout, variants };
+        },
+
+        /** The element catalogue this builder offers — everything, or only the company-ad elements. */
+        get paletteFields() {
+            return this.companyMode
+                ? this.CoreXAd.FIELDS.filter(f => this.companyFields.includes(f.type))
+                : this.CoreXAd.FIELDS;
+        },
+        get canvasPresetChoices() {
+            if (!this.companyMode) return this.CoreXAd.CANVAS_PRESETS;
+            const out = {};
+            this.companyCanvases.forEach(k => { if (this.CoreXAd.CANVAS_PRESETS[k]) out[k] = this.CoreXAd.CANVAS_PRESETS[k]; });
+            return out;
+        },
+        get libraryPictures() {
+            const key = this.libraryOccasion || this.occasion || (this.library[0] && this.library[0].occasion);
+            const g = this.library.find(x => x.occasion === key) || this.library[0];
+            return g ? g.pictures : [];
+        },
+        useLibraryPicture(url) {
+            if (!this.sel || this.sel.field !== 'custom_image') return;
+            this.commit();
+            const i = this.elements.findIndex(x => x.id === this.sel.id);
+            this.elements[i] = { ...this.elements[i], src: url, mediaKind: 'image' };
         },
 
         get useOnPropertyUrl() {
@@ -2736,7 +2807,7 @@ function builder() {
             fd.append('file', file);
             this.toast('Uploading…');
             try {
-                const res = await fetch(@json(route('corex.ad-templates.upload-media')), {
+                const res = await fetch(this.companyMode ? @json(\Illuminate\Support\Facades\Route::has('api.v1.ad-manager.company-ads.images') ? route('api.v1.ad-manager.company-ads.images') : '') : @json(route('corex.ad-templates.upload-media')), {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content, 'Accept': 'application/json' },
                     body: fd,
@@ -2757,7 +2828,8 @@ function builder() {
         /* ═══ Persistence ═════════════════════════════════════════════════ */
 
         async save() {
-            if (!this.name.trim()) { this.toast('Enter a template name'); return; }
+            if (!this.name.trim()) { this.toast(this.companyMode ? 'Enter a name for the ad' : 'Enter a template name'); return; }
+            if (this.companyMode) return this.saveCompanyAd();
             this.saving = true;
             try {
                 const token = document.querySelector('meta[name="csrf-token"]').content;
@@ -2797,6 +2869,53 @@ function builder() {
                 this.toast('Error: ' + (err?.message || 'unknown'));
             } finally {
                 this.saving = false;
+            }
+        },
+
+        /** Company Ads — save to company_ads (the server keeps only company-ad elements and allowed pictures). */
+        async saveCompanyAd() {
+            this.saving = true;
+            try {
+                const token = document.querySelector('meta[name="csrf-token"]').content;
+                const base = @json($companyMode ? route('tools.ad-manager.company-ads.store') : '');
+                const payload = { name: this.name.trim(), occasion: this.occasion || null, layout_json: this._packActiveVariant() };
+                let url = base;
+                if (this.savedId) { url = base + '/' + this.savedId; payload._method = 'PUT'; }
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': token },
+                    body: JSON.stringify(payload),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.message || 'Save failed');
+                if (!this.savedId) {
+                    this.savedId = json.id;
+                    history.replaceState({}, '', @json($companyMode ? route('tools.ad-manager.company-ads.builder') : '') + '/' + json.id);
+                }
+                this.dirty = false;
+                this.toast('Ad saved!');
+            } catch (err) {
+                this.toast('Error: ' + (err?.message || 'unknown'));
+            } finally {
+                this.saving = false;
+            }
+        },
+
+        /** Company Ads — download the ad as a PNG at its real size. */
+        async downloadPicture() {
+            this.exporting = true;
+            try {
+                const canvas = await this.capture();
+                const a = document.createElement('a');
+                a.href = canvas.toDataURL('image/png');
+                a.download = (this.name.trim() || 'company-ad').replace(/[^a-z0-9\- ]+/gi, '').trim().replace(/\s+/g, '-').toLowerCase() + '.png';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+            } catch (err) {
+                this.toast('Download failed: ' + (err?.message || 'unknown'));
+            } finally {
+                this.exporting = false;
             }
         },
 

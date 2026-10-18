@@ -51,6 +51,8 @@
         </div>
     </div>
 
+    @include('tools.ad-manager._template-tabs')
+
     {{-- ── Search + filters ────────────────────────────────────── --}}
     <form method="GET" action="{{ route('tools.ad-manager.templates') }}"
           class="props-filter-panel rounded-md p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end"

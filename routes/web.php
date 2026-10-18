@@ -539,6 +539,11 @@ Route::middleware('auth')->group(function () {
             ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])
             ->name('ad-manager.scheduled.store');
 
+        // Company Ads — upload a picture to PLACE in a company ad (Ad Builder company mode). Spec: .ai/specs/company-ads.md §4, §13.
+        Route::post('/ad-manager/company-ads/images', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'uploadImage'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])
+            ->name('ad-manager.company-ads.images');
+
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
 
@@ -1599,6 +1604,18 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
     // AT-456 Part B — "Create with AI" in the Template Manager (spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B).
     // Its two JSON endpoints (generate / save-option) live under /api/v1 — see api.v1.ad-manager.templates.ai.* in the api/v1 group.
+
+    // Company Ads — second tab of the Template Manager (spec .ai/specs/company-ads.md). The list needs only access_ad_manager
+    // (company ads are agency-wide brand assets); making / changing them needs ad_manager.company_ads. {companyAd} binds
+    // through AgencyScope (another agency's id is a 404). Archive / restore are soft-delete only.
+    Route::get('/tools/ad-manager/templates/company', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.company');
+    Route::get('/tools/ad-manager/company-ads/builder', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder');
+    Route::get('/tools/ad-manager/company-ads/builder/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder.edit')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'store'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.store');
+    Route::put('/tools/ad-manager/company-ads/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'update'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.update')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/duplicate', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'duplicate'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.duplicate')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/archive', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'archive'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.archive')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/restore', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'restore'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.restore')->whereNumber('companyAd')->withTrashed();
 
     // AT-456 Part C — Article Library (third Ad Manager tab). Library rows are global and read-only; "Use this"
     // makes the user's own unpublished AgentArticle (agency-scoped). Spec: at456-ai-tools-scheduler-and-spend-safety.md §C.5.
