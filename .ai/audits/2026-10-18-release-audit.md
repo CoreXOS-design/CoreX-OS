@@ -57,6 +57,30 @@ traced through the code; the serious ones re-checked by the lead). No test suite
   no copy. On live-testing every agency is on the defaults (14 days / 11 months), so nothing was lost there; the real live
   server must be checked before its deploy.
 
-## 3. Status
+## 3. Status — fixed on QA2 (Johan: "fix everything", 2026-10-18)
 
-Report only — nothing fixed yet. Fix plan pending Johan's go.
+Built in 7 batches (branches `audit-fix-{inventory,portal,rentals-ops,vat,ai-spend,outbound,migrations}-2026-10-18`),
+reviewed and combined on `audit-fixes-all-2026-10-18`. 34 touched test files run together: **757 passed, 0 failed**.
+
+- **Access (A):** H1, H2, M1-M8, L1, L2, L4, L5, L7-L12 fixed. L3 fixed per Johan (tenants do not see owner-raised faults).
+  L6 not a bug (ContactScope already applies; regression test added). Same-class follow-ups also fixed: buyer canvas
+  signature must be a real PNG; agent wet-ink upload private with a server-chosen extension; scan-as-PDF filing sniffs content.
+- **Migrations (B):** H1 (no throw on duplicate deal numbers), M1 (restored 000100 + copy of customised FICA values),
+  L1, L4, L5, L6 fixed; committed session files removed and ignored. L2/L3/L7 deliberately not changed (renaming or rewriting
+  already-run migrations is unsafe) — process rule: name new migrations after the newest existing timestamp.
+- **Outbound (C):** F1+F4 — one `ExternalPublishingGuard` (allowed by default; refused on demo or when
+  `COREX_EXTERNAL_PUBLISHING=false`) on every Meta post and every Property24 / Private Property write. F2 per Johan: the
+  day-before client REMINDER is a new opt-in setting (settings page + wizard); scheduled/cancelled notices unchanged.
+  F3 per Johan: a tenancy ending restores the status but pushes nothing to the portals; the agent gets a "ready to re-list"
+  alert. F5, F6 fixed.
+- **Money / AI (D):** H1, M1, M3, L1-L5 fixed. M2 per Johan: at most 5 failed AI generations per agency per day
+  (Dev Settings -> AI Spend Safety), failed attempts still do not use the monthly allowance.
+- **Found while combining (pre-existing, red on QA2 before today):** the P24 refresh cost contract was broken again — the
+  listing mapper scanned P24's whole agent list on a cold cache; now uses the stored agent id first
+  (`Property24RefreshCostTest` green). The orphaned "Work accepted — no tenant response" alert toggle is retired
+  (`NotificationCatalogueHasProducersTest` green).
+
+Still open (operations, not code): live-testing's scheduler is paused (root crontab, `#PAUSED#`); set
+`COREX_EXTERNAL_PUBLISHING=false` in `/corex/.env` before it gets this code; its 12 P24 workers are FATAL since 18 Oct 00:00;
+the mail guard logs a CRITICAL line per process boot there. The real live server still has to run the release's migrations
+(all now safe to run) — check `SELECT agency_id, deal_no, COUNT(*) FROM deals GROUP BY 1,2 HAVING COUNT(*)>1` first anyway.
