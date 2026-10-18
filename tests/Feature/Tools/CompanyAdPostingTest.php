@@ -85,6 +85,25 @@ final class CompanyAdPostingTest extends TestCase
             ->assertStatus(422)->assertJsonFragment(['error' => 'Pick a time at least 5 minutes from now.']);
     }
 
+    public function test_a_story_size_company_ad_cannot_go_to_instagram_but_can_go_to_facebook(): void
+    {
+        [$agency, , $manager] = $this->world('branch_manager');
+        $this->connect($manager, 'facebook');
+        $this->connect($manager, 'instagram');
+        $ad = $this->ad($agency, $manager, 'Story Christmas');
+        DB::table('company_ads')->where('id', $ad->id)->update([
+            'canvas' => 'story', 'layout_json' => json_encode(['canvasW' => 1080, 'canvasH' => 1920, 'canvasPreset' => 'story', 'elements' => []]),
+        ]);
+        $this->actingAs($manager);
+
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($ad, $this->storedImage($manager), 'at', ['facebook', 'instagram'], '2026-10-22', '09:00'))
+            ->assertStatus(422)->assertJsonFragment(['error' => '"Story Christmas" is Story size, and Instagram only takes square or upright (4:5) pictures in the feed. Post it to Facebook, or make the ad in another size.']);
+        $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count(), 'a refusal saves nothing');
+
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), $this->payload($ad, $this->storedImage($manager), 'at', ['facebook'], '2026-10-22', '09:00'))
+            ->assertOk()->assertJsonPath('scheduled', 1);
+    }
+
     public function test_post_now_publishes_straight_away_and_fires_the_published_event_for_the_agency(): void
     {
         Event::fake([MarketingPostPublished::class]);

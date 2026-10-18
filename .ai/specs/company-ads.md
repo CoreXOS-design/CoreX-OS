@@ -213,7 +213,7 @@ becomes nullable — listeners checked for null-safety in the same build).
 ## 13. API endpoints (non-negotiable #7)
 
 Under `/api/v1/ad-manager/company-ads/...`, all named and in the Admin → API catalogue:
-`ai.generate`, `ai.{generation}.save`, `images` (upload a placed picture). Posting reuses the existing
+`ai.generate`, `ai.{generation}.save`, `images` (upload a placed picture), and the Ad Builder's save - `store` (POST) and `update` (PUT `{companyAd}`) - moved here from `/tools/ad-manager/company-ads` in the 2026-10-18 audit. Posting reuses the existing
 `scheduled.image` / `scheduled.store` (gaining `company_ad_id`). The list/archive/restore/duplicate are normal web
 routes, like the property template manager.
 
@@ -433,6 +433,12 @@ Same rule as property templates (AT-456 spec, B.10 amendment "no icons is bindin
 look wins over the style; when the idea says no icons, the prompt says so as a hard rule (and the no-picture line stops
 suggesting icons) and every icon is removed from every design on the server before and after validation
 (`AdIdeaWishes`). Proof: `AiTemplateNoIconsTest`.
+
+## 14g. Day audit fixes (2026-10-18) — `.ai/audits/2026-10-18-qa2-day-audit.md`
+
+Esc in the Post window no longer also closes the AI pop-up; uploaded phone photos are turned upright; a Story-size ad
+cannot be posted to Instagram (tick disabled + server refusal); the builder's library dropdown shows the occasion on
+screen and a new company ad is called "My company ad"; the builder's save moved to `/api/v1` (§13).
 
 ## 17. Open items for Johan
 

@@ -16,6 +16,7 @@ use App\Services\AdTemplates\AiTemplateBuilderService;
 use App\Services\AdTemplates\CompanyAdBuilderService;
 use App\Services\AdTemplates\CompanyAdLayout;
 use App\Services\AdTemplates\CompanyAdLibrary;
+use App\Services\Images\ImageOrientationNormalizer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -387,6 +388,8 @@ class CompanyAdsController extends Controller
         ]);
 
         $file = $request->file('file');
+        // A phone photo shot upright is stored sideways plus a "rotate me" tag that GD drops - turn the pixels first.
+        app(ImageOrientationNormalizer::class)->normalizeInPlace($file->getRealPath());
         $info = @getimagesize($file->getRealPath());
         if (! $info || $info[0] < 1 || $info[1] < 1) {
             return response()->json(['ok' => false, 'message' => 'That file is not a picture we can read. Please use a JPG, PNG or WebP.'], 422);

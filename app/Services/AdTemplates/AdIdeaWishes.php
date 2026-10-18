@@ -31,7 +31,8 @@ class AdIdeaWishes
     /** True when the idea asks for an ad without icons. */
     public static function forbidsIcons(?string $idea): bool
     {
-        $idea = trim((string) $idea);
+        // Phones and Macs type curly apostrophes ("don’t") - read them as a plain one.
+        $idea = trim(str_replace(["\u{2019}", "\u{2018}", "\u{02BC}"], "'", (string) $idea));
         if ($idea === '') {
             return false;
         }

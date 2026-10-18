@@ -40,7 +40,7 @@ final class AiTemplateNoIconsTest extends TestCase
         foreach ([
             'Modern and clean, no icons', 'do not use icons on the text', "Please don't add any icons", 'without icons please',
             'NO ICONS', 'icon-free, minimal', 'Icons are not needed', 'remove the icons', 'dont use icons', 'no text icons', 'geen ikone nie',
-            'not a single icon',
+            'not a single icon', "please don’t use icons", "Don‘t add icons",
         ] as $idea) {
             $this->assertTrue(AdIdeaWishes::forbidsIcons($idea), $idea);
         }

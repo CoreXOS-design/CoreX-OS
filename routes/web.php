@@ -539,6 +539,15 @@ Route::middleware('auth')->group(function () {
             ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])
             ->name('ad-manager.scheduled.store');
 
+        // Company Ads — save from the Ad Builder in company mode (JSON). {companyAd} binds through AgencyScope and is re-checked
+        // against the agency being worked in (404 otherwise). Spec: .ai/specs/company-ads.md §6, §13.
+        Route::post('/ad-manager/company-ads', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'store'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->name('ad-manager.company-ads.store');
+        Route::put('/ad-manager/company-ads/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'update'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('companyAd')
+            ->name('ad-manager.company-ads.update');
         // Company Ads — upload a picture to PLACE in a company ad (Ad Builder company mode). Spec: .ai/specs/company-ads.md §4, §13.
         Route::post('/ad-manager/company-ads/images', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'uploadImage'])
             ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])
@@ -1620,8 +1629,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/ad-manager/templates/company', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.company');
     Route::get('/tools/ad-manager/company-ads/builder', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder');
     Route::get('/tools/ad-manager/company-ads/builder/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder.edit')->whereNumber('companyAd');
-    Route::post('/tools/ad-manager/company-ads', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'store'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.store');
-    Route::put('/tools/ad-manager/company-ads/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'update'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.update')->whereNumber('companyAd');
+    // Save (store / update) from the Ad Builder are JSON endpoints under /api/v1 - api.v1.ad-manager.company-ads.store / .update.
     Route::post('/tools/ad-manager/company-ads/{companyAd}/duplicate', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'duplicate'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.duplicate')->whereNumber('companyAd');
     Route::post('/tools/ad-manager/company-ads/{companyAd}/archive', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'archive'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.archive')->whereNumber('companyAd');
     Route::post('/tools/ad-manager/company-ads/{companyAd}/restore', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'restore'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.restore')->whereNumber('companyAd')->withTrashed();

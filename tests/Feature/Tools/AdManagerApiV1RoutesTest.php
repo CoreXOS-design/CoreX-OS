@@ -21,6 +21,9 @@ final class AdManagerApiV1RoutesTest extends TestCase
         'api.v1.ad-manager.templates.ai.save'     => ['POST', 'api/v1/ad-manager/templates/ai/{generation}/save', 'saveAiOption', ['permission:access_ad_manager', 'agency.required', 'feature:ad-manager']],
         'api.v1.ad-manager.scheduled.image'       => ['POST', 'api/v1/ad-manager/scheduled/image', 'uploadImage', ['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:60,1']],
         'api.v1.ad-manager.scheduled.store'       => ['POST', 'api/v1/ad-manager/scheduled', 'store', ['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1']],
+        // 2026-10-18 audit - the Ad Builder's company-ad save.
+        'api.v1.ad-manager.company-ads.store'     => ['POST', 'api/v1/ad-manager/company-ads', 'store', ['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager']],
+        'api.v1.ad-manager.company-ads.update'    => ['PUT', 'api/v1/ad-manager/company-ads/{companyAd}', 'update', ['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager']],
     ];
 
     public function test_each_moved_endpoint_is_under_api_v1_named_and_keeps_its_gates(): void
@@ -51,7 +54,8 @@ final class AdManagerApiV1RoutesTest extends TestCase
     public function test_the_old_web_routes_are_gone(): void
     {
         foreach (['tools.ad-manager.templates.ai.generate', 'tools.ad-manager.templates.ai.save',
-                  'tools.ad-manager.scheduled.image', 'tools.ad-manager.scheduled.store'] as $oldName) {
+                  'tools.ad-manager.scheduled.image', 'tools.ad-manager.scheduled.store',
+                  'tools.ad-manager.company-ads.store', 'tools.ad-manager.company-ads.update'] as $oldName) {
             $this->assertNull(Route::getRoutes()->getByName($oldName), "$oldName still registered");
         }
 

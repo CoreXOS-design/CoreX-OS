@@ -899,9 +899,9 @@
                             <template x-if="library.length">
                                 <div class="pp-row" style="display:block;">
                                     <label style="display:block;margin-bottom:6px;">Or choose from the library</label>
-                                    <select x-model="libraryOccasion" style="width:100%;margin-bottom:8px;">
+                                    <select @change="libraryOccasion = $event.target.value" style="width:100%;margin-bottom:8px;">
                                         <template x-for="g in library" :key="g.occasion">
-                                            <option :value="g.occasion" x-text="g.label"></option>
+                                            <option :value="g.occasion" x-text="g.label" :selected="g.occasion === libraryKey"></option>
                                         </template>
                                     </select>
                                     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
@@ -1548,7 +1548,7 @@ function builder() {
         CoreXAd: window.CoreXAd,
         HANDLES: Object.keys(HANDLE_POS),
 
-        name:          existingTemplate?.name || 'My Template',
+        name:          existingTemplate?.name || (@json($companyMode) ? 'My company ad' : 'My Template'),
         elements:      lj.elements || [],
         canvasW:       lj.canvasW || 1200,
         canvasH:       lj.canvasH || 628,
@@ -1688,9 +1688,13 @@ function builder() {
             this.companyCanvases.forEach(k => { if (this.CoreXAd.CANVAS_PRESETS[k]) out[k] = this.CoreXAd.CANVAS_PRESETS[k]; });
             return out;
         },
+        // The occasion the library shows - the one picked in its dropdown, else the ad's own. The dropdown shows the same one.
+        get libraryKey() {
+            const key = this.libraryOccasion || this.occasion;
+            return this.library.some(x => x.occasion === key) ? key : (this.library[0] && this.library[0].occasion);
+        },
         get libraryPictures() {
-            const key = this.libraryOccasion || this.occasion || (this.library[0] && this.library[0].occasion);
-            const g = this.library.find(x => x.occasion === key) || this.library[0];
+            const g = this.library.find(x => x.occasion === this.libraryKey) || this.library[0];
             return g ? g.pictures : [];
         },
         useLibraryPicture(url) {
@@ -2877,7 +2881,7 @@ function builder() {
             this.saving = true;
             try {
                 const token = document.querySelector('meta[name="csrf-token"]').content;
-                const base = @json($companyMode ? route('tools.ad-manager.company-ads.store') : '');
+                const base = @json($companyMode ? route('api.v1.ad-manager.company-ads.store') : '');
                 const payload = { name: this.name.trim(), occasion: this.occasion || null, layout_json: this._packActiveVariant() };
                 let url = base;
                 if (this.savedId) { url = base + '/' + this.savedId; payload._method = 'PUT'; }

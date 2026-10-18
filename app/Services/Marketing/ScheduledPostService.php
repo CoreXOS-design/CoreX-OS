@@ -9,6 +9,7 @@ use App\Models\CompanyAd;
 use App\Models\Property;
 use App\Models\PropertyMarketingPost;
 use App\Models\User;
+use App\Services\AdTemplates\CompanyAdLayout;
 use App\Services\Compliance\MarketingReadinessService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
@@ -179,6 +180,15 @@ final class ScheduledPostService
      *
      * @throws ScheduleException
      */
+    /** Instagram feed pictures must be between upright 4:5 and wide 1.91:1 (a Story-size ad is refused by Meta). */
+    public static function fitsInstagramFeed(string $canvas): bool
+    {
+        [$w, $h] = CompanyAdLayout::CANVAS_SIZES[$canvas] ?? [1200, 628];
+        $ratio   = $w / max(1, $h);
+
+        return $ratio >= 0.8 && $ratio <= 1.92;   // 1.92: the standard 1200x628 is 1.911
+    }
+
     public function companyAdFor(User $user, int $companyAdId): CompanyAd
     {
         if (! CompanyAd::userMayManage($user)) {
@@ -242,6 +252,9 @@ final class ScheduledPostService
                 throw new ScheduleException('Each post must be for one listing or one company ad.');
             }
             $subject = $hasAd ? $this->companyAdFor($user, (int) $item['company_ad_id']) : $this->propertyFor($user, (int) $item['property_id']);
+            if ($hasAd && in_array('instagram', $platforms, true) && ! self::fitsInstagramFeed((string) $subject->canvas)) {
+                throw new ScheduleException('"' . $subject->name . '" is Story size, and Instagram only takes square or upright (4:5) pictures in the feed. Post it to Facebook, or make the ad in another size.');
+            }
             $copy    = trim((string) ($item['copy'] ?? ''));
             $this->assertCopy($copy, $platforms);
 

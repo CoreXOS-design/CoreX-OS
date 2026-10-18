@@ -246,9 +246,11 @@
                             <div class="flex flex-wrap gap-4">
                                 @foreach($postConfig['platforms'] as $key => $label)
                                     <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-primary);">
-                                        <input type="checkbox" x-model="post.platforms.{{ $key }}" @disabled(empty($postConfig['connected'][$key]))>
+                                        <input type="checkbox" x-model="post.platforms.{{ $key }}" @disabled(empty($postConfig['connected'][$key]))
+                                               @if($key === 'instagram' && ! empty($postConfig['connected'][$key])) :disabled="!igFits(post.entry)" @endif>
                                         {{ $label }}
                                         @if(empty($postConfig['connected'][$key]))<span class="text-xs" style="color:var(--ds-amber,#b45309);">not connected</span>@endif
+                                        @if($key === 'instagram')<span x-show="post.entry && !igFits(post.entry)" class="text-xs" style="color:var(--ds-amber,#b45309);">not for Story-size ads</span>@endif
                                     </label>
                                 @endforeach
                             </div>
@@ -409,15 +411,22 @@ function companyAdsList(cfg) {
             if (!this.postCfg || !entry || !entry.layout) return;
             const p = this.post, c = this.postCfg.connected || {};
             Object.assign(p, { open: true, entry, copy: entry.caption || '', when: 'now', busy: false, error: '', progress: '', results: null, scheduled: 0 });
-            p.platforms = { facebook: !!c.facebook, instagram: !c.facebook && !!c.instagram };
+            p.platforms = { facebook: !!c.facebook, instagram: !c.facebook && !!c.instagram && this.igFits(entry) };
             if (!p.date) { const d = new Date(this.postCfg.today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); p.date = d.toISOString().slice(0, 10); }
             if (!p.time) p.time = '09:00';
             window.__cadPostOpen = true;
         },
+        // An Instagram feed post must be between upright 4:5 and wide 1.91:1 - a Story-size ad is refused by Instagram.
+        igFits(entry) {
+            const l = (entry && entry.layout) || {};
+            const r = (l.canvasW || 1200) / (l.canvasH || 628);
+            return r >= 0.8 && r <= 1.92;   // 1.92: the standard 1200x628 is 1.911
+        },
         closePost() {
             if (this.post.busy) return;
             this.post.open = false;
-            window.__cadPostOpen = false;
+            // Cleared after this key press has reached every listener, so the same Esc does not also close the AI pop-up below.
+            setTimeout(() => { window.__cadPostOpen = false; }, 0);
         },
         reason(err, fallback) {
             const d = (err && err.data && typeof err.data === 'object') ? err.data : {};

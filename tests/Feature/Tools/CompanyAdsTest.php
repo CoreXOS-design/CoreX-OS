@@ -309,6 +309,24 @@ final class CompanyAdsTest extends TestCase
         $this->assertSame($data['url'], CompanyAdLayout::allowedPictureSrc($data['url'], $a));
     }
 
+    public function test_a_phone_photo_taken_upright_is_saved_upright(): void
+    {
+        Storage::fake('public');
+        [, $ua] = $this->agencyWithUser();
+        $this->actingAs($ua);
+
+        // Landscape pixels (900x600) tagged "rotate 90" - how a phone stores an upright photo.
+        $tmp = tempnam(sys_get_temp_dir(), 'cad') . '.jpg';
+        copy(base_path('tests/Fixtures/Images/portrait-exif6.jpg'), $tmp);
+        $file = new UploadedFile($tmp, 'portrait.jpg', 'image/jpeg', null, true);
+        $data = app(CompanyAdsController::class)->uploadImage($this->jsonRequest($ua, [], ['file' => $file]))->getData(true);
+
+        $this->assertTrue($data['ok']);
+        $this->assertSame([600, 900], [$data['width'], $data['height']], 'stored upright, not sideways');
+        $saved = getimagesizefromstring(Storage::disk('public')->get(CompanyAdImage::findOrFail($data['id'])->path));
+        $this->assertSame([600, 900], [$saved[0], $saved[1]]);
+    }
+
     public function test_upload_refuses_a_file_that_is_not_a_picture(): void
     {
         Storage::fake('public');
@@ -363,7 +381,7 @@ final class CompanyAdsTest extends TestCase
         $this->assertStringContainsString('Second Agency Rentals', $html);
         $this->assertStringNotContainsString('Use on Property', $html);
         $this->assertStringNotContainsString('Home Finders', $html);
-        $this->assertStringContainsString(json_encode(route('tools.ad-manager.company-ads.store')), $html); // save goes to company ads
+        $this->assertStringContainsString(json_encode(route('api.v1.ad-manager.company-ads.store')), $html); // save goes to company ads
         $this->assertStringContainsString('href="' . route('tools.ad-manager.templates.company') . '"', $html); // Back
     }
 

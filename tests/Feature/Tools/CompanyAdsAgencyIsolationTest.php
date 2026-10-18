@@ -93,7 +93,7 @@ final class CompanyAdsAgencyIsolationTest extends TestCase
         $this->actingAs($this->managerB);
 
         $this->get(route('tools.ad-manager.company-ads.builder.edit', $this->adA->id))->assertNotFound();
-        $this->putJson(route('tools.ad-manager.company-ads.update', $this->adA->id), ['name' => 'Hacked', 'layout_json' => ['elements' => []]])->assertNotFound();
+        $this->putJson(route('api.v1.ad-manager.company-ads.update', $this->adA->id), ['name' => 'Hacked', 'layout_json' => ['elements' => []]])->assertNotFound();
         $this->post(route('tools.ad-manager.company-ads.duplicate', $this->adA->id))->assertNotFound();
         $this->post(route('tools.ad-manager.company-ads.archive', $this->adA->id))->assertNotFound();
         $this->post(route('tools.ad-manager.company-ads.restore', $this->archivedA->id))->assertNotFound();
@@ -110,7 +110,7 @@ final class CompanyAdsAgencyIsolationTest extends TestCase
         $picA = $this->upload($this->a, $this->managerA);
         $this->actingAs($this->managerB);
 
-        $this->postJson(route('tools.ad-manager.company-ads.store'), ['name' => 'Bravo ad', 'layout_json' => [
+        $this->postJson(route('api.v1.ad-manager.company-ads.store'), ['name' => 'Bravo ad', 'layout_json' => [
             'canvasPreset' => 'facebook',
             'elements' => [['field' => 'custom_image', 'src' => $picA->url(), 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100]],
         ]])->assertOk();
@@ -202,12 +202,12 @@ final class CompanyAdsAgencyIsolationTest extends TestCase
         $this->get(route('tools.ad-manager.templates.company', ['status' => 'all']))->assertOk()
             ->assertSee('ALPHA-XMAS-AD')->assertDontSee('BRAVO-PRIVATE-AD');
         $this->get(route('tools.ad-manager.company-ads.builder.edit', $adB->id))->assertNotFound();
-        $this->putJson(route('tools.ad-manager.company-ads.update', $adB->id), ['name' => 'x', 'layout_json' => ['elements' => []]])->assertNotFound();
+        $this->putJson(route('api.v1.ad-manager.company-ads.update', $adB->id), ['name' => 'x', 'layout_json' => ['elements' => []]])->assertNotFound();
         $this->post(route('tools.ad-manager.company-ads.duplicate', $adB->id))->assertNotFound();
         $this->post(route('tools.ad-manager.company-ads.archive', $adB->id))->assertNotFound();
 
         // What it makes lands in the agency it is working in.
-        $this->postJson(route('tools.ad-manager.company-ads.store'), ['name' => 'Owner made', 'layout_json' => ['canvasPreset' => 'facebook', 'elements' => []]])->assertOk();
+        $this->postJson(route('api.v1.ad-manager.company-ads.store'), ['name' => 'Owner made', 'layout_json' => ['canvasPreset' => 'facebook', 'elements' => []]])->assertOk();
         $this->assertSame($this->a, (int) CompanyAd::withoutGlobalScopes()->where('name', 'Owner made')->value('agency_id'));
 
         // It cannot post B's ad.
