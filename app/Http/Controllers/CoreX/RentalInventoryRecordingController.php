@@ -471,12 +471,13 @@ class RentalInventoryRecordingController extends Controller
     /** Same logic as RentalInspectionRecordingController's own wetInkScanAsPdfBytes() — see that method's own docblock. */
     private function wetInkScanAsPdfBytes(\Illuminate\Http\UploadedFile $file, string $propertyAddress, string $partyLabel): string
     {
-        $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: '');
-        if ($extension === 'pdf') {
+        // Audit A-H1 — decide on the content-sniffed type, never the client's filename: a photo
+        // named "scan.pdf" must be wrapped into a PDF, not filed raw under a .pdf name.
+        $mime = $file->getMimeType() ?: 'image/jpeg';
+        if ($mime === 'application/pdf') {
             return file_get_contents($file->getRealPath());
         }
 
-        $mime = $file->getMimeType() ?: 'image/jpeg';
         $dataUri = 'data:' . $mime . ';base64,' . base64_encode(file_get_contents($file->getRealPath()));
 
         return \Barryvdh\DomPDF\Facade\Pdf::loadView('corex.rental-signatures.wet-ink-scan-pdf', [

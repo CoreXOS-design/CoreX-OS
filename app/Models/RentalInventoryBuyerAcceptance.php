@@ -119,64 +119,44 @@ class RentalInventoryBuyerAcceptance extends Model
         }
     }
 
-    /** Same canvas-capture storage pattern as RentalInventorySignature::storeCanvasImage(), own folder. */
+    /**
+     * Same canvas-capture storage pattern as RentalInventorySignature::storeCanvasImage(), own folder.
+     * Audit A-H1 (2026-10-18) — this is reached by an unauthenticated visitor, so the decoded bytes must
+     * really be a PNG within the size cap (re-encoded so only pixels are written), not whatever was posted.
+     *
+     * @throws \InvalidArgumentException when the payload is not a usable PNG
+     */
     public static function storeCanvasImage(string $base64, int $propertyId): string
     {
-        $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
-        $binary = base64_decode($data, true) ?: '';
+        $binary = \App\Support\PrivateScanFile::validatedPng($base64);
 
-        $path = "properties/{$propertyId}/rental-inventory-buyer-acceptances/" . uniqid('sig_', true) . '.png';
+        $path = "properties/{$propertyId}/rental-inventory-buyer-acceptances/" . bin2hex(random_bytes(16)) . '.png';
         \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
 
         return \Illuminate\Support\Facades\Storage::url($path);
     }
 
     /** Audit A-H1 — wet-ink scans are stored on the PRIVATE disk and referenced as "private:<disk path>"; legacy rows hold a public "/storage/..." URL. */
-    public const PRIVATE_PREFIX = 'private:';
-
-    /** Content-sniffed MIME -> the ONLY extension we ever write (the client's filename/extension is never used). */
-    private const WET_INK_EXTENSIONS = [
-        'application/pdf' => 'pdf',
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
-        'image/heic' => 'heic',
-        'image/heif' => 'heic',
-    ];
+    public const PRIVATE_PREFIX = \App\Support\PrivateScanFile::PRIVATE_PREFIX;
 
     /**
      * Audit A-H1 (2026-10-18) — this is reached by an unauthenticated
      * visitor, so the file used to land on the public disk under the
-     * browser-supplied extension (a PNG-header file named x.html was then
-     * served by nginx as HTML on our own domain). Now: private disk,
-     * server-generated name, extension from the sniffed MIME via a fixed
-     * allow-list, served only through fileResponse() behind an
-     * own/branch-checked agent route. Same shape as
-     * RentalInspectionSignature::storeWetInkUpload().
+     * browser-supplied extension. Now: private disk, server-generated name,
+     * extension from the sniffed MIME via a fixed allow-list, served only
+     * through wetInkFileResponse() behind an own/branch-checked agent route.
      *
      * @throws \InvalidArgumentException when the file type is not allowed
      */
     public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
     {
-        $extension = self::WET_INK_EXTENSIONS[strtolower((string) $file->getMimeType())] ?? null;
-        if ($extension === null) {
-            throw new \InvalidArgumentException('The uploaded page must be a PDF, JPG, PNG or HEIC file.');
-        }
-
-        $filename = 'wetink_' . bin2hex(random_bytes(16)) . '.' . $extension;
-        $path = $file->storeAs("rental-inventory-buyer-acceptances/{$propertyId}", $filename, 'local');
-        if ($path === false) {
-            throw new \LogicException('The uploaded page could not be stored.');
-        }
-
-        return self::PRIVATE_PREFIX . $path;
+        return \App\Support\PrivateScanFile::store($file, "rental-inventory-buyer-acceptances/{$propertyId}");
     }
 
     /** Remove a just-stored private scan again (used when the acceptance it was uploaded for is then refused). */
     public static function discardStoredWetInk(?string $stored): void
     {
-        if ($stored && str_starts_with($stored, self::PRIVATE_PREFIX)) {
-            \Illuminate\Support\Facades\Storage::disk('local')->delete(substr($stored, strlen(self::PRIVATE_PREFIX)));
-        }
+        \App\Support\PrivateScanFile::discard($stored);
     }
 
     /** The URL the agent's inventory page links for the wet-ink scan: the checked route for a private file, the stored URL as-is for a legacy public one. */
@@ -196,33 +176,9 @@ class RentalInventoryBuyerAcceptance extends Model
         ]);
     }
 
-    /**
-     * Stream the wet-ink scan. Only image/PDF types are ever served inline,
-     * with nosniff + a sandboxing CSP — exactly RentalInspectionSignature::
-     * fileResponse(), so an old public-era upload with a hostile payload
-     * cannot execute as a page either.
-     */
+    /** Stream the wet-ink scan (nosniff, sandbox CSP, image/PDF types only — see PrivateScanFile::response()). */
     public function wetInkFileResponse(): \Symfony\Component\HttpFoundation\Response
     {
-        $read = RentalInspectionSignature::readStored($this->wet_ink_upload_path);
-        abort_if($read === null, 404);
-
-        [$bytes, $mime] = $read;
-        abort_unless(in_array($mime, ['image/png', 'image/jpeg', 'image/heic', 'image/heif', 'application/pdf'], true), 404);
-
-        $headers = [
-            'Content-Type' => $mime,
-            'Content-Disposition' => 'inline',
-            'X-Content-Type-Options' => 'nosniff',
-            'Cache-Control' => 'private, no-store',
-            'Referrer-Policy' => 'no-referrer',
-        ];
-        // A PDF must NOT get the sandbox CSP (Chrome's PDF viewer will not render inside it); an
-        // application/pdf body with nosniff cannot execute as a page.
-        if ($mime !== 'application/pdf') {
-            $headers['Content-Security-Policy'] = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'";
-        }
-
-        return response($bytes, 200, $headers);
+        return \App\Support\PrivateScanFile::response($this->wet_ink_upload_path);
     }
 }

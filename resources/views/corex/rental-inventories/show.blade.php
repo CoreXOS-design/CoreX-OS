@@ -275,9 +275,9 @@
                             @php $isImage = in_array(strtolower(pathinfo($signature->wet_ink_upload_path, PATHINFO_EXTENSION)), ['jpg','jpeg','png','heic','heif']); @endphp
                             <div class="mt-1">
                                 @if($isImage)
-                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener"><img src="{{ $signature->wet_ink_upload_path }}" alt="{{ $partyLabel }} wet-ink scan" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></a>
+                                    <a href="{{ $signature->wetInkFileUrl() }}" target="_blank" rel="noopener"><img src="{{ $signature->wetInkFileUrl() }}" alt="{{ $partyLabel }} wet-ink scan" style="max-height: 60px; background:#fff; border:1px solid var(--border); border-radius:4px; padding:4px;"></a>
                                 @else
-                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan (PDF)</a>
+                                    <a href="{{ $signature->wetInkFileUrl() }}" target="_blank" rel="noopener" class="text-xs font-semibold underline" style="color: var(--brand-button,#0ea5e9);">View uploaded scan (PDF)</a>
                                 @endif
                             </div>
                         @endif

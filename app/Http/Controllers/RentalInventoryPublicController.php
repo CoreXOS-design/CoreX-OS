@@ -80,6 +80,26 @@ class RentalInventoryPublicController extends Controller
     }
 
     /**
+     * Audit A-H1 — a party's wet-ink scan is on the private disk; this is the
+     * token-authorised way the public page (and only it) may fetch one. Same
+     * uniform 404 as the page itself for a bad/expired/revoked token, and the
+     * file must belong to THAT inventory.
+     */
+    public function signatureWetInkFile(Request $request, string $token, int $signature)
+    {
+        $inventory = RentalInventory::findByPublicToken($token);
+        abort_if(! $inventory, 404);
+
+        $row = \App\Models\RentalInventorySignature::withoutGlobalScopes()
+            ->where('id', $signature)
+            ->where('rental_inventory_id', $inventory->id)
+            ->first();
+        abort_if(! $row, 404);
+
+        return $row->wetInkFileResponse();
+    }
+
+    /**
      * POST /rental-inventory-report/{token}/buyer-acceptance — §24 ruling,
      * the buyer's own capture: on-screen (a canvas signature, same as every
      * other party's) or wet-ink (an uploaded photo/scan of a paper

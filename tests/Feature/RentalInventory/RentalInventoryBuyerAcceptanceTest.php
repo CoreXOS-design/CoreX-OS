@@ -217,7 +217,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         $response = $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->fresh()->public_token), [
             'buyer_token' => $inventory->fresh()->buyerAcceptanceTokenFor($buyer),
             'disposition' => 'signed',
-            'signature_image' => 'data:image/png;base64,' . base64_encode('fake-image-bytes'),
+            'signature_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ]);
 
         $response->assertStatus(201);
@@ -344,7 +344,7 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
             'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
             'buyer_contact_id' => $other->id, // ignored
             'disposition' => 'signed',
-            'signature_image' => 'data:image/png;base64,' . base64_encode('x'),
+            'signature_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ])->assertStatus(201);
 
         self::assertSame([$buyer->id], RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->pluck('buyer_contact_id')->map(fn ($i) => (int) $i)->all());
@@ -519,5 +519,40 @@ final class RentalInventoryBuyerAcceptanceTest extends TestCase
         $acceptance = RentalInventoryBuyerAcceptance::capture($inventory, $buyer, 'wet_ink', ['wet_ink_upload_path' => '/storage/properties/1/rental-inventory-buyer-acceptances/old.pdf']);
 
         self::assertSame('/storage/properties/1/rental-inventory-buyer-acceptances/old.pdf', $acceptance->wetInkFileUrl());
+    }
+
+    // ── Follow-up: buyer canvas signature must really be a PNG ────────────
+
+    public function test_a_buyer_canvas_signature_that_is_not_a_png_is_refused_and_writes_nothing(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        // HTML labelled as a PNG data URI — what used to be stored as-is on the public disk.
+        $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'disposition' => 'signed',
+            'signature_image' => 'data:image/png;base64,' . base64_encode('<html><script>alert(1)</script></html>'),
+        ])->assertStatus(422);
+
+        self::assertSame(0, RentalInventoryBuyerAcceptance::where('rental_inventory_id', $inventory->id)->count());
+        self::assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_a_real_buyer_canvas_signature_is_stored_as_a_png(): void
+    {
+        [, $inventory, $buyer] = $this->sharedLinkFixture();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $inventory->public_token), [
+            'buyer_token' => $inventory->buyerAcceptanceTokenFor($buyer),
+            'disposition' => 'signed',
+            'signature_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+        ])->assertStatus(201);
+
+        $files = Storage::disk('public')->allFiles();
+        self::assertCount(1, $files);
+        self::assertStringEndsWith('.png', $files[0]);
+        self::assertStringStartsWith("\x89PNG", Storage::disk('public')->get($files[0]));
     }
 }

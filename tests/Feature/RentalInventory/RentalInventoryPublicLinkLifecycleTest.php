@@ -120,7 +120,7 @@ final class RentalInventoryPublicLinkLifecycleTest extends TestCase
         return $this->postJson(route('rental-inventories.public.buyer-acceptance.store', $token), [
             'buyer_token' => $buyerToken,
             'disposition' => 'signed',
-            'signature_image' => 'data:image/png;base64,' . base64_encode('fake-image-bytes'),
+            'signature_image' => 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
         ]);
     }
 

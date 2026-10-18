@@ -149,11 +149,11 @@
                                 <img src="{{ $signature->signature_image_src }}" alt="{{ $partyLabel }} signature" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                             @elseif($signature->disposition === 'wet_ink' && $signature->wet_ink_upload_path)
                                 @if($isImageScan)
-                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener">
-                                        <img src="{{ $signature->wet_ink_upload_path }}" alt="{{ $partyLabel }} wet-ink scan" class="mt-2 h-16 border border-slate-200 rounded bg-white">
+                                    <a href="{{ $signature->wetInkFileUrl($inventory->public_token) }}" target="_blank" rel="noopener">
+                                        <img src="{{ $signature->wetInkFileUrl($inventory->public_token) }}" alt="{{ $partyLabel }} wet-ink scan" class="mt-2 h-16 border border-slate-200 rounded bg-white">
                                     </a>
                                 @else
-                                    <a href="{{ $signature->wet_ink_upload_path }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
+                                    <a href="{{ $signature->wetInkFileUrl($inventory->public_token) }}" target="_blank" rel="noopener" class="mt-2 inline-block text-sm font-semibold underline text-sky-600">View uploaded scan (PDF)</a>
                                 @endif
                             @endif
                         </div>

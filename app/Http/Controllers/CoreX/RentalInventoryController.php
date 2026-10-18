@@ -268,6 +268,15 @@ class RentalInventoryController extends Controller
         return $acceptance->wetInkFileResponse();
     }
 
+    /** Audit A-H1 — serve a party's wet-ink scan from the private disk; the signature must belong to the (visible) inventory. */
+    public function signatureWetInkFile(Request $request, RentalInventory $rentalInventory, \App\Models\RentalInventorySignature $signature)
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $signature->rental_inventory_id === (int) $rentalInventory->id, 404);
+
+        return $signature->wetInkFileResponse();
+    }
+
     public function cancel(Request $request, RentalInventory $rentalInventory): RedirectResponse
     {
         $this->assertVisible($request, $rentalInventory);
