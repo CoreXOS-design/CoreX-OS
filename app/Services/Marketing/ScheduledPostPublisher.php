@@ -7,6 +7,7 @@ namespace App\Services\Marketing;
 use App\Events\Marketing\MarketingPostScheduleFailed;
 use App\Models\Agency;
 use App\Models\AgentSocialAccount;
+use App\Models\CompanyAd;
 use App\Models\Property;
 use App\Models\PropertyMarketingPost;
 use App\Models\Scopes\AgencyScope;
@@ -26,7 +27,8 @@ use Illuminate\Support\Facades\Log;
  *     runs (or a retry) can never publish the same post twice. Cancel / edit use the same
  *     compare-and-set, so they can never lose to — or race with — a publish.
  *  2. CHECK  — the connection (token refreshed through MetaOAuthService, expiry / missing account),
- *     the listing (still on the market and marketing-ready), the pictures (still on disk).
+ *     the listing (still on the market and marketing-ready) - or, for a company ad (Company Ads §7), the ad
+ *     still exists and is not archived and its owner may still post company ads - the pictures (still on disk).
  *  3. PUBLISH — through the existing MetaPublishingService, inline (no queue worker needed).
  *  4. RECORD — success: status 'published' + platform id (the observer then fires
  *     MarketingPostPublished). Failure: status 'failed' + a plain failure_reason, MarketingPostScheduleFailed
@@ -107,8 +109,11 @@ class ScheduledPostPublisher
             ->update(['status' => PropertyMarketingPost::STATUS_PUBLISHING, 'updated_at' => now()]) === 1;
     }
 
-    /** Publish a post this caller has already claimed. True = published, false = failed (and recorded). */
-    public function publishClaimed(PropertyMarketingPost $post): bool
+    /**
+     * Publish a post this caller has already claimed. True = published, false = failed (and recorded).
+     * $context only changes the wording of a Meta error (CONTEXT_DIRECT for a company ad's "Post now").
+     */
+    public function publishClaimed(PropertyMarketingPost $post, string $context = self::CONTEXT_SCHEDULED): bool
     {
         try {
             $reason = $this->preflight($post, $account);
@@ -132,7 +137,7 @@ class ScheduledPostPublisher
                 : $this->publisher->publishToFacebook($account, $copy, $images);
         } catch (\Throwable $e) {
             Log::error('ScheduledPostPublisher: publish failed for post ' . $post->id . ': ' . $this->scrub($e->getMessage()));
-            $this->fail($post, $this->explain($post->platform, $e->getMessage()));
+            $this->fail($post, $this->explain($post->platform, $e->getMessage(), $context));
 
             return false;
         }
@@ -206,15 +211,27 @@ class ScheduledPostPublisher
             return 'The Ad Manager is no longer switched on for this agency, so the post was not published.';
         }
 
-        $property = Property::withoutGlobalScopes()->find($post->property_id);
-        if (! $property || $property->deleted_at !== null || (int) $property->agency_id !== (int) $post->agency_id) {
-            return 'The listing for this post is no longer available.';
-        }
-        if ($property->isOtherAgencyStock() || ! $property->isOnMarket()) {
-            return 'The listing is no longer on the market, so the post was not published.';
-        }
-        if (! app(MarketingReadinessService::class)->isMarketable($property)) {
-            return 'The listing is no longer marketing-ready, so the post was not published.';
+        if ($post->company_ad_id !== null) {
+            // A company ad replaces the listing checks: still there, not archived, same agency, and the owner may
+            // still post company ads.
+            $ad = CompanyAd::withoutGlobalScopes()->find($post->company_ad_id);
+            if (! $ad || $ad->deleted_at !== null || (int) $ad->agency_id !== (int) $post->agency_id) {
+                return 'The company ad for this post was archived or removed, so the post was not published.';
+            }
+            if (! $owner->hasPermission(CompanyAd::PERMISSION)) {
+                return $noAccess;
+            }
+        } else {
+            $property = Property::withoutGlobalScopes()->find($post->property_id);
+            if (! $property || $property->deleted_at !== null || (int) $property->agency_id !== (int) $post->agency_id) {
+                return 'The listing for this post is no longer available.';
+            }
+            if ($property->isOtherAgencyStock() || ! $property->isOnMarket()) {
+                return 'The listing is no longer on the market, so the post was not published.';
+            }
+            if (! app(MarketingReadinessService::class)->isMarketable($property)) {
+                return 'The listing is no longer marketing-ready, so the post was not published.';
+            }
         }
 
         // Only the agency scope is lifted (no signed-in user here). Soft deletes stay ON: disconnecting an

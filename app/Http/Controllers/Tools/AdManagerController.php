@@ -229,22 +229,8 @@ class AdManagerController extends Controller
             return null;
         }
 
-        $svc = app(\App\Services\Marketing\ScheduledPostService::class);
-        $tz  = $svc->timezone();
-
-        return [
-            'imageUrl'    => route('api.v1.ad-manager.scheduled.image', [], false),
-            'storeUrl'    => route('api.v1.ad-manager.scheduled.store', [], false),
-            'listUrl'     => route('tools.ad-manager.scheduled'),
-            'portalUrl'   => route('agent.portal', ['pane' => 'social']) . '#tools',
-            'platforms'   => \App\Services\Marketing\ScheduledPostService::PLATFORMS,
-            'connected'   => $svc->connections($user),
-            'connectHint' => $svc->connectHint(),
-            'tzLabel'     => \Carbon\Carbon::now($tz)->format('T') . ' (' . $tz . ')',
-            'minLead'     => \App\Services\Marketing\ScheduledPostService::MIN_LEAD_MINUTES,
-            'maxDays'     => \App\Services\Marketing\ScheduledPostService::MAX_LEAD_DAYS,
-            'today'       => \Carbon\Carbon::now($tz)->format('Y-m-d'),
-        ];
+        // One definition, shared with the Company ads list's Post / Schedule (company-ads.md §7).
+        return app(\App\Services\Marketing\ScheduledPostService::class)->panelConfig($user);
     }
 
     /**

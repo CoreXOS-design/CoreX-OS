@@ -1,11 +1,11 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- Scheduled Posts (Ad Manager, fourth tab) — AT-456 Part D, spec §D.4 --}}
+{{-- Scheduled Posts (Ad Manager, fourth tab) — AT-456 Part D, spec §D.4; company-ad posts: company-ads.md §7 --}}
 @extends('layouts.corex')
 
 @section('corex-content')
 @php
     $f = $filters;
-    $filtersActive = $f['q'] !== '' || $f['status'] !== '' || $f['platform'] !== '' || $f['agent'] > 0 || $f['from'] || $f['to'];
+    $filtersActive = $f['q'] !== '' || $f['status'] !== '' || $f['platform'] !== '' || $f['type'] !== '' || $f['agent'] > 0 || $f['from'] || $f['to'];
     $input = 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);';
     $badge = ['scheduled' => 'ds-badge-info', 'publishing' => 'ds-badge-warning', 'published' => 'ds-badge-success', 'failed' => 'ds-badge-danger', 'cancelled' => 'ds-badge-muted'];
     $statusLabel = ['scheduled' => 'Scheduled', 'publishing' => 'Publishing now', 'published' => 'Published', 'failed' => 'Failed', 'cancelled' => 'Cancelled'];
@@ -61,7 +61,7 @@
           class="rounded-md p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end" style="background:var(--surface); border:1px solid var(--border);">
         <label class="lg:col-span-2 block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Search</span>
-            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Address, reference, agent or post text…" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Address, reference, company ad name, agent or post text…" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
         </label>
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Status</span>
@@ -75,6 +75,14 @@
             <select name="platform" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
                 <option value="">Any platform</option>
                 @foreach($platforms as $key => $label)<option value="{{ $key }}" @selected($f['platform'] === $key)>{{ $label }}</option>@endforeach
+            </select>
+        </label>
+        <label class="block">
+            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Type</span>
+            <select name="type" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $input }}">
+                <option value="">All</option>
+                <option value="listings" @selected($f['type'] === 'listings')>Listings</option>
+                <option value="company_ads" @selected($f['type'] === 'company_ads')>Company ads</option>
             </select>
         </label>
         <label class="block">
@@ -142,8 +150,13 @@
                             @if($thumb)<img src="{{ $thumb }}" alt="" class="w-14 h-14 object-cover rounded" loading="lazy" onerror="this.style.display='none'">@endif
                         </td>
                         <td class="px-4 py-3">
-                            <div class="font-semibold" style="color:var(--text-primary);">{{ $r->property?->title ?? 'Listing removed' }}</div>
-                            <div class="text-xs" style="color:var(--text-muted);">{{ trim(($r->property?->suburb ?? '') . ($r->property?->city ? ', ' . $r->property->city : ''), ', ') }}</div>
+                            @if($r->company_ad_id)
+                                <div class="font-semibold" style="color:var(--text-primary);">Company ad: {{ $r->companyAd?->name ?? 'removed' }}</div>
+                                @if($r->companyAd?->trashed())<div class="text-xs" style="color:var(--text-muted);">Archived</div>@endif
+                            @else
+                                <div class="font-semibold" style="color:var(--text-primary);">{{ $r->property?->title ?? 'Listing removed' }}</div>
+                                <div class="text-xs" style="color:var(--text-muted);">{{ trim(($r->property?->suburb ?? '') . ($r->property?->city ? ', ' . $r->property->city : ''), ', ') }}</div>
+                            @endif
                         </td>
                         <td class="px-4 py-3">{{ ucfirst($r->platform) }}</td>
                         <td class="px-4 py-3">{{ $r->user?->name ?? '—' }}</td>

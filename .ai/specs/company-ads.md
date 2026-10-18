@@ -1,6 +1,6 @@
 # Company Ads — seasonal / brand ads in Template Manager, with their own AI creator
 
-> Status: **Spec APPROVED by Johan 2026-10-18 ("sounds all good"). Steps E-1 and E-2 BUILT on QA2 2026-10-18 — awaiting Johan's test.** E-3 (post / schedule) not started.
+> Status: **Spec APPROVED by Johan 2026-10-18 ("sounds all good"). Steps E-1, E-2 and E-3 BUILT on QA2 2026-10-18 — awaiting Johan's test.**
 > Drafted 2026-10-18 on QA2. Extends `at456-ai-tools-scheduler-and-spend-safety.md` (§B AI Template Builder,
 > §D Post Scheduler) and `ad-manager.md` (§12 render kernel, §13 Ad Builder, §19 Template Manager).
 > Pillars: **Agency** (brand, scope, allowance), **Agent** (creator, poster). Property: none (by design — see §2).
@@ -357,6 +357,52 @@ AT-456 AI template test files, `AdBuildingBlocksKernelTest`, `CompanyAdsTest`, `
 `AiTemplateUsageAdminTest` (217 tests). Two of those (`AiTemplateExtrasOnlyWhenTicked`, `AiTemplateMultiTypeAndMustInclude`)
 now read the shared shell file next to the pop-up file — their assertions are unchanged.
 - [ ] Johan tests on QA2.
+
+## 14c. E-3 as built (2026-10-18, branch `company-ads-e3-2026-10-18`)
+
+**Deploy:** `php artisan migrate` (one migration: `2026_11_15_100000_company_ads_e3_marketing_posts` makes
+`property_marketing_posts.property_id` nullable and adds `company_ad_id` → `company_ads`; every existing row keeps its
+listing). Then view/route/config clear + fpm reload. **No `npm run build`.** Schema snapshot not re-dumped.
+
+**What exists**
+- **Company ads list:** a **Post / Schedule** button on every active ad, and **Post or schedule** on a design saved in
+  the AI pop-up — for users with BOTH `ad_manager.company_ads` and `ad_manager.schedule_posts`. One window: Facebook /
+  Instagram (a platform not connected for the user is disabled, with the Connect now link), the post text pre-filled
+  from the ad's caption and editable (required, 2,200 max), **Post now** or **Schedule for later** (date + time).
+  The window sits above the AI pop-up; Esc closes only it while it is open.
+- **The picture** is drawn by the render kernel off-screen at the ad's real size (the same capture as Download), sent
+  as a JPEG no wider than 1440 px through `api.v1.ad-manager.scheduled.image`, then `api.v1.ad-manager.scheduled.store`
+  with `items[].company_ad_id` instead of `property_id`. One row per platform; same 5-minute / 60-day rules.
+- **Post now** = `mode: now` on the same store endpoint, company ads only (a listing is refused: the Post Scheduler's
+  "no publish-now for listings" stays as it was). The rows are stored due this minute, then claimed with the
+  scheduler's own compare-and-set and published inline by `ScheduledPostPublisher::publishClaimed` — the same checks,
+  the same success/failure recording, the same `MarketingPostScheduleFailed` + bell notification on failure. The
+  window shows per platform "live on your Page" or the plain reason. A scheduler run at the same moment cannot post it
+  twice.
+- **Who may post what:** `ScheduledPostService::companyAdFor` — the agency's own ad (another agency's id is not found),
+  not archived, and the user may manage company ads. Publishes from the scheduling user's own connected Page.
+- **Publish-time checks for a company ad** (replace the listing checks): the ad still exists, not archived, same agency;
+  the owner is active and still holds `access_ad_manager` + `ad_manager.schedule_posts` + `ad_manager.company_ads`; the
+  agency still has `ad-manager`; then the existing connection / token / picture checks. Reschedule of a cancelled
+  company-ad post re-checks the ad and the owner's key.
+- **One subject per post:** `PropertyMarketingPost` refuses to save a post with both or neither of `property_id` /
+  `company_ad_id`; `companyAd()` relation (archived included, so history keeps the name).
+- **Scheduled Posts screen:** the Property column shows "Company ad: <name>" (and "Archived" when it is); search also
+  matches the company ad's name; new **Type** filter (All · Listings · Company ads). Scoping unchanged in the query:
+  all-scope sees every company-ad post; branch / own scope sees the company-ad posts they scheduled themselves.
+- **Events:** `MarketingPostPublished` reads the agency from the post itself (a company-ad post has no listing) and both
+  events' context carries `property_id` and `company_ad_id` (catalogue rows updated). The failure notification says
+  "Company ad: <name>" instead of the listing address. The points listener is unchanged: a published company-ad post
+  credits `marketing.published` to the person who posted it, like any published post.
+- **Shared:** the Ad Manager's schedule-window settings moved into `ScheduledPostService::panelConfig()`, used by both
+  the Ad Manager and the Company ads list (same values as before).
+
+**Proof:** `tests/Feature/Tools/CompanyAdPostingTest.php` (12 tests, Meta faked at the Guzzle layer). Re-run green:
+`ScheduledPostsTest`, `ScheduledPostsAuditFixesTest`, `AtFindingsDirectPublishReasonTest`, the three `AdManager*` tests,
+the two Other Agency Stock guards, `MetaInsightsTokenLeakTest`, `CompanyAdsTest`, `CompanyAdAiBuilderTest`.
+- [ ] Johan tests on QA2 (needs a connected Facebook / Instagram test account; Meta App Review is still pending, so only
+  app Testers can connect. A scheduled post on QA2 goes out only when `php artisan marketing:publish-due` is run there —
+  QA2 has no scheduler cron. Post now needs neither).
 
 ## 17. Open items for Johan
 

@@ -507,7 +507,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Pictures:** `marketing-scheduled/{agency}/{user}/{uuid}.jpg` on the public disk. `marketing:purge-scheduled-images` (daily 03:20) removes pictures of published posts 30 days after publishing, of failed/cancelled posts 30 days after they were last touched, and uploads that never became a post after 2 days; pictures of posts still waiting are never touched.
 - **Times** typed and shown in the app timezone (Africa/Johannesburg) — no per-agency timezone column was added.
 - **Permission:** `ad_manager.schedule_posts` ("Schedule social posts", module ad_manager, Role Manager via the config). Defaults: agent, branch manager, office admin (admin gets everything); not viewer. Route middleware + controller check + the fourth pill and the Schedule buttons are hidden without it.
-- **Not built / out of scope:** a "publish now" button; automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
+- **Not built / out of scope:** a "publish now" button (for listings — company ads have one since `company-ads.md` §14c, through this same publisher); automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
 - **QA2:** no scheduler cron and no queue worker (left that way by Johan) — run `php artisan marketing:publish-due` by hand to publish what is due. Meta App Review is still pending, so only app Testers can connect an account to test with.
 
 ### D.8 Audit fixes (2026-10-17) — tests: `tests/Feature/Tools/ScheduledPostsAuditFixesTest.php`

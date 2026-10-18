@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Marketing;
 
 use App\Models\AgentSocialAccount;
+use App\Models\CompanyAd;
 use App\Models\Property;
 use App\Models\PropertyMarketingPost;
 use App\Models\User;
@@ -115,6 +116,31 @@ final class ScheduledPostService
     }
 
     /**
+     * What a Schedule / Post window needs on first paint (the Ad Manager results step and the Company ads list): the
+     * endpoints, the user's own connections and the time rules.
+     *
+     * @return array<string, mixed>
+     */
+    public function panelConfig(User $user): array
+    {
+        $tz = $this->timezone();
+
+        return [
+            'imageUrl'    => route('api.v1.ad-manager.scheduled.image', [], false),
+            'storeUrl'    => route('api.v1.ad-manager.scheduled.store', [], false),
+            'listUrl'     => route('tools.ad-manager.scheduled'),
+            'portalUrl'   => route('agent.portal', ['pane' => 'social']) . '#tools',
+            'platforms'   => self::PLATFORMS,
+            'connected'   => $this->connections($user),
+            'connectHint' => $this->connectHint(),
+            'tzLabel'     => Carbon::now($tz)->format('T') . ' (' . $tz . ')',
+            'minLead'     => self::MIN_LEAD_MINUTES,
+            'maxDays'     => self::MAX_LEAD_DAYS,
+            'today'       => Carbon::now($tz)->format('Y-m-d'),
+        ];
+    }
+
+    /**
      * May this user put a scheduled post on this property? Their properties data scope (own / branch /
      * agency, enforced in the query) AND the property must be on the market and marketing-ready —
      * the same rules as posting straight away.
@@ -147,12 +173,34 @@ final class ScheduledPostService
         }
     }
 
+    /**
+     * May this user post this company ad? It must be one of the agency's own (AgencyScope - another agency's id is
+     * simply not found), not archived, and the user must be allowed to manage company ads (Company Ads §7, §9).
+     *
+     * @throws ScheduleException
+     */
+    public function companyAdFor(User $user, int $companyAdId): CompanyAd
+    {
+        if (! CompanyAd::userMayManage($user)) {
+            throw new ScheduleException('You are not allowed to post company ads.');
+        }
+        $ad = CompanyAd::query()->find($companyAdId);
+        if (! $ad) {
+            throw new ScheduleException('That company ad is no longer available (it may have been archived).');
+        }
+
+        return $ad;
+    }
+
     // ── schedule ────────────────────────────────────────────────────────────
 
     /**
      * Schedule one post per (ad, platform). All or nothing: if any ad or the time is refused, nothing is saved.
+     * An item is about a listing (property_id) or a company ad (company_ad_id) - never both.
+     * Mode 'now' (company ads only, Company Ads §7 "Post now"): every post is stored due this minute and the caller
+     * publishes it straight away through the same claim + checks as a scheduled post (ScheduledPostPublisher).
      *
-     * @param  list<array{property_id:int|string, copy:string, image_path:string}>  $items
+     * @param  list<array{property_id?:int|string, company_ad_id?:int|string, copy:string, image_path:string}>  $items
      * @param  list<string>  $platforms
      * @return Collection<int,PropertyMarketingPost>
      * @throws ScheduleException
@@ -173,29 +221,46 @@ final class ScheduledPostService
             }
         }
 
-        $slots = $this->plan($mode, $date, $time, count($items));
+        if ($mode === 'now') {
+            foreach ($items as $item) {
+                if (empty($item['company_ad_id']) || ! empty($item['property_id'])) {
+                    throw new ScheduleException('Only a company ad can be posted straight away from here.');
+                }
+            }
+            $slots = array_fill(0, count($items), now()->utc()->startOfSecond());
+        } else {
+            $slots = $this->plan($mode, $date, $time, count($items));
+        }
 
         // Validate every item first, so a refusal saves nothing.
         $checked = [];
         foreach ($items as $i => $item) {
-            $property = $this->propertyFor($user, (int) ($item['property_id'] ?? 0));
-            $copy     = trim((string) ($item['copy'] ?? ''));
+            $hasProperty = ! empty($item['property_id']);
+            $hasAd       = ! empty($item['company_ad_id']);
+            if ($hasProperty === $hasAd) {
+                throw new ScheduleException('Each post must be for one listing or one company ad.');
+            }
+            $subject = $hasAd ? $this->companyAdFor($user, (int) $item['company_ad_id']) : $this->propertyFor($user, (int) $item['property_id']);
+            $copy    = trim((string) ($item['copy'] ?? ''));
             $this->assertCopy($copy, $platforms);
 
             $path = (string) ($item['image_path'] ?? '');
             if ($path === '' || ! $this->images->belongsTo($user, $path)) {
-                throw new ScheduleException('The picture for "' . ($property->title ?: 'one ad') . '" was not uploaded. Please try again.');
+                $name = $hasAd ? $subject->name : ($subject->title ?: 'one ad');
+                throw new ScheduleException('The picture for "' . $name . '" was not uploaded. Please try again.');
             }
-            $checked[$i] = [$property, $copy, $path];
+            $checked[$i] = [$subject, $copy, $path];
         }
 
         return DB::transaction(function () use ($user, $checked, $platforms, $slots) {
             $created = collect();
-            foreach ($checked as $i => [$property, $copy, $path]) {
+            foreach ($checked as $i => [$subject, $copy, $path]) {
+                $isAd = $subject instanceof CompanyAd;
                 foreach ($platforms as $platform) {
                     $created->push(PropertyMarketingPost::create([
-                        'agency_id'     => $property->agency_id,
-                        'property_id'   => $property->id,
+                        'agency_id'     => $subject->agency_id,
+                        'property_id'   => $isAd ? null : $subject->id,
+                        'company_ad_id' => $isAd ? $subject->id : null,
                         'user_id'       => $user->id,
                         'platform'      => $platform,
                         'ad_copy'       => $copy,
@@ -293,11 +358,17 @@ final class ScheduledPostService
             );
         }
 
-        $property = Property::query()->find($post->property_id);
-        if (! $property) {
-            throw new ScheduleException('The listing for this post is no longer available.');
+        if ($post->company_ad_id !== null) {
+            if (! CompanyAd::userMayManage($owner) || ! CompanyAd::query()->find($post->company_ad_id)) {
+                throw new ScheduleException('The company ad for this post is no longer available, or its owner may no longer post company ads.');
+            }
+        } else {
+            $property = Property::query()->find($post->property_id);
+            if (! $property) {
+                throw new ScheduleException('The listing for this post is no longer available.');
+            }
+            $this->assertMarketable($property);
         }
-        $this->assertMarketable($property);
 
         if (! $this->images->allPresent($post)) {
             throw new ScheduleException('This post\'s picture has been cleared away (pictures are kept 30 days after a post is cancelled). Make the ad again and schedule it fresh.');

@@ -48,6 +48,7 @@ final class MarketingPostScheduleFailed extends AbstractDomainEvent
 
     public function context(): array
     {
-        return ['platform' => $this->post->platform, 'reason' => $this->reason];
+        // Company Ads §12: a post may be for a company ad instead of a listing (one of the two is set).
+        return ['platform' => $this->post->platform, 'reason' => $this->reason, 'property_id' => $this->post->property_id, 'company_ad_id' => $this->post->company_ad_id];
     }
 }

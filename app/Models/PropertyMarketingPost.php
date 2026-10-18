@@ -23,6 +23,7 @@ class PropertyMarketingPost extends Model
     protected $fillable = [
         'agency_id',
         'property_id',
+        'company_ad_id',
         'user_id',
         'platform',
         'platform_post_id',
@@ -55,9 +56,33 @@ class PropertyMarketingPost extends Model
         'link_clicks'    => 'integer',
     ];
 
+    /**
+     * Company Ads §4: a post is about a listing OR a company ad - exactly one of the two. Enforced here on every save,
+     * so no caller can store a post that is about both or neither.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (self $post) {
+            if (($post->property_id === null) === ($post->company_ad_id === null)) {
+                throw new \LogicException('A marketing post must be for exactly one listing or one company ad.');
+            }
+        });
+    }
+
     public function property(): BelongsTo
     {
         return $this->belongsTo(Property::class);
+    }
+
+    /** The company ad this post shows (archived ones too, so the history keeps its name). */
+    public function companyAd(): BelongsTo
+    {
+        return $this->belongsTo(CompanyAd::class)->withTrashed();
+    }
+
+    public function isCompanyAd(): bool
+    {
+        return $this->company_ad_id !== null;
     }
 
     public function user(): BelongsTo
@@ -81,6 +106,7 @@ class PropertyMarketingPost extends Model
      *   branch → posts for properties in the user's branch, plus posts the user scheduled themselves
      *   own    → posts for the user's own book (an assistant's book is their agent's, dataIdentityIds())
      *            plus posts they scheduled themselves
+     * A company-ad post has no listing, so below 'all' it is only seen by whoever scheduled it (Company Ads §7).
      * No scope (null) → nothing.
      */
     public function scopeVisibleTo($query, User $user)

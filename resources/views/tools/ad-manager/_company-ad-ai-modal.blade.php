@@ -28,6 +28,7 @@
         'generate'     => route('api.v1.ad-manager.company-ads.ai.generate', [], false),
         'save'         => route('api.v1.ad-manager.company-ads.ai.save', ['generation' => '__GEN__'], false),
         'upload'       => route('api.v1.ad-manager.company-ads.images', [], false),
+        'canPost'      => ! empty($postConfig),
     ]))"
      x-on:open-company-ad-ai.window="openPanel()">
     <template x-teleport="body">
@@ -203,6 +204,7 @@
                                         <div class="text-xs" style="display:flex; flex-wrap:wrap; align-items:center; gap:8px;" x-show="opt.saved">
                                             <span style="color:var(--ds-green,#059669);">Saved to your company ads.</span>
                                             <button type="button" class="corex-btn-outline text-xs" @click="download(opt)">Download</button>
+                                            <button type="button" class="corex-btn-outline text-xs" x-show="canPost" @click="postOrSchedule(opt)">Post or schedule</button>
                                             <a :href="opt.editUrl" class="corex-btn-outline text-xs">Open in Ad Builder</a>
                                         </div>
                                     </article>
@@ -239,7 +241,15 @@
 
 <script>
 function companyAdAiPanel(cfg) {
-    return Object.assign(corexAiDialogShell(), {
+    const shell = corexAiDialogShell();
+    return Object.assign(shell, {
+        canPost: !!cfg.canPost,
+        // The list's Post / Schedule window opens above this pop-up; while it is open, Esc is its own.
+        onEscape() {
+            if (window.__cadPostOpen) return;
+            if (this.viewer.open) { this.closeViewer(); return; }
+            if (this.open && !this.loading) this.closePanel();
+        },
         idea: '', occasion: '', size: 'facebook', style: 'auto', styles: cfg.styles || [], must: [],
         pictureSource: 'none', libraryPicture: '', uploadUse: 'place',
         file: null, filePreview: '', fileError: '', uploadedId: null, uploading: false,
@@ -345,7 +355,7 @@ function companyAdAiPanel(cfg) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ option: opt.index, name: opt.name, caption: opt.caption }),
                 });
-                if (data.ok) { opt.saved = true; opt.editUrl = data.edit_url; opt.savedLayout = data.layout; opt.name = data.name; this.savedAny = true; }
+                if (data.ok) { opt.saved = true; opt.savedId = data.id; opt.editUrl = data.edit_url; opt.savedLayout = data.layout; opt.name = data.name; opt.caption = data.caption; this.savedAny = true; }
                 else { opt.err = data.message || 'Could not save this ad — please try again.'; }
             } catch (e) {
                 opt.err = this.friendly(e, 'Could not save this ad — please try again.');
@@ -355,6 +365,11 @@ function companyAdAiPanel(cfg) {
         // The list page draws and saves the picture (same capture path as its own Download buttons).
         download(opt) {
             window.dispatchEvent(new CustomEvent('company-ad-download', { detail: { name: opt.name, layout: this.layoutFor(opt) } }));
+        },
+        // The list page's Post now / Schedule window (company-ads.md §7), for the ad this design was saved as.
+        postOrSchedule(opt) {
+            if (!opt.saved || !opt.savedId) return;
+            window.dispatchEvent(new CustomEvent('company-ad-post', { detail: { id: opt.savedId, name: opt.name, layout: this.layoutFor(opt), caption: opt.caption } }));
         },
     });
 }

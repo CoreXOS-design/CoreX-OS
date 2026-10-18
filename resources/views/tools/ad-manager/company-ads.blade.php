@@ -1,5 +1,5 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
-{{-- Template Manager → Company ads — spec .ai/specs/company-ads.md §5 (E-1) and the AI pop-up §8 (E-2) --}}
+{{-- Template Manager → Company ads — spec .ai/specs/company-ads.md §5 (E-1), the AI pop-up §8 (E-2), Post now / Schedule §7 (E-3) --}}
 @extends('layouts.corex')
 
 {{-- Thumbnails and downloads are drawn by the SAME render kernel + fonts as the Ad Builder (ad-manager.md §12). --}}
@@ -23,11 +23,12 @@
     $th = 'text-left text-[11px] font-semibold uppercase tracking-wider px-4 py-2.5 whitespace-nowrap';
 
     // Layouts for the rows on THIS page only, keyed by id — the browser draws thumbnails / downloads from them.
-    $layouts = $ads->getCollection()->mapWithKeys(fn ($ad) => [$ad->id => ['name' => $ad->name, 'layout' => $ad->layout_json]])->all();
+    $layouts = $ads->getCollection()->mapWithKeys(fn ($ad) => [$ad->id => ['id' => $ad->id, 'name' => $ad->name, 'layout' => $ad->layout_json, 'caption' => (string) $ad->caption]])->all();
 @endphp
 
-<div class="w-full space-y-5" x-data="companyAdsList(@js(['layouts' => $layouts, 'brand' => $brandData]))" x-init="init()"
-     x-on:company-ad-download.window="downloadLayout($event.detail)">
+<div class="w-full space-y-5" x-data="companyAdsList(@js(['layouts' => $layouts, 'brand' => $brandData, 'post' => $postConfig]))" x-init="init()"
+     x-on:company-ad-download.window="downloadLayout($event.detail)"
+     x-on:company-ad-post.window="openPost($event.detail)">
 
     {{-- ── Page header (branded) ───────────────────────────────── --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -189,6 +190,9 @@
                                     @unless($ad->trashed())
                                         <button type="button" class="corex-btn-outline text-xs" @click="download({{ $ad->id }})" :disabled="busy === {{ $ad->id }}"
                                                 x-text="busy === {{ $ad->id }} ? 'Preparing…' : 'Download'">Download</button>
+                                        @if($postConfig)
+                                            <button type="button" class="corex-btn-outline text-xs" data-cadpost="open" @click="openPost(layouts[{{ $ad->id }}])">Post / Schedule</button>
+                                        @endif
                                     @endunless
                                     @if($canManage)
                                         @if($ad->trashed())
@@ -222,6 +226,108 @@
 
     {{-- Off-screen stage the download is drawn on at the ad's real size (never visible, never in the layout flow). --}}
     <div class="cads-stage" aria-hidden="true"><div x-ref="stage"></div></div>
+
+    {{-- E-3 — Post now / Schedule (company-ads.md §7). Above the AI pop-up, so it also works straight after saving a design there. --}}
+    @if($postConfig)
+    <template x-teleport="body">
+        <div x-show="post.open" x-cloak class="cadpost-overlay" role="dialog" aria-modal="true" aria-labelledby="cadpost-title" data-cadpost="overlay"
+             @keydown.escape.window="if (post.open) closePost()">
+            <div class="cadpost-backdrop" @click="closePost()"></div>
+            <div class="cadpost-dialog">
+                <template x-if="!post.results && !post.scheduled">
+                    <div class="space-y-4">
+                        <div>
+                            <h2 id="cadpost-title" class="text-base font-semibold" style="color:var(--text-primary);">Post or schedule “<span x-text="post.entry ? post.entry.name : ''"></span>”</h2>
+                            <p class="text-xs mt-1" style="color:var(--text-muted);">It goes out on your own connected Page, with the picture of this ad and the text below. Times are {{ $postConfig['tzLabel'] }}.</p>
+                        </div>
+
+                        <div>
+                            <div class="text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Post to</div>
+                            <div class="flex flex-wrap gap-4">
+                                @foreach($postConfig['platforms'] as $key => $label)
+                                    <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-primary);">
+                                        <input type="checkbox" x-model="post.platforms.{{ $key }}" @disabled(empty($postConfig['connected'][$key]))>
+                                        {{ $label }}
+                                        @if(empty($postConfig['connected'][$key]))<span class="text-xs" style="color:var(--ds-amber,#b45309);">not connected</span>@endif
+                                    </label>
+                                @endforeach
+                            </div>
+                            @if(collect($postConfig['connected'])->contains(false))
+                                <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                                    A platform that says “not connected” cannot be used until you connect it. {{ $postConfig['connectHint'] }}
+                                    <a href="{{ $postConfig['portalUrl'] }}" class="underline">Connect now</a>
+                                </p>
+                            @endif
+                        </div>
+
+                        <label class="block">
+                            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Post text</span>
+                            <textarea x-model="post.copy" rows="5" maxlength="2200" required class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);" data-cadpost="copy"></textarea>
+                            <span class="text-xs" style="color:var(--text-muted);" x-text="post.copy.length + ' / 2200'"></span>
+                        </label>
+
+                        <div class="space-y-1 text-sm" style="color:var(--text-primary);">
+                            <label class="flex items-center gap-2"><input type="radio" value="now" x-model="post.when"> Post now</label>
+                            <label class="flex items-center gap-2"><input type="radio" value="later" x-model="post.when"> Schedule for later</label>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3" x-show="post.when === 'later'">
+                            <label class="block">
+                                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Date</span>
+                                <input type="date" x-model="post.date" :min="'{{ $postConfig['today'] }}'" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </label>
+                            <label class="block">
+                                <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Time</span>
+                                <input type="time" x-model="post.time" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                            </label>
+                            <p class="col-span-2 text-xs" style="color:var(--text-muted);">At least {{ $postConfig['minLead'] }} minutes from now and no more than {{ $postConfig['maxDays'] }} days ahead. You can edit or cancel it any time before it goes out, under Scheduled Posts.</p>
+                        </div>
+
+                        <div x-show="post.error" role="alert" class="rounded-md px-3 py-2 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 30%, transparent); color:var(--text-primary);" x-text="post.error"></div>
+
+                        <div class="flex items-center justify-end gap-2 flex-wrap">
+                            <span class="text-xs mr-auto" style="color:var(--text-muted);" x-text="post.progress"></span>
+                            <button type="button" class="corex-btn-outline text-sm" @click="closePost()" :disabled="post.busy">Close</button>
+                            <button type="button" class="corex-btn-primary text-sm" @click="submitPost()" :disabled="post.busy">
+                                <span x-show="!post.busy" x-text="post.when === 'now' ? 'Post now' : 'Schedule'"></span><span x-show="post.busy">Working…</span>
+                            </button>
+                        </div>
+                    </div>
+                </template>
+
+                <template x-if="post.results">
+                    <div class="space-y-3 py-2">
+                        <h2 class="text-base font-semibold" style="color:var(--text-primary);" x-text="post.results.every(r => r.ok) ? 'Posted' : (post.results.some(r => r.ok) ? 'Partly posted' : 'Not posted')"></h2>
+                        <ul class="text-sm space-y-2">
+                            <template x-for="r in post.results" :key="r.platform">
+                                <li style="color:var(--text-primary);">
+                                    <strong x-text="r.platform"></strong>:
+                                    <span x-show="r.ok" style="color:var(--ds-green,#059669);">it is live on your Page.</span>
+                                    <span x-show="!r.ok" x-text="r.error"></span>
+                                </li>
+                            </template>
+                        </ul>
+                        <div class="flex justify-end gap-2">
+                            <button type="button" class="corex-btn-outline text-sm" @click="closePost()">Close</button>
+                            <a href="{{ $postConfig['listUrl'] }}" class="corex-btn-primary text-sm">Open Scheduled Posts</a>
+                        </div>
+                    </div>
+                </template>
+
+                <template x-if="post.scheduled">
+                    <div class="space-y-3 py-2 text-center">
+                        <h2 class="text-base font-semibold" style="color:var(--text-primary);"><span x-text="post.scheduled"></span> post<span x-text="post.scheduled === 1 ? '' : 's'"></span> scheduled</h2>
+                        <p class="text-sm" style="color:var(--text-secondary);">CoreX will publish it at the time you chose. You can see, edit or cancel it under Scheduled Posts.</p>
+                        <div class="flex justify-center gap-2">
+                            <button type="button" class="corex-btn-outline text-sm" @click="closePost()">Close</button>
+                            <a href="{{ $postConfig['listUrl'] }}" class="corex-btn-primary text-sm">Open Scheduled Posts</a>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </template>
+    @endif
 </div>
 
 <style>
@@ -229,6 +335,10 @@
     .cads-thumb > .cads-thumb-inner { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
     .cads-stage { position: fixed; left: -100000px; top: 0; pointer-events: none; }
     .cads-stage > div { position: relative; overflow: hidden; }
+    .cadpost-overlay { position: fixed; inset: 0; z-index: 10050; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .cadpost-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .55); }
+    .cadpost-dialog { position: relative; width: 100%; max-width: 560px; max-height: 90vh; max-height: 90dvh; overflow-y: auto; border-radius: 8px; padding: 20px;
+        background: var(--surface); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0, 0, 0, .35); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
 <script src="{{ asset_v('js/corex-ad-render.js') }}"></script>
@@ -238,6 +348,9 @@ function companyAdsList(cfg) {
         layouts: cfg.layouts || {},
         brand: cfg.brand || {},
         busy: null,
+        postCfg: cfg.post || null,
+        post: { open: false, entry: null, platforms: { facebook: false, instagram: false }, copy: '', when: 'now', date: '', time: '',
+                busy: false, error: '', progress: '', results: null, scheduled: 0 },
 
         init() {
             this.$nextTick(() => {
@@ -267,23 +380,33 @@ function companyAdsList(cfg) {
         },
 
         /** Draw an ad ({name, layout}) at its real size off-screen and save it as a PNG. Also used by the AI pop-up. */
-        async downloadLayout(entry, busyKey = 'ai') {
-            if (!entry || !entry.layout || this.busy) return;
-            this.busy = busyKey;
+        /** Draw an ad's layout off-screen at its real size and capture it (scale 1 = real pixels). The one capture path. */
+        async capture(layout, scale) {
             const stage = this.$refs.stage;
             let restore = () => {};
             try {
-                const l = entry.layout || {};
+                const l = layout || {};
                 stage.style.width = (l.canvasW || 1200) + 'px';
                 stage.style.height = (l.canvasH || 628) + 'px';
                 window.CoreXAd.renderLayout(l, this.brand, stage, { paintBackground: true });
                 if (document.fonts?.ready) { try { await document.fonts.ready; } catch (_) {} }
                 await Promise.all([...stage.querySelectorAll('img')].map(img => img.complete ? null : new Promise(r => { img.onload = img.onerror = r; })));
                 try { restore = await window.CoreXAd.prepareImagesForCapture(stage); } catch (_) {}
-                const canvas = await html2canvas(stage, {
-                    useCORS: true, allowTaint: false, scale: 1, logging: false,
+                return await html2canvas(stage, {
+                    useCORS: true, allowTaint: false, scale: scale, logging: false,
                     backgroundColor: window.CoreXAd.canvasBgSolid(l),
                 });
+            } finally {
+                restore();
+                stage.innerHTML = '';
+            }
+        },
+
+        async downloadLayout(entry, busyKey = 'ai') {
+            if (!entry || !entry.layout || this.busy) return;
+            this.busy = busyKey;
+            try {
+                const canvas = await this.capture(entry.layout, 1);
                 const a = document.createElement('a');
                 a.href = canvas.toDataURL('image/png');
                 a.download = (entry.name || 'company-ad').replace(/[^a-z0-9\- ]+/gi, '').trim().replace(/\s+/g, '-').toLowerCase() + '.png';
@@ -293,9 +416,63 @@ function companyAdsList(cfg) {
             } catch (e) {
                 alert('The picture could not be prepared. Please try again.');
             } finally {
-                restore();
-                stage.innerHTML = '';
                 this.busy = null;
+            }
+        },
+
+        // ── Post now / Schedule (company-ads.md §7) ──────────────────────────────
+        openPost(entry) {
+            if (!this.postCfg || !entry || !entry.layout) return;
+            const p = this.post, c = this.postCfg.connected || {};
+            Object.assign(p, { open: true, entry, copy: entry.caption || '', when: 'now', busy: false, error: '', progress: '', results: null, scheduled: 0 });
+            p.platforms = { facebook: !!c.facebook, instagram: !c.facebook && !!c.instagram };
+            if (!p.date) { const d = new Date(this.postCfg.today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); p.date = d.toISOString().slice(0, 10); }
+            if (!p.time) p.time = '09:00';
+            window.__cadPostOpen = true;
+        },
+        closePost() {
+            if (this.post.busy) return;
+            this.post.open = false;
+            window.__cadPostOpen = false;
+        },
+        reason(err, fallback) {
+            const d = (err && err.data && typeof err.data === 'object') ? err.data : {};
+            const first = d.errors ? Object.values(d.errors)[0][0] : null;
+            return d.error || first || d.message || fallback;
+        },
+        async submitPost() {
+            const p = this.post, cfg = this.postCfg;
+            const platforms = Object.keys(p.platforms).filter(k => p.platforms[k]);
+            p.error = '';
+            if (!platforms.length) { p.error = 'Tick at least one platform to post to.'; return; }
+            if (!p.copy.trim()) { p.error = 'Every post needs some text.'; return; }
+            if (p.when === 'later' && (!p.date || !p.time)) { p.error = 'Choose a date and a time.'; return; }
+            p.busy = true;
+            try {
+                p.progress = 'Preparing the picture…';
+                const l = p.entry.layout || {};
+                // Same picture rules as scheduling from the Ad Manager: a JPEG, never wider than Instagram's 1440px.
+                const canvas = await this.capture(l, Math.min(2, 1440 / (l.canvasW || 1200)));
+                const image = canvas.toDataURL('image/jpeg', 0.92);
+                let up;
+                try {
+                    up = await window.CoreX.api.fetch(cfg.imageUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ image }) });
+                } catch (err) { throw new Error(this.reason(err, 'The picture could not be saved. Please try again.')); }
+                if (!up.ok) throw new Error(up.error || 'The picture could not be saved. Please try again.');
+
+                p.progress = p.when === 'now' ? 'Posting…' : 'Scheduling…';
+                const body = { items: [{ company_ad_id: p.entry.id, copy: p.copy, image_path: up.path }], platforms, mode: p.when === 'now' ? 'now' : 'at' };
+                if (p.when === 'later') { body.date = p.date; body.time = p.time; }
+                let data;
+                try {
+                    data = await window.CoreX.api.fetch(cfg.storeUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+                } catch (err) { throw new Error(this.reason(err, 'Could not post. Please try again.')); }
+                if (!data.ok) throw new Error(data.error || 'Could not post. Please try again.');
+                if (p.when === 'now') p.results = data.results || []; else p.scheduled = data.scheduled || 0;
+            } catch (e) {
+                p.error = e.message || 'Could not post. Please try again.';
+            } finally {
+                p.busy = false; p.progress = '';
             }
         },
     };

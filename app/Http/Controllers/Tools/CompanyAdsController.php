@@ -26,7 +26,8 @@ use Illuminate\Validation\Rule;
 /**
  * Company Ads — the second tab of the Template Manager (Tools → Ad Manager → Template Manager → Company ads).
  * Spec: .ai/specs/company-ads.md (E-1: list, CRUD, Ad Builder company mode, uploads, library, download;
- * E-2: the "Create company ad with AI" pop-up - generateWithAi / saveAiOption).
+ * E-2: the "Create company ad with AI" pop-up - generateWithAi / saveAiOption;
+ * E-3: Post now / Schedule from the list, through the Post Scheduler's own endpoints).
  *
  * Scoping: CompanyAd / CompanyAdImage are BelongsToAgency, so every query and every route-model lookup here is
  * confined to the user's agency at the query layer — another agency's id is a 404. Company ads are agency-wide
@@ -131,6 +132,9 @@ class CompanyAdsController extends Controller
             'canManage'    => CompanyAd::userMayManage($user),
             'brandData'    => CompanyAdLayout::brandData($user, $agency),
             'aiPanel'      => $this->aiPanelData($user, $agency),
+            // E-3 — Post now / Schedule: needs the company-ads key AND the scheduling key (company-ads.md §7, §9).
+            'postConfig'   => CompanyAd::userMayManage($user) && $user->hasPermission('ad_manager.schedule_posts')
+                ? app(\App\Services\Marketing\ScheduledPostService::class)->panelConfig($user) : null,
         ]);
     }
 

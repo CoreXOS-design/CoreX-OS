@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Tools;
 
 use App\Http\Controllers\Controller;
 use App\Models\PropertyMarketingPost;
+use App\Services\Marketing\ScheduledPostPublisher;
 use App\Models\User;
 use App\Services\Marketing\ScheduleException;
 use App\Services\Marketing\ScheduledPostImages;
@@ -35,6 +36,9 @@ class ScheduledPostsController extends Controller
 
     private const STATUSES = ['scheduled', 'publishing', 'published', 'failed', 'cancelled'];
 
+    /** Company Ads §7 — the Type filter. */
+    private const TYPES = ['listings', 'company_ads'];
+
     public function __construct(
         private readonly ScheduledPostService $posts,
         private readonly ScheduledPostImages $images,
@@ -51,6 +55,7 @@ class ScheduledPostsController extends Controller
         $status = in_array($request->query('status'), self::STATUSES, true) ? (string) $request->query('status') : '';
         $platform = in_array($request->query('platform'), array_keys(ScheduledPostService::PLATFORMS), true) ? (string) $request->query('platform') : '';
         $agentId = (int) $request->query('agent', 0);
+        $type    = in_array($request->query('type'), self::TYPES, true) ? (string) $request->query('type') : '';
         $sort    = in_array($request->query('sort'), self::SORTS, true) ? (string) $request->query('sort') : 'scheduled';
         $dir     = $request->query('dir') === 'desc' ? 'desc' : ($request->query('dir') === 'asc' ? 'asc' : ($sort === 'created' ? 'desc' : 'asc'));
         $from    = $this->validDate($request->query('from'));
@@ -59,7 +64,7 @@ class ScheduledPostsController extends Controller
 
         // Only posts made through the scheduler (they carry a scheduled time).
         $base  = PropertyMarketingPost::query()->visibleTo($user)->whereNotNull('scheduled_for');
-        $query = (clone $base)->with(['property', 'user:id,name']);
+        $query = (clone $base)->with(['property', 'companyAd:id,name,deleted_at', 'user:id,name']);
 
         if ($q !== '') {
             $like = '%' . addcslashes($q, '%_\\') . '%';
@@ -73,6 +78,7 @@ class ScheduledPostsController extends Controller
                         ->orWhere('city', 'like', $like)
                         ->orWhere('external_id', 'like', $like)
                         ->orWhere('source_reference', 'like', $like)))
+                    ->orWhereHas('companyAd', fn ($c) => $c->where('name', 'like', $like))
                     ->orWhereHas('user', fn ($u) => $u->where('name', 'like', $like));
             });
         }
@@ -81,6 +87,11 @@ class ScheduledPostsController extends Controller
         }
         if ($platform !== '') {
             $query->where('platform', $platform);
+        }
+        if ($type === 'listings') {
+            $query->whereNotNull('property_marketing_posts.property_id');
+        } elseif ($type === 'company_ads') {
+            $query->whereNotNull('property_marketing_posts.company_ad_id');
         }
         if ($agentId > 0) {
             $query->where('user_id', $agentId);
@@ -122,7 +133,7 @@ class ScheduledPostsController extends Controller
             'connections' => $this->posts->connections($user),
             'connectHint' => $this->posts->connectHint(),
             'filters'     => [
-                'q' => $q, 'status' => $status, 'platform' => $platform, 'agent' => $agentId,
+                'q' => $q, 'status' => $status, 'platform' => $platform, 'agent' => $agentId, 'type' => $type,
                 'sort' => $sort, 'dir' => $dir, 'from' => $from, 'to' => $to,
             ],
             'minLead'     => ScheduledPostService::MIN_LEAD_MINUTES,
@@ -147,28 +158,51 @@ class ScheduledPostsController extends Controller
         }
     }
 
-    /** POST — schedule the chosen ads on the chosen platforms. All or nothing. */
-    public function store(Request $request): JsonResponse
+    /**
+     * POST — schedule the chosen ads on the chosen platforms. All or nothing. An item is a listing ad (property_id)
+     * or a company ad (company_ad_id, Company Ads §7). Mode 'now' posts company ads straight away: the rows are made
+     * due this minute and published here through the same atomic claim and publish-time checks as the scheduler.
+     */
+    public function store(Request $request, ScheduledPostPublisher $publisher): JsonResponse
     {
         $user = $request->user();
         $this->authorizeUse($user);
 
         $data = $request->validate([
-            'items'              => 'required|array|min:1|max:50',
-            'items.*.property_id' => 'required|integer',
-            'items.*.copy'       => 'required|string|max:5000',
-            'items.*.image_path' => 'required|string|max:300',
-            'platforms'          => 'required|array|min:1',
-            'platforms.*'        => 'in:facebook,instagram',
-            'mode'               => 'required|in:at,daily',
-            'date'               => 'required|date_format:Y-m-d',
-            'time'               => 'required|date_format:H:i',
+            'items'                 => 'required|array|min:1|max:50',
+            'items.*.property_id'   => 'nullable|required_without:items.*.company_ad_id|integer',
+            'items.*.company_ad_id' => 'nullable|required_without:items.*.property_id|integer',
+            'items.*.copy'          => 'required|string|max:5000',
+            'items.*.image_path'    => 'required|string|max:300',
+            'platforms'             => 'required|array|min:1',
+            'platforms.*'           => 'in:facebook,instagram',
+            'mode'                  => 'required|in:at,daily,now',
+            'date'                  => 'required_unless:mode,now|nullable|date_format:Y-m-d',
+            'time'                  => 'required_unless:mode,now|nullable|date_format:H:i',
         ]);
 
         try {
-            $created = $this->posts->schedule($user, $data['items'], $data['platforms'], $data['mode'], $data['date'], $data['time']);
+            $created = $this->posts->schedule($user, $data['items'], $data['platforms'], $data['mode'], (string) ($data['date'] ?? ''), (string) ($data['time'] ?? ''));
         } catch (ScheduleException $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        if ($data['mode'] === 'now') {
+            $results = [];
+            foreach ($created as $post) {
+                // The claim is the same compare-and-set the scheduler uses, so a scheduler run at this very moment
+                // cannot publish the post a second time.
+                $ok = $publisher->claim((int) $post->id) && $publisher->publishClaimed($post, ScheduledPostPublisher::CONTEXT_DIRECT);
+                $post->refresh();
+                $results[] = [
+                    'platform' => ScheduledPostService::PLATFORMS[$post->platform] ?? ucfirst((string) $post->platform),
+                    'ok'       => $ok && $post->status === PropertyMarketingPost::STATUS_PUBLISHED,
+                    'error'    => $post->status === PropertyMarketingPost::STATUS_PUBLISHED ? null
+                        : ($post->failure_reason ?: 'It is being published by the scheduler right now — check Scheduled Posts in a minute.'),
+                ];
+            }
+
+            return response()->json(['ok' => true, 'posted' => collect($results)->where('ok', true)->count(), 'results' => $results, 'url' => route('tools.ad-manager.scheduled')]);
         }
 
         return response()->json([

@@ -28,9 +28,11 @@ class ScheduledPostFailedNotification extends Notification
     public function toArray(object $notifiable): array
     {
         $property = $this->post->property;
-        $address  = $property
-            ? (method_exists($property, 'buildDisplayAddress') ? $property->buildDisplayAddress() : ($property->title ?? 'your listing'))
-            : 'your listing';
+        $address  = $this->post->company_ad_id !== null
+            ? 'Company ad: ' . ($this->post->companyAd?->name ?? 'your company ad')
+            : ($property
+                ? (method_exists($property, 'buildDisplayAddress') ? $property->buildDisplayAddress() : ($property->title ?? 'your listing'))
+                : 'your listing');
 
         return [
             'type'        => 'scheduled_post_failed',
@@ -39,6 +41,7 @@ class ScheduledPostFailedNotification extends Notification
             'action_url'  => '/tools/ad-manager/scheduled',
             'icon'        => 'exclamation-triangle',
             'property_id' => $this->post->property_id,
+            'company_ad_id' => $this->post->company_ad_id,
             'post_id'     => $this->post->id,
         ];
     }
