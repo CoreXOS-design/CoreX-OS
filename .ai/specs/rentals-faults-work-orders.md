@@ -1712,3 +1712,6 @@ Johan: contractor types (Settings -> Service types) "should be linked to the con
 
 ## Audit fix 2026-10-18 (A-L10/L11)
 Fault report `store()` accepts only a live fault type of the user's own agency (agency-scoped `Rule::exists`); the "Report a fault" `create()` form resolves `property_id` / `lease_id` through `visibleTo()` (404 outside the user's scope). Test: `RentalFaultReportScopeGuardTest`.
+
+### Owner "Stop this" / "Query this" links expire (audit 2026-10-18, A-L5)
+The signed links in the authorisation-to-owner email (and the forms on the page they open) are `temporarySignedRoute` links valid for 60 days - the same as the "I do not agree" link in the fault-settings email (a code constant, `RentalOwnerNoticeController::LINK_DAYS`; no agency setting exists for either). After that the owner uses the same two buttons inside their portal. Test: `OwnerStopQueryTest`.

@@ -161,12 +161,15 @@ class ClientAuthController extends Controller
     /**
      * POST /api/v1/client-auth/password/set
      * Auth: activation token (ability 'client-activation') OR an authenticated
-     * client whose password_must_change=true.
+     * client whose password_must_change=true - both only as a REAL personal access token.
+     * A cookie-session user (Sanctum's TransientToken, whose can() is always true) is neither:
+     * they must give their current password, exactly as changePassword requires (audit 2026-10-18 A-M1).
      */
     public function setPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
             'password'              => ['required', 'confirmed', Password::min(8)],
+            'current_password'      => 'sometimes|nullable|string',
             'device_name'           => 'sometimes|string|max:120',
             'tab'                   => 'sometimes|boolean',
         ]);
@@ -177,12 +180,22 @@ class ClientAuthController extends Controller
         }
 
         $token = $tokenable->currentAccessToken();
-        $isActivation = $token && method_exists($token, 'can') && $token->can('client-activation');
-        $isMustChange = $token && method_exists($token, 'can') && $token->can('client') && $tokenable->password_must_change;
+        $isRealToken = $token instanceof \Laravel\Sanctum\PersonalAccessToken;
+        $isActivation = $isRealToken && $token->can('client-activation');
+        $isMustChange = $isRealToken && $token->can('client') && $tokenable->password_must_change;
+        $isSession = ! $isRealToken && $request->hasSession();
 
-        if (!$isActivation && !$isMustChange) {
+        if ($isSession && ! $isActivation && ! $isMustChange) {
+            // a signed-in browser (cookie session) changing its password proves it knows the current one
+            if (! $tokenable->hasPassword() || ! Hash::check((string) ($data['current_password'] ?? ''), (string) $tokenable->password)) {
+                return response()->json(['message' => 'Current password is incorrect.'], 422);
+            }
+        } elseif (!$isActivation && !$isMustChange) {
             return response()->json(['message' => 'Forbidden.'], 403);
         }
+
+        // a person who may be remembered on this browser now (checked BEFORE the password changes the fingerprint its entry is bound to)
+        $wasRemembered = in_array((int) $tokenable->id, $this->tabs->rememberedIds($request), true);
 
         $tokenable->forceFill([
             'password'             => Hash::make($data['password']),
@@ -194,9 +207,11 @@ class ClientAuthController extends Controller
         $this->service->log($tokenable, null, null, $event, $request);
 
         // Revoke the activation token (single-use).
-        if ($isActivation && $token) {
+        if ($isActivation && $isRealToken) {
             $token->delete();
         }
+        // a new password ends every web-portal tab login of this person (A-L1); the tab signing in below gets a fresh one
+        $this->tabs->revokeTabTokens($tokenable, $isRealToken && ! $isActivation ? (int) $token->id : null);
 
         // AT-445 — a stateful (same-origin browser) request establishes a
         // session instead of receiving a bearer token: the web portal never
@@ -211,6 +226,9 @@ class ClientAuthController extends Controller
         } elseif ($this->isStatefulRequest($request)) {
             // a staff page open in this browser keeps its CSRF token (StaffSafeSession)
             \App\Support\StaffSafeSession::loginPortal($request, Auth::guard('client-web'), $tokenable);
+            if ($wasRemembered) {
+                $this->tabs->remember($request, $tokenable);   // this browser keeps remembering them, under the NEW password
+            }
         } else {
             $deviceName = $data['device_name'] ?? config('clientauth.token.name_default', 'CoreX Client App');
             $sessionToken = $this->service->issueSanctumToken($tokenable, $deviceName);
@@ -386,6 +404,8 @@ class ClientAuthController extends Controller
 
         /** @var ClientUser $clientUser */
         $clientUser = $request->user();
+        $token = $clientUser->currentAccessToken();
+        $wasRemembered = in_array((int) $clientUser->id, $this->tabs->rememberedIds($request), true);
 
         if (!$clientUser->password_must_change) {
             if (!Hash::check($data['current_password'] ?? '', $clientUser->password ?? '')) {
@@ -400,6 +420,13 @@ class ClientAuthController extends Controller
         ])->save();
 
         $this->service->log($clientUser, $clientUser->current_agency_id, null, 'password_changed', $request);
+
+        // a new password ends every web-portal tab login of this person (A-L1) except the tab making the change; this browser keeps
+        // remembering them under the new password
+        $this->tabs->revokeTabTokens($clientUser, $token instanceof \Laravel\Sanctum\PersonalAccessToken ? (int) $token->id : null);
+        if ($wasRemembered) {
+            $this->tabs->remember($request, $clientUser);
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -570,7 +597,8 @@ class ClientAuthController extends Controller
         }
 
         $token = $this->tabs->issue($login);
-        $this->tabs->remember($request, $login);
+        // reusing the browser's memory is not a new sign-in: it keeps its original (absolute-age) start; a legacy session cookie is a sign-in
+        $this->tabs->remember($request, $login, ! in_array((int) $login->id, $this->tabs->rememberedIds($request), true));
 
         return response()->json(['token' => $token, 'client' => $this->summarise($login)]);
     }

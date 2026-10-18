@@ -573,6 +573,24 @@ final class LeaseCaptureTest extends TestCase
             ->assertJsonPath('tenants', []);
     }
 
+    public function test_the_party_check_does_not_name_a_contact_outside_the_users_own_contact_visibility(): void
+    {
+        // Audit 2026-10-18 A-L6: contact ids typed into the URL are resolved through the user's contact visibility scope, not just the agency.
+        $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent', 'is_active' => true]);
+        $mine = $this->makeContact($this->agency, 'Mine', 'Tenant');
+        $mine->forceFill(['created_by_user_id' => $agent->id])->saveQuietly();
+        $colleagues = $this->makeContact($this->agency, 'Colleague', 'Tenant');
+        $colleagues->forceFill(['created_by_user_id' => $this->admin->id])->saveQuietly();
+        $this->actingAs($agent);
+        $scope = \App\Services\PermissionService::getDataScope($agent, 'contacts');
+        $this->assertSame('own', $scope, 'the test agent is on the own-contacts scope');
+
+        $res = $this->getJson(route('corex.leases.party-check', ['tenant_ids' => [$mine->id, $colleagues->id]]));
+        $res->assertOk();
+        $names = collect($res->json('tenants'))->pluck('name')->all();
+        $this->assertSame(['Mine Tenant'], $names, 'a colleague\'s contact outside the user\'s scope is not named');
+    }
+
     public function test_the_commission_percentage_is_asked_for_only_when_the_agencys_lease_carries_a_service_fee(): void
     {
         $this->property->update(['commission_percent' => 10]);

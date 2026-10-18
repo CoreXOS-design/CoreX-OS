@@ -102,10 +102,12 @@ final class PortalTabSigninTest extends TestCase
         return null;
     }
 
-    /** The login ids inside an issued remembered-logins cookie. */
+    /** The login ids inside an issued remembered-logins cookie (each entry is {i: id, t: signed-in-at, v: password fingerprint}). */
     private function idsIn(string $issued): array
     {
-        return json_decode(CookieValuePrefix::remove(app('encrypter')->decrypt($issued, false)), true);
+        $entries = json_decode(CookieValuePrefix::remove(app('encrypter')->decrypt($issued, false)), true);
+
+        return array_map(fn ($e) => $e['i'], $entries);
     }
 
     /** A request as one tab: its own token, and (optionally) the side it is fixed to. */
@@ -280,6 +282,74 @@ final class PortalTabSigninTest extends TestCase
         $this->assertNotNull($fresh->fresh()->password_set_at);
         $this->app['auth']->shouldUse('web');
         $this->asTab($res->json('token'))->getJson('/api/v1/client/me')->assertOk()->assertJsonPath('client.id', $fresh->id);
+    }
+
+    // ── audit 2026-10-18 A-M1: the browser's session cookie is not an activation token ─────────────────────
+
+    public function test_a_cookie_session_cannot_set_a_new_password_without_the_current_one_and_never_500s(): void
+    {
+        $r = $this->rental('S1');
+        $this->actingAs($r['owner'], 'client-web');
+        $hash = $r['owner']->fresh()->password;
+        $body = ['password' => 'Brand-New-2026!', 'password_confirmation' => 'Brand-New-2026!'];
+
+        // no current password, and a wrong one: refused with a plain 422, and the password is untouched
+        $this->browser('POST', '/api/v1/client-auth/password/set', $body, null, null, null, false)->assertStatus(422);
+        $this->browser('POST', '/api/v1/client-auth/password/set', $body + ['current_password' => 'not-it'], null, null, null, false)->assertStatus(422);
+        $this->assertSame($hash, $r['owner']->fresh()->password);
+
+        // with the right current password it works (and answers normally - no 500)
+        $this->browser('POST', '/api/v1/client-auth/password/set', $body + ['current_password' => self::PASSWORD], null, null, null, false)->assertOk();
+        $this->assertTrue(Hash::check('Brand-New-2026!', $r['owner']->fresh()->password));
+    }
+
+    public function test_a_real_must_change_token_still_sets_the_password_without_the_current_one(): void
+    {
+        $r = $this->rental('S2');
+        $r['owner']->forceFill(['password_must_change' => true])->save();
+        $token = $r['owner']->createToken('login', ['client'])->plainTextToken;
+        $this->app['auth']->forgetGuards();
+        $this->browser('POST', '/api/v1/client-auth/password/set', ['password' => 'Brand-New-2026!', 'password_confirmation' => 'Brand-New-2026!'], null, $token)->assertOk();
+        $fresh = $r['owner']->fresh();
+        $this->assertTrue(Hash::check('Brand-New-2026!', $fresh->password));
+        $this->assertFalse((bool) $fresh->password_must_change);
+    }
+
+    // ── audit 2026-10-18 A-L1: "logins remembered here" is bound to the password and has an absolute age ───
+
+    public function test_changing_the_password_ends_the_remembered_login_and_revokes_the_other_tab_tokens(): void
+    {
+        $r = $this->rental('L1');
+        [$tabA, $cookie] = $this->tabSignIn($r['owner']);
+        [$tabB, $cookie] = $this->tabSignIn($r['owner'], $cookie);
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $cookie)->assertOk();
+
+        // an old copy of the cookie (another person's browser profile / a shared PC)
+        $stale = $cookie;
+        $res = $this->browser('POST', '/api/v1/client-auth/password/change', ['current_password' => self::PASSWORD, 'password' => 'Brand-New-2026!', 'password_confirmation' => 'Brand-New-2026!'], $cookie, $tabA)->assertOk();
+
+        // the stale cookie can no longer mint a tab for them, the other tab's token is revoked, the tab that made the change keeps working
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $stale)->assertStatus(401);
+        $this->asTab($tabB)->getJson('/api/v1/client/me')->assertStatus(401);
+        $this->asTab($tabA)->getJson('/api/v1/client/me')->assertOk();
+        // the browser that changed it keeps being remembered, under the new password
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $this->rememberedCookie($res))->assertOk();
+    }
+
+    public function test_a_remembered_login_has_an_absolute_maximum_age_that_reuse_does_not_extend(): void
+    {
+        $r = $this->rental('L1b');
+        [$tab, $cookie] = $this->tabSignIn($r['owner']);
+        $days = (int) config('clientauth.tab.remember_max_days');
+
+        $this->travel($days - 1)->days();
+        $reuse = $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $cookie)->assertOk();
+        $cookie2 = $this->rememberedCookie($reuse);
+        $this->assertNotNull($cookie2);
+
+        $this->travel(2)->days();   // past the absolute age counted from the real sign-in, however recently it was reused
+        $this->browser('POST', '/api/v1/client-auth/tab-token', ['email' => $r['owner']->email], $cookie2)->assertStatus(401);
+        $this->travelBack();
     }
 
     // ── QA1 only: every emailed link signs its tab straight in ───────────────────────────────────────────────
