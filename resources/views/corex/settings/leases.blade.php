@@ -242,7 +242,7 @@
                         <input type="checkbox" name="auto_restore_status_on_lease_ended" value="1" @checked(old('auto_restore_status_on_lease_ended', $autoRestoreStatusOnLeaseEnded))>
                         Put the property back on the market when the move-out inspection confirms it is empty
                     </label>
-                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The property returns to the status it had before it was let. Off leaves it as "let out" until an agent changes it.</p>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The property returns to the status it had before it was let, and the agent who owns the listing gets an in-app alert that it is free again. Nothing is sent to Property24 or Private Property - the agent checks the rent and re-lists it on the portals. Off leaves it as "let out" until an agent changes it.</p>
                 </div>
                 <div>
                     <input type="hidden" name="auto_restore_status_on_lease_cancelled" value="0">

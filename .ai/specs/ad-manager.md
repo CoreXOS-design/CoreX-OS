@@ -2924,3 +2924,9 @@ pet_friendly available_from rent_per_month show_day auction_date auction_venue`)
 - `corex.ad-templates.store` / `update` need BOTH `access_properties` and `access_ad_manager` (route middleware plus a controller re-check), the same gate as the Template Manager (§19).
 - A failed direct Facebook/Instagram publish from the property Marketing hub now stores a plain, token-scrubbed `failure_reason` on the post and the post history shows it under the Failed badge.
 - Ad picker status exclusion also trims whitespace (`LOWER(TRIM(status))`); `Property::isOnMarket()` is case- and whitespace-insensitive.
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F1) - Meta posts on a copy of live
+
+`MetaPublishingService::publishToFacebook/publishToInstagram` call `ExternalPublishingGuard` first and throw `ExternalPublishingRefused` before any HTTP call. `ScheduledPostPublisher::publishClaimed()` checks it before the token refresh and records the post as `failed` with a plain reason ("Publishing ... is switched off on this copy of CoreX, so nothing was sent"), so a refused post is never published later; the direct "Post now" path stores the same reason. Config: `corex.external_publishing` / `COREX_EXTERNAL_PUBLISHING` (default true; demo instance always refused).

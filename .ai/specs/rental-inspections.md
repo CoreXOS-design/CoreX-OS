@@ -7975,3 +7975,9 @@ From cc5's walk of an incoming inspection:
 **Files.** `app/Models/RentalInspection.php` (`nextInChain`, `spliceOutOfChain`, `assertCanFollow`, `startNext`, `cancel`, boot hooks), `app/Http/Controllers/CoreX/RentalInspectionRecordingController.php` (`next`), `app/Http/Controllers/CoreX/RentalInspectionController.php` (`restore`), `resources/views/corex/properties/show.blade.php` (`nextInspection`), the migration above. The committed schema snapshot was NOT regenerated (it still shows the old unique index; the new migration runs on top of it).
 
 **Tests.** `RentalInspectionChainTest`: cancelling the Routine on top of a draft Out makes the Out the tail again (payload tail/predecessor, recordable, cancelled row keeps its link); a new next can be started after the cancel and a second live one is still refused; cancelling a middle inspection re-points its follower; archiving the tail and the restore refusal; the open-inspection warning (nothing created, `confirm_stack` creates) and no warning on a finished one. Browser proof on a ZZ record with Johan's exact sequence.
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F2)
+
+Client reminder/notice emails are opt-in. `RentalInspectionSetting::DEFAULT_NOTIFY_TENANT_ENABLED` and `DEFAULT_NOTIFY_LANDLORD_ENABLED` are now `false`: a never-saved (null) value resolves to OFF; an agency that saved a value (settings page or Setup Wizard) keeps it. The inspector notice stays on by default. These two switches govern every inspection notice to tenants/landlords (scheduled, rescheduled, cancelled and the reminder). `rentals:send-inspection-reminders` also skips agencies with the `rental-inspections` feature off. Both toggles were already in the Setup Wizard (`config/agency-onboarding-copy.php`, step `rental_inspections`); wizard defaults/wording updated to match.

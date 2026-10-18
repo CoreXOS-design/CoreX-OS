@@ -63,6 +63,12 @@ final class RentalInspectionSchedulingTest extends TestCase
         ]);
         $this->actingAs($this->agent);
 
+        // C-F2 (2026-10-18): tenants and landlords are emailed only once the agency has switched it on, so the tests
+        // that exercise those notices say so explicitly (the no-settings default is pinned by its own tests below).
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], [
+            'notify_tenant_enabled' => true, 'notify_landlord_enabled' => true,
+        ]);
+
         $this->property = Property::forceCreate([
             'agency_id' => $this->agency->id,
             'agent_id' => $this->agent->id,
@@ -418,6 +424,55 @@ final class RentalInspectionSchedulingTest extends TestCase
         RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['reminder_days_before' => 0]);
 
         $this->artisan('rentals:send-inspection-reminders')->assertExitCode(0);
+        Mail::assertNothingSent();
+        $this->assertSame(0, RentalInspectionNotification::where('rental_inspection_id', $inspection->id)
+            ->where('event', RentalInspectionNotification::EVENT_REMINDER)->count());
+    }
+
+    /** C-F2: an agency that never switched client notices on emails NO tenant or landlord - the inspector still gets theirs. */
+    public function test_an_agency_with_no_saved_settings_sends_no_client_reminder_emails(): void
+    {
+        Mail::fake();
+        RentalInspectionSetting::withoutGlobalScopes()->where('agency_id', $this->agency->id)->delete();
+        $this->assertFalse(RentalInspectionSetting::notifyTenantFor($this->agency->id));
+        $this->assertFalse(RentalInspectionSetting::notifyLandlordFor($this->agency->id));
+        $this->assertTrue(RentalInspectionSetting::notifyInspectorFor($this->agency->id));
+
+        $inspection = RentalInspection::schedule($this->property, RentalInspection::TYPE_IN, $this->agent, [
+            'scheduled_for' => now()->addDays(1)->toDateString(),
+        ]);
+        Mail::fake();
+
+        $this->artisan('rentals:send-inspection-reminders')->assertExitCode(0);
+
+        $roles = RentalInspectionNotification::where('rental_inspection_id', $inspection->id)
+            ->where('event', RentalInspectionNotification::EVENT_REMINDER)->pluck('party_role')->all();
+        $this->assertSame([RentalInspectionNotification::PARTY_INSPECTOR], $roles);
+        Mail::assertSent(RentalInspectionNotificationMail::class, 1);
+    }
+
+    public function test_an_agency_that_saved_client_notices_on_keeps_its_choice(): void
+    {
+        RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_tenant_enabled' => true, 'notify_landlord_enabled' => false]);
+
+        $this->assertTrue(RentalInspectionSetting::notifyTenantFor($this->agency->id));
+        $this->assertFalse(RentalInspectionSetting::notifyLandlordFor($this->agency->id));
+    }
+
+    public function test_the_reminder_command_skips_an_agency_with_inspections_switched_off(): void
+    {
+        Mail::fake();
+        $inspection = RentalInspection::schedule($this->property, RentalInspection::TYPE_IN, $this->agent, [
+            'scheduled_for' => now()->addDays(1)->toDateString(),
+        ]);
+        Mail::fake();
+        \Illuminate\Support\Facades\DB::table('agency_features')->insert([
+            'agency_id' => $this->agency->id, 'feature_key' => 'rental-inspections', 'enabled' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget();
+
+        $this->artisan('rentals:send-inspection-reminders')->assertExitCode(0);
+
         Mail::assertNothingSent();
         $this->assertSame(0, RentalInspectionNotification::where('rental_inspection_id', $inspection->id)
             ->where('event', RentalInspectionNotification::EVENT_REMINDER)->count());

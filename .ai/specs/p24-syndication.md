@@ -570,3 +570,9 @@ confirming the payload/PUT logic itself was never the problem.
 
 **Sandbox check (Staging, conductor):** see the handover in `/tmp/qa1-cc6-portal-status-2026-10-06.md`.
 
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F1/C-F4) - External publishing guard
+
+`App\Support\ExternalPublishingGuard` is the one gate in front of every WRITE to Meta, Property24 and Private Property. Allowed by default; refused when `Instance::isDemo()` or `corex.external_publishing` (env `COREX_EXTERNAL_PUBLISHING`, default true) is false - set it false on any copy of live (live-testing) that carries real credentials. Property24: `Property24ApiClient::request()` refuses every non-GET (returns `success=false, refused=true`, one WARNING, no HTTP call). Private Property: `PrivatePropertySoapClient::call()` refuses the write operations (UpdateAgent, UpdateAgentImage, UpdateListing, ListingStatusUpdate, ListingShowdayUpdate, UpdateUniqueAgentID, UpdateUniqueListingID, UpdateListingVideoOrMatterport). Reads are never gated. PropertyObserver no longer queues `SyncPpListingStatusJob` for a save made with `skipSyndicationAutomation`.

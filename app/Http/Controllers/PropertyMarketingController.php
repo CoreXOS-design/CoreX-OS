@@ -151,7 +151,9 @@ class PropertyMarketingController extends Controller
                 // Plain, token-scrubbed reason (same path the scheduled publisher uses) — stored on the
                 // post so the history shows WHY it failed, and returned instead of the raw Meta text.
                 $scheduledPublisher = app(\App\Services\Marketing\ScheduledPostPublisher::class);
-                $reason = $scheduledPublisher->explain($platform, $e->getMessage(), \App\Services\Marketing\ScheduledPostPublisher::CONTEXT_DIRECT);
+                $reason = $e instanceof \App\Support\ExternalPublishingRefused
+                    ? $e->getMessage()
+                    : $scheduledPublisher->explain($platform, $e->getMessage(), \App\Services\Marketing\ScheduledPostPublisher::CONTEXT_DIRECT);
                 $post->update(['status' => 'failed', 'failure_reason' => mb_substr($reason, 0, 1000)]);
                 $results[$platform] = ['ok' => false, 'error' => $reason];
                 // The log keeps the ORIGINAL failure (token-scrubbed) for diagnosis; the user sees the plain reason.

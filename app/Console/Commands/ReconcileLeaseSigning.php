@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Agency;
 use App\Models\Lease;
+use App\Services\Features\AgencyFeatureService;
 use Illuminate\Console\Command;
 
 /**
@@ -28,6 +29,11 @@ class ReconcileLeaseSigning extends Command
         $changed = 0;
 
         foreach (Agency::all() as $agency) {
+            // Rentals / Leases switched off for this agency: its leases are left exactly as they are (C-F5, release audit 2026-10-18).
+            if (! app(AgencyFeatureService::class)->enabled('rental-leases', $agency)) {
+                continue;
+            }
+
             Lease::withoutGlobalScopes()
                 ->where('agency_id', $agency->id)
                 ->whereIn('signing_status', [Lease::SIGNING_OUT_FOR_SIGNING, Lease::SIGNING_AWAITING_AGENT_REVIEW])

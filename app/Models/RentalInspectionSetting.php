@@ -1706,12 +1706,17 @@ class RentalInspectionSetting extends Model
      * .ai/specs/rental-inspections.md §43 — which parties are notified on
      * schedule/reschedule/cancel, which channel(s), the minimum notice an
      * agent should give (warns, never blocks — enforced by the controller,
-     * not here), and whether/when a reminder fires. All default ON except
-     * WhatsApp (see RentalInspectionNotificationService's own docblock for
-     * why that channel is logged as queued rather than actually sent).
+     * not here), and whether/when a reminder fires. The inspector and the mail
+     * channel default ON; WhatsApp defaults OFF (see
+     * RentalInspectionNotificationService's own docblock for why that channel
+     * is logged as queued rather than actually sent).
+     *
+     * 2026-10-18 (Johan, release audit C-F2) — tenants and landlords are OUTSIDE people: they are emailed
+     * only once the agency has switched it on (Settings > Rental Inspections, or the Setup Wizard). A column
+     * that is null (never saved) resolves to OFF; an agency that saved a value keeps exactly what it saved.
      */
-    public const DEFAULT_NOTIFY_TENANT_ENABLED = true;
-    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = true;
+    public const DEFAULT_NOTIFY_TENANT_ENABLED = false;
+    public const DEFAULT_NOTIFY_LANDLORD_ENABLED = false;
     public const DEFAULT_NOTIFY_INSPECTOR_ENABLED = true;
     public const DEFAULT_NOTIFY_VIA_MAIL_ENABLED = true;
     public const DEFAULT_NOTIFY_VIA_WHATSAPP_ENABLED = false;

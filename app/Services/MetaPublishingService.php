@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\AgentSocialAccount;
 use App\Models\PropertyMarketingPost;
+use App\Support\ExternalPublishingGuard;
+use App\Support\ExternalPublishingRefused;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
 
@@ -26,6 +28,8 @@ class MetaPublishingService
         array $imageUrls,
         ?string $link = null,
     ): string {
+        $this->assertPublishingAllowed('Facebook', $account);
+
         try {
             $pageId    = $account->platform_page_id;
             $pageToken = $account->access_token;
@@ -112,6 +116,8 @@ class MetaPublishingService
         string $caption,
         array $imageUrls,
     ): string {
+        $this->assertPublishingAllowed('Instagram', $account);
+
         try {
             $igUserId    = $account->platform_page_id;
             $accessToken = $account->access_token;
@@ -189,6 +195,23 @@ class MetaPublishingService
             ]);
             throw new \RuntimeException('Failed to publish to Instagram: ' . $e->getMessage(), 0, $e);
         }
+    }
+
+    /**
+     * Every Meta WRITE goes through publishToFacebook/publishToInstagram, so this is the one place a copy of
+     * live is stopped from posting to a real page (ExternalPublishingGuard). Thrown BEFORE any HTTP call and
+     * outside the try/catch below, so callers can tell a refusal from a Meta error.
+     */
+    private function assertPublishingAllowed(string $label, AgentSocialAccount $account): void
+    {
+        if (ExternalPublishingGuard::isAllowed()) {
+            return;
+        }
+
+        Log::warning('External publishing refused (meta): ' . $label . ' post for social account ' . $account->id
+            . ' did nothing - ' . ExternalPublishingGuard::refusalReason() . '.');
+
+        throw new ExternalPublishingRefused(ExternalPublishingGuard::userMessage());
     }
 
     /**
