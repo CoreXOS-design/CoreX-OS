@@ -29,6 +29,7 @@ This applies to the conductor too.
 
 # CoreX OS — Chat Starter
 > Auto-maintained by VS Code per CLAUDE.md rule. Paste into a new Claude chat to load context.
+> Last updated: 2026-10-18 by **Ellie button hover (Johan: 'there is no hover on the ai button'): the Ellie button and the alert bell now share one top-bar look (.corex-topbar-btn in the sidebar top bar) - no border, muted icon, the menu links' hover in light and dark mode, brand colour while open; Ellie's open state is a class, not an inline colour. On QA2 and Staging.** Tests: AlertBellTest.
 > Last updated: 2026-10-18 by **Alert bell hover (Johan: 'no hover effect, only slightly in light mode'): the bell now hovers like the menu links - the agency's menu colour as a clear tint, the icon in that colour, a small lift - in light and dark mode. On QA2 and Staging.** Tests: AlertBellTest.
 > Last updated: 2026-10-18 by **Alert bell restyle (Johan): no border and no shaded box, same size and muted icon as the Ellie button beside it, a soft hover, brand colour while its panel is open. Style lives in the bell component (no npm build). On QA2 (not Staging).** Tests: AlertBellTest.
 > Last updated: 2026-10-18 by **Article Library moved (Johan): now its own item in the left menu's System Developer section, below Dev Settings; removed from the Dev Settings hub; the '<- Dev Settings' buttons on its Sources / Articles / Settings pages are gone (the tabs move between them). Same pages, same owner-only access. On QA2 (not Staging).** Tests: ArticleLibraryTest.

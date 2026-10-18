@@ -284,10 +284,13 @@ final class AlertBellTest extends TestCase
         $this->assertTrue($logo < $bell && $bell < $ellie, 'the bell is in the top bar, just before the Ellie button');
         $this->assertSame(1, substr_count($html, 'data-alert-bell '), 'one bell only');
         $this->assertGreaterThan($bell, $profile, 'not in the user block any more');
-        // Looks like the Ellie button beside it: its own borderless style, not the theme toggle's boxed one; with a hover.
-        $this->assertMatchesRegularExpression('/<button type="button" class="corex-alert-bell" data-alert-bell /', $html);
-        $this->assertStringContainsString('.corex-alert-bell:hover { background: color-mix(in srgb, var(--corex-sidebar-hover', $html);
-        $this->assertSame(1, substr_count($html, '.corex-alert-bell {'), 'its style is printed once');
+        // The bell and the Ellie button share one borderless top-bar look with a visible hover; Ellie's open state is a class, so
+        // no inline colour can override that hover.
+        $this->assertMatchesRegularExpression('/<button type="button" class="corex-topbar-btn" data-alert-bell /', $html);
+        $this->assertStringContainsString('aria-label="Help & Feedback"' . "\n" . '                class="corex-topbar-btn" :class="{ \'is-open\': open }">', $html);
+        $this->assertStringContainsString('.corex-topbar-btn:hover { background: color-mix(in srgb, var(--corex-sidebar-hover', $html);
+        $this->assertSame(1, substr_count($html, '.corex-topbar-btn {'), 'the style is printed once');
+        $this->assertStringNotContainsString("'background:transparent;color:var(--text-muted);'", $html);
         // Near the top the panel opens downward.
         $this->assertStringContainsString("r.top < window.innerHeight / 2", $html);
     }

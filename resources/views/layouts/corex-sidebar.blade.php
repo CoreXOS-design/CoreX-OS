@@ -465,6 +465,21 @@
                  layouts/partials/tour-header-launcher.blade.php (Johan + Andre's
                  decision), not here in the sidebar. If a tour-enabled page omits
                  that header partial, the engine degrades to a floating button. --}}
+            {{-- The top bar's icon buttons (alert bell, Ellie) share one look (Johan, 2026-10-18): no border or shaded box, a muted
+                 icon, the same hover as the menu links - the agency's menu colour as a clear tint, the icon in that colour, a small
+                 lift (visible in light and dark mode) - and the brand colour while its panel is open. --}}
+            <style>
+                .corex-topbar-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 2.25rem; height: 2.25rem; border-radius: .5rem; border: 0; background: transparent; color: var(--text-muted); cursor: pointer; transition: background-color 180ms ease, color 180ms ease, transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 180ms ease; }
+                .corex-topbar-btn svg { transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+                .corex-topbar-btn:hover { background: color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 18%, transparent); color: var(--corex-sidebar-hover, #0ea5e9); transform: translateY(-1px); box-shadow: 0 10px 20px -12px color-mix(in srgb, var(--corex-sidebar-hover, #0ea5e9) 55%, transparent); }
+                .corex-topbar-btn:hover svg { transform: scale(1.12); }
+                .corex-topbar-btn:focus-visible { outline: 2px solid var(--corex-sidebar-hover, #0ea5e9); outline-offset: 2px; }
+                .corex-topbar-btn[aria-expanded="true"], .corex-topbar-btn.is-open { background: var(--brand-button); color: #fff; }
+                @media (prefers-reduced-motion: reduce) {
+                    .corex-topbar-btn, .corex-topbar-btn svg { transition: none; }
+                    .corex-topbar-btn:hover, .corex-topbar-btn:hover svg { transform: none; }
+                }
+            </style>
             {{-- Alert bell: top of the menu, left of the Ellie button (Johan, 2026-10-18) --}}
             @include('components.alert-bell')
             <div id="help-widget-slot" style="flex-shrink:0;"></div>
