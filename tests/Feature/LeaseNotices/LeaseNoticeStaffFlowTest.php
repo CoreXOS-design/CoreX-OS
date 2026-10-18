@@ -413,4 +413,23 @@ final class LeaseNoticeStaffFlowTest extends TestCase
         ])->assertStatus(422);
         $this->assertSame(1, LeaseNotice::withoutGlobalScopes()->count());
     }
+
+    /** The mobile app's ORIGINAL payload still works: pending case, same response keys, outcome ignored. */
+    public function test_the_api_still_accepts_the_old_notice_payload_and_keeps_the_old_response_keys(): void
+    {
+        $res = $this->actingAs($this->agent)->postJson('/api/v1/leases/' . $this->lease->id . '/renewal/landlord-notice', [
+            'move_out_date' => $this->tomorrowPlus(90), 'note' => 'Selling the flat', 'notice_outcome' => 'withdraw',
+        ])->assertOk()->assertJsonStructure(['lease' => ['id'], 'notice' => ['id', 'status']]);
+
+        $this->assertSame($this->lease->id, $res->json('lease.id'));
+        $notice = LeaseNotice::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame(LeaseNotice::STATUS_RECEIVED, $notice->status);
+        $this->assertSame(Lease::NOTICE_BY_LANDLORD, $notice->given_by);
+        $this->assertSame($this->tomorrowPlus(90), $notice->intended_end_date->toDateString());
+        $this->assertSame('Selling the flat', $notice->reason);
+        $this->assertSame(Carbon::today()->toDateString(), $notice->notice_date->toDateString());
+        $lease = $this->lease->fresh();
+        $this->assertNull($lease->notice_date, 'the old payload no longer writes the lease directly');
+        $this->assertNull($lease->notice_outcome ?? null, 'the outcome is chosen at review');
+    }
 }

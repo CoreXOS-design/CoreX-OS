@@ -156,4 +156,13 @@ final class RentalFaultReportScopeGuardTest extends TestCase
         $this->actingAs($this->own)->post(route('corex.rental-fault-reports.store'), $payload + ['rental_fault_type_id' => $ownType->id])
             ->assertSessionHasNoErrors();
     }
+
+    /** The list's property filter label must not name a property the user cannot see. */
+    public function test_index_filter_label_ignores_a_property_outside_the_users_scope(): void
+    {
+        $this->faultReportOwnedByOther();
+        $res = $this->actingAs($this->own)->get(route('corex.rental-fault-reports.index', ['property_id' => $this->property->id]))->assertOk();
+
+        $this->assertNull($res->viewData('filteredProperty'));
+    }
 }

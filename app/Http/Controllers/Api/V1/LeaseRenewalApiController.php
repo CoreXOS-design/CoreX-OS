@@ -120,7 +120,18 @@ class LeaseRenewalApiController extends Controller
     private function recordNotice(Request $request, Lease $lease, string $givenBy): JsonResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        // Backward compatible with the mobile app's original payload (move_out_date / note / notice_outcome): the old names are mapped
+        // to the new ones, notice_date defaults to today, and notice_outcome is accepted but ignored - the reviewer chooses the outcome.
+        $request->merge(array_filter([
+            'intended_end_date' => $request->input('intended_end_date', $request->input('move_out_date')),
+            'reason' => $request->input('reason', $request->input('note')),
+            'notice_date' => $request->input('notice_date', now()->toDateString()),
+        ], fn ($v) => $v !== null));
+
         $validated = $request->validate([
+            'notice_outcome' => ['nullable', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+            'show_available_from_on_portals' => ['nullable', 'boolean'],
             'notice_date' => ['required', 'date', 'before_or_equal:today'],
             // a bare 'date' rule accepts a mistyped 6-digit year; the 2-year bound is a fixed sanity limit, not a configurable rule
             'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
@@ -130,6 +141,8 @@ class LeaseRenewalApiController extends Controller
             'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
             'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
         ]);
+
+        unset($validated['notice_outcome'], $validated['show_available_from_on_portals']);
 
         try {
             $notice = app(LeaseNoticeService::class)->give($lease, $givenBy, $validated, LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));

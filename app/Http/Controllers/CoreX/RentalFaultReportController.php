@@ -104,8 +104,9 @@ class RentalFaultReportController extends Controller
 
         $faultReports = $query->paginate($perPage)->withQueryString();
 
-        $filteredProperty = $propertyId ? Property::find($propertyId) : null;
-        $filteredLease = $leaseId ?? null ? Lease::find($leaseId) : null;
+        // Audit 2026-10-18: filter labels come only from records the user may see.
+        $filteredProperty = $propertyId ? Property::query()->visibleTo($user)->find($propertyId) : null;
+        $filteredLease = $leaseId ?? null ? Lease::query()->visibleTo($user)->find($leaseId) : null;
 
         // §39, 2026-09-28 — summary tiles row, same reused FICA/rental-
         // applications pattern (§39 note on RentalInspectionController).
