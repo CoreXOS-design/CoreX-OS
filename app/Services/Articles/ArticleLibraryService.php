@@ -8,6 +8,7 @@ use App\Exceptions\AI\AiPausedException;
 use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Exceptions\AI\NarrativeGenerationException;
 use App\Exceptions\Articles\BriefRejectedException;
+use App\Exceptions\Articles\UnreadableAnswerException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\ArticleSource;
 use App\Models\DevSetting;
@@ -74,6 +75,9 @@ final class ArticleLibraryService
 
     private const LOCK_SECONDS = 900;
 
+    /** An item whose answer comes back unreadable is given up on (remembered) after this many failed attempts. */
+    private const MAX_UNREADABLE_ATTEMPTS = 2;
+
     // A brief is asked for at 150–250 words; a thin source may honestly give less. These are the
     // outer bounds we accept before throwing a brief away.
     private const BRIEF_MIN_WORDS = 90;
@@ -81,6 +85,13 @@ final class ArticleLibraryService
 
     private const FILTER_TIMEOUT_SECS = 60;
     private const BRIEF_TIMEOUT_SECS  = 90;
+
+    /**
+     * The longest any run (scheduled or web) keeps STARTING new briefs. It must end well inside the 900 s run lock
+     * - one last brief (90 s) plus slack for the gateway's retries - or the lock could expire mid-run and a
+     * "Run now" could start alongside it and pay for the same briefs twice (AT-456 audit D-L1).
+     */
+    private const MAX_RUN_SECONDS = self::LOCK_SECONDS - self::BRIEF_TIMEOUT_SECS - 180;
 
     /** ZAR spent by the run in progress (reset at the start of every run). */
     private float $spent = 0.0;
@@ -176,7 +187,9 @@ final class ArticleLibraryService
             return $result;
         }
 
-        $deadline = $timeBudgetSeconds !== null ? microtime(true) + $timeBudgetSeconds : null;
+        // A scheduled run has no budget of its own; it gets the cap too, and a web budget can never exceed it.
+        $budget   = $timeBudgetSeconds === null ? self::MAX_RUN_SECONDS : min($timeBudgetSeconds, self::MAX_RUN_SECONDS);
+        $deadline = microtime(true) + $budget;
         $max      = $this->settings()['max_per_run'];
 
         // ── 1. Fetch ───────────────────────────────────────────────────────
@@ -218,6 +231,11 @@ final class ArticleLibraryService
         } catch (AiPausedException $e) {
             return $this->paused($result, $sources, $e);
         } catch (Throwable $e) {
+            if ($e instanceof UnreadableAnswerException) {
+                foreach ($candidates as $candidate) {
+                    $this->noteUnreadable($candidate['hash']);
+                }
+            }
             $result['status']   = 'failed';
             $result['errors'][] = 'Relevance check failed: ' . $this->errorText($e);
             Log::warning('ArticleLibraryService: relevance check failed', ['error' => $e->getMessage()]);
@@ -239,7 +257,7 @@ final class ArticleLibraryService
         // ── 4. A brief per kept item ───────────────────────────────────────
         $createdBySource = [];
         foreach ($kept as $item) {
-            if ($deadline !== null && microtime(true) > $deadline) {
+            if (microtime(true) > $deadline) {
                 $result['status'] = 'stopped_early';
                 break;
             }
@@ -259,6 +277,11 @@ final class ArticleLibraryService
                 continue;
             } catch (Throwable $e) {
                 // Transient (API / network / unreadable answer): NOT remembered — the next run tries again.
+                // An unreadable answer was paid for, so it is counted per item and the item is given up on
+                // after MAX_UNREADABLE_ATTEMPTS (AT-456 audit D-L2) instead of being paid for every night.
+                if ($e instanceof UnreadableAnswerException) {
+                    $this->noteUnreadable($item['hash']);
+                }
                 $result['failed']++;
                 $result['errors'][] = Str::limit($item['title'], 60) . ': ' . $this->errorText($e);
                 Log::warning('ArticleLibraryService: brief failed', ['url' => $item['url'], 'error' => $e->getMessage()]);
@@ -363,7 +386,7 @@ final class ArticleLibraryService
 
         $json = $response->outputJson;
         if (! is_array($json) || ! isset($json['keep']) || ! is_array($json['keep'])) {
-            throw new \RuntimeException('the AI gave an unreadable answer');
+            throw new UnreadableAnswerException('the AI gave an unreadable answer');
         }
 
         $keep = [];
@@ -432,7 +455,7 @@ final class ArticleLibraryService
 
         $json = $response->outputJson;
         if (! is_array($json)) {
-            throw new \RuntimeException('the AI gave an unreadable answer');
+            throw new UnreadableAnswerException('the AI gave an unreadable answer');
         }
         if (! empty($json['skip'])) {
             return null;
@@ -559,6 +582,25 @@ final class ArticleLibraryService
     private function remember(string $hash): void
     {
         Cache::put($this->rejectedKey($hash), 1, Carbon::now()->addDays(self::REJECTED_TTL_DAYS));
+    }
+
+    /**
+     * Count one paid-for-but-unreadable answer against an item; at MAX_UNREADABLE_ATTEMPTS remember it like an
+     * irrelevant item so it stops being paid for every run.
+     */
+    private function noteUnreadable(string $hash): void
+    {
+        $key      = 'article-library:unreadable:' . $hash;
+        $attempts = (int) Cache::get($key, 0) + 1;
+
+        if ($attempts >= self::MAX_UNREADABLE_ATTEMPTS) {
+            $this->remember($hash);
+            Cache::forget($key);
+
+            return;
+        }
+
+        Cache::put($key, $attempts, Carbon::now()->addDays(self::REJECTED_TTL_DAYS));
     }
 
     private function rejectedKey(string $hash): string

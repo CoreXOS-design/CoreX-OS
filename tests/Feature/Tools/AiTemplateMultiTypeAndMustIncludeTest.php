@@ -763,6 +763,25 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         Http::assertSentCount(1);
     }
 
+    public function test_a_pause_that_lands_during_the_first_round_stops_the_retry_round(): void
+    {
+        // AT-456 audit D-M3: the cut-out can trip on round 1's own spend; the retry round must not be sent after it.
+        [$agency, $user] = $this->agencyWithUser();
+        $this->seedTypes($agency, ['House', 'Farm']);
+        $this->smartAi(variant: function (string $type, int $forOption, array $default, int $round) use ($agency) {
+            DB::table('agencies')->where('id', $agency)->update(['ai_paused_at' => now()]);
+
+            return ['name' => 'unusable', 'elements' => []]; // forces a retry round
+        });
+        $this->actingAs($user);
+
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, ['House', 'Farm']);
+
+        $this->assertSame(AiTemplateGeneration::STATUS_SUCCESS, $gen->status);
+        $this->assertSame([], $gen->options_json[0]['variants']);
+        Http::assertSentCount(3); // the Default designs + one call per type in round 1; round 2 never went out
+    }
+
     public function test_the_cards_list_the_versions_in_the_order_the_types_were_ticked(): void
     {
         [$agency, $user] = $this->agencyWithUser();
@@ -840,7 +859,8 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $this->assertSame('ok one', $out['a']->outputText);
         $this->assertInstanceOf(\Throwable::class, $out['b']);
         $this->assertSame('ok three', $out['c']->outputText);
-        $this->assertSame(2, AiUsageEvent::where('agency_id', $agency)->where('source', AiUsageEvent::SOURCE_AD_TEMPLATE)->count(), 'one ledger line per successful call');
+        $this->assertSame(2, AiUsageEvent::where('agency_id', $agency)->where('source', AiUsageEvent::SOURCE_AD_TEMPLATE)->where('fallback', false)->count(), 'one costed ledger line per successful call');
+        $this->assertSame(1, AiUsageEvent::where('agency_id', $agency)->where('source', AiUsageEvent::SOURCE_AD_TEMPLATE)->where('fallback', true)->where('cost_zar', 0)->count(), 'the failed call is on the ledger at cost 0 (AT-456 audit D-M1)');
         Http::assertSentCount(3);
     }
 

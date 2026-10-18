@@ -67,7 +67,7 @@ final class AnthropicGateway
         }
 
         try {
-            $response = $this->callApi($prepared['endpoint'], $prepared['apiKey'], $prepared['payload'], $request->timeoutSeconds, !empty($request->documents));
+            $response = $this->callApi($prepared['endpoint'], $prepared['apiKey'], $prepared['payload'], $request->timeoutSeconds);
         } catch (Throwable $e) {
             return $this->handleApiFailure($request, $prepared['inputHash'], $e);
         }
@@ -108,34 +108,36 @@ final class AnthropicGateway
             }
         }
 
-        if ($prepared !== []) {
-            $responses = Http::pool(function ($pool) use ($prepared, $requests) {
-                $calls = [];
-                foreach ($prepared as $key => $prep) {
-                    $calls[] = $pool->as((string) $key)->withHeaders([
-                            'x-api-key'         => $prep['apiKey'],
-                            'anthropic-version' => self::API_VERSION_HEADER,
-                            'content-type'      => 'application/json',
-                        ])
-                        ->timeout($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30))
-                        ->post($prep['endpoint'], $prep['payload']);
-                }
-
-                return $calls;
-            });
-
-            foreach ($prepared as $key => $prep) {
-                $response = $responses[(string) $key] ?? null;
-                try {
-                    if ($response instanceof Response) {
-                        $results[$key] = $this->finishCall($requests[$key], $prep, $response);
-                    } else {
-                        $error = $response instanceof Throwable ? $response : new AnthropicApiException('No response from the AI service', 0, '');
-                        $results[$key] = $this->handleApiFailure($requests[$key], $prep['inputHash'], $error);
+        // Hold the batch to the cut-out BEFORE any call starts (AT-456 audit D-M3). Per bucket: window spend +
+        // what other batches have reserved + this batch's worst case must stay under the cut-out, or that
+        // bucket's part of the batch is refused through the usual "AI paused" path and nothing is sent.
+        $reservations = []; // list of [bucket, token]
+        foreach ($this->groupByBucket($prepared, $requests) as $group) {
+            if (count($group['keys']) < 2) {
+                continue; // one call is not a batch: it behaves exactly like generate() (overshoot of one in-flight call)
+            }
+            try {
+                $reservations[] = [$group['bucket'], $this->spendGuard->reserveBatch($group['bucket'], $group['max'], $group['hold'])];
+            } catch (AiPausedException) {
+                foreach ($group['keys'] as $key) {
+                    try {
+                        $results[$key] = $this->pausedResponse($requests[$key], $prepared[$key]['inputHash'], $group['bucket']);
+                    } catch (Throwable $t) {
+                        $results[$key] = $t;
                     }
-                } catch (Throwable $e) {
-                    $results[$key] = $e;
+                    unset($prepared[$key]);
                 }
+            }
+        }
+
+        try {
+            if ($prepared !== []) {
+                $this->runPool($prepared, $requests, $results);
+            }
+        } finally {
+            // The calls are in the ledger by now (or failed): the reservations are no longer needed.
+            foreach ($reservations as [$bucket, $token]) {
+                $this->spendGuard->releaseBatch($bucket, $token);
             }
         }
 
@@ -146,6 +148,68 @@ final class AnthropicGateway
         }
 
         return $ordered;
+    }
+
+    /**
+     * The HTTP pool for the calls that were cleared to go, then each call's own bookkeeping.
+     *
+     * @param array<string|int, array<string, mixed>>   $prepared
+     * @param array<string|int, NarrativeRequest>       $requests
+     * @param array<string|int, NarrativeResponse|Throwable> $results filled in place
+     */
+    private function runPool(array $prepared, array $requests, array &$results): void
+    {
+        $responses = Http::pool(function ($pool) use ($prepared, $requests) {
+            $calls = [];
+            foreach ($prepared as $key => $prep) {
+                $calls[] = $pool->as((string) $key)->withHeaders([
+                        'x-api-key'         => $prep['apiKey'],
+                        'anthropic-version' => self::API_VERSION_HEADER,
+                        'content-type'      => 'application/json',
+                    ])
+                    ->timeout($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30))
+                    ->post($prep['endpoint'], $prep['payload']);
+            }
+
+            return $calls;
+        });
+
+        foreach ($prepared as $key => $prep) {
+            $response = $responses[(string) $key] ?? null;
+            try {
+                if ($response instanceof Response) {
+                    $results[$key] = $this->finishCall($requests[$key], $prep, $response);
+                } else {
+                    $error = $response instanceof Throwable ? $response : new AnthropicApiException('No response from the AI service', 0, '');
+                    $results[$key] = $this->handleApiFailure($requests[$key], $prep['inputHash'], $error);
+                }
+            } catch (Throwable $e) {
+                $results[$key] = $e;
+            }
+        }
+    }
+
+    /**
+     * The prepared calls grouped by the spend bucket they charge, with each group's worst-case cost and how long
+     * a reservation for it must be held.
+     *
+     * @param  array<string|int, array<string, mixed>> $prepared
+     * @param  array<string|int, NarrativeRequest>     $requests
+     * @return array<string, array{bucket: int|null, keys: array<int, string|int>, max: float, hold: int}>
+     */
+    private function groupByBucket(array $prepared, array $requests): array
+    {
+        $groups = [];
+        foreach ($prepared as $key => $prep) {
+            $bucket = $this->spendGuard->resolveAgencyId($requests[$key]->agencyId, $requests[$key]->system);
+            $id     = (string) ($bucket ?? 'system');
+            $groups[$id] ??= ['bucket' => $bucket, 'keys' => [], 'max' => 0.0, 'hold' => 0];
+            $groups[$id]['keys'][] = $key;
+            $groups[$id]['max']   += $this->estimateMaxCostZar($prep);
+            $groups[$id]['hold']   = max($groups[$id]['hold'], ($requests[$key]->timeoutSeconds ?? (int) config('services.anthropic.timeout', 30)) + 60);
+        }
+
+        return $groups;
     }
 
     /**
@@ -213,15 +277,7 @@ final class AnthropicGateway
         // caller gets the plain "AI is paused" message.
         $bucket = $this->spendGuard->resolveAgencyId($request->agencyId, $request->system);
         if ($this->spendGuard->isPaused($bucket)) {
-            if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
-                throw new AiPausedException($bucket);
-            }
-            // The reason becomes the response's errorMessage, which surfaces like
-            // the AI summary panel show verbatim — so it is the plain sentence.
-            // persist: false — a pause is not an API failure. Writing the fallback to the
-            // cache would (a) overwrite a GOOD cached narrative when forceRefresh is set and
-            // (b) leave a "(fallback)" row that keeps being served after the owner resumes.
-            return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE, persist: false);
+            return $this->pausedResponse($request, $inputHash, $bucket);
         }
 
         // ── 4. Compose payload ─────────────────────────────────────────────
@@ -251,6 +307,39 @@ final class AnthropicGateway
             'endpoint'  => $endpoint,
             'inputHash' => $inputHash,
         ];
+    }
+
+    /**
+     * The answer for a request that is refused because AI is paused (or a batch would cross the cut-out):
+     * without a fallback the caller gets AiPausedException; with one it degrades to its templated text.
+     *
+     * @throws AiPausedException
+     */
+    private function pausedResponse(NarrativeRequest $request, string $inputHash, ?int $bucket): NarrativeResponse
+    {
+        if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
+            throw new AiPausedException($bucket);
+        }
+        // The reason becomes the response's errorMessage, which surfaces like
+        // the AI summary panel show verbatim — so it is the plain sentence.
+        // persist: false — a pause is not an API failure. Writing the fallback to the
+        // cache would (a) overwrite a GOOD cached narrative when forceRefresh is set and
+        // (b) leave a "(fallback)" row that keeps being served after the owner resumes.
+        return $this->emitFallback($request, $inputHash, AiPausedException::MESSAGE, persist: false);
+    }
+
+    /**
+     * Conservative worst-case ZAR cost of one prepared call: the whole prompt (about 3 characters a token, which
+     * over-counts) as input, and every allowed output token used. Used only to hold a batch to the cut-out.
+     *
+     * @param array{model:string, payload:array<string, mixed>} $prepared
+     */
+    private function estimateMaxCostZar(array $prepared): float
+    {
+        $inputTokens  = (int) ceil(strlen((string) json_encode($prepared['payload'])) / 3);
+        $outputTokens = (int) ($prepared['payload']['max_tokens'] ?? 0);
+
+        return $this->costCalculator->zar($prepared['model'], $inputTokens, $outputTokens);
     }
 
     /**
@@ -388,7 +477,6 @@ final class AnthropicGateway
         string $apiKey,
         array $payload,
         ?int $timeoutSeconds = null,
-        bool $hasDocuments = false,
     ): Response {
         $timeout    = $timeoutSeconds ?? (int) config('services.anthropic.timeout', 30);
         $maxRetries = (int) config('services.anthropic.max_retries', 3);
@@ -401,14 +489,16 @@ final class AnthropicGateway
             ->timeout($timeout)
             // Retry only on connection errors and 5xx. 4xx (invalid request,
             // auth, etc.) is a fail-fast — retrying won't help and burns budget.
-            ->retry($maxRetries, 250, function ($exception) use ($hasDocuments) {
+            ->retry($maxRetries, 250, function ($exception) {
                 if ($exception instanceof ConnectionException) {
-                    // A request that carries a document (PDF / images) is a long, expensive call.
-                    // When it TIMES OUT the upstream may well have processed — and billed — it
-                    // already, so re-sending would multiply the cost for a result we would
-                    // likely time out on again. Fast connect failures (nothing was sent) are
-                    // still safe to retry. Every other request keeps retrying all connection errors.
-                    return ! ($hasDocuments && $this->isTimeout($exception));
+                    // A TIMEOUT means the client gave up waiting, not that the provider stopped:
+                    // the upstream may well have processed - and billed - the call already, and
+                    // none of the re-sends would be recorded in the ledger, so the AI Spend Safety
+                    // guard could not see that spend. Re-sending also multiplies the cost for an
+                    // answer we would likely time out on again. So a timeout is NEVER retried, for
+                    // any request (AT-456 audit D-M1). Only a fast connection failure (nothing was
+                    // sent) is safe to retry.
+                    return ! $this->isTimeout($exception);
                 }
                 if (method_exists($exception, 'response') && $exception->response) {
                     return $exception->response->serverError();
@@ -518,9 +608,24 @@ final class AnthropicGateway
             'model_alias'    => $request->modelAlias,
             'error'          => mb_substr($reason, 0, 500),
             'exception'      => $e::class,
+            'timed_out'      => $e instanceof ConnectionException && $this->isTimeout($e),
         ]);
 
         if ($request->fallbackData === null || !isset($request->fallbackData['text'])) {
+            // Audit trail (AT-456 audit D-M1): a failed call with no fallback used to leave nothing in
+            // the ledger. Record it as a degraded call - tokens 0, cost 0 (we do not know what the
+            // provider billed, and we do not invent a figure) - so the usage page shows the failure.
+            $this->usageRecorder->record(
+                source:       $request->source,
+                model:        (string) config("services.anthropic.models.{$request->modelAlias}", 'unknown'),
+                inputTokens:  0,
+                outputTokens: 0,
+                agencyId:     $request->agencyId,
+                surfaceRef:   $request->cacheKey,
+                fallback:     true,
+                system:       $request->system,
+            );
+
             throw new NarrativeGenerationException(
                 message: 'Narrative generation failed and no fallback was provided.',
                 cacheKey: $request->cacheKey,
@@ -668,14 +773,16 @@ final class AnthropicGateway
         if (is_array($parsed)) return $parsed;
 
         // Final fallback: snip from first '{' or '[' to last '}' or ']'.
-        $start = min(
-            ...array_filter([strpos($text, '{'), strpos($text, '[')], fn ($v) => $v !== false) ?: [PHP_INT_MAX]
-        );
-        $end = max(strrpos($text, '}'), strrpos($text, ']'));
-        if ($start !== PHP_INT_MAX && $end !== false && $end > $start) {
-            $candidate = substr($text, $start, $end - $start + 1);
-            $parsed = json_decode($candidate, true);
-            if (is_array($parsed)) return $parsed;
+        // (min() of a single value is a TypeError, so gather the positions first - a text with no bracket at all,
+        // or only one kind, must come back as "unreadable" (null), not as an exception. AT-456 audit D-L2.)
+        $starts = array_filter([strpos($text, '{'), strpos($text, '[')], fn ($v) => $v !== false);
+        $end    = max((int) strrpos($text, '}'), (int) strrpos($text, ']'));
+        if ($starts !== []) {
+            $start = min($starts);
+            if ($end > $start) {
+                $parsed = json_decode(substr($text, $start, $end - $start + 1), true);
+                if (is_array($parsed)) return $parsed;
+            }
         }
 
         return null;

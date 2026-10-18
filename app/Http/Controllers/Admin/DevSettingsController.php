@@ -312,12 +312,14 @@ class DevSettingsController extends Controller
                 'alert'      => $request->input('ai_alert_threshold_zar'),
                 'cutout'     => $request->input('ai_cutout_threshold_zar'),
                 'window'     => $request->input('ai_guard_window_hours'),
+                'maxFailed'  => $request->input('ai_template_max_failed_per_day', app(AiSpendGuard::class)->settings()['max_failed_per_day']),
                 'recipients' => $emails,
             ],
             [
                 'alert'        => 'required|numeric|gt:0|max:100000',
                 'cutout'       => 'required|numeric|gt:alert|max:100000',
                 'window'       => 'required|integer|min:1|max:168',
+                'maxFailed'    => 'required|integer|min:1|max:100',
                 'recipients'   => 'required|array|min:1',
                 'recipients.*' => 'email:filter|max:255',
             ],
@@ -330,6 +332,10 @@ class DevSettingsController extends Controller
                 'window.min'          => 'The time window must be between 1 and 168 hours (7 days).',
                 'window.max'          => 'The time window must be between 1 and 168 hours (7 days).',
                 'window.integer'      => 'The time window must be a whole number of hours.',
+                'maxFailed.required'  => 'Enter how many failed attempts an agency may have per day.',
+                'maxFailed.integer'   => 'The failed-attempts limit must be a whole number.',
+                'maxFailed.min'       => 'The failed-attempts limit must be between 1 and 100.',
+                'maxFailed.max'       => 'The failed-attempts limit must be between 1 and 100.',
                 'recipients.required' => 'Add at least one email address — otherwise nobody is told when an agency is alerted or switched off.',
                 'recipients.min'      => 'Add at least one email address — otherwise nobody is told when an agency is alerted or switched off.',
                 'recipients.*.email'  => 'One of the email addresses is not valid.',
@@ -345,6 +351,7 @@ class DevSettingsController extends Controller
             'alert_zar'    => round((float) $request->input('ai_alert_threshold_zar'), 2),
             'cutout_zar'   => round((float) $request->input('ai_cutout_threshold_zar'), 2),
             'window_hours' => (int) $request->input('ai_guard_window_hours'),
+            'max_failed_per_day' => (int) $request->input('ai_template_max_failed_per_day', $old['max_failed_per_day']),
             'recipients'   => array_values(array_unique(array_map(fn ($e) => strtolower(trim((string) $e)), $emails))),
         ];
 
@@ -355,6 +362,7 @@ class DevSettingsController extends Controller
         DevSetting::set(AiSpendGuard::KEY_ALERT_ZAR, (string) $new['alert_zar']);
         DevSetting::set(AiSpendGuard::KEY_CUTOUT_ZAR, (string) $new['cutout_zar']);
         DevSetting::set(AiSpendGuard::KEY_WINDOW_HOURS, (string) $new['window_hours']);
+        DevSetting::set(AiSpendGuard::KEY_MAX_FAILED_PER_DAY, (string) $new['max_failed_per_day']);
         DevSetting::set(AiSpendGuard::KEY_RECIPIENTS, json_encode($new['recipients']));
 
         AiSpendGuardEvent::create([

@@ -271,6 +271,96 @@ final class AiTemplateAuditFixesTest extends TestCase
         $this->assertArrayHasKey('usage', $res->getData(true));
     }
 
+    // ── D-M2. Paid failed attempts are limited per day (platform setting, default 5) ──
+
+    public function test_five_paid_failures_today_refuse_the_sixth_attempt_before_any_ai_call(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->generationRows($agency, $user, 'failed', 3.5, 5);
+        $fake = $this->fakeAi();
+        $this->actingAs($user);
+
+        try {
+            app(AiTemplateBuilderService::class)->generate($user, 'again', 'facebook', null);
+            $this->fail('The sixth attempt of the day must be refused.');
+        } catch (AiTemplateGenerationFailedException $e) {
+            $this->assertStringContainsString('Too many attempts that did not produce a usable design today', $e->getMessage());
+        }
+
+        $this->assertSame(0, $fake->calls());
+        $this->assertSame(0, AiTemplateGeneration::where('status', 'pending')->count(), 'no row was reserved');
+        $lock = Cache::lock('ai-template-allowance:' . $agency, 5);
+        $this->assertTrue($lock->get(), 'the allowance lock is released after the refusal');
+        $lock->release();
+    }
+
+    public function test_four_paid_failures_still_allow_an_attempt_and_failures_do_not_use_the_allowance(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->generationRows($agency, $user, 'failed', 3.5, 4);
+        $this->fakeAi();
+        $this->actingAs($user);
+        $svc = app(AiTemplateBuilderService::class);
+
+        $this->assertSame(0, $svc->usage($agency)['used'], 'failed attempts still do not use the monthly allowance');
+        $gen = $svc->generate($user, 'fine', 'facebook', null);
+
+        $this->assertSame(AiTemplateGeneration::STATUS_SUCCESS, $gen->status);
+    }
+
+    public function test_successes_and_free_failures_do_not_count_toward_the_daily_limit(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->generationRows($agency, $user, 'success', 3.5, 4);
+        $this->generationRows($agency, $user, 'failed', 0, 4);   // failed before any paid call
+        $this->generationRows($agency, $user, 'failed', 3.5, 1);
+        $this->fakeAi();
+        $this->actingAs($user);
+
+        $this->assertSame(1, app(AiTemplateBuilderService::class)->paidFailuresToday($agency));
+        $this->assertSame(AiTemplateGeneration::STATUS_SUCCESS, app(AiTemplateBuilderService::class)->generate($user, 'fine', 'facebook', null)->status);
+    }
+
+    public function test_the_daily_count_starts_afresh_the_next_day_and_is_per_agency(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        [$other] = $this->agencyWithUser();
+        $this->generationRows($other, $user, 'failed', 3.5, 5); // another agency's failures never count here
+        $this->generationRows($agency, $user, 'failed', 3.5, 5);
+        $svc = app(AiTemplateBuilderService::class);
+        $this->assertSame(5, $svc->paidFailuresToday($agency));
+
+        \Carbon\Carbon::setTestNow(now()->addDay()->startOfDay()->addMinutes(5));
+        try {
+            $this->assertSame(0, $svc->paidFailuresToday($agency), 'a new day in the agency timezone resets the count');
+        } finally {
+            \Carbon\Carbon::setTestNow();
+        }
+    }
+
+    public function test_the_limit_is_a_platform_setting(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        \App\Models\DevSetting::set(\App\Services\AI\AiSpendGuard::KEY_MAX_FAILED_PER_DAY, '2');
+        $this->generationRows($agency, $user, 'failed', 3.5, 2);
+        $this->fakeAi();
+        $this->actingAs($user);
+
+        $this->assertSame(2, app(\App\Services\AI\AiSpendGuard::class)->settings()['max_failed_per_day']);
+        $this->expectException(AiTemplateGenerationFailedException::class);
+        app(AiTemplateBuilderService::class)->generate($user, 'again', 'facebook', null);
+    }
+
+    private function generationRows(int $agency, User $user, string $status, float $cost, int $n): void
+    {
+        for ($i = 0; $i < $n; $i++) {
+            DB::table('ai_template_generations')->insert([
+                'agency_id' => $agency, 'user_id' => $user->id, 'idea' => 's', 'ad_size' => 'facebook',
+                'status' => $status, 'cost_zar' => $cost, 'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** A real, in-memory image of the given type. */
