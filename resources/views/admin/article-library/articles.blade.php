@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Dev Settings → Article Library → Articles (AT-456 Part C). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — System Developer → Article Library → Articles (AT-456 Part C). --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -14,7 +14,6 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Article Library — articles</h1>
                 <p class="text-sm text-white/60">Everything the library has written. Hide an article and it disappears from every agency's Article Library (agencies that already used it keep their own copy).</p>
             </div>
-            <a href="{{ route('admin.dev-settings.index') }}" class="corex-btn-outline">← Dev Settings</a>
         </div>
     </div>
 

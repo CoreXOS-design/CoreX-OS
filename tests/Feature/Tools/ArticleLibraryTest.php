@@ -913,19 +913,28 @@ final class ArticleLibraryTest extends TestCase
     // Navigation
     // ═════════════════════════════════════════════════════════════════════
 
-    public function test_dev_settings_has_an_article_library_link_and_the_sidebar_item_stays_lit(): void
+    public function test_the_article_library_is_its_own_system_developer_page_not_inside_dev_settings(): void
     {
         $owner = $this->owner();
 
-        $hub = $this->actingAs($owner)->get(route('admin.dev-settings.index'));
-        $hub->assertOk()->assertSee(route('admin.article-library.index'), false)->assertSee('Article Library');
+        // Gone from the Dev Settings hub.
+        $hub = $this->actingAs($owner)->get(route('admin.dev-settings.index'))->assertOk()->getContent();
+        $this->assertStringNotContainsString("'article-library'", $hub);
+        $this->assertDoesNotMatchRegularExpression('/href="' . preg_quote(route('admin.article-library.index'), '/') . '"[^>]*>\s*Article Library\s*</', $hub);
 
-        $page = $this->actingAs($owner)->get(route('admin.article-library.index'))->getContent();
-        // The Dev Settings sidebar entry carries "active" on the library's own pages.
-        $this->assertMatchesRegularExpression(
-            '/<a href="' . preg_quote(route('admin.dev-settings.index'), '/') . '" class="corex-nav-item active"/',
-            $page
-        );
+        foreach (['admin.article-library.index', 'admin.article-library.articles', 'admin.article-library.settings'] as $name) {
+            $page = $this->actingAs($owner)->get(route($name))->assertOk()->getContent();
+            // Its own sidebar item, lit on every library page; Dev Settings is not lit, and no "back to Dev Settings" button.
+            $this->assertMatchesRegularExpression('/<a href="' . preg_quote(route('admin.article-library.index'), '/') . '" class="corex-nav-item active"/', $page, $name);
+            $this->assertMatchesRegularExpression('/<a href="' . preg_quote(route('admin.dev-settings.index'), '/') . '" class="corex-nav-item "/', $page, $name);
+            $this->assertStringNotContainsString('← Dev Settings', $page, $name);
+        }
+
+        // Inside the System Developer section of the menu.
+        $page  = $this->actingAs($owner)->get(route('admin.article-library.index'))->getContent();
+        $label = strpos($page, '>System Developer</div>');
+        $this->assertNotFalse($label);
+        $this->assertGreaterThan($label, strpos($page, '<span>Article Library</span>'));
     }
 
     // ═════════════════════════════════════════════════════════════════════

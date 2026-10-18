@@ -3213,13 +3213,21 @@
 
         {{-- Dev Settings --}}
         {{-- Agency timeline defaults (AT-447) is a Dev Settings page (spec §4.1) reached from the Dev Settings index, so its own
-             route family (admin.timeline-defaults.*, a sibling prefix, not admin.dev-settings.*) lights this item too.
-             Same for the Article Library (AT-456 Part C, admin.article-library.*). --}}
-        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*', 'admin.article-library.*') ? 'active' : '' }}">
+             route family (admin.timeline-defaults.*, a sibling prefix, not admin.dev-settings.*) lights this item too. --}}
+        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>
             <span>Dev Settings</span>
+        </a>
+
+        {{-- Article Library (AT-456 Part C) — the news sources and articles every agency's Ad Manager draws from. Its own
+             System Developer page (Johan 2026-10-18; it used to sit inside Dev Settings). Owner-only, no permission key. --}}
+        <a href="{{ route('admin.article-library.index') }}" class="corex-nav-item {{ request()->routeIs('admin.article-library.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 0 1-2.25 2.25M16.5 7.5V18a2.25 2.25 0 0 0 2.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 0 0 2.25 2.25h13.5M6 7.5h3v3H6v-3Z" />
+            </svg>
+            <span>Article Library</span>
         </a>
 
         {{-- System Updates (AT-338) — write the "what's new in CoreX" pop-up every

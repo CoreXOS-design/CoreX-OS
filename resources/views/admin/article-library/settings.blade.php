@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Dev Settings → Article Library → Settings (AT-456 Part C). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — System Developer → Article Library → Settings (AT-456 Part C). --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -10,7 +10,6 @@
                 <h1 class="text-xl font-bold text-white leading-tight">Article Library — settings</h1>
                 <p class="text-sm text-white/60">How often the library refreshes by itself, and how many new articles one run may write.</p>
             </div>
-            <a href="{{ route('admin.dev-settings.index') }}" class="corex-btn-outline">← Dev Settings</a>
         </div>
     </div>
 

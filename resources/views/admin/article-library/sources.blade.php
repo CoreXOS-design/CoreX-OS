@@ -1,4 +1,4 @@
-{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — Dev Settings → Article Library → Sources (AT-456 Part C). --}}
+{{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md — System Developer → Article Library → Sources (AT-456 Part C). --}}
 @extends('layouts.corex')
 
 @section('corex-content')
@@ -16,7 +16,6 @@
                 <p class="text-sm text-white/60">The news links CoreX reads. The AI keeps what matters to South African estate agents and writes a short, original brief with credit and a link back. Agencies find the briefs under Ad Manager → Article Library — nothing is ever published for them.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <a href="{{ route('admin.dev-settings.index') }}" class="corex-btn-outline">← Dev Settings</a>
                 <form method="POST" action="{{ route('admin.article-library.run') }}" x-data="{ busy: false }" @submit="busy = true"
                       onsubmit="return confirm('Run the Article Library now? It reads every active source and uses platform AI (usually a few rand). This can take a minute or two — keep this page open.');">
                     @csrf
