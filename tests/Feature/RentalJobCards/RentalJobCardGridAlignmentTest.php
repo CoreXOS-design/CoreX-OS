@@ -115,7 +115,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->assertMatchesRegularExpression('/class="corex-btn-primary text-xs" data-add-line>Add new line</', $html);
         $this->assertStringContainsString('data-line-foot', $html);
         // the one rule that sizes the footer buttons gives Add / Save / Cancel the same height
-        $this->assertStringContainsString('.jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px; min-height: 30px;', $html);
+        $this->assertStringContainsString('.jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px !important; min-height: 30px !important;', $html);
         $this->assertStringNotContainsString('.jc-addrow button[type="submit"] { width: 26px !important', $html, 'the old square-submit rule would squash the text button');
     }
 

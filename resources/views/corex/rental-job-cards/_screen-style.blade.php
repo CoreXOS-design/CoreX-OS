@@ -67,10 +67,10 @@
     .jc-addrow form, .jc-addrow > div { padding-top: 2px !important; }
     .jc-addrow input, .jc-addrow select { height: 30px; box-sizing: border-box; }
     /* §17.42 - the add row and the edit row end in a footer of TEXT buttons (add; or cancel + save), all one height and one weight, right-aligned under the grid */
-    .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; padding-top: 8px; }
-    .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; flex: 1 1 auto; min-width: 0; }
-    .jc-foot-buttons { display: flex; gap: 8px; margin-left: auto; }
-    .jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px; min-height: 30px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; }
+    .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 14px; padding-top: 8px; } /* left-aligned: the lines box is 980px wide and scrolls sideways in a narrow panel, so a right-aligned button would sit off screen */
+    .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
+    .jc-foot-buttons { display: flex; gap: 8px; order: -1; } /* the main button first, then the receipt and markup tools (the DOM keeps fields -> tools -> buttons for the Tab order) */
+    .jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px !important; min-height: 30px !important; padding: 0 14px !important; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; }
     .jc-receipt { display: inline-flex; align-items: center; gap: 6px; }
     .jc-receipt[hidden] { display: none; }
     .jc-foot-label { font-size: 12px; color: var(--text-muted); }
