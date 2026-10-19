@@ -192,6 +192,12 @@ class RentalFaultProgressService
                 }
             }
         }
+        // AT-452 quote-first: the contractor was authorised to look and QUOTE (never the work) and no quote has landed - the current step says so, for every audience
+        if ($ended === null && $last !== null && $wo && $steps[$last]['key'] === 'sent_to_contractor'
+            && app(RentalWorkOrderClientViewService::class)->awaitingContractorQuote($wo)) {
+            $steps[$last]['label'] = $this->label('awaiting_contractor_quote', $aud);
+            $steps[$last]['awaiting_quote'] = true;
+        }
         // section 22.7 - the owner pressed "Stop this": the CURRENT step reads "On hold" for everyone (the tenant is never told the owner's reason)
         $held = $ended === null && $last !== null && app(RentalOwnerHoldService::class)->activeFor($fault) !== null;
         if ($held) {

@@ -79,6 +79,10 @@ class RentalWorkOrderClientViewService
         if ($this->appointmentAt($workOrder, $audience === 'agent')) {
             return 'appointment_set';
         }
+        // AT-452 quote-first: a contractor was authorised to look and quote, and no quote has landed yet (every audience reads the same words)
+        if ($this->awaitingContractorQuote($workOrder)) {
+            return 'awaiting_contractor_quote';
+        }
 
         // The OFFICE's and the OWNER's badges follow the real position (the tenant keeps the plain 'created'): once approved it is ready to send, once
         // sent it is with the contractor - it must never keep saying "Created" after the work order has gone out.
@@ -105,6 +109,32 @@ class RentalWorkOrderClientViewService
         }
 
         return 'created';
+    }
+
+    /**
+     * AT-452 quote-first (Johan, 12 Oct 2026): the owner authorised a contractor to look and QUOTE only - never the work. Until that contractor's quote lands
+     * the job is "waiting for the contractor's quote"; once it lands (or the cost is authorised) the ordinary cost-authority flow takes over. True only for an
+     * outside contractor's job, SENT to the contractor, that has a standing, authorised "who goes to look" record, no cost authority yet, and no live (undeclined, current) quote.
+     */
+    public function awaitingContractorQuote(RentalWorkOrder $workOrder): bool
+    {
+        if ($workOrder->assignment_type !== RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER || $workOrder->isOwnerContractor()
+            || $workOrder->status !== RentalWorkOrder::STATUS_ORDERED) {   // only once the contractor actually holds the job; before that it is still "Created
+            return false;
+        }
+        $auth = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        if ($auth->hasCostAuthority($workOrder)) {
+            return false;
+        }
+        $fault = $workOrder->reported_fault_report_id ? \App\Models\RentalFaultReport::withoutGlobalScopes()->find($workOrder->reported_fault_report_id) : null;
+        $visit = $auth->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_INSPECT) ?? ($fault ? $auth->activeFor($fault, \App\Models\RentalAuthorisation::POINT_INSPECT) : null);
+        if (! $visit || ! $visit->isAuthorised()) {
+            return false;
+        }
+
+        return ! RentalWorkOrderQuote::withoutGlobalScopes()
+            ->where('agency_id', $workOrder->agency_id)->where('rental_work_order_id', $workOrder->id)
+            ->whereNull('deleted_at')->whereNull('superseded_at')->whereNull('declined_at')->exists();
     }
 
     /** T1: the work was reported finished and nobody has closed it yet (and it is not sent back). */
