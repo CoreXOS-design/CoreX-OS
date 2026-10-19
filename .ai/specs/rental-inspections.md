@@ -8091,7 +8091,16 @@ The day-before REMINDER email to tenants and landlords is opt-in (Johan). New nu
 **Proof.**
 - *Johan's three real Ricoh scans* (copied read-only out of QA1 into the scratchpad; nothing written to QA1): all 9 pages are located and read - 56 rows per scan, every row located from its own boxes, 56 proposed / 0 flagged (scan 1's pages were identified by the printed page grid because its QR could not be read; scans 2 and 3 by QR) - **except page 3 of the third scan**: the top-left mark is clipped by the scanner's top edge, the page sits 5 degrees off and the QR is too heavily dithered to decode, so it is reported as not read with the reason, and the other two pages of that upload read. A re-scan of that sheet (flat, 300 dpi, black-and-white or greyscale, not "photo") reads it. This is the one known limit.
 - *Simulated office scans of the real form* (hand-drawn tick strokes, 1.5-3.5 degrees, 1.2 % stretch, blur, toner dust, 28 % grey rendered as a 1-bit halftone): clean 56/56 correct; skewed 56/56 correct; pages out of order with one missing (file page 1 = form page 3, file page 2 = form page 1) 30/30 correct on the pages present and the missing page named; a 4 degree phone-style photo of page 1 22/22.
-- *End to end on QA1* - see the QA1 result below.
+- *End to end on QA1, 19 Oct, commit `a304cc602`, through the real routes* (tinker driving the HTTP kernel as the HFC admin; mail and notifications faked): a fresh ad-hoc inspection (#163, disposable, on property 5577's existing 81-item checklist - nothing added to it) -> **Print site form** route (HTTP 200, application/pdf: 4 pages, 567 boxes, QR on every page) -> hand ticks drawn on the printed PDF and four "scanned" files made from it -> uploaded through `POST corex.rental-inspections.scans.store`:
+
+  | Upload | Result |
+  |---|---|
+  | clean 4-page PDF (200 dpi, straight) | 4/4 pages read, all placed by corner marks and identified by QR, 81 rows located / 81 proposed / 0 flagged; **81 of 81 correct** vs what was ticked |
+  | skewed 4-page office-style PDF (1-3.5 degrees, 1.2 % stretch, blur, dust, 1-bit halftone) | 4/4 read (two pages identified by the printed page grid, the note says so); **81 of 81 correct** |
+  | out of order and short: form page 3 first, then page 1; pages 2 and 4 not scanned | file page 1 = form page 3, file page 2 = form page 1, both read; note "Pages not read from this scan: 2, 4 of 4"; **43 of 43 correct**, nothing proposed for the missing pages |
+  | single phone-style photo of page 1 (4 degrees, halftone) | page 1 read, 20 rows; **20 of 20 correct**; pages 2-4 named as not in the upload |
+
+  Every review screen answered 200 with the per-page block and "Apply proposed marks"; the inspection page (Print site form + Upload completed form) and a review screen both answered 200 through nginx/php-fpm on qatesting1. Afterwards the 4 scans and the inspection were archived (never deleted); nothing of Johan's was touched. Not re-run on his three real failed uploads on QA1 (inspections 161/162 are his - `php artisan rental-inspections:reread-scan {id} --restore` does it when he wants).
 
 **Reported, not changed.** (1) The 25-65 / 115-155 degree dead band of `rental-inspection-form.md` §13.12 now rests on the QR + corner-mark search of §62 and was not re-measured past +-24 degrees. (2) Page 3 of Johan's third scan (above). (3) The simulated scans stand in for a scanner; a new model can differ - the per-page results and `reread-scan` exist so that a miss is visible and recoverable without a re-upload.
 
