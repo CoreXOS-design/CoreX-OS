@@ -330,6 +330,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
         // §17.10.1 (BUILD 3) — the same crew completion also opens a completion round: the tenant is asked to check the finished work.
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
+        // Audit C-A3 - the agent who has to check and sign it off is told in-app when the crew marks a job complete.
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\NotifyAgentOfCrewCompleted::class);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five

@@ -116,12 +116,12 @@ class ContractorSecureLinkController extends Controller
     }
 
     /** The agents hear about everything the contractor does on their link (one event, one rule for who they are). */
-    private function tellAgents(RentalWorkOrder $workOrder, string $title, string $body): void
+    private function tellAgents(RentalWorkOrder $workOrder, string $title, string $body, string $event): void
     {
         try {
             $address = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
             app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
-                $workOrder, \App\Services\Rentals\RentalContractorJobService::EV_RESPONDED, $title . ' - ' . $address, $body, now()
+                $workOrder, $event, $title . ' - ' . $address, $body, now()
             );
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::warning('Contractor link: agents not told', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
@@ -172,7 +172,7 @@ class ContractorSecureLinkController extends Controller
             return back()->withErrors(['invoice' => $e->getMessage()])->withInput();
         }
         $record->forceFill(['last_used_at' => now()])->save();
-        $this->tellAgents($workOrder, 'Contractor sent an invoice', $this->contractorName($workOrder) . ': ' . $invoice->describe());
+        $this->tellAgents($workOrder, 'Contractor sent an invoice', $this->contractorName($workOrder) . ': ' . $invoice->describe(), \App\Services\Rentals\RentalContractorJobService::EV_INVOICE);
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - your invoice was sent to the agency.');
     }
@@ -209,7 +209,7 @@ class ContractorSecureLinkController extends Controller
             return back()->withErrors(['extra' => $e->getMessage()])->withInput();
         }
         $record->forceFill(['last_used_at' => now()])->save();
-        $this->tellAgents($workOrder, 'Contractor asks for extra money', $note);
+        $this->tellAgents($workOrder, 'Contractor asks for extra money', $note, \App\Services\Rentals\RentalContractorJobService::EV_EXTRA_MONEY);
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Your request was sent to the owner. Please wait for the answer before doing any extra work - we will tell you.');
     }
@@ -303,7 +303,7 @@ class ContractorSecureLinkController extends Controller
 
         $record->forceFill(['last_used_at' => now()])->save();
 
-        $this->tellAgents($record->workOrder, 'Contractor uploaded a ' . ($phase === RentalWorkOrder::PHOTO_IN_PROGRESS ? 'before / during' : 'after') . ' photo', $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title);
+        $this->tellAgents($record->workOrder, 'Contractor uploaded a ' . ($phase === RentalWorkOrder::PHOTO_IN_PROGRESS ? 'before / during' : 'after') . ' photo', $this->contractorName($record->workOrder) . ': ' . $record->workOrder->title, \App\Services\Rentals\RentalContractorJobService::EV_PHOTO);
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Photo uploaded.');
     }
@@ -358,7 +358,8 @@ class ContractorSecureLinkController extends Controller
 
         // one message to the agent per report - a second press while the first still waits opens no new round and says nothing more
         if ($round->wasRecentlyCreated) {
-            $this->tellAgents($record->workOrder, 'Finished - awaiting your check', $this->contractorName($record->workOrder) . ' says the work is finished: ' . $record->workOrder->title . '. Check it and close the job.');
+            app(\App\Services\Rentals\OwnerFinishNotice::class)->contractorReportedFinished($record->workOrder, $this->contractorName($record->workOrder));
+            $this->tellAgents($record->workOrder, 'Finished - awaiting your check', $this->contractorName($record->workOrder) . ' says the work is finished: ' . $record->workOrder->title . '. Check it and close the job.', \App\Services\Rentals\RentalContractorJobService::EV_FINISHED);
         }
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told the work is finished. They will check it and close the job.');

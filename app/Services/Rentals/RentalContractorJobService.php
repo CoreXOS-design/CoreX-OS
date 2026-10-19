@@ -36,7 +36,14 @@ class RentalContractorJobService
 {
     public const EV_SENT = 'rental_work_order.contractor_job_sent';
     public const EV_NOT_SENT = 'rental_work_order.contractor_job_not_sent';
+    /** Legacy shared type - no longer fired (audit C-B1): every contractor action has its OWN type so the per-subject cooldown cannot swallow the important one. */
     public const EV_RESPONDED = 'rental_work_order.contractor_responded';
+    public const EV_ACCEPTED = 'rental_work_order.contractor_accepted';
+    public const EV_DECLINED = 'rental_work_order.contractor_declined';
+    public const EV_INVOICE = 'rental_work_order.contractor_invoice';
+    public const EV_EXTRA_MONEY = 'rental_work_order.contractor_extra_money';
+    public const EV_PHOTO = 'rental_work_order.contractor_photo';
+    public const EV_FINISHED = 'rental_work_order.contractor_finished';
     /** Its own alert type: NotificationDispatcher drops a second alert of the SAME type for the same work order within the person's cooldown (6 h by default), so a quote sent after "accepted" under EV_RESPONDED never reached anyone (WO 192, 14 Oct 2026). */
     public const EV_QUOTE = 'rental_work_order.quote_received';
 
@@ -347,7 +354,7 @@ class RentalContractorJobService
 
             return;
         }
-        $this->tell($wo, self::EV_RESPONDED, $line . ' - ' . $this->address($wo), $wo->title);
+        $this->tell($wo, $response === self::RESPONSE_DECLINED ? self::EV_DECLINED : self::EV_ACCEPTED, $line . ' - ' . $this->address($wo) . ($response === self::RESPONSE_DECLINED ? ' - pick another contractor' : ''), $wo->title);
     }
 
     /** What the contractor wrote on the quote; a document-only quote says so, with the job it is for. */

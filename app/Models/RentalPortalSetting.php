@@ -33,7 +33,8 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_LINK_SHOW_COSTS = false;
     // AT-459 (Johan, 15 Oct 2026): the crew and the contractor get the tenant's name + phone unless the agency switches it off.
     public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = true;
-    public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = true;
+    /** Audit C-C4: OFF by default - Johan's 14 Oct ruling (spec 22.17 item 6) is that the owner hears at the agent's close; an agency can choose to tell the owner when the work is reported finished (OwnerFinishNotice). */
+    public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = false;
 
     // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility).
     public const CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED = 'in_progress_and_completed';
