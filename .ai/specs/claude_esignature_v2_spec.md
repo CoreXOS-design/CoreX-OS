@@ -683,3 +683,37 @@ DOM the signer sees (per-wrapper page count), never a server estimate.
 - PRE-BUILD: confirm Strategy-2 is not already injecting initials rows in
   production, or the build will double-inject.
 - DO NOT assume a setting is "dead" without checking every file that reads it.
+---
+
+## 20. Paper copies (download-and-sign, wet-ink) print one party block per party — HOTFIX 2026-10-19
+
+**Rule:** a document with N parties of one role (N sellers, N landlords…) prints N address/contact
+(domicilium) blocks on EVERY route — electronic, wet-ink and download-and-sign. Never assume one.
+
+**Symptom (Johan, esign flow 37 / download 572):** electronic output and the step-6 preview showed a
+domicilium block per seller; the downloaded PDF from wet-ink and download-and-sign showed ONE block with
+the sellers' phones/emails joined ("A and B").
+
+**Cause:** `ESignWizardController::downloadDocumentPdf` prints the stored document. For both paper routes
+the stored `merged_html` is the raw template output — the `data-role-block` per-party loop
+(`RoleBlockNormalizer::normalize` + `RoleBlockExpansionService::expandWithLooping`) only ever ran on the
+step-6 preview and inside `CanonicalDocumentRenderer::compose()` (electronic + wet-ink canonical).
+
+**Fix (two places, nothing else):**
+- Download-and-sign (`prepareDownloadOnly`, no SignatureTemplate, no canonical): `merged_html` is now
+  expanded when built, through `expandRoleBlocksForPaper()` — the same normalize + expand pair over the same
+  recipients as the step-6 preview (`expandEntityRecipients` → `buildTransientSignatureRequestsForPreview`).
+- Wet-ink (`prepareWetInk`): `merged_html` MUST stay un-expanded — `compose()` starts from it and expands it
+  itself, so pre-expanding double-expands the canonical (proved: 2 sellers → 4 address blocks, 3 → 9).
+  `downloadDocumentPdf` therefore prints the stored `canonical_html` when present, with the on-screen
+  add-condition controls hidden (`.btn-add-condition`, `.condition-add-guidance`, `[data-screen-only]`,
+  `.corex-propose-btn`). Documents without a canonical keep printing `merged_html`.
+- Electronic path untouched: `compose()` output for existing e-sign documents is hash-identical before/after.
+
+**Tests:** `tests/Feature/Docuperfect/SigningView/PaperCopyDomiciliumPerSellerTest.php` (2 and 3 sellers,
+Exclusive and Open wording, 1 seller, no recipients).
+
+**Known, not changed here:** a download-and-sign copy of the OPEN mandate prints the literal
+`~~~~OTHER_CONDITIONS~~~~` marker (InsertableBlockRenderer never runs on that route); a wet-ink document's
+confirmation-page preview still shows the un-expanded `merged_html`; documents already created keep their
+stored output until re-created.
