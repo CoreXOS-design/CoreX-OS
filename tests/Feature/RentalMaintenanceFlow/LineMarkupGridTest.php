@@ -153,13 +153,13 @@ final class LineMarkupGridTest extends TestCase
             }
             // Description is the widest: the only flexible track
             $this->assertSame(1, count(array_filter($cols, fn ($c) => str_contains($c, '1fr'))));
-            $this->assertStringContainsString('1fr', $cols[1], 'the description is the flexible column');
+            $this->assertStringContainsString('1fr', $cols[0], 'the description is the flexible column');
         }
 
         // the money columns are at least 92px wide where a cost is shown: R99,999.99 at 12px is ~66px of text + 18px padding
         $cols = RentalJobCardLineGrid::columns(true, true, true);
         $labels = RentalJobCardLineGrid::labels(true, true, true);
-        foreach (['Cost', 'Selling', 'Margin'] as $money) {
+        foreach (['Cost', 'Selling', 'Total'] as $money) {
             $this->assertGreaterThanOrEqual(92, (int) $cols[array_search($money, $labels, true)]);
         }
     }
@@ -174,7 +174,10 @@ final class LineMarkupGridTest extends TestCase
         $this->assertStringContainsString('class="jc-lines-head"', $html, 'the header carries the same 11px inset as a saved line');
         $this->assertStringContainsString('.jc-lines-head { padding: 0 11px; }', $html);
         $this->assertStringContainsString('.jc-addrow { margin: 6px -9px 0;', $html, 'the add row grid starts where a saved line does');
-        $this->assertStringContainsString('min-width: 980px', $html, 'a narrow window scrolls the lines sideways instead of squeezing the columns');
+        $this->assertStringNotContainsString('min-width: 980px', $html, '19 Oct 2026: the lines fit a laptop - no 980px floor that scrolls the table sideways');
+        $this->assertSame(1, count(array_filter(RentalJobCardLineGrid::columns(true, true, true), fn ($c) => str_contains($c, '1fr'))));
+        $totalWidth = array_sum(array_map(fn ($c) => (int) preg_replace('/^minmax\((\d+)px.*$/', '$1', $c), RentalJobCardLineGrid::columns(true, true, true)));
+        $this->assertLessThan(600, $totalWidth + 6 * 6, 'every column of the costed grid, with its gaps, fits the ~604px a laptop leaves the left panel');
 
         // the same grid-template-columns on the header, every saved line and the add rows (General and task buckets)
         $grid = RentalJobCardLineGrid::gridStyle(true, false, true);

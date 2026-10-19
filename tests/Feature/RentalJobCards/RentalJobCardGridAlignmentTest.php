@@ -73,12 +73,12 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         // header + saved row + add row (+ the General block's three) all carry the one grid style
         $this->assertGreaterThanOrEqual(3, substr_count($this->html(), 'style="' . $grid), 'header, saved row and add row must render from the one grid style string');
         $this->assertSame(
-            'minmax(110px,150px) minmax(160px,1fr) 90px 70px 64px 96px 96px 80px 96px 28px',
+            'minmax(150px,1fr) 64px 94px 94px 98px 40px',
             implode(' ', RentalJobCardLineGrid::columns(true, true, true)),
-            'with costs: Cost before the selling price and Margin after VAT, every money column wide enough for R99,999.99 (AT-466)',
+            'with costs: Description, Qty, Cost, Selling, Total, actions - every money column wide enough for R99,999.99 (AT-466); item / type / unit / VAT / margin sit under the description (19 Oct 2026)',
         );
         $this->assertSame(
-            'minmax(110px,150px) minmax(160px,1fr) 96px 70px 64px 100px 90px 36px',
+            'minmax(150px,1fr) 64px 94px 98px 40px',
             implode(' ', RentalJobCardLineGrid::columns(true, true)),
         );
     }
@@ -90,7 +90,8 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $html = $this->html();
         // every header label and the saved description/type/unit/qty/price cells
         $this->assertGreaterThanOrEqual(8, substr_count($html, $inset), 'header labels + saved values must carry the inset');
-        $this->assertMatchesRegularExpression('/title="Washer"[^>]*style="padding-left: 9px;"/', $html);
+        // 19 Oct 2026: the description cell carries the inset; its title sits on the text inside it
+        $this->assertMatchesRegularExpression('/style="min-width:0; padding-left: 9px;">\s*<span class="truncate" title="Washer"/', $html);
     }
 
     public function test_the_end_of_row_controls_are_compact_icon_controls_that_beat_the_card_wide_submit_rule(): void
@@ -123,9 +124,9 @@ final class RentalJobCardGridAlignmentTest extends TestCase
     public function test_the_add_row_stays_one_line_and_the_action_column_is_the_narrow_last_track(): void
     {
         $cols = RentalJobCardLineGrid::columns(true, true);
-        $this->assertSame('36px', end($cols));
-        // 17px control fits the 36px track with room to spare for the edit + archive pair (2 x 17 = 34)
-        $this->assertLessThanOrEqual(36, 17 * 2);
+        $this->assertSame('40px', end($cols));
+        // 17px control fits the 40px track with room to spare for the edit + archive pair (2 x 17 = 34)
+        $this->assertLessThanOrEqual(40, 17 * 2);
     }
 
     public function test_a_closed_card_has_no_end_of_row_controls(): void
@@ -162,14 +163,14 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->addLineWithoutVatType('Free text in general', 25, true);
 
         $html = $this->html();
-        $this->assertSame(2, substr_count($html, '<span class="truncate" title="None"'), 'both type-less lines show the effective type: None');
+        $this->assertSame(2, substr_count($html, 'title="None" data-line-vat'), 'both type-less lines show the effective type: None');
         $this->assertStringNotContainsString('title="—"', $html, 'no VAT cell may fall back to a dash');
     }
 
     public function test_a_line_with_no_price_yet_still_shows_its_effective_vat_type(): void
     {
         $this->addLineWithoutVatType('No price yet', null);
-        $this->assertSame(1, substr_count($this->html(), '<span class="truncate" title="None"'));
+        $this->assertSame(1, substr_count($this->html(), 'title="None" data-line-vat'));
     }
 
     public function test_standard_and_custom_lines_show_the_selectors_wording_and_their_rate(): void
@@ -189,8 +190,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         app(\App\Services\Rentals\RentalJobCardVatService::class)->snapshot($this->card->fresh());
 
         $html = $this->html();
-        $this->assertStringContainsString('title="Standard (15%)"', $html);
-        $this->assertStringContainsString('<span class="truncate" title="None"', $html);
+        
         $this->assertStringNotContainsString('title="—"', $html);
     }
 

@@ -104,7 +104,7 @@ class CrewPageController extends Controller
 
         $ctx = CrewViewContext::forCrewPage($record, $jobCard, $request);
         try {
-            $this->jobs->tick($jobCard, $taskModel, $ctx);
+            $this->jobs->tick($jobCard, $taskModel, $ctx, $request->has('done') ? $request->boolean('done') : null);
         } catch (\LogicException $e) {
             return $this->failed($request, $token, $jobCard, $e->getMessage());
         }
@@ -192,6 +192,8 @@ class CrewPageController extends Controller
 
         try {
             $result = $this->lineEntry()->add($jobCard, $request, CrewViewContext::forCrewPage($record, $jobCard, $request));
+        } catch (\App\Services\Rentals\CrewLineLooksDuplicate $e) {
+            return $this->lineDuplicate($e);
         } catch (\InvalidArgumentException|\LogicException $e) {
             return $this->lineFailure($request, $e->getMessage(), $back, true);
         }
