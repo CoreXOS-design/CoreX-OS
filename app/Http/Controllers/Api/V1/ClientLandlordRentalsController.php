@@ -12,7 +12,7 @@ use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderVariation;
 use App\Services\Rentals\RentalApprovalGateService;
 use App\Services\Rentals\StaleVariationRevision;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageService;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalFaultContractorService;
 use App\Services\Rentals\RentalFaultTypeService;
@@ -316,7 +316,8 @@ class ClientLandlordRentalsController extends Controller
         $faultReport = $this->faultReportService->reportOwnerRequest($propertyModel, $contact, $attributes, $data['comment'] ?? null);
 
         foreach ($request->file('photos', []) as $photo) {
-            $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
+            // D14 - a picture a tenant / owner sends is kept on the PRIVATE disk (stored as a `private:` ref), never at a public /storage address.
+            $path = app(PrivateImageService::class)->storeUpload($photo, $propertyModel->id);
             $faultReport->photos()->create([
                 'agency_id' => $contact->agency_id,
                 'storage_path' => $path,
@@ -474,7 +475,7 @@ class ClientLandlordRentalsController extends Controller
                 'total' => $l->line_total !== null ? (float) $l->line_total : null,
                 'note' => $l->crew_note,
             ])->values(),
-            'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
+            'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path, $p->imageGuards(), (int) $variation->agency_id))->values(),
             'term_text' => (string) $variation->term_text,
             // spec 22.17 - when the CONTRACTOR asked for the extra, their own words (amount and reason)
             'reason' => $variation->origin === \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR ? (string) $variation->note : null,
@@ -906,7 +907,7 @@ class ClientLandlordRentalsController extends Controller
                 'agency_service_provider_id' => $handledBy === 'list' ? ($data['agency_service_provider_id'] ?? null) : null,
             ]);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         // AT-452 (§19.12): whatever the owner wrote (the reason for a decline, or an optional note on an approval) is ALSO their comment to the agent -
@@ -1024,7 +1025,7 @@ class ClientLandlordRentalsController extends Controller
                 'evidence_text' => $data['note'] ?? null,
             ]);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         // Johan, 9 Oct 2026: the agent is told when the owner decides on the quote (before this nothing told them, so an approved work
@@ -1084,11 +1085,26 @@ class ClientLandlordRentalsController extends Controller
         } catch (StaleVariationRevision $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         $record->refresh();
 
         return response()->json(['variation' => ['id' => $record->id, 'status' => $record->status, 'revision' => (int) $record->revision]]);
+    }
+
+    /**
+     * The answer for a decision that could not be recorded. A rule the owner can act on (a LogicException - "not waiting for your decision any
+     * more", "give a reason") is told in its own words; anything else (a database or code fault) is logged for us and the owner is told only
+     * that it did not save, never the exception text (audit 2026-10-19 D11).
+     */
+    private function decisionFailure(\Throwable $e): JsonResponse
+    {
+        if ($e instanceof \LogicException) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        report($e);
+
+        return response()->json(['message' => 'That could not be saved. Please try again, or ask your agent.'], 500);
     }
 }

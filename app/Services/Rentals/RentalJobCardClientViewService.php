@@ -113,7 +113,8 @@ class RentalJobCardClientViewService
         return [
             'id' => $photo->id,
             // §23 - never the stored original: `url` is the capped full-view copy, `thumb_url` the small one every list / grid shows.
-            ...app(\App\Services\Images\PortalImageService::class)->urls($photo->storage_path),
+            // D14 - both are signed, expiring addresses that stop working when the photo / work order / job card is archived.
+            ...app(\App\Services\Images\PortalImageService::class)->urls($photo->storage_path, $photo->imageGuards(), (int) $photo->agency_id),
             'photo_type' => $photo->photo_type,
             'caption' => $photo->getAttribute('caption'),
             'uploaded_at' => $photo->created_at?->toIso8601String(),

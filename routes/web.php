@@ -90,6 +90,21 @@ Route::prefix('secure/completion/{token}')->middleware('throttle:30,1')->group(f
 });
 // BUILD 3 END
 
+// ── Private / portal pictures (public, no login) — security audit D14. The signed, expiring, encrypted token IS the capability; it dies when the picture's
+// fault / work order / job card is archived. Signature + token + guards are all checked in the controller so every failure is the same 404. ──
+Route::get('/private-image/{token}', [\App\Http\Controllers\PrivateImageController::class, 'show'])
+    ->middleware('throttle:120,1')->where('token', '[A-Za-z0-9_-]+')
+    // Cookie- and session-free (same recipe as the agent-card image above): a picture request starts no session row and sets no cookie,
+    // so a browser may cache it and a screen full of photos costs no database round-trips for sessions.
+    ->withoutMiddleware([
+        \Illuminate\Session\Middleware\StartSession::class,
+        \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+        \Illuminate\Cookie\Middleware\EncryptCookies::class,
+        \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+        \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+    ])
+    ->name('private-image.show');
+
 // ── Tenant/Landlord Portal web shell (public page, session auth via Alpine+fetch) — AT-445 ──
 // QA DEMO SIGN-IN (never on Staging/live): registers nothing unless APP_ENV=qa AND clientauth.demo_signin_enabled - .ai/specs/rental-portal-access.md
 \App\Support\PortalDemoSigninGate::registerRoutes();
@@ -3499,6 +3514,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/crew-link-auto-send-on-fault-job', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkAutoSendOnFaultJob'])->name('corex.settings.rental-portal.crew-link-auto-send-on-fault-job');
         Route::post('/tenant-sees-agent-marks', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateTenantSeesAgentMarks'])->name('corex.settings.rental-portal.tenant-sees-agent-marks');
         Route::post('/fault-photo-max-mb', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxMb'])->name('corex.settings.rental-portal.fault-photo-max-mb');
+        Route::post('/portal-remember-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePortalRememberDays'])->name('corex.settings.rental-portal.portal-remember-days');
+        Route::post('/portal-app-token-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePortalAppTokenDays'])->name('corex.settings.rental-portal.portal-app-token-days');
+        Route::post('/portal-api-per-minute', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePortalApiPerMinute'])->name('corex.settings.rental-portal.portal-api-per-minute');
+        Route::post('/portal-photo-link-minutes', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePortalPhotoLinkMinutes'])->name('corex.settings.rental-portal.portal-photo-link-minutes');
+        Route::post('/portal-link-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updatePortalLinkDays'])->name('corex.settings.rental-portal.portal-link-days');
         Route::post('/faq-texts', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaqTexts'])->name('corex.settings.rental-portal.faq-texts');
     });
     // .ai/specs/rental-property-tab.md §2/§8, Part 1 — agency-defined fields on

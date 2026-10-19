@@ -126,7 +126,8 @@ class CompletionResponseController extends Controller
             'reportedBy' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedBy($round, $workOrder) ?: 'the maintenance crew',
             'reportedOn' => $round->opened_at?->copy()->setTimezone($tz)->format('j M Y'),
             'answerBy' => $round->window_ends_at?->copy()->setTimezone($tz)->format('j M Y'),
-            'photos' => $view->photosForWorkOrder($workOrder)->map(fn (RentalWorkOrderPhoto $p) => ['url' => $p->storage_path])->all(),
+            // D14 - a signed, expiring address (dies if the photo or the work order is archived), never the permanent public file
+            'photos' => $view->photosForWorkOrder($workOrder)->map(fn (RentalWorkOrderPhoto $p) => ['url' => app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path, $p->imageGuards(), (int) $p->agency_id)['url']])->all(),
             'answered' => $round->responded_at ? [
                 'fixed' => $round->outcome === RentalWorkCompletionRound::OUTCOME_CONFIRMED,
                 'on' => $round->responded_at->copy()->setTimezone($tz)->format('j M Y'),

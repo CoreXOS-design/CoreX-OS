@@ -23,17 +23,25 @@ trait ResolvesPortalContact
         /** @var ClientUser $client */
         $client = $request->user();
 
-        $agencyId = $client->current_agency_id;
+        // The agency THIS sign-in (this token) works in - never another device's choice (audit 2026-10-19 D5).
+        $agencyId = $client->activeAgencyId();
         if (!$agencyId) {
             // A login created without an agency chosen (e.g. by the lease "send portal link") but linked to exactly ONE agency IS in that
             // agency: adopt it, exactly as the sign-in endpoints do. Without this every call answered 409 and the portal showed no tabs.
-            $agencies = app(ClientAuthService::class)->agenciesFor($client);
+            $auth = app(ClientAuthService::class);
+            $agencies = $auth->agenciesFor($client);
             $agencyId = $client->locked_to_agency_id ?: (count($agencies) === 1 ? $agencies[0]['id'] : null);
             if ($agencyId) {
-                $client->forceFill(['current_agency_id' => $agencyId])->save();
+                $client->chooseAgency((int) $agencyId);
             }
         }
         if (!$agencyId) {
+            // Not on any agency at all: a person whose address is on a tenancy but whom the agency has not given portal access to (audit 2026-10-19
+            // D1) lands here after confirming their email. Say so in plain words instead of asking them to choose from an empty list.
+            if (empty($agencies ?? app(ClientAuthService::class)->agenciesFor($client))) {
+                return response()->json(['message' => 'Your agency has not given you portal access yet. Please ask your agent to set it up for you.', 'code' => 'no_portal_access'], 403);
+            }
+
             return response()->json(['message' => 'Select an agency first.'], 409);
         }
 

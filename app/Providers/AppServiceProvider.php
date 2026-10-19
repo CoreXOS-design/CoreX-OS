@@ -1076,6 +1076,40 @@ class AppServiceProvider extends ServiceProvider
             return app(\App\Services\AgencyApi\AgencyApiKeyResolver::class)->resolveFromRequest($request);
         });
 
+        // Rental portal / client app API throttle (audit 2026-10-19 D10) - the whole /api/v1/client* surface had no limit at all, photo uploads
+        // included. One bucket per signed-in PERSON (a phone and a browser of one person share it), sized by the agency's own setting
+        // (portal_api_per_minute, default 120); an unauthenticated caller falls back to its address. Runs after client.auth, so the user is known.
+        \Illuminate\Support\Facades\RateLimiter::for('client-portal', function (\Illuminate\Http\Request $request) {
+            // Middleware order is not guaranteed to put authentication before the throttle, so the person is found from the bearer token here.
+            $user = $request->user();
+            $agencyId = null;
+            if (! $user instanceof \App\Models\ClientUser && $request->bearerToken()) {
+                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->bearerToken());
+                $holder = $token?->tokenable;
+                if ($holder instanceof \App\Models\ClientUser) {
+                    $user = $holder;
+                    $agencyId = $token->agency_id ? (int) $token->agency_id : null;
+                }
+            }
+            if ($user instanceof \App\Models\ClientUser) {
+                $agencyId ??= $user->activeAgencyId();
+                $perMinute = \App\Models\RentalPortalSetting::portalApiPerMinuteFor($agencyId);
+
+                return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by('client:' . $user->getKey());
+            }
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(\App\Models\RentalPortalSetting::DEFAULT_PORTAL_API_PER_MINUTE)->by('ip:' . $request->ip());
+        });
+
+        // Staff mobile API throttle (audit 2026-10-19 D10): generous - a phone syncing a property or a contact list is chatty - but finite, per
+        // signed-in staff user. Platform config (config/api.php), not an agency setting: it protects the platform, not one agency's rules.
+        \Illuminate\Support\Facades\RateLimiter::for('staff-api', function (\Illuminate\Http\Request $request) {
+            $user = $request->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(max(60, (int) config('api.staff_per_minute', 600)))
+                ->by($user ? 'staff:' . $user->getAuthIdentifier() : 'ip:' . $request->ip());
+        });
+
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();
             $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;

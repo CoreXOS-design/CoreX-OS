@@ -57,6 +57,25 @@ class RentalPortalSetting extends Model
     public const DEFAULT_FAULT_RECURRENCE_WINDOW_DAYS = 90;
     public const MAX_FAULT_RECURRENCE_WINDOW_DAYS = 730;
 
+    // Portal security timings and limits (audit 2026-10-19). Each is an agency setting; a blank column resolves to the default.
+    /** D12 - how long a browser remembers a portal sign-in. rental-portal-access.md section 28.5 / audit A-L1: absolute 7 days. */
+    public const DEFAULT_PORTAL_REMEMBER_DAYS = 7;
+    public const MAX_PORTAL_REMEMBER_DAYS = 30;
+    /** D4 - the phone app stays signed in this many days after its LAST use (renewed on use). client-auth.md: 30 days, sliding. */
+    public const DEFAULT_PORTAL_APP_TOKEN_DAYS = 30;
+    public const MAX_PORTAL_APP_TOKEN_DAYS = 90;
+    /** D10 - requests per minute one signed-in portal person may make (the picture uploads count too). */
+    public const DEFAULT_PORTAL_API_PER_MINUTE = 120;
+    public const MIN_PORTAL_API_PER_MINUTE = 30;
+    public const MAX_PORTAL_API_PER_MINUTE = 1000;
+    /** D14 - how long a picture link handed to the portal keeps working. The portal asks again every time a page loads. */
+    public const DEFAULT_PORTAL_PHOTO_LINK_MINUTES = 120;
+    public const MIN_PORTAL_PHOTO_LINK_MINUTES = 5;
+    public const MAX_PORTAL_PHOTO_LINK_MINUTES = 1440;
+    /** D8 - how long the signed reference inside a portal email link is recognised (it only pre-fills the sign-in and shows the agency's header). */
+    public const DEFAULT_PORTAL_LINK_DAYS = 60;
+    public const MAX_PORTAL_LINK_DAYS = 365;
+
     /**
      * §22 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
      * {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. A piece in [[double brackets]] is dropped whole when any
@@ -106,6 +125,7 @@ class RentalPortalSetting extends Model
         'tenant_sees_agent_marks',
         'crew_link_auto_send_on_fault_job',
         'fault_recurrence_window_days',
+        'portal_remember_days', 'portal_app_token_days', 'portal_api_per_minute', 'portal_photo_link_minutes', 'portal_link_days',
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
         'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
@@ -132,6 +152,11 @@ class RentalPortalSetting extends Model
         'tenant_sees_agent_marks' => 'boolean',
         'crew_link_auto_send_on_fault_job' => 'boolean',
         'fault_recurrence_window_days' => 'integer',
+        'portal_remember_days' => 'integer',
+        'portal_app_token_days' => 'integer',
+        'portal_api_per_minute' => 'integer',
+        'portal_photo_link_minutes' => 'integer',
+        'portal_link_days' => 'integer',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -305,6 +330,45 @@ class RentalPortalSetting extends Model
         $n = $value !== null ? (int) $value : self::DEFAULT_FAULT_RECURRENCE_WINDOW_DAYS;
 
         return max(1, min(self::MAX_FAULT_RECURRENCE_WINDOW_DAYS, $n));
+    }
+
+    /** The saved whole number for one bounded setting column, else its default, clamped to [min, max]. */
+    private static function boundedIntFor(?int $agencyId, string $column, int $default, int $min, int $max): int
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value($column) : null;
+        $n = $value !== null ? (int) $value : $default;
+
+        return max($min, min($max, $n));
+    }
+
+    /** D12 - days a browser remembers a portal sign-in (1-30, default 7). */
+    public static function portalRememberDaysFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'portal_remember_days', self::DEFAULT_PORTAL_REMEMBER_DAYS, 1, self::MAX_PORTAL_REMEMBER_DAYS);
+    }
+
+    /** D4 - days the phone app stays signed in after its last use (1-90, default 30). */
+    public static function portalAppTokenDaysFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'portal_app_token_days', self::DEFAULT_PORTAL_APP_TOKEN_DAYS, 1, self::MAX_PORTAL_APP_TOKEN_DAYS);
+    }
+
+    /** D10 - portal requests per minute per signed-in person (30-1000, default 120). */
+    public static function portalApiPerMinuteFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'portal_api_per_minute', self::DEFAULT_PORTAL_API_PER_MINUTE, self::MIN_PORTAL_API_PER_MINUTE, self::MAX_PORTAL_API_PER_MINUTE);
+    }
+
+    /** D14 - minutes a picture link shown in the portal keeps working (5-1440, default 120). */
+    public static function portalPhotoLinkMinutesFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'portal_photo_link_minutes', self::DEFAULT_PORTAL_PHOTO_LINK_MINUTES, self::MIN_PORTAL_PHOTO_LINK_MINUTES, self::MAX_PORTAL_PHOTO_LINK_MINUTES);
+    }
+
+    /** D8 - days the signed reference in a portal email link is recognised (1-365, default 60). */
+    public static function portalLinkDaysFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'portal_link_days', self::DEFAULT_PORTAL_LINK_DAYS, 1, self::MAX_PORTAL_LINK_DAYS);
     }
 
     /** One FAQ wording (a question or an answer): the agency's own text when saved and not blank, else the default. */

@@ -104,7 +104,7 @@ class MobileRentalJobCardController extends Controller
                 'id' => $l->id, 'description' => $l->description, 'type' => $l->type,
                 'quantity' => $l->quantity, 'unit' => $l->unit, 'unit_price' => $l->unit_price, 'line_total' => $l->line_total,
             ]),
-            'photos' => $jobCard->workOrder?->photos->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path, 'type' => $p->photo_type]),
+            'photos' => $jobCard->workOrder?->photos->map(fn ($p) => ['id' => $p->id, 'url' => $p->displayUrl(), 'type' => $p->photo_type]),
         ];
     }
 }

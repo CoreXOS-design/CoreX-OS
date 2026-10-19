@@ -174,7 +174,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 
     // Client sanctum token only
-    Route::middleware(['client.auth', 'client.ability', 'portal.same-login'])->group(function () {
+    Route::middleware(['client.auth', 'client.ability', 'throttle:client-portal', 'portal.same-login'])->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
@@ -182,7 +182,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 });
 
-Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability'])->group(function () {
+Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability', 'throttle:client-portal'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
@@ -479,7 +479,7 @@ Route::prefix('v1/webinars')
 // already-issued token immediately once revoked. The one exception is the
 // delete-account route itself, opted out below so it stays reachable and
 // idempotent even after access is already off. Spec: .ai/specs/mobile-app-access.md §4.3
-Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
+Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(function () {
 
     // ─────────────────────────────────────────────────────────────
     // Canonical /api/v1/* surface
@@ -1086,9 +1086,5 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
 
     Route::post('/device-tokens',           [DeviceTokenController::class, 'store'])->name('legacy.device-tokens.store');
     Route::delete('/device-tokens/{token}', [DeviceTokenController::class, 'destroy'])->name('legacy.device-tokens.destroy');
-
-    // LEGACY: remove after 2026-08-21
-    Route::get('/me/agent-qr', [\App\Http\Controllers\Api\V1\AgentQrController::class, 'mine'])
-        ->name('legacy.me.agent-qr');
 });
 

@@ -244,7 +244,7 @@ class ClientSellerInsightsController extends Controller
         /** @var ClientUser $client */
         $client = $request->user();
 
-        $agencyId = $client->current_agency_id;
+        $agencyId = $client->activeAgencyId();   // this sign-in's own agency (audit 2026-10-19 D5)
         if (!$agencyId) {
             return response()->json(['message' => 'Select an agency first.'], 409);
         }

@@ -105,14 +105,43 @@ class ClientAuthService
             }
         }
 
-        // Lazy-link any matching contacts (across all agencies).
+        // Lazy-link any matching contacts (across all agencies) - EXCEPT a contact that is a party to a tenancy (a lease tenant, or an owner of a
+        // let property). Proving an email code only proves control of that mailbox; for a buyer or seller that is the long-standing way in, but a
+        // tenant's or owner's lease, faults and documents are opened by the AGENCY, never by a typed address (audit 2026-10-19 D1: an address an
+        // agent mistyped on a contact must not give the real owner of that mailbox somebody else's tenancy). Rental access is therefore only ever
+        // given by RentalPortalAccessService::attach (the lease screen / lease signing), which carries the same-person rule and an audit row.
         foreach ($matches['contacts'] as $contact) {
             if (!$contact->client_user_id) {
+                if ($this->isRentalParty($contact)) {
+                    $this->log($clientUser, (int) $contact->agency_id, (int) $contact->id, 'contact_link_withheld', request(), ['reason' => 'rental_party_needs_agency_grant']);
+                    continue;
+                }
                 $contact->forceFill(['client_user_id' => $clientUser->id])->saveQuietly();
             }
         }
 
         return $clientUser;
+    }
+
+    /**
+     * Is this contact a party to a tenancy: a tenant on a live lease, or a landlord / lessor of a property? Only the agency may open the portal
+     * for such a person (see findOrCreateClientUser). Agency scope is stripped because this runs before any agency is chosen.
+     */
+    public function isRentalParty(Contact $contact): bool
+    {
+        $isTenant = \App\Models\LeaseTenant::withoutGlobalScopes()
+            ->where('contact_id', $contact->id)
+            ->whereIn('lease_id', \App\Models\Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('agency_id', $contact->agency_id)->select('id'))
+            ->exists();
+        if ($isTenant) {
+            return true;
+        }
+
+        return \Illuminate\Support\Facades\DB::table('contact_property')
+            ->where('contact_id', $contact->id)
+            ->whereIn('role', ['landlord', 'lessor'])
+            ->whereNull('deleted_at')
+            ->exists();
     }
 
     /**
@@ -344,9 +373,14 @@ class ClientAuthService
             ->first();
     }
 
-    public function issueSanctumToken(ClientUser $clientUser, string $deviceName, ?Carbon $expiresAt = null): string
+    /**
+     * A long-lived (phone app) token. It lasts `portal_app_token_days` (an agency setting, default 30) from its LAST use - the renewal is done
+     * by App\Http\Middleware\RenewClientToken - and it remembers the agency it was issued for (audit 2026-10-19 D4 / D5).
+     */
+    public function issueSanctumToken(ClientUser $clientUser, string $deviceName, ?Carbon $expiresAt = null, ?int $agencyId = null): string
     {
-        $expiresAt ??= now()->addDays((int) config('clientauth.token.expires_in_days', 30));
+        $agencyId ??= $this->defaultAgencyIdFor($clientUser);
+        $expiresAt ??= now()->addDays(\App\Models\RentalPortalSetting::portalAppTokenDaysFor($agencyId));
 
         $token = $clientUser->createToken(
             $deviceName ?: config('clientauth.token.name_default', 'CoreX Client App'),
@@ -354,7 +388,39 @@ class ClientAuthService
             $expiresAt
         );
 
+        $this->stampTokenAgency($token->accessToken, $agencyId);
+
         return $token->plainTextToken;
+    }
+
+    /** The agency a token issued right now belongs to: locked > the login's current choice > the only agency the person is on > none. */
+    public function defaultAgencyIdFor(ClientUser $clientUser): ?int
+    {
+        if ($clientUser->locked_to_agency_id) {
+            return (int) $clientUser->locked_to_agency_id;
+        }
+        if ($clientUser->current_agency_id) {
+            return (int) $clientUser->current_agency_id;
+        }
+        $agencies = $this->agenciesFor($clientUser);
+
+        return count($agencies) === 1 ? (int) $agencies[0]['id'] : null;
+    }
+
+    /** Same, for a token known only by the plain text a client was handed ("id|secret"). No-op for null / unknown tokens. */
+    public function stampPlainToken(?string $plainToken, ?int $agencyId): void
+    {
+        if ($plainToken && $agencyId) {
+            $this->stampTokenAgency(\Laravel\Sanctum\PersonalAccessToken::findToken($plainToken), $agencyId);
+        }
+    }
+
+    /** Record on a token (a PersonalAccessToken, or the NewAccessToken's) the agency it works in. No-op for null. */
+    public function stampTokenAgency(?\Laravel\Sanctum\PersonalAccessToken $token, ?int $agencyId): void
+    {
+        if ($token && $agencyId) {
+            $token->forceFill(['agency_id' => $agencyId])->save();
+        }
     }
 
     public function issueActivationToken(ClientUser $clientUser): string

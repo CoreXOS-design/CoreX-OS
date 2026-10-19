@@ -157,13 +157,13 @@
                         <div class="grid grid-cols-4 gap-2">
                             @foreach($jcFaultPhotos as $photo)
                                 <div>
-                                    <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                                    <a href="{{ $photo->displayUrl() }}" target="_blank"><img src="{{ $photo->displayUrl() }}" class="rounded-md w-full h-24 object-cover"></a>
                                     <span class="text-xs" style="color: var(--text-muted);">Fault report</span>
                                 </div>
                             @endforeach
                             @foreach($jcPhotos as $photo)
                                 <div>
-                                    <a href="{{ $photo->storage_path }}" target="_blank"><img src="{{ $photo->storage_path }}" class="rounded-md w-full h-24 object-cover"></a>
+                                    <a href="{{ $photo->displayUrl() }}" target="_blank"><img src="{{ $photo->displayUrl() }}" class="rounded-md w-full h-24 object-cover"></a>
                                     <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}</span>
                                 </div>
                             @endforeach

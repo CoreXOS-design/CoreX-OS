@@ -200,6 +200,55 @@
         </div>
     </div>
 
+    {{-- Sign-in and security (audit 2026-10-19). --}}
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Portal sign-in and security</h3>
+        </div>
+        <div class="p-5 space-y-5">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-remember-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Remember a sign-in on a browser (days)</label>
+                <input type="number" name="portal_remember_days" value="{{ old('portal_remember_days', $portalRememberDays) }}"
+                       min="1" max="30" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">After a tenant or owner signs in on a browser, that browser opens their portal again without a password for this many days. Counted from the real sign-in, so using the portal does not extend it. Default 7.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-app-token-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone app stays signed in (days)</label>
+                <input type="number" name="portal_app_token_days" value="{{ old('portal_app_token_days', $portalAppTokenDays) }}"
+                       min="1" max="90" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The phone app signs a person out after this many days without being used. Each use renews it. Default 30.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-api-per-minute') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Portal requests per minute</label>
+                <input type="number" name="portal_api_per_minute" value="{{ old('portal_api_per_minute', $portalApiPerMinute) }}"
+                       min="30" max="1000" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The most requests one signed-in tenant or owner can make in a minute, in total across the portal and the phone app. It protects the system from a runaway page or a script. Default 120.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-photo-link-minutes') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Picture links last (minutes)</label>
+                <input type="number" name="portal_photo_link_minutes" value="{{ old('portal_photo_link_minutes', $portalPhotoLinkMinutes) }}"
+                       min="5" max="1440" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Pictures in the portal are shown through links that stop working after this long and the moment the report is archived. The portal fetches fresh links every time a page loads. Default 120.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-link-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email links stay recognised (days)</label>
+                <input type="number" name="portal_link_days" value="{{ old('portal_link_days', $portalLinkDays) }}"
+                       min="1" max="365" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The personal link in a portal email carries a sealed reference that pre-fills the sign-in and shows your agency&rsquo;s header. After this many days the link still opens the portal, but the person simply signs in as normal. Default 60.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+        </div>
+    </div>
+
     {{-- §22 — fault photos. --}}
     <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
         <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">

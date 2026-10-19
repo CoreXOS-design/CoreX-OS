@@ -53,6 +53,12 @@ class RentalPortalSettingsController extends Controller
             'tenantSeesAgentMarks' => RentalPortalSetting::tenantSeesAgentMarksFor($agencyId),
             'crewLinkAutoSendOnFaultJob' => RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agencyId),
             'faultRecurrenceWindowDays' => RentalPortalSetting::faultRecurrenceWindowDaysFor($agencyId),
+            // Sign-in and security timings (audit 2026-10-19).
+            'portalRememberDays' => RentalPortalSetting::portalRememberDaysFor($agencyId),
+            'portalAppTokenDays' => RentalPortalSetting::portalAppTokenDaysFor($agencyId),
+            'portalApiPerMinute' => RentalPortalSetting::portalApiPerMinuteFor($agencyId),
+            'portalPhotoLinkMinutes' => RentalPortalSetting::portalPhotoLinkMinutesFor($agencyId),
+            'portalLinkDays' => RentalPortalSetting::portalLinkDaysFor($agencyId),
             'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
             'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
@@ -222,6 +228,36 @@ class RentalPortalSettingsController extends Controller
     public function updateFaultRecurrenceWindowDays(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'fault_recurrence_window_days', 1, RentalPortalSetting::MAX_FAULT_RECURRENCE_WINDOW_DAYS, 'Reported-before window');
+    }
+
+    /** D12 - days a browser remembers a portal sign-in. Absent or blank = leave alone (the wizard may post a subset). */
+    public function updatePortalRememberDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_remember_days', 1, RentalPortalSetting::MAX_PORTAL_REMEMBER_DAYS, 'Remember a sign-in on a browser (days)');
+    }
+
+    /** D4 - days the phone app stays signed in after its last use. Absent or blank = leave alone. */
+    public function updatePortalAppTokenDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_app_token_days', 1, RentalPortalSetting::MAX_PORTAL_APP_TOKEN_DAYS, 'Phone app stays signed in (days)');
+    }
+
+    /** D10 - portal requests per minute per signed-in person. Absent or blank = leave alone. */
+    public function updatePortalApiPerMinute(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_api_per_minute', RentalPortalSetting::MIN_PORTAL_API_PER_MINUTE, RentalPortalSetting::MAX_PORTAL_API_PER_MINUTE, 'Portal requests per minute');
+    }
+
+    /** D14 - minutes a picture link shown in the portal keeps working. Absent or blank = leave alone. */
+    public function updatePortalPhotoLinkMinutes(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_photo_link_minutes', RentalPortalSetting::MIN_PORTAL_PHOTO_LINK_MINUTES, RentalPortalSetting::MAX_PORTAL_PHOTO_LINK_MINUTES, 'Picture links last (minutes)');
+    }
+
+    /** D8 - days a personal link in a portal email stays recognised. Absent or blank = leave alone. */
+    public function updatePortalLinkDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_link_days', 1, RentalPortalSetting::MAX_PORTAL_LINK_DAYS, 'Email links stay recognised (days)');
     }
 
     /** AT-452 round 2 - the crew's job link is sent automatically when a job card is made from a fault decision. has()-guarded (onboarding §6.1). */

@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\V1\Concerns\ServesPortalDocuments;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageService;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalFaultTypeService;
@@ -293,7 +293,8 @@ class ClientTenantRentalsController extends Controller
             : $this->faultReportService->report($propertyModel, $attributes);
 
         foreach ($request->file('photos', []) as $photo) {
-            $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
+            // D14 - a picture a tenant / owner sends is kept on the PRIVATE disk (stored as a `private:` ref), never at a public /storage address.
+            $path = app(PrivateImageService::class)->storeUpload($photo, $propertyModel->id);
             $faultReport->photos()->create([
                 'agency_id' => $contact->agency_id,
                 'storage_path' => $path,
@@ -359,7 +360,8 @@ class ClientTenantRentalsController extends Controller
             return $contact;
         }
 
-        $order = $this->scope->tenantWorkOrder($contact, $workOrder);
+        // A write: only on a lease still in force (audit 2026-10-19 D17).
+        $order = $this->scope->tenantActionableWorkOrder($contact, $workOrder);
         if (!$order) {
             return response()->json(['message' => 'Work order not found.'], 404);
         }

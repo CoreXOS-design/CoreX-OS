@@ -851,7 +851,7 @@
                 @foreach($workOrder->photos as $photo)
                     <div>
                         {{-- AT-452 - opens in the shared viewer (a popup); a copy of a fault photo carries the agent's marks and note --}}
-                        <button type="button" data-open-wo-photo="{{ $loop->index }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in w-full"><img src="{{ $woViewerPhotos[$loop->index]['thumb_url'] ?? $photo->storage_path }}" alt="{{ $woViewerPhotos[$loop->index]['alt'] ?? 'Photo' }}" loading="lazy" class="rounded-md w-full h-24 object-cover"></button>
+                        <button type="button" data-open-wo-photo="{{ $loop->index }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in w-full"><img src="{{ $woViewerPhotos[$loop->index]['thumb_url'] ?? $photo->displayUrl() }}" alt="{{ $woViewerPhotos[$loop->index]['alt'] ?? 'Photo' }}" loading="lazy" class="rounded-md w-full h-24 object-cover"></button>
                         <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}</span>
                     </div>
                 @endforeach

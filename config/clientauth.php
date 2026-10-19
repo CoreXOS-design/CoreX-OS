@@ -40,6 +40,13 @@ return [
         'expires_in_days'   => 30,
     ],
 
+    // POST /client-auth/lookup throttles (audit 2026-10-19 D2). Platform limits: the call is anonymous, so there is no agency to read a setting from.
+    'lookup' => [
+        'per_minute_ip'  => (int) env('CLIENT_AUTH_LOOKUP_PER_MINUTE_IP', 10),
+        'per_hour_ip'    => (int) env('CLIENT_AUTH_LOOKUP_PER_HOUR_IP', 60),
+        'per_hour_email' => (int) env('CLIENT_AUTH_LOOKUP_PER_HOUR_EMAIL', 20),
+    ],
+
     // OTP rules
     'otp' => [
         'length'                => 6,

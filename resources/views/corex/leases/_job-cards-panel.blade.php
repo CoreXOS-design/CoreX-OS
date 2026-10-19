@@ -47,8 +47,8 @@
                 @else
                     <div class="flex flex-wrap gap-1.5" data-job-card-photos>
                         @foreach($cardPhotos->take(8) as $photo)
-                            <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener" title="{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}">
-                                <img src="{{ $photo->storage_path }}" alt="{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }} photo" class="rounded w-14 h-14 object-cover" loading="lazy">
+                            <a href="{{ $photo->displayUrl() }}" target="_blank" rel="noopener" title="{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}">
+                                <img src="{{ $photo->displayUrl() }}" alt="{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }} photo" class="rounded w-14 h-14 object-cover" loading="lazy">
                             </a>
                         @endforeach
                         @if($cardPhotos->count() > 8)

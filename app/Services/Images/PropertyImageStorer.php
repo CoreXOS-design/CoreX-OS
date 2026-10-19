@@ -31,8 +31,27 @@ class PropertyImageStorer
      */
     public function store(UploadedFile $file, int $propertyId): string
     {
-        $disk = Storage::disk('public');
-        $path = $file->store("properties/{$propertyId}", 'public');
+        $path = $this->storeOnDisk($file, "properties/{$propertyId}", 'public');
+
+        $url = Storage::url($path);
+
+        // Generate the small list-view thumbnail up front so the Properties
+        // grid/table never serves the full-resolution original. Best-effort:
+        // if it fails, list views fall back to the original (nothing breaks).
+        app(PropertyThumbnailService::class)->generateForUrl($url);
+
+        return $url;
+    }
+
+    /**
+     * The store-verify-orient-downscale-verify pipeline on any disk, returning the path RELATIVE to that disk.
+     * {@see self::store()} is this on the public disk (plus its thumbnail); PrivateImageService::storeUpload() is this on the
+     * private disk, so a portal upload and a staff upload can never drift on sizing, orientation or the "file really exists" check.
+     */
+    public function storeOnDisk(UploadedFile $file, string $directory, string $diskName): string
+    {
+        $disk = Storage::disk($diskName);
+        $path = $file->store($directory, $diskName);
         $this->assertStored($disk, $path, 'immediately after the initial write');
 
         // Bake EXIF orientation into the original before downscaling. downscale()
@@ -43,17 +62,10 @@ class PropertyImageStorer
         app(ImageOrientationNormalizer::class)
             ->normalizeInPlace($disk->path($path));
 
-        $this->downscale($path);
+        $this->downscale($path, $diskName);
         $this->assertStored($disk, $path, 'after downscale()');
 
-        $url = Storage::url($path);
-
-        // Generate the small list-view thumbnail up front so the Properties
-        // grid/table never serves the full-resolution original. Best-effort:
-        // if it fails, list views fall back to the original (nothing breaks).
-        app(PropertyThumbnailService::class)->generateForUrl($url);
-
-        return $url;
+        return $path;
     }
 
     /**
@@ -108,13 +120,13 @@ class PropertyImageStorer
      * file path/extension intact, overwriting in place. Failures are swallowed
      * so the upload still succeeds — the source file simply isn't resized.
      */
-    public function downscale(string $relativePath): void
+    public function downscale(string $relativePath, string $diskName = 'public'): void
     {
         if (!function_exists('imagecreatefromstring')) {
             return;
         }
 
-        $disk = Storage::disk('public');
+        $disk = Storage::disk($diskName);
         if (!$disk->exists($relativePath)) {
             return;
         }

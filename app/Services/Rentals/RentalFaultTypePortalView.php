@@ -48,8 +48,8 @@ class RentalFaultTypePortalView
             'first_aid_steps' => $this->renderer->renderFirstAidSteps($type, $property),
             // Where the valve / board are — only when the agent recorded a photo for this property.
             'photos' => array_values(array_filter([
-                $valve ? ['label' => 'Main water valve'] + app(PortalImageService::class)->urls($valve) : null,
-                $board ? ['label' => 'DB board'] + app(PortalImageService::class)->urls($board) : null,
+                $valve ? ['label' => 'Main water valve'] + app(PortalImageService::class)->urls($valve, [], (int) $property->agency_id) : null,
+                $board ? ['label' => 'DB board'] + app(PortalImageService::class)->urls($board, [], (int) $property->agency_id) : null,
             ])),
             'documents' => ($docs->get($type->id) ?? collect())->map(fn ($d) => $this->document($d))->filter()->values()->all(),
         ])->values()->all();
@@ -113,7 +113,7 @@ class RentalFaultTypePortalView
             return null;
         }
         // §23 - an image the agency attached is shown small in the panel and full-size only when opened.
-        $pair = $d->document_type === RentalFaultTypeDocument::TYPE_IMAGE ? app(PortalImageService::class)->urls($url) : ['url' => $url];
+        $pair = $d->document_type === RentalFaultTypeDocument::TYPE_IMAGE ? app(PortalImageService::class)->urls($url, [], (int) $d->agency_id) : ['url' => $url];
 
         return ['type' => $d->document_type, 'caption' => $d->caption] + $pair;
     }

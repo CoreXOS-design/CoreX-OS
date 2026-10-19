@@ -244,7 +244,10 @@ final class ClientWorkOrderViewTest extends TestCase
             $this->assertSame('disputed', $order['rounds'][0]['outcome']);
             $this->assertSame('Reported not complete', $order['rounds'][0]['outcome_label']);
             $this->assertSame('Still wet under the sink', $order['rounds'][0]['response_note']);
-            $this->assertSame([$disputePhoto->storage_path], array_column($order['rounds'][0]['photos'], 'url'), $who);
+            $roundUrls = array_column($order['rounds'][0]['photos'], 'url');
+            $this->assertCount(1, $roundUrls, $who);
+            $this->assertStringContainsString('/private-image/', $roundUrls[0], $who . ': D14 - a signed, expiring address, never the permanent file');
+            $this->assertStringNotContainsString($disputePhoto->storage_path, $roundUrls[0], $who);
             $this->assertSame('Not complete — reopened', $order['stage_label']);
         }
     }
