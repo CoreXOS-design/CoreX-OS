@@ -209,12 +209,13 @@ class RentalFaultReportService
                 'rental_fault_report.created',
                 $faultReport,
                 [
-                    'title' => \App\Support\RentalAlertTitle::withProperty($faultReport->isOwnerRequested() ? 'Work requested by the owner' : 'Fault reported', $property),
+                    'title' => \App\Support\RentalAlertTitle::withProperty($faultReport->isOwnerRequested() ? 'Work requested by the owner' : ($faultReport->isEmergencyType() ? 'EMERGENCY fault reported' : 'Fault reported'), $property),
                     'body' => $faultReport->isOwnerRequested() ? $faultReport->title . ' — arrange a contractor and a quote.' : $faultReport->title,
                     'action_url' => $faultReport->isOwnerRequested()
                         ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $faultReport->id, 'create_work_order' => 1])
                         : route('corex.rental-fault-reports.show', $faultReport->id),
-                    'severity' => 'info',
+                    // section 6.5 (C-C2): an emergency-type fault goes out at the elevated severity the dispatcher already carries ('warning'), whichever route it takes afterwards
+                    'severity' => $faultReport->isEmergencyType() ? 'warning' : 'info',
                     'threshold_hit_at' => now(),
                 ]
             );
