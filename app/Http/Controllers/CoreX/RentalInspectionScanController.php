@@ -67,21 +67,100 @@ class RentalInspectionScanController extends Controller
         $this->reader->process($scan->fresh());
         $scan->refresh();
 
-        // AT-463 — a form that belongs to ANOTHER inspection is refused outright: it is not filed against this one (that
-        // would put someone else's paperwork in this inspection's evidence trail) and nothing was read from it.
-        if ($scan->status === RentalInspectionScan::STATUS_FAILED
-            && $scan->decoded_inspection_id !== null
-            && $scan->decoded_inspection_id !== $rentalInspection->id) {
-            $otherId = $scan->decoded_inspection_id;
-            Storage::disk('local')->delete($scan->storage_path);
-            $scan->archive($request->user());
+        // §64 - uploads route by the form's own QR code, not by the page they were uploaded on: a scan that failed here may be
+        // the form of ANOTHER inspection (the agent started a newer one, or uploaded from the wrong tab). Its QR says which.
+        if ($scan->status === RentalInspectionScan::STATUS_FAILED) {
+            $owner = $this->reader->qrOwner($scan);
+            if ($owner !== null && $owner['rental_inspection_id'] !== $rentalInspection->id) {
+                return $this->fileOnOwner($request, $scan, $rentalInspection, $owner);
+            }
+        }
 
-            return redirect()->back()->with('error', "That form is for inspection #{$otherId}, not this one (#{$rentalInspection->id}). It was not saved here - upload it on its own inspection.");
+        if ($refused = $this->refuseWrongForm($request, $scan, $rentalInspection)) {
+            return $refused;
         }
 
         return redirect()
             ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])
             ->with('success', 'Scan uploaded.');
+    }
+
+    /**
+     * AT-463 - a form that belongs to ANOTHER inspection (and could not be filed there) is refused outright: it is not kept
+     * against this one (that would put someone else's paperwork in this inspection's evidence trail) and nothing was read.
+     */
+    private function refuseWrongForm(Request $request, RentalInspectionScan $scan, RentalInspection $on): ?RedirectResponse
+    {
+        if ($scan->status !== RentalInspectionScan::STATUS_FAILED
+            || $scan->decoded_inspection_id === null
+            || $scan->decoded_inspection_id === $on->id) {
+            return null;
+        }
+        $otherId = $scan->decoded_inspection_id;
+        Storage::disk('local')->delete($scan->storage_path);
+        $scan->archive($request->user());
+
+        return redirect()->back()->with('error', "That form is for inspection #{$otherId}, not this one (#{$on->id}). It was not saved here - upload it on its own inspection.");
+    }
+
+    /**
+     * §64 - the scan's own QR says inspection #X. If X is in this agency and the user may open it, the scan is filed against X
+     * and read there, and the agent is told so in plain words with a link back; never silently, never across agencies.
+     *
+     * @param array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int} $owner
+     */
+    private function fileOnOwner(Request $request, RentalInspectionScan $scan, RentalInspection $from, array $owner): RedirectResponse
+    {
+        $targetId = (int) $owner['rental_inspection_id'];
+        // Same agency only (the agency scope plus an explicit check) and an inspection that still exists.
+        $target = RentalInspection::query()->where('agency_id', $from->agency_id)->with('property')->find($targetId);
+        $allowed = false;
+        if ($target !== null) {
+            try {
+                $this->guardRentalRecordScope($target, 'rental_inspections', $target->property?->branch_id);
+                $allowed = true;
+            } catch (\Symfony\Component\HttpKernel\Exception\HttpException) {
+                // not theirs to open: handled as "cannot file it there" below
+            }
+        }
+        if (! $allowed) {
+            Storage::disk('local')->delete($scan->storage_path);
+            $scan->archive($request->user());
+
+            return redirect()->back()->with('error', "That form's own code says inspection #{$targetId}, which you cannot open here, so it was not saved. Upload it on the inspection it was printed from.");
+        }
+
+        $newPath = $scan->storage_path;
+        $wanted = "properties/{$target->property_id}/rental-inspection-scans/" . basename($scan->storage_path);
+        if ($wanted !== $scan->storage_path && Storage::disk('local')->move($scan->storage_path, $wanted)) {
+            $newPath = $wanted;
+        }
+        $scan->forceFill([
+            'agency_id' => $target->agency_id,
+            'branch_id' => $target->property?->branch_id,
+            'rental_inspection_id' => $target->id,
+            'rental_inspection_form_id' => null,
+            'storage_path' => $newPath,
+            'status' => RentalInspectionScan::STATUS_PROCESSING,
+            'failure_reason' => null,
+            'decoded_inspection_id' => null,
+            'decoded_form_version' => null,
+            'read_notes' => null,
+            'page_results' => null,
+        ])->save();
+
+        $this->reader->process($scan->fresh(), ["Uploaded on inspection #{$from->id}, but this form's own page code says inspection #{$target->id}, so it was filed and read here - nothing was read against #{$from->id}."]);
+        $scan->refresh();
+
+        // Pages of more than one inspection in one upload: still refused whole, as always.
+        if ($refused = $this->refuseWrongForm($request, $scan, $target)) {
+            return $refused;
+        }
+
+        return redirect()
+            ->route('corex.rental-inspections.scans.review', [$target, $scan])
+            ->with('success', 'Scan uploaded.')
+            ->with('scan_routed', ['from' => $from->id, 'to' => $target->id]);
     }
 
     /**

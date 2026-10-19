@@ -309,7 +309,18 @@ final class RentalInspectionSiteFormTest extends TestCase
         $this->assertCount(3, $itemsA);
     }
 
-    public function test_uploading_another_inspections_form_is_refused_and_nothing_is_kept(): void
+    // ── §64: an upload routes by the form's own QR, not by the page it was uploaded on ────────────
+
+    /** A page of $form with $items' ticks drawn, ready to upload. */
+    private function tickedUpload(\App\Models\RentalInspectionForm $form, \Illuminate\Support\Collection $items, string $name = 'form.png'): array
+    {
+        $expected = $this->expectedMap($items, $form->manifest_json);
+        $page = $this->inkedPage($form->manifest_json, $expected, Storage::disk('local')->path($form->pdf_storage_path), 1);
+
+        return [$this->png($page, $name), $expected];
+    }
+
+    public function test_a_form_uploaded_on_the_wrong_inspection_is_filed_and_read_on_the_one_its_code_names(): void
     {
         $this->addItems($this->property, 'Bedroom 1', 3);
         $inspectionA = $this->inspectionFor($this->property);
@@ -319,18 +330,158 @@ final class RentalInspectionSiteFormTest extends TestCase
         $itemsB = $this->addItems($propertyB, 'Lounge', 3);
         $inspectionB = $this->inspectionFor($propertyB);
         $formB = app(RentalInspectionFormPdfService::class)->generate($inspectionB, $this->agent);
-        $page = $this->inkedPage($formB->manifest_json, $this->expectedMap($itemsB, $formB->manifest_json), Storage::disk('local')->path($formB->pdf_storage_path), 1);
+        [$upload, $expected] = $this->tickedUpload($formB, $itemsB, 'for-b.png');
 
-        $response = $this->actingAs($this->agent)->from('/back')->post(
-            route('corex.rental-inspections.scans.store', $inspectionA),
-            ['scan' => $this->png($page, 'wrong.png')]
-        );
+        $response = $this->actingAs($this->agent)->from('/back')->post(route('corex.rental-inspections.scans.store', $inspectionA), ['scan' => $upload]);
+
+        $this->assertSame(0, RentalInspectionScan::where('rental_inspection_id', $inspectionA->id)->count(), 'the form was kept against the inspection it was uploaded on');
+        $scan = RentalInspectionScan::where('rental_inspection_id', $inspectionB->id)->firstOrFail();
+        $response->assertRedirect(route('corex.rental-inspections.scans.review', [$inspectionB, $scan]));
+        $response->assertSessionHas('scan_routed', ['from' => $inspectionA->id, 'to' => $inspectionB->id]);
+        $this->assertAssertedRead($scan, $itemsB, $expected);
+        $this->assertStringContainsString("#{$inspectionB->id}", (string) ($scan->read_notes[0] ?? ''), 'the scan itself does not say it was filed here by its code');
+        $this->assertStringContainsString("#{$inspectionA->id}", (string) ($scan->read_notes[0] ?? ''));
+        $this->assertContains($scan->storage_path, Storage::disk('local')->allFiles("properties/{$propertyB->id}/rental-inspection-scans"), 'the file did not follow the scan to the other inspection\'s property');
+        $this->assertSame([], Storage::disk('local')->allFiles("properties/{$inspectionA->property_id}/rental-inspection-scans"));
+
+        // The agent is told, in plain words, with a link either way.
+        $page = $this->actingAs($this->agent)->withSession(['scan_routed' => ['from' => $inspectionA->id, 'to' => $inspectionB->id]])
+            ->get(route('corex.rental-inspections.scans.review', [$inspectionB, $scan]));
+        $page->assertOk()->assertSee('data-qa="scan-routed-banner"', false)
+            ->assertSee("This was the form for inspection #{$inspectionB->id}", false)
+            ->assertSee(route('corex.rental-inspections.show', $inspectionB), false)
+            ->assertSee(route('corex.rental-inspections.show', $inspectionA), false);
+    }
+
+    public function test_johans_case_the_form_of_one_inspection_uploaded_on_a_newer_one_with_no_printed_form_reads_on_the_form_it_came_from(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 4);
+        $earlier = $this->inspectionFor($this->property);
+        $form = app(RentalInspectionFormPdfService::class)->generate($earlier, $this->agent);
+        // A newer inspection stacked on the first (the property page's "upload completed form" now points at THIS one) that was
+        // never printed.
+        $newer = RentalInspection::startNext($earlier, RentalInspection::TYPE_OUT, $this->agent);
+        $this->assertNull(\App\Models\RentalInspectionForm::currentFor($newer->id)->first());
+        [$upload, $expected] = $this->tickedUpload($form, $items, 'ricoh.png');
+
+        $response = $this->actingAs($this->agent)->post(route('corex.rental-inspections.scans.store', $newer), ['scan' => $upload]);
+
+        $this->assertSame(0, RentalInspectionScan::where('rental_inspection_id', $newer->id)->count());
+        $scan = RentalInspectionScan::where('rental_inspection_id', $earlier->id)->firstOrFail();
+        $response->assertRedirect(route('corex.rental-inspections.scans.review', [$earlier, $scan]));
+        $this->assertAssertedRead($scan, $items, $expected);
+        $this->assertSame($earlier->id, $scan->decoded_inspection_id);
+    }
+
+    public function test_a_form_uploaded_on_its_own_inspection_is_not_moved_or_announced(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 3);
+        $inspection = $this->inspectionFor($this->property);
+        $form = app(RentalInspectionFormPdfService::class)->generate($inspection, $this->agent);
+        [$upload] = $this->tickedUpload($form, $items);
+
+        $response = $this->actingAs($this->agent)->post(route('corex.rental-inspections.scans.store', $inspection), ['scan' => $upload]);
+
+        $scan = RentalInspectionScan::where('rental_inspection_id', $inspection->id)->firstOrFail();
+        $response->assertRedirect(route('corex.rental-inspections.scans.review', [$inspection, $scan]));
+        $response->assertSessionMissing('scan_routed');
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->status);
+        $this->assertSame([], array_values(array_filter($scan->read_notes ?? [], fn ($n) => str_contains((string) $n, 'filed and read here'))));
+    }
+
+    public function test_a_form_from_another_agency_is_never_filed_or_read_anywhere(): void
+    {
+        $this->addItems($this->property, 'Bedroom 1', 3);
+        $inspection = $this->inspectionFor($this->property);
+        app(RentalInspectionFormPdfService::class)->generate($inspection, $this->agent);
+
+        // Another agency's inspection and printed form (made while signed in as that agency).
+        $agency2 = Agency::create(['name' => 'Cape Rentals', 'slug' => 'cape-' . uniqid()]);
+        $branch2 = Branch::forceCreate(['name' => 'Main', 'agency_id' => $agency2->id]);
+        $user2 = User::factory()->create(['agency_id' => $agency2->id, 'branch_id' => $branch2->id, 'role' => 'admin']);
+        $this->actingAs($user2);
+        $property2 = Property::forceCreate(['agency_id' => $agency2->id, 'agent_id' => $user2->id, 'branch_id' => $branch2->id, 'title' => 'Cape property', 'status' => 'active', 'listing_type' => 'rental']);
+        Lease::create(['agency_id' => $agency2->id, 'branch_id' => $branch2->id, 'property_id' => $property2->id, 'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9000, 'start_date' => now(), 'created_by_user_id' => $user2->id]);
+        $room2 = PropertyRoom::create(['agency_id' => $agency2->id, 'property_id' => $property2->id, 'type' => 'Bedroom', 'label' => 'Room', 'source' => 'manual', 'created_by_user_id' => $user2->id]);
+        foreach ([1, 2, 3] as $i) {
+            RentalInspectionItem::create(['agency_id' => $agency2->id, 'property_id' => $property2->id, 'property_room_id' => $room2->id, 'kind' => RentalInspectionItem::KIND_SPACE, 'label' => "Cape item {$i}", 'space_type' => 'Bedroom', 'source' => 'manual', 'sort_order' => $i, 'created_by_user_id' => $user2->id]);
+        }
+        $inspection2 = RentalInspection::start($property2, RentalInspection::TYPE_IN, $user2);
+        $form2 = app(RentalInspectionFormPdfService::class)->generate($inspection2, $user2);
+        $items2 = RentalInspectionItem::withoutGlobalScopes()->where('property_room_id', $room2->id)->orderBy('sort_order')->get();
+        // The agency context stamps rows with the signed-in agency of the request; pin the other agency's rows to it.
+        foreach (['rental_inspections' => 'id', 'rental_inspection_forms' => 'rental_inspection_id'] as $table => $col) {
+            \Illuminate\Support\Facades\DB::table($table)->where($col, $inspection2->id)->update(['agency_id' => $agency2->id]);
+        }
+        [$upload] = $this->tickedUpload($form2, $items2, 'cape.png');
+        $this->actingAs($this->agent);
+
+        $response = $this->actingAs($this->agent)->from('/back')->post(route('corex.rental-inspections.scans.store', $inspection), ['scan' => $upload]);
 
         $response->assertRedirect('/back');
         $response->assertSessionHas('error');
-        $this->assertStringContainsString("#{$inspectionB->id}", (string) session('error'));
-        $this->assertSame(0, RentalInspectionScan::where('rental_inspection_id', $inspectionA->id)->count(), 'the wrong form was filed against this inspection');
-        $this->assertSame([], Storage::disk('local')->allFiles("properties/{$inspectionA->property_id}/rental-inspection-scans"), 'the wrong form\'s file was kept');
+        $this->assertStringContainsString("#{$inspection2->id}", (string) session('error'));
+        $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->whereNull('deleted_at')->count(), 'a live scan row was kept for another agency\'s form');
+        $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->withTrashed()->where('rental_inspection_id', $inspection2->id)->count(), 'the form was filed against the other agency\'s inspection');
+        $this->assertSame([], Storage::disk('local')->allFiles("properties/{$inspection->property_id}/rental-inspection-scans"));
+        $this->assertSame([], Storage::disk('local')->allFiles("properties/{$property2->id}/rental-inspection-scans"));
+    }
+
+    public function test_a_form_for_an_inspection_the_user_may_not_open_is_not_filed_there(): void
+    {
+        // An own-records-only agent: they may upload on their own inspection, but cannot be made to file onto a colleague's.
+        \App\Models\Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agency->id]);
+        foreach (['rental_inspections.view', 'rental_inspections.create'] as $key) {
+            \App\Models\RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
+        \App\Services\PermissionService::clearCache();
+        $own = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+
+        $this->addItems($this->property, 'Bedroom 1', 3);
+        $mine = RentalInspection::start($this->property, RentalInspection::TYPE_IN, $own);
+        app(RentalInspectionFormPdfService::class)->generate($mine, $own);
+
+        [$propertyB] = $this->propertyWithLease('Colleague Property');
+        $itemsB = $this->addItems($propertyB, 'Lounge', 3);
+        $theirs = $this->inspectionFor($propertyB);   // made by the admin, not by $own
+        $formB = app(RentalInspectionFormPdfService::class)->generate($theirs, $this->agent);
+        [$upload] = $this->tickedUpload($formB, $itemsB, 'colleague.png');
+
+        $response = $this->actingAs($own)->from('/back')->post(route('corex.rental-inspections.scans.store', $mine), ['scan' => $upload]);
+
+        $response->assertRedirect('/back');
+        $response->assertSessionHas('error');
+        $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->whereNull('deleted_at')->count());
+        $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->withTrashed()->where('rental_inspection_id', $theirs->id)->count());
+    }
+
+    public function test_a_scan_with_no_readable_code_stays_on_the_inspection_and_the_no_form_message_says_what_to_do(): void
+    {
+        $this->addItems($this->property, 'Bedroom 1', 3);
+        $earlier = $this->inspectionFor($this->property);
+        app(RentalInspectionFormPdfService::class)->generate($earlier, $this->agent);
+        $newer = RentalInspection::startNext($earlier, RentalInspection::TYPE_OUT, $this->agent);
+
+        $blank = new Imagick();
+        $blank->newImage(1654, 2339, new ImagickPixel('white'), 'png');
+        $response = $this->actingAs($this->agent)->post(route('corex.rental-inspections.scans.store', $newer), ['scan' => $this->png($blank, 'blank.png')]);
+
+        $scan = RentalInspectionScan::where('rental_inspection_id', $newer->id)->firstOrFail();
+        $response->assertRedirect(route('corex.rental-inspections.scans.review', [$newer, $scan]));
+        $this->assertSame(RentalInspectionScan::STATUS_FAILED, $scan->status);
+        $this->assertStringContainsString('Print the site form from this inspection', (string) $scan->failure_reason);
+        $this->assertStringContainsString('upload the scan on the inspection the form was printed from', (string) $scan->failure_reason);
+        $this->assertSame(0, RentalInspectionScan::where('rental_inspection_id', $earlier->id)->count());
+    }
+
+    private function assertAssertedRead(RentalInspectionScan $scan, \Illuminate\Support\Collection $items, array $expected): void
+    {
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->status, (string) $scan->failure_reason);
+        foreach ($items as $item) {
+            $mark = $scan->marks()->where('rental_inspection_item_id', $item->id)->first();
+            $this->assertNotNull($mark, "no mark row for item {$item->id}");
+            $this->assertSame($expected[$item->id], $mark->detected_condition_key, "item {$item->id} read the wrong column");
+        }
     }
 
     // ── Pages are placed by their own page number; missing pages are said so ─────────────────────

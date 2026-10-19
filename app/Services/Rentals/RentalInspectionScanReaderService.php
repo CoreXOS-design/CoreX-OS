@@ -72,8 +72,11 @@ class RentalInspectionScanReaderService
      * RentalInspectionScanMark per item. Never applies anything to the
      * inspection itself — that only happens once a human confirms
      * (applyMark()/applyAll() below).
+     *
+     * @param list<string> $leadNotes plain-words notes shown first on the review screen (e.g. that the upload was filed here
+     *                                because its own form code says so, §64)
      */
-    public function process(RentalInspectionScan $scan): void
+    public function process(RentalInspectionScan $scan, array $leadNotes = []): void
     {
         // 2026-09-22, Johan — checked ONCE, here, at the entry point, not
         // scattered through rasterize()'s internals. Without this, a missing
@@ -120,7 +123,7 @@ class RentalInspectionScanReaderService
         $allForms = RentalInspectionForm::currentFor($scan->rental_inspection_id)->get();
         $currentForm = $allForms->first();
         if (! $currentForm) {
-            $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'No printable form has ever been generated for this inspection to match against.'])->save();
+            $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'The site form has not been printed from this inspection, and no page code (QR) on this scan could be read to say which inspection it belongs to. Print the site form from this inspection and mark that one, or upload the scan on the inspection the form was printed from.'])->save();
 
             return;
         }
@@ -136,7 +139,7 @@ class RentalInspectionScanReaderService
         // settles which way up it is and says which inspection and page it is; a page whose QR cannot be read falls back to
         // the printed OMR grid. Every page gets a plain-words result - what was found, or exactly why it could not be read -
         // which the review screen shows.
-        $notes = [];
+        $notes = $leadNotes;
         $results = [];   // file page => result row (spec §62)
         $read = [];      // form page number => ['canvas' => Imagick, 'file_page' => int, 'layout' => array]
         $firstIdentity = null;
@@ -320,6 +323,74 @@ class RentalInspectionScanReaderService
         ])->save();
 
         $this->process($scan->fresh());
+    }
+
+    /**
+     * Which inspection does this upload's own QR code say it belongs to? (spec §64 - uploads route by the form's code, not by
+     * the page they were uploaded on.) Needs no printed form on the inspection it was uploaded to: the QR sits at the same
+     * place on every form of a layout, so the page is placed with the geometry of this inspection's forms and, failing that,
+     * the agency's most recent distinct layouts. Only a QR that actually decodes counts - the printed page grid is never a
+     * reason to move a scan.
+     *
+     * @return array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int}|null the first page's code that reads, or null
+     */
+    public function qrOwner(RentalInspectionScan $scan): ?array
+    {
+        if (! extension_loaded('imagick')) {
+            return null;
+        }
+        try {
+            $pages = $this->rasterize(Storage::disk('local')->path($scan->storage_path), $scan->mime_type);
+        } catch (\Throwable) {
+            return null;
+        }
+        $geos = $this->templateGeometries($scan);
+        foreach (array_slice($pages, 0, 4, true) as $page) {
+            foreach ($geos as $geo) {
+                $qr = null;
+                $why = null;
+                $info = [];
+                $this->calibratePage($page, $geo, null, null, $qr, $why, $info);
+                if ($qr !== null && $qr['rental_inspection_id'] > 0) {
+                    return $qr;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Geometries to look for a QR with when the uploaded-to inspection's own form cannot be relied on: this inspection's
+     * printed layouts first, then the agency's newest distinct ones (at most four in all).
+     *
+     * @return list<array>
+     */
+    private function templateGeometries(RentalInspectionScan $scan): array
+    {
+        $forms = RentalInspectionForm::withoutGlobalScopes()->whereNull('deleted_at')
+            ->where('agency_id', $scan->agency_id)
+            ->orderByRaw('rental_inspection_id = ? desc', [$scan->rental_inspection_id])
+            ->orderByDesc('id')->limit(40)->get();
+        $geos = [];
+        $seen = [];
+        foreach ($forms as $form) {
+            $m = $form->manifest_json;
+            if (! is_array($m) || empty($m['qr_codes'][0])) {
+                continue;
+            }
+            $sig = md5(json_encode([$m['page_size']['key'] ?? null, $m['layout_version'] ?? 1, $m['safe_margin_mm'] ?? null, $m['fiducials'][0] ?? null, $m['qr_codes'][0]['x'] ?? null, $m['qr_codes'][0]['y'] ?? null]));
+            if (isset($seen[$sig])) {
+                continue;
+            }
+            $seen[$sig] = true;
+            $geos[] = $this->geometryFor($m);
+            if (count($geos) >= 4) {
+                break;
+            }
+        }
+
+        return $geos;
     }
 
     /** @return array<int, string> item id => the condition key currently recorded on the web inspection (append-only: the last one wins) */

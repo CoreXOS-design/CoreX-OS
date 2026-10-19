@@ -19,6 +19,17 @@
         <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
     @endif
 
+    {{-- §64 - the upload was made on another inspection; its own form code says this one, so it was filed and read here. --}}
+    @if(session('scan_routed'))
+        @php $routed = session('scan_routed'); @endphp
+        <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, var(--ds-blue, #0ea5e9) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-blue, #0ea5e9) 35%, transparent); color: var(--text-secondary);" data-qa="scan-routed-banner">
+            <span class="font-semibold">This was the form for inspection #{{ $routed['to'] }} - read here.</span>
+            You uploaded it on inspection #{{ $routed['from'] }}, but the form's own page code says #{{ $routed['to'] }}, so it was filed against #{{ $routed['to'] }} and nothing was read against #{{ $routed['from'] }}.
+            <a href="{{ route('corex.rental-inspections.show', $routed['to']) }}" class="underline" data-qa="routed-open-target">Open inspection #{{ $routed['to'] }}</a>
+            &middot; <a href="{{ route('corex.rental-inspections.show', $routed['from']) }}" class="underline" data-qa="routed-open-source">Back to #{{ $routed['from'] }}</a>
+        </div>
+    @endif
+
     <div class="flex items-center justify-between">
         <div>
             <h1 class="text-lg font-semibold">Review scan — {{ $scan->original_filename }}</h1>
