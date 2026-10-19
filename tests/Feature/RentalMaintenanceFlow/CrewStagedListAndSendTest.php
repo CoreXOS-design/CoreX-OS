@@ -73,7 +73,7 @@ final class CrewStagedListAndSendTest extends TestCase
             $this->assertStringContainsString('Basin trap', $body);
             $this->assertStringContainsString('Fit the trap', $body);
             $this->assertSame(2, substr_count($body, 'On your list — not sent yet'), 'both lines are still on the list after a refresh');
-            $this->assertStringContainsString('Add to list', $body);
+            $this->assertStringContainsString('Add new line', $body);
             $this->assertStringNotContainsString('>Add line<', $body, 'the old "Add line" wording is gone');
             $this->assertStringContainsString('Send to office (2)', $body);
         }

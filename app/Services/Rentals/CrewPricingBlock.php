@@ -54,37 +54,7 @@ final class CrewPricingBlock
         $photos = $lines->isEmpty() ? collect() : RentalWorkOrderPhoto::withoutGlobalScopes()
             ->whereIn('rental_job_card_line_id', $lines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
 
-        $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, '.', ''), '0'), '.');
-        // AT-459 — the crew never sees a labour rate or a labour amount.
-        $isLabour = fn (RentalJobCardLine $l): bool => $l->type === RentalCatalogueItem::TYPE_LABOUR;
-
-        $rows = $lines->map(function (RentalJobCardLine $l) use ($photos, $fmt, $isLabour) {
-            $own = ($photos[$l->id] ?? collect());
-            $receipt = $own->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->last();
-
-            [$state, $label] = self::STATES[$l->office_status] ?? ['sent', 'Sent — waiting for the office'];
-
-            return [
-                'id' => $l->id,
-                'kind' => $l->type,
-                'description' => $l->description,
-                'code' => $l->code,
-                'quantity' => $fmt($l->quantity),
-                'unit' => $l->unit,
-                // The crew's OWN entry (or the cost the office corrected it to) — a cost, never a selling price.
-                'unit_cost' => ! $isLabour($l) && $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : null,
-                'cost_total' => ! $isLabour($l) && $l->cost_total !== null ? number_format((float) $l->cost_total, 2) : null,
-                'note' => $l->crew_note,
-                'is_extra' => $l->origin === RentalJobCardLine::ORIGIN_CREW_EXTRA,
-                'state' => $state,
-                'state_label' => $label,
-                'reason' => $l->office_status === RentalJobCardLine::OFFICE_REJECTED ? $l->reject_reason : null,
-                'editable' => $l->office_status === RentalJobCardLine::OFFICE_CREW_DRAFT,
-                'photos' => $own->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->map(fn ($p) => ['url' => $p->storage_path])->values()->all(),
-                // AT-459 — the receipt for a part line (the newest one if it was replaced); labour has none.
-                'receipt_url' => ! $isLabour($l) && $receipt ? $receipt->storage_path : null,
-            ];
-        })->values()->all();
+        $rows = $lines->map(fn (RentalJobCardLine $l) => self::mapRow($l, $photos[$l->id] ?? collect()))->values()->all();
 
         // What the crew may pick from: names, kinds and units. A PART also carries its cost on file (pre-fills "what it cost you");
         // a LABOUR item carries no money. Never a selling price. The cost is read through the one resolver the office lines use.
@@ -120,6 +90,55 @@ final class CrewPricingBlock
             'first_send' => ! \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->exists(),
             'catalogue' => $catalogue,
             'photo_limit' => CrewJobService::MAX_LINE_PHOTOS,
+        ];
+    }
+
+    /**
+     * ONE line, in the exact shape the page renders and the fetch handlers return (spec §17.42), so a line added without a reload
+     * looks identical to the same line after a refresh. Plain values only - a cost, never a selling price, markup or margin.
+     *
+     * @return array<string, mixed>
+     */
+    public static function rowFor(RentalJobCardLine $line): array
+    {
+        $own = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->orderBy('id')->get();
+
+        return self::mapRow($line, $own);
+    }
+
+    /**
+     * @param \Illuminate\Support\Collection<int, RentalWorkOrderPhoto> $own
+     * @return array<string, mixed>
+     */
+    private static function mapRow(RentalJobCardLine $l, \Illuminate\Support\Collection $own): array
+    {
+        $fmt = fn ($n) => rtrim(rtrim(number_format((float) $n, 2, '.', ''), '0'), '.');
+        // AT-459 — the crew never sees a labour rate or a labour amount.
+        $labour = $l->type === RentalCatalogueItem::TYPE_LABOUR;
+        $receipt = $own->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->last();
+
+        [$state, $label] = self::STATES[$l->office_status] ?? ['sent', 'Sent — waiting for the office'];
+
+        return [
+            'id' => $l->id,
+            'item_id' => $l->rental_catalogue_item_id,
+            'kind' => $l->type,
+            'description' => $l->description,
+            'code' => $l->code,
+            'quantity' => $fmt($l->quantity),
+            'unit' => $l->unit,
+            // The crew's OWN entry (or the cost the office corrected it to) — a cost, never a selling price.
+            'unit_cost' => ! $labour && $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : null,
+            'cost_total' => ! $labour && $l->cost_total !== null ? number_format((float) $l->cost_total, 2) : null,
+            'note' => $l->crew_note,
+            'is_extra' => $l->origin === RentalJobCardLine::ORIGIN_CREW_EXTRA,
+            'state' => $state,
+            'state_label' => $label,
+            'reason' => $l->office_status === RentalJobCardLine::OFFICE_REJECTED ? $l->reject_reason : null,
+            'editable' => $l->office_status === RentalJobCardLine::OFFICE_CREW_DRAFT,
+            'photos' => $own->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->map(fn ($p) => ['url' => $p->storage_path])->values()->all(),
+            // AT-459 — the receipt for a part line (the newest one if it was replaced); labour has none.
+            'receipt_url' => ! $labour && $receipt ? $receipt->storage_path : null,
         ];
     }
 }

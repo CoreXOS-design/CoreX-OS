@@ -285,11 +285,14 @@
                     var b = upload.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Uploading…';
                 });
             }
-            // The NEXT button scrolls to its target; when that is the Parts & labour card it also opens the add form.
+            // The NEXT button scrolls to its target; when that is the Parts & labour card the blank row is already open (spec 17.42), so it only focuses it.
             root.querySelectorAll('[data-next-target="#cj-pricing"]').forEach(function (a) {
                 a.addEventListener('click', function () {
-                    var d = root.querySelector('details.cj-add-new');
-                    if (d) { d.open = true; }
+                    setTimeout(function () {
+                        var blank = root.querySelectorAll('#cj-pricing .cj-row.is-new');
+                        var f = blank.length ? (blank[blank.length - 1].querySelector('.cj-cat-pick') || blank[blank.length - 1].querySelector('.cj-desc')) : null;
+                        if (f) { f.focus({ preventScroll: true }); }
+                    }, 350);
                 });
             });
             var complete = root.querySelector('.cj-complete-form');

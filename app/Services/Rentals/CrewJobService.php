@@ -345,6 +345,28 @@ class CrewJobService
     }
 
     /**
+     * Undo a Remove: bring back a draft the crew archived (spec §17.42). Only the crew's own, still-draft line of THIS card; a line
+     * that is not archived is returned as it is, so a double tap on Undo is harmless.
+     */
+    public function restoreDraft(RentalJobCard $card, int $lineId, CrewViewContext $ctx): RentalJobCardLine
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+
+        $line = RentalJobCardLine::withoutGlobalScopes()->withTrashed()->where('rental_job_card_id', $card->id)->whereKey($lineId)->firstOrFail();
+        abort_unless(in_array($line->origin, [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA], true), 404);
+        if ($line->office_status !== RentalJobCardLine::OFFICE_CREW_DRAFT) {
+            throw new \LogicException('This line has already been sent to the office, so it can no longer be changed here.');
+        }
+        if ($line->trashed()) {
+            $line->restore();
+        }
+        $this->touchToken($ctx);
+
+        return $line->refresh();
+    }
+
+    /**
      * "Send to office": every one of this card's crew drafts becomes `awaiting_office`; an open price request that the crew
      * answered becomes `submitted` (with who/when/IP/device). ONE audit line, ONE domain event (→ one in-app note to the
      * property's agent) per send, never per line. Returns how many lines were sent.
