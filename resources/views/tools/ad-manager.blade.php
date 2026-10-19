@@ -324,6 +324,11 @@
                             </button>
                         </template>
                         @if(! empty($schedule))
+                        {{-- AT-456 §D.10 — Post now, like the property marketing page: this ad's picture + description, straight to the user's Page. --}}
+                        <button type="button" x-show="canScheduleRow(r)" @click="openSchedule(r, 'now')" class="corex-btn-primary text-sm w-full mt-2 justify-center">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/></svg>
+                            Post now
+                        </button>
                         <button type="button" x-show="canScheduleRow(r)" @click="openSchedule(r)" class="corex-btn-outline text-sm w-full mt-2 justify-center">
                             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                             Schedule this post
@@ -360,10 +365,11 @@
 {{-- AT-456 Part D — Schedule modal (results step). Renders each chosen ad to a picture, uploads it, then schedules. --}}
 <div x-show="sched.open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55);" @keydown.escape.window="closeSchedule()" @click.self="closeSchedule()">
     <div class="w-full rounded-md p-5 space-y-4 max-h-[90vh] overflow-y-auto" :class="sched.mode==='agents' ? 'max-w-3xl' : 'max-w-xl'" style="background:var(--surface); border:1px solid var(--border);">
-        <template x-if="!sched.done">
+        <template x-if="!sched.done && !sched.results">
             <div class="space-y-4">
                 <div>
-                    <h2 class="text-base font-semibold" style="color:var(--text-primary);">Schedule <span x-text="sched.rows.length"></span> post<span x-text="sched.rows.length===1?'':'s'"></span></h2>
+                    <h2 x-show="sched.mode==='now'" class="text-base font-semibold" style="color:var(--text-primary);">Post now</h2>
+                    <h2 x-show="sched.mode!=='now'" class="text-base font-semibold" style="color:var(--text-primary);">Schedule <span x-text="sched.rows.length"></span> post<span x-text="sched.rows.length===1?'':'s'"></span></h2>
                     <p class="text-xs mt-1" style="color:var(--text-muted);">CoreX publishes each post at the time you choose, using the picture and description shown. Times are {{ $schedule['tzLabel'] }}.</p>
                 </div>
                 <ul x-show="sched.mode!=='agents'" class="text-sm space-y-1 max-h-28 overflow-y-auto" style="color:var(--text-secondary);">
@@ -389,13 +395,17 @@
                     @endif
                 </div>
 
+                <div x-show="sched.rows.length === 1" class="space-y-1 text-sm" style="color:var(--text-primary);">
+                    <label class="flex items-center gap-2"><input type="radio" value="now" x-model="sched.mode"> Post now</label>
+                    <label class="flex items-center gap-2"><input type="radio" value="at" x-model="sched.mode"> Schedule for a date and time</label>
+                </div>
                 <div x-show="sched.rows.length > 1" class="space-y-1 text-sm" style="color:var(--text-primary);">
                     <label class="flex items-center gap-2"><input type="radio" value="agents" x-model="sched.mode"> By agent — each agent's ads spread over the days you tick, agents a set time apart</label>
                     <label class="flex items-center gap-2"><input type="radio" value="daily" x-model="sched.mode"> One a day — the first on the date below, then one each following day at the same time</label>
                     <label class="flex items-center gap-2"><input type="radio" value="at" x-model="sched.mode"> All at the same date and time</label>
                 </div>
 
-                <div class="grid grid-cols-2 gap-3">
+                <div x-show="sched.mode!=='now'" class="grid grid-cols-2 gap-3">
                     <label class="block">
                         <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);" x-text="sched.mode==='agents' ? 'Starting from' : (sched.mode==='daily' && sched.rows.length>1 ? 'First post on' : 'Date')"></span>
                         <input type="date" x-model="sched.date" :min="'{{ $schedule['today'] }}'" class="w-full rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
@@ -489,7 +499,8 @@
                         </div>
                     </div>
                 </div>
-                <p class="text-xs" style="color:var(--text-muted);">At least {{ $schedule['minLead'] }} minutes from now and no more than {{ $schedule['maxDays'] }} days ahead. You can edit or cancel a post any time before it goes out, under Scheduled Posts.</p>
+                <p x-show="sched.mode==='now'" class="text-xs" style="color:var(--text-muted);">It goes out on your connected Page as soon as you press Post now.</p>
+                <p x-show="sched.mode!=='now'" class="text-xs" style="color:var(--text-muted);">At least {{ $schedule['minLead'] }} minutes from now and no more than {{ $schedule['maxDays'] }} days ahead. You can edit or cancel a post any time before it goes out, under Scheduled Posts.</p>
 
                 <div x-show="sched.error" class="rounded-md px-3 py-2 text-sm" style="background:color-mix(in srgb, var(--ds-crimson,#c41e3a) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-crimson,#c41e3a) 30%, transparent); color:var(--text-primary);" x-text="sched.error"></div>
 
@@ -497,8 +508,26 @@
                     <span class="text-xs mr-auto" style="color:var(--text-muted);" x-text="sched.progress"></span>
                     <button type="button" class="corex-btn-outline text-sm" @click="closeSchedule()" :disabled="sched.busy">Close</button>
                     <button type="button" class="corex-btn-primary text-sm" @click="submitSchedule()" :disabled="sched.busy || (sched.mode==='agents' && schedPlan.problems.length > 0)">
-                        <span x-show="!sched.busy">Schedule</span><span x-show="sched.busy">Working…</span>
+                        <span x-show="!sched.busy" x-text="sched.mode==='now' ? 'Post now' : 'Schedule'"></span><span x-show="sched.busy">Working…</span>
                     </button>
+                </div>
+            </div>
+        </template>
+        <template x-if="sched.results">
+            <div class="space-y-3 py-2">
+                <h2 class="text-base font-semibold" style="color:var(--text-primary);" x-text="sched.results.every(r => r.ok) ? 'Posted' : (sched.results.some(r => r.ok) ? 'Partly posted' : 'Not posted')"></h2>
+                <ul class="text-sm space-y-2">
+                    <template x-for="r in sched.results" :key="r.platform">
+                        <li style="color:var(--text-primary);">
+                            <strong x-text="r.platform"></strong>:
+                            <span x-show="r.ok" style="color:var(--ds-green,#059669);">it is live on your Page.</span>
+                            <span x-show="!r.ok" x-text="r.error"></span>
+                        </li>
+                    </template>
+                </ul>
+                <div class="flex justify-end gap-2">
+                    <button type="button" class="corex-btn-outline text-sm" @click="closeSchedule()">Back to my ads</button>
+                    <a href="{{ $schedule['listUrl'] }}" class="corex-btn-primary text-sm">Open Scheduled Posts</a>
                 </div>
             </div>
         </template>
@@ -554,7 +583,7 @@ function adManager() {
 
         // AT-456 Part D — scheduling from the results step.
         sched: { open: false, rows: [], platforms: { facebook: false, instagram: false }, mode: 'at', date: '', time: '09:00', busy: false, error: null, progress: '', done: null,
-                 weekdays: [], gap: 30, order: 'alpha', customOrder: [] },
+                 weekdays: [], gap: 30, order: 'alpha', customOrder: [], results: null },
 
         init() {
             window.addEventListener('resize', () => this.fitCanvases());
@@ -733,12 +762,12 @@ function adManager() {
         canScheduleRow(r) { return !!ADM_SCHEDULE && !r.brochure && !!(r.description && r.description.trim()); },
         get schedulableRows() { return ADM_SCHEDULE ? this.filteredResults.filter(r => this.canScheduleRow(r)) : []; },
 
-        openSchedule(r) {
+        openSchedule(r, mode) {
             if (!ADM_SCHEDULE) return;
             const rows = r ? [r] : this.schedulableRows;
             if (!rows.length) return;
             const s = this.sched;
-            s.rows = rows; s.error = null; s.progress = ''; s.done = null; s.busy = false;
+            s.rows = rows; s.error = null; s.progress = ''; s.done = null; s.results = null; s.busy = false;
             // "By agent" (§D.9) opens with the user's last pattern; first time: Tuesday + Thursday, 30 minutes apart.
             const pat = ADM_SCHEDULE.pattern;
             s.weekdays = pat ? [...pat.weekdays] : [2, 4];
@@ -746,7 +775,7 @@ function adManager() {
             s.order = pat ? pat.order : 'alpha';
             s.customOrder = pat ? [...pat.agents] : [];
             if (pat && rows.length > 1) s.time = pat.time;
-            s.mode = rows.length > 1 ? (pat ? 'agents' : 'daily') : 'at';
+            s.mode = rows.length > 1 ? (pat ? 'agents' : 'daily') : (mode === 'now' ? 'now' : 'at');
             s.platforms = { facebook: !!ADM_SCHEDULE.connected.facebook, instagram: false };
             if (!ADM_SCHEDULE.connected.facebook) s.platforms.instagram = !!ADM_SCHEDULE.connected.instagram;
             if (!s.date) { const d = new Date(ADM_SCHEDULE.today + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + 1); s.date = d.toISOString().slice(0, 10); }
@@ -882,7 +911,8 @@ function adManager() {
             const platforms = Object.keys(s.platforms).filter(k => s.platforms[k]);
             s.error = null;
             if (!platforms.length) { s.error = 'Tick at least one platform to post to.'; return; }
-            if (!s.date || !s.time) { s.error = 'Choose a date and a time.'; return; }
+            const postNow = s.mode === 'now';
+            if (!postNow && (!s.date || !s.time)) { s.error = 'Choose a date and a time.'; return; }
             const byAgent = s.mode === 'agents';
             if (byAgent && this.schedPlan.problems.length) { s.error = this.schedPlan.problems[0]; return; }
             s.busy = true;
@@ -915,7 +945,7 @@ function adManager() {
                     if (!upData.ok) throw new Error(upData.error || upData.message || 'A picture could not be saved. Please try again.');
                     items.push({ property_id: r.id, copy: r.description, image_path: upData.path });
                 }
-                s.progress = 'Scheduling…';
+                s.progress = postNow ? 'Posting…' : 'Scheduling…';
                 let data;
                 try {
                     data = await window.CoreX.api.fetch(ADM_SCHEDULE.storeUrl, {
@@ -923,7 +953,7 @@ function adManager() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(byAgent
                             ? { items, platforms, mode: 'agents', time: s.time, days: this.schedDays.map(d => d.date), gap: Number(s.gap), order: s.order, agents: this.schedAgentsOrdered.map(g => g.id).filter(id => id !== 0) }
-                            : { items, platforms, mode: s.mode, date: s.date, time: s.time }),
+                            : (postNow ? { items, platforms, mode: 'now' } : { items, platforms, mode: s.mode, date: s.date, time: s.time })),
                     });
                 } catch (err) {
                     const d = (err && err.data && typeof err.data === 'object') ? err.data : {};
@@ -934,7 +964,7 @@ function adManager() {
                     const first = data.errors ? Object.values(data.errors)[0][0] : null;
                     throw new Error(data.error || first || data.message || 'Could not schedule. Please try again.');
                 }
-                s.done = data.scheduled;
+                if (postNow) s.results = data.results || []; else s.done = data.scheduled;
             } catch (e) {
                 s.error = e.message || 'Could not schedule. Please try again.';
             } finally {

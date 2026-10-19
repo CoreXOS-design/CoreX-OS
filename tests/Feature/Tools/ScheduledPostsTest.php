@@ -783,6 +783,63 @@ final class ScheduledPostsTest extends TestCase
             ->assertSee('storeUrl', false);
     }
 
+    // ── §D.10 Post now from the Ad Manager (one listing ad, straight away) ──
+
+    public function test_one_listing_ad_can_be_posted_now_and_goes_live_with_the_platform_id(): void
+    {
+        Event::fake([MarketingPostPublished::class]);
+        [$agency, $branch, $agent] = $this->world();
+        $this->connect($agent, 'facebook');
+        $property = $this->property($agency, $branch, $agent, 'Harbour View');
+        $this->fakeMeta([new Response(200, [], json_encode(['id' => 'photo1', 'post_id' => 'PAGE_4242']))]);
+
+        $this->actingAs($agent)->postJson(route('api.v1.ad-manager.scheduled.store'), [
+            'items' => [['property_id' => $property->id, 'copy' => 'Come and see Harbour View', 'image_path' => $this->storedImage($agent)]],
+            'platforms' => ['facebook'], 'mode' => 'now',
+        ])->assertOk()->assertJsonPath('posted', 1)->assertJsonPath('results.0.ok', true)->assertJsonPath('results.0.platform', 'Facebook');
+
+        $post = PropertyMarketingPost::sole();
+        $this->assertSame('published', $post->status);
+        $this->assertSame('PAGE_4242', $post->platform_post_id);
+        $this->assertSame($property->id, (int) $post->property_id);
+        $this->assertSame(0, $this->metaQueue->count(), 'Exactly one Meta call was made.');
+        Event::assertDispatched(MarketingPostPublished::class, fn ($e) => $e->post->id === $post->id);
+    }
+
+    public function test_post_now_refuses_several_listings_at_once_and_a_listing_off_the_market(): void
+    {
+        [$agency, $branch, $agent] = $this->world();
+        $this->connect($agent, 'facebook');
+        $a = $this->property($agency, $branch, $agent, 'A');
+        $b = $this->property($agency, $branch, $agent, 'B');
+        $sold = $this->property($agency, $branch, $agent, 'Sold One', ['status' => 'sold']);
+        $this->actingAs($agent);
+
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), [
+            'items' => [
+                ['property_id' => $a->id, 'copy' => 'Hi', 'image_path' => $this->storedImage($agent)],
+                ['property_id' => $b->id, 'copy' => 'Hi', 'image_path' => $this->storedImage($agent)],
+            ],
+            'platforms' => ['facebook'], 'mode' => 'now',
+        ])->assertStatus(422)->assertJsonFragment(['error' => 'Post one listing ad at a time straight away, or schedule them.']);
+
+        $this->postJson(route('api.v1.ad-manager.scheduled.store'), [
+            'items' => [['property_id' => $sold->id, 'copy' => 'Hi', 'image_path' => $this->storedImage($agent)]],
+            'platforms' => ['facebook'], 'mode' => 'now',
+        ])->assertStatus(422)->assertJsonFragment(['error' => 'Sold One is not on the market, so it cannot be advertised.']);
+
+        $this->assertSame(0, PropertyMarketingPost::withoutGlobalScopes()->count());
+    }
+
+    public function test_the_ad_manager_offers_post_now_on_each_ad(): void
+    {
+        [, , $agent] = $this->world();
+
+        $this->actingAs($agent)->get(route('tools.ad-manager'))->assertOk()
+            ->assertSee("openSchedule(r, 'now')", false)
+            ->assertSee('It goes out on your connected Page as soon as you press Post now.');
+    }
+
     public function test_the_service_rules_directly(): void
     {
         $svc = app(ScheduledPostService::class);

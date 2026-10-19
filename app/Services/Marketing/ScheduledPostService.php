@@ -367,7 +367,7 @@ final class ScheduledPostService
     /**
      * Schedule one post per (ad, platform). All or nothing: if any ad or the time is refused, nothing is saved.
      * An item is about a listing (property_id) or a company ad (company_ad_id) - never both.
-     * Mode 'now' (company ads only, Company Ads §7 "Post now"): every post is stored due this minute and the caller
+     * Mode 'now' (company ads, Company Ads §7 "Post now", or one listing ad, §D.10): every post is stored due this minute and the caller
      * publishes it straight away through the same claim + checks as a scheduled post (ScheduledPostPublisher).
      * Mode 'agents' (listing ads only, §D.9 "Schedule by agent"): the times come from planByAgent() using each
      * listing's own agent as stored (never a client value); $pattern carries days, gap, order ('alpha'|'custom',
@@ -397,10 +397,11 @@ final class ScheduledPostService
         }
 
         if ($mode === 'now') {
-            foreach ($items as $item) {
-                if (empty($item['company_ad_id']) || ! empty($item['property_id'])) {
-                    throw new ScheduleException('Only a company ad can be posted straight away from here.');
-                }
+            // Company ads (any number, Company Ads §7) or ONE listing ad (Ad Manager "Post now", §D.10) - never a
+            // batch of listings at once: that is what scheduling is for.
+            $listings = count(array_filter($items, fn ($item) => ! empty($item['property_id'])));
+            if ($listings > 0 && count($items) > 1) {
+                throw new ScheduleException('Post one listing ad at a time straight away, or schedule them.');
             }
             $slots = array_fill(0, count($items), now()->utc()->startOfSecond());
         } elseif ($mode === 'agents') {

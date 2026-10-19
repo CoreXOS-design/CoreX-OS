@@ -160,7 +160,7 @@ class ScheduledPostsController extends Controller
 
     /**
      * POST — schedule the chosen ads on the chosen platforms. All or nothing. An item is a listing ad (property_id)
-     * or a company ad (company_ad_id, Company Ads §7). Mode 'now' posts company ads straight away: the rows are made
+     * or a company ad (company_ad_id, Company Ads §7). Mode 'now' posts company ads or one listing ad (§D.10) straight away: the rows are made
      * due this minute and published here through the same atomic claim and publish-time checks as the scheduler.
      */
     public function store(Request $request, ScheduledPostPublisher $publisher): JsonResponse

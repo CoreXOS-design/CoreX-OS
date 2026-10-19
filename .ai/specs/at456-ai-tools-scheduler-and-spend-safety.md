@@ -507,7 +507,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Pictures:** `marketing-scheduled/{agency}/{user}/{uuid}.jpg` on the public disk. `marketing:purge-scheduled-images` (daily 03:20) removes pictures of published posts 30 days after publishing, of failed/cancelled posts 30 days after they were last touched, and uploads that never became a post after 2 days; pictures of posts still waiting are never touched.
 - **Times** typed and shown in the app timezone (Africa/Johannesburg) — no per-agency timezone column was added.
 - **Permission:** `ad_manager.schedule_posts` ("Schedule social posts", module ad_manager, Role Manager via the config). Defaults: agent, branch manager, office admin (admin gets everything); not viewer. Route middleware + controller check + the fourth pill and the Schedule buttons are hidden without it.
-- **Not built / out of scope:** a "publish now" button (for listings — company ads have one since `company-ads.md` §14c, through this same publisher); automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
+- **Not built / out of scope:** ~~a "publish now" button for listings~~ (built 2026-10-19, §D.10; company ads have had one since `company-ads.md` §14c, through this same publisher); automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
 - **QA2:** no scheduler cron and no queue worker (left that way by Johan) — run `php artisan marketing:publish-due` by hand to publish what is due. Meta App Review is still pending, so only app Testers can connect an account to test with.
 
 ### D.8 Audit fixes (2026-10-17) — tests: `tests/Feature/Tools/ScheduledPostsAuditFixesTest.php`
@@ -543,6 +543,15 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 **Multi-agency.** Pattern rows are per agency (pinned to the agency being worked in, also for an owner account); nothing defaults to any one agency's agents, days or wording.
 
 **Tests:** `tests/Feature/Tools/ScheduleByAgentTest.php` (A to Z slots, own order + missing agents, too-many refusal saves nothing, a full week × 5, past-midnight, 5-minute rule, company ad / out-of-scope listing refused, pattern remembered + handed to the page + second agency isolated, `orderAgents`). Green 2026-10-19: 9/9, and `ScheduledPostsTest` 41/41 unchanged.
+
+### D.10 Post now from the Ad Manager (Johan 2026-10-19) — as built
+**Why.** Johan: at the end of making an ad in the Ad Manager there should be a "post now", like on a property's marketing page (Publish Now).
+
+**What.** Every schedulable ad in the results step has a **Post now** button (above "Schedule this post"). It opens the same window with **Post now** chosen (a one-ad window offers Post now / Schedule for a date and time); no date or time is asked; the button reads Post now. The ad's own picture (rendered and uploaded exactly as for scheduling) and its description go to the user's connected Page(s) at once, and the window shows per platform "it is live on your Page" or the plain reason it was not (Posted / Partly posted / Not posted).
+
+**How.** `api.v1.ad-manager.scheduled.store` with `mode=now`, which already posted company ads through `ScheduledPostPublisher` (same atomic claim, same publish-time checks, `CONTEXT_DIRECT` wording, `MarketingPostPublished` on success, a failure recorded as `failed` with its reason). The rule changed in `ScheduledPostService::schedule()`: `now` takes company ads (any number, unchanged) **or exactly one listing ad**; several listings, or a listing alongside anything else, is refused: "Post one listing ad at a time straight away, or schedule them." (deliberately one at a time — a batch going out in the same minute is what scheduling is for). The listing still has to be in the user's scope, on the market and marketing-ready, and the platform connected, exactly as for scheduling. No new route, no migration, no npm build. The property marketing page's own Publish Now is untouched.
+
+**Tests:** `ScheduledPostsTest` (one listing posted now → published with the platform id, one Meta call, event fired; several listings / an off-market listing refused, nothing saved; the button is on the page); `CompanyAdPostingTest::test_post_now_takes_a_listing_only_on_its_own_and_an_item_is_one_thing` (old "company ads only" refusal replaced by the one-listing rule).
 
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
