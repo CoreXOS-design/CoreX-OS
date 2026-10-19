@@ -148,6 +148,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         'public_token_expires_at',
     ];
 
+    /** Audit B22 - the hash and the ciphertext of the public link token never leave the server in a JSON payload. */
+    protected $hidden = ['public_token_hash', 'public_token_encrypted'];
+
     protected $casts = [
         'scheduled_for' => 'date',
         'scheduled_duration_minutes' => 'integer',
@@ -1879,6 +1882,36 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * immediately invalidating any previously-issued link — that IS the
      * revoke mechanism; there is no separate revoked flag to also check.
      */
+    /**
+     * The public link token is never stored in plain text (audit 2026-10-19 B22): setting it writes its SHA-256 hash (the lookup key) and a
+     * copy encrypted with the application key (so the agent's screen can show / print / resend the same link); the plain column stays empty.
+     * Reading it decrypts - null when the row has no ciphertext. Same pattern as RentalInspectionSigningLink::token.
+     */
+    public function setPublicTokenAttribute(?string $value): void
+    {
+        $this->attributes['public_token'] = null;
+        $this->attributes['public_token_hash'] = $value === null ? null : static::hashPublicToken($value);
+        $this->attributes['public_token_encrypted'] = $value === null ? null : \Illuminate\Support\Facades\Crypt::encryptString($value);
+    }
+
+    public function getPublicTokenAttribute(): ?string
+    {
+        $cipher = $this->attributes['public_token_encrypted'] ?? null;
+        if ($cipher === null || $cipher === '') {
+            return $this->attributes['public_token'] ?? null;
+        }
+        try {
+            return \Illuminate\Support\Facades\Crypt::decryptString($cipher);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            return null;
+        }
+    }
+
+    public static function hashPublicToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
     public function generatePublicLink(?int $expiryDays = null): string
     {
         $days = $expiryDays ?? RentalInspectionSetting::publicLinkExpiryDaysFor($this->agency_id);
@@ -1924,8 +1957,12 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public static function findByPublicToken(string $token): ?self
     {
+        if ($token === '' || strlen($token) > 64) {
+            return null;
+        }
+
         return self::withoutGlobalScopes()
-            ->where('public_token', $token)
+            ->where('public_token_hash', static::hashPublicToken($token))
             ->where('public_token_expires_at', '>', now())
             // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
             // strips SoftDeletes, so an ARCHIVED inspection used to keep
@@ -2277,8 +2314,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         // Stage 2 — 'room' is eager-loaded so the (still-flat, pre-Stage-3)
         // recording UI can show "Bedroom 1 — Ceiling" instead of a bare
         // "Ceiling" repeated once per room with nothing to tell them apart.
+        // Audit B25 (2026-10-19) - the observations are attached further down, bounded to the inspections this screen can
+        // actually show AND the caller may open; loading every observation ever recorded against every item made the payload
+        // grow with every inspection on the property and ignored the caller's own/branch scope.
         $items = RentalInspectionItem::where('property_id', $property->id)
-            ->with(['room', 'observations' => fn (HasMany $q) => $q->latest('created_at')])
+            ->with('room')
             ->get();
 
         // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the
@@ -2399,10 +2439,35 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         $compareDetail = fn (?self $insp) => $insp?->load(['observations.item', 'photos.note']);
         $compareLeft = $compareDetail($compareLeft);
         $compareRight = $compareDetail($compareRight);
+        $inInspection = $withDetail(self::TYPE_IN);
+
+        $photoMatchGroups = ($rawPredecessor && $rawChainTail)
+            ? \App\Models\RentalInspectionPhotoMatchGroup::with('members.photo')
+                ->whereHas(
+                    'members.photo',
+                    fn ($q) => $q->whereIn('rental_inspection_id', [$rawPredecessor->id, $rawChainTail->id]),
+                )
+                ->get()
+            : collect();
+
+        // Audit B25 - the item observations the screen reads (it looks a clicked photo's observation up by id) are only ever
+        // those of the inspections it renders plus the ones a match group pulls in; bound to those, and to the ones the
+        // caller's own/branch/agency scope lets them open.
+        $shownInspectionIds = collect([$inInspection, $outInspection, $chainTail, $chainPredecessor, $compareLeft, $compareRight])
+            ->filter()->pluck('id')
+            ->merge($photoMatchGroups->flatMap(fn ($g) => $g->members->map(fn ($m) => $m->photo?->rental_inspection_id)))
+            ->filter()->unique()->values();
+        $openableQuery = self::query()->whereIn('id', $shownInspectionIds);
+        $viewer = \Illuminate\Support\Facades\Auth::user();
+        if ($viewer instanceof User) {
+            $openableQuery->visibleTo($viewer);
+        }
+        $openableIds = $openableQuery->pluck('id')->all();
+        $items->load(['observations' => fn (HasMany $q) => $q->whereIn('rental_inspection_id', $openableIds ?: [0])->latest('created_at')]);
 
         return [
             'items' => $items,
-            'in_inspection' => $withDetail(self::TYPE_IN),
+            'in_inspection' => $inInspection,
             'out_inspection' => $outInspection,
             // Johan's ruling, 2026-09-23 — the tab's unified side-by-side
             // section reads these two, not in_inspection/out_inspection
@@ -2469,16 +2534,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // one of those members ships to the frontend too, not only the
             // ones on the current pair — the viewer's own carousel/group-
             // loading logic decides what to show from there.
-            'photo_matches' => ($rawPredecessor && $rawChainTail)
-                ? \App\Models\RentalInspectionPhotoMatchGroup::with('members.photo')
-                    ->whereHas(
-                        'members.photo',
-                        fn ($q) => $q->whereIn('rental_inspection_id', [$rawPredecessor->id, $rawChainTail->id]),
-                    )
-                    ->get()
-                    ->map(fn ($group) => $group->toComparePayload())
-                    ->values()
-                : collect(),
+            'photo_matches' => $photoMatchGroups
+                ->map(fn ($group) => $group->toComparePayload())
+                ->values(),
             // §24.5/§24.7 (AT-433 Part B) — whether the frontend should call
             // POST .../rental-inspection-photo-matches/auto-pair
             // automatically the first time an item's comparison is viewed,

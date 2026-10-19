@@ -172,17 +172,19 @@ class RentalInventoryRecordingController extends Controller
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
         $rentalInventory->assertEditable();
 
-        $mark = RentalInventoryRoomMark::updateOrCreate(
-            [
-                'rental_inventory_id' => $rentalInventory->id,
-                'property_room_id' => $room->id,
-            ],
-            [
-                'agency_id' => $rentalInventory->agency_id,
-                'marked_empty_by_user_id' => $request->user()->id,
-                'marked_empty_at' => now(),
-            ]
-        );
+        // Audit B28 - an "Undo" archives the mark; marking again brings the same row back (the unique index is one row per inventory room).
+        $mark = RentalInventoryRoomMark::withTrashed()->firstOrNew([
+            'rental_inventory_id' => $rentalInventory->id,
+            'property_room_id' => $room->id,
+        ]);
+        $mark->fill([
+            'agency_id' => $rentalInventory->agency_id,
+            'marked_empty_by_user_id' => $request->user()->id,
+            'marked_empty_at' => now(),
+            'unmarked_by_user_id' => null,
+        ]);
+        $mark->deleted_at = null;
+        $mark->save();
 
         return response()->json($mark, 201);
     }
@@ -191,11 +193,9 @@ class RentalInventoryRecordingController extends Controller
      * DELETE /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty —
      * Johan, 2026-09-28 — the "Undo" half of markRoomEmpty() above: a mark
      * is a mutable "is this room currently considered checked-and-empty"
-     * STATE, not an append-only evidence record like a line/photo/signature
-     * (non-negotiable #1's soft-delete rule protects evidence, not a
-     * reversible checkbox) — hard-deleting the mark row itself is the
-     * correct un-mark, exactly mirroring how markRoomEmpty() itself writes
-     * via updateOrCreate rather than an append-only history table.
+     * STATE. Audit B28 (non-negotiable #1): the un-mark ARCHIVES the row
+     * (who and when kept) instead of deleting it; markRoomEmpty() restores
+     * the same row if the agent marks the room again.
      * Idempotent: unmarking an already-unmarked (or never-marked) room is a
      * no-op, not an error — there's nothing wrong with clicking Undo twice.
      */
@@ -207,7 +207,10 @@ class RentalInventoryRecordingController extends Controller
 
         RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
             ->where('property_room_id', $room->id)
-            ->delete();
+            ->update(['unmarked_by_user_id' => $request->user()->id]);
+        RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
+            ->where('property_room_id', $room->id)
+            ->delete(); // SoftDeletes: archives
 
         return response()->json(['message' => 'Mark removed.']);
     }

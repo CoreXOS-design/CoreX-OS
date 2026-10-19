@@ -19,7 +19,7 @@ use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
 use App\Services\Distribution\SignedDocumentDistributionService;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageStore;
 use App\Services\RentalInspectionPhotoAutoPairService;
 use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
@@ -883,7 +883,7 @@ class RentalInspectionRecordingController extends Controller
 
     /**
      * POST /corex/rental-inspections/{inspection}/observations/{observation}/photos
-     * — §14.5, reuses PropertyImageStorer, never a second pipeline. Kept
+     * — §14.5, stores through PrivateImageStore (audit B21: private disk, metadata stripped). Kept
      * exactly as it was (single file, one observation) for backward
      * compatibility — a future mobile caller can still use it — but the web
      * UI no longer calls it (see storePhotos() below, which the rebuilt
@@ -924,7 +924,7 @@ class RentalInspectionRecordingController extends Controller
             ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
         );
 
-        $url = app(PropertyImageStorer::class)->store($request->file('photo'), $rentalInspection->property_id);
+        $url = app(PrivateImageStore::class)->store($request->file('photo'), $this->photoDirectoryFor($rentalInspection));
 
         $photo = RentalInspectionPhoto::create([
             'agency_id' => $rentalInspection->agency_id,
@@ -1022,7 +1022,8 @@ class RentalInspectionRecordingController extends Controller
             );
         }
 
-        $storer = app(PropertyImageStorer::class);
+        $storer = app(PrivateImageStore::class);
+        $photoDirectory = $this->photoDirectoryFor($rentalInspection);
         $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
         $now = now();
         $created = [];
@@ -1044,7 +1045,7 @@ class RentalInspectionRecordingController extends Controller
                 ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
             );
 
-            $url = $storer->store($file, $rentalInspection->property_id);
+            $url = $storer->store($file, $photoDirectory);
 
             $created[] = RentalInspectionPhoto::create([
                 'agency_id' => $rentalInspection->agency_id,
@@ -1063,6 +1064,12 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json(['photos' => $created, 'observation' => $observation], 201);
+    }
+
+    /** Audit B21 - inspection photos live on the private disk, one folder per agency and inspection. */
+    private function photoDirectoryFor(RentalInspection $rentalInspection): string
+    {
+        return "rental-inspections/{$rentalInspection->agency_id}/{$rentalInspection->id}";
     }
 
     /** §45.3 — a client-supplied capture time is only ever a string; anything else is "no claim". */
@@ -1572,6 +1579,12 @@ class RentalInspectionRecordingController extends Controller
                 'recorded_by_user_id' => $request->user()->id,
             ];
         } else {
+            // Audit B23 - the saved-signature (PIN) path is enforced HERE, not only in the browser.
+            if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED
+                && ($validated['signing_method'] ?? null) !== 'drawn'
+                && ($denied = $this->refuseUnlessSavedSignatureUnlocked($request, $rentalInspection, $validated['signature_image'] ?? null))) {
+                return $denied;
+            }
             $attributes = ['recorded_by_user_id' => $request->user()->id];
             // §61 - a signature the logged-in agent drew on screen carries who (the agent's identity), when (the row's own
             // recorded-at), and where (IP and the device's user agent), and the report content it was given against.
@@ -1607,6 +1620,35 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json($signature, 201);
+    }
+
+    /**
+     * Audit 2026-10-19 B23 - the agent's own signature row, by the saved-signature (PIN) route, is only accepted when (a) the signer IS the
+     * inspection's inspector (the report prints that agent's name under the signature), (b) their saved signature is unlocked for THIS inspection
+     * in this session (the PIN was entered - AgentSignatureService, never under impersonation), and (c) the image posted is exactly their saved
+     * one. Before, any in-scope user holding `rental_inspections.create` could post any PNG as "the agent". A hand-drawn "Sign now" signature
+     * (signing_method=drawn) is a different, honest act - it carries the signer's own identity, IP and device - and is not held to this.
+     * Returns a JSON refusal, or null when the signature may be recorded.
+     */
+    private function refuseUnlessSavedSignatureUnlocked(Request $request, RentalInspection $rentalInspection, ?string $submittedImage): ?JsonResponse
+    {
+        $user = $request->user();
+        $inspectorId = $rentalInspection->inspector_user_id ?: $rentalInspection->created_by_user_id;
+        if ($inspectorId && (int) $inspectorId !== (int) $user->id) {
+            return response()->json(['message' => 'Only the agent who is doing this inspection can sign for the agent with their saved signature.'], 403);
+        }
+
+        $signatures = app(\App\Services\AgentSignatureService::class);
+        if (! $signatures->isUnlocked($user, 'rental-inspection:' . $rentalInspection->id)) {
+            return response()->json(['message' => 'Enter your signing PIN to unlock your signature first.'], 403);
+        }
+
+        $saved = (string) ($signatures->forUser((int) $user->id)?->signature_image ?? '');
+        if ($saved === '' || $submittedImage === null || ! hash_equals(trim($saved), trim($submittedImage))) {
+            return response()->json(['message' => 'That is not your saved signature. Unlock your saved signature and try again.'], 422);
+        }
+
+        return null;
     }
 
     /**

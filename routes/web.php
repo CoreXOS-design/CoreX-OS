@@ -4081,6 +4081,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // signature blocks for every outstanding party, printed and handed
         // to the landlord/tenant for a wet-ink signature.
         Route::get('/{rentalInspection}/print-for-signature', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printForSignature'])->name('corex.rental-inspections.print-for-signature');
+        // Audit B20 - minting a link to print its QR is a POST behind the public-link permission; the GET above never creates one.
+        Route::post('/{rentalInspection}/print-for-signature', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'printForSignatureWithLink'])
+            ->middleware('permission:rental_inspections.public_link')->name('corex.rental-inspections.print-for-signature.with-link');
         // Audit M4 — signature images / wet-ink uploads live on the private disk; served only here (session + own/branch scoping).
         Route::get('/{rentalInspection}/signatures/{signature}/file/{kind}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'signatureFile'])
             ->where('kind', 'signature|wet-ink')->name('corex.rental-inspections.signatures.file');
@@ -7406,6 +7409,12 @@ Route::prefix('rental-inspection-report')->group(function () {
         ->where(['signature' => '[0-9]+', 'kind' => 'signature|wet-ink'])
         ->middleware('throttle:rental-inspection-public-show')->name('rental-inspections.public.signature-file');
 });
+
+// ===== PRIVATE IMAGES — a signed, expiring link (audit 2026-10-19 B21) =====
+// Inspection photos are kept on the private disk; the screens and the public report show them through this. The `signed` middleware
+// 403s a tampered or expired link; the reference inside the link is encrypted (App\Http\Controllers\PrivateImageController).
+Route::get('/private-image', [\App\Http\Controllers\PrivateImageController::class, 'show'])
+    ->middleware(['signed', 'throttle:600,1'])->name('private-image.show');
 
 // ===== RENTAL INSPECTION — a party's personal signing link, public, no auth, token-based =====
 // §46 — the page a tenant or landlord (or the agent, read-only) reaches from the link emailed or shown as a QR code by

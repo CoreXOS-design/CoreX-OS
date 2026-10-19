@@ -97,7 +97,8 @@ class RentalInspectionScanController extends Controller
             return null;
         }
         $otherId = $scan->decoded_inspection_id;
-        Storage::disk('local')->delete($scan->storage_path);
+        // Audit B26 - archived, and the uploaded file is RETAINED on the private disk (non-negotiable #1: no hard deletes; the form spec
+        // keeps the original). Nothing was read against this inspection and the archived row is out of its evidence trail.
         $scan->archive($request->user());
 
         return redirect()->back()->with('error', "That form is for inspection #{$otherId}, not this one (#{$on->id}). It was not saved here - upload it on its own inspection.");
@@ -124,7 +125,7 @@ class RentalInspectionScanController extends Controller
             }
         }
         if (! $allowed) {
-            Storage::disk('local')->delete($scan->storage_path);
+            // Audit B26 - archived, file retained (see refuseWrongForm()).
             $scan->archive($request->user());
 
             return redirect()->back()->with('error', "That form's own code says inspection #{$targetId}, which you cannot open here, so it was not saved. Upload it on the inspection it was printed from.");

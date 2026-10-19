@@ -815,6 +815,24 @@ class RentalInspectionController extends Controller
      */
     public function printForSignature(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
     {
+        return $this->printForSignatureResponse($rentalInspection, $service, mintLink: false);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/print-for-signature — audit 2026-10-19 B20. The same printout, but ensuring a live public
+     * link first so the page carries its QR. Minting a link is a state change that exposes the whole report (photos, signatures) to anyone
+     * holding it, so it is a POST behind `rental_inspections.public_link` (the route's middleware) - the plain GET above never creates one
+     * and simply omits the QR when no live link exists (exactly like report()).
+     */
+    public function printForSignatureWithLink(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
+    {
+        abort_unless($request->user()->hasPermission('rental_inspections.public_link'), 403);
+
+        return $this->printForSignatureResponse($rentalInspection, $service, mintLink: true);
+    }
+
+    private function printForSignatureResponse(RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service, bool $mintLink)
+    {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $rentalInspection->loadMissing([
@@ -822,7 +840,8 @@ class RentalInspectionController extends Controller
             'observations.item.room', 'observations.item', 'signatures.partyContact',
         ]);
 
-        if (! $rentalInspection->publicLinkIsValid()) {
+        if ($mintLink && ! $rentalInspection->publicLinkIsValid()
+            && $rentalInspection->status !== RentalInspection::STATUS_CANCELLED && ! $rentalInspection->trashed()) {
             $rentalInspection->generatePublicLink();
         }
 

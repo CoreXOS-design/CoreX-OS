@@ -2820,11 +2820,54 @@ class Property extends Model
             );
         }
 
+        // Audit B27 - images taken out of a gallery are ARCHIVED here (url, where it was, who, when), never deleted; the file stays on disk.
+        $archived = array_values(array_filter(
+            is_array($raw['archived'] ?? null) ? $raw['archived'] : [],
+            fn ($entry) => is_array($entry) && is_string($entry['url'] ?? null) && $entry['url'] !== ''
+        ));
+
         return [
             'in_inspection'  => $section($raw['in_inspection'] ?? null),
             'out_inspection' => $section($raw['out_inspection'] ?? null),
             'custom'         => $custom,
+            'archived'       => $archived,
         ];
+    }
+
+    /**
+     * Audit B27 (non-negotiable #1: no hard deletes) - take one image out of a rental gallery structure (as returned by
+     * rentalImagesStructure(), changed in place) WITHOUT touching the file: its reference moves to `archived` with where it was, who removed it
+     * and when. $section is in_inspection | out_inspection | a custom section's id. Returns false when the url is not in that section.
+     */
+    public static function archiveRentalImage(array &$structure, string $section, string $url, ?int $byUserId, string $reason = 'removed'): bool
+    {
+        if (in_array($section, ['in_inspection', 'out_inspection'], true)) {
+            $images = &$structure[$section]['images'];
+        } else {
+            $index = null;
+            foreach ($structure['custom'] as $i => $sec) {
+                if ($sec['id'] === $section) {
+                    $index = $i;
+                    break;
+                }
+            }
+            if ($index === null) {
+                return false;
+            }
+            $images = &$structure['custom'][$index]['images'];
+        }
+
+        $at = array_search($url, $images, true);
+        if ($at === false) {
+            return false;
+        }
+        array_splice($images, $at, 1);
+        $images = array_values($images);
+        $structure['archived'][] = [
+            'url' => $url, 'section' => $section, 'reason' => $reason, 'by_user_id' => $byUserId, 'at' => now()->toIso8601String(),
+        ];
+
+        return true;
     }
 
     /**

@@ -1594,6 +1594,13 @@
                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
                     Print for signature
                 </a>
+                {{-- Audit B20 - the QR on the printout needs a live public link; creating one is a POST behind its own permission. --}}
+                @if(auth()->user()->hasPermission('rental_inspections.public_link'))
+                    <form method="POST" :action="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/print-for-signature'" target="_blank" class="inline-flex ml-2" x-show="!currentInspection({{ $sectionJs }}).public_token">
+                        @csrf
+                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Print with link QR</button>
+                    </form>
+                @endif
             </div>
         </template>
 

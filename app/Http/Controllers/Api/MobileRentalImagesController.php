@@ -140,8 +140,7 @@ class MobileRentalImagesController extends Controller
             // A concurrent retry beat us: bin the redundant file + thumb, return
             // the canonical record (still 2xx — nothing lost).
             if ($duplicateUrl !== null) {
-                Storage::disk('public')->delete($rel);
-                app(PropertyThumbnailService::class)->deleteForUrl($url);
+                // Audit B27 - the redundant copy is kept (not deleted); it is referenced nowhere, so nothing shows it twice.
 
                 return $this->uploadResponse($property, [$duplicateUrl], true, 200);
             }
@@ -233,10 +232,10 @@ class MobileRentalImagesController extends Controller
     }
 
     // ── POST /api/v1/mobile/properties/{property}/rental-images/delete ───
-    // Remove one image from a section by its index and delete the file from
-    // disk. JSON array entries are not Eloquent models, so — exactly like the
-    // marketing gallery's deleteImage — this is a real file removal, not a
-    // soft delete (no model to archive). Non-Negotiable #1 governs models.
+    // Remove one image from a section by its index. Audit B27 (non-negotiable
+    // #1): the file is NEVER deleted - the reference moves to the property's
+    // `archived` list (Property::archiveRentalImage) and the picture stays on
+    // disk as evidence.
     public function destroyImage(Request $request, Property $property): JsonResponse
     {
         $this->guard($request->user(), $property);
@@ -249,27 +248,23 @@ class MobileRentalImagesController extends Controller
 
         $index = (int) $data['index'];
 
-        $removeAt = function (array $images, int $idx): array {
-            if (isset($images[$idx])) {
-                $path = str_replace('/storage/', '', parse_url($images[$idx], PHP_URL_PATH));
-                Storage::disk('public')->delete($path);
-                array_splice($images, $idx, 1);
-            }
-            return array_values($images);
-        };
-
         // Row lock: a delete-by-index must not race a concurrent upload/append
         // (which would shift indices) or another delete on the same JSON column.
-        DB::transaction(function () use ($property, $data, $index, $removeAt) {
+        DB::transaction(function () use ($property, $data, $index, $request) {
             /** @var Property $locked */
             $locked = Property::whereKey($property->getKey())->lockForUpdate()->firstOrFail();
             $structure = $locked->rentalImagesStructure();
 
             if ($data['section'] === 'custom') {
                 $i = $this->customIndexOrFail($structure['custom'], $data['custom_id'] ?? null);
-                $structure['custom'][$i]['images'] = $removeAt($structure['custom'][$i]['images'], $index);
+                $sectionKey = $structure['custom'][$i]['id'];
+                $url = $structure['custom'][$i]['images'][$index] ?? null;
             } else {
-                $structure[$data['section']]['images'] = $removeAt($structure[$data['section']]['images'], $index);
+                $sectionKey = $data['section'];
+                $url = $structure[$sectionKey]['images'][$index] ?? null;
+            }
+            if ($url !== null) {
+                Property::archiveRentalImage($structure, $sectionKey, $url, $request->user()?->id);
             }
 
             $locked->rental_images_json = $structure;

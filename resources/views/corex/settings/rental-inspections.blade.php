@@ -80,6 +80,17 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Minutes an inspection photo link stays live</label>
+                    <input type="number" name="photo_link_minutes" value="{{ old('photo_link_minutes', $photoLinkMinutes) }}"
+                           min="5" max="10080"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultPhotoLinkMinutes }} minutes. Inspection photos are private: every picture on screen
+                        (and on the public report) is shown through a link that stops working after this long, so a copied picture
+                        address does not stay live. Reload the page to get fresh ones.
+                    </p>
+                </div>
+                <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="signing_link_enabled" value="0">
                         <input type="checkbox" name="signing_link_enabled" value="1" @checked(old('signing_link_enabled', $signingLinkEnabled))>

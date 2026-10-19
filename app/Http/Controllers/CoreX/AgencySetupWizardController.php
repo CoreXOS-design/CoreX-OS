@@ -810,6 +810,7 @@ class AgencySetupWizardController extends Controller
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
+                    'photo_link_minutes' => \App\Models\RentalInspectionSetting::photoLinkMinutesFor($agency->id),
                     'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
                     'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
                     // §52 — the walk's rules and the reminder lead.

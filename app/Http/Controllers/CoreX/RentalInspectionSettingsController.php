@@ -32,6 +32,9 @@ class RentalInspectionSettingsController extends Controller
             // 2026-09-23 — the public inspection-report link's expiry window.
             'publicLinkExpiryDays' => RentalInspectionSetting::publicLinkExpiryDaysFor($agencyId),
             'defaultPublicLinkExpiryDays' => RentalInspectionSetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS,
+            // Audit B21 - how long a signed inspection-photo link keeps working.
+            'photoLinkMinutes' => RentalInspectionSetting::photoLinkMinutesFor($agencyId),
+            'defaultPhotoLinkMinutes' => RentalInspectionSetting::DEFAULT_PHOTO_LINK_MINUTES,
             // §46 — signing by personal link.
             'signingLinkEnabled' => RentalInspectionSetting::signingLinkEnabledFor($agencyId),
             'signingLinkExpiryDays' => RentalInspectionSetting::signingLinkExpiryDaysFor($agencyId),
@@ -157,6 +160,8 @@ class RentalInspectionSettingsController extends Controller
             // omit refusal_reason_presets (this method is also registered
             // as a wizard saver — see the onboarding config's own comment).
             'public_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            // Audit B21 - has()-guarded below like the other optional controls (a wizard step that omits it must not reset it).
+            'photo_link_minutes' => ['nullable', 'integer', 'min:5', 'max:10080'],
             // Both has()-guarded below (agency-onboarding-setup.md §6.1) —
             // nullable so a caller that never renders them still saves.
             'require_notes_blocks_progression' => ['nullable', 'boolean'],
@@ -184,6 +189,9 @@ class RentalInspectionSettingsController extends Controller
         ];
         if ($request->has('public_link_expiry_days')) {
             $attributes['public_link_expiry_days'] = $validated['public_link_expiry_days'];
+        }
+        if ($request->filled('photo_link_minutes')) {
+            $attributes['photo_link_minutes'] = (int) $validated['photo_link_minutes'];
         }
         // A toggle always posts a hidden 0 ahead of its checkbox (settings
         // page and wizard alike), so has() distinguishes "off" from "not rendered".

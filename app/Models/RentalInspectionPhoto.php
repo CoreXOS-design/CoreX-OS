@@ -52,6 +52,28 @@ class RentalInspectionPhoto extends Model
     ];
 
     /**
+     * Audit 2026-10-19 B21 - a photo kept on the PRIVATE disk stores a reference (`private:<path>`); every screen, the compare viewer, the
+     * tab payload and the public report read `storage_path` as an image address, so reading it hands back a signed, expiring URL
+     * (PrivateImageStore::temporaryUrl). A legacy row that still holds a public /storage URL reads as it always did. The reference itself:
+     * rawStoragePath().
+     */
+    public function getStoragePathAttribute($value): ?string
+    {
+        if (! \App\Services\Images\PrivateImageStore::isReference($value)) {
+            return $value;
+        }
+
+        return app(\App\Services\Images\PrivateImageStore::class)
+            ->temporaryUrl($value, RentalInspectionSetting::photoLinkMinutesFor($this->agency_id));
+    }
+
+    /** The stored value - the private reference or the legacy public URL - never the signed address. */
+    public function rawStoragePath(): ?string
+    {
+        return $this->attributes['storage_path'] ?? null;
+    }
+
+    /**
      * §45.3 — the caption travels with the photo everywhere it is serialised (recording tile, tray,
      * compare viewer, tab payload), computed server-side so every screen shows the same wording in the
      * app's timezone rather than each browser re-deriving it. `taken_caption` is the full text;

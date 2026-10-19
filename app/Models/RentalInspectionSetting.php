@@ -373,6 +373,9 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
 
+    /** Audit B21 - minutes a signed inspection-photo link keeps working (the photos themselves are private). */
+    public const DEFAULT_PHOTO_LINK_MINUTES = 480;
+
     /** §46 — signing an inspection by a personal link: on, and live for 30 days from when it is issued. */
     public const DEFAULT_SIGNING_LINK_ENABLED = true;
     public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
@@ -476,6 +479,7 @@ class RentalInspectionSetting extends Model
         'form_paper_size',
         'form_safe_margin_mm',
         'public_link_expiry_days',
+        'photo_link_minutes',
         // §46 — signing by personal link.
         'signing_link_enabled',
         'signing_link_expiry_days',
@@ -526,6 +530,7 @@ class RentalInspectionSetting extends Model
         'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
         'public_link_expiry_days' => 'integer',
+        'photo_link_minutes' => 'integer',
         'signing_link_enabled' => 'boolean',
         'signing_link_expiry_days' => 'integer',
         'signing_window_reminders_enabled' => 'boolean', 'signing_reminder_lead_days' => 'integer', 'calendar_include_lease_agents' => 'boolean',
@@ -729,6 +734,20 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('out_inspection_signing_window_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_SIGNING_WINDOW_DAYS;
+    }
+
+    /** Audit B21 - minutes a signed photo link stays live; memoised on the per-request array cache (a payload signs hundreds of photos). */
+    public static function photoLinkMinutesFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PHOTO_LINK_MINUTES;
+        }
+
+        return (int) \Illuminate\Support\Facades\Cache::store('array')->rememberForever("rental-inspection-photo-link-minutes:{$agencyId}", function () use ($agencyId) {
+            $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('photo_link_minutes');
+
+            return $value !== null ? max(1, (int) $value) : self::DEFAULT_PHOTO_LINK_MINUTES;
+        });
     }
 
     public static function publicLinkExpiryDaysFor(?int $agencyId): int

@@ -53,6 +53,13 @@
                  party, to print and send/hand for a wet-ink signature. --}}
             @if(!in_array($inspection->status, ['completed', 'cancelled']))
                 <a href="{{ route('corex.rental-inspections.print-for-signature', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">Print for signature</a>
+                {{-- Audit B20 - the QR on the printout needs a live public link; creating one is a POST behind its own permission. --}}
+                @if(!$inspection->publicLinkIsValid() && auth()->user()->hasPermission('rental_inspections.public_link'))
+                    <form method="POST" action="{{ route('corex.rental-inspections.print-for-signature.with-link', $inspection) }}" target="_blank" class="inline">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Print for signature with link QR</button>
+                    </form>
+                @endif
             @endif
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
