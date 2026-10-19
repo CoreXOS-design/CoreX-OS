@@ -254,7 +254,7 @@ final class LineEntryServiceTest extends TestCase
     {
         $html = $this->get(route('rentals.crew-job.show', $this->raw))->assertOk()->getContent();
 
-        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-row is-new"'), 'one blank row, open');
+        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-new"'), 'one blank row, open');
         $this->assertStringContainsString('Add new line', $html);
         $this->assertStringNotContainsString('+ Add a part or labour', $html);
         $this->assertStringNotContainsString('Change this line', $html);
@@ -262,8 +262,8 @@ final class LineEntryServiceTest extends TestCase
 
         $this->add($this->part())->assertOk();
         $html = $this->get(route('rentals.crew-job.show', $this->raw))->getContent();
-        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-row is-saved"'));
-        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-row is-new"'), 'still exactly one blank row after a saved line');
+        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-saved"'));
+        $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-new"'), 'still exactly one blank row after a saved line');
         $this->assertStringContainsString('Send to office (', $html);
     }
 }

@@ -289,7 +289,7 @@
             root.querySelectorAll('[data-next-target="#cj-pricing"]').forEach(function (a) {
                 a.addEventListener('click', function () {
                     setTimeout(function () {
-                        var blank = root.querySelectorAll('#cj-pricing .cj-row.is-new');
+                        var blank = root.querySelectorAll('#cj-pricing .cj-entry.is-new');
                         var f = blank.length ? (blank[blank.length - 1].querySelector('.cj-cat-pick') || blank[blank.length - 1].querySelector('.cj-desc')) : null;
                         if (f) { f.focus({ preventScroll: true }); }
                     }, 350);

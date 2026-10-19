@@ -17,7 +17,7 @@
     $hasItem = $l && ! empty($l['item_id']);
     $lineUrl = fn ($key, $id) => str_replace('__LINE__', $id, $actions[$key] ?? '');
 @endphp
-<form method="POST" enctype="multipart/form-data" class="cj-line-form cj-row {{ $l ? 'is-saved' : 'is-new' }}"
+<form method="POST" enctype="multipart/form-data" class="cj-line-form cj-entry {{ $l ? 'is-saved' : 'is-new' }}"
       action="{{ $l ? $lineUrl('line_update', $l['id']) : $actions['line_add'] }}"
       data-add-url="{{ $actions['line_add'] }}" data-update-url="{{ $actions['line_update'] ?? '' }}"
       data-archive-url="{{ $actions['line_archive'] ?? '' }}" data-restore-url="{{ $actions['line_restore'] ?? '' }}"

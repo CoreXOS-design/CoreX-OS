@@ -47,10 +47,10 @@
         .cj-pricing .cj-sr { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
         .cj-pricing .cj-receipt-name { margin-top: 6px; }
         .cj-pricing.has-sendbar { margin-bottom: 120px; }
-        .cj-pricing .cj-row { padding: 12px 0; border-top: 1px solid var(--cj-border); }
-        .cj-pricing #cj-rows > .cj-row:first-child, .cj-pricing #cj-rows > .cj-line:first-child { border-top: 0; }
-        .cj-pricing .cj-row.is-new { border-top: 2px solid var(--cj-border); background: #fafcff; margin: 0 -8px; padding: 12px 8px; border-radius: 10px; }
-        .cj-pricing .cj-row .cj-label { margin: 8px 0 4px; }
+        .cj-pricing .cj-entry { padding: 12px 0; border-top: 1px solid var(--cj-border); }
+        .cj-pricing #cj-rows > .cj-entry:first-child, .cj-pricing #cj-rows > .cj-line:first-child { border-top: 0; }
+        .cj-pricing .cj-entry.is-new { border-top: 2px solid var(--cj-border); background: #fafcff; margin: 0 -8px; padding: 12px 8px; border-radius: 10px; }
+        .cj-pricing .cj-entry .cj-label { margin: 8px 0 4px; }
         .cj-pricing .cj-nums { display: flex; gap: 10px; }
         .cj-pricing .cj-nums .cj-num { flex: 1 1 0; min-width: 0; }
         .cj-pricing .cj-more > summary { cursor: pointer; list-style: none; min-height: 44px; display: flex; align-items: center; font-weight: 700; font-size: 14px; color: #076e84; }
@@ -124,7 +124,7 @@
         (function () {
             var root = document.currentScript.parentNode;      // #cj-pricing
             var list = root.querySelector('#cj-rows');
-            var blankTpl = (root.querySelector('.cj-row.is-new') || {}).outerHTML || '';   // the pristine blank row, before any wiring
+            var blankTpl = (root.querySelector('.cj-entry.is-new') || {}).outerHTML || '';   // the pristine blank row, before any wiring
             var JSON_HEADERS = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
 
             function uuid() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) { var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }); }
