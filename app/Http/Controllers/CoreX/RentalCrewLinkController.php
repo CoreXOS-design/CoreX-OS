@@ -10,6 +10,7 @@ use App\Models\RentalPortalSetting;
 use App\Models\RentalSecureAccessToken;
 use App\Services\Rentals\RentalMailDispatcher;
 use App\Services\Rentals\RentalSecureAccessTokenService;
+use App\Support\WhatsAppNumberFormatter;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\View\View;
@@ -83,6 +84,56 @@ class RentalCrewLinkController extends Controller
 
         // Keep the URL on screen so the agent can still copy it after emailing.
         return $this->send($back->with('crew_link_url', $data['link_url']), $rentalCrew, $token, $data['link_url'], $data['to'], $request);
+    }
+
+    /**
+     * Resend the home link (§17.42) — "the crew lost the message". Only a hash is stored, so the original URL cannot be
+     * read back; this mints a FURTHER live link for the same crew (the one the crew already holds keeps working — exactly
+     * like the contractor links' WhatsApp) and sends that. Regenerate is the button that kills the old link.
+     * `channel` = email (to the crew's address, or one typed) | whatsapp (opens WhatsApp on the crew's mobile with the text ready).
+     */
+    public function resend(Request $request, RentalCrew $rentalCrew): RedirectResponse
+    {
+        $back = redirect()->route('corex.rental-crews.edit', $rentalCrew);
+
+        $data = $request->validate([
+            'channel' => ['required', 'in:email,whatsapp'],
+            'to' => ['nullable', 'string', 'email:rfc', 'max:191'],
+        ], ['to.email' => 'That email address does not look right.']);
+
+        if (! $rentalCrew->is_active) {
+            return $back->withErrors(['crew_link' => 'This crew is switched off — make it active first.']);
+        }
+        if (! RentalPortalSetting::crewLinksEnabledFor($rentalCrew->agency_id)) {
+            return $back->withErrors(['crew_link' => 'Crew links are switched off for your agency (Settings → Rental Portal).']);
+        }
+        $current = RentalSecureAccessToken::withoutGlobalScopes()
+            ->where('rental_crew_id', $rentalCrew->id)->where('purpose', RentalSecureAccessToken::PURPOSE_CREW_STANDING)
+            ->whereNull('revoked_at')->orderByDesc('id')->get()->first(fn ($t) => $t->isLive());
+        if (! $current) {
+            return $back->withErrors(['crew_link' => 'This crew has no working link to resend — create a new link first.']);
+        }
+
+        $to = trim((string) ($data['to'] ?? '')) ?: trim((string) $rentalCrew->email);
+        $digits = $data['channel'] === 'whatsapp' ? WhatsAppNumberFormatter::forDeepLink((string) $rentalCrew->phone) : '';
+        if ($data['channel'] === 'email' && ($to === '' || ! filter_var($to, FILTER_VALIDATE_EMAIL))) {
+            return $back->withErrors(['crew_link' => 'There is no email address on file for this crew — add one on the crew, or type one.']);
+        }
+        if ($data['channel'] === 'whatsapp' && strlen($digits) < 10) {
+            return $back->withErrors(['crew_link' => 'There is no usable mobile number on file for this crew — add one on the crew first.']);
+        }
+
+        $issued = $this->tokens->issueExtra($rentalCrew, RentalSecureAccessToken::PURPOSE_CREW_STANDING, $request->user(), RentalPortalSetting::crewStandingLinkExpiryDaysFor($rentalCrew->agency_id));
+        $url = route('rentals.crew-page.show', $issued['raw_token']);
+
+        if ($data['channel'] === 'email') {
+            return $this->send($back, $rentalCrew, $issued['token'], $url, $to, $request);
+        }
+
+        RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_WHATSAPP, (int) $rentalCrew->agency_id, (int) $rentalCrew->id, (int) $issued['token']->id, null, 'WhatsApp opened with the home link for ' . $rentalCrew->phone, $request->user());
+        $agency = \App\Models\Agency::publicBrandingFor((int) $rentalCrew->agency_id)['name'];
+
+        return redirect()->away('https://wa.me/' . $digits . '?text=' . rawurlencode('Hi ' . $rentalCrew->name . ', here is your jobs page from ' . $agency . ': ' . $url));
     }
 
     /** Revoke: the link is dead on its very next request. Safe to repeat. */

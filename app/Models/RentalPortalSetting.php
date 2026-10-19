@@ -40,9 +40,8 @@ class RentalPortalSetting extends Model
     public const CREW_PHOTOS_COMPLETED_ONLY = 'completed_only';
     public const CREW_PHOTO_VISIBILITY_OPTIONS = [self::CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED, self::CREW_PHOTOS_COMPLETED_ONLY];
     public const DEFAULT_CREW_PHOTOS_VISIBLE_TO_CLIENTS = self::CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED;
-    /** null = the crew page link stands until it is revoked. */
-    public const DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS = null;
-    public const DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS = 7;
+    /** A crew's standing home link lasts this many days unless the agency chooses otherwise (0 = stands until revoked). */
+    public const DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS = 180;
     public const DEFAULT_CREW_PAGE_UPCOMING_DAYS = 14;
 
     // .ai/specs/rental-portal-access.md §22 — fault photos from the tenant / owner portal (client-side compression keeps phone photos well under the size).
@@ -198,26 +197,23 @@ class RentalPortalSetting extends Model
         return in_array($value, self::CREW_PHOTO_VISIBILITY_OPTIONS, true) ? $value : self::DEFAULT_CREW_PHOTOS_VISIBLE_TO_CLIENTS;
     }
 
-    /** Null = the crew page link stands until revoked. */
+    /**
+     * Days a crew's standing home link lasts. Nothing stored = the default (180). A stored 0 is the agency's explicit
+     * "keep it until I revoke it" — returned as null, which the token service reads as no expiry.
+     */
     public static function crewStandingLinkExpiryDaysFor(?int $agencyId): ?int
     {
-        if (!$agencyId) {
-            return self::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS;
-        }
-        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_standing_link_expiry_days');
+        $days = self::crewStandingLinkExpiryDaysSettingFor($agencyId);
 
-        return $value !== null ? (int) $value : self::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS;
+        return $days > 0 ? $days : null;
     }
 
-    /** 0 hides the "recently completed" list. */
-    public static function crewPageRecentCompletedDaysFor(?int $agencyId): int
+    /** The setting as the agency typed it (0 = until revoked, else 1-365) — what the settings page and the wizard show, so saving them unchanged never flips a choice. */
+    public static function crewStandingLinkExpiryDaysSettingFor(?int $agencyId): int
     {
-        if (!$agencyId) {
-            return self::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS;
-        }
-        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_page_recent_completed_days');
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('crew_standing_link_expiry_days') : null;
 
-        return $value !== null ? (int) $value : self::DEFAULT_CREW_PAGE_RECENT_COMPLETED_DAYS;
+        return $value !== null ? max(0, (int) $value) : self::DEFAULT_CREW_STANDING_LINK_EXPIRY_DAYS;
     }
 
     public static function crewPageUpcomingDaysFor(?int $agencyId): int

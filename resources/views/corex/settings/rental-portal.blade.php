@@ -183,10 +183,10 @@
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-standing-link-expiry-days') }}" class="space-y-2">
                 @csrf
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew page link lasts (days)</label>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew home link lasts (days)</label>
                 <input type="number" name="crew_standing_link_expiry_days" value="{{ old('crew_standing_link_expiry_days', $crewStandingLinkExpiryDays) }}"
-                       min="1" max="365" placeholder="No expiry" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                <p class="text-xs" style="color: var(--text-muted);">Leave blank and a crew's page link keeps working until you revoke or regenerate it (the default). Fill it in to make every new crew link stop after that many days.</p>
+                       min="0" max="365" placeholder="{{ $defaultCrewStandingLinkExpiryDays }}" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Each crew has one home link that lists all its jobs. A new link stops working after this many days (the standard is {{ $defaultCrewStandingLinkExpiryDays }}); enter 0 to keep every new link until you revoke or regenerate it. Links already out keep the date they were made with.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-upcoming-days') }}" class="space-y-2">
@@ -195,14 +195,6 @@
                 <input type="number" name="crew_page_upcoming_days" value="{{ old('crew_page_upcoming_days', $crewPageUpcomingDays) }}"
                        min="1" max="60" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageUpcomingDays }} days. Jobs booked further ahead than this are not on the crew page yet, and their parts are not in the &ldquo;what to load&rdquo; list.</p>
-                <button type="submit" class="corex-btn-primary text-xs">Save</button>
-            </form>
-            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-recent-completed-days') }}" class="space-y-2">
-                @csrf
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Show completed jobs on the crew page for (days)</label>
-                <input type="number" name="crew_page_recent_completed_days" value="{{ old('crew_page_recent_completed_days', $crewPageRecentCompletedDays) }}"
-                       min="0" max="30" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageRecentCompletedDays }} days. A finished job stays listed (read-only) for this long. Set 0 to hide the list.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
         </div>

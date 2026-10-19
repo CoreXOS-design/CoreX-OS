@@ -3490,7 +3490,6 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/notify-landlord-on-crew-completion', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateNotifyLandlordOnCrewCompletion'])->name('corex.settings.rental-portal.notify-landlord-on-crew-completion');
         Route::post('/crew-photos-visible-to-clients', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPhotosVisibleToClients'])->name('corex.settings.rental-portal.crew-photos-visible-to-clients');
         Route::post('/crew-standing-link-expiry-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewStandingLinkExpiryDays'])->name('corex.settings.rental-portal.crew-standing-link-expiry-days');
-        Route::post('/crew-page-recent-completed-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageRecentCompletedDays'])->name('corex.settings.rental-portal.crew-page-recent-completed-days');
         Route::post('/crew-page-upcoming-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageUpcomingDays'])->name('corex.settings.rental-portal.crew-page-upcoming-days');
         // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
         Route::post('/fault-photo-max-count', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxCount'])->name('corex.settings.rental-portal.fault-photo-max-count');
@@ -4723,6 +4722,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.revoke');
         Route::post('/{rentalCrew}/link/email', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'email'])
             ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.email');
+        Route::post('/{rentalCrew}/link/resend', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'resend'])
+            ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.resend');
         Route::get('/{rentalCrew}/link/events', [\App\Http\Controllers\CoreX\RentalCrewLinkController::class, 'events'])
             ->middleware('permission:rental_job_cards.share')->name('corex.rental-crews.link.events');
     });

@@ -98,7 +98,7 @@
                             @php $ls = $linkStatuses[$crew->id] ?? null; @endphp
                             @if($ls)
                                 <span class="ds-badge {{ $badge($ls['state'] === 'live' ? '--ds-green' : ($ls['state'] === 'never' ? '--text-muted' : '--ds-crimson')) }}">{{ $ls['label'] }}</span>
-                                @if($ls['last_used_at'])<div style="color: var(--text-muted);">used {{ $ls['last_used_at']->format('j M H:i') }}</div>@endif
+                                <div style="margin-top:4px;">@include('corex.rental-crews._home-link-line', ['crew' => $crew, 'ls' => $ls, 'withRegenerate' => false])</div>
                             @endif
                         </td>
                         @endpermission
