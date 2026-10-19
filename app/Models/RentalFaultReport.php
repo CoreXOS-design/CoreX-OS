@@ -1137,7 +1137,7 @@ class RentalFaultReport extends Model
             throw new \InvalidArgumentException('outcome_note is required unless the outcome is "repaired" or "resolved_by_first_aid".');
         }
         if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && empty($repairedAt)) {
-            throw new \InvalidArgumentException('repaired_at is required when the outcome is repaired or repaired_partially — Johan\'s own words: "the important part is capturing if and when the repairs were carried out."');
+            throw new \InvalidArgumentException('Say when the repair was carried out - the date is required when the outcome is repaired or repaired partially.');   // section 29 (C-H1): plain, agency-neutral wording
         }
         // §4.4 — the tenant IS reporting that it's already fixed; the
         // submission moment is the repair moment unless told otherwise.
