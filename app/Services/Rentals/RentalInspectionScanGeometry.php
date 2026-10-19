@@ -55,8 +55,10 @@ final class RentalInspectionScanGeometry
         $qy = in_array($corner, ['bl', 'br'], true) ? $H - $qh : 0;
         $cornerX = in_array($corner, ['tr', 'br'], true) ? (float) $W : 0.0;
         $cornerY = in_array($corner, ['bl', 'br'], true) ? (float) $H : 0.0;
-        $capX = 0.22 * $W;
-        $capY = 0.22 * $H;
+        // A page photographed 20-25 degrees off square sits with its nearest mark a third of the picture in from the corner
+        // (the page's own corner points out along the picture's edge), so the cap is the search quadrant itself.
+        $capX = 0.40 * $W;
+        $capY = 0.35 * $H;
 
         $f = 0.5;
         $crop = clone $page;
@@ -68,25 +70,34 @@ final class RentalInspectionScanGeometry
         $px = $crop->exportImagePixels(0, 0, $w, $h, 'I', Imagick::PIXEL_CHAR);
         $crop->clear();
 
-        $w1 = $w + 1;
-        $I = array_fill(0, $w1 * ($h + 1), 0.0);
-        for ($y = 0; $y < $h; $y++) {
+        $s = max(4, (int) round($expectedPx * 0.95 * $f));
+        $g = max(1, (int) round($s * 0.2));       // guard gap
+        $m = max(2, (int) round($s * 0.3));       // clean ring width
+        $pad = $g + $m;
+
+        // The integral image is laid over the picture plus a `$pad` margin of blank paper on every side, so a mark that sits
+        // within a few pixels of the picture's edge (a scanner that stretches the page past its frame) still has the clean
+        // ring the isolation test asks for.
+        $wp = $w + 2 * $pad;
+        $hp = $h + 2 * $pad;
+        $w1 = $wp + 1;
+        $I = array_fill(0, $w1 * ($hp + 1), 0.0);
+        for ($y = 0; $y < $hp; $y++) {
             $run = 0.0;
-            $base = $y * $w;
-            for ($x = 0; $x < $w; $x++) {
-                $run += (255 - ($px[$base + $x] & 0xFF)) / 255;
+            $inY = $y >= $pad && $y < $pad + $h;
+            $base = ($y - $pad) * $w - $pad;
+            for ($x = 0; $x < $wp; $x++) {
+                if ($inY && $x >= $pad && $x < $pad + $w) {
+                    $run += (255 - ($px[$base + $x] & 0xFF)) / 255;
+                }
                 $I[($y + 1) * $w1 + $x + 1] = $I[$y * $w1 + $x + 1] + $run;
             }
         }
         $sum = static fn (int $x0, int $y0, int $x1, int $y1): float => $I[$y1 * $w1 + $x1] - $I[$y0 * $w1 + $x1] - $I[$y1 * $w1 + $x0] + $I[$y0 * $w1 + $x0];
 
-        $s = max(4, (int) round($expectedPx * 0.95 * $f));
-        $g = max(1, (int) round($s * 0.2));       // guard gap
-        $m = max(2, (int) round($s * 0.3));       // clean ring width
-        $pad = $g + $m;
         $found = [];
-        for ($y = $pad; $y < $h - $s - $pad; $y++) {
-            for ($x = $pad; $x < $w - $s - $pad; $x++) {
+        for ($y = $pad; $y <= $pad + $h - $s; $y++) {
+            for ($x = $pad; $x <= $pad + $w - $s; $x++) {
                 $in = $sum($x, $y, $x + $s, $y + $s);
                 $share = $in / ($s * $s);
                 if ($share < 0.18) {
@@ -122,8 +133,8 @@ final class RentalInspectionScanGeometry
                 if ($ring > 0.06) {
                     continue;
                 }
-                $cx = ($qx + ($x + $s / 2) / $f);
-                $cy = ($qy + ($y + $s / 2) / $f);
+                $cx = ($qx + ($x - $pad + $s / 2) / $f);
+                $cy = ($qy + ($y - $pad + $s / 2) / $f);
                 if (abs($cx - $cornerX) > $capX || abs($cy - $cornerY) > $capY) {
                     continue;
                 }

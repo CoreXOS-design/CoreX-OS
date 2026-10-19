@@ -529,6 +529,9 @@ class RentalInspectionScanReaderService
     {
         $image->setImageBackgroundColor(new ImagickPixel('white'));
         $image->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+        // A rotated or cropped picture can carry a "virtual canvas" offset (PNG oFFs, TIFF position). cropImage() works on
+        // that canvas, not on the pixels, so every corner/QR/row crop below would otherwise look in the wrong place.
+        $image->setImagePage(0, 0, 0, 0);
     }
 
     // ── Fiducial detection + calibration ────────────────────────────────
@@ -675,8 +678,10 @@ class RentalInspectionScanReaderService
                         }
                         $scale = $dp / $dm;
                         // a page the printer shrank to fit (Letter paper: ~94 %) or a scan a little over/under size - not
-                        // a placement that would need the page 30 % bigger or smaller than the picture it came out of
-                        if ($scale < 0.86 * $prior || $scale > 1.14 * $prior) {
+                        // a placement that would need the page far bigger than the picture it came out of. The floor is low on
+                        // purpose: the picture's size is only a rough guide to the scale when the page was photographed at
+                        // an angle (the picture then holds the page's bounding box, 25 % bigger at 20 degrees, 45 % at 45).
+                        if ($scale < 0.62 * $prior || $scale > 1.2 * $prior) {
                             continue;
                         }
                         $theta = atan2($B['y'] - $A['y'], $B['x'] - $A['x']) - atan2($vy - $uy, $vx - $ux);
