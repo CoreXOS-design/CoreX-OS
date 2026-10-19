@@ -113,7 +113,8 @@ final class RentalInspectionSchedulingTest extends TestCase
         ]);
 
         $inspection = RentalInspection::first();
-        $response->assertRedirect(route('corex.rental-inspections.show', $inspection));
+        // audit B33: a scheduled inspection lands on the property's Inspections tab (its next action), not the read-only page
+        $response->assertRedirect(route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']));
 
         $this->assertNotNull($inspection);
         $this->assertSame(now()->addDays(5)->toDateString(), $inspection->scheduled_for->toDateString());

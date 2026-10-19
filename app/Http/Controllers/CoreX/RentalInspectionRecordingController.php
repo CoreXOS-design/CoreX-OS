@@ -2013,11 +2013,21 @@ class RentalInspectionRecordingController extends Controller
     ): JsonResponse {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
-        // Audit B2 - completing an OUT runs a checklist: open findings, open repairs, a move-out inventory check not done. They are WARNINGS,
-        // never a block - the agent sees them and completes anyway by acknowledging (`acknowledge_warnings`). Only asked of an Out that is still open.
-        if ($rentalInspection->type === RentalInspection::TYPE_OUT
-            && $rentalInspection->isRecordable()
-            && ! request()->boolean('acknowledge_warnings')) {
+        // Audit B2 - completing an OUT runs a checklist: open findings, open repairs, a move-out inventory check not done. They are
+        // WARNINGS, never a block - the agent sees them and completes anyway by acknowledging (`acknowledge_warnings`). Asked only once every
+        // hard refusal has passed (assertCanComplete below), so "Cannot complete: ..." always comes first.
+        try {
+            $rentalInspection->assertCanComplete();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
+        } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+        if ($rentalInspection->type === RentalInspection::TYPE_OUT && ! request()->boolean('acknowledge_warnings')) {
             $warnings = app(\App\Services\Rentals\RentalDepositDeductionsService::class)->outCompletionWarnings($rentalInspection->loadMissing('lease'));
             if ($warnings !== []) {
                 return response()->json([

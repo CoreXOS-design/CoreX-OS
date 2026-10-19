@@ -402,7 +402,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
     public function test_classification_filter(): void
     {
         $x = $this->layout();
-        $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Burn from a cigarette.', $this->agent);
+        $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Burn from a cigarette.', $this->agent, 450.00);
 
         $labels = fn (array $c) => $this->rows($c)->pluck('item.label')->sort()->values()->all();
         $this->assertSame(['Floor'], $labels($this->cmp($x['out'], ['classification' => 'any'])));
@@ -604,7 +604,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
         $recorded = [];
         foreach (['wear_and_tear', 'flagged', 'pre_existing', 'landlord_cost', 'charge_tenant'] as $disposition) {
-            $recorded[] = $this->service->recordFinding($x['out'], $x['floor'], $disposition, "Because {$disposition}.", $this->agent);
+            $recorded[] = $this->service->recordFinding($x['out'], $x['floor'], $disposition, "Because {$disposition}.", $this->agent, $disposition === 'charge_tenant' ? 200.00 : null);
         }
 
         $all = RentalInspectionItemFinding::where('rental_inspection_item_id', $x['floor']->id)->orderBy('id')->get();
@@ -620,7 +620,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
 
         $this->service->recordFinding($x['out'], $x['meter'], 'landlord_cost', 'Meter was already replaced.', $this->agent);     // new item
-        $this->service->recordFinding($x['out'], $x['gone'], 'charge_tenant', 'Curtain removed by tenant.', $this->agent);       // not at move-out
+        $this->service->recordFinding($x['out'], $x['gone'], 'charge_tenant', 'Curtain removed by tenant.', $this->agent, 300.00);       // not at move-out
         $this->service->recordFinding($x['out'], $x['taps'], 'wear_and_tear', 'Fair vs good: normal.', $this->agent);            // different
         $this->assertSame(3, RentalInspectionItemFinding::count());
 
@@ -656,7 +656,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
         $url = route('corex.rental-inspections.deposit-comparison.finding', [$x['out'], $x['floor']]);
 
-        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'Cigarette burn'])
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'Cigarette burn', 'amount' => '450'])
             ->assertRedirect(route('corex.rental-inspections.deposit-comparison', $x['out']))->assertSessionHasNoErrors();
         $this->assertDatabaseHas('rental_inspection_item_findings', ['rental_inspection_item_id' => $x['floor']->id, 'disposition' => 'charge_tenant', 'superseded_at' => null]);
 

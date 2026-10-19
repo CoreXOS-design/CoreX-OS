@@ -20,6 +20,14 @@ trait RecordsAttendance
     protected function recordAttendanceForEveryParty(RentalInspection $inspection): void
     {
         foreach (app(RentalInspectionAttendanceService::class)->expectedParties($inspection) as $party) {
+            // idempotent: a fixture may record it before and again after (the guard now asks before signing)
+            $exists = RentalInspectionAttendance::where('rental_inspection_id', $inspection->id)
+                ->where('party_role', $party['party_role'])
+                ->where('party_contact_id', $party['contact_id'])
+                ->where('party_user_id', $party['user_id'])->exists();
+            if ($exists) {
+                continue;
+            }
             RentalInspectionAttendance::create([
                 'agency_id' => $inspection->agency_id,
                 'rental_inspection_id' => $inspection->id,

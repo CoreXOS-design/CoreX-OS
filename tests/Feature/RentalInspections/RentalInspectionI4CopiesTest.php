@@ -106,6 +106,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
             'created_by_user_id' => $this->agent->id, 'inspector_user_id' => $this->inspector->id,
         ]);
         if ($type !== RentalInspection::TYPE_AD_HOC) {
+            $this->recordAttendanceForEveryParty($inspection);
             $inspection->startAwaitingSignature();
             // I-3's completion guard: every expected party needs an attendance outcome before the inspection can complete.
             $this->recordAttendanceForEveryParty($inspection);
@@ -137,6 +138,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
                 'party_role' => RentalInspectionSignature::PARTY_AGENT,
                 'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
                 'signature_image' => self::TEST_SIGNATURE_IMAGE,
+                'signing_method' => 'drawn',
             ])->assertStatus(201);
         }
     }
@@ -260,7 +262,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         $inspection = $this->inspection();
         $this->sign($inspection);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         Mail::assertSent(SignedDocumentDistributionMail::class, 5); // tenant, landlord, agency, inspector, creator
         $roles = SignedDocumentDistributionLog::where('distributable_id', $inspection->id)->where('channel', 'email')->where('status', 'sent')->pluck('recipient_role')->all();
@@ -282,7 +284,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         $inspection = $this->inspection();
         $this->sign($inspection);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         // The sending agent already receives their own copy as a recipient, so no mail needs a CC to them as well.
         Mail::assertSent(SignedDocumentDistributionMail::class, fn ($mail) => $mail->recipientName === $this->inspector->name);
@@ -301,7 +303,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         $inspection = $this->inspection();
         $this->sign($inspection);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         Mail::assertSent(SignedDocumentDistributionMail::class, fn ($mail) => $mail->recipientName === $this->tenant->full_name && $mail->hasCc(self::TEST_ADDRESS));
     }
@@ -312,7 +314,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         $inspection = $this->inspection();
         $this->sign($inspection);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         Mail::assertNothingSent();
         $this->assertDatabaseHas('documents', ['source_type' => 'rental_inspection_report', 'source_id' => $inspection->id]);
@@ -326,7 +328,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         $inspection = $this->inspection();
         $this->sign($inspection, extraTenants: [$noEmail]);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $skipped = SignedDocumentDistributionLog::where('distributable_id', $inspection->id)->where('status', 'skipped')->first();
         $this->assertNotNull($skipped);
@@ -346,7 +348,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         config(['mail.non_production_redirect' => '']); // outside production with no redirect: every send is suppressed = failed
         $inspection = $this->inspection();
         $this->sign($inspection);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk()
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk()
             ->assertJsonPath('status', RentalInspection::STATUS_COMPLETED); // a failed send never undoes the completion
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
@@ -376,7 +378,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         // not completed yet
         $this->post(route('corex.rental-inspections.resend-recipient', $inspection), ['log_id' => 1])->assertSessionHasErrors('copies');
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         Mail::fake();
 
         $other = $this->inspection(RentalInspection::TYPE_AD_HOC);
@@ -398,7 +400,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $noEmail->id]);
         $inspection = $this->inspection();
         $this->sign($inspection, extraTenants: [$noEmail]);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $skipped = SignedDocumentDistributionLog::where('distributable_id', $inspection->id)->where('status', 'skipped')->first();
 
         // still no address: refused with a plain message, nothing sent
@@ -419,7 +421,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $noEmail->id]);
         $inspection = $this->inspection();
         $this->sign($inspection, extraTenants: [$noEmail]);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $response = $this->postJson(route('corex.rental-inspections.resend-report', $inspection))->assertOk();
 
@@ -461,7 +463,7 @@ final class RentalInspectionI4CopiesTest extends TestCase
         }
 
         $this->sign($inspection, tenant: false, landlord: false, agent: true);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
         Mail::assertSent(SignedDocumentDistributionMail::class);
     }

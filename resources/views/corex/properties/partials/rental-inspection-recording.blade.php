@@ -431,7 +431,7 @@
                 </div>
                 {{-- Audit B31 - keys and remotes are counted HERE (the one place they are typed); what the inventory lists is shown for reference. --}}
                 <div class="col-span-full text-xs" style="color:var(--text-muted);" x-show="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).length" x-cloak data-qa="inventory-key-remote-lines">
-                    Inventory lists: <span x-text="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).join(', ')"></span> — count them here, no need to type them in the inventory again.
+                    Inventory lists: <span x-text="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).join(', ')"></span> — count them here; this is where keys and remotes are recorded.
                 </div>
                 {{-- 2026-09-23 — was a PHP-compile-time @if($section === 'out'),
                      baked into the compiled HTML at whatever type happened

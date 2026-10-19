@@ -1159,6 +1159,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         $tenantOne = $this->makeTenant();
         $tenantTwo = $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
@@ -1187,6 +1188,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
         ]);
         \App\Models\ContactProperty::create(['contact_id' => $landlord->id, 'property_id' => $property->id, 'role' => 'landlord']);
         $inspection = $this->makeInspection(RentalInspection::TYPE_OUT);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
@@ -1277,6 +1279,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
 
+        $this->recordAttendanceForEveryParty($inspection);
         $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))
             ->assertOk()
             ->assertJsonFragment(['status' => RentalInspection::STATUS_AWAITING_SIGNATURE]);
@@ -1286,6 +1289,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $tenant = $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
@@ -1300,12 +1304,14 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
+            'signing_method' => 'drawn',
         ])->assertStatus(422);
     }
 
@@ -1313,6 +1319,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     {
         $tenant = $this->makeTenant();
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
         RentalInspectionSignature::capture($inspection, RentalInspectionSignature::PARTY_TENANT, RentalInspectionSignature::DISPOSITION_SIGNED, [
             'party_contact_id' => $tenant->id, 'party_signature_path' => 'signatures/tenant.png',
@@ -1322,6 +1329,7 @@ final class RentalInspectionRecordingControllerTest extends TestCase
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
+            'signing_method' => 'drawn',
         ])->assertStatus(201)->assertJsonFragment(['disposition' => 'signed', 'party_role' => 'agent']);
     }
 
@@ -1348,11 +1356,13 @@ final class RentalInspectionRecordingControllerTest extends TestCase
     public function test_an_in_inspection_completes_over_real_http_once_the_agent_signs(): void
     {
         $inspection = $this->makeInspection(RentalInspection::TYPE_IN);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
+            'signing_method' => 'drawn',
         ])->assertStatus(201);
         $this->recordAttendanceForEveryParty($inspection);
 

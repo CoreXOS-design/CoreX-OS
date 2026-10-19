@@ -100,6 +100,10 @@ final class RentalInspectionSignNowTest extends TestCase
         $inspection = $this->ready();
         $this->everyoneButTheAgentSigns($inspection);
 
+        // audit B23: the saved-signature route needs the PIN unlock for THIS inspection and the user's own saved image
+        $inspection->update(['inspector_user_id' => $this->admin->id]);
+        app(\App\Services\AgentSignatureService::class)->save($this->admin, self::PNG, self::PNG, '4321');
+        $this->withSession(['sig_unlock.' . $this->admin->id . '.' . sha1('rental-inspection:' . $inspection->id) => now()->timestamp]);
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
             'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
         ])->assertStatus(201);

@@ -220,7 +220,7 @@ final class RentalInspectionI6bTest extends TestCase
         LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $noEmail->id, 'is_primary' => false]);
         $inspection = $this->inspection(RentalInspection::TYPE_AD_HOC, ['inspector_user_id' => $this->agent->id]);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $row = RentalInspectionAuditLog::where('event', 'report_copies_sent')->firstOrFail();
         $this->assertSame(1, $row->after['skipped']);

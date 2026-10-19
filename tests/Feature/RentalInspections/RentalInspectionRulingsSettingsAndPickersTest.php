@@ -112,7 +112,7 @@ final class RentalInspectionRulingsSettingsAndPickersTest extends TestCase
         $this->setRequired($type, false);
         $inspection = $this->recording($type);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
     }
 

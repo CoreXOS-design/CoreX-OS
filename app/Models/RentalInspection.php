@@ -810,7 +810,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * locked, only the signal arrived late. A cancelled or archived inspection never takes it (nothing would ever show it), and a write
      * with no capture time, or captured after the lock, is a live change to a locked report and stays refused.
      */
-    public function acceptsLateEvidence(?\Illuminate\Support\Carbon $capturedAt): bool
+    public function acceptsLateEvidence(?\Carbon\CarbonInterface $capturedAt): bool
     {
         if ($capturedAt === null || $this->trashed() || $this->status === self::STATUS_CANCELLED) {
             return false;
@@ -1307,7 +1307,13 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * disposition satisfying this guard cannot exist without the real
      * thing (a genuine signature image, or a genuine reason) behind it.
      */
-    public function markCompleted(): void
+    /**
+     * Audit B2 - every refusal to complete, on its own, so the controller can run them BEFORE it asks about the Out's
+     * warnings (a hard refusal is always shown first). markCompleted() runs exactly this.
+     *
+     * @throws \LogicException
+     */
+    public function assertCanComplete(): void
     {
         // Audit H2 — a completed or cancelled (or archived) inspection can
         // never be (re)completed: a second call would overwrite completed_at,
@@ -1363,6 +1369,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');
             }
         }
+    }
+
+    public function markCompleted(): void
+    {
+        $this->assertCanComplete();
 
         $completedAt = now();
         $attributes = [

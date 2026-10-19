@@ -358,7 +358,7 @@ final class RentalInspectionDefaultsTest extends TestCase
         $this->signByLink($i, 'tenant', $this->tenant, 'Naledi Dlamini');
         $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'tenant', 'disposition' => 'refused', 'party_contact_id' => $this->tenant2->id, 'refusal_reason_preset' => 'refused_no_reason'])->assertStatus(201);
         $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG])->assertStatus(201);
+        $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn'])->assertStatus(201);
 
         $copies = app(\App\Services\Rentals\RentalInspectionCopiesService::class);
         $this->complete($i);

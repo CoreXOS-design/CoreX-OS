@@ -133,6 +133,8 @@ final class RentalInspectionSigningLinkTest extends TestCase
             'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->admin->id,
             'condition' => 'good', 'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
+        // audit B12: who was present is asked before anyone signs, so every fixture has it on record
+        $this->recordAttendanceForEveryParty($inspection);
         if ($readyToSign && $type !== RentalInspection::TYPE_AD_HOC) {
             $inspection->startAwaitingSignature();
             $this->recordAttendanceForEveryParty($inspection);
@@ -996,9 +998,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
             RentalInspectionSignature::capture($inspection, 'landlord', 'signed', ['party_contact_id' => $this->landlord->id, 'party_signature_path' => '/fake/l.png', 'recorded_by_user_id' => $this->admin->id]);
         }
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
     }
 
     public function test_link_signatures_alone_do_not_complete_the_inspection_the_agent_still_signs_and_completes(): void
@@ -1022,9 +1024,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
         Mail::assertNotSent(SignedDocumentDistributionMail::class);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
         // The completion copies go out exactly as they do for any inspection: tenants, landlord, inspector, creator.
@@ -1299,6 +1301,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->get($link->url())->assertSee('data-qa="sign-unavailable"', false);
 
         $this->actingAs($this->admin);
+        $this->recordAttendanceForEveryParty($inspection->fresh());
         $inspection->fresh()->startAwaitingSignature();
         $this->guest();
 

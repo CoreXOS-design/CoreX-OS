@@ -140,6 +140,10 @@ for (const mode of ['abort', 'network', 'fail422']) {
   ok(u.uploadBatches[0].status === 'failed', 'retry: first attempt failed');
   await u.retryBatch(u.uploadBatches[0]);
   ok(u.uploadBatches[0].status === 'done' && u.photos.length === 1, 'retry: second attempt of the same batch lands the photo');
+  // Audit 2026-10-19 B16 - the retry must send the SAME idempotency keys (a lost response must not store the photo twice), and they are real UUIDs
+  const keysOf = (fd) => fd.getAll('client_idempotency_keys[]');
+  ok(s.sent.length === 2 && keysOf(s.sent[0]).length === 1 && keysOf(s.sent[0])[0] === keysOf(s.sent[1])[0], 'retry: the second attempt reuses the first attempt\'s idempotency key');
+  ok(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(keysOf(s.sent[0])[0]), 'retry: the key is a real v4 UUID even with no crypto.randomUUID');
 }
 
 // ── 5: the leave-page guard ──

@@ -423,7 +423,8 @@ final class RentalInspectionSiteFormTest extends TestCase
         $this->assertStringContainsString("#{$inspection2->id}", (string) session('error'));
         $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->whereNull('deleted_at')->count(), 'a live scan row was kept for another agency\'s form');
         $this->assertSame(0, RentalInspectionScan::withoutGlobalScopes()->withTrashed()->where('rental_inspection_id', $inspection2->id)->count(), 'the form was filed against the other agency\'s inspection');
-        $this->assertSame([], Storage::disk('local')->allFiles("properties/{$inspection->property_id}/rental-inspection-scans"));
+        // audit B26 (no hard deletes): nothing is read or filed, but the uploaded file is RETAINED (the row is archived)
+        $this->assertCount(1, Storage::disk('local')->allFiles("properties/{$inspection->property_id}/rental-inspection-scans"));
         $this->assertSame([], Storage::disk('local')->allFiles("properties/{$property2->id}/rental-inspection-scans"));
     }
 
