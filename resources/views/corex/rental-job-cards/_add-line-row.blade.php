@@ -240,7 +240,7 @@
     </div>
 @if($isEdit)
     @php $editLabour = $selectedType === 'labour'; @endphp
-    <div class="jc-line-foot" data-line-foot>
+    <div class="jc-line-foot cx-equal-btns" data-line-foot>
         <span class="jc-foot-tools">
             @include('corex.rental-job-cards._line-receipt-control', ['labour' => $editLabour])
             @if($canPrice)
@@ -268,7 +268,7 @@
     </div>
 </form>
 @elseif($mode === 'form')
-    <div class="jc-line-foot" data-line-foot>
+    <div class="jc-line-foot cx-equal-btns" data-line-foot>
         <span class="jc-foot-tools">
             @include('corex.rental-job-cards._line-receipt-control', ['labour' => false])
             @if($canPrice)

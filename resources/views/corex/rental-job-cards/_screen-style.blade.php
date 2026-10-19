@@ -70,7 +70,8 @@
     .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 14px; padding-top: 8px; } /* left-aligned: the lines box is 980px wide and scrolls sideways in a narrow panel, so a right-aligned button would sit off screen */
     .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
     .jc-foot-buttons { display: flex; gap: 8px; order: -1; } /* the main button first, then the receipt and markup tools (the DOM keeps fields -> tools -> buttons for the Tab order) */
-    .jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px !important; min-height: 30px !important; padding: 0 14px !important; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; }
+    /* the footer carries CoreX's own .cx-equal-btns (corex.css) so every <button> in it - Add, Cancel, Save - is the same size despite the legacy ".hfc-card button[type=submit]" rule; the receipt choices are <label>s, which that rule does not reach, so they take the same measurements here */
+    .jc-line-foot label.jc-filebtn { min-height: 2.25rem; padding: 0.375rem 0.875rem; font-size: 0.8125rem; line-height: 1.25rem; border-radius: 0.5rem; box-sizing: border-box; display: inline-flex; align-items: center; white-space: nowrap; }
     .jc-receipt { display: inline-flex; align-items: center; gap: 6px; }
     .jc-receipt[hidden] { display: none; }
     .jc-foot-label { font-size: 12px; color: var(--text-muted); }
