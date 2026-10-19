@@ -63,7 +63,7 @@ final class LineEntryServiceTest extends TestCase
         $this->assertTrue($res->json('line.editable'));
         $this->assertSame('85.00', $res->json('line.unit_cost'));
         $this->assertStringContainsString('Send to office (', $res->json('send_html'));
-        $this->assertStringContainsString('data-draft-count', $res->json('send_html'));
+        $this->assertStringContainsString('data-send-btn', $res->json('send_html'));
     }
 
     public function test_a_picked_item_decides_part_or_labour_unit_and_cost_without_the_crew_sending_them(): void
@@ -258,12 +258,12 @@ final class LineEntryServiceTest extends TestCase
         $this->assertStringContainsString('Add new line', $html);
         $this->assertStringNotContainsString('+ Add a part or labour', $html);
         $this->assertStringNotContainsString('Change this line', $html);
-        $this->assertStringNotContainsString('Send to office (', $html, 'no Send bar until a line exists');
+        $this->assertStringNotContainsString('id="cj-send-form"', $html, 'no Send bar until a line exists');
 
         $this->add($this->part())->assertOk();
         $html = $this->get(route('rentals.crew-job.show', $this->raw))->getContent();
         $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-saved"'));
         $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-new"'), 'still exactly one blank row after a saved line');
-        $this->assertStringContainsString('Send to office (', $html);
+        $this->assertStringContainsString('id="cj-send-form"', $html);
     }
 }
