@@ -222,7 +222,7 @@ class MobileRentalImagesTest extends TestCase
 
         // One photo, one file on disk — the retry duplicated nothing.
         $this->assertSame(1, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
-        $this->assertCount(1, Storage::disk('local')->allFiles("rental-inspections/{$this->agency->id}/{$inspection->id}"));
+        $this->assertCount(1, Storage::disk('local')->allFiles("private-images/rental-inspections/{$this->agency->id}/{$inspection->id}"));
     }
 
     /** Set a date, add a custom section (server mints id), then upload into it. */
