@@ -15,12 +15,12 @@ use Tests\TestCase;
  * "this crew's open cards", the crew page's grouping and the "what to load"
  * summation.
  *
- * Input paths proven: Today (by time) / Upcoming (within the agency window) /
- * Unscheduled / beyond-window hidden / overdue-and-still-open kept at the top of
+ * Input paths proven (spec §17.42 groups): Today (by time) / Scheduled (within the
+ * agency window) / Waiting for you (no date, price asked, sent back) / In progress /
+ * Done this month; beyond-window hidden; overdue-and-still-open kept at the top of
  * Today; every status (draft + quoted never, approved + scheduled + in progress
  * always, completed + cancelled + archived never); a card on an archived
- * property drops off; windows read from the agency settings; recently-completed
- * window incl. 0 = hidden; TWO CREWS IN TWO AGENCIES (and two crews in one
+ * property drops off; the window reads from the agency setting; TWO CREWS IN TWO AGENCIES (and two crews in one
  * agency) never see each other's cards; materials: summed per catalogue item +
  * unit, free text grouped by normalised description + unit, a different unit
  * stays separate, labour excluded, archived lines/tasks excluded, unscheduled and
@@ -70,7 +70,7 @@ class RentalCrewScheduleServiceTest extends TestCase
         return array_column($rows, 'title');
     }
 
-    public function test_cards_are_grouped_into_today_upcoming_and_unscheduled_in_the_right_order(): void
+    public function test_cards_are_grouped_into_today_scheduled_and_waiting_in_the_right_order(): void
     {
         [$agency, , $property, $crew] = $this->world();
         $this->card($agency, $property, $crew, 'Today afternoon', '2026-10-14 15:00:00');
@@ -84,8 +84,60 @@ class RentalCrewScheduleServiceTest extends TestCase
 
         $this->assertSame(['Today morning', 'Today afternoon'], $this->titles($page['today']));
         $this->assertSame(['Tomorrow', 'In three days'], $this->titles($page['upcoming']));
-        $this->assertSame(['No date a', 'No date b'], $this->titles($page['unscheduled']), 'unscheduled: earliest due date first');
+        $this->assertSame(['No date a', 'No date b'], $this->titles($page['waiting']), 'waiting: earliest due date first');
+        $this->assertSame('Approved — waiting for a date', $page['waiting'][0]['why_waiting']);
         $this->assertSame('08:30', $page['today'][0]['time']);
+    }
+
+    public function test_started_jobs_sit_in_progress_and_a_sent_back_job_waits_for_the_crew(): void
+    {
+        [$agency, , $property, $crew] = $this->world();
+        $this->card($agency, $property, $crew, 'Under way', '2026-10-14 09:00:00', 'in_progress');
+        $this->card($agency, $property, $crew, 'Not fixed', '2026-10-12 09:00:00', 'disputed');
+
+        $page = $this->service->schedule($agency->id, $crew->id);
+
+        $this->assertSame(['Under way'], $this->titles($page['in_progress']));
+        $this->assertSame(['Not fixed'], $this->titles($page['waiting']));
+        $this->assertSame('The tenant says it is not fixed yet', $page['waiting'][0]['why_waiting']);
+        $this->assertSame([], $page['today'], 'each open card is in exactly one group');
+    }
+
+    public function test_a_draft_job_the_office_asked_the_crew_to_price_waits_for_the_crew(): void
+    {
+        [$agency, $agent, $property, $crew] = $this->world();
+        $draft = $this->card($agency, $property, $crew, 'Please price', null, 'draft');
+        \App\Models\RentalJobCardPriceRequest::withoutGlobalScopes()->create([
+            'agency_id' => $agency->id, 'rental_job_card_id' => $draft->id, 'status' => \App\Models\RentalJobCardPriceRequest::STATUS_OPEN,
+            'requested_by_user_id' => $agent->id, 'requested_at' => now(),
+        ]);
+
+        $page = $this->service->schedule($agency->id, $crew->id);
+
+        $this->assertSame(['Please price'], $this->titles($page['waiting']));
+        $this->assertTrue($page['waiting'][0]['to_price']);
+        $this->assertSame('The office asked you to price this job', $page['waiting'][0]['why_waiting']);
+    }
+
+    public function test_every_row_carries_the_tenant_the_access_contact_and_a_maps_link(): void
+    {
+        [$agency, , $property, $crew] = $this->world();
+        $lease = $this->makeLease($agency, $property);
+        $this->makeTenant($agency, $lease, ['first_name' => 'Tina', 'last_name' => 'Tenant', 'phone' => '083 111 2222']);
+        $card = $this->card($agency, $property, $crew, 'Fix tap', '2026-10-14 09:00:00', 'scheduled', [
+            'lease_id' => $lease->id, 'access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101', 'access_notes' => 'Gate code 4321',
+        ]);
+
+        $row = $this->service->schedule($agency->id, $crew->id)['today'][0];
+
+        $this->assertSame($card->id, $row['id']);
+        $this->assertSame('Tina Tenant', $row['tenants'][0]['name']);
+        $this->assertSame('0831112222', $row['tenants'][0]['tel']);
+        $this->assertSame(['Caretaker Carl', '0825550101', 'Gate code 4321'], [$row['access']['name'], $row['access']['tel'], $row['access']['note']]);
+        $this->assertStringStartsWith('https://www.google.com/maps/search/?api=1&query=', (string) $row['map_url']);
+
+        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_link_show_tenant_contact' => false]);
+        $this->assertSame([], $this->service->schedule($agency->id, $crew->id)['today'][0]['tenants'], 'the agency can keep the tenant off the crew page');
     }
 
     public function test_cards_beyond_the_upcoming_window_are_not_listed_until_inside_it(): void
@@ -97,6 +149,7 @@ class RentalCrewScheduleServiceTest extends TestCase
         $page = $this->service->schedule($agency->id, $crew->id);
 
         $this->assertSame(['Inside'], $this->titles($page['upcoming']));
+        $this->assertSame([], $page['waiting'], 'a dated job beyond the window is not "waiting"');
         $this->assertSame(14, $page['upcoming_days']);
     }
 
@@ -116,7 +169,7 @@ class RentalCrewScheduleServiceTest extends TestCase
     {
         [$agency, , $property, $crew] = $this->world();
         $this->card($agency, $property, $crew, 'Due later today', '2026-10-14 16:00:00');
-        $this->card($agency, $property, $crew, 'Missed yesterday', '2026-10-13 09:00:00', 'in_progress');
+        $this->card($agency, $property, $crew, 'Missed yesterday', '2026-10-13 09:00:00', 'scheduled');
 
         $today = $this->service->schedule($agency->id, $crew->id)['today'];
 
@@ -137,7 +190,9 @@ class RentalCrewScheduleServiceTest extends TestCase
 
         $page = $this->service->schedule($agency->id, $crew->id);
 
-        $this->assertEqualsCanonicalizing(['Open approved', 'Open scheduled', 'Open in_progress'], $this->titles($page['today']));
+        $this->assertEqualsCanonicalizing(['Open approved', 'Open scheduled'], $this->titles($page['today']));
+        $this->assertSame(['Open in_progress'], $this->titles($page['in_progress']));
+        $this->assertSame([], $page['waiting']);
         $this->assertSame(RentalJobCard::CREW_VISIBLE_STATUSES, ['approved', 'scheduled', 'in_progress', 'disputed'], 'ONE constant decides it (disputed joined in §17.12: a reopened job must reach the crew)');
     }
 
@@ -164,24 +219,18 @@ class RentalCrewScheduleServiceTest extends TestCase
 
         $page = $this->service->schedule($agency->id, $crew->id);
         $this->assertSame([], $page['today']);
-        $this->assertSame(['Closing soon'], $this->titles($page['recent']), 'and shows under recently completed');
+        $this->assertSame(['Closing soon'], $this->titles($page['done']), 'and shows under done this month');
         $this->assertNull($this->service->findOpenCard($agency->id, $crew->id, $card->id));
     }
 
-    public function test_recently_completed_respects_its_window_and_zero_hides_it(): void
+    public function test_done_this_month_lists_completed_jobs_since_the_first_and_nothing_else(): void
     {
         [$agency, , $property, $crew] = $this->world();
         $this->card($agency, $property, $crew, 'Done 2 days ago', null, 'completed', ['completed_at' => now()->subDays(2)]);
-        $this->card($agency, $property, $crew, 'Done 9 days ago', null, 'completed', ['completed_at' => now()->subDays(9)]);
+        $this->card($agency, $property, $crew, 'Done last month', null, 'completed', ['completed_at' => Carbon::parse('2026-09-30 16:00:00', config('app.timezone'))]);
         $this->card($agency, $property, $crew, 'Cancelled', null, 'cancelled', ['cancelled_at' => now()]);
 
-        $this->assertSame(['Done 2 days ago'], $this->titles($this->service->schedule($agency->id, $crew->id)['recent']));
-
-        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_page_recent_completed_days' => 10]);
-        $this->assertCount(2, $this->service->schedule($agency->id, $crew->id)['recent']);
-
-        RentalPortalSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->update(['crew_page_recent_completed_days' => 0]);
-        $this->assertSame([], $this->service->schedule($agency->id, $crew->id)['recent'], '0 hides the list');
+        $this->assertSame(['Done 2 days ago'], $this->titles($this->service->schedule($agency->id, $crew->id)['done']));
     }
 
     public function test_two_crews_in_two_agencies_never_see_each_others_cards(): void
@@ -254,6 +303,17 @@ class RentalCrewScheduleServiceTest extends TestCase
         $this->assertSame('10', $rows->first(fn ($r) => str_contains(strtolower($r['description']), '15mm'))['quantity']);
     }
 
+    public function test_what_to_load_is_today_and_scheduled_only_not_started_or_waiting_jobs(): void
+    {
+        [$agency, , $property, $crew] = $this->world();
+        $this->makeLine($this->card($agency, $property, $crew, 'Going', '2026-10-14 09:00:00', 'in_progress'), 'part', 'Started part', 1);
+        $this->makeLine($this->card($agency, $property, $crew, 'Sent back', '2026-10-12 09:00:00', 'disputed'), 'part', 'Sent back part', 1);
+        $this->makeLine($this->card($agency, $property, $crew, 'Later', '2026-10-16 09:00:00'), 'part', 'Scheduled part', 1);
+        $this->makeLine($this->card($agency, $property, $crew, 'Now', '2026-10-14 09:00:00'), 'part', 'Today part', 1);
+
+        $this->assertEqualsCanonicalizing(['Scheduled part', 'Today part'], array_column($this->service->schedule($agency->id, $crew->id)['materials'], 'description'));
+    }
+
     public function test_labour_archived_lines_and_lines_of_archived_tasks_are_never_loaded(): void
     {
         [$agency, , $property, $crew] = $this->world();
@@ -308,7 +368,7 @@ class RentalCrewScheduleServiceTest extends TestCase
 
         $page = $this->service->schedule($agency->id, $crew->id);
 
-        foreach (['today', 'upcoming', 'unscheduled', 'recent', 'materials'] as $k) {
+        foreach (['today', 'upcoming', 'waiting', 'in_progress', 'done', 'materials'] as $k) {
             $this->assertSame([], $page[$k], $k);
         }
     }
@@ -333,5 +393,42 @@ class RentalCrewScheduleServiceTest extends TestCase
         $this->assertSame('unavailable', $s[$inactive->id]['state']);
         $this->assertSame('revoked', $s[$revoked->id]['state']);
         $this->assertSame([], $this->service->linkStatusesFor([]));
+    }
+
+    /** §17.42 — the home-link line: when it was last sent and how many times it was opened, across the crew's current links. */
+    public function test_link_status_carries_the_sent_date_and_open_count_of_the_current_links(): void
+    {
+        [$agency, $agent, , $crew] = $this->world();
+        $tokens = app(\App\Services\Rentals\RentalSecureAccessTokenService::class);
+        $fresh = $tokens->issueForCrew($crew, $agent)['token'];
+
+        $s = $this->service->linkStatusesFor([$crew->id])[$crew->id];
+        $this->assertSame([0, null, null], [$s['open_count'], $s['sent_at'], $s['sent_via']], 'never sent, never opened');
+
+        foreach ([\App\Models\RentalCrewLinkEvent::EVENT_OPENED, \App\Models\RentalCrewLinkEvent::EVENT_OPENED, \App\Models\RentalCrewLinkEvent::EVENT_EMAILED] as $event) {
+            \App\Models\RentalCrewLinkEvent::record($event, $agency->id, $crew->id, $fresh->id, null, 'test', $agent);
+        }
+        $s = $this->service->linkStatusesFor([$crew->id])[$crew->id];
+        $this->assertSame(2, $s['open_count']);
+        $this->assertSame('email', $s['sent_via']);
+        $this->assertNotNull($s['sent_at']);
+
+        Carbon::setTestNow(now()->addMinute());
+        \App\Models\RentalCrewLinkEvent::record(\App\Models\RentalCrewLinkEvent::EVENT_WHATSAPP, $agency->id, $crew->id, $fresh->id, null, 'test', $agent);
+        $this->assertSame('whatsapp', $this->service->linkStatusesFor([$crew->id])[$crew->id]['sent_via'] ?? null, 'the latest send wins');
+    }
+
+    public function test_regenerate_starts_a_clean_sent_and_opened_history(): void
+    {
+        [$agency, $agent, , $crew] = $this->world();
+        $tokens = app(\App\Services\Rentals\RentalSecureAccessTokenService::class);
+        $old = $tokens->issueForCrew($crew, $agent)['token'];
+        \App\Models\RentalCrewLinkEvent::record(\App\Models\RentalCrewLinkEvent::EVENT_OPENED, $agency->id, $crew->id, $old->id, null, 'test', $agent);
+        \App\Models\RentalCrewLinkEvent::record(\App\Models\RentalCrewLinkEvent::EVENT_EMAILED, $agency->id, $crew->id, $old->id, null, 'test', $agent);
+
+        $tokens->issueForCrew($crew, $agent); // regenerate: the old link is revoked
+
+        $s = $this->service->linkStatusesFor([$crew->id])[$crew->id];
+        $this->assertSame([0, null], [$s['open_count'], $s['sent_at']]);
     }
 }

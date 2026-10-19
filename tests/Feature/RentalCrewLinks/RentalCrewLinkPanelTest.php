@@ -154,7 +154,7 @@ final class RentalCrewLinkPanelTest extends TestCase
         // The very next page load (no flash) never shows it again — nothing raw is kept anywhere.
         $second = $this->actingAs($this->admin)->get($this->route('edit'));
         $second->assertOk()->assertDontSee('data-crew-link-new', false)->assertDontSee($raw, false);
-        $second->assertSee('data-crew-link-state="live"', false)->assertSee('Stands until it is revoked');
+        $second->assertSee('data-crew-link-state="live"', false)->assertSee('Valid until');
 
         $row = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->firstOrFail();
         $this->assertSame(hash('sha256', $raw), $row->token_hash);
@@ -388,5 +388,97 @@ final class RentalCrewLinkPanelTest extends TestCase
         $user = $this->userWith(['rental_catalogue.view']);
 
         $this->actingAs($user)->get(route('corex.rental-crews.index'))->assertOk()->assertDontSee('data-crew-link-cell', false);
+    }
+
+    // ── the home link line + Resend (spec §17.42) ───────────────────────
+
+    private function liveTokenCount(): int
+    {
+        return RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)
+            ->where('purpose', RentalSecureAccessToken::PURPOSE_CREW_STANDING)->whereNull('revoked_at')->count();
+    }
+
+    public function test_the_home_link_line_is_on_the_crews_list_and_the_crew_panel_and_tracks_sent_and_opened(): void
+    {
+        $this->generate()->assertSessionHasNoErrors();
+        $none = RentalCrew::create(['agency_id' => $this->agency->id, 'name' => 'Never linked', 'created_by_user_id' => $this->admin->id]);
+
+        $list = $this->actingAs($this->admin)->get(route('corex.rental-crews.index'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-crew-home-link="live"', $list);
+        $this->assertStringContainsString('data-crew-home-link="never"', $list);
+        $this->assertStringContainsString('Home link: not sent yet · not opened yet', $list);
+
+        $panel = $this->actingAs($this->admin)->get($this->route('edit'))->assertOk()->getContent();
+        $this->assertStringContainsString('data-crew-link-home-line', $panel);
+        $this->assertStringContainsString('Home link: not sent yet', $panel);
+
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasNoErrors();
+        $token = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->whereNull('revoked_at')->firstOrFail();
+        RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_OPENED, $this->agency->id, $this->crew->id, $token->id, null, 'opened');
+        RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_OPENED, $this->agency->id, $this->crew->id, $token->id, null, 'opened');
+
+        $list = $this->actingAs($this->admin)->get(route('corex.rental-crews.index'))->getContent();
+        $this->assertStringContainsString('emailed ' . now()->format('j M') . ' · opened 2 times', $list);
+        $this->assertSame('Never linked', $none->name);
+    }
+
+    public function test_resend_by_email_goes_through_the_dispatcher_and_mints_a_further_link_leaving_the_old_one_working(): void
+    {
+        $oldUrl = $this->urlFrom($this->generate());
+
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasNoErrors();
+
+        $this->assertCount(1, $this->fake->sent);
+        [$to, $mail] = $this->fake->sent[0];
+        $this->assertSame('team1@example.invalid', $to);
+        $this->assertInstanceOf(RentalCrewStandingLinkMail::class, $mail);
+        Mail::assertNothingSent();
+        $this->assertSame(2, $this->liveTokenCount(), 'Resend adds a link, it does not replace the one the crew holds');
+        $this->get($oldUrl)->assertOk();
+        $this->assertSame(1, $this->eventCount('emailed'));
+    }
+
+    public function test_resend_on_whatsapp_opens_a_deep_link_with_a_working_link_and_logs_it_without_sending_anything(): void
+    {
+        $this->generate();
+
+        $resp = $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'whatsapp']);
+
+        $resp->assertRedirect();
+        $target = $resp->headers->get('Location');
+        $this->assertStringStartsWith('https://wa.me/27821234567?text=', $target);
+        $text = urldecode(substr($target, strlen('https://wa.me/27821234567?text=')));
+        $this->assertMatchesRegularExpression('#/secure/crews/[A-Za-z0-9]+#', $text);
+        preg_match('#/secure/crews/[A-Za-z0-9]+#', $text, $m);
+        $this->get($m[0])->assertOk();
+        $this->assertSame(1, $this->eventCount('whatsapp'));
+        $this->assertSame([], $this->fake->sent);
+    }
+
+    public function test_resend_refuses_plainly_with_no_working_link_no_address_or_no_mobile_and_mints_nothing(): void
+    {
+        // no link yet
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasErrors('crew_link');
+        $this->assertSame(0, $this->liveTokenCount());
+
+        $this->generate();
+        $this->crew->forceFill(['email' => null, 'phone' => null])->save();
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasErrors('crew_link');
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'whatsapp'])->assertSessionHasErrors('crew_link');
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'carrier-pigeon'])->assertSessionHasErrors('channel');
+        $this->assertSame(1, $this->liveTokenCount());
+        $this->assertSame([], $this->fake->sent);
+    }
+
+    public function test_resend_is_for_people_who_may_share_and_never_for_another_agencys_crew(): void
+    {
+        $agency = Agency::create(['name' => 'Other Agency', 'slug' => 'oa-' . uniqid()]);
+        $foreign = RentalCrew::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'name' => 'Foreign crew', 'is_active' => true, 'email' => 'f@example.invalid']);
+        $this->actingAs($this->admin)->post(route('corex.rental-crews.link.resend', $foreign), ['channel' => 'email'])->assertNotFound();
+
+        // creating a grant row seeds the agency's permissions, so this goes last
+        $viewer = $this->userWith(['rental_catalogue.view']);
+        $this->actingAs($viewer)->post($this->route('link.resend'), ['channel' => 'email'])->assertForbidden();
+        $this->assertSame([], $this->fake->sent);
     }
 }

@@ -9,7 +9,7 @@
 @section('content')
 @php
     $labels = [
-        'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'revoked' => 'Link revoked',
+        'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'whatsapp' => 'Link sent on WhatsApp', 'revoked' => 'Link revoked',
         'opened' => 'Crew page opened', 'job_opened' => 'Job opened', 'action' => 'Crew action',
     ];
 @endphp

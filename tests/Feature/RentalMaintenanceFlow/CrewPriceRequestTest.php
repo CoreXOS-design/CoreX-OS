@@ -105,7 +105,7 @@ final class CrewPriceRequestTest extends TestCase
 
     // ── the crew's side ──────────────────────────────────────────────────────────────────
 
-    public function test_the_crew_sees_the_banner_and_the_draft_card_is_listed_under_to_price_then_drops_off_when_closed(): void
+    public function test_the_crew_sees_the_banner_and_the_draft_card_is_listed_under_waiting_for_you_then_drops_off_when_closed(): void
     {
         $page = app(RentalSecureAccessTokenService::class)->issueForCrew($this->crew, $this->admin)['raw_token'];
         $link = app(RentalSecureAccessTokenService::class)->issueForJobCard($this->card, $this->admin)['raw_token'];
@@ -113,16 +113,16 @@ final class CrewPriceRequestTest extends TestCase
 
         // a Draft card with NO request is not booked work: not reachable, not listed
         $this->assertNull($service->findOpenCard($this->agency->id, $this->crew->id, $this->card->id));
-        $this->assertSame([], $service->schedule($this->agency->id, $this->crew->id)['to_price']);
+        $this->assertSame([], $service->schedule($this->agency->id, $this->crew->id)['waiting']);
 
         $this->ask();
 
         $this->assertNotNull($service->findOpenCard($this->agency->id, $this->crew->id, $this->card->id));
         $schedule = $service->schedule($this->agency->id, $this->crew->id);
-        $this->assertCount(1, $schedule['to_price']);
-        $this->assertTrue($schedule['to_price'][0]['to_price']);
+        $this->assertCount(1, $schedule['waiting']);
+        $this->assertTrue($schedule['waiting'][0]['to_price']);
 
-        $this->get(url('/secure/crews/' . $page))->assertOk()->assertSee('To price')->assertSee('The office asked you to price this job');
+        $this->get(url('/secure/crews/' . $page))->assertOk()->assertSee('Waiting for you')->assertSee('The office asked you to price this job');
         $job = $this->get(url('/secure/crews/' . $page . '/job-cards/' . $this->card->id))->assertOk()->getContent();
         $this->assertStringContainsString('data-price-request', $job);
         $this->assertStringContainsString('Please price the whole bathroom', $job);

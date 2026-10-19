@@ -25,8 +25,7 @@ use Tests\TestCase;
  * real HTTP with no session.
  *
  * Input paths proven: opens + lists exactly that crew's cards with the summed
- * "what to load"; lives until revoked (no expiry by default — still live a year
- * later); optional agency expiry; regenerate and revoke each kill the old link
+ * "what to load"; lasts 180 days by default (agency setting; 0 = until revoked); regenerate and revoke each kill the old link
  * on its very next request; archived crew / inactive crew / crew links switched
  * off / unknown / wrong-purpose / forged job id / another crew's card / another
  * agency's card / closed card / draft card all render the IDENTICAL unavailable
@@ -135,15 +134,62 @@ final class CrewPageLinkTest extends TestCase
         $resp->assertSee('Booked one')->assertDontSee('Draft one')->assertDontSee('Quoted one')->assertDontSee('Cancelled one');
     }
 
-    public function test_recently_completed_is_listed_read_only_without_a_link_into_the_card(): void
+    public function test_done_this_month_is_listed_read_only_without_a_link_into_the_card(): void
     {
-        $done = $this->makeJobCard(['title' => 'Finished geyser', 'status' => 'completed', 'completed_at' => now()->subDay()]);
+        $done = $this->makeJobCard(['title' => 'Finished geyser', 'status' => 'completed', 'completed_at' => now()]);
+        $this->makeJobCard(['title' => 'Finished long ago', 'status' => 'completed', 'completed_at' => now()->startOfMonth()->subDay()]);
 
         $resp = $this->page()->assertOk();
 
-        $resp->assertSee('data-recent', false)->assertSee('Finished geyser');
+        $resp->assertSee('data-done', false)->assertSee('Done this month')->assertSee('Finished geyser');
+        $resp->assertDontSee('Finished long ago');
         $resp->assertDontSee('data-job-id="' . $done->id . '"', false);
         $this->assertUnavailable($this->get("/secure/crews/{$this->raw}/job-cards/{$done->id}"));
+    }
+
+    /** Spec §17.42 — every open card lands in exactly one group, each row carrying tenant, access contact and Open in Maps. */
+    public function test_the_home_page_groups_jobs_and_every_row_carries_tenant_access_contact_and_maps(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => true]);
+        $today = $this->makeJobCard(['title' => 'Job today', 'scheduled_at' => now()->setTime(11, 0)]);
+        $this->attachTenant($today, 'Tina', 'Tenant', '0831112222');
+        $wo = $today->workOrder()->firstOrFail();
+        \App\Services\Rentals\JobSiteInfo::saveAccessContact($wo, $today, ['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101', 'access_note' => 'Gate code 4321']);
+        $scheduled = $this->makeJobCard(['title' => 'Job later', 'scheduled_at' => now()->addDays(3)]);
+        $waiting = $this->makeJobCard(['title' => 'Job waiting', 'status' => 'approved', 'scheduled_at' => null]);
+        $going = $this->makeJobCard(['title' => 'Job going', 'status' => 'in_progress', 'scheduled_at' => now()]);
+
+        $html = $this->page()->assertOk()->getContent();
+
+        foreach (['today' => $today, 'upcoming' => $scheduled, 'waiting' => $waiting, 'in_progress' => $going] as $group => $card) {
+            $this->assertMatchesRegularExpression('/data-job-id="' . $card->id . '" data-group="' . $group . '"/', $html, "card {$card->title} belongs in {$group}");
+        }
+        foreach (['Today', 'Scheduled', 'Waiting for you', 'In progress'] as $heading) {
+            $this->assertStringContainsString($heading, $html);
+        }
+        $this->assertStringContainsString('Approved — waiting for a date', $html);
+        // the row that has people on it
+        $this->assertStringContainsString('Tina Tenant', $html);
+        $this->assertStringContainsString('href="tel:0831112222"', $html);
+        $this->assertStringContainsString('Caretaker Carl', $html);
+        $this->assertStringContainsString('href="tel:0825550101"', $html);
+        $this->assertStringContainsString('Gate code 4321', $html);
+        $this->assertStringContainsString('Open in Maps', $html);
+        $this->assertStringNotContainsString('Recently completed', $html);
+        $this->assertStringNotContainsString('Not scheduled yet', $html);
+    }
+
+    public function test_the_home_page_leaves_the_tenant_out_when_the_agency_switched_it_off(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
+        $this->attachTenant($this->makeJobCard(['title' => 'Job today', 'scheduled_at' => now()->setTime(11, 0)]), 'Tina', 'Tenant', '0831112222');
+
+        $html = $this->page()->assertOk()->getContent();
+
+        $this->assertStringContainsString('Job today', $html);
+        $this->assertStringNotContainsString('Tina', $html);
+        $this->assertStringNotContainsString('0831112222', $html);
+        $this->assertStringContainsString('Open in Maps', $html, 'the address still gets its Maps button');
     }
 
     public function test_every_open_refreshes_last_used_at_but_the_open_log_is_throttled(): void
@@ -168,13 +214,28 @@ final class CrewPageLinkTest extends TestCase
 
     // ── lifetime ────────────────────────────────────────────────────────
 
-    public function test_the_standing_link_has_no_expiry_by_default_and_is_still_live_a_year_later(): void
+    public function test_the_standing_link_lasts_180_days_by_default(): void
     {
         $token = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->firstOrFail();
+        $this->assertNotNull($token->expires_at);
+        $this->assertEqualsWithDelta(180, now()->diffInDays($token->expires_at, false), 1);
+
+        Carbon::setTestNow(now()->addDays(179));
+        $this->page()->assertOk();
+        Carbon::setTestNow(now()->addDays(3));
+        $this->assertUnavailable($this->page());
+        Carbon::setTestNow();
+    }
+
+    public function test_zero_days_means_the_link_stands_until_revoked_and_is_still_live_a_year_later(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_standing_link_expiry_days' => 0]);
+        $raw = $this->issue($this->crew);
+        $token = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->whereNull('revoked_at')->firstOrFail();
         $this->assertNull($token->expires_at);
 
         Carbon::setTestNow(now()->addDays(400));
-        $this->page()->assertOk();
+        $this->page($raw)->assertOk();
         Carbon::setTestNow();
     }
 

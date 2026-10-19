@@ -74,7 +74,7 @@
                             @php $ls = $linkStatuses[$crew->id] ?? null; @endphp
                             @if($ls)
                                 <span class="rounded-full px-2 py-0.5 font-semibold" style="{{ $ls['state'] === 'live' ? 'background:#ecfdf5;color:#065f46;' : ($ls['state'] === 'never' ? 'background:var(--surface-2);color:var(--text-muted);' : 'background:#fef2f2;color:#991b1b;') }}">{{ $ls['label'] }}</span>
-                                @if($ls['last_used_at'])<div style="color: var(--text-muted);">used {{ $ls['last_used_at']->format('j M H:i') }}</div>@endif
+                                <div style="margin-top:4px;">@include('corex.rental-crews._home-link-line', ['crew' => $crew, 'ls' => $ls, 'withRegenerate' => false])</div>
                             @endif
                         </td>
                         @endpermission
