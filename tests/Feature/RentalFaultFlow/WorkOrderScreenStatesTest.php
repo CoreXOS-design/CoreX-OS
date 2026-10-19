@@ -38,7 +38,7 @@ final class WorkOrderScreenStatesTest extends TestCase
     private function next(string $html): array
     {
         $this->assertSame(1, substr_count($html, 'data-next-step'), 'exactly one Next bar');
-        $this->assertTrue((bool) preg_match('/<div class="wo-next [^"]*" data-next-step data-next="([a-z_]+)"([^>]*)>(.*?)<\/div>\s*<div class="wo-cards"/s', $html, $m), 'the Next bar sits directly above the two cards');
+        $this->assertTrue((bool) preg_match('/<div class="wo-next [^"]*" data-next-step(?: data-land-on-next)? data-next="([a-z_]+)"([^>]*)>(.*?)<\/div>\s*<div class="wo-cards"/s', $html, $m), 'the Next bar sits directly above the two cards');
         $text = trim(html_entity_decode(strip_tags(preg_match('/data-next-text>(.*?)<\/span>/s', $m[3], $t) ? $t[1] : '')));
         $buttons = preg_match_all('/<(?:button|a) [^>]*data-next-button[^>]*>(.*?)<\/(?:button|a)>/s', $m[3], $b) ? array_map(fn ($x) => trim(html_entity_decode(strip_tags($x))), $b[1]) : [];
         $this->assertLessThanOrEqual(1, count($buttons), 'at most ONE primary button');

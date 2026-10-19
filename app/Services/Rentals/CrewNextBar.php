@@ -28,6 +28,15 @@ final class CrewNextBar
             return ['tone' => 'danger', 'text' => 'This job is on hold. Please do not attend until you hear from us.', 'button' => null];
         }
 
+        // BUILD 3 (section 17.10.6) - while the tenant has disputed the finished work the same form reads "Report fixed"; the bar must say so too, not "Mark work completed".
+        if (! empty($job['blocks']['dispute'] ?? [])) {
+            return [
+                'tone' => 'warn',
+                'text' => 'The tenant says the work is not complete. Put it right, then press Report fixed.',
+                'button' => ['label' => 'Report fixed', 'target' => '#cj-complete'],
+            ];
+        }
+
         // Lines on the list that have not gone anywhere yet always come first - the crew has work to finish on the page.
         if ($drafts > 0 && empty($job['authorised'])) {
             return [

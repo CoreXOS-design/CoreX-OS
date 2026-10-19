@@ -299,6 +299,9 @@ final class DisputeLifecycleTest extends TestCase
 
     public function test_the_crews_page_shows_the_banner_the_photos_only_there_and_report_fixed(): void
     {
+        // AT-459: the crew page shows the tenant's name and number when the agency's own switch is on (the default). This test is about the dispute banner not
+        // telling the crew WHO reported, so it runs with that switch off.
+        \App\Models\RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
         $this->dispute(null, 'The tap still drips after the repair', $this->photos());
         $this->sendBack();
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($this->card->fresh(), $this->admin)['raw_token'];
