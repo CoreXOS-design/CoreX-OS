@@ -37,6 +37,7 @@ class AgencyPlanChangedMail extends Mailable
     public string $newMonthly;
     public string $billingUrl;
     public bool $isUpgrade;
+    public bool $needsQuote;
     public Carbon $switchedAt;
 
     public function __construct(
@@ -49,11 +50,14 @@ class AgencyPlanChangedMail extends Mailable
         public float $newMonthlyZar,
         public string $occurredAt,
     ) {
-        $this->fromPlanLabel   = (string) config("corex-billing.{$fromPlan}.label", ucfirst($fromPlan));
-        $this->toPlanLabel     = (string) config("corex-billing.{$toPlan}.label", ucfirst($toPlan));
+        $pricing = app(\App\Services\Billing\SubscriptionPricingService::class);
+        $this->fromPlanLabel   = $pricing->planLabel($fromPlan);
+        $this->toPlanLabel     = $pricing->planLabel($toPlan);
         $this->previousMonthly = Zar::format($previousMonthlyZar);
         $this->newMonthly      = Zar::format($newMonthlyZar);
-        $this->isUpgrade       = $toPlan === 'agency' && $fromPlan === 'team';
+        $this->isUpgrade       = ($toPlan === 'agency' && $fromPlan === 'team') || $toPlan === \App\Models\Billing\AgencySubscription::PLAN_QUOTE;
+        // Above the last price band: CoreX has to agree a price (spec agency-billing §3 D7).
+        $this->needsQuote      = $toPlan === \App\Models\Billing\AgencySubscription::PLAN_QUOTE;
         $this->switchedAt      = Carbon::parse($occurredAt);
 
         // route(), not a hand-built path: the billing routes sit behind a `corex/`

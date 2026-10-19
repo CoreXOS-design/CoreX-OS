@@ -68,11 +68,11 @@
 <div id="toast" class="toast" hidden role="status"></div>
 
 @php
-    $rates = array_merge(\App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES, (array) $ctx['rates']);
+    $rates = \App\Services\PlatformEsign\Agreement\AgreementPricing::withDefaults((array) $ctx['rates']);
     $labels = collect(\App\Services\PlatformEsign\Agreement\AgreementFields::schema())->map(fn ($f) => $f['label'])->all();
     $cfg = [
         'mode' => 'form', 'today' => now()->toDateString(), 'rev' => $rev, 'total' => $total, 'done' => $done, 'initials' => $signer->initials, 'signerName' => $signer->name,
-        'rates' => $rates, 'variation' => (string) ($ctx['rr']['variation_amount'] ?? '0'), 'discount' => $ctx['calc']['discount'] ?? null, 'forcedPlan' => (string) ($ctx['rr']['plan_forced'] ?? ''), 'follow' => !empty($ctx['rr']['single_entry']) ? \App\Services\PlatformEsign\Agreement\AgreementFields::FOLLOW : (object) [], 'labels' => $labels,
+        'rates' => $rates, 'variation' => (string) ($ctx['rr']['variation_amount'] ?? '0'), 'discount' => $ctx['calc']['discount'] ?? null, 'forcedPlan' => (string) ($ctx['rr']['plan_forced'] ?? ''), 'quoted' => \App\Services\PlatformEsign\Agreement\AgreementPricing::quotedFee((array) $ctx['rr']), 'overNote' => \App\Services\PlatformEsign\Agreement\AgreementRenderer::overBandsNote(\App\Services\PlatformEsign\Agreement\AgreementPricing::topOfBands($rates)), 'follow' => !empty($ctx['rr']['single_entry']) ? \App\Services\PlatformEsign\Agreement\AgreementFields::FOLLOW : (object) [], 'labels' => $labels,
         'recipientKeys' => \App\Services\PlatformEsign\Agreement\AgreementFields::recipientKeys(),
         'urls' => [
             'save' => route('platform-esign.agreement.save', $token), 'initials' => route('platform-esign.agreement.initials', $token),

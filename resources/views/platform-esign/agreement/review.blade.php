@@ -7,7 +7,7 @@
     $a = $signers['r1'] ?? null; $r = $signers['r2'] ?? null;
     $iniRows = \App\Models\PlatformEsign\Initial::where('document_id', $doc->id)->get()->groupBy('page_no');
     $staticIni = $countersign ? null : $iniRows->map(fn ($g) => $g->pluck('initials')->implode(' · '))->all();
-    $rates = array_merge(\App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES, (array) $ctx['rates']);
+    $rates = \App\Services\PlatformEsign\Agreement\AgreementPricing::withDefaults((array) $ctx['rates']);
     $labels = collect(\App\Services\PlatformEsign\Agreement\AgreementFields::schema())->map(fn ($f) => $f['label'])->all();
 @endphp
 <div class="w-full space-y-4">

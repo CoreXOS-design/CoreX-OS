@@ -44,6 +44,7 @@
     function calc() {
         if (mode !== 'form') { return 0; } // RR/preview screens print the server's figures; there are no entries here to recalculate from
         var R = C.rates, agents = parseInt(val('agents') || '0', 10) || 0, branches = parseInt(val('branches') || '0', 10) || 0, vari = parseFloat(C.variation || '0') || 0;
+        if (R.band1 !== undefined) { return calcBands(R, agents, branches, vari); }
         // section 3 completes itself: 1–10 agents → CoreX Team, more → CoreX Agency (unless the sender fixed the plan); extra branches = branches − 1 (Agency only)
         var plan = C.forcedPlan || (agents < 1 ? '' : (agents <= R.team_max_seats ? 'team' : 'agency'));
         var extra = plan === 'agency' ? Math.max(branches - 1, 0) : 0;
@@ -72,6 +73,43 @@
         });
         $$('[data-mirror="total"]').forEach(function (m) { m.value = plan ? 'R ' + money(sub - vari) : ''; });
         // The agreed discount in words (mirrors AgreementDiscount::figures): the figures follow the entries; nothing is shown until a plan is chosen.
+        $$('[data-disc-figs]').forEach(function (f) { f.textContent = (D && D.structured && plan && sub > 0) ? discFigures(D, sub, vari) : ''; });
+        $$('[data-disc-note]').forEach(function (n) { n.hidden = !(plan && sub > 0); });
+        return sub - vari;
+    }
+
+    // Band pricing (mirrors AgreementPricing::computeBands / bandPlanFor): the band the agents fall in carries its flat fee; above the last
+    // band the sender's quoted fee (C.quoted) does; every branch after the first is an additional branch.
+    function calcBands(R, agents, branches, vari) {
+        var L = {}, plan = '', from = 1, top = 0, quoted = parseFloat(C.quoted || '0') || 0;
+        for (var i = 1; i <= 8; i++) {
+            var to = R['band' + i + '_max']; L['band' + i] = [0, R['band' + i]];
+            if (agents >= 1 && agents >= from && agents <= to) { plan = 'band' + i; L['band' + i][0] = 1; }
+            from = to + 1; top = to;
+        }
+        var over = agents > top;
+        L.quoted = [0, quoted];
+        if (!plan && over && quoted > 0) { plan = 'quoted'; L.quoted[0] = 1; }
+        var extra = plan ? Math.max(branches - 1, 0) : 0;
+        L.branches = [extra, R.branch];
+        lastPlan = plan; setVal('plan', plan);
+        if (els('branches_start').length) { setVal('branches_start', val('branches')); }
+        $$('[data-mirror="branches"]').forEach(function (m) { m.value = val('branches'); });
+        var sub = 0; Object.keys(L).forEach(function (k) { sub += L[k][0] * L[k][1]; });
+        sub = Math.round(sub * 100) / 100;
+        var D = C.discount || null;
+        if (D) { vari = D.type === 'percent' ? Math.round((sub * D.value / 100 + 1e-9) * 100) / 100 : D.value; }
+        vari = Math.max(0, Math.min(vari, sub));
+        var applies = plan ? [plan, 'branches'] : [];
+        $$('[data-calc]').forEach(function (s) {
+            var d = s.getAttribute('data-calc').split(':'), kind = d[0], key = d[1], t = '';
+            if (kind === 'q') { t = applies.indexOf(key) > -1 && L[key] ? String(L[key][0]) : ''; }
+            else if (kind === 'amt') { if (key === 'total') { t = plan ? money(sub - vari) : ''; } else { t = applies.indexOf(key) > -1 && L[key] ? money(L[key][0] * L[key][1]) : ''; } }
+            else if (kind === 'disc') { t = plan && sub > 0 ? money(vari) : ''; }
+            else if (kind === 'note') { t = (over && !plan) ? (C.overNote || '') : ''; }
+            if (s.tagName !== 'INPUT') { s.textContent = t; }
+        });
+        $$('[data-mirror="total"]').forEach(function (m) { m.value = plan ? 'R ' + money(sub - vari) : ''; });
         $$('[data-disc-figs]').forEach(function (f) { f.textContent = (D && D.structured && plan && sub > 0) ? discFigures(D, sub, vari) : ''; });
         $$('[data-disc-note]').forEach(function (n) { n.hidden = !(plan && sub > 0); });
         return sub - vari;

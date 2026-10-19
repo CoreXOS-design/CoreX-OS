@@ -152,6 +152,8 @@ class AgencyBillingController extends Controller
             'seats'         => array_sum(array_map(fn (BillingQuote $q) => $q->seats, $quotes)),
             'on_team'       => count(array_filter($quotes, fn (BillingQuote $q) => $q->derivedPlan === AgencySubscription::PLAN_TEAM)),
             'on_agency'     => count(array_filter($quotes, fn (BillingQuote $q) => $q->derivedPlan === AgencySubscription::PLAN_AGENCY)),
+            'on_bands'      => count(array_filter($quotes, fn (BillingQuote $q) => $q->usesBands)),
+            'on_quotation'  => count(array_filter($quotes, fn (BillingQuote $q) => $q->onQuotation)),
         ];
     }
 }

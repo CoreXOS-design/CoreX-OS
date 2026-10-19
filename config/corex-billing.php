@@ -10,18 +10,56 @@ declare(strict_types=1);
  * Every rate CoreX charges lives HERE and nowhere else. A price change is a
  * config edit, never a code hunt. Nothing in app/ hardcodes a rand amount.
  *
- * The two plans are two PRICE SHAPES, not two feature sets — both get full
- * access to everything (spec §3 D2). Plan is derived from headcount, never
- * hand-set: <= team.max_seats → team, otherwise → agency.
+ * TWO PRICE LISTS (spec §3 D7, Johan 2026-10-19). Every agency is pinned to
+ * the price list it joined on (`agency_subscriptions.price_list`):
+ *   - 'tiers_2026_07' — the Team / Agency plans below. Every agency that was
+ *     already on CoreX on 19 October 2026 stays on it.
+ *   - 'bands_2026_10' — one flat monthly fee per headcount band (`bands`).
+ *     Every agency created from then on.
+ * `price_list` names the list a NEW agency gets.
+ *
+ * The plans and bands are PRICE SHAPES, not feature sets — every agency gets
+ * full access to everything (spec §3 D2). The plan (or band) is derived from
+ * headcount, never hand-set.
  *
  * NOTE: no VAT anywhere, by decision (spec §3 D4). The number shown is the
- * number owed.
+ * number owed — VAT-inclusive once RR Technologies registers, with no increase.
  */
 return [
 
     /*
     |---------------------------------------------------------------------------
-    | CoreX Team — flat, headcount × rate
+    | The price list a newly created agency is put on
+    |---------------------------------------------------------------------------
+    */
+    'price_list' => 'bands_2026_10',
+
+    /*
+    |---------------------------------------------------------------------------
+    | Bands — one flat monthly fee for the band the headcount falls in
+    |---------------------------------------------------------------------------
+    | Price list 'bands_2026_10'. Bands are [from, to, amount] and MUST be
+    | contiguous and ascending from 1. Above the last band the fee is on
+    | quotation: the agency is billed only once a custom amount is set on the
+    | System Developer → Agency Billing page.
+    */
+    'bands' => [
+        'label' => 'CoreX',
+        'bands' => [
+            ['from' => 1,  'to' => 1,  'amount' => 450.00],
+            ['from' => 2,  'to' => 2,  'amount' => 900.00],
+            ['from' => 3,  'to' => 5,  'amount' => 1495.00],
+            ['from' => 6,  'to' => 10, 'amount' => 2495.00],
+            ['from' => 11, 'to' => 15, 'amount' => 3295.00],
+            ['from' => 16, 'to' => 20, 'amount' => 3995.00],
+            ['from' => 21, 'to' => 25, 'amount' => 4595.00],
+            ['from' => 26, 'to' => 30, 'amount' => 5095.00],
+        ],
+    ],
+
+    /*
+    |---------------------------------------------------------------------------
+    | CoreX Team — flat, headcount × rate   (price list 'tiers_2026_07')
     |---------------------------------------------------------------------------
     | No base fee. No tiers. Applies while billable seats <= max_seats.
     */
@@ -33,7 +71,7 @@ return [
 
     /*
     |---------------------------------------------------------------------------
-    | CoreX Agency — base fee + GRADUATED seat tiers
+    | CoreX Agency — base fee + GRADUATED seat tiers   (price list 'tiers_2026_07')
     |---------------------------------------------------------------------------
     | Graduated means each band is charged at its OWN rate — it is NOT a flat
     | rate that switches. 25 seats is billed as:
@@ -57,7 +95,7 @@ return [
     | Branches — plan-agnostic (spec §3 D2a, Johan 2026-07-14)
     |---------------------------------------------------------------------------
     | The first branch is included. Every branch beyond the first costs
-    | `rate`/month — on BOTH plans. An 8-agent agency with 2 branches is on the
+    | `rate`/month — on BOTH plans, and on every band (Johan 2026-10-19). An 8-agent agency with 2 branches is on the
     | Team plan AND pays for the second branch. Charging R0 for a real second
     | branch is a revenue leak; the plans differ in price shape, not in access.
     */

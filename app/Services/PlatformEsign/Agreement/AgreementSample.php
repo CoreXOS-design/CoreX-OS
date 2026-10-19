@@ -29,9 +29,17 @@ class AgreementSample
         $rr = ['variation_text' => 'Discount agreed with the principal for the first three months of the term.', 'variation_amount' => '500',
             'rr_name' => 'Firstname Surname', 'rr_capacity' => 'Director', 'rr_place' => 'Town Name', 'rr_date' => '2026-10-07'];
 
+        $calc = AgreementPricing::compute('agency', 25, 2, 500.0, $v->rates_json ?? []);
+        if (AgreementPricing::isBands((array) ($v->rates_json ?? []))) {
+            // Band pricing: the same 25 agents and 3 branches, priced by their band (the plan is the band, never chosen).
+            $calc = AgreementPricing::derive($values, $rr, (array) $v->rates_json);
+            $values['plan'] = $calc['plan'];
+            $values['m_amount'] = AgreementPricing::number((float) $calc['total']);
+        }
+
         return [
             'values' => $values, 'rr' => $rr, 'rates' => $v->rates_json ?? [], 'ref' => 'CX000123',
-            'calc' => AgreementPricing::compute('agency', 25, 2, 500.0, $v->rates_json ?? []),
+            'calc' => $calc,
             'initials' => ['agency' => 'JW', 'rr' => 'JR'],
             'sigs' => ['agency' => self::PNG, 'mandate' => self::PNG, 'rr' => self::PNG],
             'sign_date' => now(), 'mask' => false,
