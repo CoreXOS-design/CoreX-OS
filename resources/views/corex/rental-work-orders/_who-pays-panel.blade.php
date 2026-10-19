@@ -17,7 +17,7 @@
     $wpRuling = $wp->currentRuling($workOrder);
     $wpHistory = $wp->history($workOrder);
     $wpHasFindings = $wp->hasFindings($workOrder);
-    $wpTz = $workOrder->agency?->outreachTimezone() ?: 'Africa/Johannesburg';
+    $wpTz = \App\Support\AppDate::agencyTimezone($workOrder->agency);
     $wpOld = old('payer', $wpSuggest['payer'] ?? '');
     // Johan 13 Oct: nothing to act on yet (not quoted, nobody has reported back, not started) = ONE collapsed line; open as soon as there is something to act on
     $wpActive = $wpHasFindings || $wpRuling || in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_COMPLETED], true) || $errors->has('who_pays');

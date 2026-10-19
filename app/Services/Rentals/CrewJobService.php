@@ -617,6 +617,6 @@ class CrewJobService
 
     private function timezone(RentalJobCard $card): string
     {
-        return $card->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($card->agency);
     }
 }

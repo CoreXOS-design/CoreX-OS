@@ -444,7 +444,7 @@ class RentalJobCardController extends Controller
     /** The timezone this card's agency works in (same source as the outreach window; one place to change when a per-agency column lands). */
     private function agencyTimezone(?\App\Models\Agency $agency): string
     {
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 
     /**

@@ -99,7 +99,7 @@ class ContractorSecureLinkController extends Controller
     {
         $goAhead = app(\App\Services\Rentals\RentalGoAheadService::class);
         $unlocked = $goAhead->jobOpenForWork($workOrder);
-        $tz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($workOrder->agency);
         $invoiceService = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class);
         $variations = $workOrder->variations()->where('origin', \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR)->orderByDesc('id')->get();
         $ceiling = $unlocked ? $goAhead->contractorCeiling($workOrder) : null;

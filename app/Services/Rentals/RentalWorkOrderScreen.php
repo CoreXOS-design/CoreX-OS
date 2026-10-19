@@ -24,7 +24,7 @@ final class RentalWorkOrderScreen
     /** @return array{steps: array, next: array, panels: array, tz: string, cancelled: bool} */
     public function build(RentalWorkOrder $wo, array $c): array
     {
-        $tz = $wo->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($wo->agency);
         $fmt = fn ($d) => $d ? AppDate::dateTime($d, $tz) : null;
         $proceed = $c['proceed'];
         $js = $c['js'] ?? ['provider' => null, 'sent' => null, 'response' => null, 'response_label' => '', 'decline_reason' => null, 'can_send' => false, 'contact' => ['has_contact' => false]];

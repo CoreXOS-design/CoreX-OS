@@ -22,7 +22,7 @@ final class RentalFaultScreen
     /** @return array{stage: string, steps: array, returned: array, next: array, panels: array, tz: string} */
     public function build(RentalFaultReport $f, array $c): array
     {
-        $tz = $f->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($f->agency);
         $fmt = fn ($d) => $d ? AppDate::dateTime($d, $tz) : null;
         $stage = self::stageOf($f);
         $decision = $f->decision();

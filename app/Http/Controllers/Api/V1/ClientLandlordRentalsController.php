@@ -695,7 +695,7 @@ class ClientLandlordRentalsController extends Controller
         $holds = app(\App\Services\Rentals\RentalOwnerHoldService::class);
         $hold = $holds->activeFor($fault);
         $block = $holds->stopBlock($fault);
-        $tz = $fault->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($fault->agency);
 
         return [
             'show' => $hold !== null || $fault->isArrangedByAgent() || $this->authorisationFor($fault) !== null,
@@ -957,7 +957,7 @@ class ClientLandlordRentalsController extends Controller
             'appointment_at' => 'required|date',
             'note' => 'nullable|string|max:500',
         ]);
-        $tz = $order->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($order->agency);
         $at = \App\Support\AppDate::parse($data['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {

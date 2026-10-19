@@ -117,7 +117,7 @@ class CompletionResponseController extends Controller
         $branding = Agency::publicBrandingFor((int) $record->agency_id);
         $property = Property::withoutGlobalScopes()->withTrashed()->find($workOrder->property_id);
         $agency = Agency::withoutGlobalScopes()->find($record->agency_id);
-        $tz = $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($agency);
         $view = app(RentalJobCardClientViewService::class);
 
         return [

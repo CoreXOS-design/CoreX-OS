@@ -54,7 +54,7 @@ class RentalAuthorisationService
 
     private function tz(RentalFaultReport|RentalWorkOrder $subject): string
     {
-        return $subject->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($subject->agency);
     }
 
     private function subjectOf(RentalAuthorisation $row): RentalFaultReport|RentalWorkOrder|null
@@ -71,7 +71,7 @@ class RentalAuthorisationService
     public function whenText(RentalAuthorisation $row): string
     {
         $subject = $this->subjectOf($row);
-        $tz = $subject ? $this->tz($subject) : (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = $subject ? $this->tz($subject) : \App\Support\AppDate::appTimezone();
 
         return \App\Support\AppDate::dateTime($row->told_at ?? $row->created_at, $tz);
     }

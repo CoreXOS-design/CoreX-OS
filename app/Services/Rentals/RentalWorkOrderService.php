@@ -440,7 +440,7 @@ class RentalWorkOrderService
         $this->emailContractorUpdate(
             $fresh,
             $previous ? 'Appointment changed' : 'Appointment set',
-            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, $fresh->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg')) . ($note ? ' (' . $note . ')' : '')
+            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, \App\Support\AppDate::agencyTimezone($fresh->agency)) . ($note ? ' (' . $note . ')' : '')
                 . ($contractorNote ? ' Note for you from the agent: ' . $contractorNote : '') . '.',
             $byUser,
         );

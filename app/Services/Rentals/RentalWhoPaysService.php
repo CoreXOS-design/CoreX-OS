@@ -322,7 +322,7 @@ class RentalWhoPaysService
             // an earlier ruling asked the tenant to pay; this one no longer does - say only what changed for them (no reason: it may speak of the owner)
             $headline = 'You are no longer asked to pay for this repair.';
         }
-        $tz = $r->workOrder?->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($r->workOrder?->agency);
 
         return [
             'payer' => $r->payer,

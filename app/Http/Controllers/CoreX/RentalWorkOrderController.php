@@ -997,7 +997,7 @@ class RentalWorkOrderController extends Controller
         ]);
 
         // The box is read in the AGENCY timezone (the same convention as the job card's scheduling box).
-        $tz = $rentalWorkOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($rentalWorkOrder->agency);
         $at = \App\Support\AppDate::parse($validated['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {

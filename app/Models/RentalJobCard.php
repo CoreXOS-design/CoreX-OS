@@ -617,7 +617,7 @@ class RentalJobCard extends Model
         if (! in_array($field, ['scheduled_at', 'due_at'], true) || ! $this->{$field}) {
             return null;
         }
-        $tz = $this->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($this->agency);
 
         return $this->{$field}->copy()->setTimezone($tz)->format('Y-m-d\TH:i');
     }

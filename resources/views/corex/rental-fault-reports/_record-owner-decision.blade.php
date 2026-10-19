@@ -5,7 +5,7 @@
     Expects: $faultReport, $authorityOwners, $recordBlock, $authorisations.
 --}}
 @php
-    $roTz = $faultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $roTz = \App\Support\AppDate::agencyTimezone($faultReport->agency);
     $roActive = $authorisations->where('point', 'inspect')->whereNull('superseded_at')->last();
     $roCan = auth()->user()->hasPermission('rental_fault_reports.record_approval');
     $roChange = $faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED;   // section 28.5 - a recorded "Declined" can be changed from the screen

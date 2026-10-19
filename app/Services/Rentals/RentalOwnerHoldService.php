@@ -98,7 +98,7 @@ class RentalOwnerHoldService
     {
         $agency = ($fault ?? $wo)?->agency;
 
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 
     public function ownerName(?Contact $c): string

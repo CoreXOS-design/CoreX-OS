@@ -6,7 +6,7 @@
 @php
     $emActive = $workOrder->activeEmergencyApproval();
     $emVoided = $workOrder->emergencyApprovals()->whereNotNull('voided_at')->get();
-    $emTz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $emTz = \App\Support\AppDate::agencyTimezone($workOrder->agency);
     $emViaLabel = fn (?string $via) => $via ? ucfirst(str_replace('_', ' ', $via)) : '—';
 @endphp
 {{-- Johan, 8 Oct 2026: shown only while an emergency agreement can still matter - not once the owner has approved or the work has started - and collapsed

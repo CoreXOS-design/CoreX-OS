@@ -4,7 +4,7 @@
     Expects: $faultReport, $ownerHold (?RentalOwnerHold), $ownerQueries (Collection), $authorityOwners.
 --}}
 @php
-    $ohTz = $faultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $ohTz = \App\Support\AppDate::agencyTimezone($faultReport->agency);
     $ohSvc = app(\App\Services\Rentals\RentalOwnerHoldService::class);
     $ohCanResume = auth()->user()->hasPermission('rental_fault_reports.record_approval');
     $ohCanAnswer = auth()->user()->hasPermission('rental_fault_reports.send_to_owner');

@@ -93,7 +93,7 @@ class RentalCrewScheduleService
     public function schedule(int $agencyId, int $crewId, ?CarbonInterface $now = null): array
     {
         $agency = Agency::withoutGlobalScopes()->find($agencyId);
-        $tz = $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($agency);
         $now = ($now ? Carbon::instance($now) : Carbon::now())->setTimezone($tz);
 
         $upcomingDays = RentalPortalSetting::crewPageUpcomingDaysFor($agencyId);
