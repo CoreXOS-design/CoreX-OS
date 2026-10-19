@@ -400,16 +400,22 @@ class RentalInspectionScanReaderService
                 continue;
             }
 
-            RentalInspectionScanMark::updateOrCreate(
-                ['rental_inspection_scan_id' => $scan->id, 'rental_inspection_item_id' => $itemId],
-                [
-                    'agency_id' => $scan->agency_id,
-                    'page_number' => $pageNumber,
-                    'detected_condition_key' => $detectedKey,
-                    'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
-                    'ambiguous' => $ambiguous,
-                ]
-            );
+            // One row per (scan, item) - the table's unique key counts archived rows too, so a re-read brings the archived
+            // proposal back and rewrites it. A mark the agent already applied is never touched.
+            $mark = RentalInspectionScanMark::withTrashed()->firstOrNew(['rental_inspection_scan_id' => $scan->id, 'rental_inspection_item_id' => $itemId]);
+            if ($mark->applied_observation_id !== null) {
+                continue;
+            }
+            if ($mark->exists && $mark->trashed()) {
+                $mark->restore();
+            }
+            $mark->fill([
+                'agency_id' => $scan->agency_id,
+                'page_number' => $pageNumber,
+                'detected_condition_key' => $detectedKey,
+                'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
+                'ambiguous' => $ambiguous,
+            ])->save();
             $counts[$ambiguous || ($confidence !== null && $confidence < 0.5) ? 'flagged' : 'proposed']++;
         }
 
