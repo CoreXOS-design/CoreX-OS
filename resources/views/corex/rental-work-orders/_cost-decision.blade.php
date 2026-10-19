@@ -95,6 +95,25 @@
         <p class="text-xs" style="color: var(--text-muted);" data-cost-blocked>{{ $costBlock }}</p>
     @endif
 
+    {{-- section 28.3 - the owner approved the cost on the same call as the go-ahead: one press, the same words, no second note to type. Only when a quote at or below that figure is in. --}}
+    @php $cdSameCall = ($cdCompact ?? false) || ! $cdNeedsDecision || ! $cdCanAuthorise ? null : $cdSvc->sameCallOffer($workOrder); @endphp
+    @if($cdSameCall)
+        <div class="rounded-md p-3 text-sm space-y-2" style="background: color-mix(in srgb, var(--ds-green, #16a34a) 8%, var(--surface)); border: 1px solid var(--ds-green, #16a34a);" data-same-call>
+            <div>The owner approved the cost up to <strong>R{{ number_format($cdSameCall['figure'], 2) }}</strong> on the same call as the go-ahead ({{ $cdSameCall['via'] }}, {{ $cdSameCall['when'] }}).@if($cdSameCall['note']) <em>&ldquo;{{ \Illuminate\Support\Str::limit($cdSameCall['note'], 160) }}&rdquo;</em>@endif</div>
+            @if($cdSameCall['covers'])
+                <form method="POST" action="{{ route('corex.rental-work-orders.cost.use-same-call', $workOrder) }}" id="wo-same-call-form">
+                    @csrf
+                    <button type="submit" class="corex-btn-primary text-xs" data-same-call-use>Use it - approve R{{ number_format($cdSameCall['figure'], 2) }}</button>
+                    <span class="text-xs" style="color: var(--text-muted);">The quote is R{{ number_format($cdSameCall['measure'], 2) }}. The owner is emailed the same words; you do not type them again.</span>
+                </form>
+            @elseif($cdSameCall['measure'] === null)
+                <div class="text-xs" style="color: var(--text-muted);" data-same-call-waiting>The contractor quotes first. When a quote at or below this amount is in, you can use it here with one press.</div>
+            @else
+                <div class="text-xs font-semibold" style="color: var(--ds-crimson);" data-same-call-above>The quote (R{{ number_format($cdSameCall['measure'], 2) }}) is above what the owner approved on the call &mdash; ask the owner (record their decision below).</div>
+            @endif
+        </div>
+    @endif
+
     @if($cdNeedsDecision)
         <div x-data="{
                 measure: @js($cdMeasure), source: @js($costMeasure['source']), label: @js($costMeasure['label']),

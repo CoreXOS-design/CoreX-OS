@@ -229,7 +229,7 @@ class RentalAuthorisationService
     /**
      * "Record the owner's decision" for Decision 1.
      *
-     * @param array<string, mixed> $d owner_contact_id, decision (authorise|declined), told_via, told_at?, note
+     * @param array<string, mixed> $d owner_contact_id, decision (authorise|declined), told_via, told_at?, note, also_approve_cost?, also_cost_up_to?, assignment_type?, agency_service_provider_id?, rental_crew_id?
      */
     public function recordOwnerDecision(User $by, RentalFaultReport $fault, array $d, ?UploadedFile $proof = null): RentalAuthorisation
     {
@@ -254,9 +254,11 @@ class RentalAuthorisationService
         if ($note === '') {
             throw new \InvalidArgumentException($decision === 'declined' ? 'Say why the owner declined - what the owner said is required.' : 'Write down what the owner said - it is required.');
         }
+        $alsoCost = $this->alsoCostFrom($d, $decision);
+        $carry = $this->contractorCarryFrom($fault, $d);
         $proofPath = $proof ? app(RentalFaultReportService::class)->storeApprovalScreenshot($proof, (int) $fault->property_id) : null;
 
-        $row = DB::transaction(function () use ($by, $fault, $owner, $decision, $via, $toldAt, $note, $proofPath) {
+        $row = DB::transaction(function () use ($by, $fault, $owner, $decision, $via, $toldAt, $note, $proofPath, $alsoCost, $carry) {
             $locked = RentalFaultReport::withoutGlobalScopes()->lockForUpdate()->findOrFail($fault->id);
             if (in_array($locked->owner_approval_status, [RentalFaultReport::APPROVAL_APPROVED, RentalFaultReport::APPROVAL_DECLINED], true)) {
                 if ($this->decidedByOwnerOnLink($locked) || $locked->hasLiveWorkOrder()) {
@@ -280,12 +282,64 @@ class RentalAuthorisationService
                 'owner_contact_id' => $owner->id,
             ]);
 
-            return RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $fault->id)->where('point', RentalAuthorisation::POINT_INSPECT)->orderByDesc('id')->firstOrFail();
+            $written = RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $fault->id)->where('point', RentalAuthorisation::POINT_INSPECT)->orderByDesc('id')->firstOrFail();
+
+            // section 28.3 - "Same call: the owner also approved the cost up to R___": kept on this same record; it authorises nothing until a quote is in
+            if ($decision === 'authorise' && $alsoCost !== null) {
+                $written->forceFill(['also_cost_up_to' => $alsoCost])->save();
+            }
+            // section 28.2 - the contractor the agent had picked travels with the decision, so "Create work order" opens with them chosen
+            if ($decision === 'authorise' && $carry !== null) {
+                $fault->forceFill($carry)->save();
+            }
+
+            return $written;
         });
 
         $this->tellOwner($row);
 
         return $row->fresh();
+    }
+
+    /**
+     * Section 28.3 - the "also approved the cost up to R___" figure from the form, or null. Only on an approval; a tick with no amount is refused.
+     *
+     * @param array<string,mixed> $d
+     */
+    private function alsoCostFrom(array $d, string $decision): ?float
+    {
+        if ($decision !== 'authorise' || empty($d['also_approve_cost'])) {
+            return null;
+        }
+        $amount = isset($d['also_cost_up_to']) && $d['also_cost_up_to'] !== '' ? round((float) $d['also_cost_up_to'], 2) : 0.0;
+        if ($amount <= 0) {
+            throw new \InvalidArgumentException('Say the amount the owner also approved on the same call.');
+        }
+
+        return $amount;
+    }
+
+    /**
+     * Section 28.2 - the contractor picked in "Who goes to look first?" (supplier or crew of THIS agency) as the fault's proposed contractor, or null when nobody was picked.
+     *
+     * @param array<string,mixed> $d
+     * @return array<string,mixed>|null
+     */
+    private function contractorCarryFrom(RentalFaultReport $fault, array $d): ?array
+    {
+        $type = (string) ($d['assignment_type'] ?? '');
+        if ($type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && (int) ($d['agency_service_provider_id'] ?? 0) > 0) {
+            $ok = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->whereKey((int) $d['agency_service_provider_id'])->exists();
+
+            return $ok ? ['proposed_assignment' => $type, 'proposed_supplier_id' => (int) $d['agency_service_provider_id'], 'proposed_crew_id' => null] : null;
+        }
+        if ($type === RentalWorkOrder::ASSIGNMENT_INTERNAL) {
+            $crew = (int) ($d['rental_crew_id'] ?? 0) > 0 ? \App\Models\RentalCrew::withoutGlobalScopes()->where('agency_id', $fault->agency_id)->whereKey((int) $d['rental_crew_id'])->value('id') : null;
+
+            return ['proposed_assignment' => $type, 'proposed_supplier_id' => null, 'proposed_crew_id' => $crew];
+        }
+
+        return null;
     }
 
     /** Put a fault whose (agent-captured) decision is being replaced back to waiting - only ever before a work order exists. */
@@ -640,6 +694,55 @@ class RentalAuthorisationService
         $this->tellOwner($row);
 
         return $row->fresh();
+    }
+
+    /**
+     * Section 28.3 - the owner's "same call" cost approval, offered back on the work order. Null when the fault's standing go-ahead was not an agent-captured
+     * approval with a figure, or when this work order's cost already has a standing record (nothing is offered over an existing decision).
+     *
+     * @return array{figure: float, row: RentalAuthorisation, measure: float|null, covers: bool, via: string, when: string, note: string}|null
+     */
+    public function sameCallOffer(RentalWorkOrder $wo): ?array
+    {
+        if (! $wo->reported_fault_report_id || $this->activeFor($wo, RentalAuthorisation::POINT_COST)) {
+            return null;
+        }
+        $row = RentalAuthorisation::withoutGlobalScopes()->where('agency_id', $wo->agency_id)->where('rental_fault_report_id', $wo->reported_fault_report_id)
+            ->where('point', RentalAuthorisation::POINT_INSPECT)->whereNull('superseded_at')->orderByDesc('id')->first();
+        if (! $row || ! $row->isAuthorised() || $row->basis !== RentalAuthorisation::BASIS_OWNER_INSTRUCTION || $row->also_cost_up_to === null) {
+            return null;
+        }
+        $figure = round((float) $row->also_cost_up_to, 2);
+        $measure = $this->costMeasure($wo)['amount'];
+
+        return [
+            'figure' => $figure, 'row' => $row, 'measure' => $measure,
+            'covers' => $measure !== null && round($measure * 100) <= round($figure * 100),
+            'via' => RentalAuthorisation::viaLabel($row->told_via), 'when' => $this->whenText($row), 'note' => (string) $row->note,
+        ];
+    }
+
+    /**
+     * Section 28.3 - ONE press: the owner approved the cost on the same call as the go-ahead, a quote at or below that figure is now in, so the ordinary cost record is
+     * written from the SAME words (owner, how, when, note). Goes through recordOwnerCostDecision(), so every rule applies (the amount must cover the quote; the hard lock).
+     */
+    public function useSameCallApproval(User $by, RentalWorkOrder $wo): RentalAuthorisation
+    {
+        $offer = $this->sameCallOffer($wo);
+        if (! $offer) {
+            throw new \LogicException('The owner did not approve a cost on the same call, or this cost already has a decision.');
+        }
+        if ($offer['measure'] === null) {
+            throw new \LogicException('There is no quote to approve yet - the contractor quotes first.');
+        }
+        if (! $offer['covers']) {
+            throw new \LogicException('The quote (' . $this->rand($offer['measure']) . ') is above the ' . $this->rand($offer['figure']) . ' the owner approved on the call - ask the owner.');
+        }
+
+        return $this->recordOwnerCostDecision($by, $wo, [
+            'owner_contact_id' => $offer['row']->owner_contact_id, 'decision' => 'approved', 'approved_up_to' => $offer['figure'],
+            'told_via' => $offer['row']->told_via, 'told_at' => $offer['row']->told_at?->toDateTimeString(), 'note' => $offer['note'],
+        ]);
     }
 
     /**

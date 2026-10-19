@@ -455,8 +455,26 @@ class RentalFaultReportController extends Controller
         ]);
 
         $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class)->optionsFor($rentalFaultReport);
+        $user = $request->user();
+        $authSvc = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        $holdSvc = app(\App\Services\Rentals\RentalOwnerHoldService::class);
+        $inspectBlock = app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true);
+        $recordBlock = $authSvc->recordBlockReason($rentalFaultReport);
+        $ownerHold = $holdSvc->activeFor($rentalFaultReport);
+        $ownerQueries = $holdSvc->queriesFor($rentalFaultReport);
+        // section 28 - the stage strip, the Returned | Next bar and each folded panel's one-line summary: one pure read
+        $screen = app(\App\Services\Rentals\RentalFaultScreen::class)->build($rentalFaultReport, [
+            'can' => [
+                'send_to_owner' => $user->hasPermission('rental_fault_reports.send_to_owner'),
+                'record_approval' => $user->hasPermission('rental_fault_reports.record_approval'),
+                'raise_work_order' => $user->hasPermission('rental_fault_reports.raise_work_order'),
+            ],
+            'inspectBlock' => $inspectBlock, 'recordBlock' => $recordBlock, 'ownerHold' => $ownerHold, 'ownerQueries' => $ownerQueries,
+            'canOpenWorkOrder' => $user->hasFeature('rental-work-orders'),
+        ]);
 
         return view('corex.rental-fault-reports.show', [
+            'screen' => $screen,
             'faultReport' => $rentalFaultReport,
             // AT-452 - the viewer's photo list (marks + notes for staff) and who may edit them.
             'viewerPhotos' => app(RentalFaultPhotoAnnotationService::class)->payload(
@@ -485,14 +503,14 @@ class RentalFaultReportController extends Controller
             'inspectNotices' => app(\App\Services\Rentals\FaultInspectionService::class)->noticeMapFor(
                 $rentalFaultReport, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)
             ),
-            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true),
+            'inspectBlock' => $inspectBlock,
             'authorisations' => app(\App\Services\Rentals\RentalAuthorisationService::class)->rowsFor($rentalFaultReport),
             'authorityOwners' => app(\App\Services\Rentals\RentalAuthorisationService::class)->ownersFor($rentalFaultReport),
-            'recordBlock' => app(\App\Services\Rentals\RentalAuthorisationService::class)->recordBlockReason($rentalFaultReport),
+            'recordBlock' => $recordBlock,
             // section 22.7 - PAUSED BY OWNER, every stop / resume so far, and the owner's questions with the agents' answers
-            'ownerHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($rentalFaultReport),
-            'ownerHolds' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->historyFor($rentalFaultReport),
-            'ownerQueries' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->queriesFor($rentalFaultReport),
+            'ownerHold' => $ownerHold,
+            'ownerHolds' => $holdSvc->historyFor($rentalFaultReport),
+            'ownerQueries' => $ownerQueries,
         ]);
     }
 
@@ -606,13 +624,7 @@ class RentalFaultReportController extends Controller
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
-        $validated = $request->validate([
-            'owner_title' => ['required', 'string', 'max:191'],
-            'owner_description' => ['nullable', 'string', 'max:5000'],
-            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
-            'owner_photo_ids' => ['nullable', 'array'],
-            'owner_photo_ids.*' => ['integer'],
-        ]);
+        $validated = $request->validate(RentalFaultReport::OWNER_VERSION_RULES);
 
         try {
             $rentalFaultReport->saveOwnerVersion($validated, $request->user());

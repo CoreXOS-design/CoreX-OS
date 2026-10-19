@@ -8,12 +8,13 @@
     $roTz = $faultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
     $roActive = $authorisations->where('point', 'inspect')->whereNull('superseded_at')->last();
     $roCan = auth()->user()->hasPermission('rental_fault_reports.record_approval');
+    $roChange = $faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED;   // section 28.5 - a recorded "Declined" can be changed from the screen
 @endphp
 @if($roCan)
     @error('owner_decision')<div class="text-xs w-full sm:col-span-3" style="color: var(--ds-crimson);" data-owner-decision-error>{{ $message }}</div>@enderror
     @if($recordBlock === null)
         <div x-data="{ open: {{ $errors->has('owner_decision') ? 'true' : 'false' }}, decision: '{{ old('decision', 'authorise') }}' }" x-on:keydown.escape.window="open = false" class="contents">
-            <button type="button" class="corex-btn-outline text-xs w-full" data-owner-decision-open @click="open = true">Record the owner's decision</button>
+            <button type="button" class="corex-btn-outline text-xs w-full" data-owner-decision-open @click="open = true">{{ $roChange ? 'Owner changed their mind - change the decision' : "Record the owner's decision" }}</button>
             <div x-show="open" x-cloak class="cxod-overlay" role="dialog" aria-modal="true" aria-labelledby="cxod-title" data-owner-decision-modal>
                 <div class="cxod-box" x-on:click.outside="open = false">
                     <h3 id="cxod-title" class="cxod-title">Record the owner's decision</h3>
@@ -23,6 +24,10 @@
                     @endif
                     <form method="POST" action="{{ route('corex.rental-fault-reports.owner-decision.store', $faultReport) }}" enctype="multipart/form-data" class="space-y-3" data-owner-decision-form>
                         @csrf
+                        {{-- section 28.2 - the contractor picked in "Who goes to look first?" (when this popup sits inside it) travels with the decision --}}
+                        <input type="hidden" name="assignment_type" x-bind:value="typeof picked !== 'undefined' && picked ? (picked === 'crew' ? 'internal' : 'outside_supplier') : ''" data-od-carry-type>
+                        <input type="hidden" name="agency_service_provider_id" x-bind:value="typeof picked !== 'undefined' && picked && picked !== 'crew' ? picked : ''" data-od-carry-supplier>
+                        <input type="hidden" name="rental_crew_id" x-bind:value="typeof picked !== 'undefined' && picked === 'crew' && typeof crew !== 'undefined' ? crew : ''" data-od-carry-crew>
                         <div>
                             <label class="cxod-lbl" for="cxod-owner">Which owner told you?</label>
                             <select id="cxod-owner" name="owner_contact_id" required class="cxod-input" data-od-owner>
@@ -38,6 +43,12 @@
                                 <label class="flex items-center gap-2"><input type="radio" name="decision" value="authorise" x-model="decision" required data-od-decision="authorise"> Spoke / WhatsApped owner — owner said send a contractor out for a quote</label>
                                 <label class="flex items-center gap-2"><input type="radio" name="decision" value="declined" x-model="decision" data-od-decision="declined"> Declined</label>
                             </div>
+                        </div>
+                        {{-- section 28.3 - one call, one note: the owner also approved the cost. Authorises nothing by itself; the work order offers it back once a quote at or below it is in. --}}
+                        <div x-show="decision !== 'declined'" x-data="{ also: {{ old('also_approve_cost') ? 'true' : 'false' }} }" class="text-sm" data-od-same-call>
+                            <label class="flex items-center gap-2"><input type="checkbox" name="also_approve_cost" value="1" x-model="also" data-od-also-cost> Same call: the owner also approved the cost up to R</label>
+                            <input type="number" name="also_cost_up_to" step="0.01" min="0.01" x-show="also" x-cloak value="{{ old('also_cost_up_to') }}" placeholder="e.g. 1850" class="cxod-input mt-1" style="max-width: 200px;" data-od-also-amount>
+                            <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="also" x-cloak>The contractor still quotes first. When a quote at or below this amount is in, you press one button on the work order - you do not type the owner's words again.</p>
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>

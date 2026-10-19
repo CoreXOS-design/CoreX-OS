@@ -14,7 +14,7 @@
 @endphp
 <div class="rounded-md p-4 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-tenant-picture>
     <section data-tenant-report>
-        <h2 class="text-sm font-semibold">{{ $tpTenant ? 'What the tenant reported' : 'What was reported' }}</h2>
+        <h2 class="text-sm font-semibold wo-embedded-title">{{ $tpTenant ? 'What the tenant reported' : 'What was reported' }}</h2>
         <p class="text-sm mt-1" style="white-space: pre-line;" data-tenant-report-text>{{ trim((string) $faultReport->description) !== '' ? $faultReport->description : 'No description was given.' }}</p>
         <p class="text-xs mt-1" style="color: var(--text-muted);">
             {{ ucfirst(str_replace('_', ' ', $faultReport->reported_by_type)) }}{{ $tpWho !== '' ? ' - ' . $tpWho : '' }}
@@ -45,8 +45,8 @@
         <h3 class="text-xs font-semibold">Confirmed with the tenant</h3>
         @if($tpConf)
             <p class="text-sm mt-1" data-confirmation-summary>
-                By {{ $tpConf['via_label'] }} on {{ $tpConf['at']?->copy()->setTimezone($tpTz)->format('j M Y H:i') }}{{ $tpConf['by'] ? ', recorded by ' . $tpConf['by'] : '' }}:
-                &ldquo;{{ $tpConf['note'] }}&rdquo;
+                By {{ $tpConf['via_label'] }} on {{ $tpConf['at']?->copy()->setTimezone($tpTz)->format('j M Y H:i') }}{{ $tpConf['by'] ? ', recorded by ' . $tpConf['by'] : '' }}@if(trim((string) $tpConf['note']) !== ''):
+                &ldquo;{{ $tpConf['note'] }}&rdquo;@endif
             </p>
         @else
             <p class="text-xs mt-1" style="color: var(--text-muted);" data-confirmation-none>Not confirmed with the tenant yet.</p>
@@ -72,8 +72,8 @@
                         </div>
                     </div>
                     <div>
-                        <label class="text-xs font-medium" for="tc-note">What did the tenant say?</label>
-                        <textarea id="tc-note" name="note" required rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('note') }}</textarea>
+                        <label class="text-xs font-medium" for="tc-note">What did the tenant say? <span class="font-normal" style="color: var(--text-muted);">(optional)</span></label>
+                        <textarea id="tc-note" name="note" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('note') }}</textarea>
                     </div>
                     <button type="submit" class="corex-btn-outline text-xs">Save</button>
                 </form>

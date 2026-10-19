@@ -76,11 +76,14 @@
         <p class="text-sm" style="color: var(--text-muted);">Nothing recorded yet.</p>
     @endif
 
+    {{-- section 28.7: what was found is entered ONCE (in the Complete form, or here when that was skipped) and is read-only once a ruling is built on it --}}
     @permission('rental_work_orders.manage_completion')
+    @unless($wpRuling)
     <details @if(! $wpHasFindings || $errors->has('who_pays')) open @endif>
         <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $wpBtn }}">{{ $wpHasFindings ? 'Correct what was found / the cause' : 'Enter what was found and the cause' }}</summary>
         <div class="mt-2">@include('corex.rental-work-orders._who-pays-findings-form')</div>
     </details>
+    @endunless
     @endpermission
 
     @if($wpRuling)
@@ -115,7 +118,7 @@
             </div>
             <div>
                 <label class="text-xs font-medium" for="wp-reason">Reason (required)</label>
-                <textarea id="wp-reason" name="reason" rows="2" required maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('reason') }}</textarea>
+                <textarea id="wp-reason" name="reason" rows="2" required maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" data-wp-reason>{{ old('reason', $wpSuggest['because'] ?? '') }}</textarea>
             </div>
             <div>
                 <label class="text-xs font-medium" for="wp-evidence">Evidence (optional &mdash; JPG, PNG, WEBP or PDF; kept internal)</label>

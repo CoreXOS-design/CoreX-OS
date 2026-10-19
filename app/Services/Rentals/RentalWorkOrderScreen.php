@@ -89,6 +89,8 @@ final class RentalWorkOrderScreen
         }
 
         // ── C. the Next bar: one sentence, at most one button ────────────────────────────────────────────────────────────────────
+        // section 28.3 - "Same call": the owner's cost approval given with the go-ahead, offered back once a quote at or below it is in
+        $sameCall = ($can['record_approval'] ?? false) && ! $internal && ! $ownerC ? app(RentalAuthorisationService::class)->sameCallOffer($wo) : null;
         $btnGo = fn (string $label, string $panel, ?string $click = null) => ['kind' => 'go', 'label' => $label, 'panel' => $panel, 'click' => $click];
         $btnForm = fn (string $label, string $form) => ['kind' => 'form', 'label' => $label, 'form' => $form];
         $amount = $selected ? self::money($selected->ownerFacingAmount()) : null;
@@ -165,6 +167,10 @@ final class RentalWorkOrderScreen
             } elseif ($authorised) {
                 $next = ['key' => 'authorised', 'tone' => 'ok', 'text' => 'Approved' . ($selected ? ' (' . $amount . ')' : '') . '. The go-ahead has not been sent to ' . $contractor . ' yet.', 'panel' => 'contractor',
                     'button' => ($can['create'] ?? false) && $selected ? $btnForm('Send the go-ahead', 'wo-go-ahead-form') : null];
+            } elseif ($selected && $sameCall && $sameCall['covers']) {
+                // section 28.3 - the owner already approved up to this amount on the same call as the go-ahead: one press, the same words
+                $next = ['key' => 'same_call', 'tone' => 'ok', 'text' => 'Quote ' . $amount . ' is in, and the owner approved up to ' . self::money($sameCall['figure']) . ' on the same call as the go-ahead (' . $sameCall['via'] . ', ' . $sameCall['when'] . ').', 'panel' => 'cost',
+                    'button' => $btnForm('Use it - approve ' . self::money($sameCall['figure']), 'wo-same-call-form')];
             } elseif ($selected && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
                 $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : '') . '.', 'panel' => 'cost',
                     'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : null];

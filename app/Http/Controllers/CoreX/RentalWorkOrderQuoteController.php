@@ -36,10 +36,18 @@ class RentalWorkOrderQuoteController extends Controller
             'detail_text' => ['nullable', 'string', 'max:2000'],
             'document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp,heic,heif', 'max:20480'],
             'is_selected' => ['nullable', 'boolean'],
+            'quoted_by_phone' => ['nullable', 'boolean'],
         ]);
 
+        // section 28.4: a quote given over the phone needs no document and no written details - just the amount and the date. It is saved as that sentence.
+        $byPhone = (bool) ($validated['quoted_by_phone'] ?? false);
+        unset($validated['quoted_by_phone']);
+        if ($byPhone && empty($validated['detail_text']) && ! $request->hasFile('document')) {
+            $validated['detail_text'] = 'Quoted by phone on ' . \Illuminate\Support\Carbon::parse($validated['quote_date'])->format('j M Y') . '.';
+        }
+
         if (empty($validated['detail_text']) && !$request->hasFile('document')) {
-            return back()->withErrors(['quote' => 'Attach the quote document, or enter its details — at least one is required.'])->withInput();
+            return back()->withErrors(['quote' => 'Attach the quote document, enter its details, or tick "Quoted by phone" - at least one is required.'])->withInput();
         }
 
         if ($request->hasFile('document')) {
