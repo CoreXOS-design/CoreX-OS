@@ -15,7 +15,7 @@
 
     Receives $block = CrewPricingBlock::for($card, $ctx) ([] for a closed card) and inherits $actions from _job-body:
       line_add, line_update (url with the literal "__LINE__"), line_archive (same), lines_send.
-    §17.42 (19 Oct 2026) - ONE row is always open: "Add new line" saves it by fetch (no reload, the scroll stays put) and opens the next
+    §17.43 (19 Oct 2026) - ONE row is always open: "Add new line" saves it by fetch (no reload, the scroll stays put) and opens the next
     blank row; a saved draft saves its own changes as they are made; Remove archives with an Undo. Every row is also a plain form, so
     with JavaScript off a post still saves and redirects as before.
 --}}
@@ -115,7 +115,7 @@
 
     @if($canWrite)
         {{-- AT-465 - the ONE send. The findings box is part of the page (so it can be filled in before the button is pressed); the
-             button lives in the sticky bar and submits that form through its form="" attribute. §17.42: the no-reload handlers swap
+             button lives in the sticky bar and submits that form through its form="" attribute. §17.43: the no-reload handlers swap
              this wrapper's content, so the bar appears the moment the first line is saved and goes when the last is removed. --}}
         <div id="cj-send-wrap">@include('rentals.crew-link._pricing-send', ['block' => $block, 'actions' => $actions])</div>
     @endif

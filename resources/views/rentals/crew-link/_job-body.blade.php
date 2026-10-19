@@ -285,7 +285,7 @@
                     var b = upload.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Uploading…';
                 });
             }
-            // The NEXT button scrolls to its target; when that is the Parts & labour card the blank row is already open (spec 17.42), so it only focuses it.
+            // The NEXT button scrolls to its target; when that is the Parts & labour card the blank row is already open (spec 17.43), so it only focuses it.
             root.querySelectorAll('[data-next-target="#cj-pricing"]').forEach(function (a) {
                 a.addEventListener('click', function () {
                     setTimeout(function () {

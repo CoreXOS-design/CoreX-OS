@@ -1,5 +1,5 @@
 {{--
-    §17.42 - ONE Parts & labour row, shared by the always-open blank row and every saved draft (the old "Add a part or labour" panel and
+    §17.43 - ONE Parts & labour row, shared by the always-open blank row and every saved draft (the old "Add a part or labour" panel and
     "Change this line" panel are gone).
 
     Part   : the item or description, how many, "what it cost you, each (R)" (pre-filled from the list), the receipt camera.

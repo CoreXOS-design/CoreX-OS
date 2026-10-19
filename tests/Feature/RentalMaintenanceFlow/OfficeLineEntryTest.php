@@ -15,7 +15,7 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsPricingFixtures;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-work-orders.md section 17.42 (19 Oct 2026), Part B - the OFFICE job card's line entry. Add, change, archive and restore answer a
+ * .ai/specs/rental-work-orders.md section 17.43 (19 Oct 2026), Part B - the OFFICE job card's line entry. Add, change, archive and restore answer a
  * fetch with JSON (the screen swaps the figures without a reload) and a plain form post with the redirect they always gave; a free-typed line
  * is a PART; a part line can carry a receipt through the same service method the crew's receipt uses; markup hides behind one "Markup" link.
  */

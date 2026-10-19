@@ -345,7 +345,7 @@ class CrewJobService
     }
 
     /**
-     * Undo a Remove: bring back a draft the crew archived (spec §17.42). Only the crew's own, still-draft line of THIS card; a line
+     * Undo a Remove: bring back a draft the crew archived (spec §17.43). Only the crew's own, still-draft line of THIS card; a line
      * that is not archived is returned as it is, so a double tap on Undo is harmless.
      */
     public function restoreDraft(RentalJobCard $card, int $lineId, CrewViewContext $ctx): RentalJobCardLine

@@ -424,7 +424,7 @@ class RentalJobCardService
             // explicitly posted type wins, same as description/unit/price
             // already work. See RentalJobCardAt442FollowUpTest's renamed
             // assertion for the behaviour this replaces.
-            // §17.42 (Johan, 19 Oct 2026): a free-typed line with no type and no catalogue item is a PART, not Labour.
+            // §17.43 (Johan, 19 Oct 2026): a free-typed line with no type and no catalogue item is a PART, not Labour.
             'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_PART,
             'description' => $attributes['description'] ?? $catalogueItem?->description ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
@@ -624,7 +624,7 @@ class RentalJobCardService
     }
 
     /**
-     * §17.42 / AT-459 - the receipt for a PART line (what was paid, proved): the ONE method the crew link, the crew page and the office
+     * §17.43 / AT-459 - the receipt for a PART line (what was paid, proved): the ONE method the crew link, the crew page and the office
      * job card all use. Stored like a line photo (against the line, not in the job gallery) with its own photo_type, so it never counts
      * as one of a crew line's up-to-3 photos and never reaches anything the owner or tenant sees. A newer receipt supersedes an older
      * one on screen (photo rows are immutable). Labour has no receipt - nothing is stored and false is returned.

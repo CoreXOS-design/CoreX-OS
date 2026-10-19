@@ -94,7 +94,7 @@ final class CrewPricingBlock
     }
 
     /**
-     * ONE line, in the exact shape the page renders and the fetch handlers return (spec §17.42), so a line added without a reload
+     * ONE line, in the exact shape the page renders and the fetch handlers return (spec §17.43), so a line added without a reload
      * looks identical to the same line after a refresh. Plain values only - a cost, never a selling price, markup or margin.
      *
      * @return array<string, mixed>

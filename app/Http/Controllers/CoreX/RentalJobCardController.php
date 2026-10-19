@@ -636,7 +636,7 @@ class RentalJobCardController extends Controller
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
         try {
             $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
-            // §17.42 - the same receipt component as the crew's: stored against the new line (a part only)
+            // §17.43 - the same receipt component as the crew's: stored against the new line (a part only)
             $service->attachLineReceipt($rentalJobCard, $line, $this->receiptFrom($request), $request->user());
         } catch (\LogicException $e) {
             return $this->lineProblem($request, $e->getMessage());
@@ -705,7 +705,7 @@ class RentalJobCardController extends Controller
             return $this->lineProblem($request, $e->getMessage());
         }
 
-        // §17.42 - the no-reload screen offers Undo (restoreLine below); the id and wording are returned for it
+        // §17.43 - the no-reload screen offers Undo (restoreLine below); the id and wording are returned for it
         return $this->lineDone($request, $rentalJobCard, 'Line archived.', null, ['removed_line_id' => $line->id, 'description' => $line->description], false);
     }
 
@@ -726,7 +726,7 @@ class RentalJobCardController extends Controller
         return $this->lineDone($request, $rentalJobCard, 'Line restored.', $line);
     }
 
-    // ───────────── §17.42 — the line actions answer a fetch with JSON and a plain form post with the redirect they always did ─────────────
+    // ───────────── §17.43 — the line actions answer a fetch with JSON and a plain form post with the redirect they always did ─────────────
 
     /** @return array<string, array<int, string>> */
     private function receiptRules(): array

@@ -180,7 +180,7 @@ class CrewPageController extends Controller
         return redirect()->route('rentals.crew-page.job', [$token, $jobCard->id])->with('success', 'Marked as completed. The office has been told.');
     }
 
-    // ───────────── §17.5 (Build 1) / §17.42 — Parts & labour from the crew page: same service as the job link, `crew_page` context ─────────────
+    // ───────────── §17.5 (Build 1) / §17.43 — Parts & labour from the crew page: same service as the job link, `crew_page` context ─────────────
 
     public function addLine(Request $request, string $token, int $card): RedirectResponse|JsonResponse|Response
     {

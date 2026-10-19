@@ -159,7 +159,7 @@
                 class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             @php $typeMatched = false; @endphp
             @forelse($catalogueItemTypes as $catType)
-                {{-- §17.42: a free-typed line is a PART unless the agent says otherwise (a picked item sets its own kind) --}}
+                {{-- §17.43: a free-typed line is a PART unless the agent says otherwise (a picked item sets its own kind) --}}
                 @php $typeSel = !$typeMatched && $catType->kind === ($isEdit ? $selectedType : 'part'); $typeMatched = $typeMatched || $typeSel; @endphp
                 <option value="{{ $catType->kind }}" @selected($typeSel)>{{ $catType->name }}</option>
             @empty
@@ -229,7 +229,7 @@
             @endif
         @endif
         @if($mode !== 'draft')
-            {{-- §17.42: the show screen's add / edit rows end in a footer row of text buttons (below), not an icon in the narrow last track --}}
+            {{-- §17.43: the show screen's add / edit rows end in a footer row of text buttons (below), not an icon in the narrow last track --}}
             <span></span>
         @else
             <button type="button"
@@ -244,7 +244,7 @@
         <span class="jc-foot-tools">
             @include('corex.rental-job-cards._line-receipt-control', ['labour' => $editLabour])
             @if($canPrice)
-            {{-- §17.4.4 / §17.42 - markup on THIS line (a % or a set amount on top of the cost) and "Back to automatic" (drops the typed price and this
+            {{-- §17.4.4 / §17.43 - markup on THIS line (a % or a set amount on top of the cost) and "Back to automatic" (drops the typed price and this
                  line's markup so the card / agency rules apply again) - one "Markup" link instead of a row under every line. Open when the line has one. --}}
             <details class="jc-markup" data-line-markup @if($markupTypeValue !== '' || $errors->has('markup_value')) open @endif>
                 <summary>Markup</summary>
@@ -272,7 +272,7 @@
         <span class="jc-foot-tools">
             @include('corex.rental-job-cards._line-receipt-control', ['labour' => false])
             @if($canPrice)
-            {{-- AT-466 / §17.42 - markup on the NEW line (a % or a set amount on top of the cost): it works the selling out from the cost and does NOT
+            {{-- AT-466 / §17.43 - markup on the NEW line (a % or a set amount on top of the cost): it works the selling out from the cost and does NOT
                  make the selling "set by hand" (only a figure typed in the Selling box does). Left empty, the item's own catalogue markup (if any) applies.
                  One "Markup" link instead of a row under every add row. --}}
             <details class="jc-markup" data-line-markup>

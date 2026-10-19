@@ -1,6 +1,6 @@
 {{--
     AT-465 - the ONE send: the findings box, and the sticky "Send to office (n)" bar. Rendered inside #cj-send-wrap by _block-pricing,
-    and returned as `send_html` by the no-reload line handlers (spec §17.42) so the bar appears the moment the first line is saved.
+    and returned as `send_html` by the no-reload line handlers (spec §17.43) so the bar appears the moment the first line is saved.
     Needs $block['draft_count'], $block['first_send'] and $actions['lines_send'].
 --}}
 @if(!empty($block['draft_count']))
