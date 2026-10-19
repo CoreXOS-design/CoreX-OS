@@ -92,7 +92,17 @@ class RentalInspectionFormPdfService
     public const MANIFEST_VERSION = 2;
 
     /** Bumped whenever the printed geometry changes, so every inspection's existing form regenerates once. */
-    public const LAYOUT_VERSION = 2;
+    public const LAYOUT_VERSION = 3;
+
+    /**
+     * AT-463 / spec §63 - everything on the page sits inside a SAFE AREA: the corner marks' and the QR's outer edges are
+     * `form_safe_margin_mm` (default 15) in from every paper edge, and all other content is inset from the marks by the same
+     * 24 pt the original layout used. A copier or scanner clips the outer few millimetres of a sheet; nothing the reader needs
+     * lives there. Vertical pitches (rows, headings, header, signature block) shrink by the same factor the safe area
+     * shrinks the usable height, so no row is dropped and the page count is unchanged; the tick boxes stay 10 pt.
+     */
+    private const CONTENT_INSET_FROM_MARKS = 24.0;
+    private const MIN_VERTICAL_SCALE = 0.75;
 
     // The QR sits bottom-CENTRE on EVERY page, inside a reserved strip the rows never enter. Centre, not a corner: the
     // scan reader finds the four corner marks as the dark blobs nearest the corners of the picture, and a QR's finder
@@ -114,8 +124,9 @@ class RentalInspectionFormPdfService
         $roomGroups = $this->roomGroupsFor($inspection);
         $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
         $paper = $this->paperFor($inspection->agency_id);
+        $marginMm = RentalInspectionSetting::formSafeMarginMmFor($inspection->agency_id);
 
-        $contentHash = $this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key']);
+        $contentHash = $this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key'], $marginMm);
 
         $existing = RentalInspectionForm::currentFor($inspection->id)->first();
         if ($existing && $existing->content_hash === $contentHash) {
@@ -124,7 +135,7 @@ class RentalInspectionFormPdfService
 
         $version = ($existing->version ?? 0) + 1;
 
-        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $version, $paper);
+        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $version, $paper, $marginMm);
 
         // The stored copy is the BLANK form of this version (nothing recorded printed on it).
         $pdfBytes = $this->renderLayout($inspection, $layout, []);
@@ -132,7 +143,7 @@ class RentalInspectionFormPdfService
         $path = "properties/{$inspection->property_id}/rental-inspection-forms/inspection-{$inspection->id}-v{$version}.pdf";
         Storage::disk('local')->put($path, $pdfBytes);
 
-        $manifest = $this->buildManifest($inspection, $layout, $version, $contentHash, $paper);
+        $manifest = $this->buildManifest($inspection, $layout, $version, $contentHash, $paper, $marginMm);
 
         return RentalInspectionForm::create([
             'agency_id' => $inspection->agency_id,
@@ -162,12 +173,15 @@ class RentalInspectionFormPdfService
         $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
         $paperKey = $form->manifest_json['page_size']['key'] ?? RentalInspectionSetting::DEFAULT_FORM_PAPER_SIZE;
         $paper = $this->paperByKey($paperKey);
+        // A form printed before the safe margin existed has none in its manifest and a different layout version: its hash
+        // never matches, so it is served exactly as stored (never re-laid-out onto the new geometry).
+        $marginMm = (int) ($form->manifest_json['safe_margin_mm'] ?? RentalInspectionSetting::DEFAULT_FORM_SAFE_MARGIN_MM);
 
-        if ($this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key']) !== $form->content_hash) {
+        if ($this->contentHash($inspection, $roomGroups, $conditionStates, $paper['key'], $marginMm) !== $form->content_hash) {
             return (string) Storage::disk('local')->get($form->pdf_storage_path);
         }
 
-        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $form->version, $paper);
+        $layout = $this->buildLayout($inspection, $roomGroups, $conditionStates, $form->version, $paper, $marginMm);
 
         return $this->renderLayout($inspection, $layout, $this->prefillFor($inspection, $conditionStates));
     }
@@ -306,11 +320,12 @@ class RentalInspectionFormPdfService
     }
 
     /** Any change here — a room/item added, removed, renamed, reordered, or the condition vocabulary changing — must produce a new version. */
-    private function contentHash(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, string $paperKey): string
+    private function contentHash(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, string $paperKey, int $marginMm): string
     {
         $shape = [
             'layout' => self::LAYOUT_VERSION,
             'paper' => $paperKey,
+            'safe_margin_mm' => $marginMm,
             'property_id' => $inspection->property_id,
             'rooms' => $roomGroups->map(fn (array $g) => [
                 'room_id' => $g['room']?->id,
@@ -331,24 +346,42 @@ class RentalInspectionFormPdfService
      *   item_rows: array, boxes: array, fiducials: array, page_identifiers: array, signature_blocks: array
      * }
      */
-    private function buildLayout(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, int $version, array $paper): array
+    private function buildLayout(RentalInspection $inspection, Collection $roomGroups, array $conditionStates, int $version, array $paper, int $marginMm): array
     {
         $pw = $paper['width_pt'];
         $ph = $paper['height_pt'];
-        $contentBottom = $ph - self::QR_BOTTOM_RESERVE;
+
+        // The safe area (see LAYOUT_VERSION): marks and QR at `$safe` from every edge, content `$m` from the left/right edges
+        // and `$top` from the top, rows stopping above the QR.
+        $safe = $marginMm * 72.0 / 25.4;
+        $m = $safe + self::CONTENT_INSET_FROM_MARKS;
+        $top = $m;
+        $contentBottom = $ph - $safe - (self::QR_BOTTOM_RESERVE - self::FIDUCIAL_INSET);
+        $usable = $contentBottom - $top;
+        $original = ($ph - self::QR_BOTTOM_RESERVE) - self::MARGIN;                // what the unshrunk page offered
+        $ky = max(self::MIN_VERTICAL_SCALE, min(1.0, $usable / $original));
+        $rowH = round(self::ROW_HEIGHT * $ky, 2);
+        $roomH = round(self::ROOM_HEADING_HEIGHT * $ky, 2);
+        $condH = round(self::CONDITION_HEADER_HEIGHT * $ky, 2);
+        $headerH = round(self::HEADER_HEIGHT * $ky, 2);
+        $sigH = round(self::SIGNATURE_BLOCK_HEIGHT * $ky, 2);
+        $sigGap = round(self::SIGNATURE_BLOCK_GAP * $ky, 2);
+        $contentWidth = $pw - 2 * $m;
+        $notesW = max(40.0, min(self::NOTES_COL_WIDTH, $contentWidth - self::ITEM_LABEL_WIDTH - count($conditionStates) * (self::BOX_SIZE + self::BOX_GAP)));
+
         $rowNo = 0;
         $page = 1;
-        $y = self::MARGIN;
+        $y = $top;
 
         $roomHeadings = [];
         $conditionHeaderRows = [];
         $itemRows = [];
         $boxes = [];
 
-        $ensureSpace = function (float $height) use (&$page, &$y, $contentBottom) {
-            if ($y + $height > $contentBottom) {
+        $ensureSpace = function (float $height) use (&$page, &$y, $contentBottom, $top) {
+            if ($y + $height > $contentBottom + 0.01) {
                 $page++;
-                $y = self::MARGIN;
+                $y = $top;
 
                 return true;
             }
@@ -356,15 +389,15 @@ class RentalInspectionFormPdfService
             return false;
         };
 
-        $drawConditionHeader = function () use (&$page, &$y, $conditionStates, &$conditionHeaderRows) {
-            $x = self::MARGIN + self::ITEM_LABEL_WIDTH;
+        $drawConditionHeader = function () use (&$page, &$y, $conditionStates, &$conditionHeaderRows, $m, $condH) {
+            $x = $m + self::ITEM_LABEL_WIDTH;
             $labels = [];
             foreach ($conditionStates as $state) {
                 $labels[] = ['key' => $state['key'], 'label' => $state['label'], 'x' => $x, 'y' => $y];
                 $x += self::BOX_SIZE + self::BOX_GAP;
             }
             $conditionHeaderRows[] = ['page' => $page, 'y' => $y, 'labels' => $labels];
-            $y += self::CONDITION_HEADER_HEIGHT;
+            $y += $condH;
         };
 
         $header = [
@@ -377,28 +410,28 @@ class RentalInspectionFormPdfService
             'tenants' => $inspection->lease?->tenants->map(fn ($t) => trim(($t->contact?->first_name ?? '') . ' ' . ($t->contact?->last_name ?? '')))->filter()->values()->all() ?? [],
             'agent' => $inspection->createdBy?->name,
         ];
-        $y += self::HEADER_HEIGHT;
+        $y += $headerH;
 
         foreach ($roomGroups as $group) {
             /** @var ?PropertyRoom $room */
             $room = $group['room'];
             $label = $room?->label ?? 'General (meters and unassigned items)';
 
-            $ensureSpace(self::ROOM_HEADING_HEIGHT + self::CONDITION_HEADER_HEIGHT + self::ROW_HEIGHT);
+            $ensureSpace($roomH + $condH + $rowH);
             $roomStartedOnPage = $page;
             $roomHeadings[] = ['page' => $page, 'y' => $y, 'label' => $label];
-            $y += self::ROOM_HEADING_HEIGHT;
+            $y += $roomH;
             $drawConditionHeader();
 
             foreach ($group['items'] as $item) {
-                $paged = $ensureSpace(self::ROW_HEIGHT);
+                $paged = $ensureSpace($rowH);
                 if ($paged) {
                     // Room continues onto a fresh page — repeat the heading
                     // and the condition-column header so every page is
                     // self-describing; a reader (or a human) never has to
                     // flip back to know which room/columns a page shows.
                     $roomHeadings[] = ['page' => $page, 'y' => $y, 'label' => $label . ' (cont.)'];
-                    $y += self::ROOM_HEADING_HEIGHT;
+                    $y += $roomH;
                     $drawConditionHeader();
                 }
 
@@ -408,14 +441,15 @@ class RentalInspectionFormPdfService
                     'row_no' => $rowNo,
                     'rental_inspection_item_id' => $item->id,
                     'label' => $item->label,
-                    'label_x' => self::MARGIN,
-                    'notes_x' => self::MARGIN + self::ITEM_LABEL_WIDTH + count($conditionStates) * (self::BOX_SIZE + self::BOX_GAP),
-                    'notes_width' => self::NOTES_COL_WIDTH,
+                    'label_x' => $m,
+                    'notes_x' => $m + self::ITEM_LABEL_WIDTH + count($conditionStates) * (self::BOX_SIZE + self::BOX_GAP),
+                    'notes_width' => $notesW,
+                    'notes_height' => round($rowH - 2.0, 2),
                 ];
 
-                $x = self::MARGIN + self::ITEM_LABEL_WIDTH;
+                $x = $m + self::ITEM_LABEL_WIDTH;
                 foreach ($conditionStates as $state) {
-                    $boxY = $y + (self::ROW_HEIGHT - self::BOX_SIZE) / 2;
+                    $boxY = $y + ($rowH - self::BOX_SIZE) / 2;
                     $boxes[] = [
                         'page' => $page,
                         'row_no' => $rowNo,
@@ -430,34 +464,34 @@ class RentalInspectionFormPdfService
                     $x += self::BOX_SIZE + self::BOX_GAP;
                 }
 
-                $y += self::ROW_HEIGHT;
+                $y += $rowH;
             }
 
-            $y += 6.0; // breathing room between room tables
+            $y += round(6.0 * $ky, 2); // breathing room between room tables
         }
 
         // Signature block — three parties (§15: tenant(s), landlord, agent),
         // never split across a page break.
         $tenants = $inspection->lease?->tenants ?? collect();
         $partyCount = max(1, $tenants->count()) + 2; // tenant(s) + landlord + agent
-        $signatureHeight = self::SIGNATURE_BLOCK_HEIGHT + self::SIGNATURE_BLOCK_GAP;
+        $signatureHeight = $sigH + $sigGap;
         $ensureSpace($signatureHeight);
 
         $signatureBlocks = [];
-        $blockWidth = ($pw - 2 * self::MARGIN - ($partyCount - 1) * self::SIGNATURE_BLOCK_GAP) / $partyCount;
-        $x = self::MARGIN;
+        $blockWidth = ($contentWidth - ($partyCount - 1) * self::SIGNATURE_BLOCK_GAP) / $partyCount;
+        $x = $m;
         foreach ($tenants as $tenant) {
             $signatureBlocks[] = [
                 'page' => $page, 'party_role' => 'tenant', 'party_contact_id' => $tenant->contact_id,
                 'label' => trim(($tenant->contact?->first_name ?? '') . ' ' . ($tenant->contact?->last_name ?? '')) ?: 'Tenant',
-                'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => self::SIGNATURE_BLOCK_HEIGHT,
+                'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => $sigH,
             ];
             $x += $blockWidth + self::SIGNATURE_BLOCK_GAP;
         }
         if ($tenants->isEmpty()) {
             $signatureBlocks[] = [
                 'page' => $page, 'party_role' => 'tenant', 'party_contact_id' => null, 'label' => 'Tenant',
-                'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => self::SIGNATURE_BLOCK_HEIGHT,
+                'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => $sigH,
             ];
             $x += $blockWidth + self::SIGNATURE_BLOCK_GAP;
         }
@@ -465,13 +499,13 @@ class RentalInspectionFormPdfService
         $signatureBlocks[] = [
             'page' => $page, 'party_role' => 'landlord', 'party_contact_id' => $landlord?->id,
             'label' => trim(($landlord?->first_name ?? '') . ' ' . ($landlord?->last_name ?? '')) ?: 'Landlord',
-            'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => self::SIGNATURE_BLOCK_HEIGHT,
+            'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => $sigH,
         ];
         $x += $blockWidth + self::SIGNATURE_BLOCK_GAP;
         $signatureBlocks[] = [
             'page' => $page, 'party_role' => 'agent', 'party_contact_id' => null,
             'label' => $inspection->createdBy?->name ?: 'Agent',
-            'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => self::SIGNATURE_BLOCK_HEIGHT,
+            'x' => round($x, 2), 'y' => $y, 'width' => round($blockWidth, 2), 'height' => $sigH,
         ];
 
         $pageCount = $page;
@@ -482,17 +516,20 @@ class RentalInspectionFormPdfService
         $pageIdentifiers = [];
         $qrCodes = [];
         for ($p = 1; $p <= $pageCount; $p++) {
-            $fiducials = array_merge($fiducials, $this->fiducialsForPage($p, $pw, $ph));
-            $pageIdentifiers[] = $this->pageIdentifierFor($inspection->id, $p, $pageCount, $version, $pw);
+            $fiducials = array_merge($fiducials, $this->fiducialsForPage($p, $pw, $ph, $safe));
+            $pageIdentifiers[] = $this->pageIdentifierFor($inspection->id, $p, $pageCount, $version, $pw, $m);
             $qrCodes[] = [
                 'page' => $p,
-                'x' => round(($pw - self::QR_SIZE) / 2, 2), 'y' => round($ph - self::FIDUCIAL_INSET - self::QR_SIZE, 2), 'size' => self::QR_SIZE,
+                'x' => round(($pw - self::QR_SIZE) / 2, 2), 'y' => round($ph - $safe - self::QR_SIZE, 2), 'size' => self::QR_SIZE,
                 'payload' => self::qrPayload($inspection->id, $p, $pageCount, $version),
             ];
         }
 
         return [
             'paper' => $paper,
+            'safe_margin_mm' => $marginMm,
+            // What the PDF template positions the free text by: left/right content edge, and the vertical shrink every pitch took.
+            'margins' => ['x' => round($m, 2), 'safe' => round($safe, 2), 'v_scale' => round($ky, 4)],
             'page_count' => $pageCount,
             'header' => $header,
             'room_headings' => $roomHeadings,
@@ -507,9 +544,8 @@ class RentalInspectionFormPdfService
     }
 
     /** Four filled-square registration marks, same fixed inset on every page — a scan de-skews/scales against these. */
-    private function fiducialsForPage(int $page, float $pageWidth, float $pageHeight): array
+    private function fiducialsForPage(int $page, float $pageWidth, float $pageHeight, float $near = self::FIDUCIAL_INSET): array
     {
-        $near = self::FIDUCIAL_INSET;
         $right = $pageWidth - $near - self::FIDUCIAL_SIZE;
         $bottom = $pageHeight - $near - self::FIDUCIAL_SIZE;
 
@@ -543,12 +579,13 @@ class RentalInspectionFormPdfService
      * one place this geometry is computed, exactly the same way
      * pageIdentifierFor() below does internally.
      */
-    public static function pageIdentifierGridLayout(?float $pageWidth = null): array
+    public static function pageIdentifierGridLayout(?float $pageWidth = null, ?float $margin = null): array
     {
+        $margin ??= self::MARGIN;
         $totalBits = self::ID_BITS_INSPECTION + self::ID_BITS_PAGE + self::ID_BITS_VERSION;
         $gridWidth = self::ID_GRID_COLS * self::ID_BIT_SIZE + (self::ID_GRID_COLS - 1) * self::ID_BIT_GAP;
-        $gridX = ($pageWidth ?? self::PAGE_WIDTH) - self::MARGIN - $gridWidth;
-        $gridY = self::MARGIN + 12.0;
+        $gridX = ($pageWidth ?? self::PAGE_WIDTH) - $margin - $gridWidth;
+        $gridY = $margin + 12.0;
 
         return [
             'x' => $gridX, 'y' => $gridY,
@@ -558,14 +595,14 @@ class RentalInspectionFormPdfService
         ];
     }
 
-    private function pageIdentifierFor(int $inspectionId, int $page, int $pageCount, int $version, float $pageWidth): array
+    private function pageIdentifierFor(int $inspectionId, int $page, int $pageCount, int $version, float $pageWidth, float $margin): array
     {
         $bitsInspection = $this->toBits($inspectionId, self::ID_BITS_INSPECTION);
         $bitsPage = $this->toBits($page, self::ID_BITS_PAGE);
         $bitsVersion = $this->toBits($version, self::ID_BITS_VERSION);
         $allBits = array_merge($bitsInspection, $bitsPage, $bitsVersion);
 
-        $grid = self::pageIdentifierGridLayout($pageWidth);
+        $grid = self::pageIdentifierGridLayout($pageWidth, $margin);
         $gridX = $grid['x'];
         $gridY = $grid['y'];
 
@@ -586,7 +623,7 @@ class RentalInspectionFormPdfService
             'page' => $page,
             'text' => "INSP #{$inspectionId} \u{00B7} Page {$page}/{$pageCount} \u{00B7} v{$version}",
             'text_x' => $gridX,
-            'text_y' => self::MARGIN,
+            'text_y' => $margin,
             'grid_x' => $gridX, 'grid_y' => $gridY, 'grid_cols' => self::ID_GRID_COLS, 'grid_rows' => $grid['rows'],
             'fields' => [
                 ['name' => 'rental_inspection_id', 'bit_length' => self::ID_BITS_INSPECTION, 'value' => $inspectionId],
@@ -627,7 +664,7 @@ class RentalInspectionFormPdfService
 
     // ── The manifest — the reader lane's whole contract ────────────────
 
-    private function buildManifest(RentalInspection $inspection, array $layout, int $version, string $contentHash, array $paper): array
+    private function buildManifest(RentalInspection $inspection, array $layout, int $version, string $contentHash, array $paper, int $marginMm): array
     {
         $conditionStates = RentalInspectionSetting::conditionStatesFor($inspection->agency_id);
 
@@ -640,6 +677,8 @@ class RentalInspectionFormPdfService
             'generated_at' => now()->toIso8601String(),
             'page_count' => $layout['page_count'],
             'layout_version' => self::LAYOUT_VERSION,
+            // §63: how far in from every paper edge the marks and the QR sit (mm); absent on a form printed before it existed.
+            'safe_margin_mm' => $marginMm,
             'page_size' => [
                 'key' => $paper['key'],
                 'name' => RentalInspectionSetting::FORM_PAPER_SIZES[$paper['key']]['label'],

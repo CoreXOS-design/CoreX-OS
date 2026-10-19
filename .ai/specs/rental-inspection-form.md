@@ -868,6 +868,8 @@ plus the download route and its cross-agency 404.
 
 > **Changed 19 Oct 2026 (AT-463, `rental-inspections.md` §62).** The corner marks are now found with a dither-tolerant matched filter, any two to four place the page (the QR alone if fewer), every row is located from its own printed boxes (a scanner stretches a page 1-2 %), ink is measured inside the box at a default sensitivity of 0.04 (a hand tick is 5-20 % of a box, not 35 %), each page gets a plain-words result, and `rental-inspections:reread-scan` re-reads a stored scan. Where this section's thresholds (0.35 etc.) differ, §62 governs.
 
+> **Changed 19 Oct 2026 (AT-463, `rental-inspections.md` §63).** The printed form is laid out inside a safe area (agency setting, default 15 mm): corner marks and QR at the margin, content inset 24 pt from the marks, vertical pitches scaled so no row is dropped (layout version 3, manifest `safe_margin_mm`); the reader reads each page against the layout it was printed with (earlier forms still scan back), takes the page-identifier grid from that layout's manifest, fits the row lattice to the nearest lattice only, and proposes nothing from a page on which fewer than half the rows could be found.
+
 Built against §12's manifest exactly as specified — no geometry re-derived from
 `RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —
 COLUMN MARKING ONLY. We do NOT read handwriting, ever."** This service never runs OCR and never samples

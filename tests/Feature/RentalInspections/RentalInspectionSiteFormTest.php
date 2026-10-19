@@ -789,4 +789,209 @@ final class RentalInspectionSiteFormTest extends TestCase
         // A value an agency chose on purpose for its own scanner is left alone.
         $this->assertSame(0.08, RentalInspectionSetting::omrMarkThresholdFor($other->id));
     }
+
+    // ── AT-463 / §63: nothing the reader needs sits where a scanner clips the page ────────────────
+
+    /** @return list<array{0: string, 1: float, 2: float, 3: float, 4: float}> every placed element of a manifest: [what, x, y, w, h] in points */
+    private function placedElements(array $manifest, int $page): array
+    {
+        $out = [];
+        foreach ($manifest['fiducials'] as $f) {
+            if ($f['page'] === $page) {
+                $out[] = ['corner mark ' . $f['corner'], $f['x'], $f['y'], $f['size'], $f['size']];
+            }
+        }
+        foreach ($manifest['qr_codes'] as $q) {
+            if ($q['page'] === $page) {
+                $out[] = ['QR code', $q['x'], $q['y'], $q['size'], $q['size']];
+            }
+        }
+        foreach ($manifest['boxes'] as $b) {
+            if ($b['page'] === $page) {
+                $out[] = ['tick box row ' . $b['row_no'], $b['x'], $b['y'], $b['width'], $b['height']];
+            }
+        }
+        foreach ($manifest['signature_blocks'] as $sg) {
+            if ($sg['page'] === $page) {
+                $out[] = ['signature block ' . $sg['party_role'], $sg['x'], $sg['y'], $sg['width'], $sg['height']];
+            }
+        }
+        foreach ($manifest['page_identifiers'] as $pid) {
+            if ($pid['page'] === $page) {
+                foreach ($pid['bits'] as $bit) {
+                    $out[] = ['page grid bit', $bit['x'], $bit['y'], $bit['width'], $bit['height']];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    public function test_the_printed_form_keeps_everything_inside_the_safe_margin_and_nothing_is_dropped(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 60);
+        $inspection = $this->inspectionFor($this->property);
+        $form = $this->formFor($inspection);
+        $manifest = $form->manifest_json;
+
+        $this->assertSame(15, $manifest['safe_margin_mm'], 'the default is 15 mm');
+        $safe = 15 * 72 / 25.4;
+        [$pw, $ph] = [$manifest['page_size']['width_pt'], $manifest['page_size']['height_pt']];
+        for ($page = 1; $page <= $manifest['page_count']; $page++) {
+            foreach ($this->placedElements($manifest, $page) as [$what, $x, $y, $w, $h]) {
+                $this->assertGreaterThanOrEqual($safe - 0.01, $x, "page {$page} {$what} is inside the left margin");
+                $this->assertGreaterThanOrEqual($safe - 0.01, $y, "page {$page} {$what} is inside the top margin");
+                $this->assertLessThanOrEqual($pw - $safe + 0.01, $x + $w, "page {$page} {$what} is inside the right margin");
+                $this->assertLessThanOrEqual($ph - $safe + 0.01, $y + $h, "page {$page} {$what} is inside the bottom margin");
+            }
+        }
+        // The four corner marks and the QR sit exactly at the margin (as far out as they may), not further in than they must.
+        $tl = collect($manifest['fiducials'])->first(fn ($f) => $f['page'] === 1 && $f['corner'] === 'top_left');
+        $this->assertEqualsWithDelta($safe, $tl['x'], 0.01);
+        $this->assertEqualsWithDelta($safe, $tl['y'], 0.01);
+        $qr = $manifest['qr_codes'][0];
+        $this->assertEqualsWithDelta($ph - $safe, $qr['y'] + $qr['size'], 0.01);
+
+        // Scaled down, never dropped: every item still has all its tick boxes, and the boxes are still big enough to tick by hand.
+        $this->assertCount(60 * count($manifest['condition_states']), $manifest['boxes']);
+        foreach ($manifest['boxes'] as $b) {
+            $this->assertGreaterThanOrEqual(10.0, $b['width']);
+        }
+
+        // And the PDF itself, not just the manifest: rasterized, the outer 15 mm of every page carries no ink at all.
+        $path = Storage::disk('local')->path($form->pdf_storage_path);
+        for ($page = 0; $page < $manifest['page_count']; $page++) {
+            $im = new Imagick();
+            $im->setResolution(72, 72);
+            $im->readImage($path . '[' . $page . ']');
+            $im->setImageBackgroundColor(new ImagickPixel('white'));
+            $im->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+            $im->setImageColorspace(Imagick::COLORSPACE_GRAY);
+            $w = $im->getImageWidth();
+            $h = $im->getImageHeight();
+            $px = $im->exportImagePixels(0, 0, $w, $h, 'I', Imagick::PIXEL_CHAR);
+            $band = (int) floor($safe - 1.5);
+            $inked = 0;
+            foreach ($px as $i => $v) {
+                $x = $i % $w;
+                $y = intdiv($i, $w);
+                if (($x < $band || $x >= $w - $band || $y < $band || $y >= $h - $band) && ($v & 0xFF) < 200) {
+                    $inked++;
+                }
+            }
+            $this->assertSame(0, $inked, 'page ' . ($page + 1) . ': ink found in the outer safe band of the printed PDF');
+        }
+    }
+
+    public function test_the_safe_margin_defaults_to_15_is_per_agency_and_an_unusable_value_reads_as_the_default(): void
+    {
+        $this->assertSame(15, RentalInspectionSetting::formSafeMarginMmFor($this->agency->id));
+        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'form_safe_margin_mm' => 20]);
+        $this->assertSame(20, RentalInspectionSetting::formSafeMarginMmFor($this->agency->id));
+        RentalInspectionSetting::where('agency_id', $this->agency->id)->update(['form_safe_margin_mm' => 90]);
+        $this->assertSame(15, RentalInspectionSetting::formSafeMarginMmFor($this->agency->id), 'out of range reads as the default');
+        $this->assertSame(15, RentalInspectionSetting::formSafeMarginMmFor(null));
+
+        // A bigger margin is a different printed form (new version), laid out inside the bigger safe area.
+        $items = $this->addItems($this->property, 'Bedroom 1', 12);
+        $inspection = $this->inspectionFor($this->property);
+        RentalInspectionSetting::where('agency_id', $this->agency->id)->update(['form_safe_margin_mm' => 25]);
+        $form = $this->formFor($inspection);
+        $this->assertSame(25, $form->manifest_json['safe_margin_mm']);
+        $tl = collect($form->manifest_json['fiducials'])->first(fn ($f) => $f['page'] === 1 && $f['corner'] === 'top_left');
+        $this->assertEqualsWithDelta(25 * 72 / 25.4, $tl['x'], 0.01);
+    }
+
+    public function test_changing_the_margin_makes_a_new_version_and_a_form_printed_with_the_old_margin_still_reads(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 8);
+        $inspection = $this->inspectionFor($this->property);
+        RentalInspectionSetting::create(['agency_id' => $this->agency->id, 'form_safe_margin_mm' => 5]);
+        $printedBefore = $this->formFor($inspection);
+        $expected = $this->expectedMap($items, $printedBefore->manifest_json, 1);
+        $inHand = $this->tickedPage($printedBefore->manifest_json, $expected, Storage::disk('local')->path($printedBefore->pdf_storage_path), 1);
+
+        // The agency raises the margin: same rooms and items, new layout, new version.
+        RentalInspectionSetting::where('agency_id', $this->agency->id)->update(['form_safe_margin_mm' => 15]);
+        $printedAfter = $this->formFor($inspection);
+        $this->assertSame(2, $printedAfter->version);
+        $this->assertSame(5, $printedBefore->manifest_json['safe_margin_mm']);
+        $this->assertSame(15, $printedAfter->manifest_json['safe_margin_mm']);
+
+        // The sheet already in an agent's hands (printed at 5 mm, version 1) still scans back, ticks and all ...
+        $scan = $this->read($this->scanFor($inspection, $this->png($inHand, 'old-print.png')));
+        $this->assertReadsBack($scan, $items, $expected, 'a form printed with the previous margin');
+        $this->assertSame(1, $scan->decoded_form_version);
+
+        // ... and so does the new print.
+        $fresh = $this->tickedPage($printedAfter->manifest_json, $expected, Storage::disk('local')->path($printedAfter->pdf_storage_path), 1);
+        $scan2 = $this->read($this->scanFor($inspection, $this->png($fresh, 'new-print.png')));
+        $this->assertReadsBack($scan2, $items, $expected, 'the new print');
+        $this->assertSame(2, $scan2->decoded_form_version);
+    }
+
+    public function test_a_scan_that_lost_8_to_10_mm_off_one_or_two_edges_to_the_scanner_still_reads_everything(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 20);
+        $inspection = $this->inspectionFor($this->property);
+        $form = $this->formFor($inspection);
+        $manifest = $form->manifest_json;
+        $pdf = Storage::disk('local')->path($form->pdf_storage_path);
+        $mm = fn (float $v): int => (int) round($v / 25.4 * self::DPI);
+
+        // Johan's failed page: the sheet tilted 5 degrees and the scanner clipping its edges. [degrees, [left, top, right, bottom] mm clipped]
+        foreach ([[5.0, [0, 10, 0, 0]], [5.0, [9, 8, 0, 0]], [-5.0, [0, 0, 10, 9]], [-5.0, [10, 0, 0, 0]]] as $n => [$deg, [$l, $t, $r, $b]]) {
+            $expected = $this->expectedMap($items, $manifest, $n);
+            $im = $this->tickedPage($manifest, $expected, $pdf, 1);
+            $im->rotateImage(new ImagickPixel('white'), $deg);
+            $im->setImagePage(0, 0, 0, 0);
+            $im->cropImage($im->getImageWidth() - $mm($l) - $mm($r), $im->getImageHeight() - $mm($t) - $mm($b), $mm($l), $mm($t));
+            $im->setImagePage(0, 0, 0, 0);
+            $im = $this->officeScan($im, 0.0, 1.012);   // the same halftone, stretch, blur and dust as page 3
+            $scan = $this->read($this->scanFor($inspection, $this->png($im, "clipped-{$n}.png")));
+
+            $this->assertReadsBack($scan, $items, $expected, "tilt {$deg}, clipped L{$l} T{$t} R{$r} B{$b} mm");
+            $this->assertSame(20, $scan->page_results[0]['rows_located'] ?? null, 'every row found from its own boxes');
+        }
+    }
+
+    public function test_a_page_on_which_most_rows_cannot_be_found_proposes_nothing_instead_of_guessing(): void
+    {
+        $items = $this->addItems($this->property, 'Bedroom 1', 8);
+        $inspection = $this->inspectionFor($this->property);
+        $form = $this->formFor($inspection);
+        $manifest = $form->manifest_json;
+        $scan = $this->scanFor($inspection, $this->png(new Imagick('xc:white')));
+
+        // A blank canvas with one solid tick per row and none of the printed box outlines: nothing to locate the rows by.
+        $S = \App\Services\Rentals\RentalInspectionScanGeometry::CANVAS_PX_PER_PT;
+        $canvas = new Imagick();
+        $canvas->newImage((int) ($manifest['page_size']['width_pt'] * $S), (int) ($manifest['page_size']['height_pt'] * $S), new ImagickPixel('white'));
+        $canvas->setImageColorspace(Imagick::COLORSPACE_GRAY);
+        $d = new ImagickDraw();
+        $d->setFillColor(new ImagickPixel('black'));
+        $expected = $this->expectedMap($items, $manifest);
+        $boxes = [];
+        foreach ($manifest['boxes'] as $b) {
+            if ($b['page'] !== 1) {
+                continue;
+            }
+            $boxes[] = $b;
+            if ($expected[$b['rental_inspection_item_id']] === $b['condition_key']) {
+                $d->rectangle($b['x'] * $S, $b['y'] * $S, ($b['x'] + $b['width']) * $S, ($b['y'] + $b['height']) * $S);
+            }
+        }
+        $canvas->drawImage($d);
+
+        $reader = app(RentalInspectionScanReaderService::class);
+        $method = new \ReflectionMethod($reader, 'readBoxesOnPage');
+        $method->setAccessible(true);
+        $counts = $method->invoke($reader, $scan, $canvas, $boxes, 0.04, 1, []);
+
+        $this->assertTrue($counts['untrusted']);
+        $this->assertSame(0, $counts['proposed'], 'nothing is proposed from a page that was not placed reliably');
+        $this->assertSame(8, $counts['flagged']);
+        $this->assertSame(0, $scan->marks()->where('ambiguous', false)->count());
+        $this->assertSame(8, $scan->marks()->count());
+    }
 }

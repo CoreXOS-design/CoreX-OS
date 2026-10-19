@@ -342,6 +342,14 @@ class RentalInspectionSetting extends Model
     public const DEFAULT_FORM_PAPER_SIZE = 'a4';
 
     /**
+     * AT-463 / rental-inspections.md §63 - how far in from every paper edge (mm) the printed site form keeps all of its content.
+     * A copier or scanner clips the outer few millimetres of a sheet; the corner marks and the QR must survive that.
+     */
+    public const DEFAULT_FORM_SAFE_MARGIN_MM = 15;
+    public const MIN_FORM_SAFE_MARGIN_MM = 5;
+    public const MAX_FORM_SAFE_MARGIN_MM = 25;
+
+    /**
      * AT-433 Part C, Johan's approved default for the photo note's
      * classification. "Defect" is what the printed report's own
      * end-of-document defect-list section reads — the whole reason this
@@ -466,6 +474,7 @@ class RentalInspectionSetting extends Model
         'move_out_classification_labels',
         'omr_mark_threshold',
         'form_paper_size',
+        'form_safe_margin_mm',
         'public_link_expiry_days',
         // §46 — signing by personal link.
         'signing_link_enabled',
@@ -1715,6 +1724,19 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('form_paper_size');
 
         return is_string($value) && isset(self::FORM_PAPER_SIZES[$value]) ? $value : self::DEFAULT_FORM_PAPER_SIZE;
+    }
+
+    /** AT-463 / §63 - the safe margin of the printed site form in mm; unset or out of range reads as the default (15). */
+    public static function formSafeMarginMmFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_FORM_SAFE_MARGIN_MM;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('form_safe_margin_mm');
+
+        return is_numeric($value) && (int) $value >= self::MIN_FORM_SAFE_MARGIN_MM && (int) $value <= self::MAX_FORM_SAFE_MARGIN_MM
+            ? (int) $value
+            : self::DEFAULT_FORM_SAFE_MARGIN_MM;
     }
 
     /** @return array<string, string> key => label, for the settings select and the wizard control. */

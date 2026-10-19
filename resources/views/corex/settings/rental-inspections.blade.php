@@ -178,6 +178,19 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Printed site form: safe margin (mm)</label>
+                    <input type="number" name="form_safe_margin_mm" value="{{ old('form_safe_margin_mm', $formSafeMarginMm) }}"
+                           min="{{ \App\Models\RentalInspectionSetting::MIN_FORM_SAFE_MARGIN_MM }}" max="{{ \App\Models\RentalInspectionSetting::MAX_FORM_SAFE_MARGIN_MM }}" step="1"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="form-safe-margin">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 15. How far in from every edge of the paper the "Print site form" button keeps
+                        everything - the corner marks, the QR code, the rows and the tick boxes. A copier or scanner
+                        clips the outer few millimetres of a sheet; the larger this is, the more clipping a scan
+                        survives (and the smaller the printed form). A form printed with a different margin still
+                        scans back in.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
                     <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
                            min="0.01" max="0.5" step="0.01"

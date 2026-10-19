@@ -46,7 +46,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
     /** The ruled-in controls (and their list markers): the keys a post "that never rendered the new controls" does not carry. */
     private const RULED_IN_KEYS = [
-        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'form_paper_size',
+        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'form_paper_size', 'form_safe_margin_mm',
         'refusal_reason_presets', 'condition_states_submitted', 'condition_states', 'baseline_condition_key',
         'photo_note_classifications_submitted', 'photo_note_classifications',
         'inventory_condition_states_submitted', 'inventory_condition_states',
@@ -213,6 +213,36 @@ final class RentalsStepRuledInSettingsTest extends TestCase
         $this->actingAs($admin)
             ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_paper_size' => 'tabloid']);
         $this->assertSame('letter', RentalInspectionSetting::formPaperSizeFor($agency->id));
+    }
+
+    /** AT-463 / rental-inspections.md §63 - the printed form's safe margin is in the wizard like every other setting. */
+    public function test_the_site_form_safe_margin_is_in_the_wizard_saves_and_is_never_reset_by_a_step_that_omits_it(): void
+    {
+        $agency = $this->agency();
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)
+            ->get(route('corex.agency-setup.step', ['step' => 'leases']))
+            ->assertOk()
+            ->assertSee('Printed inspection site form: safe margin (mm)')
+            ->assertSee('name="form_safe_margin_mm"', false);
+        $this->assertSame(15, RentalInspectionSetting::formSafeMarginMmFor($agency->id));
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_safe_margin_mm' => '20'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame(20, RentalInspectionSetting::formSafeMarginMmFor($agency->id));
+
+        // A post that never rendered the control leaves the saved margin alone.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency))
+            ->assertSessionHasNoErrors();
+        $this->assertSame(20, RentalInspectionSetting::formSafeMarginMmFor($agency->id));
+
+        // Outside 5-25 mm is refused, not stored.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_safe_margin_mm' => '60']);
+        $this->assertSame(20, RentalInspectionSetting::formSafeMarginMmFor($agency->id));
     }
 
     public function test_the_lists_save_through_their_canonical_savers_when_their_markers_are_posted(): void

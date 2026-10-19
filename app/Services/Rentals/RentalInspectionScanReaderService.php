@@ -117,16 +117,20 @@ class RentalInspectionScanReaderService
 
         // The inspection's CURRENT printed form is the contract everything below is read against (its manifest gives
         // the paper size, the registration marks, the QR position and every box). Without one there is nothing to read.
-        $currentForm = RentalInspectionForm::currentFor($scan->rental_inspection_id)->first();
+        $allForms = RentalInspectionForm::currentFor($scan->rental_inspection_id)->get();
+        $currentForm = $allForms->first();
         if (! $currentForm) {
             $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'No printable form has ever been generated for this inspection to match against.'])->save();
 
             return;
         }
 
-        $manifest = $currentForm->manifest_json;
-        $geo = $this->geometryFor($manifest);
-        $formPages = (int) ($manifest['page_count'] ?? 1);
+        // Every printed LAYOUT this inspection has had for the current set of rooms and items. A form printed before the safe
+        // margin existed (or with another margin) is still in an agent's hands and still scans back: a page is read against
+        // whichever layout it was printed with, which its own QR / page grid then confirms. A form whose rooms or items have
+        // since changed is a different form and is refused below, exactly as before.
+        $layouts = $this->layoutsFor($allForms, $currentForm);
+        $formPages = (int) ($currentForm->manifest_json['page_count'] ?? 1);
 
         // Place and identify every uploaded page. The corner marks (any two to four of them) place it; the page's QR code
         // settles which way up it is and says which inspection and page it is; a page whose QR cannot be read falls back to
@@ -134,40 +138,64 @@ class RentalInspectionScanReaderService
         // which the review screen shows.
         $notes = [];
         $results = [];   // file page => result row (spec §62)
-        $read = [];      // form page number => ['canvas' => Imagick, 'file_page' => int]
+        $read = [];      // form page number => ['canvas' => Imagick, 'file_page' => int, 'layout' => array]
         $firstIdentity = null;
+        $firstLayout = null;
         foreach ($pages as $fileIndex => $page) {
-            $qr = null;
-            $why = null;
-            $info = [];
-            $transform = $this->calibratePage($page, $geo, $scan->rental_inspection_id, null, $qr, $why, $info);
-            if ($transform === null) {
-                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => $why ?: 'The page could not be placed - no corner marks or QR code were found on it.'] + $info;
-
-                continue;
-            }
-
-            if ($qr !== null) {
-                $identity = $qr;
-                $via = 'qr';
-            } else {
-                $identity = $this->decodePageIdentifier($page, $transform, $geo, $scan->rental_inspection_id);
-                $via = 'grid';
-                if ($identity === null) {
-                    $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => "Page {$fileIndex}: the page was placed on the form, but neither its QR code nor its page-number grid could be read, so it is not known which page of the form this is. Scan it again at 300 dpi in black and white or greyscale (not 'photo'), with the whole sheet flat on the glass."] + $info;
+            $found = null;
+            $firstFail = null;
+            $staleIdentity = null;
+            $otherInspection = null;
+            foreach ($layouts as $li => $layout) {
+                $qr = null;
+                $why = null;
+                $info = [];
+                $transform = $this->calibratePage($page, $layout['geo'], $scan->rental_inspection_id, null, $qr, $why, $info);
+                if ($transform === null) {
+                    $firstFail ??= ['reason' => $why ?: 'The page could not be placed - no corner marks or QR code were found on it.', 'info' => $info];
 
                     continue;
                 }
+                if ($qr !== null) {
+                    $identity = $qr;
+                    $via = 'qr';
+                } else {
+                    $identity = $this->decodePageIdentifier($page, $transform, $layout['geo'], $scan->rental_inspection_id);
+                    $via = 'grid';
+                    if ($identity === null) {
+                        $firstFail ??= ['reason' => "Page {$fileIndex}: the page was placed on the form, but neither its QR code nor its page-number grid could be read, so it is not known which page of the form this is. Scan it again at 300 dpi in black and white or greyscale (not 'photo'), with the whole sheet flat on the glass.", 'info' => $info];
+
+                        continue;
+                    }
+                }
+                // A page that belongs to another inspection. A QR read is proof; a bare grid read through a layout the page may
+                // not have been printed with is only a hint, so with several layouts to try it is not yet a verdict.
+                if ($identity['rental_inspection_id'] !== $scan->rental_inspection_id) {
+                    $otherInspection = ['identity' => $identity, 'via' => $via];
+                    if ($via === 'qr' || count($layouts) === 1) {
+                        break;
+                    }
+
+                    continue;
+                }
+                if (! in_array($identity['form_version'], $layout['versions'], true)) {
+                    $staleIdentity ??= $identity;
+
+                    continue;
+                }
+                $found = ['layout' => $layout, 'transform' => $transform, 'identity' => $identity, 'via' => $via, 'info' => $info];
+
+                break;
             }
-            $firstIdentity ??= $identity;
 
             // Wrong form uploaded here: ANY page that belongs to another inspection refuses the whole upload.
-            if ($identity['rental_inspection_id'] !== $scan->rental_inspection_id) {
+            if ($found === null && $otherInspection !== null) {
+                $other = $otherInspection['identity'];
                 $scan->forceFill([
-                    'decoded_inspection_id' => $identity['rental_inspection_id'],
-                    'decoded_form_version' => $identity['form_version'],
+                    'decoded_inspection_id' => $other['rental_inspection_id'],
+                    'decoded_form_version' => $other['form_version'],
                     'status' => RentalInspectionScan::STATUS_FAILED,
-                    'failure_reason' => "This scan's own page code says inspection #{$identity['rental_inspection_id']}, not #{$scan->rental_inspection_id} - wrong form uploaded here.",
+                    'failure_reason' => "This scan's own page code says inspection #{$other['rental_inspection_id']}, not #{$scan->rental_inspection_id} - wrong form uploaded here.",
                 ])->save();
 
                 return;
@@ -175,20 +203,34 @@ class RentalInspectionScanReaderService
 
             // Never apply marks against a stale layout - an agency reprinting after adding an item must never have an
             // old scan silently write onto the new one (Johan's explicit instruction).
-            if ($identity['form_version'] !== $currentForm->version) {
+            if ($found === null && $staleIdentity !== null) {
                 $scan->forceFill([
-                    'decoded_inspection_id' => $identity['rental_inspection_id'],
-                    'decoded_form_version' => $identity['form_version'],
+                    'decoded_inspection_id' => $staleIdentity['rental_inspection_id'],
+                    'decoded_form_version' => $staleIdentity['form_version'],
                     'status' => RentalInspectionScan::STATUS_VERSION_MISMATCH,
-                    'failure_reason' => "This scan is of form version {$identity['form_version']}; the inspection's current form is version {$currentForm->version}. The form has changed since this was printed - print the current form and mark that one.",
+                    'failure_reason' => "This scan is of form version {$staleIdentity['form_version']}; the inspection's current form is version {$currentForm->version}. The form has changed since this was printed - print the current form and mark that one.",
                 ])->save();
 
                 return;
             }
 
+            if ($found === null) {
+                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => $firstFail['reason'] ?? 'The page could not be placed - no corner marks or QR code were found on it.'] + ($firstFail['info'] ?? []);
+
+                continue;
+            }
+
+            $layout = $found['layout'];
+            $identity = $found['identity'];
+            $info = $found['info'];
+            $via = $found['via'];
+            $firstIdentity ??= $identity;
+            $firstLayout ??= $layout;
+
+            $layoutPages = (int) ($layout['manifest']['page_count'] ?? 1);
             $formPage = $identity['page_number'];
-            if ($formPage < 1 || $formPage > $formPages) {
-                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => "Page {$fileIndex} of the upload says it is page {$formPage}, but this form has {$formPages} pages - it was not read."] + $info;
+            if ($formPage < 1 || $formPage > $layoutPages) {
+                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => "Page {$fileIndex} of the upload says it is page {$formPage}, but this form has {$layoutPages} pages - it was not read."] + $info;
 
                 continue;
             }
@@ -202,8 +244,8 @@ class RentalInspectionScanReaderService
                 return;
             }
 
-            $canvas = $this->geometry->straightenPage($page, $transform, $geo['width'], $geo['height']);
-            $read[$formPage] = ['canvas' => $canvas, 'file_page' => $fileIndex];
+            $canvas = $this->geometry->straightenPage($page, $found['transform'], $layout['geo']['width'], $layout['geo']['height']);
+            $read[$formPage] = ['canvas' => $canvas, 'file_page' => $fileIndex, 'layout' => $layout];
             $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => $formPage, 'status' => 'read', 'reason' => null, 'identified_by' => $via] + $info;
             if ($via === 'grid') {
                 $notes[] = "Page {$fileIndex} was identified by its printed page grid - its QR code could not be read.";
@@ -222,6 +264,8 @@ class RentalInspectionScanReaderService
             return;
         }
 
+        $formPages = (int) ($firstLayout['manifest']['page_count'] ?? $formPages);
+
         $scan->forceFill([
             'decoded_inspection_id' => $firstIdentity['rental_inspection_id'],
             'decoded_form_version' => $firstIdentity['form_version'],
@@ -235,24 +279,21 @@ class RentalInspectionScanReaderService
 
         $threshold = RentalInspectionSetting::omrMarkThresholdFor($scan->agency_id);
 
-        $boxesByPage = [];
-        foreach ($manifest['boxes'] as $box) {
-            $boxesByPage[(int) $box['page']][] = $box;
-        }
-
         $recorded = $this->recordedConditions($scan->rental_inspection_id);
 
-        DB::transaction(function () use ($scan, $read, $boxesByPage, $threshold, $recorded, &$notes, &$results) {
+        DB::transaction(function () use ($scan, $read, $threshold, $recorded, &$notes, &$results) {
             $unchanged = 0;
             ksort($read);
             foreach ($read as $formPage => $info) {
-                $counts = $this->readBoxesOnPage($scan, $info['canvas'], $boxesByPage[$formPage] ?? [], $threshold, $formPage, $recorded);
+                $counts = $this->readBoxesOnPage($scan, $info['canvas'], $info['layout']['boxesByPage'][$formPage] ?? [], $threshold, $formPage, $recorded);
                 $unchanged += $counts['unchanged'];
                 $results[$info['file_page']]['rows'] = $counts['rows'];
                 $results[$info['file_page']]['proposed'] = $counts['proposed'];
                 $results[$info['file_page']]['flagged'] = $counts['flagged'];
                 $results[$info['file_page']]['rows_located'] = $counts['located'];
-                if ($counts['located'] < $counts['rows']) {
+                if ($counts['untrusted']) {
+                    $notes[] = 'Page ' . $info['file_page'] . ': only ' . $counts['located'] . ' of ' . $counts['rows'] . ' rows could be found on the page, so none of its ticks were proposed. Scan it again with the whole sheet flat on the glass (corners not cut off).';
+                } elseif ($counts['located'] < $counts['rows']) {
                     $notes[] = 'Page ' . $info['file_page'] . ': ' . ($counts['rows'] - $counts['located']) . ' of ' . $counts['rows'] . ' rows were placed from the rows around them because their printed boxes could not be seen clearly.';
                 }
             }
@@ -337,7 +378,88 @@ class RentalInspectionScanReaderService
             $qr = ['x' => (float) $q['x'], 'y' => (float) $q['y'], 'size' => (float) $q['size'], 'modules' => $modules];
         }
 
-        return ['width' => $width, 'height' => $height, 'fiducial_size' => $size, 'fiducial_points' => $points, 'qr' => $qr, 'page_count' => (int) ($manifest['page_count'] ?? 1)];
+        return ['width' => $width, 'height' => $height, 'fiducial_size' => $size, 'fiducial_points' => $points, 'qr' => $qr, 'page_count' => (int) ($manifest['page_count'] ?? 1), 'grid' => $this->gridFrom($manifest, $width)];
+    }
+
+    /**
+     * Where this form's page-identifier grid sits, taken from ITS manifest (the layout moves with the safe margin, §63); a
+     * manifest without it falls back to the original fixed layout.
+     */
+    private function gridFrom(array $manifest, float $width): array
+    {
+        $fallback = RentalInspectionFormPdfService::pageIdentifierGridLayout($width);
+        $pid = $manifest['page_identifiers'][0] ?? null;
+        if (! $pid || empty($pid['grid']['x']) || empty($pid['bits'][0]['width'])) {
+            return $fallback;
+        }
+        $bits = $pid['bits'];
+        $size = (float) $bits[0]['width'];
+        $gap = isset($bits[1]) && (float) $bits[1]['y'] === (float) $bits[0]['y'] ? (float) $bits[1]['x'] - (float) $bits[0]['x'] - $size : $fallback['bit_gap'];
+        $lengths = [];
+        foreach ($pid['fields'] ?? [] as $f) {
+            $lengths[$f['name']] = (int) $f['bit_length'];
+        }
+
+        return [
+            'x' => (float) $pid['grid']['x'], 'y' => (float) $pid['grid']['y'],
+            'cols' => (int) $pid['grid']['cols'], 'rows' => (int) $pid['grid']['rows'],
+            'bit_size' => $size, 'bit_gap' => $gap,
+            'bits_inspection' => $lengths['rental_inspection_id'] ?? $fallback['bits_inspection'],
+            'bits_page' => $lengths['page_number'] ?? $fallback['bits_page'],
+            'bits_version' => $lengths['form_version'] ?? $fallback['bits_version'],
+        ];
+    }
+
+    /**
+     * The form's "shape": the paper, the condition columns and which items are on it - everything an answer depends on,
+     * and nothing about where it is printed. Two forms of one inspection with the same shape differ only in layout.
+     */
+    private function shapeOf(array $manifest): string
+    {
+        $items = [];
+        foreach ($manifest['boxes'] ?? [] as $b) {
+            $items[(int) $b['rental_inspection_item_id']] = true;
+        }
+        ksort($items);
+
+        return md5(json_encode([
+            $manifest['page_size']['key'] ?? null,
+            array_column($manifest['condition_states'] ?? [], 'key'),
+            array_keys($items),
+        ]));
+    }
+
+    /**
+     * The printed layouts this scan may have been made from, newest first: one per distinct geometry among the inspection's
+     * forms that have the current form's shape. Each carries the form versions that share it.
+     *
+     * @return list<array{manifest: array, geo: array, versions: list<int>, boxesByPage: array<int, list<array>>}>
+     */
+    private function layoutsFor(\Illuminate\Support\Collection $forms, RentalInspectionForm $current): array
+    {
+        $shape = $this->shapeOf($current->manifest_json);
+        $layouts = [];
+        $bySignature = [];
+        foreach ($forms as $form) {
+            $m = $form->manifest_json;
+            if ($this->shapeOf($m) !== $shape) {
+                continue;
+            }
+            $sig = md5(json_encode([$m['layout_version'] ?? 1, $m['safe_margin_mm'] ?? null, $m['page_count'] ?? 1, $m['fiducials'][0] ?? null, $m['qr_codes'][0]['y'] ?? null, $m['boxes'][0]['x'] ?? null, $m['boxes'][0]['y'] ?? null]));
+            if (isset($bySignature[$sig])) {
+                $layouts[$bySignature[$sig]]['versions'][] = (int) $form->version;
+
+                continue;
+            }
+            $boxesByPage = [];
+            foreach ($m['boxes'] ?? [] as $box) {
+                $boxesByPage[(int) $box['page']][] = $box;
+            }
+            $bySignature[$sig] = count($layouts);
+            $layouts[] = ['manifest' => $m, 'geo' => $this->geometryFor($m), 'versions' => [(int) $form->version], 'boxesByPage' => $boxesByPage];
+        }
+
+        return $layouts;
     }
 
     /**
@@ -363,7 +485,14 @@ class RentalInspectionScanReaderService
         }
 
         $offsets = $this->geometry->alignRows($canvas, $byItem);
-        $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0];
+        $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0, 'untrusted' => false];
+
+        // A page on which fewer than half the rows could be found from their own printed boxes was not placed reliably (marks
+        // clipped or misjudged): a tick read at a guessed position can land on the neighbouring row or column and look
+        // perfectly plausible. Nothing on such a page is proposed - every row is flagged for the agent instead.
+        $locatedRows = count(array_filter($offsets, fn ($o) => $o['measured']));
+        $untrusted = count($byItem) >= 4 && $locatedRows * 2 < count($byItem);
+        $counts['untrusted'] = $untrusted;
 
         foreach ($byItem as $itemId => $itemBoxes) {
             $off = $offsets[$itemId] ?? ['dx' => 0.0, 'dy' => 0.0, 'measured' => false];
@@ -386,7 +515,7 @@ class RentalInspectionScanReaderService
             $net = array_map(fn ($v) => max(0.0, $v - $baseline), $ink);
             $strongest = $net ? max($net) : 0.0;
             $marked = array_filter($net, fn ($v) => $v >= $threshold && $v >= 0.4 * $strongest);
-            $ambiguous = count($marked) !== 1;
+            $ambiguous = $untrusted || count($marked) !== 1;
             $detectedKey = $ambiguous ? null : array_key_first($marked);
             $best = $strongest;
             $confidence = $threshold > 0 ? min(1.0, $best / (2.5 * $threshold)) : null;
@@ -1058,7 +1187,7 @@ class RentalInspectionScanReaderService
      */
     private function decodePageIdentifier(Imagick $page, array $transform, array $geo, ?int $expectedInspectionId = null): ?array
     {
-        $grid = RentalInspectionFormPdfService::pageIdentifierGridLayout($geo['width']);
+        $grid = $geo['grid'] ?? RentalInspectionFormPdfService::pageIdentifierGridLayout($geo['width']);
         $S = 6.0;
         $pad = 10.0; // room to slide the grid about: it sits far from the corner marks that place the page
         $gw = $grid['cols'] * $grid['bit_size'] + ($grid['cols'] - 1) * $grid['bit_gap'];

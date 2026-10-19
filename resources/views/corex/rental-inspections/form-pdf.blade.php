@@ -39,6 +39,9 @@
 </head>
 <body>
 
+{{-- AT-463 / §63: everything is positioned inside the safe area - $mx is the left/right content edge (the marks sit further out,
+     at the agency's safe margin), $ky the vertical shrink every pitch took so no row is dropped. --}}
+@php $mx = $layout['margins']['x']; $ky = $layout['margins']['v_scale']; @endphp
 @for ($p = 1; $p <= $layout['page_count']; $p++)
     <div class="page">
         {{-- Registration marks — every page, same fixed inset, so a scan of
@@ -73,7 +76,7 @@
         @foreach($layout['qr_codes'] as $qr)
             @if($qr['page'] === $p)
                 <img class="abs" src="{{ $qrImages[$p] }}" alt="" style="left:{{ $qr['x'] }}pt; top:{{ $qr['y'] }}pt; width:{{ $qr['size'] }}pt; height:{{ $qr['size'] }}pt;">
-                <div class="abs qr-caption" style="left:{{ $qr['x'] + $qr['size'] + 8 }}pt; top:{{ $qr['y'] + 14 }}pt; width:{{ $pw - 36 - ($qr['x'] + $qr['size'] + 8) }}pt;">
+                <div class="abs qr-caption" style="left:{{ $qr['x'] + $qr['size'] + 8 }}pt; top:{{ $qr['y'] + 14 }}pt; width:{{ $pw - $mx - ($qr['x'] + $qr['size'] + 8) }}pt;">
                     Inspection #{{ $inspection->id }} &middot; page {{ $p }} of {{ $layout['page_count'] }}<br>
                     Tick ONE box per row, in ink. Do not write inside the boxes. Keep the whole page flat and in frame when scanning.
                 </div>
@@ -84,7 +87,7 @@
             {{-- Header — property, inspection type/date, parties. Plain
                  printed text, never geometry-tracked (nothing here is
                  marked or read back). --}}
-            <div class="abs" style="left:36pt; top:{{ $layout['header']['y'] }}pt; width:{{ $pw - 72 }}pt;">
+            <div class="abs" style="left:{{ $mx }}pt; top:{{ $layout['header']['y'] }}pt; width:{{ $pw - 2 * $mx }}pt;">
                 <div class="header-title">Rental Inspection Form — {{ $layout['header']['type'] }}</div>
                 <div class="header-line">{{ $layout['header']['address'] }}</div>
                 <div class="header-line">Date: {{ $layout['header']['date'] }}</div>
@@ -95,22 +98,22 @@
             </div>
             {{-- Header fields the agent fills on site (never machine-read): shows what is already on the web inspection. --}}
             @php
-                $fieldW = ($pw - 72 - 2 * 12) / 3;
+                $fieldW = ($pw - 2 * $mx - 2 * 12) / 3;
                 $fields = [
                     ['Electricity meter', 'electricity', 0, 0], ['Water meter', 'water', 1, 0], ['Furnished', 'furnished', 2, 0],
                     ['Keys (number / description)', 'keys', 0, 1], ['Remotes (number / description)', 'remotes', 1, 1],
                 ];
             @endphp
             @foreach($fields as [$flabel, $fkey, $col, $frow])
-                <div class="abs field-label" style="left:{{ 36 + $col * ($fieldW + 12) }}pt; top:{{ $layout['header']['y'] + 96 + $frow * 26 }}pt; width:{{ $fieldW }}pt;">{{ $flabel }}</div>
-                <div class="abs field-line" style="left:{{ 36 + $col * ($fieldW + 12) }}pt; top:{{ $layout['header']['y'] + 105 + $frow * 26 }}pt; width:{{ $fieldW }}pt;">{{ $prefill['header'][$fkey] ?? '' }}</div>
+                <div class="abs field-label" style="left:{{ $mx + $col * ($fieldW + 12) }}pt; top:{{ round($layout['header']['y'] + (96 + $frow * 26) * $ky, 2) }}pt; width:{{ $fieldW }}pt;">{{ $flabel }}</div>
+                <div class="abs field-line" style="left:{{ $mx + $col * ($fieldW + 12) }}pt; top:{{ round($layout['header']['y'] + (105 + $frow * 26) * $ky, 2) }}pt; width:{{ $fieldW }}pt;">{{ $prefill['header'][$fkey] ?? '' }}</div>
             @endforeach
         @endif
 
         {{-- Room headings (repeated as "(cont.)" whenever a room spans a page break). --}}
         @foreach($layout['room_headings'] as $rh)
             @if($rh['page'] === $p)
-                <div class="abs room-heading" style="left:36pt; top:{{ $rh['y'] }}pt; width:{{ $pw - 72 }}pt;">{{ $rh['label'] }}</div>
+                <div class="abs room-heading" style="left:{{ $mx }}pt; top:{{ $rh['y'] }}pt; width:{{ $pw - 2 * $mx }}pt;">{{ $rh['label'] }}</div>
             @endif
         @endforeach
 
@@ -129,7 +132,7 @@
         @foreach($layout['item_rows'] as $row)
             @if($row['page'] === $p)
                 <div class="abs item-label" style="left:{{ $row['label_x'] }}pt; top:{{ $row['y'] + 5 }}pt; width:122pt;"><span class="row-no">{{ $row['row_no'] }}</span>&nbsp; {{ $row['label'] }}</div>
-                <div class="abs notes-outline" style="left:{{ $row['notes_x'] }}pt; top:{{ $row['y'] }}pt; width:{{ $row['notes_width'] }}pt; height:18pt;"></div>
+                <div class="abs notes-outline" style="left:{{ $row['notes_x'] }}pt; top:{{ $row['y'] }}pt; width:{{ $row['notes_width'] }}pt; height:{{ $row['notes_height'] ?? 18 }}pt;"></div>
             @endif
         @endforeach
 

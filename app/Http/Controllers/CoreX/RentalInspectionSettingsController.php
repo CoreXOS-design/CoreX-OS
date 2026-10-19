@@ -116,6 +116,8 @@ class RentalInspectionSettingsController extends Controller
             // AT-463 / §60 — the paper the printed site form is laid out for.
             'formPaperSize' => RentalInspectionSetting::formPaperSizeFor($agencyId),
             'formPaperSizeOptions' => RentalInspectionSetting::formPaperSizeOptions(),
+            // AT-463 / §63 - how far in from every paper edge the printed form keeps its content.
+            'formSafeMarginMm' => RentalInspectionSetting::formSafeMarginMmFor($agencyId),
             // §43 — schedule/reschedule/cancel notifications.
             'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
             'notifyLandlordEnabled' => RentalInspectionSetting::notifyLandlordFor($agencyId),
@@ -170,6 +172,8 @@ class RentalInspectionSettingsController extends Controller
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.01', 'max:0.5'],
             // AT-463 / §60 — has()-guarded below: a wizard step that does not render the select must not reset it.
             'form_paper_size' => ['nullable', 'string', 'in:' . implode(',', array_keys(RentalInspectionSetting::FORM_PAPER_SIZES))],
+            // AT-463 / §63 - filled()-guarded below, like the paper: a wizard step that does not render it must not reset it.
+            'form_safe_margin_mm' => ['nullable', 'integer', 'min:' . RentalInspectionSetting::MIN_FORM_SAFE_MARGIN_MM, 'max:' . RentalInspectionSetting::MAX_FORM_SAFE_MARGIN_MM],
             // §52 — the walk's rules, each has()-guarded below; the reminder lead saves only when filled.
             'signing_reminder_lead_days' => ['nullable', 'integer', 'min:0', 'max:30'],
         ] + array_fill_keys(array_keys(RentalInspectionSetting::INSPECTION_RULES), ['nullable', 'boolean']));
@@ -220,6 +224,9 @@ class RentalInspectionSettingsController extends Controller
         }
         if ($request->filled('form_paper_size')) {
             $attributes['form_paper_size'] = $validated['form_paper_size'];
+        }
+        if ($request->filled('form_safe_margin_mm')) {
+            $attributes['form_safe_margin_mm'] = (int) $validated['form_safe_margin_mm'];
         }
 
         // Guarded on has(), not just validated() — the wizard step (§4/§8's

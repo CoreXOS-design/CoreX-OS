@@ -272,9 +272,26 @@ final class RentalInspectionScanGeometry
         unset($px);
         $yAt = fn (float $ySeenPt): int => (int) round($ySeenPt * $S) - $by;
 
+        // The rows (and the columns) are a regular lattice, so a fit shifted by a whole pitch scores almost as well as the true
+        // one - and with solid ticks sometimes better. The page is already placed by its corner marks, so the true offset is
+        // always the SMALLEST one: only fits that move no row by half a pitch or more are considered. (A row-off-by-one read
+        // looks perfectly plausible and is silently wrong - the worst failure this reader can have.)
+        $ys = array_values(array_unique(array_map(fn ($r) => round((float) $r[0]['y'], 1), $rows)));
+        sort($ys);
+        $rowPitch = 1000.0;
+        for ($i = 1; $i < count($ys); $i++) {
+            $rowPitch = min($rowPitch, $ys[$i] - $ys[$i - 1]);
+        }
+        $reachY = min(36.0, max(4.0, 0.5 * $rowPitch - 0.5));
+        $yLo = $ys[0];
+        $yHi = end($ys);
+
         $bestY = [-1.0, 0.0, 0.0];
         for ($b = -0.06; $b <= 0.0601; $b += 0.004) {
             for ($a = -36.0; $a <= 36.0; $a += 1.0) {
+                if (abs($a + $b * $yLo) > $reachY || abs($a + $b * $yHi) > $reachY) {
+                    continue;
+                }
                 $score = 0;
                 foreach ($rows as $boxes) {
                     $y = (float) $boxes[0]['y'];
@@ -313,9 +330,19 @@ final class RentalInspectionScanGeometry
             }
             $bands[$key] = ['cols' => $cols, 'x0' => $x0, 'w' => $w0];
         }
+        $colPitch = 1000.0;
+        foreach ($rows as $boxes) {
+            for ($i = 1; $i < count($boxes); $i++) {
+                $colPitch = min($colPitch, (float) $boxes[$i]['x'] - (float) $boxes[$i - 1]['x']);
+            }
+        }
+        $reachX = min(26.0, max(4.0, 0.5 * $colPitch - 0.5));
         $bestX = [-1.0, 0.0, 0.0];
         for ($d = -0.06; $d <= 0.0601; $d += 0.004) {
             for ($c = -26.0; $c <= 26.0; $c += 1.0) {
+                if (abs($c + $d * $yLo) > $reachX || abs($c + $d * $yHi) > $reachX) {
+                    continue;
+                }
                 $score = 0;
                 foreach ($bands as $key => $bd) {
                     $y = (float) $rows[$key][0]['y'];
