@@ -175,14 +175,11 @@ class AutoEventService
     {
         $count = 0;
         Property::whereNull('deleted_at')
-            ->where(function ($q) {
-                // BUILD_STANDARD §6 — single source of truth for "not live". The
-                // hand-written trio omitted expired/cancelled/draft and would have
-                // kept generating chase work for a listing another agency had
-                // already sold (AT-350).
-                $q->whereNull('status')
-                  ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
-            })
+            // BUILD_STANDARD §6 — single source of truth for "not live". The
+            // hand-written trio omitted expired/cancelled/draft and would have
+            // kept generating chase work for a listing another agency had
+            // already sold (AT-350).
+            ->onMarket()
             ->ownStock() // AT-453 — no chase events for another agency's listing
             ->chunk(50, function ($properties) use (&$count) {
                 foreach ($properties as $property) {
@@ -222,14 +219,11 @@ class AutoEventService
         $critical = 0;
 
         Property::whereNull('deleted_at')
-            ->where(function ($q) {
-                // BUILD_STANDARD §6 — single source of truth for "not live". The
-                // hand-written trio omitted expired/cancelled/draft and would have
-                // kept generating chase work for a listing another agency had
-                // already sold (AT-350).
-                $q->whereNull('status')
-                  ->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
-            })
+            // BUILD_STANDARD §6 — single source of truth for "not live". The
+            // hand-written trio omitted expired/cancelled/draft and would have
+            // kept generating chase work for a listing another agency had
+            // already sold (AT-350).
+            ->onMarket()
             ->ownStock() // AT-453 — no "needs attention" flag for another agency's listing
             // Compliant stock (e.g. P24 go-live imports) is vetted/established
             // and must not be flagged "needs attention" — that flooded the

@@ -271,6 +271,30 @@ final class AlertBellTest extends TestCase
         $this->assertStringContainsString('href="' . route('corex.alerts.index') . '"', $html);
     }
 
+    public function test_the_bell_sits_in_the_menus_top_bar_left_of_ellie_not_in_the_user_block(): void
+    {
+        $html = $this->actingAs($this->user())->get(route('corex.alerts.index'))->assertOk()->getContent();
+
+        $logo    = strpos($html, 'class="corex-sidebar-logo"');
+        $bell    = strpos($html, 'data-alert-bell ');
+        $ellie   = strpos($html, 'id="help-widget-slot"');
+        $profile = strpos($html, 'class="corex-user-profile"');
+        $this->assertNotFalse($logo);
+        $this->assertNotFalse($bell);
+        $this->assertTrue($logo < $bell && $bell < $ellie, 'the bell is in the top bar, just before the Ellie button');
+        $this->assertSame(1, substr_count($html, 'data-alert-bell '), 'one bell only');
+        $this->assertGreaterThan($bell, $profile, 'not in the user block any more');
+        // The bell and the Ellie button share one borderless top-bar look with a visible hover; Ellie's open state is a class, so
+        // no inline colour can override that hover.
+        $this->assertMatchesRegularExpression('/<button type="button" class="corex-topbar-btn" data-alert-bell /', $html);
+        $this->assertStringContainsString('aria-label="Help & Feedback"' . "\n" . '                class="corex-topbar-btn" :class="{ \'is-open\': open }">', $html);
+        $this->assertStringContainsString('.corex-topbar-btn:hover { background: color-mix(in srgb, var(--corex-sidebar-hover', $html);
+        $this->assertSame(1, substr_count($html, '.corex-topbar-btn {'), 'the style is printed once');
+        $this->assertStringNotContainsString("'background:transparent;color:var(--text-muted);'", $html);
+        // Near the top the panel opens downward.
+        $this->assertStringContainsString("r.top < window.innerHeight / 2", $html);
+    }
+
     // ── one title rule for rentals ─────────────────────────────────────────────────────────
 
     public function test_the_title_helper_appends_once_and_normalises_the_dash(): void

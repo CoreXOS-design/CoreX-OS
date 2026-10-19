@@ -63,26 +63,43 @@
     // (set only when one was actually resolved from the linked property) is display-only
     // and never written back onto $listing — see MarketIntelligenceController::work().
     $displayAddress = $state['display_address'] ?? $listing->address ?? null;
-    $addressShort = $displayAddress ? \Illuminate\Support\Str::limit($displayAddress, 50) : 'No address';
+    // AT-455 (Andre, 2026-10-14): a listing without an address leads with what
+    // it is and where ("Apartment in Sea Park"); "No address yet" becomes a
+    // small note on the facts line instead of the row's title.
+    $hasAddress = (bool) $displayAddress;
+    $sizeBits = [];
+    if ($listing->bedrooms)  { $sizeBits[] = $listing->bedrooms . ' bed'; }
+    if ($listing->bathrooms) { $sizeBits[] = $listing->bathrooms . ' bath'; }
+    if ($listing->garages)   { $sizeBits[] = $listing->garages . ' garage'; }
+    if ($hasAddress) {
+        $addressShort = \Illuminate\Support\Str::limit($displayAddress, 50);
+    } else {
+        $typeWord = $listing->property_type ?: 'Property';
+        $addressShort = $listing->suburb ? ($typeWord . ' in ' . $listing->suburb) : $typeWord;
+    }
     $priceLabel = $listing->price ? ('R ' . number_format($listing->price)) : '—';
 
     $metaParts = array_filter([
-        $listing->suburb ?? null,
-        ($listing->bedrooms ?? '-') . '|' . ($listing->bathrooms ?? '-') . '|' . ($listing->garages ?? '-'),
-        $listing->property_type ?? null,
+        $hasAddress ? null : 'No address yet',
+        $hasAddress ? ($listing->suburb ?? null) : null,
+        $sizeBits ? implode(' · ', $sizeBits) : null,
+        $hasAddress ? ($listing->property_type ?? null) : null,
         $listing->agency_name ? \Illuminate\Support\Str::limit($listing->agency_name, 20) : null,
         $listing->portal_ref ?? null,
         // AT-454 — the portal's real listed date when we have it, else the day CoreX first saw the advert.
         $listing->listedOn()?->format('j M'),
     ]);
 
-    // Common chip style helpers
-    $tagBase = 'display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; font-size: 0.625rem; font-weight: 600; border-radius: 999px; line-height: 1.4; white-space: nowrap;';
-    $tagAmber = $tagBase . 'background: color-mix(in srgb, var(--ds-amber, #f59e0b) 14%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, transparent);';
-    $tagTeal = $tagBase . 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9); border: 1px solid color-mix(in srgb, var(--brand-icon, #0ea5e9) 35%, transparent);';
-    $tagRed = $tagBase . 'background: color-mix(in srgb, var(--ds-crimson, #dc2626) 14%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid color-mix(in srgb, var(--ds-crimson, #dc2626) 35%, transparent);';
-    $tagNeutral = $tagBase . 'background: var(--surface-2); color: var(--text-muted); border: 1px solid var(--border);';
-    $tagOutline = $tagBase . 'background: transparent; color: var(--text-secondary); border: 1px solid var(--border);';
+    // Chip style helpers. AT-455 (Andre, 2026-10-14): no filled colour boxes on
+    // the row. A state is plain text in its own colour (amber for something
+    // that needs attention, accent for "yours"); outline only where it is a
+    // click target.
+    $tagBase = 'display: inline-flex; align-items: center; gap: 3px; padding: 2px 0; font-size: 0.6875rem; font-weight: 500; line-height: 1.4; white-space: nowrap;';
+    $tagAmber = $tagBase . 'color: var(--ds-amber, #f59e0b);';
+    $tagTeal = $tagBase . 'color: var(--brand-icon, #0ea5e9); font-weight: 600;';
+    $tagRed = $tagBase . 'color: var(--ds-crimson, #dc2626);';
+    $tagNeutral = $tagBase . 'color: var(--text-muted);';
+    $tagOutline = $tagBase . 'color: var(--text-secondary); padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; background: transparent;';
 
     $iconBtnBase = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary); cursor: pointer; text-decoration: none;';
     $iconBtnDisabled = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 4px; background: var(--surface); border: 1px dashed var(--border); color: var(--text-muted); cursor: not-allowed; opacity: 0.55;';
@@ -307,10 +324,9 @@
                 $sc = (int) $selectedScore;
                 $scColor = $sc >= 80 ? 'var(--ds-green, #10b981)' : ($sc >= 65 ? 'var(--ds-amber, #f59e0b)' : 'var(--text-secondary, #6b7280)');
             @endphp
-            <span style="display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:999px; font-size:0.6875rem; font-weight:700;
-                         background: color-mix(in srgb, {{ $scColor }} 14%, transparent); color: {{ $scColor }}; border:1px solid currentColor;"
+            <span style="display:inline-flex; align-items:center; gap:4px; font-size:0.6875rem; font-weight:700; color: {{ $scColor }};"
                   title="This buyer's match score for this property, from the canonical Core Matches engine. 80+ strong, 65–79 good, below fair.">
-                🎯 {{ $sc }}% buyer match
+                {{ $sc }}% buyer match
             </span>
             @endif
 
@@ -338,9 +354,9 @@
                         @click.stop="openBuyerPanel({{ $listing->id }})"
                         style="{{ $tagOutline }} cursor: pointer;"
                         title="Buyer matches for this listing — green dot = strong-tier (high likelihood of conversion, score ≥ 80). Amber = mid-tier (50–79). Top score {{ $tiers['top_score'] ?? '?' }}%. Click for the full buyer list. Hover for Ellie's read.">
-                    @if($tiers['strong'] > 0)<span style="color: var(--ds-green, #10b981);">●</span> {{ $tiers['strong'] }}@endif
-                    @if($tiers['mid'] > 0)<span style="color: var(--ds-amber, #f59e0b); margin-left: 4px;">●</span> {{ $tiers['mid'] }}@endif
-                    @if(($tiers['top_score'] ?? null) !== null)<span style="margin-left: 5px; font-weight: 700; color: var(--text-secondary, #6b7280);">{{ $tiers['top_score'] }}%</span>@endif
+                    @if($tiers['strong'] > 0)<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--ds-green, #10b981);"></span> <b style="color: var(--text-primary);">{{ $tiers['strong'] }}</b> strong @endif
+                    @if($tiers['mid'] > 0)<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background: var(--ds-amber, #f59e0b); margin-left: 6px;"></span> <b style="color: var(--text-primary);">{{ $tiers['mid'] }}</b> mid @endif
+                    @if(($tiers['top_score'] ?? null) !== null)<span style="margin-left: 6px; color: var(--text-muted);">{{ $tiers['top_score'] }}% match</span>@endif
                 </button>
                 {{-- Part 6 — source-tagged demand split (portal-lead buyers vs other),
                      kept SEPARATE from the blended strong/mid figure above so you can
@@ -539,7 +555,7 @@
             <button type="submit"
                     aria-label="Claim this listing — reserve it for yourself without pitching yet"
                     title="Claim — reserve this listing for yourself. It leaves the canvass list and moves to My Claims; releases automatically if you don't pitch it."
-                    style="display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:6px 12px; font-size:0.6875rem; font-weight:600; border-radius:5px; background:var(--surface); border:1.5px solid var(--brand-icon,#0ea5e9); color:var(--brand-icon,#0ea5e9); cursor:pointer; white-space:nowrap; min-width:160px; box-sizing:border-box;">
+                    style="display:inline-flex; align-items:center; justify-content:center; gap:5px; padding:6px 12px; font-size:0.75rem; font-weight:600; border-radius:6px; background:var(--surface); border:1px solid var(--border-hover, var(--border)); color:var(--text-secondary); cursor:pointer; white-space:nowrap; min-width:150px; box-sizing:border-box;">
                 <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>
                 </svg>

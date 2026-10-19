@@ -115,7 +115,6 @@ class GuidedToursController extends Controller
 
     /** Display order of the directory's category sections. */
     private const GROUP_ORDER = [
-        'Mobile',
         'Dashboard & Command Centre',
         'Real Estate',
         'Market Intelligence',
@@ -141,7 +140,6 @@ class GuidedToursController extends Controller
     private static function groupFor(string $key): string
     {
         static $core = [
-            'mobile-app'        => 'Mobile',
             'contact-capture'   => 'Real Estate',
             'property-capture'   => 'Real Estate',
             'buyer-pipeline'     => 'Real Estate',

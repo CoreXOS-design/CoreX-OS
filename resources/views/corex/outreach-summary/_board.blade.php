@@ -77,7 +77,7 @@
             <div class="overflow-x-auto">
                 <table class="w-full text-sm" data-tour="os-board">
                     <thead>
-                        <tr data-tour="os-columns" style="background:var(--surface-2,#f8fafc); border-bottom:1px solid var(--border,#e5e7eb);">
+                        <tr data-tour="os-columns" class="text-xs uppercase tracking-wide" style="background:var(--surface-2,#f8fafc); border-bottom:1px solid var(--border,#e5e7eb);">
                             <th class="text-left font-semibold px-4 py-3 whitespace-nowrap" style="color:var(--text-primary,#0b2a4a);">Agent</th>
                             @foreach($columns as $col)
                                 <th class="text-right font-semibold px-4 py-3 whitespace-nowrap"

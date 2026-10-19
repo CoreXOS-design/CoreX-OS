@@ -64,7 +64,7 @@
                     </p>
                 </div>
 
-                <form method="GET" class="flex flex-wrap gap-3 items-end">
+                <form method="GET" class="props-filter-panel rounded-md px-4 py-3 flex flex-wrap gap-3 items-end" style="border: 1px solid var(--border);">
                     <input type="hidden" name="period" value="{{ $period }}" />
                     <div>
                         <label class="block mb-1 text-xs font-medium" style="color: var(--text-secondary);">Window</label>

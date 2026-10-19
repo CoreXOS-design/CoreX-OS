@@ -45,8 +45,7 @@
                 @if($send->template)
                     <span class="text-xs" style="color: var(--text-muted);">· template: {{ $send->template->name }}</span>
                 @endif
-                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider"
-                      style="background: color-mix(in srgb, {{ $outcomeColor }} 18%, transparent); color: {{ $outcomeColor }};">
+                <span class="ds-badge" style="--ds-badge-c: {{ $outcomeColor }};">
                     {{ $outcomeLabel }}
                 </span>
             </div>

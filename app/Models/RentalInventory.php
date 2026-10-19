@@ -155,6 +155,49 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         return $this->property->purchasingDeal()->buyers()->get();
     }
 
+    /**
+     * Audit A-M5 (2026-10-18) — the credential a buyer signs with. The
+     * inventory's public_token is shared with the tenant, the landlord and
+     * the seller, so it can never identify WHICH buyer is accepting. This
+     * returns "{buyerId}.{hmac}": an HMAC (app key) over this inventory, the
+     * buyer and the CURRENT public_token, so it cannot be forged from the
+     * shared link, is valid for exactly one buyer on exactly one inventory,
+     * and dies the moment the public link is revoked/regenerated or expires.
+     * Null when there is no live public link. Nothing is stored.
+     */
+    public function buyerAcceptanceTokenFor(Contact|int $buyer): ?string
+    {
+        if (! $this->publicLinkIsValid()) {
+            return null;
+        }
+        $buyerId = $buyer instanceof Contact ? $buyer->id : $buyer;
+
+        return $buyerId . '.' . $this->buyerAcceptanceSignature((int) $buyerId);
+    }
+
+    /** The buyer contact id a token was issued for, or null when the token is missing, malformed or not valid for THIS inventory's current link. */
+    public function buyerIdFromAcceptanceToken(mixed $token): ?int
+    {
+        if (! $this->publicLinkIsValid() || ! is_string($token) || ! preg_match('/^(\d{1,18})\.([a-f0-9]{64})$/', $token, $m)) {
+            return null;
+        }
+
+        return hash_equals($this->buyerAcceptanceSignature((int) $m[1]), $m[2]) ? (int) $m[1] : null;
+    }
+
+    /** The personal link emailed to one buyer: the shared report page plus that buyer's own token. */
+    public function buyerAcceptanceUrlFor(Contact $buyer): ?string
+    {
+        $token = $this->buyerAcceptanceTokenFor($buyer);
+
+        return $token ? route('rental-inventories.public.show', ['token' => $this->public_token, 'buyer' => $token]) : null;
+    }
+
+    private function buyerAcceptanceSignature(int $buyerId): string
+    {
+        return hash_hmac('sha256', "rental-inventory-buyer-acceptance|{$this->id}|{$buyerId}|{$this->public_token}", (string) config('app.key'));
+    }
+
     /** Every eligible buyer who has NOT yet recorded their acceptance. */
     public function outstandingBuyerAcceptances(): \Illuminate\Support\Collection
     {

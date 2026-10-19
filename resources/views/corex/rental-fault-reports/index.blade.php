@@ -15,24 +15,39 @@
         ['sort' => $col, 'direction' => ($sort === $col && $direction === 'asc') ? 'desc' : 'asc']
     ));
     $sortIndicator = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
-    $statusBadgeClass = fn ($status) => match ($status) {
-        'resolved' => 'ds-badge-success',
-        'reported', 'under_review', 'awaiting_approval' => 'ds-badge-info',
-        'declined', 'cancelled' => 'ds-badge-danger',
+    $statusTone = fn ($status) => match ($status) {
+        'resolved' => '--ds-green',
+        'reported', 'under_review', 'awaiting_approval' => '--brand-icon',
+        'declined', 'cancelled' => '--ds-crimson',
+        default => '--text-muted',
+    };
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
         default => 'ds-badge-muted',
     };
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4" x-data="rentalFaultReportsPropertyFilter({{ Js::from([
+@section('corex-content')
+<div class="w-full space-y-4" x-data="rentalFaultReportsPropertyFilter({{ Js::from([
     'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
     'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
 ]) }})">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental Fault Reports</h1>
-        @permission('rental_fault_reports.create')
-        <a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-primary text-xs">Report a Fault</a>
-        @endpermission
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Fault Reports</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every fault reported on a rental property, and where each one stands.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @permission('rental_fault_reports.create')
+                <a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-primary text-xs">Report a Fault</a>
+                @endpermission
+            </div>
+        </div>
     </div>
 
     {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
@@ -85,67 +100,69 @@
         :export-csv-url="route('corex.rental-fault-reports.export', array_merge(request()->query(), ['format' => 'csv']))"
     />
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.rental-fault-reports.index') }}" class="flex flex-wrap items-end gap-3">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, title or description" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, title or description" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All statuses</option>
                 @foreach(['reported', 'under_review', 'awaiting_approval', 'approved', 'declined', 'work_order_raised', 'owner_handling', 'resolved', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ (new \App\Models\RentalFaultReport(['status' => $s]))->statusLabel() }}</option>
                 @endforeach
             </select>
         </div>
-        <div class="relative">
-            <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
+        <div class="relative flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a fault report visible to this user —
                  never every rental property (that's the create form's own
                  job, unaffected). --}}
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties by address…"
-                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                   class="list-header-filter text-sm" :class="{ 'is-active': propertyQuery }">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
-            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto bg-white" style="border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="top:100%; background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
                         <span x-text="p.label"></span>
                     </button>
                 </template>
             </div>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Outcome</label><br>
-            <select name="outcome" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Outcome</label>
+            <select name="outcome" class="list-header-filter text-sm {{ filled($filters['outcome'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All outcomes</option>
                 @foreach(['repaired', 'repaired_partially', 'not_repaired', 'owner_declined', 'tenant_liable'] as $o)
                     <option value="{{ $o }}" @selected(($filters['outcome'] ?? '') === $o)>{{ ucfirst(str_replace('_', ' ', $o)) }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Reported from</label><br>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported from</label>
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Reported to</label><br>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Reported to</label>
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
         @if(!empty($filters['cc_scope']))<input type="hidden" name="cc_scope" value="{{ $filters['cc_scope'] }}">@endif
-        <label class="flex items-center gap-1 text-xs pb-2">
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
             <input type="checkbox" name="open" value="1" @checked(($filters['open'] ?? false)) data-qa="fault-filter-open">
             Open only
         </label>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'status', 'outcome', 'property_id', 'date_from', 'date_to', 'open']))
-            <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-xs">Clear</a>
+            <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
     </form>
+    </div>
 
     <script>
     function rentalFaultReportsPropertyFilter(old) {
@@ -173,42 +190,43 @@
     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
         Filtered to:
         @if($filteredProperty)
-            <span class="ds-badge ds-badge-info">{{ $filteredProperty->buildDisplayAddress() }}</span>
+            <span class="ds-badge {{ $badge('--brand-icon') }}">{{ $filteredProperty->buildDisplayAddress() }}</span>
         @endif
         @if($filteredLease)
-            <span class="ds-badge ds-badge-info">{{ $filteredLease->tenantNames() ?: ('Lease #' . $filteredLease->id) }}</span>
+            <span class="ds-badge {{ $badge('--brand-icon') }}">{{ $filteredLease->tenantNames() ?: ('Lease #' . $filteredLease->id) }}</span>
         @endif
         <a href="{{ route('corex.rental-fault-reports.index', request()->except(['property_id', 'lease_id', 'page'])) }}" class="underline">Clear</a>
     </div>
     @endif
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2">Title</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2">Outcome</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('reported_at') }}" style="color: var(--text-muted);">Reported{{ $sortIndicator('reported_at') }}</a></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Title</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Outcome</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('reported_at') }}">Reported{{ $sortIndicator('reported_at') }}</a></th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($faultReports as $faultReport)
-                <tr style="border-bottom: 1px solid var(--border);" data-qa="fault-report-row-{{ $faultReport->id }}">
-                    <td class="px-4 py-2">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $faultReport->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-2">{{ $faultReport->title }}</td>
-                    <td class="px-4 py-2">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="fault-report-row-{{ $faultReport->id }}">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $faultReport->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-4 py-3">{{ $faultReport->title }}</td>
+                    <td class="px-4 py-3">
                         @if($showArchived)
-                            <span class="ds-badge ds-badge-muted">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>
+                            <span class="ds-badge {{ $badge('--text-muted') }}">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($faultReport->status) }}">{{ $faultReport->statusLabel() }}</span>
+                            <span class="ds-badge {{ $badge($statusTone($faultReport->status)) }}">{{ $faultReport->statusLabel() }}</span>
                         @endif
                     </td>
-                    <td class="px-4 py-2">{{ $faultReport->outcome ? ucfirst(str_replace('_', ' ', $faultReport->outcome)) : '—' }}</td>
-                    <td class="px-4 py-2">{{ $faultReport->reported_at?->format('Y-m-d') }}</td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-4 py-3">{{ $faultReport->outcome ? ucfirst(str_replace('_', ' ', $faultReport->outcome)) : '—' }}</td>
+                    <td class="px-4 py-3">{{ $faultReport->reported_at?->format('Y-m-d') }}</td>
+                    <td class="px-4 py-3 text-right">
                         @if($showArchived)
                             @permission('rental_fault_reports.create')
                             <form method="POST" action="{{ route('corex.rental-fault-reports.restore', $faultReport->id) }}" class="inline">
@@ -222,7 +240,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="6" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="6" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                     @if($showArchived)
                         No archived fault reports on this agency.
                     @elseif(!$hasAnyFaultReports)
@@ -234,8 +252,12 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
+        @if($faultReports->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $faultReports->links() }}
+        </div>
+        @endif
     </div>
-
-    {{ $faultReports->links() }}
 </div>
 @endsection

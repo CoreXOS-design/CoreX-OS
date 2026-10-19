@@ -7,7 +7,7 @@
     <div class="overflow-x-auto">
         <table class="w-full text-xs ds-table">
             <thead>
-                <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                <tr class="uppercase tracking-wide" style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                     <th class="text-left px-3 py-2">Agent</th>
                     <th class="text-left px-3 py-2">Branch</th>
                     <th class="text-right px-3 py-2">Held</th>

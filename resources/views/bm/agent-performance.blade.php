@@ -52,24 +52,25 @@
 
 <x-app-layout>
     <x-slot name="header">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
-                <h2 class="font-semibold text-xl leading-tight" style="color:var(--text-primary)">
-                    Agent Dashboard — {{ $period }}
-                </h2>
-                <div class="text-sm" style="color:var(--text-muted)">
-                    {{ $agent->name }} — {{ $agent->email }} @if($branchName) ({{ $branchName }}) @endif
+        <div class="rounded-md px-6 py-5 corex-page-banner">
+            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                    <h2 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                        Agent Dashboard — {{ $period }}
+                    </h2>
+                    <div class="text-xs" style="color: var(--text-muted);">
+                        {{ $agent->name }} — {{ $agent->email }} @if($branchName) ({{ $branchName }}) @endif
+                    </div>
                 </div>
-            </div>
 
-            <div class="flex flex-wrap md:flex-nowrap items-center gap-2">
-                <a href="{{ route('bm.performance', ['period' => $period]) }}" class="btn-primary px-4 py-2">Back</a>
+                <div class="flex flex-wrap items-center gap-2">
+                    <a href="{{ route('bm.performance', ['period' => $period]) }}" class="corex-btn-outline text-xs shrink-0">Back</a>
 
-                <form method="GET" action="{{ route('bm.agent.performance', ['userId' => $agent->id]) }}" class="flex flex-wrap md:flex-nowrap items-center gap-2">
-                    <label class="text-sm font-semibold" style="color:var(--text-primary)">Period</label>
-                    <input type="month" name="period" value="{{ $period }}" />
-                    <button type="submit" class="btn-primary px-4 py-2">Go</button>
-                </form>
+                    <form method="GET" action="{{ route('bm.agent.performance', ['userId' => $agent->id]) }}" class="flex flex-wrap items-center gap-2">
+                        <input type="month" name="period" value="{{ $period }}" class="list-header-filter" />
+                        <button type="submit" class="corex-btn-primary text-xs">Go</button>
+                    </form>
+                </div>
             </div>
         </div>
     </x-slot>

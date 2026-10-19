@@ -9,10 +9,10 @@
 @php
     $panel = app(\App\Services\Rentals\RentalCrewScheduleService::class)->linkPanelFor($crew);
     $newUrl = session('crew_link_url');
-    $stateStyle = match ($panel['state']) {
-        'live' => 'background:#ecfdf5;color:#065f46;border:1px solid #a7f3d0;',
-        'never' => 'background:var(--surface-2);color:var(--text-muted);border:1px solid var(--border);',
-        default => 'background:#fef2f2;color:#991b1b;border:1px solid #fecaca;',
+    $stateBadge = match ($panel['state']) {
+        'live' => 'ds-badge-success',
+        'never' => 'ds-badge-muted',
+        default => 'ds-badge-danger',
     };
     $eventLabels = [
         'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'revoked' => 'Link revoked',
@@ -20,20 +20,20 @@
     ];
     $crewLinksOn = \App\Models\RentalPortalSetting::crewLinksEnabledFor($crew->agency_id);
 @endphp
-<div id="crew-link-panel" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+<div id="crew-link-panel" class="rounded-md p-6 space-y-3 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
     <div class="flex items-center justify-between gap-2">
-        <h2 class="text-sm font-semibold">Crew link</h2>
-        <span class="text-xs rounded-full px-2.5 py-0.5 font-semibold" style="{{ $stateStyle }}" data-crew-link-state="{{ $panel['state'] }}">{{ $panel['label'] }}</span>
+        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Crew link</h2>
+        <span class="ds-badge {{ $stateBadge }}" data-crew-link-state="{{ $panel['state'] }}">{{ $panel['label'] }}</span>
     </div>
     <p class="text-xs" style="color: var(--text-muted);">
         One link for the whole crew. They open it on their phone — no login — and see only the jobs booked for this crew: where, when, what to load, with their tasks, photos and sign-off.
     </p>
 
     @if(! $crewLinksOn)
-        <p class="text-xs" style="color:#991b1b;">Crew links are switched off for your agency (Settings → Rental Portal), so no crew link works right now.</p>
+        <p class="text-xs" style="color:var(--ds-crimson);">Crew links are switched off for your agency (Settings → Rental Portal), so no crew link works right now.</p>
     @endif
     @if(! $crew->is_active)
-        <p class="text-xs" style="color:#991b1b;">This crew is switched off — a link only works for an active crew.</p>
+        <p class="text-xs" style="color:var(--ds-crimson);">This crew is switched off — a link only works for an active crew.</p>
     @endif
 
     @if($panel['state'] !== 'never')
@@ -46,7 +46,7 @@
 
     @if($newUrl)
         <div class="rounded-md p-3 space-y-2" style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-icon, #0ea5e9);" data-crew-link-new>
-            <div class="text-xs font-semibold">Copy this link now — it is shown only once.</div>
+            <div class="text-xs font-semibold" style="color: var(--text-primary);">Copy this link now — it is shown only once.</div>
             <div class="flex gap-2">
                 <input id="crew-link-url" type="text" readonly value="{{ $newUrl }}" class="prop-input w-full text-xs" onclick="this.select()">
                 <button type="button" class="corex-btn-outline text-xs" id="crew-link-copy">Copy</button>
@@ -95,19 +95,19 @@
         <form method="POST" action="{{ route('corex.rental-crews.link.revoke', $crew) }}" data-confirm="Revoke the link? It stops working straight away." data-confirm-danger data-confirm-label="Revoke">
             @csrf
             @method('DELETE')
-            <button type="submit" class="text-xs" style="color:#991b1b;" data-crew-link-revoke>Revoke link</button>
+            <button type="submit" class="corex-btn-danger text-xs" data-crew-link-revoke>Revoke link</button>
         </form>
     @endif
 
     <div class="pt-2" style="border-top: 1px solid var(--border);">
         <div class="flex items-center justify-between">
-            <h3 class="text-xs font-semibold">Link log</h3>
+            <h3 class="text-xs font-semibold" style="color: var(--text-primary);">Link log</h3>
             @if($panel['events']->isNotEmpty())<a href="{{ route('corex.rental-crews.link.events', $crew) }}" class="text-xs underline" style="color: var(--brand-icon, #0ea5e9);">Full log</a>@endif
         </div>
         @forelse($panel['events'] as $ev)
             <div class="text-xs flex justify-between gap-2" style="padding:4px 0; border-top:1px solid var(--border);" data-crew-link-event="{{ $ev->event }}">
                 <div class="min-w-0">
-                    <strong>{{ $eventLabels[$ev->event] ?? $ev->event }}</strong>
+                    <strong style="color: var(--text-primary);">{{ $eventLabels[$ev->event] ?? $ev->event }}</strong>
                     @if($ev->note)<span style="color: var(--text-muted);"> — {{ $ev->note }}</span>@endif
                     @if($ev->actor)<span style="color: var(--text-muted);"> ({{ $ev->actor->name }})</span>@endif
                 </div>

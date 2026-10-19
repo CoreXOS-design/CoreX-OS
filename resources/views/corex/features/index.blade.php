@@ -100,9 +100,9 @@
                             <div class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text-primary);">
                                 <span>{{ $row['label'] }}</span>
                                 @if ($row['kind'] === 'core')
-                                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Always on</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">Always on</span>
                                 @elseif ($row['kind'] === 'switchboard')
-                                    <span class="text-[11px] font-medium px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Managed in its own settings</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">Managed in its own settings</span>
                                 @endif
                             </div>
                             @if (!empty($row['explain']))

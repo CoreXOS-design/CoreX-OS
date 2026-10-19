@@ -810,6 +810,8 @@ class PropertyObserver
             (isset($ppChanges['status']) || isset($ppChanges['status_label']))
             && $property->pp_syndication_enabled
             && $property->pp_ref
+            // A save that asked for no portal automation (imports; a tenancy that ended by itself, C-F3) pushes nothing to PP either.
+            && ! $property->skipSyndicationAutomation
         ) {
             try {
                 // Layer 3 gate lives in SyncPpListingStatusJob::handle (off-market

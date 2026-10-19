@@ -470,7 +470,7 @@ final class MapPinService
             $this->applyStatusFilter($q, $req, 'status');
         } else {
             // Single source of truth — Property::scopeOnMarket() equivalent.
-            $q->whereNotIn('status', \App\Models\Property::OFF_MARKET_STATUSES);
+            \App\Models\Property::constrainOnMarket($q);
         }
 
         $total = (clone $q)->count();
@@ -543,9 +543,7 @@ final class MapPinService
      */
     private function hfcOffMarket(MapBoundsRequest $req, int $limit): array
     {
-        $offMarketExceptSold = array_values(array_diff(\App\Models\Property::OFF_MARKET_STATUSES, ['sold']));
-
-        $q = $this->agencyStockBaseQuery($req)->whereIn('status', $offMarketExceptSold);
+        $q = \App\Models\Property::constrainOffMarket($this->agencyStockBaseQuery($req), 'status', ['sold']);
 
         $total = (clone $q)->count();
         $rows = $q->select($this->agencyStockColumns())->orderBy('id')->limit($limit)->get();

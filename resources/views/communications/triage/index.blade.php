@@ -35,11 +35,11 @@
             </svg>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}"
                    placeholder="Search sender, subject or message…"
-                   class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                   style="border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);outline:none;">
+                   class="list-header-filter w-full text-sm {{ ($filters['q'] ?? '') !== '' ? 'is-active' : '' }}"
+                   style="padding-left:2.5rem;">
         </div>
 
-        <select name="channel" onchange="this.form.submit()" class="list-header-filter" data-tour="comms-triage-channel">
+        <select name="channel" onchange="this.form.submit()" class="list-header-filter {{ ($filters['channel'] ?? '') !== '' ? 'is-active' : '' }}" data-tour="comms-triage-channel">
             <option value="" {{ ($filters['channel'] ?? '') === '' ? 'selected' : '' }}>All channels</option>
             @foreach(($channels ?? []) as $ch)
                 <option value="{{ $ch }}" {{ ($filters['channel'] ?? '') === $ch ? 'selected' : '' }}>{{ ucfirst($ch) }}</option>

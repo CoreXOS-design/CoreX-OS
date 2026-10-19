@@ -2,18 +2,20 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * .ai/specs/rental-takeon-import.md §2.2. No agency scope of its own —
- * always reached through its parent run, which is agency-scoped. Mirrors
- * App\Models\P24ImportRow deliberately.
+ * .ai/specs/rental-takeon-import.md §2.2. Carries its own agency_id (audit
+ * 2026-10-18, A-M2) so a row bound by id from another agency is never
+ * reachable, plus the parent run's own/branch scope is checked in the
+ * controller.
  */
 class RentalTakeOnImportRow extends Model
 {
-    use SoftDeletes;
+    use BelongsToAgency, SoftDeletes;
 
     public const STATUS_PENDING = 'pending';
     public const STATUS_INCLUDED = 'included';
@@ -28,6 +30,7 @@ class RentalTakeOnImportRow extends Model
     public const COMPLETENESS_DRAFT = 'draft';
 
     protected $fillable = [
+        'agency_id',
         'run_id',
         'row_number',
         'payload_json',

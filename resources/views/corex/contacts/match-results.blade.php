@@ -53,8 +53,7 @@
                 <h1 class="text-2xl font-bold leading-tight" style="color: var(--text-primary);">{{ $contact->full_name }}</h1>
                 <div class="flex items-center gap-2 flex-wrap">
                     @if($contact->type)
-                    <span class="text-[11px] px-2 py-0.5 rounded-md font-semibold"
-                          style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-secondary);">
+                    <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-default">
                         {{ $contact->type->name }}
                     </span>
                     @endif
@@ -95,14 +94,12 @@
         <div class="px-5 pb-3.5 flex items-center gap-x-3 gap-y-1.5 flex-wrap">
             <span class="text-[11px] uppercase tracking-widest font-semibold flex-shrink-0" style="color:var(--text-muted);">Criteria</span>
             @if($hasPrice)
-            <span class="text-xs font-semibold px-2.5 py-1 rounded-md"
-                  style="background: color-mix(in srgb, var(--brand-icon) 18%, transparent); color: var(--brand-icon); border: 1px solid color-mix(in srgb, var(--brand-icon) 35%, transparent);">
+            <span class="ds-badge ds-badge-pill ds-badge-info">
                 {{ $match->priceRangeLabel() }}
             </span>
             @endif
             @foreach($criteriaChips as $chip)
-            <span class="text-xs font-medium px-2.5 py-1 rounded-md"
-                  style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+            <span class="ds-badge ds-badge-pill ds-badge-default">
                 {{ $chip }}
             </span>
             @endforeach

@@ -29,9 +29,9 @@ final class MarketingPostPublished extends AbstractDomainEvent
 
     public function agencyId(): ?int
     {
-        // PropertyMarketingPost belongs to a Property; agency is read
-        // off the property to avoid an explicit relation load.
-        return $this->post->property?->agency_id;
+        // The post's own agency (a company-ad post has no property); the
+        // property's agency for older rows without one.
+        return $this->post->agency_id !== null ? (int) $this->post->agency_id : $this->post->property?->agency_id;
     }
 
     public function actorUserId(): ?int { return $this->post->user_id !== null ? (int) $this->post->user_id : null; }
@@ -39,6 +39,7 @@ final class MarketingPostPublished extends AbstractDomainEvent
 
     public function context(): array
     {
-        return ['platform' => $this->post->platform];
+        // Company Ads §12: a post may be for a company ad instead of a listing (one of the two is set).
+        return ['platform' => $this->post->platform, 'property_id' => $this->post->property_id, 'company_ad_id' => $this->post->company_ad_id];
     }
 }

@@ -11,11 +11,13 @@
     with the reason and where to fix it, until the agency has a linked, ready lease agreement (R3).
 --}}
 
-@section('content')
 {{-- leases.md §15.9 (Build L3c) — `mode=confirm`: the same screen opened on the lease's own record, showing the lease's value beside the agreement's. --}}
 @if(($mode ?? null) === 'confirm')
+@section('content')
     @include('corex.leases._agreement-confirm')
+@endsection
 @else
+@section('corex-content')
 @php
     $isRenew = $mode === 'renew';
     $propertyPickerConfig = [
@@ -75,19 +77,24 @@
     $signLabel = $isRenew ? 'Renew lease & prepare for signing' : 'Create lease & prepare for signing';
     $onlyLabel = $isRenew ? 'Renew lease only' : 'Create lease only';
 @endphp
-<div class="p-6 max-w-2xl mx-auto space-y-4"
+<div class="w-full space-y-5"
      x-data="leaseCaptureForm('{{ route('corex.properties.contacts.search-global') }}', {{ \Illuminate\Support\Js::from($oldTenants ?? []) }}, {{ \Illuminate\Support\Js::from($propertyPickerConfig) }}, {{ \Illuminate\Support\Js::from($captureCfg) }})"
      x-init="refreshSigners()">
-    <div>
-        <h1 class="text-lg font-semibold">{{ $isRenew ? 'Renew this lease' : 'New Lease' }}</h1>
-        @if($isRenew)
-            <p class="text-sm" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() }} — {{ $lease->tenantNames() }}</p>
-        @endif
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $isRenew ? 'Renew this lease' : 'New Lease' }}</h1>
+        <p class="text-xs" style="color: var(--text-muted);">
+            @if($isRenew)
+                {{ $lease->property?->buildDisplayAddress() }} — {{ $lease->tenantNames() }}
+            @else
+                Pick the property, add the tenant(s) and set the terms.
+            @endif
+        </p>
     </div>
 
     <form method="POST" enctype="multipart/form-data"
           action="{{ $isRenew ? route('corex.leases.renewal.store', $lease) : route('corex.leases.store') }}"
-          @submit="guardSubmit($event)" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+          @submit="guardSubmit($event)" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         {{-- Enter inside a text box submits the form with its FIRST submit button. Without this, that first button is the
              paper-copy one (inside the collapsed panel), so a plain Enter would post intent=paper_copy and fail with
@@ -97,7 +104,7 @@
         <input type="hidden" name="capture_key" value="{{ $captureKey }}">
 
         @if ($errors->any())
-            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);">
+            <div class="text-sm px-4 py-3 rounded-md" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);">
                 <ul>
                     @foreach ($errors->all() as $error)
                         <li>{{ $error }}</li>
@@ -108,7 +115,7 @@
 
         @if(session('capture_gaps'))
             {{-- "Create lease & prepare for signing" found something missing: nothing was created; each item links to where it is fixed. --}}
-            <div class="text-xs p-2 rounded space-y-1" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-qa="capture-gaps">
+            <div class="text-sm px-4 py-3 rounded-md space-y-1" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);" data-qa="capture-gaps">
                 <p class="font-medium">Still needed before the agreement can be prepared:</p>
                 <ul class="list-disc pl-4">
                     @foreach(session('capture_gaps') as $gap)
@@ -122,14 +129,14 @@
             {{-- Renewal: the property and the tenants are the lease being renewed — shown, never typed (R7). --}}
             <div>
                 <label class="prop-label">Property</label>
-                <div class="text-sm mt-1">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</div>
+                <div class="text-sm mt-1 font-medium" style="color: var(--text-primary);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</div>
             </div>
 
             <div class="space-y-2">
                 <label class="prop-label">Tenant(s)</label>
                 <div class="space-y-1">
                     @forelse($lease->tenants as $t)
-                        <div class="text-sm rounded px-2 py-1" style="background: var(--surface-2);">{{ $t->contact?->full_name ?? 'Unknown contact' }}{{ $t->is_primary ? ' (primary)' : '' }}</div>
+                        <div class="text-sm rounded-md px-3 py-2" style="background: var(--surface-2); color: var(--text-primary);">{{ $t->contact?->full_name ?? 'Unknown contact' }}{{ $t->is_primary ? ' (primary)' : '' }}</div>
                     @empty
                         <div class="text-sm" style="color: var(--text-muted);">No tenant linked</div>
                     @endforelse
@@ -145,7 +152,7 @@
                 <label for="lease-property-search" class="prop-label">Property</label>
                 @if($property)
                     <input type="hidden" name="property_id" value="{{ $property->id }}">
-                    <div class="text-sm mt-1">{{ $property->buildDisplayAddress() }}</div>
+                    <div class="text-sm mt-1 font-medium" style="color: var(--text-primary);">{{ $property->buildDisplayAddress() }}</div>
                 @else
                     {{-- .ai/specs/leases.md §7.2 — same type-to-search pattern as the rental
                          application / work order property pickers. The hidden input carries the
@@ -165,8 +172,8 @@
                         <template x-for="(p, idx) in propertyResults" :key="p.id">
                             <button type="button" role="option" :aria-selected="highlighted === idx ? 'true' : 'false'"
                                     @click="selectProperty(p)" @mouseenter="highlighted = idx"
-                                    :class="highlighted === idx ? 'bg-slate-100' : ''"
-                                    class="block w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                                    :style="{ background: highlighted === idx ? 'var(--surface-2)' : '' }"
+                                    class="block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary);">
                                 <div class="flex items-center gap-1.5">
                                     <span x-text="p.label"></span>
                                     <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); white-space: nowrap;"></span>
@@ -194,14 +201,14 @@
                 <p class="text-xs mb-1" style="color: var(--text-muted);">Add one or more — a lease can have joint tenants.</p>
                 <input type="text" x-model="query" @input.debounce.300ms="search()" placeholder="Search contacts by name, phone, or email…"
                        class="prop-input">
-                <div class="mt-1 rounded-md" style="border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
+                <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length > 0" x-cloak>
                     <template x-for="r in results" :key="r.id">
-                        <button type="button" @click="add(r)" class="block w-full text-left px-3 py-2 text-sm" style="border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
+                        <button type="button" @click="add(r)" class="list-row-hover block w-full text-left px-3 py-2 text-sm" style="color: var(--text-primary); border-bottom: 1px solid var(--border);" x-text="r.name + (r.email ? ' — ' + r.email : '')"></button>
                     </template>
                 </div>
                 <div class="mt-2 space-y-1">
                     <template x-for="(t, idx) in selected" :key="t.id">
-                        <div class="flex items-center justify-between text-sm rounded px-2 py-1" style="background: var(--surface-2);">
+                        <div class="flex items-center justify-between text-sm rounded-md px-3 py-2" style="background: var(--surface-2); color: var(--text-primary);">
                             <span x-text="t.name + (idx === 0 ? ' (primary)' : '')"></span>
                             <button type="button" @click="remove(idx)" class="text-xs" style="color: var(--ds-crimson);">Remove</button>
                         </div>
@@ -266,7 +273,7 @@
              RentalApplication::rentAboveApproved() via LeaseCaptureRequest (refuses / demands the reason regardless of this UI). --}}
         @if($rentalApplication && $rentalApplication->approved_rental_amount !== null)
             <div class="rounded-md px-3 py-2 text-xs" x-show="rentOver !== null" x-cloak data-test="rent-above-approved"
-                 style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #92400e); border: 1px solid var(--ds-amber, #f59e0b);">
+                 style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border: 1px solid color-mix(in srgb, var(--ds-amber) 40%, transparent);">
                 <div>
                     This tenant was approved for <strong x-text="money(approvedRent)"></strong> a month; this lease is
                     <strong x-text="money(rentNow)"></strong> — <strong x-text="money(rentOver)"></strong> above.
@@ -281,7 +288,7 @@
             @error('rent_above_approved_reason')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
         @endif
 
-        <label class="flex items-center gap-2 text-sm">
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
             <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month')) x-model="monthToMonth">
             Month-to-month (no fixed end date)
         </label>
@@ -306,8 +313,8 @@
 
         {{-- leases.md §18 — notice and early-cancellation terms: always asked (a linked agreement or not); they start from the
              agency's defaults (or the term being renewed) and are what the lease agreement and the portal FAQ are filled from. --}}
-        <div class="space-y-2" data-qa="capture-notice-terms">
-            <h3 class="text-sm font-semibold">Notice and early cancellation <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ $noticeDefaultsNote ?? 'From your agency defaults' }}</span></h3>
+        <div class="space-y-2 pt-5" style="border-top: 1px solid var(--border);" data-qa="capture-notice-terms">
+            <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Notice and early cancellation <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ $noticeDefaultsNote ?? 'From your agency defaults' }}</span></h3>
             @include('corex.leases._notice-terms', [
                 'noticeValues' => $noticeValues ?? [],
                 'noticePrefix' => 'notice',
@@ -321,7 +328,7 @@
             @include('corex.leases._signing-checklist')
         @endif
 
-        <label class="flex items-center gap-2 text-sm">
+        <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
             <input type="checkbox" name="activate_immediately" value="1" @checked(old('activate_immediately')) x-model="activate">
             {{ $isRenew ? 'Activate immediately' : 'Activate immediately (skip draft)' }}
         </label>
@@ -336,15 +343,15 @@
             </div>
         </div>
 
-        <div class="space-y-2 pt-2">
+        <div class="space-y-2 pt-5" style="border-top: 1px solid var(--border);">
             <div class="flex flex-wrap justify-end gap-2">
-                <a href="{{ $isRenew ? route('corex.leases.show', $lease) : route('corex.leases.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-                <button type="submit" name="intent" value="lease_only" @click="submitAttempted = true" class="corex-btn-primary text-xs">{{ $onlyLabel }}</button>
+                <a href="{{ $isRenew ? route('corex.leases.show', $lease) : route('corex.leases.index') }}" class="corex-btn-outline text-sm">Cancel</a>
+                <button type="submit" name="intent" value="lease_only" @click="submitAttempted = true" class="corex-btn-primary text-sm">{{ $onlyLabel }}</button>
                 @if($canPrepare)
                     @if($agreementReady)
-                        <button type="submit" name="intent" value="lease_and_sign" @click="submitAttempted = true" class="corex-btn-secondary text-xs">{{ $signLabel }}</button>
+                        <button type="submit" name="intent" value="lease_and_sign" @click="submitAttempted = true" class="corex-btn-secondary text-sm">{{ $signLabel }}</button>
                     @else
-                        <button type="submit" disabled aria-disabled="true" class="corex-btn-secondary text-xs" style="opacity: 0.5; cursor: not-allowed;">{{ $signLabel }}</button>
+                        <button type="submit" disabled aria-disabled="true" class="corex-btn-secondary text-sm" style="opacity: 0.5; cursor: not-allowed;">{{ $signLabel }}</button>
                     @endif
                 @endif
             </div>
@@ -608,5 +615,5 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
     };
 }
 </script>
-@endif
 @endsection
+@endif

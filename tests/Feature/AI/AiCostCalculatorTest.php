@@ -58,9 +58,32 @@ class AiCostCalculatorTest extends TestCase
         $this->assertSame($alias, $dated);
     }
 
-    public function test_unknown_model_costs_zero_not_an_error(): void
+    public function test_unknown_model_is_priced_at_the_most_expensive_configured_rate_not_zero(): void
     {
-        // Tokens still record elsewhere; cost just reads 0 for an unpriced model.
-        $this->assertSame(0.0, $this->calculator()->zar('gpt-4o-mini', 1_000_000, 1_000_000));
+        $calc = $this->calculator();
+
+        // Opus is the dearest configured: $5 in + $25 out per million, x R16.50.
+        $expected = round((5.00 + 25.00) * 16.5, 4);
+        $this->assertSame($expected, $calc->zar('gpt-4o-mini', 1_000_000, 1_000_000));
+        $this->assertGreaterThan(0.0, $calc->zar('some-future-model-9', 1000, 1000));
+    }
+
+    public function test_unknown_model_logs_one_warning_per_model_id(): void
+    {
+        $calc = $this->calculator();
+        \Illuminate\Support\Facades\Log::shouldReceive('warning')
+            ->once()
+            ->withArgs(fn ($msg, $ctx) => str_contains($msg, 'no pricing configured') && $ctx['model'] === 'mystery-model-1');
+
+        $calc->zar('mystery-model-1', 10, 10);
+        $calc->zar('mystery-model-1', 10, 10);
+        $calc->zar('mystery-model-1', 10, 10);
+    }
+
+    public function test_no_pricing_configured_at_all_still_reads_zero(): void
+    {
+        config()->set('services.anthropic.pricing', []);
+
+        $this->assertSame(0.0, (new AiCostCalculator())->zar('anything', 1_000_000, 1_000_000));
     }
 }

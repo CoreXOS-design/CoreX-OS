@@ -96,11 +96,11 @@
         @if($rf)<input type="hidden" name="fault" value="{{ request('fault') }}"><input type="hidden" name="mode" value="{{ request('mode') }}">@endif
         <div class="grow" style="min-width: 14rem;">
             <label for="sd-q" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input id="sd-q" type="search" name="q" value="{{ $fl['q'] }}" placeholder="Name, company, email or phone" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input id="sd-q" type="search" name="q" value="{{ $fl['q'] }}" placeholder="Name, company, email or phone" class="list-header-filter w-full text-sm {{ $fl['q'] !== '' ? 'is-active' : '' }}">
         </div>
         <div>
             <label for="sd-status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Show</label>
-            <select id="sd-status" name="status" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select id="sd-status" name="status" class="list-header-filter text-sm {{ $fl['status'] !== 'all' ? 'is-active' : '' }}">
                 <option value="all" @selected($fl['status'] === 'all')>Active and inactive</option>
                 <option value="active" @selected($fl['status'] === 'active')>Active only</option>
                 <option value="inactive" @selected($fl['status'] === 'inactive')>Inactive only</option>
@@ -109,29 +109,29 @@
  {{-- rentals-faults-work-orders.md section 21.1 --}}
         <div>
             <label for="sd-kind" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Kind</label>
-            <select id="sd-kind" name="kind" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select id="sd-kind" name="kind" class="list-header-filter text-sm {{ ($fl['kind'] ?? '') !== '' ? 'is-active' : '' }}">
                 <option value="">All kinds</option>
                 @foreach(($kinds ?? []) as $kk => $kl)<option value="{{ $kk }}" @selected(($fl['kind'] ?? '') === $kk)>{{ $kl }}</option>@endforeach
             </select>
         </div>
         <div>
             <label for="sd-group" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group</label>
-            <select id="sd-group" name="group" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select id="sd-group" name="group" class="list-header-filter text-sm {{ ($fl['group'] ?? '') !== '' ? 'is-active' : '' }}">
                 <option value="">All groups</option>
                 @foreach(($groups ?? []) as $gr)<option value="{{ $gr->id }}" @selected(($fl['group'] ?? '') === (string) $gr->id)>{{ $gr->label }}</option>@endforeach
             </select>
         </div>
         <div>
             <label for="sd-callout" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Call-out fee</label>
-            <select id="sd-callout" name="callout" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="any" @selected($fl['callout'] === 'any')>Any</option>
+            <select id="sd-callout" name="callout" class="list-header-filter text-sm {{ $fl['callout'] !== 'any' ? 'is-active' : '' }}">
+                <option value="any" @selected($fl['callout'] === 'any')>Any call-out fee</option>
                 <option value="yes" @selected($fl['callout'] === 'yes')>Charges a call-out fee</option>
                 <option value="no" @selected($fl['callout'] === 'no')>No call-out fee</option>
                 <option value="unknown" @selected($fl['callout'] === 'unknown')>Not known</option>
             </select>
         </div>
         <div class="flex items-center gap-2">
-            <button type="submit" class="corex-btn-primary text-xs" style="min-width: 6rem;">Search</button>
+            <button type="submit" class="corex-btn-primary text-xs" style="min-width: 6rem; height:2.25rem;">Search</button>
             <a href="{{ route('deals-v2.suppliers.index', ($rf ? ['fault' => request('fault'), 'mode' => request('mode')] : []) + (request()->query('nav') === 'rentals' ? ['nav' => 'rentals'] : [])) }}" class="corex-btn-outline text-xs inline-flex items-center justify-center" style="min-width: 6rem;">Clear</a>
         </div>
     </form>

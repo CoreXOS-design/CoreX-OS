@@ -841,6 +841,18 @@
                         <p class="text-xs mt-1" style="color: var(--text-muted);">0 turns the reminder off.</p>
                     </div>
                 </div>
+
+                <p class="text-xs mt-3" style="color: var(--text-muted);">The reminder email is sent to the inspector as above. Tenants and landlords are only reminded if you switch it on here (the booking, change and cancellation notices above are separate).</p>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="remind_tenant_by_email" value="0">
+                    <input type="checkbox" name="remind_tenant_by_email" value="1" @checked($remindTenantByEmail)>
+                    Also send the reminder to the tenant(s)
+                </label>
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="hidden" name="remind_landlord_by_email" value="0">
+                    <input type="checkbox" name="remind_landlord_by_email" value="1" @checked($remindLandlordByEmail)>
+                    Also send the reminder to the landlord
+                </label>
             </div>
         </div>
         <div class="flex justify-end">

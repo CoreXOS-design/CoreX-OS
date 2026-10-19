@@ -67,8 +67,17 @@
                 @endif
             </div>
             <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}" data-listing-chip>{{ $listingTypeLabel }}</span>
-                <span class="text-[11px] px-2 py-0.5 rounded-full font-semibold" style="{{ $brandPillStyle }}">{{ $statusLabel }}</span>
+                {{-- List-look (Johan 2026-10-17): the shared dot + word status instead of filled brand pills. Same words. --}}
+                @php
+                    $hdrStatusVariant = match (strtolower((string) ($property->status ?? ''))) {
+                        'active' => 'ds-badge-success',
+                        'sold', 'prospecting' => 'ds-badge-info',
+                        'sold_by_3rd_party', 'withdrawn' => 'ds-badge-warning',
+                        default => 'ds-badge-default',
+                    };
+                @endphp
+                <span class="ds-badge ds-badge-info" data-listing-chip>{{ $listingTypeLabel }}</span>
+                <span class="ds-badge {{ $hdrStatusVariant }}">{{ $statusLabel }}</span>
                 @if(!empty($property->status_label))
                     <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
                 @endif
@@ -100,7 +109,9 @@
     <div class="flex-1 lg:hidden"></div>
 
     @if(!$isNew)
-    <div class="flex items-center gap-2 flex-shrink-0 ml-auto">
+    {{-- flex-wrap + max-w-full: on a phone the action buttons used to run off the right edge (Book viewing / Save Changes
+         were already cut off); they now wrap onto a second row instead, so nothing - incl. Send to Auction - is lost. --}}
+    <div class="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end max-w-full ml-auto">
         @if($complianceMode === 'modal')
         <button type="button" @click="complianceModalOpen = true"
                 class="prop-action-btn prop-action-btn-neutral"
@@ -141,6 +152,32 @@
             Book viewing
         </a>
         @endpermission
+
+        {{-- AT-432 — the "Send to Auction" entry point (.ai/specs/auctions.md §9 steps 1-2), moved here from the
+             top of the Info tab (Johan 2026-10-17: "remove this button and put it in the header"). Same gates as
+             before: Auctions feature on for the agency + auctions.create permission; a property already on an
+             auction shows the "On Auction — Lot n" link to its lot instead. Deliberately NOT in the intake wizard
+             (it has no path to also create/attach the auction in the same step, and sale_method='auction' with no
+             lot behind it is an inconsistent state): this link carries the property into
+             AuctionController::create(), which attaches it as Lot 1 the moment the auction is created. A plain
+             link (no Alpine state), so it works unchanged from the header and on the standalone capture page. --}}
+        @feature('auctions')
+        @permission('auctions.create')
+            @if($property->isAuction() && ($currentLot = $property->currentAuctionLot()))
+            <a href="{{ route('corex.auctions.lots.show', $currentLot) }}"
+               class="prop-action-btn prop-action-btn-neutral no-underline" data-prop-auction-entry="on-auction"
+               title="This property is on auction — open its lot">
+                On Auction — Lot {{ $currentLot->lot_number }} ({{ $currentLot->auction->reference }})
+            </a>
+            @elseif(! $property->isAuction())
+            <a href="{{ route('corex.auctions.create', ['property_id' => $property->id]) }}"
+               class="prop-action-btn prop-action-btn-neutral no-underline" data-prop-auction-entry="send"
+               title="Create an auction with this property as its first lot">
+                Send to Auction
+            </a>
+            @endif
+        @endpermission
+        @endfeature
 
         {{-- Layer 3 — the approval tag and the "Send for approval" button, right
              beside Compliance Status because that is the moment they matter: the

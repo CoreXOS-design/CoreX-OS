@@ -570,3 +570,21 @@ confirming the payload/PUT logic itself was never the problem.
 
 **Sandbox check (Staging, conductor):** see the handover in `/tmp/qa1-cc6-portal-status-2026-10-06.md`.
 
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F1/C-F4) - External publishing guard
+
+`App\Support\ExternalPublishingGuard` is the one gate in front of every WRITE to Meta, Property24 and Private Property. Allowed by default; refused when `Instance::isDemo()` or `corex.external_publishing` (env `COREX_EXTERNAL_PUBLISHING`, default true) is false - set it false on any copy of live (live-testing) that carries real credentials. Property24: `Property24ApiClient::request()` refuses every non-GET (returns `success=false, refused=true`, one WARNING, no HTTP call). Private Property: `PrivatePropertySoapClient::call()` refuses the write operations (UpdateAgent, UpdateAgentImage, UpdateListing, ListingStatusUpdate, ListingShowdayUpdate, UpdateUniqueAgentID, UpdateUniqueListingID, UpdateListingVideoOrMatterport). Reads are never gated. PropertyObserver no longer queues `SyncPpListingStatusJob` for a save made with `skipSyndicationAutomation`.
+
+## Audit fix 2026-10-18 — the mapper no longer scans P24's agent list on a refresh
+
+`Property24ListingMapper::resolveContactAgentIds()` resolved the listing's P24 agents by downloading the whole
+`GET /agencies/{id}/agents` list (15-90 s, 610 KB) and matching `sourceReference` — on EVERY submit, including an
+unchanged refresh whenever the 25 h cache was cold (every deploy clears it). That broke the refresh cost contract
+(CLAUDE.md "Portal sync"). It now uses the stored `(users.p24_agent_id, users.p24_agent_agency_id)` pair first — the same
+rule as `Property24SyndicationService::resolveRegisteredAgentId()` — and scans the list only for an agent with no stored
+pair under this agency. Opted-out agents (`exclude_from_p24`) are still never attached. `Property24RefreshCostTest` was
+red on QA2 before this; its fixture now also mirrors a real saved listing (coordinates, split street name/number, agent
+re-read from the DB) so it measures P24 calls only. All three tests green.
+

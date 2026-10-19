@@ -1547,52 +1547,59 @@ class Property24ListingMapper
 
     private function resolveContactAgentIds(Property $property, int $agencyId): array
     {
-        // Build an agency-scoped client so credentials come from the property's
-        // agency row (not the now-empty .env). Without this the client falls
-        // back to env creds, authenticates as nobody, and returns zero agents
-        // — which P24 then rejects as "must have one or more agents".
-        $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
-        $client = new Property24ApiClient($agency);
-        // Scope the lookup to the property's resolved agency — otherwise a
-        // property under agency B would pull agents from agency A's feed.
-        $result = $client->getAgents((string) $agencyId);
-
-        if (!$result['success']) return [];
-
-        $agents = $result['data'] ?? [];
-        $ids = [];
-
         // Agents who opted out of P24 must never be attached to a syndicated
         // listing, even if a stale P24 record still carries their sourceReference.
-        $excludedUserIds = \App\Models\User::withTrashed()
-            ->whereIn('id', array_filter([$property->agent_id, $property->pp_second_agent_id]))
-            ->where('exclude_from_p24', true)
-            ->pluck('id')
-            ->all();
+        $userIds = array_values(array_filter([$property->agent_id, $property->pp_second_agent_id]));
+        $users = \App\Models\User::withTrashed()->whereIn('id', $userIds)->get()->keyBy('id');
 
-        // Primary agent
-        if ($property->agent_id && !in_array((int) $property->agent_id, $excludedUserIds, true)) {
-            $sourceRef = 'CoreX-Agent-' . $property->agent_id;
-            foreach ($agents as $agent) {
-                if (($agent['sourceReference'] ?? '') === $sourceRef) {
-                    $ids[] = (int) $agent['id'];
-                    break;
+        // Refresh cost contract (CLAUDE.md "Portal sync"): the stored (p24_agent_id,
+        // p24_agent_agency_id) pair answers "which P24 agent is this?" with ZERO HTTP —
+        // the same rule Property24SyndicationService::resolveRegisteredAgentId() follows.
+        // P24's agent list (a 15-90s, 610KB response) is scanned only for an agent with
+        // no stored pair under THIS agency, so an unchanged refresh never pays for it.
+        $ids = [];
+        $unresolved = [];
+        foreach ($userIds as $userId) {
+            $user = $users->get((int) $userId);
+            if ($user && $user->exclude_from_p24) {
+                continue;
+            }
+            if ($user && !empty($user->p24_agent_id) && (int) $user->p24_agent_agency_id === $agencyId) {
+                $ids[] = (int) $user->p24_agent_id;
+            } else {
+                $ids[] = null;               // keep the primary-then-second order
+                $unresolved[] = (int) $userId;
+            }
+        }
+
+        if ($unresolved !== []) {
+            // Build an agency-scoped client so credentials come from the property's
+            // agency row (not the now-empty .env). Without this the client falls
+            // back to env creds, authenticates as nobody, and returns zero agents
+            // — which P24 then rejects as "must have one or more agents".
+            $agency = $property->agency ?? \App\Models\Agency::find($property->agency_id);
+            $client = new Property24ApiClient($agency);
+            // Scope the lookup to the property's resolved agency — otherwise a
+            // property under agency B would pull agents from agency A's feed.
+            $result = $client->getAgents((string) $agencyId);
+            $agents = $result['success'] ? ($result['data'] ?? []) : [];
+
+            $position = 0;
+            foreach ($ids as $i => $id) {
+                if ($id !== null) {
+                    continue;
+                }
+                $sourceRef = 'CoreX-Agent-' . $unresolved[$position++];
+                foreach ($agents as $agent) {
+                    if (($agent['sourceReference'] ?? '') === $sourceRef) {
+                        $ids[$i] = (int) $agent['id'];
+                        break;
+                    }
                 }
             }
         }
 
-        // Second agent
-        if ($property->pp_second_agent_id && !in_array((int) $property->pp_second_agent_id, $excludedUserIds, true)) {
-            $sourceRef = 'CoreX-Agent-' . $property->pp_second_agent_id;
-            foreach ($agents as $agent) {
-                if (($agent['sourceReference'] ?? '') === $sourceRef) {
-                    $ids[] = (int) $agent['id'];
-                    break;
-                }
-            }
-        }
-
-        return $ids;
+        return array_values(array_filter($ids, fn ($id) => $id !== null));
     }
 
     private function buildShowdays(Property $property): array

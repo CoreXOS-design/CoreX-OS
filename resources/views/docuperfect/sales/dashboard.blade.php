@@ -145,11 +145,11 @@
                         @foreach($send->recipients as $r)
                             @if($r->status === 'returned_pending_approval')
                                 @if($r->return_method === 'upload' && $r->returned_file_path)
-                                    <span class="text-xs px-3 py-1.5 rounded-md" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">
                                         Uploaded via link
                                     </span>
                                 @elseif($r->return_method && $r->return_method !== 'upload')
-                                    <span class="text-xs px-3 py-1.5 rounded-md" style="color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">
                                         Received via {{ str_replace('_', ' ', $r->return_method) }}
                                     </span>
                                 @endif

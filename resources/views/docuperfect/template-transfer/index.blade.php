@@ -65,20 +65,20 @@
                 <input type="hidden" name="sort" value="{{ request('sort') }}">
                 <input type="hidden" name="direction" value="{{ request('direction', 'asc') }}">
             @endif
-            <input type="text" name="search" value="{{ request('search') }}" placeholder="Search template, person or checksum…" class="list-header-filter flex-1 min-w-[200px] max-w-sm">
-            <select name="direction_filter" onchange="this.form.submit()" class="list-header-filter">
+            <input type="text" name="search" value="{{ request('search') }}" placeholder="Search template, person or checksum…" class="list-header-filter flex-1 min-w-[200px] max-w-sm {{ filled(request('search')) ? 'is-active' : '' }}">
+            <select name="direction_filter" onchange="this.form.submit()" class="list-header-filter {{ filled(request('direction_filter')) ? 'is-active' : '' }}">
                 <option value="">Exports and imports</option>
                 <option value="export" @selected(request('direction_filter') === 'export')>Exports</option>
                 <option value="import" @selected(request('direction_filter') === 'import')>Imports</option>
             </select>
-            <select name="outcome" onchange="this.form.submit()" class="list-header-filter">
+            <select name="outcome" onchange="this.form.submit()" class="list-header-filter {{ filled(request('outcome')) ? 'is-active' : '' }}">
                 <option value="">Any outcome</option>
                 <option value="success" @selected(request('outcome') === 'success')>Done</option>
                 <option value="rejected" @selected(request('outcome') === 'rejected')>Refused</option>
                 <option value="failed" @selected(request('outcome') === 'failed')>Failed</option>
             </select>
-            <label class="text-xs" style="color: var(--text-muted);">From <input type="date" name="from" value="{{ request('from') }}" onchange="this.form.submit()" class="list-header-filter"></label>
-            <label class="text-xs" style="color: var(--text-muted);">To <input type="date" name="to" value="{{ request('to') }}" onchange="this.form.submit()" class="list-header-filter"></label>
+            <label class="text-xs" style="color: var(--text-muted);">From <input type="date" name="from" value="{{ request('from') }}" onchange="this.form.submit()" class="list-header-filter {{ filled(request('from')) ? 'is-active' : '' }}"></label>
+            <label class="text-xs" style="color: var(--text-muted);">To <input type="date" name="to" value="{{ request('to') }}" onchange="this.form.submit()" class="list-header-filter {{ filled(request('to')) ? 'is-active' : '' }}"></label>
             <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
             @if($filtered)<a href="{{ route('docuperfect.template-transfer.index') }}" class="text-xs underline" style="color: var(--text-muted);">Clear</a>@endif
             <span class="ml-auto text-xs" style="color: var(--text-muted);">{{ number_format($logs->total()) }} {{ \Illuminate\Support\Str::plural('record', $logs->total()) }}</span>
@@ -121,8 +121,8 @@
                         <td class="px-4 py-2 text-xs" style="color: var(--text-secondary);">{{ $log->actor_name ?? '—' }}</td>
                         <td class="px-4 py-2 text-xs">
                             @if($log->outcome === 'success')<span class="ds-badge ds-badge-success">Done</span>
-                            @elseif($log->outcome === 'rejected')<span class="ds-badge ds-badge-default" title="{{ $log->failure_reason }}">Refused</span>
-                            @else<span class="ds-badge ds-badge-default" title="{{ $log->failure_reason }}">Failed</span>@endif
+                            @elseif($log->outcome === 'rejected')<span class="ds-badge ds-badge-warning" title="{{ $log->failure_reason }}">Refused</span>
+                            @else<span class="ds-badge ds-badge-danger" title="{{ $log->failure_reason }}">Failed</span>@endif
                         </td>
                         <td class="px-4 py-2 text-[0.6875rem] font-mono" style="color: var(--text-muted);" title="{{ $log->package_checksum }}">{{ $log->package_checksum ? substr($log->package_checksum, 0, 12) . '…' : '—' }}</td>
                     </tr>

@@ -59,6 +59,24 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | External publishing (Facebook / Instagram / Property24 / Private Property)
+    |--------------------------------------------------------------------------
+    |
+    | App\Support\ExternalPublishingGuard. Default TRUE: the real live server
+    | publishes with no .env change. Set COREX_EXTERNAL_PUBLISHING=false on any
+    | copy of live (live-testing, a restored backup, a dev box) that carries the
+    | real Meta page tokens / portal credentials in its database, so a scheduled
+    | post or a status change made there can never reach a real page or listing.
+    | A demo instance (corex.instance.role = demo) is always refused. Reads are
+    | never gated. A refused Meta post is marked failed with a plain reason (and
+    | is never published later); a refused portal write logs one warning and
+    | does nothing else.
+    |
+    */
+    'external_publishing' => env('COREX_EXTERNAL_PUBLISHING', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Domain events
     |--------------------------------------------------------------------------
     |

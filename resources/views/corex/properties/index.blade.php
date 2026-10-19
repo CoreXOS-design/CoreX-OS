@@ -1,6 +1,88 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 @extends('layouts.corex')
 
+@push('head')
+<style>
+    /* Motion for the Properties list. Cards rise in one after another; users who ask
+       for reduced motion get the static page. */
+    @keyframes props-card-rise {
+        from { opacity: 0; transform: translateY(10px) scale(0.985); }
+        to   { opacity: 1; transform: none; }
+    }
+    .props-card-rise {
+        animation: props-card-rise 420ms cubic-bezier(0.2, 0.7, 0.2, 1) backwards;
+        animation-delay: calc(min(var(--i, 0), 12) * 35ms);
+        transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 260ms ease, border-color 260ms ease;
+    }
+    .props-card-rise:hover {
+        transform: translateY(-8px) scale(1.03);
+        box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.45), 0 0 0 1px color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, transparent), 0 0 28px -4px color-mix(in srgb, var(--brand-icon, #0ea5e9) 45%, transparent);
+        border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, var(--border));
+    }
+    /* Hover-only finish: HUD corner brackets appear on hover. The resting card is unchanged.
+       Decorative only, so clicks pass straight through. */
+    .props-card-rise::after {
+        content: "";
+        position: absolute;
+        inset: 6px;
+        pointer-events: none;
+        z-index: 20;
+        background:
+            linear-gradient(var(--brand-icon, #0ea5e9), var(--brand-icon, #0ea5e9)) top left / 14px 2px no-repeat,
+            linear-gradient(var(--brand-icon, #0ea5e9), var(--brand-icon, #0ea5e9)) top left / 2px 14px no-repeat,
+            linear-gradient(var(--brand-icon, #0ea5e9), var(--brand-icon, #0ea5e9)) bottom right / 14px 2px no-repeat,
+            linear-gradient(var(--brand-icon, #0ea5e9), var(--brand-icon, #0ea5e9)) bottom right / 2px 14px no-repeat;
+        opacity: 0;
+        transition: opacity 250ms ease;
+    }
+    .props-card-rise:hover::after { opacity: 1; }
+    /* Filter bar styling (option 04 look). Styling only: no filter or button moves,
+       and every rule is scoped to this page's root so other screens are untouched. */
+    .corex-props-v2 .props-filter-panel { background: transparent !important; }
+    .corex-props-v2 .list-header-filter { transition: border-color 200ms ease, color 200ms ease, background 200ms ease; }
+    .corex-props-v2 .list-header-filter:hover { border-color: color-mix(in srgb, var(--brand-icon, #0ea5e9) 55%, var(--border)); }
+    .corex-props-v2 .list-header-filter:focus { outline: none; border-color: var(--brand-icon, #0ea5e9); }
+    /* The open option list stays plain: the box keeps its blue for a filter that is set, the list does not */
+    .corex-props-v2 .list-header-filter option { background: var(--surface); color: var(--text-primary); }
+    .corex-props-v2 .list-header-filter option:checked,
+    .corex-props-v2 .list-header-filter option:hover { background: var(--surface-2); color: var(--text-primary); }
+    .corex-props-v2 .list-header-filter.is-active { border-color: var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9); background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 10%, var(--surface)); }
+    .corex-props-v2 .pstat-v2 { transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), border-color 200ms ease; }
+    .corex-props-v2 .pstat-v2:hover { transform: translateY(-3px); border-color: var(--brand-icon, #0ea5e9); }
+    /* Pill controls (My / All Properties, Grid / List), styled like the option-4 example: pill shape, accent fill on the choice, no glow */
+    .corex-props-v2 .props-pills { border-radius: 6px; }
+    /* Same height as the filter boxes beside it (2.25rem), so the row lines up */
+    .corex-props-v2 .props-pills-seg { background: var(--field); height: 2.25rem; padding: 2px; gap: 2px; align-items: stretch; }
+    .corex-props-v2 .props-pill { display: inline-flex; align-items: center; background: transparent; color: var(--text-muted); border-radius: 5px; padding: 0 0.875rem; font-size: 0.75rem; line-height: 1rem; transition: background 200ms ease, color 200ms ease; }
+    .corex-props-v2 .props-pill.is-on { background: var(--brand-icon, #0ea5e9); color: #fff; }
+    /* Price range slider: two handles over one track. Top handle at the cap = "No max". */
+    /* Half the width of the filter panel; full width on phones */
+    .corex-props-v2 .props-price { grid-column: 1 / -1; width: 50%; min-width: 0; }
+    @media (max-width: 640px) { .corex-props-v2 .props-price { width: 100%; } }
+    .corex-props-v2 .props-price-readout { display: flex; justify-content: space-between; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px; color: var(--muted, var(--text-muted)); margin-top: 4px; }
+    .corex-props-v2 .props-price.is-active .props-price-readout { color: var(--brand-icon, #0ea5e9); }
+    .corex-props-v2 .props-price-track { position: relative; height: 22px; }
+    .corex-props-v2 .props-price-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; background: var(--border); }
+    .corex-props-v2 .props-price-fill { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; background: var(--brand-icon, #0ea5e9); }
+    .corex-props-v2 .props-price-range { position: absolute; left: 0; top: 0; width: 100%; height: 22px; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+    /* The native track is hidden: the single visible track is drawn by .props-price-track, so the two inputs read as one slider */
+    .corex-props-v2 .props-price-range::-webkit-slider-runnable-track { height: 22px; background: transparent; border: 0; box-shadow: none; }
+    .corex-props-v2 .props-price-range::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 14px; height: 14px; margin-top: 4px; border-radius: 50%; background: var(--surface); border: 2px solid var(--brand-icon, #0ea5e9); cursor: pointer; }
+    .corex-props-v2 .props-price-range::-moz-range-track { height: 22px; background: transparent; border: 0; }
+    .corex-props-v2 .props-price-range::-moz-range-thumb { pointer-events: auto; width: 12px; height: 12px; border-radius: 50%; background: var(--surface); border: 2px solid var(--brand-icon, #0ea5e9); cursor: pointer; }
+    @media (prefers-reduced-motion: reduce) {
+        .corex-props-v2 .pstat-v2, .corex-props-v2 .list-header-filter { transition: none; }
+        .corex-props-v2 .pstat-v2:hover { transform: none; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .props-card-rise,
+        .props-card-rise:hover { animation: none; transition: none; transform: none; }
+        .props-card-rise::after { transition: none; }
+    }
+</style>
+@endpush
+
 @section('corex-content')
 @php
     // '__ID__' placeholder — the panel URL is resolved per property in JS.
@@ -10,7 +92,7 @@
     // on; the controller passes that route's own name.
     $indexRoute = $indexRouteName ?? 'corex.properties.index';
 @endphp
-<div class="w-full h-full flex flex-col corex-props-v2" data-list-collapse
+<div class="w-full h-full flex flex-col corex-props-v2" data-list-collapse data-list-collapse-reset
      x-data="{
         view: localStorage.getItem('prop_view') || 'grid',
 
@@ -300,6 +382,8 @@
         }
 
         $currentStatus = $status ?? '';
+        // The sort the page starts on (agency setting). Only a different choice counts as an active filter.
+        $sortDefault = ($agencySortMode ?? 'created') === 'status_priority' ? 'status_priority' : 'newest';
         $currentFilter = request()->query('filter', '');
         $baseUrl = request()->url();
         $preserveParams = collect(request()->query())->except('status', 'filter', 'page')->toArray();
@@ -388,7 +472,7 @@
             setSingle(id) { this.selected = (id === '' || id == null) ? [] : [parseInt(id)]; this.apply(); },
             selectAll() { this.selected = []; this.apply(); }
          }"
-         class="rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+         class="props-filter-panel rounded-md px-4 py-3 mt-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
 
         <form method="GET" action="{{ route($indexRoute) }}" x-ref="filterForm" class="flex flex-wrap items-center gap-3">
 
@@ -400,7 +484,7 @@
                 <input type="text" name="search" value="{{ $search }}"
                        placeholder="Search title, suburb, or P24 ref..."
                        onchange="this.form.submit()"
-                       class="list-header-filter w-full"
+                       class="list-header-filter w-full {{ $search !== '' ? 'is-active' : '' }}"
                        style="padding-left:2.25rem;">
             </div>
 
@@ -415,16 +499,14 @@
                 $pcAllUrl   = route($indexRoute, array_merge($pcCarry, ['agent_ids' => 'all']));
                 $pcAllLabel = $dataScope === 'branch' ? 'branch' : 'agency';
             @endphp
-            <div class="inline-flex rounded-md overflow-hidden" style="border:1px solid var(--border);">
+            <div class="inline-flex props-pills props-pills-seg overflow-hidden" style="border:1px solid var(--border);">
                 <a href="{{ $pcMineUrl }}" @click.prevent="setSingle('{{ $pcuId }}')"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="{{ $pcIsMine ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   class="props-pill px-3 py-2 text-xs font-semibold no-underline transition-all duration-300 {{ $pcIsMine ? 'is-on' : '' }}"
                    title="Show only my properties">
                     My Properties
                 </a>
                 <a href="{{ $pcAllUrl }}" @click.prevent="selectAll()"
-                   class="px-3 py-2 text-xs font-semibold no-underline transition-all duration-300"
-                   style="border-left:1px solid var(--border); {{ $pcIsAll ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'background:var(--surface);color:var(--text-muted);' }}"
+                   class="props-pill px-3 py-2 text-xs font-semibold no-underline transition-all duration-300 {{ $pcIsAll ? 'is-on' : '' }}"
                    title="Show all {{ $pcAllLabel }} properties">
                     All Properties
                 </a>
@@ -435,7 +517,7 @@
             {{-- AT-401 — Rentals lens: same swap as the KPI tiles above. Sale-only
                  concepts (Not selling, Sold by 3rd Party) are dropped rather than
                  mislabelled — no rental-equivalent status exists for either today. --}}
-            <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-status">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter {{ $status !== '' ? 'is-active' : '' }}" data-tour="re-properties-status">
                 <option value="" {{ $status === '' ? 'selected' : '' }}>All Statuses</option>
                 @if($isAuctionEntry ?? false)
                 <option value="{{ \App\Models\Property::STATUS_ON_AUCTION }}" {{ $status === \App\Models\Property::STATUS_ON_AUCTION ? 'selected' : '' }}>On Auction</option>
@@ -500,7 +582,7 @@
             @elseif($isRentalEntry ?? false)
                 <span class="list-header-filter" style="cursor:default;" title="This entry point always shows rentals only">Rentals only</span>
             @else
-                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter">
+                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter {{ ($filters['listingType'] ?? '') !== '' ? 'is-active' : '' }}">
                     <option value="" {{ ($filters['listingType'] ?? '') === '' ? 'selected' : '' }}>Sale &amp; Rental</option>
                     <option value="sale"   {{ ($filters['listingType'] ?? '') === 'sale'   ? 'selected' : '' }}>For Sale</option>
                     <option value="rental" {{ ($filters['listingType'] ?? '') === 'rental' ? 'selected' : '' }}>For Rental</option>
@@ -508,7 +590,7 @@
             @endif
 
             {{-- Sort --}}
-            <select name="sort" onchange="this.form.submit()" class="list-header-filter" data-tour="re-properties-sort">
+            <select name="sort" onchange="this.form.submit()" class="list-header-filter {{ (($filters['sort'] ?? '') !== '' && ($filters['sort'] ?? '') !== $sortDefault) ? 'is-active' : '' }}" data-tour="re-properties-sort">
                 <option value="newest"     {{ ($filters['sort'] ?? 'newest') === 'newest'     ? 'selected' : '' }}>Newest first</option>
                 @if(($agencySortMode ?? 'created') === 'status_priority' || ($filters['sort'] ?? '') === 'status_priority')
                 <option value="status_priority" {{ ($filters['sort'] ?? '') === 'status_priority' ? 'selected' : '' }}>Status order (default)</option>
@@ -665,7 +747,7 @@
             @endif
 
             {{-- View toggle --}}
-            <div class="flex items-center gap-0.5 rounded-md" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);" data-tour="re-properties-viewtoggle">
+            <div class="flex items-center gap-0.5 props-pills" style="height:2.25rem;padding:0.125rem;background:var(--surface-2);border:1px solid var(--border);" data-tour="re-properties-viewtoggle">
                 <button type="button" @click="view = 'grid'"
                         class="h-full px-2 rounded transition-all duration-300 inline-flex items-center justify-center"
                         :style="view === 'grid' ? 'background:var(--brand-icon,#0ea5e9);color:#fff;' : 'color:var(--text-muted);'"
@@ -691,7 +773,7 @@
                     {{-- Property Type --}}
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Property Type</label>
-                        <select name="property_type" onchange="this.form.submit()" class="list-header-filter w-full">
+                        <select name="property_type" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['propertyType'] ?? '') !== '' ? 'is-active' : '' }}">
                             <option value="">Any type</option>
                             @foreach($filterOptions['property_types'] as $opt)
                                 <option value="{{ $opt->name }}" {{ ($filters['propertyType'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
@@ -702,7 +784,7 @@
                     {{-- Category --}}
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Category</label>
-                        <select name="category" onchange="this.form.submit()" class="list-header-filter w-full">
+                        <select name="category" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['category'] ?? '') !== '' ? 'is-active' : '' }}">
                             <option value="">Any category</option>
                             @foreach($filterOptions['categories'] as $opt)
                                 <option value="{{ $opt->name }}" {{ ($filters['category'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
@@ -713,7 +795,7 @@
                     {{-- Mandate --}}
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Mandate</label>
-                        <select name="mandate_type" onchange="this.form.submit()" class="list-header-filter w-full">
+                        <select name="mandate_type" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['mandateType'] ?? '') !== '' ? 'is-active' : '' }}">
                             <option value="">Any mandate</option>
                             @foreach($filterOptions['mandate_types'] as $opt)
                                 <option value="{{ $opt->name }}" {{ ($filters['mandateType'] ?? '') === $opt->name ? 'selected' : '' }}>{{ $opt->name }}</option>
@@ -725,7 +807,7 @@
                     @if($canPickAgent && $filterOptions['branches']->isNotEmpty())
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Branch</label>
-                        <select name="branch_id" onchange="this.form.submit()" class="list-header-filter w-full">
+                        <select name="branch_id" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['branchFilter'] ?? '') !== '' ? 'is-active' : '' }}">
                             <option value="">All branches</option>
                             @foreach($filterOptions['branches'] as $branch)
                                 <option value="{{ $branch->id }}" {{ (string) ($filters['branchFilter'] ?? '') === (string) $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
@@ -737,8 +819,8 @@
                     {{-- Min Beds --}}
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Beds</label>
-                        <select name="beds_min" onchange="this.form.submit()" class="list-header-filter w-full">
-                            <option value="">Any</option>
+                        <select name="beds_min" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['bedsMin'] ?? '') !== '' ? 'is-active' : '' }}">
+                            <option value="">Any beds</option>
                             @for($i = 1; $i <= 6; $i++)
                                 <option value="{{ $i }}" {{ (string) ($filters['bedsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
                             @endfor
@@ -748,30 +830,43 @@
                     {{-- Min Baths --}}
                     <div>
                         <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Min Baths</label>
-                        <select name="baths_min" onchange="this.form.submit()" class="list-header-filter w-full">
-                            <option value="">Any</option>
+                        <select name="baths_min" onchange="this.form.submit()" class="list-header-filter w-full {{ ($filters['bathsMin'] ?? '') !== '' ? 'is-active' : '' }}">
+                            <option value="">Any baths</option>
                             @for($i = 1; $i <= 6; $i++)
                                 <option value="{{ $i }}" {{ (string) ($filters['bathsMin'] ?? '') === (string) $i ? 'selected' : '' }}>{{ $i }}+</option>
                             @endfor
                         </select>
                     </div>
 
-                    {{-- Price Min --}}
-                    <div>
-                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Min (R)</label>
-                        <input type="number" name="price_min" min="0" step="50000"
-                               value="{{ $filters['priceMin'] ?? '' }}" placeholder="0"
-                               onchange="this.form.submit()"
-                               class="list-header-filter w-full">
-                    </div>
-
-                    {{-- Price Max --}}
-                    <div>
-                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price Max (R)</label>
-                        <input type="number" name="price_max" min="0" step="50000"
-                               value="{{ $filters['priceMax'] ?? '' }}" placeholder="No max"
-                               onchange="this.form.submit()"
-                               class="list-header-filter w-full">
+                    {{-- Price range — one slider, two handles. It still submits price_min / price_max,
+                         so the list filters exactly as before. The top handle at the cap means "No max":
+                         the param is left empty and everything above the cap is included. --}}
+                    @php
+                        // Ends come from the agency's own stock: lowest and highest asking price.
+                        $priceFloor = (int) ($priceRange['min'] ?? 0);
+                        $priceCap = max((int) ($priceRange['max'] ?? 0), $priceFloor + 1000);
+                        $priceLoStart = ($filters['priceMin'] ?? '') !== '' ? (int) $filters['priceMin'] : $priceFloor;
+                        $priceHiStart = ($filters['priceMax'] ?? '') !== '' ? (int) $filters['priceMax'] : $priceCap;
+                        $priceActive = ($filters['priceMin'] ?? '') !== '' || ($filters['priceMax'] ?? '') !== '';
+                    @endphp
+                    <div class="props-price {{ $priceActive ? 'is-active' : '' }}"
+                         x-data="{ lo: {{ $priceLoStart }}, hi: {{ $priceHiStart }}, floor: {{ $priceFloor }}, cap: {{ $priceCap }} }">
+                        <label class="block text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Price range (R)</label>
+                        <div class="props-price-track">
+                            <div class="props-price-fill" :style="'left:' + ((lo - floor) / (cap - floor) * 100) + '%; right:' + (100 - (hi - floor) / (cap - floor) * 100) + '%'"></div>
+                            <input type="range" min="{{ $priceFloor }}" max="{{ $priceCap }}" step="1000" x-model.number="lo"
+                                   @input="lo = Math.min(lo, hi)" @change="$el.closest('form').submit()"
+                                   aria-label="Lowest price" class="props-price-range">
+                            <input type="range" min="{{ $priceFloor }}" max="{{ $priceCap }}" step="1000" x-model.number="hi"
+                                   @input="hi = Math.max(hi, lo)" @change="$el.closest('form').submit()"
+                                   aria-label="Highest price" class="props-price-range">
+                        </div>
+                        <div class="props-price-readout">
+                            <span x-text="'R ' + lo.toLocaleString('en-ZA')"></span>
+                            <span x-text="'R ' + hi.toLocaleString('en-ZA')"></span>
+                        </div>
+                        <input type="hidden" name="price_min" :value="lo > floor ? lo : ''" value="{{ $filters['priceMin'] ?? '' }}">
+                        <input type="hidden" name="price_max" :value="hi < cap ? hi : ''" value="{{ $filters['priceMax'] ?? '' }}">
                     </div>
                 </div>
 
@@ -922,7 +1017,7 @@
     @else
 
     {{-- ═══ GRID VIEW ═══ --}}
-    <div x-show="view === 'grid'" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4" data-tour="re-properties-list">
+    <div x-show="view === 'grid'" x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 p-4" data-tour="re-properties-list">
         @foreach($properties as $property)
         @php
             // 2026-09-30 field audit — allImages() merges gallery_images_json
@@ -986,16 +1081,16 @@
             <div class="text-[1.125rem] font-bold leading-none tabular-nums mb-1.5" style="color:var(--text-primary);">{{ $property->formattedDisplayPrice() }}</div>
             <div class="text-sm font-semibold leading-snug line-clamp-1" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</div>
             @if($property->isImportedStock())
-            <span class="mt-2 text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+            <span class="ds-badge ds-badge-pill ds-badge-default mt-2 w-fit" title="Imported from Property24">Imported</span>
             @endif
-            <div class="text-xs mt-2 px-2 py-1 rounded-md inline-block w-fit font-medium" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+            <div class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning mt-2 w-fit">
                 Agent: {{ $property->agent?->name ?? 'Unassigned' }}
             </div>
             <div class="text-[10px] italic mt-2" style="color:var(--text-muted);">Already listed — not in your listings</div>
         </div>
         @continue
         @endif
-        <div class="pcard-v2 relative overflow-hidden flex flex-col">
+        <div class="pcard-v2 props-card-rise relative overflow-hidden flex flex-col" style="--i: {{ $loop->index }};">
 
             {{-- Thumbnail — full-bleed, touches top & sides (spec §9) --}}
             <a href="{{ route('corex.properties.show', $property) }}" target="_blank" rel="noopener" class="relative block h-40 flex-shrink-0 overflow-hidden" style="background:linear-gradient(135deg, var(--surface-2), var(--surface));">
@@ -1049,7 +1144,7 @@
                     <span class="pglass-v2 text-[11px] px-2 py-1 rounded-md font-medium" title="Imported from Property24">Imported</span>
                     @endif
                     @if($property->needsPortalAgentAttention())
-                    <span class="text-[11px] px-2 py-1 rounded-md font-semibold" style="background:color-mix(in srgb, var(--ds-amber) 14%, var(--surface)); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-warning" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                     @endif
                 </div>
 
@@ -1184,7 +1279,7 @@
     </div>
 
     {{-- ═══ LIST VIEW ═══ --}}
-    <div x-show="view === 'list'" x-cloak data-tour="re-properties-table" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
+    <div x-show="view === 'list'" x-cloak x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" data-tour="re-properties-table" class="rounded-md overflow-hidden" style="background:var(--surface);border:1px solid var(--border);">
       <div class="overflow-x-auto">
         <table class="min-w-full text-sm ds-table">
             @php
@@ -1268,9 +1363,9 @@
                                 <span class="text-sm font-semibold" style="color:var(--text-primary);">{{ $property->buildDisplayAddress() ?? ($property->title ?: '—') }}</span>
                                 <span class="text-xs font-semibold tabular-nums" style="color:var(--text-secondary);">{{ $property->formattedDisplayPrice() }}</span>
                                 @if($property->isImportedStock())
-                                <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-default" title="Imported from Property24">Imported</span>
                                 @endif
-                                <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);">
+                                <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning">
                                     Agent: {{ $property->agent?->name ?? 'Unassigned' }}
                                 </span>
                             </div>
@@ -1301,10 +1396,10 @@
                             {{ Str::limit($property->title, 35) }}
                         </a>
                         @if($property->isImportedStock())
-                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);" title="Imported from Property24">Imported</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default ml-1.5 align-middle" title="Imported from Property24">Imported</span>
                         @endif
                         @if($property->needsPortalAgentAttention())
-                        <span class="ml-1.5 align-middle text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap" style="background:color-mix(in srgb, var(--ds-amber) 14%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-warning ml-1.5 align-middle" title="A portal send stopped on an agent problem — open the listing to sort it out">Portal agent</span>
                         @endif
                         @if($property->p24_ref)
                         <div class="text-[10px] font-mono mt-0.5" style="color:{{ $rowIsOffMarket ? 'var(--text-muted)' : 'var(--brand-icon, #0ea5e9)' }};" title="Property24 listing number">P24: {{ $property->p24_ref }}</div>
@@ -1347,15 +1442,15 @@
                             };
                         @endphp
                         @if($ms !== 'n/a')
-                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded" style="{{ $msStyle }}" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
+                            <span class="ds-badge" style="{{ $msStyle }};" title="{{ $property->marketing_status_detail ?? '' }}">{{ ucfirst($ms) }}</span>
                         @else
                             <span class="text-[10px]" style="color:var(--text-muted);">—</span>
                         @endif
                     </td>
                     <td class="px-4 py-2.5 text-left">
                         <div class="inline-flex flex-row gap-1.5 items-center">
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowBrandPillStyle }}">{{ $rowListingLabel }}</span>
-                            <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowStatusPillStyle }}">{{ $rowStatusLabel }}</span>
+                            <span class="ds-badge ds-badge-pill" style="{{ $rowBrandPillStyle }};">{{ $rowListingLabel }}</span>
+                            <span class="ds-badge" style="{{ $rowStatusPillStyle }};">{{ $rowStatusLabel }}</span>
                             {{-- Layer 3 — approval tag, beside the status pill and never inside
                                  it (spec §2: the status column is untouched by this feature). --}}
                             @if($syndicationApprovalOn ?? false)
@@ -1373,7 +1468,7 @@
                                     ][$rowAppr] ?? '';
                                 @endphp
                                 @if($rowApprText)
-                                <span class="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap" style="{{ $rowApprStyle }}" title="Syndication approval">{{ $rowApprText }}</span>
+                                <span class="ds-badge" style="{{ $rowApprStyle }};" title="Syndication approval">{{ $rowApprText }}</span>
                                 @endif
                             @endif
                         </div>

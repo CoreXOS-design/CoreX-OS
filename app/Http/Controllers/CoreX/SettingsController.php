@@ -55,7 +55,7 @@ class SettingsController extends Controller
             'feature-documents', 'feature-rentals', 'feature-contacts',
             'feature-properties', 'feature-presentations', 'feature-matches', 'feature-dashboard',
             'leave-visibility', 'remote-access', 'commission', 'command-center', 'core-matches', 'prospecting-setup',
-            'outreach-templates', 'team-inbox',
+            'outreach-templates', 'team-inbox', 'leave-types',
         ];
         if (!in_array($section, $validSections, true)) {
             $section = 'agency';
@@ -364,6 +364,14 @@ class SettingsController extends Controller
             }
             $data['leaveVisibilityRoles'] = $roles;
             $data['leaveVisibilityGrid']  = $grid;
+        }
+
+        // Operations: Leave Types (AT-455, Andre 2026-10-14 — moved here from the
+        // Leave Management menu). Same permission the leave-type routes carry;
+        // only queried when that section is open, since it paginates.
+        $data['leaveTypes'] = null;
+        if ($section === 'leave-types' && $user && $user->hasPermission('manage_leave_types') && $user->hasFeature('leave')) {
+            $data['leaveTypes'] = \App\Http\Controllers\Leave\LeaveTypeController::listData($request);
         }
 
         return view('corex.settings', $data);

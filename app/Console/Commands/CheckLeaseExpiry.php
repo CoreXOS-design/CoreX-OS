@@ -6,6 +6,7 @@ use App\Models\Agency;
 use App\Models\Lease;
 use App\Models\LeaseSetting;
 use App\Notifications\LeaseExpiryAlert;
+use App\Services\Features\AgencyFeatureService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -57,7 +58,14 @@ class CheckLeaseExpiry extends Command
         $alerts = 0;
 
         foreach (Agency::all() as $agency) {
+            // Rentals / Leases switched off for this agency: its leases are left exactly as they are (C-F5, release audit 2026-10-18).
+            if (! app(AgencyFeatureService::class)->enabled('rental-leases', $agency)) {
+                continue;
+            }
+
             $windowDays = LeaseSetting::expiryNoticeWindowDaysFor($agency->id);
+
+            $this->clearOverdueMarkers($agency->id);
 
             // Overdue — end_date already passed. Flagged via the alert ONLY;
             // status is never written here (Johan's ruling, 2026-10-04 —
@@ -107,6 +115,27 @@ class CheckLeaseExpiry extends Command
         return 0;
     }
 
+    /**
+     * End an "overdue episode": a lease that was alerted as overdue but no longer is (renewed, a new end date, ended,
+     * cancelled) loses its marker, so it alerts again if it ever becomes overdue again. A lease whose end date is today
+     * still counts as the same episode (it is alerted as 'expired' on the day).
+     */
+    private function clearOverdueMarkers(int $agencyId): void
+    {
+        $today = now()->startOfDay();
+
+        Lease::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->whereNotNull('overdue_alerted_at')
+            ->where(function ($q) use ($today) {
+                $q->where('status', '!=', Lease::STATUS_ACTIVE)
+                    ->orWhereNull('end_date')
+                    ->orWhere('end_date', '>', $today);
+            })
+            ->toBase()
+            ->update(['overdue_alerted_at' => null]);
+    }
+
     private function getAlertLevel(int $daysLeft): string
     {
         return match (true) {
@@ -128,8 +157,13 @@ class CheckLeaseExpiry extends Command
      */
     private function sendLeaseAlert(Lease $lease, string $level, int $daysLeft): bool
     {
+        // The 'expired' (overdue) alert fires ONCE per lease per overdue episode - a durable marker on the lease
+        // (overdue_alerted_at), cleared by clearOverdueMarkers() once the lease is no longer overdue. Release audit
+        // 2026-10-18, C-F6: it used to repeat every 7 days for as long as the lease stayed active past its end date.
+        // The earlier tiers keep their cache-based dedup.
+        $overdue = $level === 'expired';
         $cacheKey = "lease_v2_alert_{$lease->id}_{$level}";
-        if (Cache::has($cacheKey)) {
+        if ($overdue ? $lease->overdue_alerted_at !== null : Cache::has($cacheKey)) {
             return false;
         }
 
@@ -152,7 +186,12 @@ class CheckLeaseExpiry extends Command
             // No email — in-app notification only, same as the legacy
             // command (LeaseExpirationMail stays dead code; not revived here).
 
-            Cache::put($cacheKey, true, now()->addDays(7));
+            if ($overdue) {
+                // Plain row update: no model events, no updated_at churn on a lease nobody edited.
+                Lease::withoutGlobalScopes()->whereKey($lease->id)->toBase()->update(['overdue_alerted_at' => now()]);
+            } else {
+                Cache::put($cacheKey, true, now()->addDays(7));
+            }
 
             return true;
         } catch (\Throwable $e) {

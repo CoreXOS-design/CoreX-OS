@@ -31,7 +31,7 @@
 ## 3. Part A — SUPERSEDED by §3A (kept for history: the agency-less mode of the real e-sign, removed 2026-10-05)
 
 ### 3.1 Behaviour
-* **Sidebar → System Developer → "Platform E-Sign"** (`admin.platform-esign.enter`, owner-only, no permission
+* **Sidebar → System Developer → Contracts → "Platform E-Sign"** (moved into the Contracts group beside Company — RR Technologies, Andre 2026-10-14) (`admin.platform-esign.enter`, owner-only, no permission
   key by design) switches the owner into *Platform E-Sign mode* and lands on a hub
   (`docuperfect.platform.hub`, `/docuperfect/platform`): Send a contract · Contract templates · Create a
   template from a document (import) · Sent contracts · Recipient presets. An amber banner with the same

@@ -5,6 +5,7 @@
 #   production target WITH the flag     -> passes
 #   staging target WITH the flag        -> refuses (a copied live .env must not arm a test box)
 #   staging target WITHOUT the flag     -> passes
+#   production test copy (COREX_EXTERNAL_PUBLISHING=false) -> must NOT carry the flag; passes without it
 #
 #   bash scripts/tests/deploy-preflight-real-send-flag.sh
 #
@@ -43,6 +44,14 @@ expect "production, flag =1: passes"                   0 production "$T/prod-fla
 expect "production, flag =\"true\": passes"            0 production "$T/prod-true.env"
 expect "staging, flag absent: passes"                  0 staging    "$T/stg-missing.env"
 expect "staging, flag set: REFUSES"                    1 staging    "$T/stg-flag.env"
+
+# live-testing: production mode, declared a copy by COREX_EXTERNAL_PUBLISHING=false (release audit 2026-10-18)
+printf 'APP_ENV=production\nCOREX_EXTERNAL_PUBLISHING=false\n' > "$T/copy-missing.env"
+printf 'APP_ENV=production\nCOREX_EXTERNAL_PUBLISHING=false\nOUTBOUND_MAIL_REAL_SEND=1\n' > "$T/copy-flag.env"
+printf 'APP_ENV=production\nCOREX_EXTERNAL_PUBLISHING=true\n' > "$T/prod-publishing-true.env"
+expect "production test copy, flag absent: passes"     0 production "$T/copy-missing.env"
+expect "production test copy, flag set: REFUSES"       1 production "$T/copy-flag.env"
+expect "production, publishing=true, no flag: REFUSES" 1 production "$T/prod-publishing-true.env"
 
 echo "--- the refusal message names the one thing to do"
 ( preflight_real_send_flag production "$T/prod-missing.env" ) >/dev/null 2>&1 || true

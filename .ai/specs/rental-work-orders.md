@@ -5197,3 +5197,17 @@ Johan's QA1 card 100 (PLUMB-01, a 20 % markup item, cost R789.50): the line save
 - **Description is the agent's words.** Picking an item fills the Item code and offers the catalogue name as the description's PLACEHOLDER; nothing is pre-filled (the create screen's draft rows keep the old pre-fill - they have no server-side default). A blank description on add defaults to the catalogue name; on edit a blank keeps what the line already says. What the agent types ("Plumbing parts - tap x 1") is saved and printed on the quote as typed.
 - **Catch-up:** `rentals:rederive-catalogue-markup-lines --job-card=ID --clear-hand [--line=ID] [--dry-run]` additionally takes the hand flag off a hand-set selling that equals the line's own markup value or its catalogue item's markup value (or the line named with `--line`) and re-derives it. A real hand-typed price is never touched.
 Tests: `RentalMaintenanceFlow/LineMarkupGridTest.php`.
+
+---
+
+## Audit fix 2026-10-18 — VAT types and job-card money basis
+
+- **Archived VAT types keep pricing.** A job-card line's VAT type (and a catalogue item's default VAT type) now resolves including archived types, so archiving a type can never drop an open line to 0% VAT.
+- **Archive guard.** A VAT type cannot be archived while it is the agency's default, or while any open job card (not completed/cancelled, no quote sent yet) still has a live line on it. The message says how many open job cards use it. Quoted/completed cards carry their own VAT snapshot and do not block.
+- **Report "Selling"** (job-card report) is on the same excl-VAT basis as Cost and Margin.
+- **Margin on a frozen card** reads the line's frozen `vat_excl_snapshot`, not the agency's live VAT registration.
+
+## Audit fix 2026-10-18 (rentals ops batch)
+- **A-M6** Moving a job card to a different crew (`RentalJobCard::assignCrew`) revokes every live per-job crew link on the card and logs `link_revoked`; the office issues a fresh link for the new crew. Test: `CrewJobLinkTokenTest`.
+- **A-M7** `RentalJobCardController::store` requires each supplied property / lease / work order / fault report id to be `visibleTo($user)` (404 otherwise); `RentalJobCardService::createStandalone` drops a `lease_id` that is not on the resolved property (falls back to the work order's / fault report's own lease). Tests: `RentalJobCardScopeGuardTest`, `RentalJobCardAt442FollowUpTest`.
+- **A-L8/L9** Work order `create()` only pre-fills from an inspection the user may see; `store()`/`storeBatch()` require every observation to belong to an inspection of the posted property that the user may see (and the named inspection to be that one). Test: `RentalWorkOrderAuditFixesTest`.

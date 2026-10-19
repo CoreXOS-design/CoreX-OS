@@ -14,16 +14,11 @@
 <style>
 .ul{--ul-row:54px}
 .ul .ul-top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
-.ul h1.ul-title{font-size:22px;font-weight:700;letter-spacing:-.01em;color:var(--text-primary);display:flex;align-items:baseline;gap:10px;margin:0}
-.ul h1.ul-title span{font-size:14px;font-weight:500;color:var(--text-muted)}
 .ul .ul-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:32px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:12.5px;font-weight:600;cursor:pointer;text-decoration:none;white-space:nowrap}
 .ul .ul-btn:hover{background:var(--surface-2)}
 .ul .ul-btn.pri{background:var(--brand-button,#0ea5e9);border-color:transparent;color:#fff}
 .ul .ul-btn.dng{color:var(--ds-crimson,#c41e3a);border-color:color-mix(in srgb,var(--ds-crimson,#c41e3a) 35%,transparent)}
 .ul .ul-tb{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-.ul .ul-in{height:34px;border-radius:6px;border:1px solid var(--border);background:var(--surface-2);color:var(--text-primary);padding:0 10px;font-size:13px;outline:none}
-.ul .ul-in:focus{border-color:var(--brand-icon,#0ea5e9)}
-.ul select.ul-in{appearance:none;-webkit-appearance:none;padding-right:28px;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238b97b1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 9px center}
 .ul .ul-bulk{display:flex;align-items:center;gap:14px;padding:8px 12px;border:1px solid color-mix(in srgb,var(--brand-icon,#0ea5e9) 35%,transparent);border-radius:6px;background:color-mix(in srgb,var(--brand-icon,#0ea5e9) 10%,transparent);font-size:13px;font-weight:600;color:var(--brand-icon,#0ea5e9)}
 .ul .ul-bulk button.lnk{background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
 .ul .ul-tbl{border:1px solid var(--border);border-radius:6px;background:var(--surface);overflow-x:auto}
@@ -59,8 +54,12 @@
     @include('corex.alerts-off._summary-line')
 
     {{-- Page header (Ledger — AT-422; spec .ai/specs/users-pages-restyle.md) --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
     <div class="ul-top">
-        <h1 class="ul-title">Users <span>{{ number_format($totalUsers) }} {{ $totalUsers === 1 ? 'person' : 'people' }}</span></h1>
+        <div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Users</h1>
+            <p class="text-xs" style="color: var(--text-muted);">{{ number_format($totalUsers) }} {{ $totalUsers === 1 ? 'person' : 'people' }} &middot; manage roles, branches, sign-in status and compliance for everyone on your team.</p>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
             <a href="{{ route('admin.users', ['refresh_p24' => 1]) }}" class="ul-btn" title="Re-fetch the Property24 agent list">Refresh P24</a>
             @if(\Illuminate\Support\Facades\Route::has('admin.pp.agents'))
@@ -70,6 +69,7 @@
             <a href="{{ route('admin.users.archived') }}" class="ul-btn" title="Archived agents — restore an agent and reactivate them">Archived @if(($archivedCount ?? 0) > 0)({{ number_format($archivedCount) }})@endif</a>
             <a href="{{ route('admin.users.create') }}" class="ul-btn pri"><svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><path d="M12 5v14M5 12h14"/></svg>Add user</a>
         </div>
+    </div>
     </div>
 
     @if(session('status'))
@@ -108,18 +108,20 @@
     @endif
 
     {{-- Toolbar: search + filters (all client-side, instant) --}}
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
     <div class="ul-tb">
         <label style="position:relative;width:300px;max-width:100%"><span class="sr-only" style="position:absolute;left:-9999px">Search users</span>
-            <input type="text" x-model="search" placeholder="Search name or email…" class="ul-in" style="width:100%;padding-left:34px">
-            <span style="position:absolute;left:10px;top:9px;color:var(--text-muted)"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span></label>
-        <label><span style="position:absolute;left:-9999px">Role</span><select x-model="roleFilter" class="ul-in"><option value="">Role: All</option>@foreach($roles as $r)<option value="{{ $r }}">{{ ucwords(str_replace('_',' ',$r)) }}</option>@endforeach</select></label>
-        <label><span style="position:absolute;left:-9999px">Branch</span><select x-model="branchFilter" class="ul-in"><option value="">Branch: All</option>@foreach($branchList as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach</select></label>
-        <label><span style="position:absolute;left:-9999px">Status</span><select x-model="statusFilter" class="ul-in"><option value="">Status: Any</option><option value="active">Active</option><option value="pending">Invite pending</option><option value="inactive">Inactive</option></select></label>
-        <label><span style="position:absolute;left:-9999px">FFC</span><select x-model="ffcFilter" class="ul-in"><option value="">FFC: Any</option><option value="ok">Valid</option><option value="warn">Expiring within 60 days</option><option value="bad">Expired</option><option value="none">None recorded</option></select></label>
+            <input type="text" x-model="search" placeholder="Search name or email…" class="list-header-filter" :class="{ 'is-active': search }" style="width:100%;padding-left:34px;cursor:text">
+            <span style="position:absolute;left:10px;top:10px;color:var(--text-muted);pointer-events:none"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" ><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span></label>
+        <label><span style="position:absolute;left:-9999px">Role</span><select x-model="roleFilter" class="list-header-filter" :class="{ 'is-active': roleFilter }"><option value="">All roles</option>@foreach($roles as $r)<option value="{{ $r }}">{{ ucwords(str_replace('_',' ',$r)) }}</option>@endforeach</select></label>
+        <label><span style="position:absolute;left:-9999px">Branch</span><select x-model="branchFilter" class="list-header-filter" :class="{ 'is-active': branchFilter }"><option value="">All branches</option>@foreach($branchList as $b)<option value="{{ $b->id }}">{{ $b->name }}</option>@endforeach</select></label>
+        <label><span style="position:absolute;left:-9999px">Status</span><select x-model="statusFilter" class="list-header-filter" :class="{ 'is-active': statusFilter }"><option value="">All statuses</option><option value="active">Active</option><option value="pending">Invite pending</option><option value="inactive">Inactive</option></select></label>
+        <label><span style="position:absolute;left:-9999px">FFC</span><select x-model="ffcFilter" class="list-header-filter" :class="{ 'is-active': ffcFilter }"><option value="">All FFC statuses</option><option value="ok">Valid</option><option value="warn">Expiring within 60 days</option><option value="bad">Expired</option><option value="none">None recorded</option></select></label>
         @if($hasSubUsers)
-        <label><span style="position:absolute;left:-9999px">Sign-in type</span><select x-model="signInFilter" class="ul-in"><option value="">All sign-in types</option><option value="email">Own email</option><option value="username">Username (sub-user)</option></select></label>
+        <label><span style="position:absolute;left:-9999px">Sign-in type</span><select x-model="signInFilter" class="list-header-filter" :class="{ 'is-active': signInFilter }"><option value="">All sign-in types</option><option value="email">Own email</option><option value="username">Username (sub-user)</option></select></label>
         @endif
         <button type="button" class="ul-btn" x-show="search || roleFilter || branchFilter || statusFilter || ffcFilter || signInFilter" x-cloak @click="clearFilters()">Clear filters</button>
+    </div>
     </div>
 
     {{-- Bulk bar — appears once anyone is ticked --}}

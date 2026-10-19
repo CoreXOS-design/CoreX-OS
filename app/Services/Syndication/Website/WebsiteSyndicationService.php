@@ -128,7 +128,7 @@ class WebsiteSyndicationService
         // so it needs its own explicit exclusion here — this bulk action never
         // goes through EnforcesMarketingReadiness at all.
         return $this->bulkEnable($key, fn ($q) => $q
-            ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+            ->onMarket()
             ->where('status', '!=', Property::STATUS_OTHER_AGENCY_STOCK));
     }
 

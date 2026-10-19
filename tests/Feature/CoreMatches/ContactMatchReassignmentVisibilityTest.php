@@ -123,10 +123,14 @@ final class ContactMatchReassignmentVisibilityTest extends TestCase
     public function test_the_manager_agent_filter_follows_the_assigned_agent_not_the_creator(): void
     {
         $match = $this->makeMatch($this->agentA, 'Filtered');
+        // AT-455 (Andre, 2026-10-14): the Agent dropdown lists only staff who own a saved search on the
+        // board, and the filter only accepts a listed agent - so agent A keeps a second search of their
+        // own here, which is what makes "filter by agent A" a real filter to assert against.
+        $this->makeMatch($this->agentA, 'Stays');
         $match->reassignTo($this->agentB, $this->manager, 'Handover.');
 
         $this->board($this->manager, ['scope' => 'agency', 'agent_id' => $this->agentA->id])
-            ->assertOk()->assertDontSee('Filtered', false);
+            ->assertOk()->assertSee('Stays', false)->assertDontSee('Filtered', false);
         $this->board($this->manager, ['scope' => 'agency', 'agent_id' => $this->agentB->id])
             ->assertOk()->assertSee('Filtered', false);
     }

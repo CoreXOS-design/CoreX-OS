@@ -3,12 +3,13 @@
 @section('title', 'Branch — ' . ($report['branch']['label'] ?? ''))
 
 @section('corex-content')
-<div class="p-6 space-y-6">
-    <div class="flex items-center justify-between flex-wrap gap-3">
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
             <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
                class="text-[11px] no-underline" style="color:var(--text-muted);">&larr; Back to company report</a>
-            <h1 class="text-xl font-bold" style="color:var(--text-primary);">{{ $report['branch']['label'] }}</h1>
+            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">{{ $report['branch']['label'] }}</h1>
             <p class="text-xs" style="color:var(--text-muted);">
                 Branch rollup · {{ $report['period']['label'] }}
                 <span class="ml-1">(vs {{ $report['previous_period']['label'] }})</span>
@@ -20,6 +21,7 @@
             'presets' => $presets,
             'formAction' => route('performance.agency-report.branch', $report['branch']['key']),
         ])
+      </div>
     </div>
 
     @if(session('period_error'))
@@ -58,9 +60,9 @@
             <table class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left px-3 py-2" style="color:var(--text-muted);">Agent</th>
+                        <th class="text-left px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Agent</th>
                         @foreach($report['metric_meta'] as $m)
-                            <th class="text-right px-3 py-2" style="color:var(--text-muted);">{{ $m['label'] }}</th>
+                            <th class="text-right px-3 py-3 font-semibold uppercase tracking-wide" style="color:var(--text-muted);">{{ $m['label'] }}</th>
                         @endforeach
                     </tr>
                 </thead>

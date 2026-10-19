@@ -73,8 +73,7 @@
                     : 'color:var(--text-muted, #6b7280); border-color:transparent;'">
             Activity
             @if($activity->isNotEmpty())
-                <span class="ml-1.5 px-1.5 py-0.5 rounded-full text-[0.6875rem] font-bold align-middle"
-                      style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);">{{ $activity->count() }}</span>
+                <span class="ds-badge ds-badge-pill ds-badge-default ml-1.5 align-middle">{{ $activity->count() }}</span>
             @endif
         </button>
     </div>
@@ -245,15 +244,11 @@
                                                     {{-- No Silent Locks: say WHY, on the page. An agent hunting for
                                                          "why can't my assistant upload a listing?" must find the answer
                                                          here rather than conclude the feature is broken. --}}
-                                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
-                                                          style="background:var(--surface-2, #f0f2f8); color:var(--text-secondary, #6b7280);"
-                                                          title="CoreX switches property upload off for every assistant, at every agency. Nobody can turn this on — not you, not an admin. Only you can create a listing.">
+                                                    <span class="ds-badge ds-badge-pill ds-badge-default" title="CoreX switches property upload off for every assistant, at every agency. Nobody can turn this on — not you, not an admin. Only you can create a listing.">
                                                         LOCKED BY COREX
                                                     </span>
                                                 @elseif($row['is_new'])
-                                                    <span class="px-1.5 py-0.5 rounded-md text-[10px] font-bold"
-                                                          style="background:var(--surface-2, #f0f2f8); color:var(--ds-amber, #d97706);"
-                                                          title="New since this assistant was set up. Off until you turn it on.">NEW</span>
+                                                    <span class="ds-badge ds-badge-pill ds-badge-warning" title="New since this assistant was set up. Off until you turn it on.">NEW</span>
                                                 @endif
                                             </div>
 

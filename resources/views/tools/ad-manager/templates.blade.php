@@ -2,10 +2,15 @@
 {{-- Template Manager — spec .ai/specs/ad-manager.md §19 --}}
 @extends('layouts.corex')
 
+{{-- AT-456 Part B: the "Create with AI" previews use the SAME render kernel + fonts as the Ad Builder (ad-manager.md §12). --}}
+@push('head')
+    @include('corex.properties._ad-fonts')
+@endpush
+
 @section('corex-content')
 @php
     $f = $filters;
-    $filtersActive = $f['q'] !== '' || $f['status'] !== 'active' || $f['creator'] === 'mine' || $f['from'] || $f['to'];
+    $filtersActive = $f['q'] !== '' || $f['status'] !== 'active' || $f['creator'] !== 'all' || $f['from'] || $f['to'];
 
     // Clickable column headers: same column toggles direction, a new column starts at its natural direction.
     $sortUrl = function (string $key) use ($f) {
@@ -17,7 +22,14 @@
     };
     $arrow = fn (string $key) => $f['sort'] === $key ? ($f['dir'] === 'asc' ? ' ▲' : ' ▼') : '';
     $th = 'text-left text-[11px] font-semibold uppercase tracking-wider px-4 py-2.5 whitespace-nowrap';
-    $inputStyle = 'background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);';
+
+    // The Default design of the rows on THIS page only, keyed by id — the browser draws the previews from them.
+    $previewLayouts = $templates->getCollection()->mapWithKeys(function ($t) {
+        $layout = (array) $t->layout_json;
+        unset($layout['variants']);
+
+        return [$t->id => ['layout' => $layout]];
+    })->all();
 @endphp
 
 <div class="w-full space-y-5">
@@ -31,6 +43,12 @@
             </div>
             <div class="flex items-center gap-3 flex-wrap">
                 @include('tools.ad-manager._switcher', ['inHeader' => true])
+                @if($aiPanel)
+                    <button type="button" onclick="window.dispatchEvent(new CustomEvent('open-ai-template-panel'))" class="corex-btn-outline text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/></svg>
+                        Create with AI
+                    </button>
+                @endif
                 @if($canBuild)
                     <a href="{{ route('corex.ad-templates.builder', ['from' => 'templates']) }}" class="corex-btn-primary text-sm px-4 py-2 inline-flex items-center gap-1.5 self-start md:self-auto">
                         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
@@ -41,44 +59,47 @@
         </div>
     </div>
 
+    @include('tools.ad-manager._template-tabs')
+
     {{-- ── Search + filters ────────────────────────────────────── --}}
     <form method="GET" action="{{ route('tools.ad-manager.templates') }}"
-          class="rounded-md p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end"
+          class="props-filter-panel rounded-md p-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-6 items-end"
           style="background:var(--surface); border:1px solid var(--border);">
         <input type="hidden" name="sort" value="{{ $f['sort'] }}">
         <input type="hidden" name="dir" value="{{ $f['dir'] }}">
 
         <label class="lg:col-span-2 block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Search</span>
-            <input type="search" name="q" value="{{ $f['q'] }}" placeholder="Template name or creator…"
-                   class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <input class="list-header-filter {{ ($f['q'] !== '') ? 'is-active' : '' }} w-full" type="search" name="q" value="{{ $f['q'] }}" placeholder="Template name or creator…"
+                  >
         </label>
 
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Status</span>
-            <select name="status" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <select class="list-header-filter {{ ($f['status'] !== 'active') ? 'is-active' : '' }} w-full" name="status">
                 <option value="active"   @selected($f['status'] === 'active')>Active</option>
                 <option value="archived" @selected($f['status'] === 'archived')>Archived</option>
-                <option value="all"      @selected($f['status'] === 'all')>All</option>
+                <option value="all"      @selected($f['status'] === 'all')>All statuses</option>
             </select>
         </label>
 
         <label class="block">
-            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Created by</span>
-            <select name="creator" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Created</span>
+            <select class="list-header-filter {{ ($f['creator'] !== 'all') ? 'is-active' : '' }} w-full" name="creator">
                 <option value="all"  @selected($f['creator'] === 'all')>Everyone</option>
                 <option value="mine" @selected($f['creator'] === 'mine')>Only mine</option>
+                <option value="ai"   @selected($f['creator'] === 'ai')>AI-made</option>
             </select>
         </label>
 
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Updated from</span>
-            <input type="date" name="from" value="{{ $f['from'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <input class="list-header-filter {{ (!empty($f['from'])) ? 'is-active' : '' }} w-full" type="date" name="from" value="{{ $f['from'] }}">
         </label>
 
         <label class="block">
             <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Updated to</span>
-            <input type="date" name="to" value="{{ $f['to'] }}" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <input class="list-header-filter {{ (!empty($f['to'])) ? 'is-active' : '' }} w-full" type="date" name="to" value="{{ $f['to'] }}">
         </label>
 
         <div class="sm:col-span-2 lg:col-span-6 flex items-center gap-2">
@@ -120,6 +141,7 @@
             <table class="w-full text-sm" style="color:var(--text-primary);">
                 <thead style="background:var(--surface-2); color:var(--text-secondary);">
                     <tr>
+                        <th class="{{ $th }}">Preview</th>
                         <th class="{{ $th }}"><a href="{{ $sortUrl('name') }}" style="color:inherit;">Name{{ $arrow('name') }}</a></th>
                         <th class="{{ $th }}"><a href="{{ $sortUrl('creator') }}" style="color:inherit;">Created by{{ $arrow('creator') }}</a></th>
                         <th class="{{ $th }}">Canvas</th>
@@ -132,10 +154,19 @@
                 <tbody>
                     @foreach($templates as $t)
                         <tr style="border-top:1px solid var(--border); {{ $t->trashed() ? 'opacity:.65;' : '' }}">
+                            <td class="px-4 py-2">
+                                <div class="adt-thumb" data-ad-thumb="{{ $t->id }}" role="img" aria-label="Preview of {{ $t->name }}"></div>
+                            </td>
                             <td class="px-4 py-3 font-semibold">
                                 {{ $t->name }}
+                                @if($t->ai_generated)
+                                    <span class="ds-badge ds-badge-pill ds-badge-info ml-1" title="Designed by the AI Template Builder{{ $t->ai_idea ? ' from the idea: ' . \Illuminate\Support\Str::limit($t->ai_idea, 160) : '' }}">AI</span>
+                                    @if($t->human_edited_at)
+                                        <span class="ds-badge ds-badge-pill ds-badge-default ml-0.5" title="A person has edited this since the AI made it ({{ $t->human_edited_at->format('j M Y H:i') }})">edited</span>
+                                    @endif
+                                @endif
                                 @if($t->trashed())
-                                    <span class="ml-1 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-muted);">Archived</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-default ml-1">Archived</span>
                                 @endif
                             </td>
                             <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $t->user?->name ?? 'Unknown' }}</td>
@@ -177,4 +208,18 @@
         <div>{{ $templates->links() }}</div>
     @endif
 </div>
+
+@include('tools.ad-manager._ad-preview-thumbs')
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        // A made-up listing (demo photos) in the user's own agency's brand; placeholders show an element's sample text
+        // where the sample listing has no value (e.g. a rental-only fact on a sale template).
+        window.corexDrawAdThumbs(@js($previewLayouts), @js($previewData), { placeholders: true });
+    });
+</script>
+
+{{-- ══ Create with AI (AT-456 Part B; pop-up rebuilt in §B.10) ═══════════════════════════ --}}
+@if($aiPanel)
+    @include('tools.ad-manager._ai-template-modal')
+@endif
 @endsection

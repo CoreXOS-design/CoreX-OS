@@ -2,19 +2,30 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="My Payslips" :back-route="route('agent.portal')" back-label="My Portal" :flush="true" />
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('agent.portal') }}" class="text-xs no-underline" style="color: var(--text-muted);">&larr; My Portal</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Payslips</h1>
+                <p class="text-xs" style="color: var(--text-muted);" data-tour="portal-payslips-intro">Your finalised payslips. Click View to see details or Download to get the PDF.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6">
-        <p class="text-xs mb-4" style="color:var(--text-secondary, #6b7280);" data-tour="portal-payslips-intro">Your finalised payslips. Click View to see details or Download to get the PDF.</p>
+    <div>
 
         @if($payslips->isEmpty())
-            <div class="py-12 text-center text-sm" style="color:var(--text-secondary, #6b7280);">
+            <div class="rounded-md py-12 px-6 text-center text-sm" style="background: var(--surface); border: 1px solid var(--border); color:var(--text-muted);">
                 No payslips yet. Your payslips will appear here once your employer finalises a payroll run.
             </div>
         @else
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto" data-tour="portal-payslips-table">
-                <table class="w-full text-sm" style="border-collapse:collapse;">
+                <table class="w-full text-sm ds-table">
                     <colgroup>
                         <col style="width:120px;">{{-- Period --}}
                         <col style="width:110px;">{{-- Pay Date --}}
@@ -23,17 +34,17 @@
                         <col style="width:140px;">{{-- Actions --}}
                     </colgroup>
                     <thead>
-                        <tr style="border-bottom:2px solid var(--border, #e5e7eb);">
-                            <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Period</th>
-                            <th class="text-left px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Pay Date</th>
-                            <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Gross</th>
-                            <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;">Net Pay</th>
-                            <th class="text-right px-3 py-2 text-xs font-bold uppercase" style="color:var(--text-secondary, #94a3b8); letter-spacing:0.05em;" data-tour="portal-payslips-actions">Actions</th>
+                        <tr style="background: var(--surface-2);">
+                            <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Period</th>
+                            <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Pay Date</th>
+                            <th class="text-right px-3 py-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Gross</th>
+                            <th class="text-right px-3 py-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Net Pay</th>
+                            <th class="text-right px-3 py-2 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);" data-tour="portal-payslips-actions">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach($payslips as $ps)
-                        <tr style="border-bottom:1px solid var(--border, #e5e7eb);">
+                        <tr>
                             <td class="px-3 py-2.5 text-sm font-semibold" style="color:var(--text-primary, #0f172a);">{{ $ps->period_month?->format('M Y') }}</td>
                             <td class="px-3 py-2.5 text-xs" style="color:var(--text-secondary, #6b7280);">{{ $ps->pay_date?->format('d M Y') }}</td>
                             <td class="px-3 py-2.5 text-right text-xs" style="color:var(--text-secondary, #6b7280);">R {{ number_format($ps->total_earnings, 2) }}</td>
@@ -49,10 +60,10 @@
                     </tbody>
                 </table>
             </div>
-
-            <div class="mt-4 flex items-center justify-between">
-                <p class="text-xs" style="color:var(--text-secondary, #6b7280);">Showing {{ $payslips->firstItem() }}-{{ $payslips->lastItem() }} of {{ $payslips->total() }} payslips</p>
+            <div class="px-4 py-3 flex items-center justify-between" style="border-top: 1px solid var(--border);">
+                <p class="text-xs" style="color:var(--text-muted);">Showing {{ $payslips->firstItem() }}-{{ $payslips->lastItem() }} of {{ $payslips->total() }} payslips</p>
                 {{ $payslips->links() }}
+            </div>
             </div>
         @endif
     </div>

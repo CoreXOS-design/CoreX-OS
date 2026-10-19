@@ -19,11 +19,12 @@ return new class extends Migration
     {
         RentalWorkOrder::withoutGlobalScopes()
             ->where('status', RentalWorkOrder::STATUS_COMPLETED)
+            ->whereNull('deleted_at')   // audit fix 2026-10-18: withoutGlobalScopes() also strips SoftDeletes - never touch archived rows
             ->whereNotNull('reported_fault_report_id')
             ->orderBy('id')
             ->chunkById(100, function ($orders) {
                 foreach ($orders as $wo) {
-                    $fault = RentalFaultReport::withoutGlobalScopes()->find($wo->reported_fault_report_id);
+                    $fault = RentalFaultReport::withoutGlobalScopes()->whereNull('deleted_at')->find($wo->reported_fault_report_id);
                     if (! $fault || (int) $fault->rental_work_order_id !== (int) $wo->id
                         || in_array($fault->status, [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED], true)) {
                         continue;

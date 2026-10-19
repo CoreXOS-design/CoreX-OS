@@ -101,7 +101,7 @@ class GrandfatherSyndicatedStockJob implements ShouldQueue
         return Property::withoutGlobalScope(AgencyScope::class)
             ->where('agency_id', $this->agencyId)
             ->whereNull('syndication_approved_at')
-            ->whereNotIn('status', Property::OFF_MARKET_STATUSES)
+            ->onMarket()
             ->where(function ($q) {
                 $q->where('p24_syndication_enabled', 1)
                     ->orWhere('pp_syndication_enabled', 1)

@@ -35,8 +35,9 @@
         'price_match_with_other'     => 'Competitor matched price',
         'other'                      => 'Other',
     ];
-    // [display label, ds-badge variant]. Wins = green/info; losses are neutral
-    // analytics outcomes, not error states — they use amber/grey, never red.
+    // [display label, tone]. Wins = green/info; losses are neutral analytics
+    // outcomes, not error states — they use amber/grey, never red. AT-455 (Andre,
+    // 2026-10-14): the tone is a small dot beside the words, not a filled badge.
     $outcomeLabel = function (string $o): array {
         $map = [
             'won_mandate'           => ['Won mandate',         'success'],
@@ -56,69 +57,90 @@
 
     $hasFilters = $outcomeFilter || $reasonFilter || $agentFilter;
 
-    $controlStyle = 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);';
+    $controlStyle = 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);';
+    $toneDot = fn (string $tone) => match ($tone) {
+        'success' => 'var(--ds-green, #059669)',
+        'info'    => 'var(--brand-icon, #0ea5e9)',
+        'warning' => 'var(--ds-amber, #f59e0b)',
+        default   => 'var(--text-muted)',
+    };
 @endphp
 
 {{-- Cockpit strip layout (Andre, 2026-09-13; .ai/specs/presentations.md §11).
-     The page no longer scrolls: the banner carries the filters on its right, the six
-     tiles collapse into one slim numbers strip, and the outcomes table fills the rest
-     of the viewport and scrolls inside itself with the loss-reasons chart in a rail
-     beside it. Same frozen-header / inner-scroll pattern as the Today page and Deeds
-     Capture. Nothing the page shows or does has changed — only where it sits. --}}
+     The page does not scroll: the six tiles are one slim numbers strip, and the
+     outcomes table fills the rest of the viewport and scrolls inside itself with the
+     loss-reasons chart in a rail beside it. AT-455 (Andre, 2026-10-14): the filters
+     moved out of the banner into their own labelled bar directly under it, the same
+     bar every other list page uses. Nothing the page shows or does has changed. --}}
 <div class="w-full h-full flex flex-col gap-4">
 
-    {{-- Page header (Pattern A — flat neutral) with the filter form on the right --}}
+    {{-- Page header (Pattern A — flat neutral) --}}
     <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
-        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-            <div class="min-w-0 flex-shrink-0" data-tour="pres-outcomes-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div class="min-w-0" data-tour="pres-outcomes-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Outcomes Dashboard</h1>
                 <p class="text-xs" style="color: var(--text-muted);">
                     Win rate, loss reasons, and pipeline health across {{ number_format($totalPresentations) }} presentation{{ $totalPresentations === 1 ? '' : 's' }} in the selected window.
                 </p>
             </div>
-            <form method="GET" class="flex flex-wrap items-center xl:justify-end gap-2 min-w-0" data-tour="pres-outcomes-filters">
-                <div class="flex items-center gap-1.5">
-                    <label for="from" class="sr-only">From</label>
-                    <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
-                           class="rounded-md px-2.5 h-8 text-xs" style="{{ $controlStyle }}">
-                    <span class="text-xs" style="color: var(--text-muted);">to</span>
-                    <label for="to" class="sr-only">To</label>
-                    <input id="to" type="date" name="to" value="{{ $to->toDateString() }}"
-                           class="rounded-md px-2.5 h-8 text-xs" style="{{ $controlStyle }}">
-                </div>
-                <label for="outcome" class="sr-only">Outcome</label>
-                <select id="outcome" name="outcome" class="rounded-md pl-2.5 pr-7 h-8 text-xs" style="{{ $controlStyle }}">
+            <div class="flex items-center gap-2 flex-wrap">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-sm">Presentations</a>
+            </div>
+        </div>
+    </div>
+
+    {{-- Filter bar — below the header, labelled fields, Apply / Clear --}}
+    <div class="rounded-md px-5 py-4 flex-shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="pres-outcomes-filters">
+            <div class="flex flex-col gap-1">
+                <label for="from" class="text-xs font-medium" style="color: var(--text-secondary);">From</label>
+                <input id="from" type="date" name="from" value="{{ $from->toDateString() }}"
+                       class="rounded-md px-3 py-2 text-sm" style="{{ $controlStyle }}">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label for="to" class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
+                <input id="to" type="date" name="to" value="{{ $to->toDateString() }}"
+                       class="rounded-md px-3 py-2 text-sm" style="{{ $controlStyle }}">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label for="outcome" class="text-xs font-medium" style="color: var(--text-secondary);">Outcome</label>
+                <select id="outcome" name="outcome" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="{{ $controlStyle }} min-width: 150px;">
                     <option value="">All outcomes</option>
                     @foreach(PresentationOutcome::ALL_OUTCOMES as $o)
                         <option value="{{ $o }}" @selected($outcomeFilter === $o)>{{ $outcomeLabel($o)[0] }}</option>
                     @endforeach
                 </select>
-                <label for="reason" class="sr-only">Loss reason</label>
-                <select id="reason" name="reason" class="rounded-md pl-2.5 pr-7 h-8 text-xs" style="{{ $controlStyle }}">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label for="reason" class="text-xs font-medium" style="color: var(--text-secondary);">Loss reason</label>
+                <select id="reason" name="reason" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="{{ $controlStyle }} min-width: 170px;">
                     <option value="">All reasons</option>
                     @foreach($reasonLabels as $k => $v)
                         <option value="{{ $k }}" @selected($reasonFilter === $k)>{{ $v }}</option>
                     @endforeach
                 </select>
-                @if($isManager)
-                    <label for="agent_id" class="sr-only">Agent</label>
-                    <select id="agent_id" name="agent_id" class="rounded-md pl-2.5 pr-7 h-8 text-xs" style="{{ $controlStyle }}">
+            </div>
+            @if($isManager)
+                <div class="flex flex-col gap-1">
+                    <label for="agent_id" class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
+                    <select id="agent_id" name="agent_id" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="{{ $controlStyle }} min-width: 170px;">
                         <option value="">All agents</option>
                         @foreach($agents as $a)
                             <option value="{{ $a->id }}" @selected((int) $agentFilter === (int) $a->id)>{{ $a->name }}</option>
                         @endforeach
                     </select>
-                @endif
-                <button type="submit" class="corex-btn-primary text-xs" data-tour="pres-outcomes-apply">Apply</button>
-                @if($hasFilters)
-                    <a href="{{ route('corex.presentations.outcomes.index') }}" class="corex-btn-outline text-xs">Clear</a>
-                @endif
-                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-                <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
-                    Presentations
-                </a>
-            </form>
-        </div>
+                </div>
+            @endif
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="pres-outcomes-apply">Apply</button>
+            @if($hasFilters)
+                <a href="{{ route('corex.presentations.outcomes.index') }}" class="corex-btn-outline text-sm">Clear</a>
+            @endif
+            <div class="flex-1"></div>
+            <span class="text-xs font-medium whitespace-nowrap self-center" style="color: var(--text-secondary);">
+                {{ number_format($totalOutcomes) }} {{ $totalOutcomes === 1 ? 'outcome' : 'outcomes' }} · {{ number_format($totalPresentations) }} {{ $totalPresentations === 1 ? 'presentation' : 'presentations' }}
+            </span>
+        </form>
     </div>
 
     {{-- Numbers strip — the six tiles as one slim row --}}
@@ -154,7 +176,7 @@
         @if($outcomes->isEmpty())
             <div class="flex-1 min-w-0 rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-                     style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
+                     style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 0 1 3 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 0 1-1.125-1.125V4.125Z" />
                     </svg>
@@ -200,10 +222,14 @@
                                         <div class="text-xs" style="color: var(--text-muted);">{{ $o->presentation->suburb }}</div>
                                     @endif
                                 </td>
-                                <td class="px-4 py-2.5">
-                                    <span class="ds-badge ds-badge-{{ $ovariant }}">{{ $ol }}</span>
+                                <td class="px-4 py-2.5 text-xs whitespace-nowrap" style="color: var(--text-primary);">
+                                    <span data-outcome="{{ $o->outcome }}" class="font-medium">
+                                        <span style="display:inline-block; width:7px; height:7px; border-radius:50%; background: {{ $toneDot($ovariant) }}; margin-right:6px; vertical-align:middle;"></span>{{ $ol }}
+                                    </span>
                                     @if($o->locked)
-                                        <span title="Locked for analytics" class="ml-1 text-xs" style="color: var(--text-muted);">🔒</span>
+                                        <span title="Locked for analytics" class="ml-1.5 inline-flex items-center" style="color: var(--text-muted);">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                                        </span>
                                     @endif
                                 </td>
                                 <td class="px-4 py-2.5 text-xs" style="color: var(--text-secondary);">
@@ -223,7 +249,7 @@
                                 </td>
                                 <td class="px-4 py-2.5 text-right">
                                     <a href="{{ route('presentations.show', $o->presentation_id) }}"
-                                       class="text-xs font-semibold no-underline" style="color: var(--brand-icon, #0ea5e9);">Open →</a>
+                                       class="corex-btn-outline text-xs">Open</a>
                                 </td>
                             </tr>
                         @endforeach
@@ -249,7 +275,7 @@
                                 <span class="flex-shrink-0">{{ number_format($count) }}</span>
                             </div>
                             <div class="ds-progress-track" style="height: 6px;">
-                                <div class="ds-progress-bar ds-bar-amber" style="width: {{ $pct }}%;"></div>
+                                <div class="ds-progress-bar" style="width: {{ $pct }}%; background: var(--brand-icon, #0ea5e9);"></div>
                             </div>
                         </div>
                     @endforeach

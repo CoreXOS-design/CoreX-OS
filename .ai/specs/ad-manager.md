@@ -155,6 +155,8 @@ All render at the 4 platform presets and adapt to missing data (no broken layout
 New catalogue fields: `custom_text`, `agency_logo` (real logo image), `status_badge`,
 `reference`, `address`, `agent_phone`, `agency_name`, `website`, `line` (divider),
 `badge` (pill), `shape` (circle/rect), `gradient` (overlay).
+`agency_phone` (2026-10-18, company-ads.md §14d): the agency's main phone number from Company Settings
+(`agencies.phone`), Branding group, next to Website; empty when the agency has none.
 
 **Agent 2 (co-listing) fields** (AT-124): the Agent group exposes a full second
 set — `agent_2_name`, `agent_2_email`, `agent_2_phone`, `agent_2_designation`,
@@ -2492,6 +2494,16 @@ page (`tools/pdf-suite/_switcher.blade.php`). The Ad Manager gets the identical 
 with two pills: **Ad Manager** (the existing bulk generator) and **Template Manager**.
 The sidebar keeps its single *Ad Manager* entry (it stays highlighted on both pages).
 
+### 19.1a Row previews (2026-10-18, Johan: "it should show the actual template like a preview and not just the name")
+Both tabs (Property templates, Company ads) open every row with a **Preview**: the row's ad drawn by the render kernel,
+scaled down and letterboxed into a 176 x 132 box (120 x 90 on a phone). One shared partial
+(`tools/ad-manager/_ad-preview-thumbs.blade.php`, `window.corexDrawAdThumbs`) for both tabs; the kernel script comes from
+`_ad-kernel-script.blade.php` (`@once`, so a page that also has an AI pop-up loads it once). Property templates draw their
+Default design against the same made-up listing as the AI pop-up (`samplePropertyData`: licensed demo photos, the user's
+OWN agency name/logo/website/phone, the user as the agent), with element placeholders where the sample has no value;
+company ads draw against the agency's brand data, as before (now the same bigger size). Only the rows on the current
+page are sent to the browser. Test: `TemplateManagerPreviewsTest`.
+
 ### 19.2 Pillars
 
 - **Agency** — READ + tenancy. `PropertyAdTemplate` is `BelongsToAgency` (`AgencyScope`);
@@ -2505,6 +2517,8 @@ template being archived — archived templates simply drop out of the pickers, w
 already what `SoftDeletes` does).
 
 ### 19.3 Page: `GET /tools/ad-manager/templates` — route `tools.ad-manager.templates`
+
+> AT-456: the page's "Create with AI" panel and the Post Scheduler call JSON endpoints under `/api/v1/ad-manager/...` (`api.v1.ad-manager.templates.ai.generate|save`, `api.v1.ad-manager.scheduled.image|store`) - see `at456-ai-tools-scheduler-and-spend-safety.md`, "API endpoints".
 
 - **Columns:** Name · Created by · Canvas size (W × H) · Designs (Default + N property-type
   variants, §18) · Last updated · Actions.
@@ -2636,6 +2650,19 @@ No migration, no new permission (still `access_ad_manager` + `ad_manager.view`),
       user's ticks are never lost by searching.
 - [ ] Steps 2 and 3 still work end to end (previews, generate, download, copy).
 - [ ] Looks right in light and dark theme and at phone width.
+
+---
+
+## 21. Building blocks added by AT-456 §B.9-1 (2026-10-17)
+
+The render kernel gained: 35 more icons (47 total, offered on every text element), 12 more fonts (20 total; the new 12 load lazily — a template
+that does not use them costs nothing), decorative shapes (`wave curve_top curve_bottom arc blob_1 blob_2 blob_3` as a Shape's `shapeType`), line
+styles (`lineStyle` solid/dashed/dotted), photo masks (`photoMask` none/rounded/circle/arch/blob) and effects (`photoEffect` none/bw/duotone/warm/cool/brighter,
+`duoColor1/2`), and the elements `collage`, `ribbon`, `qr`, `feature_pills` plus ten listing-fact text fields (`erf_size levy rates_taxes price_per_m2
+pet_friendly available_from rent_per_month show_day auction_date auction_venue`). A fact the listing does not have is left off a real ad. All new
+`layout_json` properties default to "not set", so templates saved before this render unchanged. Nothing uses `clip-path`, CSS `filter` or
+`backdrop-filter` (html2canvas, the export, ignores them). Full detail, exact property names and how it was proved:
+`.ai/specs/at456-ai-tools-scheduler-and-spend-safety.md` §B.9 "B.9-1 as built".
 
 ---
 
@@ -2892,3 +2919,14 @@ No migration, no new permission (still `access_ad_manager` + `ad_manager.view`),
 - `tests/Feature/Tools/AdManagerGeneratedCounterTest.php` — counter stamped on
   generate (pre-built + brochure paths), increments across repeated calls, a
   scope-skipped property is never counted.
+
+### Ad template create/edit gate and direct-publish failures (AT-456 findings, 2026-10-17)
+- `corex.ad-templates.store` / `update` need BOTH `access_properties` and `access_ad_manager` (route middleware plus a controller re-check), the same gate as the Template Manager (§19).
+- A failed direct Facebook/Instagram publish from the property Marketing hub now stores a plain, token-scrubbed `failure_reason` on the post and the post history shows it under the Failed badge.
+- Ad picker status exclusion also trims whitespace (`LOWER(TRIM(status))`); `Property::isOnMarket()` is case- and whitespace-insensitive.
+
+---
+
+## Audit fix 2026-10-18 (outbound batch, C-F1) - Meta posts on a copy of live
+
+`MetaPublishingService::publishToFacebook/publishToInstagram` call `ExternalPublishingGuard` first and throw `ExternalPublishingRefused` before any HTTP call. `ScheduledPostPublisher::publishClaimed()` checks it before the token refresh and records the post as `failed` with a plain reason ("Publishing ... is switched off on this copy of CoreX, so nothing was sent"), so a refused post is never published later; the direct "Post now" path stores the same reason. Config: `corex.external_publishing` / `COREX_EXTERNAL_PUBLISHING` (default true; demo instance always refused).

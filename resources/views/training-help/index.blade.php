@@ -93,8 +93,7 @@
                     {{ $doc->title }}
                 </h3>
                 @if($isRequired)
-                <span class="flex-shrink-0 px-1.5 py-0.5 rounded-md text-[0.6875rem] font-bold uppercase whitespace-nowrap"
-                      style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">Required</span>
+                <span class="ds-badge ds-badge-pill ds-badge-info flex-shrink-0">Required</span>
                 @endif
             </div>
 

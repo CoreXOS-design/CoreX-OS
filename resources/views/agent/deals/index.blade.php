@@ -17,14 +17,70 @@
                 <span class="inline-flex items-center rounded-md px-3 py-1 text-xs font-semibold"
                       data-tour="at-agent-deals-count"
                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
-                    {{ number_format($deals->count()) }} {{ \Illuminate\Support\Str::plural('deal', $deals->count()) }}
+                    @if($filtersActive)
+                        {{ number_format($deals->total()) }} of {{ number_format($totalMine) }} {{ \Illuminate\Support\Str::plural('deal', $totalMine) }}
+                    @else
+                        {{ number_format($totalMine) }} {{ \Illuminate\Support\Str::plural('deal', $totalMine) }}
+                    @endif
                 </span>
             </div>
         </div>
     </div>
 
-    @if($deals->isEmpty())
-        {{-- Empty state --}}
+    {{-- Filter bar (Deal Register vocabulary; scoped to the signed-in agent's own deals in the controller) --}}
+    @if($totalMine > 0)
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <form method="GET" action="{{ route('agent.deals.index') }}" class="flex flex-wrap items-center gap-3">
+            @if(request('sort'))
+            <input type="hidden" name="sort" value="{{ request('sort') }}">
+            <input type="hidden" name="direction" value="{{ request('direction', 'desc') }}">
+            @endif
+
+            <div class="relative flex-1 min-w-[180px] max-w-xs">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Search seller, buyer, property, deal no…"
+                       class="list-header-filter w-full {{ filled(request('search')) ? 'is-active' : '' }}"
+                       style="padding-left: 2.25rem;">
+            </div>
+
+            <select name="status" onchange="this.form.submit()" class="list-header-filter {{ filled(request('status')) ? 'is-active' : '' }}">
+                <option value="">All statuses</option>
+                @foreach(['Pending', 'Granted', 'Registered', 'Declined'] as $st)
+                <option value="{{ $st }}" {{ request('status') === $st ? 'selected' : '' }}>{{ $st }}</option>
+                @endforeach
+            </select>
+
+            <select name="commission" onchange="this.form.submit()" class="list-header-filter {{ filled(request('commission')) ? 'is-active' : '' }}">
+                <option value="">All commission</option>
+                @foreach(['Not Paid', 'Paid', 'Loss'] as $cs)
+                <option value="{{ $cs }}" {{ request('commission') === $cs ? 'selected' : '' }}>{{ $cs }}</option>
+                @endforeach
+            </select>
+
+            <input type="date" name="date_from" value="{{ $dateFrom }}" title="Deal date from" aria-label="Deal date from"
+                   class="list-header-filter text-sm {{ $dateFrom ? 'is-active' : '' }}">
+            <input type="date" name="date_to" value="{{ $dateTo }}" title="Deal date to" aria-label="Deal date to"
+                   class="list-header-filter text-sm {{ $dateTo ? 'is-active' : '' }}">
+
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if($filtersActive)
+            <a href="{{ route('agent.deals.index') }}" class="text-xs underline transition-all duration-300" style="color: var(--text-muted);">Clear</a>
+            @endif
+
+            @if($deals->total() > 0)
+            <span class="text-sm ml-auto whitespace-nowrap" style="color: var(--text-muted);">
+                Showing {{ number_format($deals->firstItem()) }} to {{ number_format($deals->lastItem()) }} of {{ number_format($deals->total()) }} results
+            </span>
+            @endif
+        </form>
+    </div>
+    @endif
+
+    @if($totalMine === 0)
+        {{-- Empty state: the agent has no deals at all --}}
         <div class="rounded-md py-12 px-6 text-center" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
                  style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent); color: var(--brand-icon, #0ea5e9);">
@@ -49,17 +105,18 @@
                 <table class="min-w-full text-sm ds-table">
                     <thead>
                         <tr style="background: var(--surface-2);">
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Deal</th>
-                            <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Property</th>
+                            <x-sort-header field="deal_no" label="Deal" :current-sort="$sort" :current-direction="$direction" />
+                            <x-sort-header field="deal_date" label="Deal date" :current-sort="$sort" :current-direction="$direction" />
+                            <x-sort-header field="property_address" label="Property" :current-sort="$sort" :current-direction="$direction" />
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Branch</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Selling Price</th>
+                            <x-sort-header field="property_value" label="Selling Price" align="right" :current-sort="$sort" :current-direction="$direction" />
                             <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Our Total (Ex VAT)</th>
                             <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Actions</th>
                         </tr>
                     </thead>
 
                     <tbody>
-                        @foreach($deals->sortByDesc('deal_no') as $deal)
+                        @forelse($deals as $deal)
                             @php
                                 $b = $branches->firstWhere('id', $deal->branch_id);
                                 $acceptedMap = ['P'=>'Pending','D'=>'Declined','G'=>'Granted','R'=>'Registered'];
@@ -89,6 +146,10 @@
                                             <span class="ds-badge {{ $commBadge }}">{{ $csVal }}</span>
                                         @endif
                                     </div>
+                                </td>
+
+                                <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-primary);">
+                                    {{ $deal->deal_date ? \Illuminate\Support\Carbon::parse($deal->deal_date)->format('d M Y') : '—' }}
                                 </td>
 
                                 <td class="px-4 py-3">
@@ -143,10 +204,24 @@
                                     @endpermission
                                 </td>
                             </tr>
-                        @endforeach
+                        @empty
+                            <tr>
+                                <td colspan="7" class="px-4 py-12 text-center">
+                                    <h3 class="text-base font-semibold mb-1" style="color: var(--text-primary);">No deals match these filters</h3>
+                                    <p class="text-sm mb-3" style="color: var(--text-muted);">Try a different search or widen the date range.</p>
+                                    <a href="{{ route('agent.deals.index') }}" class="corex-btn-outline text-xs px-3 py-2">Clear filters</a>
+                                </td>
+                            </tr>
+                        @endforelse
                     </tbody>
                 </table>
             </div>
+
+            @if($deals->hasPages())
+            <div class="px-4 py-3" style="border-top: 1px solid var(--border);">
+                {{ $deals->links() }}
+            </div>
+            @endif
         </div>
     @endif
 

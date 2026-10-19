@@ -113,6 +113,68 @@ final class CheckLeaseExpiryCommandTest extends TestCase
         Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
     }
 
+    public function test_an_agency_with_the_leases_feature_off_gets_no_alerts(): void
+    {
+        [$agency, $branch, $agent, $property] = $this->makeAgencyBranchAgentProperty();
+        LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 60]);
+        $this->makeLease($agency, $branch, $property, $agent, now()->subDays(2)->toDateString());
+        $this->makeLease($agency, $branch, $property, $agent, now()->addDays(10)->toDateString());
+        \Illuminate\Support\Facades\DB::table('agency_features')->insert([
+            'agency_id' => $agency->id, 'feature_key' => 'rental-leases', 'enabled' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget();
+
+        Notification::fake();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+
+        Notification::assertNothingSentTo($agent);
+    }
+
+    /** C-F6: the overdue alert fires once per lease per overdue episode, not every 7 days for ever. */
+    public function test_the_overdue_alert_fires_once_and_is_not_repeated_after_the_old_seven_day_window(): void
+    {
+        [$agency, $branch, $agent, $property] = $this->makeAgencyBranchAgentProperty();
+        LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 60]);
+        $lease = $this->makeLease($agency, $branch, $property, $agent, now()->subDays(2)->toDateString());
+
+        Notification::fake();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
+        self::assertNotNull($lease->fresh()->overdue_alerted_at);
+
+        // Eight days later, even with the cache emptied (a deploy runs cache:clear): still the same overdue episode.
+        Cache::flush();
+        $this->travel(8)->days();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        $this->travel(30)->days();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
+    }
+
+    public function test_the_overdue_marker_is_cleared_when_the_lease_stops_being_overdue_so_a_new_episode_alerts_again(): void
+    {
+        [$agency, $branch, $agent, $property] = $this->makeAgencyBranchAgentProperty();
+        LeaseSetting::create(['agency_id' => $agency->id, 'expiry_notice_window_days' => 1]);
+        $lease = $this->makeLease($agency, $branch, $property, $agent, now()->subDays(2)->toDateString());
+
+        Notification::fake();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
+
+        // The agent extends the lease well beyond the notice window: no longer overdue, marker cleared.
+        $lease->forceFill(['end_date' => now()->addDays(200)->toDateString()])->save();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        self::assertNull($lease->fresh()->overdue_alerted_at);
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 1);
+
+        // Later it runs past its new end date: a NEW overdue episode, one new alert.
+        $lease->forceFill(['end_date' => now()->subDay()->toDateString()])->save();
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        $this->artisan('signatures:check-lease-expiry')->assertExitCode(0);
+        Notification::assertSentToTimes($agent, LeaseExpiryAlert::class, 2);
+    }
+
     public function test_each_agency_is_alerted_against_its_own_configured_window(): void
     {
         [$agencyNarrow, $branchNarrow, $agentNarrow, $propertyNarrow] = $this->makeAgencyBranchAgentProperty();

@@ -303,4 +303,25 @@ final class RentalPricingServiceTest extends TestCase
         $this->assertSame(RentalJobCardLine::BASIS_MANUAL, $line->selling_basis);
         $this->assertNull($line->cost_total);
     }
+
+    /** Audit D-L5 — a frozen card's margin reads the line's frozen excl figure, not the agency's live VAT registration. */
+    public function test_a_frozen_cards_margin_survives_the_agency_deregistering_for_vat_afterwards(): void
+    {
+        $this->pricingWorld('Pricing Frozen', [], true, Agency::VAT_CAPTURE_INCL);
+        $card = $this->emptyCard();
+        // selling 115 incl (= 100 excl), cost 69 incl (= 60 excl); standard 15 %.
+        $this->officeLine($card, ['description' => 'Pipe', 'unit_cost' => 69, 'unit_price' => 115, 'rental_vat_type_id' => $this->standardVat()->id]);
+        app(\App\Services\Rentals\RentalJobCardVatService::class)->snapshot($card->fresh('lines'));
+
+        $before = $this->pricing->marginFor($card->fresh('lines'));
+        $this->assertEquals(100.00, $before['sellingExcl']);
+        $this->assertEquals(60.00, $before['costExcl']);
+        $this->assertEquals(40.00, $before['marginExcl']);
+
+        $this->agency->update(['vat_registered' => false]);
+
+        $after = $this->pricing->marginFor($card->fresh('lines'));
+        $this->assertEquals(100.00, $after['sellingExcl'], 'Deregistering after the quote must not turn the incl figure into excl.');
+        $this->assertEquals(40.00, $after['marginExcl']);
+    }
 }

@@ -133,6 +133,23 @@ class RentalVatType extends Model
         $this->update(['is_default' => true]);
     }
 
+    /**
+     * How many OPEN job cards still have a live line on this VAT type. Open = not completed/cancelled and not yet frozen
+     * (no quote sent) — a frozen card carries its own VAT snapshot, so archiving can't move it. Used to refuse archiving.
+     */
+    public function openJobCardCount(): int
+    {
+        return (int) RentalJobCardLine::withoutGlobalScopes()
+            ->where('rental_job_card_lines.agency_id', $this->agency_id)
+            ->where('rental_job_card_lines.rental_vat_type_id', $this->id)
+            ->whereNull('rental_job_card_lines.deleted_at')
+            ->whereHas('jobCard', fn ($q) => $q->withoutGlobalScopes()
+                ->whereNull('vat_snapshotted_at')
+                ->whereNotIn('status', [RentalJobCard::STATUS_COMPLETED, RentalJobCard::STATUS_CANCELLED])
+                ->whereNull('rental_job_cards.deleted_at'))
+            ->distinct()->count('rental_job_card_lines.rental_job_card_id');
+    }
+
     public function archive(): void
     {
         $this->delete();

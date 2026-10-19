@@ -33,7 +33,7 @@ class AiUsageDashboardTest extends TestCase
 
     public function test_dashboard_renders_ledger_totals_and_source_breakdown(): void
     {
-        $agency = Agency::create(['name' => 'Dash Co', 'slug' => 'dash-co', 'ai_monthly_budget_zar' => 100]);
+        $agency = Agency::create(['name' => 'Dash Co', 'slug' => 'dash-co']);
         // The route is owner_only (platform spend across agencies) — an agency admin is correctly refused, so
         // sign in as the System Owner (the roles row carries is_owner, which is not mass-assignable).
         $ownerRole = \App\Models\Role::firstOrCreate(['name' => 'super_admin'], ['label' => 'System Owner', 'sort_order' => 1]);
@@ -62,5 +62,8 @@ class AiUsageDashboardTest extends TestCase
         $response->assertSee('Mic Narrative');
         // Hero total = 3.25 + 1.75 = R5.00.
         $response->assertSee('R 5.00');
+        // AT-456 — the retired budget table is gone; AI Spend Safety replaces it.
+        $response->assertSee('AI Spend Safety');
+        $response->assertDontSee('Per-agency budgets');
     }
 }

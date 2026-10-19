@@ -401,6 +401,34 @@ final class RentalReportServiceTest extends TestCase
         self::assertArrayNotHasKey('total_margin', $result['columns']);
     }
 
+    /** Audit D-L4 — the report's Selling sits on the same excl-VAT basis as Cost and Margin, even for an incl-capture agency. */
+    public function test_job_cards_selling_is_excl_vat_like_cost_and_margin(): void
+    {
+        [$agency, $branch, $agent] = $this->makeAgencyBranchAgent();
+        $agency->update(['vat_registered' => false, 'vat_capture_mode' => Agency::VAT_CAPTURE_INCL]);
+        $property = $this->makeRentalProperty($agency, $branch, $agent);
+        $card = $this->makeJobCard($agency, $branch, $property, RentalJobCard::STATUS_COMPLETED, $agent);
+
+        // Card frozen while the agency WAS registered and capturing incl: R1 150 incl = R1 000 excl + R150 VAT.
+        $card->forceFill([
+            'vat_registered_snapshot' => true, 'vat_capture_mode_snapshot' => Agency::VAT_CAPTURE_INCL,
+            'vat_snapshotted_at' => now(), 'total_amount' => 1150,
+        ])->save();
+        RentalJobCardLine::create([
+            'agency_id' => $agency->id, 'rental_job_card_id' => $card->id, 'type' => 'labour', 'description' => 'Repair',
+            'quantity' => 1, 'unit_price' => 1150, 'line_total' => 1150, 'created_by_user_id' => $agent->id,
+            'vat_rate_snapshot' => 15, 'vat_excl_snapshot' => 1000, 'vat_amount_snapshot' => 150, 'vat_incl_snapshot' => 1150,
+            'office_status' => RentalJobCardLine::OFFICE_ACCEPTED,
+        ]);
+
+        $this->grantAllScope($agent, 'rental_reports', $agency->id);
+        $this->grantAllScope($agent, 'rental_job_cards', $agency->id);
+        $this->actingAs($agent);
+
+        $row = $this->service->jobCards($agent, ['period' => 'any'])['rows']->first();
+        self::assertEquals(1000.0, $row['total_selling'], 'Selling must be excl VAT, not the incl capture figure.');
+    }
+
     public function test_job_cards_never_leak_across_agencies(): void
     {
         [$agencyA, $branchA, $agentA] = $this->makeAgencyBranchAgent();

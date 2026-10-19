@@ -42,11 +42,11 @@ class DocumentTemplateGenerator
         ]);
 
         if (empty($taggedHtml)) {
-            throw new \RuntimeException('Draft has no tagged HTML. Complete tagging before generating.');
+            throw new \App\Exceptions\Docuperfect\TemplateGenerationRefused('Draft has no tagged HTML. Complete tagging before generating.');
         }
 
         if (empty($tags)) {
-            throw new \RuntimeException('Draft has no tags. Tag fields before generating.');
+            throw new \App\Exceptions\Docuperfect\TemplateGenerationRefused('Draft has no tags. Tag fields before generating.');
         }
 
         // Index tags by ID for quick lookup

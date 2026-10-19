@@ -14,7 +14,7 @@
             </div>
             <form method="GET" class="flex items-center gap-2">
                 <input type="number" name="property" value="{{ $propertyId ?: '' }}" placeholder="Listing number"
-                       class="text-sm w-40 rounded-md px-3 py-2" style="background: var(--corex-card-bg); border: 1px solid var(--corex-border); color: var(--text-primary);">
+                       class="list-header-filter text-sm {{ $propertyId ? 'is-active' : '' }}" style="width:10rem;">
                 <button class="corex-btn-primary text-sm">Look up</button>
                 @if($propertyId)
                     <a href="{{ route('corex.diagnostics.photo-uploads') }}"
@@ -83,13 +83,13 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="text-left" style="color: var(--text-muted);">
-                            <th class="px-4 py-3 font-semibold">#</th>
-                            <th class="px-4 py-3 font-semibold">Taken</th>
-                            <th class="px-4 py-3 font-semibold">Queued</th>
-                            <th class="px-4 py-3 font-semibold">Reached CoreX</th>
-                            <th class="px-4 py-3 font-semibold">Delay</th>
-                            <th class="px-4 py-3 font-semibold">Room</th>
-                            <th class="px-4 py-3 font-semibold">What happened</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">#</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Taken</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Queued</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Reached CoreX</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Delay</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Room</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">What happened</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -110,9 +110,7 @@
                             <td class="px-4 py-3">{{ $p->room_tag ?? '—' }}</td>
                             <td class="px-4 py-3">
                                 @php $ok = in_array($p->status, ['landed', 'deleted by agent'], true); @endphp
-                                <span class="px-2 py-1 rounded text-xs font-semibold"
-                                      style="background: {{ $ok ? 'rgba(16,185,129,.15)' : 'rgba(239,68,68,.15)' }};
-                                             color: {{ $ok ? '#10b981' : '#ef4444' }};">
+                                <span class="ds-badge {{ $ok ? 'ds-badge-success' : 'ds-badge-danger' }}">
                                     {{ $p->status }}
                                 </span>
                                 @if($p->error)
@@ -148,12 +146,12 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr class="text-left" style="color: var(--text-muted);">
-                            <th class="px-4 py-3 font-semibold">Date</th>
-                            <th class="px-4 py-3 font-semibold">Listing</th>
-                            <th class="px-4 py-3 font-semibold">Taken</th>
-                            <th class="px-4 py-3 font-semibold">Reached CoreX</th>
-                            <th class="px-4 py-3 font-semibold">Never arrived</th>
-                            <th class="px-4 py-3 font-semibold"></th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Date</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Listing</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Taken</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Reached CoreX</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide">Never arrived</th>
+                            <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wide"></th>
                         </tr>
                     </thead>
                     <tbody>

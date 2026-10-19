@@ -19,6 +19,11 @@ use Illuminate\Support\Facades\Log;
  * dims, ONNX/CPU) — the same service that already runs Whisper. One vendor
  * account, no per-call cost, and nothing leaves the server (POPIA).
  *
+ * Spend (AT-456 gap check): free and local, so deliberately NOT on the AI cost
+ * ledger or behind AiSpendGuard — there is no money to count, and a paused
+ * agency's knowledge search keeps working. If a paid embeddings API ever comes
+ * back, AiSpendGuardCoverageTest fails until it is guarded and recorded.
+ *
  * Spec: .ai/specs/ellie-v2.md §5.4.
  */
 class EmbeddingService

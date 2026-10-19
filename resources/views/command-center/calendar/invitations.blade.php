@@ -29,7 +29,7 @@
 
     <div class="space-y-3" data-tour="cc-invitations-list">
     @forelse($invitations as $inv)
-        <div class="rounded-md p-4" data-tour="cc-invitations-card" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4 list-row-hover" data-tour="cc-invitations-card" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0">
                     <div class="flex items-center gap-2 flex-wrap">

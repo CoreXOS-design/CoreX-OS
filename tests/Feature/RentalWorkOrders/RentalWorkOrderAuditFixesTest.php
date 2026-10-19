@@ -320,4 +320,106 @@ final class RentalWorkOrderAuditFixesTest extends TestCase
         $this->actingAs($agent)->post(route('corex.rental-work-orders.store'), $payload)->assertNotFound();
         $this->assertSame($before, RentalWorkOrder::withoutGlobalScopes()->count());
     }
+
+    // ── Audit 2026-10-18: A-L8 / A-L9 ───────────────────────────────────
+
+    private function inspectionObservation(Property $property, ?Agency $agency = null): array
+    {
+        $agency ??= $this->agency;
+        $lease = Lease::create([
+            'agency_id' => $agency->id, 'branch_id' => $this->branch->id, 'property_id' => $property->id,
+            'status' => Lease::STATUS_ACTIVE, 'rental_amount' => 9500, 'start_date' => now()->subDays(10), 'created_by_user_id' => $this->admin->id,
+        ]);
+        $inspection = \App\Models\RentalInspection::create([
+            'agency_id' => $agency->id, 'lease_id' => $lease->id, 'property_id' => $property->id,
+            'type' => \App\Models\RentalInspection::TYPE_OUT, 'created_by_user_id' => $this->admin->id,
+        ]);
+        $item = \App\Models\RentalInspectionItem::create([
+            'agency_id' => $agency->id, 'property_id' => $property->id,
+            'kind' => \App\Models\RentalInspectionItem::KIND_SPACE, 'label' => 'Bathroom', 'created_by_user_id' => $this->admin->id,
+        ]);
+        $observation = \App\Models\RentalInspectionObservation::create([
+            'agency_id' => $agency->id, 'rental_inspection_id' => $inspection->id, 'rental_inspection_item_id' => $item->id,
+            'observed_by_user_id' => $this->admin->id, 'condition' => 'damaged', 'notes' => 'Cracked.', 'source' => 'out_inspection',
+        ]);
+
+        return [$inspection, $observation];
+    }
+
+    private function workOrderPayload(array $over = []): array
+    {
+        return $over + [
+            'property_id' => $this->property->id, 'reported_by_type' => RentalWorkOrder::REPORTED_BY_INSPECTION,
+            'title' => 'Fix crack', 'description' => 'Cracked tile',
+        ];
+    }
+
+    public function test_store_refuses_an_observation_that_belongs_to_another_property_or_agency(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '2 Other Street', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [, $elsewhere] = $this->inspectionObservation($otherProperty);
+
+        $otherAgency = Agency::create(['name' => 'Foreign Agency', 'slug' => 'foreign-' . uniqid()]);
+        $foreignProperty = Property::forceCreate([
+            'agency_id' => $otherAgency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '9 Foreign Road', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [, $foreign] = $this->inspectionObservation($foreignProperty, $otherAgency);
+
+        foreach ([$elsewhere, $foreign] as $observation) {
+            $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), $this->workOrderPayload([
+                'reported_inspection_observation_id' => $observation->id,
+            ]))->assertNotFound();
+        }
+        $this->assertSame(0, RentalWorkOrder::withoutGlobalScopes()->count());
+
+        // The property's OWN observation is fine.
+        [, $mine] = $this->inspectionObservation($this->property);
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), $this->workOrderPayload([
+            'reported_inspection_observation_id' => $mine->id,
+        ]))->assertSessionHasNoErrors();
+        $this->assertSame(1, RentalWorkOrder::withoutGlobalScopes()->where('reported_inspection_observation_id', $mine->id)->count());
+    }
+
+    public function test_batch_store_refuses_an_observation_from_a_different_property_and_creates_nothing(): void
+    {
+        $otherProperty = Property::forceCreate([
+            'agency_id' => $this->agency->id, 'agent_id' => $this->admin->id, 'branch_id' => $this->branch->id,
+            'title' => '2 Other Street', 'status' => 'active', 'listing_type' => 'rental',
+        ]);
+        [$otherInspection, $elsewhere] = $this->inspectionObservation($otherProperty);
+        [, $mine] = $this->inspectionObservation($this->property);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.store'), [
+            'property_id' => $this->property->id, 'assignment_type' => RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+            'rental_inspection_id' => $otherInspection->id,
+            'batch_items' => [
+                ['observation_id' => $mine->id, 'title' => 'Mine'],
+                ['observation_id' => $elsewhere->id, 'title' => 'Not mine'],
+            ],
+        ])->assertNotFound();
+
+        $this->assertSame(0, RentalWorkOrder::withoutGlobalScopes()->count());
+    }
+
+    public function test_create_screen_does_not_prefill_from_an_inspection_outside_the_users_scope(): void
+    {
+        \App\Models\Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agency->id]);
+        foreach (['rental_work_orders.view', 'rental_work_orders.create', 'rental_inspections.view', 'properties.view', 'leases.view'] as $key) {
+            \App\Models\RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $this->agency->id], ['scope' => 'own']);
+        }
+        \App\Services\PermissionService::clearCache();
+        $agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+
+        [$inspection, $observation] = $this->inspectionObservation($this->property);
+
+        $res = $this->actingAs($agent)->get(route('corex.rental-work-orders.create', [
+            'rental_inspection_id' => $inspection->id, 'observation_ids' => [$observation->id],
+        ]))->assertOk();
+
+        $this->assertNull($res->viewData('followUp'));
+    }
 }

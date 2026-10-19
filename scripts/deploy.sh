@@ -340,11 +340,21 @@ ACTUAL_APP_ENV=$(read_env_var "$DIR/.env" APP_ENV)
 # OUTBOUND_MAIL_REAL_SEND=1 is the ONE server-side flag that lets the application send real mail (see
 # .ai/specs/outbound-mail-guard.md). Production must carry it - without it the guard intercepts ALL live mail,
 # silently, so refuse the deploy instead. Any other target must NOT carry it (a copied .env must not arm a test box).
+#
+# A production-MODE copy that is NOT the real live server (live-testing.corexos.co.za: APP_ENV=production on a copy
+# of real data) declares itself with COREX_EXTERNAL_PUBLISHING=false (release audit 2026-10-18). It is treated like
+# a test box: it must NOT carry the flag, and its deploy is not refused for lacking it. The real live server never
+# sets COREX_EXTERNAL_PUBLISHING=false, so its check is unchanged.
 preflight_real_send_flag() {
     local target="$1" file="$2" val
     # `|| true`: grep exits 1 when the key is absent, and this script runs under set -euo pipefail - without it the
     # deploy would die silently HERE instead of printing the refusal below (the exact case this check exists for).
     val=$(grep -E "^OUTBOUND_MAIL_REAL_SEND=" "$file" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" | tr 'A-Z' 'a-z') || true
+    local publishing
+    publishing=$(grep -E "^COREX_EXTERNAL_PUBLISHING=" "$file" | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//" | tr 'A-Z' 'a-z') || true
+    if [[ "$target" == "production" && ( "$publishing" == "false" || "$publishing" == "0" || "$publishing" == "no" || "$publishing" == "off" ) ]]; then
+        target="production-test-copy"   # live-testing: a production-mode copy, not the real live server
+    fi
     if [[ "$target" == "production" ]]; then
         if [[ "$val" != "1" && "$val" != "true" ]]; then
             fail "OUTBOUND_MAIL_REAL_SEND=1 is MISSING from $file. Without it this code intercepts ALL live mail (tenants, landlords, agents would stop receiving anything). Add the line OUTBOUND_MAIL_REAL_SEND=1 to the live .env BY HAND, then re-run. See .ai/runbooks/outbound-mail-real-send-flag.md."

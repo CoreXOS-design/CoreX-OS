@@ -32,14 +32,14 @@
     @endif
 
     {{-- Filters --}}
-    <form method="GET" class="flex items-center gap-3 flex-wrap" data-tour="comp-whistleblow-filters">
-        <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="comp-whistleblow-status">
+    <form method="GET" class="props-filter-panel rounded-md px-4 py-3 flex items-center gap-3 flex-wrap" style="border: 1px solid var(--border);" data-tour="comp-whistleblow-filters">
+        <select class="list-header-filter {{ request('status') ? 'is-active' : '' }}" name="status" onchange="this.form.submit()" data-tour="comp-whistleblow-status">
             <option value="">All Statuses</option>
             @foreach(['draft','pending_approval','changes_requested','rejected','approved','sent','acknowledged_by_ppra','closed'] as $s)
             <option value="{{ $s }}" {{ request('status') === $s ? 'selected' : '' }}>{{ str_replace('_', ' ', ucfirst($s)) }}</option>
             @endforeach
         </select>
-        <select name="tier" onchange="this.form.submit()" class="list-header-filter">
+        <select class="list-header-filter {{ request('tier') ? 'is-active' : '' }}" name="tier" onchange="this.form.submit()">
             <option value="">All Tiers</option>
             <option value="tier_1" {{ request('tier') === 'tier_1' ? 'selected' : '' }}>Tier 1</option>
             <option value="tier_2" {{ request('tier') === 'tier_2' ? 'selected' : '' }}>Tier 2</option>
@@ -83,7 +83,7 @@
                     @endphp
                     <tr>
                         <td class="px-4 py-3 font-mono text-xs font-bold" style="color: var(--text-primary);">CDX-WB-{{ $c->id }}</td>
-                        <td class="px-4 py-3"><span class="ds-badge {{ $tierBadges[$c->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $c->tier) }}</span></td>
+                        <td class="px-4 py-3"><span class="ds-badge ds-badge-pill {{ $tierBadges[$c->tier] ?? 'ds-badge-default' }}">Tier {{ str_replace('tier_', '', $c->tier) }}</span></td>
                         <td class="px-4 py-3" style="color: var(--text-primary);">{{ Str::limit($c->subjects_summary, 30) }}</td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ Str::limit($c->property_address, 30) }}</td>
                         <td class="px-4 py-3 text-xs" style="color: var(--text-secondary);">{{ $c->reporter?->name ?? '—' }}</td>

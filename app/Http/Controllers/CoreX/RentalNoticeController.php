@@ -43,9 +43,11 @@ class RentalNoticeController extends Controller
             $query->whereDate('sent_at', '<=', $to);
         }
 
-        $sort = $request->get('sort', 'sent_at');
+        // Audit 2026-10-18 (A-L7): only these columns may be sorted on - a free `?sort=` used to reach orderBy() as-is
+        // (a bad name was a 500, a hidden column could be probed by ordering). Anything else falls back to the default.
+        $sort = in_array($request->get('sort'), ['sent_at', 'notice_type', 'created_at'], true) ? $request->get('sort') : 'sent_at';
         $direction = $sort === 'sent_at' ? 'desc' : 'asc';
-        $query->orderBy($sort === 'sent_at' ? 'sent_at' : $sort, $direction);
+        $query->orderBy($sort, $direction);
 
         $notices = $query->paginate(25)->withQueryString();
 

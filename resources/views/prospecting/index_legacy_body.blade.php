@@ -418,11 +418,7 @@
 
                                 {{-- Claim badge — only show on rows OTHER than the existing Claim column to surface a quick visual cue --}}
                                 @if($stClaim)
-                                <span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                      style="background: {{ $stClaim['is_expiring'] ? 'color-mix(in srgb, var(--ds-crimson, #dc2626) 18%, transparent)' : 'color-mix(in srgb, var(--brand-button) 18%, transparent)' }};
-                                             color: {{ $stClaim['is_expiring'] ? 'var(--ds-crimson, #dc2626)' : 'var(--brand-button)' }};
-                                             border: 1px solid currentColor;"
-                                      title="Claimed {{ \Carbon\Carbon::parse($stClaim['claimed_at'])->diffForHumans() }} · status: {{ $stClaim['status'] }}{{ $stClaim['hours_left'] !== null ? ' · ' . round($stClaim['hours_left'], 1) . 'h until expiry' : '' }}">
+                                <span class="ds-badge" style="background: {{ $stClaim['is_expiring'] ? 'color-mix(in srgb, var(--ds-crimson, #dc2626) 18%, transparent)' : 'color-mix(in srgb, var(--brand-button) 18%, transparent)' }}; color: {{ $stClaim['is_expiring'] ? 'var(--ds-crimson, #dc2626)' : 'var(--brand-button)' }}; border: 1px solid currentColor;" title="Claimed {{ \Carbon\Carbon::parse($stClaim['claimed_at'])->diffForHumans() }} · status: {{ $stClaim['status'] }}{{ $stClaim['hours_left'] !== null ? ' · ' . round($stClaim['hours_left'], 1) . 'h until expiry' : '' }}">
                                     {{ $stClaim['is_expiring'] ? '⏰' : '🔒' }}
                                     {{ $stClaimedByMe ? 'You' : (explode(' ', (string) $stClaim['claimer_name'])[0] ?? 'Other') }}
                                 </span>
@@ -430,9 +426,7 @@
 
                                 {{-- Temp pitch-lock badge — visible only when another agent has the composer open. --}}
                                 @if($stLockedByOther)
-                                <span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                      style="background: color-mix(in srgb, var(--ds-amber) 18%, transparent); color: var(--ds-amber); border: 1px solid currentColor;"
-                                      title="{{ $stTempLock['user_name'] }} is composing a pitch on this listing (lock expires in {{ (int) $stTempLock['minutes_left'] }} min)">
+                                <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 18%, transparent); color: var(--ds-amber); border: 1px solid currentColor;" title="{{ $stTempLock['user_name'] }} is composing a pitch on this listing (lock expires in {{ (int) $stTempLock['minutes_left'] }} min)">
                                     ⏳ Pitching ({{ explode(' ', (string) $stTempLock['user_name'])[0] ?? 'agent' }})
                                 </span>
                                 @endif
@@ -460,9 +454,7 @@
 
                                 {{-- Contact-linked badge --}}
                                 @if($stContactCnt > 0)
-                                <span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                      style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);"
-                                      title="{{ $stContactCnt }} contact{{ $stContactCnt === 1 ? '' : 's' }} linked to this property">
+                                <span class="ds-badge ds-badge-pill ds-badge-default" title="{{ $stContactCnt }} contact{{ $stContactCnt === 1 ? '' : 's' }} linked to this property">
                                     👤 {{ $stContactCnt }}
                                 </span>
                                 @endif
@@ -470,16 +462,12 @@
                                 {{-- State-aware primary CTA — only one renders per row --}}
                                 @if($canPitch)
                                     @if($stClaimedByOther)
-                                        <span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                              style="background: var(--surface-2); color: var(--text-muted); border: 1px dashed var(--border);"
-                                              title="This listing is claimed by another agent in your agency — coordinate before pitching">
+                                        <span class="ds-badge" style="background: var(--surface-2); color: var(--text-muted); border: 1px dashed var(--border);" title="This listing is claimed by another agent in your agency — coordinate before pitching">
                                             Claimed
                                         </span>
                                     @elseif($stLockedByOther)
                                         {{-- Temp lock by another agent → Pitch button blocked. --}}
-                                        <span class="inline-flex items-center gap-1 text-[0.625rem] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
-                                              style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border: 1px dashed currentColor;"
-                                              title="{{ $stTempLock['user_name'] }} is composing a pitch on this listing. Lock expires in {{ (int) $stTempLock['minutes_left'] }} min.">
+                                        <span class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border: 1px dashed currentColor;" title="{{ $stTempLock['user_name'] }} is composing a pitch on this listing. Lock expires in {{ (int) $stTempLock['minutes_left'] }} min.">
                                             ⏳ Pitching in progress
                                         </span>
                                     @elseif($stOasStock)
@@ -582,9 +570,7 @@
                                     @endif
                                 </button>
                             @else
-                                <span class="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full"
-                                      style="background: var(--surface-2); color: var(--text-muted);"
-                                      title="No matching buyers above the configured threshold — consider widening wishlists or lowering thresholds in Settings → Prospecting Setup → Buyer Match Tiers">
+                                <span class="ds-badge ds-badge-pill ds-badge-default" title="No matching buyers above the configured threshold — consider widening wishlists or lowering thresholds in Settings → Prospecting Setup → Buyer Match Tiers">
                                     No matches
                                 </span>
                             @endif
@@ -624,8 +610,7 @@
                                 </a>
                                 @endforeach
                             @else
-                                <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold"
-                                      style="{{ $portalStyle($listing->portal_source) }}">
+                                <span class="ds-badge ds-badge-pill" style="{{ $portalStyle($listing->portal_source) }};">
                                     {{ $portalLabel($listing->portal_source) }}
                                 </span>
                             @endif

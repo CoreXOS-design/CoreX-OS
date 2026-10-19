@@ -448,9 +448,20 @@ Route::middleware('auth')->group(function () {
         ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
         ->where('agency', '[0-9]+')
         ->name('admin.ai-usage.agency');
-    Route::post('/admin/ai-usage/agencies/{agency}/budget', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateBudget'])
+    // AT-456 AI Spend Safety — "Turn AI back on" after a cut-out. Replaces the
+    // retired per-agency budget form (admin.ai-usage.budget.update).
+    Route::post('/admin/ai-usage/agencies/{agency}/resume', [\App\Http\Controllers\Admin\AiUsageController::class, 'resume'])
         ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
-        ->name('admin.ai-usage.budget.update');
+        ->where('agency', '[0-9]+')
+        ->name('admin.ai-usage.resume');
+    Route::post('/admin/ai-usage/system/resume', [\App\Http\Controllers\Admin\AiUsageController::class, 'resumeSystem'])
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
+        ->name('admin.ai-usage.system.resume');
+    // AT-456 Part B — the owner sets an agency's monthly AI template generation limit (audited).
+    Route::post('/admin/ai-usage/agencies/{agency}/template-limit', [\App\Http\Controllers\Admin\AiUsageController::class, 'updateTemplateLimit'])
+        ->middleware(['owner_only', 'permission:mic.view_ai_costs'])
+        ->where('agency', '[0-9]+')
+        ->name('admin.ai-usage.template-limit');
 
 // ── CoreX Global API v1 (session-authenticated, browser-visible XHR) ──
     Route::prefix('api/v1')->name('api.v1.')->group(function () {
@@ -507,6 +518,49 @@ Route::middleware('auth')->group(function () {
         Route::get('/properties/{property}/syndication-panel', \App\Http\Controllers\Api\PropertySyndicationPanelController::class)
             ->middleware('permission:access_properties')
             ->name('properties.syndication-panel');
+
+        // AT-456 Part B — Template Manager "Create with AI" (JSON). Same gates as the Template Manager page it is used from;
+        // generation is throttled on top of the monthly allowance and both re-check access_properties in the controller.
+        // Spec: .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B.
+        Route::post('/ad-manager/templates/ai/generate', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'generateWithAi'])
+            ->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])
+            ->name('ad-manager.templates.ai.generate');
+        Route::post('/ad-manager/templates/ai/{generation}/save', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'saveAiOption'])
+            ->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('generation')
+            ->name('ad-manager.templates.ai.save');
+
+        // AT-456 Part D — Post Scheduler (JSON): upload a generated ad picture, then store the scheduled posts.
+        // Scope (own / branch / agency) is enforced in the controller's queries. Spec: same file, §D.
+        Route::post('/ad-manager/scheduled/image', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'uploadImage'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:60,1'])
+            ->name('ad-manager.scheduled.image');
+        Route::post('/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'store'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager', 'throttle:20,1'])
+            ->name('ad-manager.scheduled.store');
+
+        // Company Ads — save from the Ad Builder in company mode (JSON). {companyAd} binds through AgencyScope and is re-checked
+        // against the agency being worked in (404 otherwise). Spec: .ai/specs/company-ads.md §6, §13.
+        Route::post('/ad-manager/company-ads', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'store'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->name('ad-manager.company-ads.store');
+        Route::put('/ad-manager/company-ads/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'update'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('companyAd')
+            ->name('ad-manager.company-ads.update');
+        // Company Ads — upload a picture to PLACE in a company ad (Ad Builder company mode). Spec: .ai/specs/company-ads.md §4, §13.
+        Route::post('/ad-manager/company-ads/images', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'uploadImage'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])
+            ->name('ad-manager.company-ads.images');
+        // Company Ads E-2 — "Create company ad with AI" (JSON). Same gates as the company-ads writes; generation is throttled
+        // on top of the shared monthly allowance (one pool with property templates). Spec: .ai/specs/company-ads.md §8, §13.
+        Route::post('/ad-manager/company-ads/ai/generate', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'generateWithAi'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager', 'throttle:8,1'])
+            ->name('ad-manager.company-ads.ai.generate');
+        Route::post('/ad-manager/company-ads/ai/{generation}/save', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'saveAiOption'])
+            ->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])
+            ->whereNumber('generation')
+            ->name('ad-manager.company-ads.ai.save');
 
         Route::get('/contacts',        [\App\Http\Controllers\Api\V1\ContactsController::class, 'index'])->name('contacts.index');
         Route::get('/contacts/{contact}', [\App\Http\Controllers\Api\V1\ContactsController::class, 'show'])->name('contacts.show');
@@ -1566,6 +1620,33 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/tools/ad-manager/templates', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates');
     Route::post('/tools/ad-manager/templates/{template}/archive', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'archive'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.archive')->whereNumber('template');
     Route::post('/tools/ad-manager/templates/{template}/restore', [\App\Http\Controllers\Tools\AdTemplateManagerController::class, 'restore'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.restore')->whereNumber('template')->withTrashed();
+    // AT-456 Part B — "Create with AI" in the Template Manager (spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §B).
+    // Its two JSON endpoints (generate / save-option) live under /api/v1 — see api.v1.ad-manager.templates.ai.* in the api/v1 group.
+
+    // Company Ads — second tab of the Template Manager (spec .ai/specs/company-ads.md). The list needs only access_ad_manager
+    // (company ads are agency-wide brand assets); making / changing them needs ad_manager.company_ads. {companyAd} binds
+    // through AgencyScope (another agency's id is a 404). Archive / restore are soft-delete only.
+    Route::get('/tools/ad-manager/templates/company', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.templates.company');
+    Route::get('/tools/ad-manager/company-ads/builder', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder');
+    Route::get('/tools/ad-manager/company-ads/builder/{companyAd}', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'builder'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.builder.edit')->whereNumber('companyAd');
+    // Save (store / update) from the Ad Builder are JSON endpoints under /api/v1 - api.v1.ad-manager.company-ads.store / .update.
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/duplicate', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'duplicate'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.duplicate')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/archive', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'archive'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.archive')->whereNumber('companyAd');
+    Route::post('/tools/ad-manager/company-ads/{companyAd}/restore', [\App\Http\Controllers\Tools\CompanyAdsController::class, 'restore'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.company_ads', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.company-ads.restore')->whereNumber('companyAd')->withTrashed();
+
+    // AT-456 Part C — Article Library (third Ad Manager tab). Library rows are global and read-only; "Use this"
+    // makes the user's own unpublished AgentArticle (agency-scoped). Spec: at456-ai-tools-scheduler-and-spend-safety.md §C.5.
+    Route::get('/tools/ad-manager/articles', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'index'])->middleware(['permission:access_ad_manager', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.articles');
+    Route::post('/tools/ad-manager/articles/{article}/use', [\App\Http\Controllers\Tools\ArticleLibraryController::class, 'use'])->middleware(['permission:access_ad_manager', 'permission:edit_own_profile', 'agency.required', 'feature:ad-manager', 'throttle:30,1'])->name('tools.ad-manager.articles.use')->whereNumber('article');
+
+    // Scheduled Posts — AT-456 Part D, spec .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §D. Fourth Ad Manager pill.
+    // Posts are made from the Ad Manager's generated ads (image upload + store are JSON endpoints under /api/v1 —
+    // api.v1.ad-manager.scheduled.image / .store); this list edits / cancels / reschedules.
+    // Cancel is a status change, never a delete. Scope (own / branch / agency) is enforced in the controller's queries.
+    Route::get('/tools/ad-manager/scheduled', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'index'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled');
+    Route::post('/tools/ad-manager/scheduled/{post}/update', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'update'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.update')->whereNumber('post');
+    Route::post('/tools/ad-manager/scheduled/{post}/cancel', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'cancel'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.cancel')->whereNumber('post');
+    Route::post('/tools/ad-manager/scheduled/{post}/reschedule', [\App\Http\Controllers\Tools\ScheduledPostsController::class, 'reschedule'])->middleware(['permission:access_ad_manager', 'permission:ad_manager.schedule_posts', 'agency.required', 'feature:ad-manager'])->name('tools.ad-manager.scheduled.reschedule')->whereNumber('post');
 
     // Tools History (backend)
     Route::get('/tools/history', [ToolsController::class, 'historyIndex'])->middleware('permission:access_calculators')->name('tools.history.index');
@@ -4249,6 +4330,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // docblock for why this is deliberately its own controller.
         Route::post('/{rentalInventory}/buyer-acceptances/{contact}/send', [\App\Http\Controllers\CoreX\RentalInventoryBuyerAcceptanceController::class, 'send'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.buyer-acceptances.send');
+        // Audit A-H1 — a party's uploaded wet-ink scan (private disk), own/branch-checked.
+        Route::get('/{rentalInventory}/signatures/{signature}/wet-ink-file', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'signatureWetInkFile'])
+            ->name('corex.rental-inventories.signatures.wet-ink-file');
+        // Audit A-H1 — a buyer's uploaded wet-ink scan lives on the private disk; served here,
+        // own/branch-checked, with nosniff + a sandbox CSP (no longer a public /storage URL).
+        Route::get('/{rentalInventory}/buyer-acceptances/{acceptance}/wet-ink-file', [\App\Http\Controllers\CoreX\RentalInventoryController::class, 'buyerAcceptanceWetInkFile'])
+            ->name('corex.rental-inventories.buyer-acceptances.wet-ink-file');
         // §14 — the move-out (current) side's own photo evidence, from the
         // comparison screen. Uploads AND tags to this line in ONE request.
         Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])
@@ -5101,6 +5189,26 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // demo-agency members see.
         Route::get('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'demoSidebar'])->name('demo-sidebar');
         Route::put('/demo-sidebar', [\App\Http\Controllers\Admin\DevSettingsController::class, 'updateDemoSidebar'])->name('demo-sidebar.update');
+    });
+
+    // AT-456 Part C — Article Library (system-dev section, Dev Settings → Article Library). owner_only and
+    // DELIBERATELY no permission key: a grantable key could hand an agency admin a screen that spends
+    // platform AI money and edits what every agency sees. Every action ALSO aborts unless isOwnerRole().
+    // Spec: .ai/specs/at456-ai-tools-scheduler-and-spend-safety.md §C.4.
+    Route::middleware('owner_only')->prefix('admin/article-library')->name('admin.article-library.')->group(function () {
+        $c = \App\Http\Controllers\Admin\ArticleLibraryController::class;
+        Route::get('/',                                [$c, 'index'])->name('index');
+        Route::post('/sources',                        [$c, 'store'])->name('sources.store');
+        Route::put('/sources/{source}',                [$c, 'update'])->whereNumber('source')->name('sources.update');
+        Route::delete('/sources/{source}',             [$c, 'archive'])->whereNumber('source')->name('sources.archive');
+        Route::post('/sources/{source}/restore',       [$c, 'restore'])->whereNumber('source')->name('sources.restore');
+        Route::post('/run',                            [$c, 'run'])->middleware('throttle:6,1')->name('run');
+        Route::post('/sources/{source}/run',           [$c, 'run'])->whereNumber('source')->middleware('throttle:6,1')->name('sources.run');
+        Route::get('/articles',                        [$c, 'articles'])->name('articles');
+        Route::post('/articles/{article}/hide',        [$c, 'hide'])->whereNumber('article')->name('articles.hide');
+        Route::post('/articles/{article}/unhide',      [$c, 'unhide'])->whereNumber('article')->name('articles.unhide');
+        Route::get('/settings',                        [$c, 'settings'])->name('settings');
+        Route::put('/settings',                        [$c, 'updateSettings'])->name('settings.update');
     });
 
     // AT-URGENT-2026-09-09 — the outbound-mail kill switch's capture log.
@@ -6068,8 +6176,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/builder',                    [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder');
         Route::get('/builder/{template}',         [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'builder'])->name('builder.edit');
         Route::post('/upload-media',              [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'uploadMedia'])->name('upload-media');
-        Route::post('/',                          [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'store'])->name('store');
-        Route::put('/{template}',                 [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'update'])->name('update');
+        Route::post('/',                          [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'store'])->middleware('permission:access_ad_manager')->name('store');
+        Route::put('/{template}',                 [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'update'])->middleware('permission:access_ad_manager')->name('update');
         Route::delete('/{template}',              [\App\Http\Controllers\CoreX\PropertyAdTemplateController::class, 'destroy'])->name('destroy');
     });
 
@@ -7317,6 +7425,10 @@ Route::prefix('rental-inventory-report')->group(function () {
     // §24 ruling — the buyer's own capture (on-screen or wet-ink), no
     // CoreX login. Same throttle as the read path — this is still an
     // unauthenticated write endpoint, token-gated only.
+    // Audit A-H1 — token-authorised fetch of a party's private wet-ink scan for the public page.
+    Route::get('/{token}/signatures/{signature}/wet-ink-file', [\App\Http\Controllers\RentalInventoryPublicController::class, 'signatureWetInkFile'])
+        ->where('signature', '[0-9]+')
+        ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.signature-wet-ink-file');
     Route::post('/{token}/buyer-acceptance', [\App\Http\Controllers\RentalInventoryPublicController::class, 'storeBuyerAcceptance'])
         ->middleware('throttle:rental-inventory-public-show')->name('rental-inventories.public.buyer-acceptance.store');
 });

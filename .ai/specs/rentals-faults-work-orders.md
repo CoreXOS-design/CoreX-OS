@@ -1712,3 +1712,9 @@ Johan: contractor types (Settings -> Service types) "should be linked to the con
 
 ## 25. Contractor link + email: tenant, access contact, Open in Maps (AT-459, Johan 15 Oct 2026, QA1)
 The contractor's job email and `/secure/work-orders/{token}` page now carry the tenant's name with a tap-to-call number (only when the agency allows crews and contractors to see the tenant - the existing crew-link setting, default off), who lets them in (the work order's access contact: name, tap-to-call number, note) and an **Open in Maps** link built the same way as the crew page's (the property's GPS point, else the address). **Crew-only stays crew-only:** the contractor link gets no parts, labour, hours or quote-building. The access contact moved from the single "Access notes" box to three fields on the work order; full design in rental-work-orders.md §14.32. The email previously read the PROPERTY's access note; it now reads the work order's, falling back to the card's and then the property's, so nothing already typed is lost.
+
+## Audit fix 2026-10-18 (A-L10/L11)
+Fault report `store()` accepts only a live fault type of the user's own agency (agency-scoped `Rule::exists`); the "Report a fault" `create()` form resolves `property_id` / `lease_id` through `visibleTo()` (404 outside the user's scope). Test: `RentalFaultReportScopeGuardTest`.
+
+### Owner "Stop this" / "Query this" links expire (audit 2026-10-18, A-L5)
+The signed links in the authorisation-to-owner email (and the forms on the page they open) are `temporarySignedRoute` links valid for 60 days - the same as the "I do not agree" link in the fault-settings email (a code constant, `RentalOwnerNoticeController::LINK_DAYS`; no agency setting exists for either). After that the owner uses the same two buttons inside their portal. Test: `OwnerStopQueryTest`.

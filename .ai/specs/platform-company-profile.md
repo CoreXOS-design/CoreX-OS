@@ -1,7 +1,7 @@
 # Platform Company Profile (RR Technologies) — Spec
 
 > Status: **Built and proven on QA1 (cc5, 2026-10-06): interface, owner page, company email signature.** Awaiting Johan's test before Staging.
-> Area: **System Developer** (owner-only), beside Platform E-Sign.
+> Area: **System Developer → Contracts** (owner-only), beside Platform E-Sign. (Both moved into the Contracts group, Andre 2026-10-14.)
 > Sister specs: `agency-timeline-and-platform-esign.md` (consumer #1: the CoreX Subscription Agreement web
 > document, lane cc3), `agency-onboarding-setup.md` (NOT affected — see §8).
 > Pillars: none directly. This is the platform owner's own letterhead record; it is deliberately **not** an
@@ -121,7 +121,7 @@ Presentation helpers (also stable — `AgreementCompany` in Platform E-Sign alre
 `'web'` context: responsive, logo by URL. Neither ever renders a blank block — missing optional values are omitted,
 never printed as empty labels.
 
-## 5. The page — System Developer → "Company — RR Technologies" (`admin.platform-company.*`, `/admin/platform-company`)
+## 5. The page — System Developer → Contracts → "Company — RR Technologies" (`admin.platform-company.*`, `/admin/platform-company`)
 Owner-only (route middleware + `abort_unless(isOwnerRole())`). Sections: Logo (upload / replace / restore a
 previous version) · Company details · Letterhead (strap line, footer text, live web + PDF preview) · Email
 signature (editor + preview + "use standard") · Bank details (optional, encrypted) · History.

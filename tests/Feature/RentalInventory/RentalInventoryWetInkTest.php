@@ -110,6 +110,7 @@ final class RentalInventoryWetInkTest extends TestCase
         ]);
 
         Storage::fake('public');
+        Storage::fake('local');
     }
 
     // ── The awaiting_wet_ink tracking marker ────────────────────────────
@@ -422,5 +423,85 @@ final class RentalInventoryWetInkTest extends TestCase
 
         $response->assertOk();
         $this->assertSame('application/pdf', $response->headers->get('Content-Type'));
+    }
+
+    // ── Follow-up (audit A-H1): agent wet-ink scans are private, server-named and served by a checked route ──
+
+    private function captureTenantWetInk(string $clientName = 'scan.pdf', string $mime = 'application/pdf'): RentalInventorySignature
+    {
+        $response = $this->post(route('corex.rental-inventories.signatures.store', $this->inventory), [
+            'party_role' => RentalInventorySignature::PARTY_TENANT,
+            'disposition' => RentalInventorySignature::DISPOSITION_WET_INK,
+            'party_contact_id' => $this->tenant->id,
+            'wet_ink_file' => UploadedFile::fake()->create($clientName, 100, $mime),
+        ], ['Accept' => 'application/json']);
+        $response->assertStatus(201);
+
+        return RentalInventorySignature::findOrFail($response->json('id'));
+    }
+
+    public function test_an_agent_wet_ink_upload_is_private_with_a_server_chosen_extension(): void
+    {
+        $row = $this->captureTenantWetInk('evil.html', 'application/pdf');
+
+        $this->assertStringStartsWith('private:rental-inventory-signatures/' . $this->property->id . '/wet-ink/', $row->wet_ink_upload_path);
+        $this->assertStringEndsWith('.pdf', $row->wet_ink_upload_path, 'the client .html extension must never be used');
+        Storage::disk('local')->assertExists(substr($row->wet_ink_upload_path, strlen('private:')));
+        $this->assertSame([], Storage::disk('public')->allFiles(), 'nothing may land on the public disk');
+    }
+
+    public function test_the_agent_scan_is_served_by_the_checked_route_and_a_colleague_cannot_fetch_it(): void
+    {
+        $row = $this->captureTenantWetInk();
+        $url = $row->wetInkFileUrl();
+        $this->assertStringContainsString('/wet-ink-file', $url);
+
+        Storage::disk('local')->put(substr($row->wet_ink_upload_path, strlen('private:')), '%PDF-1.4 test');
+        $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $colleague = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
+        $this->actingAs($colleague);
+        $this->get($url)->assertStatus(404);
+    }
+
+    public function test_the_public_report_page_serves_the_scan_only_with_a_live_token(): void
+    {
+        $row = $this->captureTenantWetInk();
+        Storage::disk('local')->put(substr($row->wet_ink_upload_path, strlen('private:')), '%PDF-1.4 test');
+        $token = $this->inventory->generatePublicLink();
+        \Illuminate\Support\Facades\Auth::logout();
+
+        $url = $row->wetInkFileUrl($token);
+        $this->assertStringContainsString("/rental-inventory-report/{$token}/signatures/{$row->id}/wet-ink-file", $url);
+        $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
+
+        $this->get(route('rental-inventories.public.signature-wet-ink-file', ['token' => 'not-a-token', 'signature' => $row->id]))->assertStatus(404);
+
+        $this->inventory->revokePublicLink();
+        $this->get($url)->assertStatus(404);
+    }
+
+    public function test_a_legacy_public_wet_ink_value_is_still_linked_as_is(): void
+    {
+        $row = $this->captureTenantWetInk();
+        $row->forceFill(['wet_ink_upload_path' => '/storage/properties/1/rental-inventory-signatures/old.pdf'])->save();
+
+        $this->assertSame('/storage/properties/1/rental-inventory-signatures/old.pdf', $row->wetInkFileUrl());
+        $this->assertSame('/storage/properties/1/rental-inventory-signatures/old.pdf', $row->wetInkFileUrl('tok'));
+    }
+
+    public function test_a_photo_named_dot_pdf_is_wrapped_into_a_pdf_not_filed_raw(): void
+    {
+        $photo = UploadedFile::fake()->image('photo.jpg');
+        // Real file (content sniffs as JPEG) but the client calls it scan.pdf.
+        $liar = new UploadedFile($photo->getRealPath(), 'scan.pdf', null, null, true);
+
+        foreach ([\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, \App\Http\Controllers\CoreX\RentalInspectionRecordingController::class] as $class) {
+            $method = new \ReflectionMethod($class, 'wetInkScanAsPdfBytes');
+            $method->setAccessible(true);
+            $bytes = $method->invoke(app($class), $liar, '1 Test Street', 'Tenant');
+
+            $this->assertStringStartsWith('%PDF', $bytes, "{$class} must wrap the image into a PDF");
+        }
     }
 }

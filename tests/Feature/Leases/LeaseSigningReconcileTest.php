@@ -549,6 +549,22 @@ final class LeaseSigningReconcileTest extends TestCase
         $this->assertSame(Lease::SIGNING_OUT_FOR_SIGNING, $fine->fresh()->signing_status);
     }
 
+    public function test_the_nightly_command_leaves_an_agency_with_the_leases_feature_off_alone(): void
+    {
+        Mail::fake();
+        [$lease, $envelope] = $this->leaseOut();
+        $envelope->update(['status' => SignatureTemplate::STATUS_DECLINED]);
+        \Illuminate\Support\Facades\DB::table('agency_features')->insert([
+            'agency_id' => $this->agency->id, 'feature_key' => 'rental-leases', 'enabled' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget();
+
+        $this->assertSame(0, Artisan::call('leases:reconcile-signing'));
+
+        $this->assertStringContainsString('Checked 0 lease agreement(s)', Artisan::output());
+        $this->assertSame(Lease::SIGNING_OUT_FOR_SIGNING, $lease->fresh()->signing_status, 'C-F5: switched-off agency untouched');
+    }
+
     // ═══ what the signed agreement said, read back ═══
 
     public function test_the_printed_values_of_the_signed_agreement_are_harvested_into_the_leases_agreement_details(): void

@@ -21,14 +21,13 @@
    style="display: flex; align-items: center; gap: 16px;
           padding: 12px 16px;
           border: 1px solid var(--border);
-          border-left: 3px solid {{ $urgencyColor }};
           border-radius: 6px;
           text-decoration: none;
           background: var(--surface);
           transition: background 120ms ease, border-color 120ms ease;">
     {{-- Urgency dot — replaces the legacy emoji marker. Colour matches the
          left border so the row reads as one urgency signal (no emoji). --}}
-    <div style="width: 10px; height: 10px; border-radius: 50%; background: {{ $urgencyColor }}; flex-shrink: 0;"></div>
+    <div style="width: 7px; height: 7px; border-radius: 50%; background: {{ $urgencyColor }}; flex-shrink: 0;"></div>
     <div style="flex: 1; min-width: 0;">
         <div style="font-size: 0.875rem; font-weight: 500; color: var(--text-primary);">{{ $tile->sentence }}</div>
     </div>

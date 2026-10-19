@@ -20,22 +20,25 @@
     depending on the row's own state — a list of blocks can.
 --}}
 
-@section('content')
-<div class="p-6 max-w-5xl mx-auto space-y-4" x-data="rentalInventoryComparison({{ $inventory->id }})">
-    <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-            <h1 class="text-lg font-semibold">Move-out comparison — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
-            <p class="text-xs mt-0.5" style="color: var(--text-muted);">Always against the ORIGINAL move-in record. Nothing on this page is a deposit figure — it is what was found, for an agent to review.</p>
-        </div>
-        <div class="flex items-center gap-3 shrink-0">
+@section('corex-content')
+<div class="w-full space-y-5" x-data="rentalInventoryComparison({{ $inventory->id }})">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Move-out comparison — {{ $inventory->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Always against the ORIGINAL move-in record. Nothing on this page is a deposit figure — it is what was found, for an agent to review.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
             {{-- §14 — "that is the view an agent hands a tenant." Client-side
                  only (the data is already fully rendered; no extra request
                  needed to filter what's already on the page). --}}
-            <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
-                <input type="checkbox" x-model="onlyDifferences">
-                Only differences
-            </label>
-            <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="corex-btn-outline text-xs">Back to inventory</a>
+                <label class="flex items-center gap-1.5 text-xs whitespace-nowrap" style="color: var(--text-secondary);">
+                    <input type="checkbox" x-model="onlyDifferences">
+                    Only differences
+                </label>
+                <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="corex-btn-outline text-xs">Back to inventory</a>
+            </div>
         </div>
     </div>
 

@@ -1,18 +1,19 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width: 1100px; margin: 0 auto; padding: 0 20px;">
+<div class="w-full space-y-5">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <div>
-            <a href="{{ route('presentations.show', $presentation) }}"
-               style="font-size:0.75rem;color:var(--text-muted);text-decoration:none;">← Back to presentation</a>
-            <h1 style="font-size:1.25rem;font-weight:600;color:var(--text-primary);margin:6px 0 0 0;">
-                Teaser Leads — {{ $presentation->property_address ?: 'Presentation #' . $presentation->id }}
-            </h1>
-            <p style="font-size:0.8125rem;color:var(--text-muted);margin:4px 0 0 0;">
-                Captured leads from teaser /p/{token} submissions, across every teaser link for this presentation.
-            </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('presentations.show', $presentation) }}" class="text-xs no-underline" style="color:var(--text-muted);">&larr; Back to presentation</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    Teaser Leads — {{ $presentation->property_address ?: 'Presentation #' . $presentation->id }}
+                </h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Captured leads from teaser /p/{token} submissions, across every teaser link for this presentation.
+                </p>
+            </div>
         </div>
     </div>
 

@@ -108,9 +108,7 @@
                                             default => 'var(--ds-amber)',
                                         };
                                     @endphp
-                                    <span class="text-xs px-2 py-0.5 rounded-md font-medium"
-                                          style="background: color-mix(in srgb, {{ $statusColor }} 15%, transparent); color: {{ $statusColor }};"
-                                          @if($source->fetch_error) title="{{ $source->fetch_error }}" @endif>
+                                    <span class="ds-badge" style="--ds-badge-c: {{ $statusColor }};" @if($source->fetch_error) title="{{ $source->fetch_error }}" @endif>
                                         {{ strtoupper($source->last_fetch_status) }}
                                     </span>
                                 </td>

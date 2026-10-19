@@ -60,9 +60,7 @@
 
                 {{-- What it is --}}
                 @php $chip = $update->typeChip(); @endphp
-                <span class="inline-flex items-center px-2.5 py-1 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide shrink-0"
-                      style="background:color-mix(in srgb, var({{ $chip['token'] }}, {{ $chip['fallback'] }}) 15%, transparent);
-                             color:var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
+                <span class="ds-badge ds-badge-pill shrink-0" style="--ds-badge-c: var({{ $chip['token'] }}, {{ $chip['fallback'] }});">
                     {{ $chip['label'] }}
                 </span>
 
@@ -72,8 +70,7 @@
                 </span>
 
                 @if($isPending)
-                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[0.6875rem] font-bold uppercase tracking-wide shrink-0"
-                          style="background:color-mix(in srgb, var(--brand-icon) 15%, transparent); color:var(--brand-icon);">
+                    <span class="ds-badge ds-badge-pill ds-badge-info shrink-0">
                         New
                     </span>
                 @endif
