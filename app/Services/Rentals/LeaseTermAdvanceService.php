@@ -113,8 +113,27 @@ class LeaseTermAdvanceService
     }
 
     /**
-     * Ends the tenancy when it is over AND the out-inspection confirms the property is vacant: the lease expires and the property goes back
-     * to the status it had before it was let (rental-renewals.md §15 row 6). A lease whose move-out date is still ahead is left alone -
+     * Audit A5 (2026-10-19) - an ACCEPTED notice (the lease carries a notice date and the move-out date it set) ends the tenancy on that
+     * date, even when no out-inspection was ever completed, when the agency's `end_tenancy_on_move_out_date` setting is on (default on).
+     * A lease that is only past its plain end date (no notice) is NOT ended here: that is the "record an outcome" / month-to-month path.
+     */
+    public function endsByNoticeDate(Lease $lease): bool
+    {
+        return $lease->notice_date !== null
+            && $lease->move_out_date !== null
+            && LeaseSetting::endTenancyOnMoveOutDateFor($lease->agency_id);
+    }
+
+    private function hasCompletedOutInspection(Lease $lease): bool
+    {
+        return $lease->inspections()->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED)->exists();
+    }
+
+    /**
+     * Ends the tenancy when it is over AND either (a) the out-inspection confirms the property is vacant (agency setting
+     * `auto_restore_status_on_lease_ended`), or (b) an accepted notice's move-out date has come (agency setting
+     * `end_tenancy_on_move_out_date`, audit A5): the lease expires and - when `auto_restore_status_on_lease_ended` is on - the property goes
+     * back to the status it had before it was let (rental-renewals.md §15 row 6). A lease whose move-out date is still ahead is left alone -
      * completing the inspection early changes nothing about the tenancy.
      */
     public function endIfVacated(Lease $lease, ?string $today = null, bool $dryRun = false): bool
@@ -126,16 +145,16 @@ class LeaseTermAdvanceService
             // Renewed, cancelled or not a running term: rows 3/4/7 own those paths.
             return false;
         }
-        if (! LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id)) {
-            return false;
-        }
 
         $ends = $this->endDateOf($lease);
         if ($ends === null || $ends > $today) {
             return false;
         }
-        $vacant = $lease->inspections()->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED)->exists();
-        if (! $vacant) {
+
+        $restoreOn = LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id);
+        $byInspection = $restoreOn && $this->hasCompletedOutInspection($lease);
+        $byNotice = $this->endsByNoticeDate($lease);
+        if (! $byInspection && ! $byNotice) {
             return false;
         }
         if ($dryRun) {
@@ -145,25 +164,29 @@ class LeaseTermAdvanceService
         $lease->status = Lease::STATUS_EXPIRED;
         $lease->save();
 
+        $confirmed = $this->hasCompletedOutInspection($lease);
         LeaseEvent::create([
             'lease_id' => $lease->id, 'event_type' => LeaseEvent::TYPE_TENANCY_ENDED,
-            'description' => 'Tenancy ended - move-out ' . \Illuminate\Support\Carbon::parse($ends)->format('d M Y') . ', out-inspection confirmed the property vacant',
-            'metadata' => ['ends' => $ends], 'occurred_at' => now(), 'created_at' => now(),
+            'description' => 'Tenancy ended - move-out ' . Carbon::parse($ends)->format('d M Y')
+                . ($confirmed ? ', out-inspection confirmed the property vacant' : ', the accepted notice\'s move-out date came (no move-out inspection completed yet)'),
+            'metadata' => ['ends' => $ends, 'by' => $byInspection ? 'out_inspection' : 'notice_date'], 'occurred_at' => now(), 'created_at' => now(),
         ]);
 
-        app(PropertyStatusFollowsLeaseService::class)->restorePreLetStatus(
-            $lease,
-            "Lease #{$lease->id} ended - out-inspection confirmed vacant",
-            $today,
-            withoutPortalPush: true,
-        );
+        if ($restoreOn) {
+            app(PropertyStatusFollowsLeaseService::class)->restorePreLetStatus(
+                $lease,
+                $confirmed ? "Lease #{$lease->id} ended - out-inspection confirmed vacant" : "Lease #{$lease->id} ended - move-out date reached",
+                $today,
+                withoutPortalPush: true,
+            );
+        }
 
         return true;
     }
 
     /**
      * Every running lease whose tenancy is over and whose out-inspection is on file (the daily catch-up for an inspection completed before
-     * the move-out date).
+     * the move-out date), plus (audit A5) every one whose accepted notice's move-out date has come, per the agency's setting.
      *
      * @return array<int, array{lease_id:int, action:string, note:?string}>
      */
@@ -172,13 +195,18 @@ class LeaseTermAdvanceService
         $today ??= now()->toDateString();
         $out = [];
 
+        // Audit A5: agencies that switched "end the tenancy on the move-out date" off are only swept for a completed out-inspection.
+        $noticeEndingOff = LeaseSetting::withoutGlobalScopes()->where('end_tenancy_on_move_out_date', false)->pluck('agency_id')->all();
+
         $candidates = Lease::withoutGlobalScopes()
             ->whereNull('deleted_at')
             ->where('status', Lease::STATUS_ACTIVE)
             ->whereNotIn('agency_id', $this->agencyIdsWithLeasesOff())
             ->whereNull('renewed_lease_id')
             ->whereRaw('COALESCE(move_out_date, end_date) IS NOT NULL AND COALESCE(move_out_date, end_date) <= ?', [$today])
-            ->whereHas('inspections', fn ($q) => $q->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED))
+            ->where(fn ($q) => $q
+                ->whereHas('inspections', fn ($i) => $i->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED))
+                ->orWhere(fn ($n) => $n->whereNotNull('notice_date')->whereNotNull('move_out_date')->whereNotIn('agency_id', $noticeEndingOff)))
             ->when($leaseId, fn ($q) => $q->whereKey($leaseId))
             ->orderBy('id')
             ->get();
@@ -217,7 +245,7 @@ class LeaseTermAdvanceService
     /**
      * What this lease is waiting on a date for, or null when it is not waiting on one:
      *   - a signed renewal (this lease, or the running lease it renews) waits for the renewal's start date;
-     *   - a running lease with a completed out-inspection waits for its move-out / end date.
+     *   - a running lease with a completed out-inspection, or an accepted notice's move-out date (audit A5), waits for its move-out / end date.
      *
      * @return array{kind:string, date:string, target_id:int, text:string}|null
      */
@@ -244,12 +272,12 @@ class LeaseTermAdvanceService
                 'text' => ($lease->id === $renewal->id ? 'This renewal goes active on ' : 'The signed renewal takes over on ') . $renewal->start_date->format('j M Y')];
         }
 
-        if ($lease->status === Lease::STATUS_ACTIVE && ! $lease->renewed_lease_id
-            && LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id)
-            && ($date = $this->endDateOf($lease))
-            && $lease->inspections()->where('type', RentalInspection::TYPE_OUT)->where('status', RentalInspection::STATUS_COMPLETED)->exists()) {
-            return ['kind' => 'tenancy_end', 'date' => $date, 'target_id' => (int) $lease->id,
-                'text' => 'The tenancy ends on ' . Carbon::parse($date)->format('j M Y') . ' (move-out inspection done)'];
+        if ($lease->status === Lease::STATUS_ACTIVE && ! $lease->renewed_lease_id && ($date = $this->endDateOf($lease))) {
+            $byInspection = LeaseSetting::autoRestoreStatusOnLeaseEndedFor($lease->agency_id) && $this->hasCompletedOutInspection($lease);
+            if ($byInspection || $this->endsByNoticeDate($lease)) {
+                return ['kind' => 'tenancy_end', 'date' => $date, 'target_id' => (int) $lease->id,
+                    'text' => 'The tenancy ends on ' . Carbon::parse($date)->format('j M Y') . ($byInspection ? ' (move-out inspection done)' : ' (accepted notice)')];
+            }
         }
 
         return null;

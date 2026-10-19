@@ -174,7 +174,7 @@ final class RentalInspectionAudit1019SecurityAndOfflineTest extends TestCase
 
         $photo = RentalInspectionPhoto::firstOrFail();
         $raw = $photo->rawStoragePath();
-        $this->assertStringStartsWith('private:rental-inspections/' . $this->agency->id . '/' . $inspection->id . '/', $raw);
+        $this->assertStringStartsWith('private:private-images/rental-inspections/' . $this->agency->id . '/' . $inspection->id . '/', $raw);
         $this->assertSame([], Storage::disk('public')->allFiles(), 'nothing is written to the public disk');
 
         $stored = Storage::disk('local')->get(substr($raw, strlen('private:')));
@@ -182,16 +182,22 @@ final class RentalInspectionAudit1019SecurityAndOfflineTest extends TestCase
         $this->assertNotFalse(@imagecreatefromstring($stored), 'and it is still a valid image');
 
         $url = $response->json('photos.0.storage_path');
-        $this->assertStringContainsString('/private-image?', $url);
+        $this->assertStringContainsString('/private-image/', $url);
         $this->assertStringContainsString('signature=', $url);
         $this->get($url)->assertOk()->assertHeader('X-Content-Type-Options', 'nosniff');
 
+        // the link dies the moment the photo's inspection is archived (the shared service's guard rows), long before it would expire
+        $inspection->delete();
+        $this->get($url)->assertNotFound();
+        $inspection->restore();
+        $this->get($url)->assertOk();
+
         // tampered
-        $this->get(preg_replace('/signature=[a-f0-9]{6}/', 'signature=000000', $url))->assertForbidden();
+        $this->get(preg_replace('/signature=[a-f0-9]{6}/', 'signature=000000', $url))->assertNotFound();
 
         // expired (the agency default is 480 minutes)
         Carbon::setTestNow(now()->addMinutes(481));
-        $this->get($url)->assertForbidden();
+        $this->get($url)->assertNotFound();
         Carbon::setTestNow();
     }
 
@@ -206,7 +212,7 @@ final class RentalInspectionAudit1019SecurityAndOfflineTest extends TestCase
         Carbon::setTestNow(now()->addMinutes(9));
         $this->get($url)->assertOk();
         Carbon::setTestNow(now()->addMinutes(2));
-        $this->get($url)->assertForbidden();
+        $this->get($url)->assertNotFound();
         Carbon::setTestNow();
     }
 
@@ -224,7 +230,7 @@ final class RentalInspectionAudit1019SecurityAndOfflineTest extends TestCase
 
         $moved = $photo->fresh();
         $this->assertStringStartsWith('private:', $moved->rawStoragePath());
-        $this->assertStringContainsString('/private-image?', $moved->storage_path);
+        $this->assertStringContainsString('/private-image/', $moved->storage_path);
         $this->assertFalse(Storage::disk('public')->exists('properties/' . $this->property->id . '/legacy.jpg'), 'the public original is gone once moved and unused');
     }
 

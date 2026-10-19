@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * Every picture the tenant/owner portal shows goes through here (.ai/specs/rental-portal-access.md §23).
+ * Every picture the tenant/owner portal shows goes through here (.ai/specs/rental-portal-access.md §23; security audit D14).
  *
  * The portal used to hand the browser the STORED file: a 72 x 72 px square showed a 2560 px photo (or whatever a crew or agent upload
  * left on disk, which only the tenant wizard shrinks). So the portal now gets two server-made copies of whatever file is stored,
@@ -15,10 +15,12 @@ use Illuminate\Support\Facades\Storage;
  *   - `thumb_url` — at most THUMB_EDGE px on the longest side, for every list / grid;
  *   - `url`       — at most FULL_EDGE px, for "open the picture".
  *
- * The stored original is never touched (PDFs, mail and the office screens still use it) and is never what the portal serves while a
- * smaller copy can be made. Copies are made once, on first use, beside the public disk, and keyed on the file's modification time so a
- * replaced original gets fresh copies. GD only (the CLI/queue PHP has no Imagick). Anything that goes wrong (no GD, unreadable file,
- * a picture too large to open safely) falls back to the original URL, so a picture is never lost because a resize failed.
+ * D14: neither is ever a permanent public address. Both are SIGNED, EXPIRING URLs ({@see PrivateImageService::signedUrl()}, expiry from the
+ * agency's portal setting) that stream the copy through `GET /private-image/{token}` and stop working the moment a guard row (the photo,
+ * its fault / work order / job card) is archived. The copies are made once, on first open, on the PRIVATE disk (never web-reachable), keyed
+ * on the original's modification time so a replaced original gets fresh copies. The stored original is never touched (PDFs, mail and the
+ * office screens still use it). GD only (the CLI/queue PHP has no Imagick). Whatever goes wrong while making a copy (no GD, unreadable
+ * file, a picture too large to open safely) streams the original instead, so a picture is never lost because a resize failed.
  */
 class PortalImageService
 {
@@ -35,38 +37,64 @@ class PortalImageService
     public const DIR = 'portal-img';
 
     /**
-     * The two URLs for one stored picture. Anything that is not a public-disk picture we hold (an external link, a missing file) comes
-     * back unchanged for both, exactly as before.
+     * The two signed, expiring URLs for one stored picture. Anything that is not a picture we hold (an external link, a missing file, a
+     * path walk) comes back unchanged for both, exactly as before; a picture we hold NEVER comes back as its own permanent address.
      *
+     * @param  array<int,array{0:string,1:int|string}>  $guards  [table, id] rows the picture belongs to; archived / removed = the URL stops working
      * @return array{url: ?string, thumb_url: ?string}
      */
-    public function urls(?string $stored): array
+    public function urls(?string $stored, array $guards = [], ?int $agencyId = null): array
     {
         $stored = is_string($stored) ? trim($stored) : null;
         if ($stored === null || $stored === '') {
             return ['url' => $stored, 'thumb_url' => $stored];
         }
 
-        $rel = $this->relativePath($stored);
-        if ($rel === null) {
-            return ['url' => $stored, 'thumb_url' => $stored];
-        }
-
-        $disk = Storage::disk('public');
-        if (! $disk->exists($rel)) {
-            return ['url' => $stored, 'thumb_url' => $stored];
-        }
-
-        $src = $disk->path($rel);
-        $info = @getimagesize($src);
-        if (! $info || ! in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+        $private = app(PrivateImageService::class);
+        if (! $this->isPictureWeHold($stored) || ! $private->exists($stored)) {
             return ['url' => $stored, 'thumb_url' => $stored];
         }
 
         return [
-            'url' => $this->copy($stored, $rel, $src, $info, self::FULL_EDGE, self::FULL_QUALITY, self::FULL_KEEP_BYTES) ?? $stored,
-            'thumb_url' => $this->copy($stored, $rel, $src, $info, self::THUMB_EDGE, self::THUMB_QUALITY, self::THUMB_KEEP_BYTES) ?? $stored,
+            'url' => $private->signedUrl($stored, $agencyId, $guards, null, PrivateImageService::VARIANT_FULL),
+            'thumb_url' => $private->signedUrl($stored, $agencyId, $guards, null, PrivateImageService::VARIANT_THUMB),
         ];
+    }
+
+    /**
+     * The file the controller streams for a stored picture: the smaller copy of the asked variant (made now on the private disk if not
+     * there yet), or the original when it already fits or no copy could be made. Null when the original is not there.
+     */
+    public function servePath(string $stored, string $variant): ?string
+    {
+        $private = app(PrivateImageService::class);
+        $src = $this->isPictureWeHold($stored) ? $private->absolutePath($stored) : null;
+        if ($src === null) {
+            return null;
+        }
+        $info = @getimagesize($src);
+        if (! $info || ! in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+            return $src;
+        }
+
+        [$edge, $quality, $keep] = $variant === PrivateImageService::VARIANT_THUMB
+            ? [self::THUMB_EDGE, self::THUMB_QUALITY, self::THUMB_KEEP_BYTES]
+            : [self::FULL_EDGE, self::FULL_QUALITY, self::FULL_KEEP_BYTES];
+
+        return $this->copy($src, $info, $edge, $quality, $keep) ?? $src;
+    }
+
+    /** A private ref, or a legacy public picture (never a copy of a copy, never a path walk). */
+    private function isPictureWeHold(string $stored): bool
+    {
+        $private = app(PrivateImageService::class);
+        if ($private->isPrivate($stored)) {
+            $rel = $private->privateRel($stored);
+
+            return $rel !== null && (bool) preg_match('#\.(?:jpe?g|png|webp)$#i', $rel) && ! str_starts_with($rel, PrivateImageService::DIR . '/' . self::DIR . '/');
+        }
+
+        return $this->relativePath($stored) !== null;
     }
 
     /** The path of a stored picture on the public disk, from a `/storage/...` URL (relative or absolute); null for anything else. */
@@ -85,22 +113,22 @@ class PortalImageService
     }
 
     /**
-     * The URL of the copy (made now if not there yet), the original's own URL when the original already fits, or null when no copy
-     * could be made (the caller then falls back to the original).
+     * The absolute path of the copy (made now if not there yet), the original's own path when it already fits, or null when no copy
+     * could be made (the caller then streams the original).
      */
-    private function copy(string $stored, string $rel, string $src, array $info, int $edge, int $quality, int $keepBytes): ?string
+    private function copy(string $src, array $info, int $edge, int $quality, int $keepBytes): ?string
     {
         [$w, $h] = $info;
-        $disk = Storage::disk('public');
+        $disk = Storage::disk(PrivateImageService::DISK);
         $bytes = (int) @filesize($src);
 
         if (max($w, $h) <= $edge && $bytes <= $keepBytes && $info[2] === IMAGETYPE_JPEG) {
-            return $stored;   // already small enough: the stored value is returned exactly as it was (relative or absolute)
+            return $src;   // already small enough: the original is streamed as it is
         }
 
-        $copyRel = self::DIR . '/' . $edge . '/' . substr(sha1($rel . '|' . (int) @filemtime($src) . '|' . $edge), 0, 24) . '.jpg';
+        $copyRel = PrivateImageService::DIR . '/' . self::DIR . '/' . $edge . '/' . substr(sha1($src . '|' . (int) @filemtime($src) . '|' . $edge), 0, 24) . '.jpg';
         if ($disk->exists($copyRel)) {
-            return asset('storage/' . $copyRel);
+            return $disk->path($copyRel);
         }
 
         if (! function_exists('imagecreatefromstring') || ($w * $h) > self::MAX_PIXELS) {
@@ -108,9 +136,9 @@ class PortalImageService
         }
 
         try {
-            return $this->render($src, $disk->path($copyRel), $w, $h, $edge, $quality) ? asset('storage/' . $copyRel) : null;
+            return $this->render($src, $disk->path($copyRel), $w, $h, $edge, $quality) ? $disk->path($copyRel) : null;
         } catch (\Throwable $e) {
-            Log::warning('Portal image: could not make the smaller copy, serving the original', ['file' => $rel, 'edge' => $edge, 'error' => $e->getMessage()]);
+            Log::warning('Portal image: could not make the smaller copy, serving the original', ['file' => basename($src), 'edge' => $edge, 'error' => $e->getMessage()]);
 
             return null;
         }

@@ -49,7 +49,7 @@ class SendLandlordCrewCompletionMailJob implements ShouldQueue
             return;
         }
 
-        if (! RentalPortalSetting::notifyLandlordOnCrewCompletionFor($card->agency_id)) {
+        if (! \App\Services\Rentals\OwnerFinishNotice::tellOwnerWhenReportedFinished($card->agency_id)) {
             return;
         }
 
@@ -64,7 +64,7 @@ class SendLandlordCrewCompletionMailJob implements ShouldQueue
         $agent = ($property->agent_id ? User::withoutGlobalScopes()->find($property->agent_id) : null)
             ?? ($card->created_by_user_id ? User::withoutGlobalScopes()->find($card->created_by_user_id) : null);
 
-        $tz = $card->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($card->agency);
 
         try {
             $dispatcher->send($landlord->email, new RentalJobCardCrewCompletedLandlordMail(

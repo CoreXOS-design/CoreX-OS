@@ -181,6 +181,8 @@ class AgencySetupWizardController extends Controller
             // /corex/settings/rental-applications (the exact incident class
             // named in agency-onboarding-setup.md §6.1).
             'leases' => [
+                // Audit fix A4/A27 (2026-10-19): the live list of this agency's own people for the approver pickers (`user_multiselect`).
+                'agencyUsers' => \App\Models\User::where('agency_id', $agency->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
                 // The "Tenant Profile Network Consent" SECTION LABEL (from the
                 // SUBMISSION_FIELD_SECTIONS constant, unchanged) is renamed here
                 // to the agency's own configured bureau — same technique
@@ -721,6 +723,7 @@ class AgencySetupWizardController extends Controller
                     'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
                     'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
                     'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agency->id),
                     'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
@@ -792,6 +795,16 @@ class AgencySetupWizardController extends Controller
                     'tenant_sees_agent_marks' => \App\Models\RentalPortalSetting::tenantSeesAgentMarksFor($agency->id),
                     'crew_link_auto_send_on_fault_job' => \App\Models\RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agency->id),
                     'fault_recurrence_window_days' => \App\Models\RentalPortalSetting::faultRecurrenceWindowDaysFor($agency->id),
+                    'portal_remember_days' => \App\Models\RentalPortalSetting::portalRememberDaysFor($agency->id),
+                    'portal_app_token_days' => \App\Models\RentalPortalSetting::portalAppTokenDaysFor($agency->id),
+                    'portal_api_per_minute' => \App\Models\RentalPortalSetting::portalApiPerMinuteFor($agency->id),
+                    'portal_photo_link_minutes' => \App\Models\RentalPortalSetting::portalPhotoLinkMinutesFor($agency->id),
+                    'portal_link_days' => \App\Models\RentalPortalSetting::portalLinkDaysFor($agency->id),
+                    'owner_reminder_hours' => \App\Models\RentalPortalSetting::ownerReminderHoursFor($agency->id),
+                    'owner_second_reminder_hours' => \App\Models\RentalPortalSetting::ownerSecondReminderHoursFor($agency->id),
+                    'owner_queue_after_hours' => \App\Models\RentalPortalSetting::ownerQueueAfterHoursFor($agency->id),
+                    'link_renew_on_use' => \App\Models\RentalPortalSetting::linkRenewOnUseFor($agency->id),
+                    'quote_max_amount' => \App\Models\RentalPortalSetting::quoteMaxAmountFor($agency->id),
                     'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),
                     'faq_tenant_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_answer'),
                     'faq_tenant_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_question'),

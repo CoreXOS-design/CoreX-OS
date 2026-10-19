@@ -19,7 +19,7 @@
     $costEmergency ??= $cdSvc->costEvaluation($workOrder, null, true);
     $costBlock ??= $cdSvc->costBlockReason($workOrder);
     $costOwners ??= $cdSvc->ownersFor($workOrder);
-    $cdTz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $cdTz = \App\Support\AppDate::agencyTimezone($workOrder->agency);
     $cdAuthorised = $costActive && $costActive->isAuthorised();
     $cdDeclined = $costActive && ! $costActive->isAuthorised();
     $cdLegacy = ! $costActive && $cdSvc->hasCostAuthority($workOrder);

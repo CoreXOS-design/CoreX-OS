@@ -1260,6 +1260,9 @@ class RentalWorkOrder extends Model
         if ($card && ! in_array($card->status, [RentalJobCard::STATUS_CANCELLED, RentalJobCard::STATUS_COMPLETED], true)) {
             $card->cancel($by, $reason);
         }
+
+        // Audit fix C-A4: whoever was sent the job (contractor / crew) and the tenant told of an appointment are told - once, with a history line. Never throws.
+        app(\App\Services\Rentals\RentalWorkOrderCancelNotifier::class)->notify($this->fresh() ?? $this);
     }
 
     /** §3.4 — a free-text elaboration, not tied to a status change. */

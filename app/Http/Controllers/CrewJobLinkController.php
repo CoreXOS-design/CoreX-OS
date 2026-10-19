@@ -61,7 +61,10 @@ class CrewJobLinkController extends Controller
 
     private function unavailable(): View
     {
-        return view('rentals.crew-link.unavailable');
+        $state = app(RentalSecureAccessTokenService::class)->closedStateFor((string) request()->route('token'));
+
+        // a finished card keeps the one generic page; only a CANCELLED job is named (audit fix C-A4)
+        return view('rentals.crew-link.unavailable', ['cancelled' => $state === 'cancelled']);
     }
 
     public function show(Request $request, string $token): View
@@ -99,7 +102,7 @@ class CrewJobLinkController extends Controller
         $taskModel = RentalJobCardTask::withoutGlobalScopes()
             ->where('rental_job_card_id', $card->id)->whereKey($task)->firstOrFail();
 
-        app(CrewJobService::class)->tick($card, $taskModel, CrewViewContext::forJobLink($record, $card, $request));
+        app(CrewJobService::class)->tick($card, $taskModel, CrewViewContext::forJobLink($record, $card, $request), $request->has('done') ? $request->boolean('done') : null);
 
         if ($request->expectsJson()) {
             return response()->json(['is_done' => (bool) $taskModel->fresh()->is_done]);
@@ -185,6 +188,8 @@ class CrewJobLinkController extends Controller
 
         try {
             $result = $this->lineEntry()->add($card, $request, CrewViewContext::forJobLink($record, $card, $request));
+        } catch (\App\Services\Rentals\CrewLineLooksDuplicate $e) {
+            return $this->lineDuplicate($e);
         } catch (\InvalidArgumentException $e) {
             return $this->lineFailure($request, $e->getMessage(), $back, true);
         } catch (\LogicException $e) {

@@ -401,27 +401,31 @@ final class LeaseCaptureTest extends TestCase
         $this->assertSame(64, strlen((string) Lease::firstOrFail()->capture_key));
     }
 
-    public function test_the_rental_application_must_be_for_the_chosen_property_and_the_agency(): void
+    public function test_the_rental_application_must_be_approved_and_in_the_agency(): void
     {
         $elsewhere = $this->makeProperty($this->agency, $this->branch, $this->admin);
-        $app = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $elsewhere->id, 'status' => 'draft', 'adults' => 3]);
-        $theirs = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->rival->id, 'status' => 'draft']);
+        // Audit A7 (2026-10-19): only an APPROVED application becomes a lease (leases.md §15.25); a draft one is refused whatever its property.
+        $draft = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $elsewhere->id, 'status' => 'draft', 'adults' => 3]);
+        $theirs = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->rival->id, 'status' => 'approved']);
 
-        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['rental_application_id' => $app->id]))
-            ->assertSessionHasErrors(['rental_application_id' => 'That rental application is for a different property.']);
+        $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['rental_application_id' => $draft->id]))
+            ->assertSessionHasErrors('rental_application_id');
+        $this->assertStringContainsString('approved rental application', session('errors')->first('rental_application_id'));
         $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['rental_application_id' => $theirs->id]))
             ->assertSessionHasErrors('rental_application_id');
         $this->assertSame(0, Lease::count());
 
-        $own = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'status' => 'draft']);
+        // An approved application's property is chosen on this screen (it is re-pointed when the lease is created).
+        $own = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $elsewhere->id, 'status' => 'approved']);
         $this->actingAs($this->admin)->post(route('corex.leases.store'), $this->payload(['rental_application_id' => $own->id]))->assertSessionHasNoErrors();
         $this->assertSame('rental_application', Lease::firstOrFail()->source);
+        $this->assertSame($this->property->id, $own->fresh()->property_id);
     }
 
     public function test_a_linked_rental_application_prefills_the_adults_the_lease_agreement_asks_for(): void
     {
         $this->linkAgreement($this->agency, ['adults' => ['field' => 'a']]);
-        $app = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'status' => 'draft', 'adults' => 3]);
+        $app = RentalApplication::create(['contact_id' => $this->tenant->id, 'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'status' => 'approved', 'adults' => 3]);
 
         $html = $this->actingAs($this->admin)
             ->get(route('corex.leases.create', ['property_id' => $this->property->id, 'rental_application_id' => $app->id]))

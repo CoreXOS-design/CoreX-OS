@@ -23,7 +23,7 @@ use Illuminate\Support\Facades\Log;
  * Must be called with the ORIGINAL upload BEFORE PropertyImageStorer::store() (which re-encodes the
  * image and drops its metadata). It only READS the file; PropertyImageStorer itself is untouched.
  *
- * EXIF is only readable from JPEG here (PHP's exif_read_data); a HEIC/PNG/WebP upload with no client
+ * EXIF is read from JPEG (PHP's exif_read_data) and from HEIC (Imagick, section 29); a PNG/WebP upload with no client
  * time honestly falls through to `server`.
  */
 class RentalInspectionPhotoCaptureTime
@@ -126,11 +126,15 @@ class RentalInspectionPhotoCaptureTime
         try {
             $path = $file->getRealPath();
             $mime = strtolower((string) $file->getMimeType());
-            if (! $path || ! in_array($mime, ['image/jpeg', 'image/jpg', 'image/pjpeg'], true)) {
+            // section 29 (B19): a HEIC carries its capture time too - read it BEFORE PropertyImageStorer converts it
+            if ($path && \App\Services\Images\HeicConverter::isHeic($file)) {
+                $heic = \App\Services\Images\HeicConverter::exifDateTime($path);
+                $exif = $heic ? ['DateTimeOriginal' => $heic[0], 'OffsetTimeOriginal' => $heic[1]] : null;
+            } elseif (! $path || ! in_array($mime, ['image/jpeg', 'image/jpg', 'image/pjpeg'], true)) {
                 return null;
+            } else {
+                $exif = @exif_read_data($path, 'EXIF');
             }
-
-            $exif = @exif_read_data($path, 'EXIF');
             if (! is_array($exif)) {
                 return null;
             }

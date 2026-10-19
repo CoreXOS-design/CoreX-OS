@@ -92,6 +92,8 @@ class LeaseSetting extends Model
     // transition is independently toggle-able, default ON.
     public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED = true;
+    /** Audit A5 (2026-10-19) - an accepted notice ends the tenancy on its move-out date; the out-inspection only confirms it. */
+    public const DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED = true;
     // "The agency's existing on-market rental status" (conductor's own
     // wording, GATE 2) — row 2 ALWAYS uses this value; rows 6/7 use it only
@@ -130,6 +132,7 @@ class LeaseSetting extends Model
         'allow_advance_as_of_date',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
+        'end_tenancy_on_move_out_date',
         'auto_restore_status_on_lease_cancelled',
         'default_pre_let_status',
         'active_rental_statuses',
@@ -150,6 +153,7 @@ class LeaseSetting extends Model
         'allow_advance_as_of_date' => 'boolean',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
+        'end_tenancy_on_move_out_date' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
         'active_rental_statuses' => 'array',
     ];
@@ -353,6 +357,17 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->auto_restore_status_on_lease_ended ?? self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED;
+    }
+
+    public static function endTenancyOnMoveOutDateFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->end_tenancy_on_move_out_date ?? self::DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE;
     }
 
     public static function autoRestoreStatusOnLeaseCancelledFor(?int $agencyId): bool

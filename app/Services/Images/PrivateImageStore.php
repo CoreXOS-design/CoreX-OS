@@ -3,30 +3,27 @@
 namespace App\Services\Images;
 
 use Illuminate\Http\UploadedFile;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
 /**
- * Evidence photos live on the PRIVATE disk and are only ever reached through a signed, expiring URL (audit 2026-10-19 B21).
+ * Stores evidence photos for the PRIVATE disk (audit 2026-10-19 B21): the WRITE half. Reading - the `private:` reference, the signed
+ * expiring URL, the guards that revoke it, the controller that serves it - is the shared {@see PrivateImageService} (security audit D14),
+ * so a stored reference here is read exactly like every other private picture.
  *
- * Why: tenant-home photos used to be written to the public disk under properties/{id}/, an unguessable-but-PERMANENT URL that survived a
- * revoked link, an archived inspection or a cancelled one (rental-inspections.md §44a, §46.9 called it a known gap). Here the file is not
- * web-reachable at all; the row stores a reference (`private:<path>`), and the model hands the screen a temporary signed URL
- * (`private-image.show`) that stops working after the agency's own window (RentalInspectionSetting::photoLinkMinutesFor()).
+ * Why not PropertyImageStorer: tenant-home photos used to go to the public disk under properties/{id}/, an unguessable-but-PERMANENT URL that
+ * survived a revoked link, an archived inspection or a cancelled one. Here the file is not web-reachable at all.
  *
- * Every stored image is also RE-ENCODED (upright, capped at $maxEdge, JPEG), which drops ALL embedded metadata - including the GPS position
- * a phone writes into the EXIF. A file GD cannot decode (HEIC) goes through Imagick when this PHP has it; failing that it is stored as it
- * arrived and the gap is logged - evidence is never refused over a format.
- *
- * Generic on purpose: any feature that keeps a private image (not only inspections) stores with store() and shows it with temporaryUrl().
+ * Every stored image is RE-ENCODED (upright, capped at $maxEdge, JPEG), which drops ALL embedded metadata - including the GPS position a
+ * phone writes into the EXIF (PropertyImageStorer only re-encodes oversize files, so a normal-sized JPEG kept its GPS). A file GD cannot
+ * decode (HEIC) goes through Imagick when this PHP has it; failing that it is stored as it arrived and the gap is logged - evidence is never
+ * refused over a format.
  */
 class PrivateImageStore
 {
-    public const DISK = 'local';
-    public const PREFIX = 'private:';
+    public const DISK = PrivateImageService::DISK;
+    public const PREFIX = PrivateImageService::PREFIX;
 
     public function __construct(
         private int $maxEdge = 2560,
@@ -46,11 +43,11 @@ class PrivateImageStore
     }
 
     /**
-     * Store one uploaded image under $directory on the private disk and return its reference.
+     * Store one uploaded image under $directory (inside the shared private-images folder of the private disk) and return its reference.
      */
     public function store(UploadedFile $file, string $directory): string
     {
-        $directory = trim($directory, '/');
+        $directory = PrivateImageService::DIR . '/' . trim($directory, '/');
         $path = $directory . '/' . Str::uuid() . '.jpg';
         $disk = Storage::disk(self::DISK);
 
@@ -95,14 +92,6 @@ class PrivateImageStore
     public function exists(string $reference): bool
     {
         return self::isReference($reference) && Storage::disk(self::DISK)->exists(self::pathOf($reference));
-    }
-
-    /** A signed URL that stops working $minutes from now. */
-    public function temporaryUrl(string $reference, int $minutes): string
-    {
-        return URL::temporarySignedRoute('private-image.show', now()->addMinutes(max(1, $minutes)), [
-            'p' => Crypt::encryptString($reference),
-        ]);
     }
 
     /**

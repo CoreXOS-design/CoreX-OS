@@ -219,7 +219,7 @@ class RentalInventoryCaptureController extends Controller
 
         $validated = $request->validate([
             'property_room_id' => ['nullable', 'integer', Rule::exists('property_rooms', 'id')->where('property_id', $rentalInventory->property_id)],
-            'rental_inventory_line_id' => ['nullable', 'integer', 'exists:rental_inventory_lines,id'],
+            'rental_inventory_line_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inventory_lines')],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],

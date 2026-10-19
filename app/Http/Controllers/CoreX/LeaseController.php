@@ -42,6 +42,7 @@ class LeaseController extends Controller
     use ExportsRentalList;
     use HandlesLeaseCapture;
     use SearchesQualifyingRentalProperties;
+    use \App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 
     /**
      * §39 "Expiring soon" summary tile window — the agency's own lease expiry notice window (Settings → Leases),
@@ -428,7 +429,7 @@ class LeaseController extends Controller
             : $this->streamRentalListXlsx($filename . '.xlsx', $headers, $rows);
     }
 
-    public function create(Request $request): View
+    public function create(Request $request): View|RedirectResponse
     {
         // ?property_id= (from a property screen) pre-fills ONLY a property this user
         // may put a lease on — same scoped query as the picker. A non-rental,
@@ -448,6 +449,12 @@ class LeaseController extends Controller
         // one the agent just linked, the tenant is the applicant, the rent is the PROPERTY's (never the approved
         // affordability amount) and the deposit follows the approved deposit terms applied to that rent. The agent
         // still enters the dates and presses the button — nothing is created until they do (leases.md §15.3).
+        // Audit A7 (2026-10-19) - leases.md §15.25: the capture screen is for an APPROVED application only.
+        if ($rentalApplication && $rentalApplication->status !== 'approved') {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication->id)
+                ->with('warning', LeaseCaptureService::applicationNotApprovedMessage($rentalApplication->status));
+        }
+
         $applicationDefaults = null;
         if ($rentalApplication && ! $property && $rentalApplication->property_id) {
             $property = $this->pickableRentalProperties($request)->find($rentalApplication->property_id);
@@ -474,6 +481,8 @@ class LeaseController extends Controller
                 'property' => $property,
                 'oldProperty' => $oldProperty,
                 'oldTenants' => $this->oldTenantSeed($request) ?: $this->applicationTenantSeed($rentalApplication),
+                // Audit A16 - the partner named on the application who is not yet a contact (one click adds them).
+                'coApplicantOffer' => $this->coApplicantOffer($rentalApplication),
                 'rentalApplication' => $rentalApplication,
                 'applicationDefaults' => $applicationDefaults,
             ]
@@ -481,7 +490,9 @@ class LeaseController extends Controller
     }
 
     /**
-     * The applicant as the lease's first (primary) tenant — same shape as oldTenantSeed().
+     * The applicant as the lease's first (primary) tenant - and, audit A16 (2026-10-19), the partner / co-applicant named on the
+     * application as the second one when they are already a contact (matched on ID number, never on name alone). Same shape as
+     * oldTenantSeed(); the agent can remove either row.
      *
      * @return list<array{id:int,name:string,email:string}>
      */
@@ -492,11 +503,100 @@ class LeaseController extends Controller
             return [];
         }
 
-        return [[
+        $seed = [[
             'id' => (int) $contact->id,
             'name' => $contact->full_name !== '' ? $contact->full_name : 'Contact #' . $contact->id,
             'email' => (string) ($contact->email ?? ''),
         ]];
+
+        $partner = $this->existingCoApplicantContact($application);
+        if ($partner && (int) $partner->id !== (int) $contact->id) {
+            $seed[] = [
+                'id' => (int) $partner->id,
+                'name' => $partner->full_name !== '' ? $partner->full_name : 'Contact #' . $partner->id,
+                'email' => (string) ($partner->email ?? ''),
+            ];
+        }
+
+        return $seed;
+    }
+
+    /** Audit A16 - the partner named on the application, as an existing contact of the application's agency (by ID number), or null. */
+    private function existingCoApplicantContact(RentalApplication $application): ?Contact
+    {
+        $idNumber = preg_replace('/\s+/', '', (string) $application->spouse_id);
+        if ($idNumber === '') {
+            return null;
+        }
+
+        return Contact::query()
+            ->where('agency_id', $application->agency_id)
+            ->whereRaw("REPLACE(id_number, ' ', '') = ?", [$idNumber])
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Audit A16 - what the capture screen offers when the application names a partner who is NOT yet a contact: the name and ID as typed
+     * on the application, so one click creates the contact and adds them as a tenant (no retyping). Null when there is nothing to offer.
+     *
+     * @return array{name:string,id_number:string}|null
+     */
+    private function coApplicantOffer(?RentalApplication $application): ?array
+    {
+        $name = trim((string) $application?->spouse_name);
+        if (! $application || $name === '' || $this->existingCoApplicantContact($application)) {
+            return null;
+        }
+
+        return ['name' => $name, 'id_number' => trim((string) $application->spouse_id)];
+    }
+
+    /**
+     * Audit A16 - POST corex/leases/application-co-applicant: turn the partner named on an approved application into a contact (matched on
+     * ID number first, so a partner who is already a contact is reused, never duplicated) and hand it back for the tenant picker. Own /
+     * branch / agency scope is the application's own (visibleTo); nothing is created for an application the user cannot see.
+     */
+    public function coApplicantContact(Request $request): JsonResponse
+    {
+        $data = $request->validate(['rental_application_id' => ['required', 'integer']]);
+        $application = RentalApplication::query()->visibleTo($request->user())->findOrFail($data['rental_application_id']);
+        abort_unless($application->status === 'approved', 422, LeaseCaptureService::applicationNotApprovedMessage($application->status));
+
+        $contact = $this->existingCoApplicantContact($application);
+        $created = false;
+        if (! $contact) {
+            $offer = $this->coApplicantOffer($application);
+            abort_unless($offer, 422, 'This application does not name a partner.');
+
+            $parts = preg_split('/\s+/', $offer['name'], -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $last = count($parts) > 1 ? array_pop($parts) : '';
+            $contact = Contact::query()->create([
+                'agency_id' => $application->agency_id,
+                'branch_id' => $application->branch_id,
+                'first_name' => implode(' ', $parts),
+                'last_name' => $last,
+                'id_number' => $offer['id_number'] !== '' ? $offer['id_number'] : null,
+            ]);
+            $created = true;
+
+            app(\App\Services\RentalApplications\RentalApplicationAuditService::class)->log(
+                $application,
+                eventCategory: 'tenant_link',
+                eventType: 'co_applicant_contact_created',
+                user: $request->user(),
+                oldValues: [],
+                newValues: ['contact_id' => $contact->id],
+                humanSummary: 'Contact created for the partner named on the application: ' . $contact->full_name,
+            );
+        }
+
+        return response()->json([
+            'id' => (int) $contact->id,
+            'name' => $contact->full_name !== '' ? $contact->full_name : 'Contact #' . $contact->id,
+            'email' => (string) ($contact->email ?? ''),
+            'created' => $created,
+        ]);
     }
 
     /**
@@ -644,6 +744,10 @@ class LeaseController extends Controller
             'nextStep' => $hubService->nextStep($lease, $user),
             // leases.md §15.13 (Build L3a) — the hub's "Agreement" card; null for a lease with no agreement.
             'agreementCard' => app(LeaseSigningLauncher::class)->cardFor($lease, $user),
+            // Audit A1 (2026-10-19) - a "Create lease only" draft can still be prepared for signing or given its signed paper copy.
+            'draftFollowUp' => app(LeaseCaptureService::class)->draftFollowUpFor($lease, $user),
+            // Audit A26 - shown while the lease is active but the property could not be given a let status in this agency's vocabulary.
+            'propertyStatusWarning' => app(LeaseActivationService::class)->propertyStatusWarning($lease),
             'openItemCounts' => $hubService->openItemCounts($lease),
             // Audit 2026-10-19 B1/B4 - the "Deposit deductions" card: what the tenancy's Out recorded as charged to the tenant (amounts only;
             // the money is settled in the agency's accounting system). Null until there is an Out inspection, or for a user who cannot see inspections.
@@ -922,10 +1026,22 @@ class LeaseController extends Controller
             'lease_type' => ['nullable', 'string', 'max:40'],
         ]);
 
+        // Audit A12 (2026-10-19) - a field that was not posted keeps the lease's value (has()-guard, same rule as the settings savers): a
+        // client posting only `deposit_amount` must not switch month-to-month off. The web form posts a hidden 0 so un-ticking still works.
+        $monthToMonth = $request->has('is_month_to_month') ? $request->boolean('is_month_to_month') : (bool) $lease->is_month_to_month;
+        $endDate = array_key_exists('end_date', $validated) ? $validated['end_date'] : $lease->end_date;
+
+        // ... and the same month-to-month XOR end-date rule the capture screen applies, checked only when this edit touches either field.
+        if ($request->has('is_month_to_month') || array_key_exists('end_date', $validated)) {
+            if ($conflict = LeaseCaptureService::monthToMonthConflict($monthToMonth, $endDate)) {
+                return back()->withInput()->withErrors(['end_date' => $conflict]);
+            }
+        }
+
         $lease->update([
             'deposit_amount' => array_key_exists('deposit_amount', $validated) ? $validated['deposit_amount'] : $lease->deposit_amount,
-            'end_date' => array_key_exists('end_date', $validated) ? $validated['end_date'] : $lease->end_date,
-            'is_month_to_month' => $request->boolean('is_month_to_month'),
+            'end_date' => $endDate,
+            'is_month_to_month' => $monthToMonth,
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,
         ]);
 
@@ -970,6 +1086,58 @@ class LeaseController extends Controller
             ->with('success', 'The lease agreement is ready — check it, then sign. Nothing has been sent to anyone yet.');
     }
 
+    /**
+     * Audit A1 (2026-10-19) - POST corex/leases/{lease}/signing/prepare: a "Create lease only" draft is prepared for e-sign after all.
+     * Same gate, guard and flow as the capture screen's "Create lease & prepare for signing" (LeaseCaptureService::prepareDraftForSigning);
+     * the agreement details typed on the hub card are saved first. Nothing is sent to anyone - the agent lands on the finished agreement.
+     */
+    public function prepareForSigning(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        $user = $request->user();
+        abort_unless($user->hasPermission('leases.create'), 403);
+
+        $data = $request->validate([
+            'agreement_id' => ['nullable', 'integer'],
+            'agreement' => ['nullable', 'array'],
+            'agreement.*' => ['nullable', 'string', 'max:5000'],
+        ]);
+
+        try {
+            $flow = app(LeaseCaptureService::class)->prepareDraftForSigning($lease, isset($data['agreement_id']) ? (int) $data['agreement_id'] : null, (array) ($data['agreement'] ?? []), $user);
+        } catch (\App\Exceptions\Rentals\LeaseCaptureIncompleteException $e) {
+            return back()->withInput()->withErrors($e->errors())->with('capture_gaps', $e->missing);
+        } catch (\App\Exceptions\Rentals\NoLeaseAgreementLinkedException $e) {
+            return back()->withErrors(['lease' => $e->getMessage()]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withInput()->withErrors($e->errors());
+        }
+
+        return redirect(app(LeaseSigningLauncher::class)->landingUrl($flow))
+            ->with('success', 'The lease agreement is ready — check it, then sign. Nothing has been sent to anyone yet.');
+    }
+
+    /**
+     * Audit A1 (2026-10-19) - POST corex/leases/{lease}/signing/signed-copy: the parties signed on paper after the lease was created.
+     * Files the copy, activates the lease and marks it signed on paper (LeaseCaptureService::attachSignedCopyToDraft).
+     */
+    public function attachSignedCopy(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        abort_unless($request->user()->hasPermission('leases.create'), 403);
+
+        $request->validate(['signed_document' => $this->documentUploadRule(20480)]);
+
+        try {
+            $lease = app(LeaseCaptureService::class)->attachSignedCopyToDraft($lease, $request->file('signed_document'), $request->user());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->withErrors($e->errors());
+        }
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', 'Signed copy attached and the lease is active.');
+    }
+
     public function activate(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
@@ -989,6 +1157,12 @@ class LeaseController extends Controller
                 ->with('warning', 'The signed agreement differs from this lease. Check the differences and confirm them - the lease is activated from there.');
         }
 
+        // Audit A1 (2026-10-19) - a draft with no agreement behind it (never prepared for signing, no signed copy) may still be activated by
+        // hand, but only as the explicit "activate without a signed agreement" choice - and the lease history records who chose it.
+        $withoutAgreement = $lease->status === Lease::STATUS_DRAFT
+            && ! $lease->previous_lease_id
+            && in_array((string) ($lease->signing_status ?: Lease::SIGNING_NOT_SENT), [Lease::SIGNING_NOT_SENT, Lease::SIGNING_DECLINED, Lease::SIGNING_VOIDED, Lease::SIGNING_EXPIRED], true);
+
         try {
             // A renewal draft goes through the renewal activation (escalation row, "renewal activated" line, previous term
             // expired and chained); the plain activation does only the last of those.
@@ -999,7 +1173,19 @@ class LeaseController extends Controller
             return back()->withErrors($e->errors());
         }
 
-        return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease activated.');
+        if ($withoutAgreement) {
+            \App\Models\LeaseEvent::create([
+                'lease_id' => $lease->id, 'event_type' => \App\Models\LeaseEvent::TYPE_ACTIVATED_WITHOUT_AGREEMENT,
+                'description' => 'Lease activated without a signed agreement', 'actor_user_id' => $request->user()->id,
+                'metadata' => ['signing_status' => $lease->signing_status], 'occurred_at' => now(), 'created_at' => now(),
+            ]);
+        }
+
+        $warning = app(LeaseActivationService::class)->propertyStatusWarning($lease->fresh());
+
+        return redirect()->route('corex.leases.show', $lease)
+            ->with('success', $withoutAgreement ? 'Lease activated without a signed agreement.' : 'Lease activated.')
+            ->with($warning ? ['warning' => $warning] : []);
     }
 
     /**

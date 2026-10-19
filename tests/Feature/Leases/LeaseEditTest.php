@@ -33,14 +33,23 @@ final class LeaseEditTest extends TestCase
             'deposit_amount' => 8500,
             'end_date' => '2027-01-01',
             'lease_type' => 'Gross',
-            'is_month_to_month' => '1',
         ])->assertRedirect(route('corex.leases.show', $lease));
 
         $lease->refresh();
         self::assertSame('8500.00', $lease->deposit_amount);
         self::assertSame('2027-01-01', $lease->end_date->toDateString());
         self::assertSame('Gross', $lease->lease_type);
-        self::assertTrue($lease->is_month_to_month);
+        self::assertFalse($lease->is_month_to_month);
+    }
+
+    public function test_month_to_month_can_be_ticked_on_a_lease_with_no_end_date(): void
+    {
+        [$user, $lease] = $this->makeUserAndActiveLease();
+
+        $this->actingAs($user)->put(route('corex.leases.update', $lease), ['is_month_to_month' => '1'])
+            ->assertRedirect(route('corex.leases.show', $lease));
+
+        self::assertTrue($lease->refresh()->is_month_to_month);
     }
 
     public function test_clearing_the_deposit_actually_clears_it(): void
@@ -59,11 +68,21 @@ final class LeaseEditTest extends TestCase
     {
         [$user, $lease] = $this->makeUserAndActiveLease(['is_month_to_month' => true]);
 
-        $this->actingAs($user)->put(route('corex.leases.update', $lease), [
-            // is_month_to_month omitted entirely, as an unchecked HTML checkbox would be.
-        ]);
+        // The edit form posts a hidden 0 ahead of the checkbox, so un-ticking arrives as an explicit false.
+        $this->actingAs($user)->put(route('corex.leases.update', $lease), ['is_month_to_month' => '0']);
 
         self::assertFalse($lease->refresh()->is_month_to_month);
+    }
+
+    /** Audit A12 (2026-10-19): a field that is not posted at all is left alone - a client posting only the deposit must not switch month-to-month off. */
+    public function test_a_field_that_is_not_posted_is_left_alone(): void
+    {
+        [$user, $lease] = $this->makeUserAndActiveLease(['is_month_to_month' => true]);
+
+        $this->actingAs($user)->put(route('corex.leases.update', $lease), ['deposit_amount' => 7000]);
+
+        self::assertTrue($lease->refresh()->is_month_to_month);
+        self::assertSame('7000.00', $lease->deposit_amount);
     }
 
     public function test_end_date_before_start_date_is_rejected(): void

@@ -23,6 +23,9 @@ use Illuminate\Support\Facades\Log;
  */
 class RentalGoAheadService
 {
+    /** Audit C-B3: the automatic go-ahead has its own alert type - it used to share the "job sent" type and was swallowed by its cooldown minutes after it. */
+    public const EV_GO_AHEAD = 'rental_work_order.go_ahead_sent';
+
     /** @var string the dispatch row's reason */
     public const REASON = RentalJobDispatch::REASON_GO_AHEAD;
 
@@ -253,7 +256,7 @@ class RentalGoAheadService
     {
         try {
             $address = $wo->property?->buildDisplayAddress() ?: ('Property #' . $wo->property_id);
-            app(RentalWorkOrderService::class)->notifyAgentOfOwnerAction($wo, RentalContractorJobService::EV_SENT, $title . ' - ' . $address, $body, now());
+            app(RentalWorkOrderService::class)->notifyAgentOfOwnerAction($wo, self::EV_GO_AHEAD, $title . ' - ' . $address, $body, now());
         } catch (\Throwable $e) {
             Log::warning('Go-ahead notification failed', ['work_order' => $wo->id, 'error' => $e->getMessage()]);
         }

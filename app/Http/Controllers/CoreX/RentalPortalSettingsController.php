@@ -53,6 +53,17 @@ class RentalPortalSettingsController extends Controller
             'tenantSeesAgentMarks' => RentalPortalSetting::tenantSeesAgentMarksFor($agencyId),
             'crewLinkAutoSendOnFaultJob' => RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agencyId),
             'faultRecurrenceWindowDays' => RentalPortalSetting::faultRecurrenceWindowDaysFor($agencyId),
+            // Sign-in and security timings (audit 2026-10-19).
+            'portalRememberDays' => RentalPortalSetting::portalRememberDaysFor($agencyId),
+            'portalAppTokenDays' => RentalPortalSetting::portalAppTokenDaysFor($agencyId),
+            'portalApiPerMinute' => RentalPortalSetting::portalApiPerMinuteFor($agencyId),
+            'portalPhotoLinkMinutes' => RentalPortalSetting::portalPhotoLinkMinutesFor($agencyId),
+            'portalLinkDays' => RentalPortalSetting::portalLinkDaysFor($agencyId),
+            'ownerReminderHours' => RentalPortalSetting::ownerReminderHoursFor($agencyId),
+            'ownerSecondReminderHours' => RentalPortalSetting::ownerSecondReminderHoursFor($agencyId),
+            'ownerQueueAfterHours' => RentalPortalSetting::ownerQueueAfterHoursFor($agencyId),
+            'linkRenewOnUse' => RentalPortalSetting::linkRenewOnUseFor($agencyId),
+            'quoteMaxAmount' => RentalPortalSetting::quoteMaxAmountFor($agencyId),
             'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
             'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
@@ -222,6 +233,64 @@ class RentalPortalSettingsController extends Controller
     public function updateFaultRecurrenceWindowDays(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'fault_recurrence_window_days', 1, RentalPortalSetting::MAX_FAULT_RECURRENCE_WINDOW_DAYS, 'Reported-before window');
+    }
+
+    /** D12 - days a browser remembers a portal sign-in. Absent or blank = leave alone (the wizard may post a subset). */
+    public function updatePortalRememberDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_remember_days', 1, RentalPortalSetting::MAX_PORTAL_REMEMBER_DAYS, 'Remember a sign-in on a browser (days)');
+    }
+
+    /** D4 - days the phone app stays signed in after its last use. Absent or blank = leave alone. */
+    public function updatePortalAppTokenDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_app_token_days', 1, RentalPortalSetting::MAX_PORTAL_APP_TOKEN_DAYS, 'Phone app stays signed in (days)');
+    }
+
+    /** D10 - portal requests per minute per signed-in person. Absent or blank = leave alone. */
+    public function updatePortalApiPerMinute(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_api_per_minute', RentalPortalSetting::MIN_PORTAL_API_PER_MINUTE, RentalPortalSetting::MAX_PORTAL_API_PER_MINUTE, 'Portal requests per minute');
+    }
+
+    /** D14 - minutes a picture link shown in the portal keeps working. Absent or blank = leave alone. */
+    public function updatePortalPhotoLinkMinutes(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_photo_link_minutes', RentalPortalSetting::MIN_PORTAL_PHOTO_LINK_MINUTES, RentalPortalSetting::MAX_PORTAL_PHOTO_LINK_MINUTES, 'Picture links last (minutes)');
+    }
+
+    /** D8 - days a personal link in a portal email stays recognised. Absent or blank = leave alone. */
+    public function updatePortalLinkDays(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'portal_link_days', 1, RentalPortalSetting::MAX_PORTAL_LINK_DAYS, 'Email links stay recognised (days)');
+    }
+
+    /** Audit fixes (C-A1) - the owner-chase timings. Each is its own narrow saver: absent or blank = leave alone (onboarding §6.1). */
+    public function updateOwnerReminderHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_reminder_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'First owner reminder (hours)');
+    }
+
+    public function updateOwnerSecondReminderHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_second_reminder_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'Second owner reminder (hours)');
+    }
+
+    public function updateOwnerQueueAfterHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_queue_after_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'Agent queue after the second reminder (hours)');
+    }
+
+    /** C-D3 - contractor / crew links renew on use. has()-guarded (onboarding §6.1). */
+    public function updateLinkRenewOnUse(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'link_renew_on_use', 'Links renew when used');
+    }
+
+    /** C-C6 - the largest quote a contractor may enter. Absent or blank = leave alone. */
+    public function updateQuoteMaxAmount(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'quote_max_amount', 1, RentalPortalSetting::MAX_QUOTE_MAX_AMOUNT, 'Largest quote (R)');
     }
 
     /** AT-452 round 2 - the crew's job link is sent automatically when a job card is made from a fault decision. has()-guarded (onboarding §6.1). */

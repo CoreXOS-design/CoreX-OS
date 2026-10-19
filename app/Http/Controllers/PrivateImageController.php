@@ -2,42 +2,44 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\Images\PrivateImageStore;
-use Illuminate\Contracts\Encryption\DecryptException;
+use App\Services\Images\PrivateImageService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Crypt;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * Serves a private image to whoever holds a valid signed, unexpired link (audit 2026-10-19 B21). No login: the signature IS the credential,
- * and it expires (`signed` middleware on the route). The reference inside the link is encrypted with the application key, so the storage
- * path is neither guessable nor forgeable, and only the folders private evidence is kept in are ever served.
+ * Security audit D14 - the ONE door to a private or portal-facing picture. No login: the signed, expiring, encrypted token in the
+ * address is the capability (see {@see PrivateImageService}). Every way it can fail - wrong or missing signature, expired, tampered
+ * token, archived or removed parent row, file gone, not an image - gives the SAME empty 404, so nothing can be learned by probing it.
  */
 class PrivateImageController extends Controller
 {
-    /** Folders on the private disk this endpoint may serve from. */
-    private const SERVED_PREFIXES = ['rental-inspections/'];
-
-    public function show(Request $request): Response
+    public function show(Request $request, string $token, PrivateImageService $images): Response
     {
-        try {
-            $reference = Crypt::decryptString((string) $request->query('p', ''));
-        } catch (DecryptException) {
-            abort(404);
+        // The signature check lives here (not in the `signed` middleware) on purpose: that middleware answers 403, and a 403 next to a 404
+        // would tell a prober which half of the address was wrong.
+        if (! URL::hasValidSignature($request)) {
+            return $this->notFound();
         }
 
-        abort_unless(PrivateImageStore::isReference($reference), 404);
-        $path = PrivateImageStore::pathOf($reference);
-        abort_if(str_contains($path, '..'), 404);
-        abort_unless(collect(self::SERVED_PREFIXES)->contains(fn ($prefix) => str_starts_with($path, $prefix)), 404);
+        $found = $images->resolve($token);
+        if ($found === null) {
+            return $this->notFound();
+        }
 
-        $disk = Storage::disk(PrivateImageStore::DISK);
-        abort_unless($disk->exists($path), 404);
-
-        return $disk->response($path, null, [
-            'Cache-Control' => 'private, max-age=300',
+        // $public = false: BinaryFileResponse would otherwise stamp the answer `Cache-Control: public`.
+        $response = new BinaryFileResponse($found['path'], 200, [
+            'Content-Type' => $found['mime'],
             'X-Content-Type-Options' => 'nosniff',
-        ]);
+        ], false, 'inline');
+        $response->headers->set('Cache-Control', 'private, max-age=' . $found['seconds']);
+
+        return $response;
+    }
+
+    private function notFound(): Response
+    {
+        return response('', 404, ['Cache-Control' => 'no-store', 'X-Content-Type-Options' => 'nosniff']);
     }
 }

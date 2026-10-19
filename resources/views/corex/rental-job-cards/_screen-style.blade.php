@@ -56,7 +56,7 @@
 
     /* tasks and lines: ONE column header, then a band per task with its lines under it */
     .jc-linebox { overflow-x: auto; }
-    .jc-linebox > .jc-lines-inner { min-width: 980px; } /* AT-466 - wide enough for the column tracks (RentalJobCardLineGrid); narrower windows scroll sideways */
+    .jc-linebox > .jc-lines-inner { min-width: 0; } /* 19 Oct 2026 - the compact tracks (RentalJobCardLineGrid) fit a laptop; only a phone-width window still scrolls the lines box sideways */
     .jc-lines-head { padding: 0 11px; } /* = a task's 1px border + 10px body padding, so the header lines up with the lines under it */
     .jc-task { border: 1px solid var(--border); border-radius: 6px; margin-top: 10px; overflow: hidden; }
     .jc-task-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border-bottom: 1px solid var(--border); }
@@ -67,7 +67,7 @@
     .jc-addrow form, .jc-addrow > div { padding-top: 2px !important; }
     .jc-addrow input, .jc-addrow select { height: 30px; box-sizing: border-box; }
     /* §17.43 - the add row and the edit row end in a footer of TEXT buttons (add; or cancel + save), all one height and one weight, right-aligned under the grid */
-    .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 14px; padding-top: 8px; } /* left-aligned: the lines box is 980px wide and scrolls sideways in a narrow panel, so a right-aligned button would sit off screen */
+    .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 14px; padding-top: 8px; } /* left-aligned so the button is always on screen */
     .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
     .jc-foot-buttons { display: flex; gap: 8px; order: -1; } /* the main button first, then the receipt and markup tools (the DOM keeps fields -> tools -> buttons for the Tab order) */
     /* the footer carries CoreX's own .cx-equal-btns (corex.css) so every <button> in it - Add, Cancel, Save - is the same size despite the legacy ".hfc-card button[type=submit]" rule; the receipt choices are <label>s, which that rule does not reach, so they take the same measurements here */

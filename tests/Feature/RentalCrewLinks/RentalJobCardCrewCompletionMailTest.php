@@ -37,6 +37,8 @@ final class RentalJobCardCrewCompletionMailTest extends TestCase
     {
         parent::setUp();
         $this->buildCrewLinkWorld('Crew Mail');
+        // Audit C-C4 (19 Oct 2026): the setting now defaults OFF (the owner hears at the agent's close, as for a contractor); these tests are about the agency that chose to tell the owner at completion
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_landlord_on_crew_completion' => true]);
         $this->card = $this->makeJobCard();
 
         $this->fake = new class extends RentalMailDispatcher {
@@ -86,6 +88,17 @@ final class RentalJobCardCrewCompletionMailTest extends TestCase
         Mail::assertNothingSent();
         Mail::assertNothingQueued();
         $this->assertSame(1, $this->card->updates()->where('update_type', 'landlord_notified')->count());
+    }
+
+    public function test_by_default_the_owner_is_not_emailed_at_crew_completion_the_same_rule_as_a_contractors_finish(): void
+    {
+        $this->linkLandlord();
+        RentalPortalSetting::query()->where('agency_id', $this->agency->id)->update(['notify_landlord_on_crew_completion' => null]);
+
+        $this->assertFalse(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($this->agency->id));
+        $this->crewCompletes();
+
+        $this->assertCount(0, $this->fake->sent);
     }
 
     public function test_the_email_says_what_happened_and_nothing_about_money(): void

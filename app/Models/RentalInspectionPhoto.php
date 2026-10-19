@@ -53,19 +53,26 @@ class RentalInspectionPhoto extends Model
     ];
 
     /**
-     * Audit 2026-10-19 B21 - a photo kept on the PRIVATE disk stores a reference (`private:<path>`); every screen, the compare viewer, the
+     * Audit 2026-10-19 B21 - a photo kept on the PRIVATE disk stores a reference (`private:private-images/<path>`); every screen, the compare viewer, the
      * tab payload and the public report read `storage_path` as an image address, so reading it hands back a signed, expiring URL
-     * (PrivateImageStore::temporaryUrl). A legacy row that still holds a public /storage URL reads as it always did. The reference itself:
+     * (the shared PrivateImageService::signedUrl). A legacy row that still holds a public /storage URL reads as it always did. The reference itself:
      * rawStoragePath().
      */
     public function getStoragePathAttribute($value): ?string
     {
-        if (! \App\Services\Images\PrivateImageStore::isReference($value)) {
+        $images = app(\App\Services\Images\PrivateImageService::class);
+        if (! $images->isPrivate($value)) {
             return $value;
         }
 
-        return app(\App\Services\Images\PrivateImageStore::class)
-            ->temporaryUrl($value, RentalInspectionSetting::photoLinkMinutesFor($this->agency_id));
+        // Guards: the link dies the moment this photo or its inspection is archived (the shared service checks `deleted_at` on both rows),
+        // and in any case after the agency's own window.
+        return $images->signedUrl(
+            $value,
+            $this->agency_id,
+            [['rental_inspection_photos', (int) $this->id], ['rental_inspections', (int) $this->rental_inspection_id]],
+            RentalInspectionSetting::photoLinkMinutesFor($this->agency_id),
+        );
     }
 
     /** The stored value - the private reference or the legacy public URL - never the signed address. */

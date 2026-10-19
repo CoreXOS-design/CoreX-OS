@@ -18,8 +18,9 @@ use Illuminate\View\View;
  * reaches (by bearer token instead of session cookie).
  *
  * §22 — the header carries the agency's logo (name when it has none) on every page. Before sign-in the page only knows
- * the agency when the personal link carried the person's email (`/portal?email=…`, §16): that email is looked up the
- * same way the Continue button's lookup does, and the branding is returned only when it points at exactly ONE agency.
+ * the agency when the link carried the sealed recipient reference (`/portal?r=…`, App\Support\PortalLink): that email is looked up the
+ * same way the Continue button's lookup does, and the branding is returned only when it points at exactly ONE agency. A bare `?email=`
+ * never earns a header (audit 2026-10-19 D3).
  * Any other first visit shows the neutral "My Rentals" header until the person signs in (the page then asks for its own
  * agency's branding).
  */
@@ -27,10 +28,13 @@ class RentalPortalShellController extends Controller
 {
     public function show(Request $request): View
     {
-        [$email, $contactId] = $this->linkedRecipient($request);
+        [$email, $contactId, $signed] = $this->linkedRecipient($request);
 
         return view('rentals.portal.shell', [
-            'branding' => $this->brandingFor($email),
+            // The agency's header is shown before sign-in ONLY for a link this system sealed (`r`). A hand-typed `?email=` still pre-fills the
+            // sign-in but is never looked up for branding: answering it would tell anyone, with no sign-in, which agency an address is a client
+            // of (audit 2026-10-19 D3).
+            'branding' => $signed ? $this->brandingFor($email) : null,
             'linkedEmail' => $email,
             'linkedContactId' => $contactId,
             'qaLinkSignin' => \App\Support\PortalDemoSigninGate::open(),   // QA1 only: an emailed link signs its tab straight in
@@ -46,7 +50,7 @@ class RentalPortalShellController extends Controller
      * asks the server whether the signed-in login OWNS that contact, so the right person is never called a stranger just because the
      * login sits on another address than the contact's (an email changed since, or an agent-made placeholder login).
      *
-     * @return array{0:?string, 1:?int}
+     * @return array{0:?string, 1:?int, 2:bool}  address, contact id, and whether the link was sealed by this system (`r`)
      */
     private function linkedRecipient(Request $request): array
     {
@@ -58,14 +62,14 @@ class RentalPortalShellController extends Controller
                 $contactId = Contact::withoutGlobalScopes()->whereNull('deleted_at')->whereKey($recipient['contact_id'])->exists() ? (int) $recipient['contact_id'] : null;
             }
 
-            return [$email, $contactId];
+            return [$email, $contactId, true];
         }
         $email = $request->query('email');
         if (is_string($email) && strlen($email) <= 255 && preg_match('/^[^\s@]+@[^\s@]+$/', trim($email))) {
-            return [strtolower(trim($email)), null];
+            return [strtolower(trim($email)), null, false];
         }
 
-        return [null, null];
+        return [null, null, false];
     }
 
     /** @return array{name:string,logo_url:?string}|null */

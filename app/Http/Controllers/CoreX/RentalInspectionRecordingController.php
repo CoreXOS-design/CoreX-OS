@@ -1068,9 +1068,9 @@ class RentalInspectionRecordingController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
-            'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
-            'rental_inspection_item_id' => ['nullable', 'integer', 'exists:rental_inspection_items,id'],
+            'property_room_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
+            'rental_inspection_observation_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
+            'rental_inspection_item_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_items')],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
@@ -1328,8 +1328,8 @@ class RentalInspectionRecordingController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
-            'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
+            'property_room_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
+            'rental_inspection_observation_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
         ]);
 
         $roomId = $validated['property_room_id'] ?? null;
@@ -1370,7 +1370,7 @@ class RentalInspectionRecordingController extends Controller
         $validated = $request->validate([
             'photo_ids' => ['required', 'array', 'min:1'],
             'photo_ids.*' => ['integer'],
-            'property_room_id' => ['required', 'integer', 'exists:property_rooms,id'],
+            'property_room_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
         ]);
 
         abort_unless(
@@ -1618,7 +1618,7 @@ class RentalInspectionRecordingController extends Controller
         }
 
         $validated = $request->validate([
-            'accepted_observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
+            'accepted_observation_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'resolution_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -1682,7 +1682,7 @@ class RentalInspectionRecordingController extends Controller
                 // arrives later via supersedeWetInkSignature() below.
                 RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK,
             ])],
-            'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'party_contact_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('contacts')],
             // Audit M5 — ~1.4M base64 chars ≈ the 1MB decoded cap enforced in storeCanvasImage().
             'signature_image' => ['nullable', 'string', 'max:1450000'],
             // §16 — a photo/scan of a signed paper page. image or pdf; 10MB

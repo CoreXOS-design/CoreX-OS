@@ -175,7 +175,7 @@ class RentalApplicationController extends Controller
         // "sent for authorisation" applications remain visible read-only
         // through the ordinary 'sent_for_authorisation' TILE above, scoped
         // like every other tile on this screen.
-        $isAuthoriser = $user->isRentalApplicationRO() || $user->isRentalApplicationCO();
+        $isAuthoriser = $user->seesRentalAuthorisationQueue();   // approvers and (audit fix A11) administrators
         $authorisationQueueCount = 0;
         if ($isAuthoriser) {
             $authorisationQueueCount = RentalApplication::whereNotNull('submitted_for_approval_at')
@@ -1111,8 +1111,13 @@ class RentalApplicationController extends Controller
             'note.required_if' => 'What did the applicant tell you? A note is required to record a withdrawal.',
         ]);
 
-        if (! in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
-            return back()->withInput()->with('error', "This application hasn't been submitted yet — there's nothing to assess.");
+        // Audit fix A3 (2026-10-19): a file the applicant never submitted (sent / in progress) or was sent back to edit
+        // (reopened) can still be closed off by recording a withdrawal - it used to have no exit but Archive.
+        $isPreSubmitWithdrawal = $validated['status'] === 'withdrawn'
+            && in_array($rentalApplication->status, RentalApplication::WITHDRAWABLE_BEFORE_SUBMIT_STATUSES, true);
+
+        if (! $isPreSubmitWithdrawal && ! in_array($rentalApplication->status, RentalApplication::POST_RETURN_STATUSES, true)) {
+            return back()->withInput()->with('error', "This application hasn't been submitted yet — there's nothing to assess. If the applicant is not going ahead, record a withdrawal instead.");
         }
 
         // Reopen/resubmit, 2026-09-08 — the applicant may have reopened-and-
@@ -1557,6 +1562,113 @@ class RentalApplicationController extends Controller
             ->with('success', 'The link is ready - copy the Online link below and give it to the applicant. Nothing was emailed.');
     }
 
+    /**
+     * Audit fix A2 (2026-10-19): "Re-issue link / reset return gate". An applicant who cannot pass the return gate (no ID
+     * number or email on file, a forgotten ID, a locked-out link) has to be let back in by the agent: this mints a FRESH
+     * link (the old one dies - it also resets the gate's attempt lockout, which is keyed to the link), extends its life by
+     * the agency's applicant-link setting, and - once the application is submitted - issues a one-time code the agent gives
+     * the applicant (phone call or WhatsApp to the number on file). If the applicant has an email the new link is mailed too.
+     * Never for a declined / withdrawn file (their link is closed on purpose - Reopen is the way back) or an unsent draft.
+     * Audited. The link and code are flashed once for the agent to read out; the code is never stored in clear.
+     */
+    public function reissueLink(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit, \App\Services\RentalApplications\ApplicantAccessCode $codes)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        if ($rentalApplication->status === 'draft') {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'This application has not been sent yet - there is no link to re-issue. Use Send or "Share the link myself".');
+        }
+        if (in_array($rentalApplication->status, RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES, true)) {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'This application is ' . $rentalApplication->status . ', so the applicant\'s link is closed. Use Reopen if they should be able to continue.');
+        }
+
+        $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id);
+        $expiresAt = now()->addDays($expiryDays);
+        $code = null;
+
+        DB::transaction(function () use ($rentalApplication, $expiresAt, $codes, &$code) {
+            $rentalApplication->token = $this->generateToken();
+            $rentalApplication->token_expires_at = $expiresAt;
+            $rentalApplication->save();
+
+            if ($rentalApplication->isSubmitted()) {
+                $code = $codes->issue($rentalApplication, $expiresAt);
+            }
+        });
+
+        $emailed = false;
+        if ($rentalApplication->recipientEmail()) {
+            $emailed = (bool) app(RentalApplicationMailer::class)->sendInvite($rentalApplication);
+        }
+
+        $audit->log(
+            $rentalApplication,
+            eventCategory: 'applicant_link',
+            eventType: 'link_reissued',
+            user: $request->user(),
+            newValues: ['link_expires_at' => $expiresAt->toIso8601String(), 'code_issued' => $code !== null, 'emailed' => $emailed],
+            humanSummary: 'The agent re-issued the applicant\'s link' . ($code !== null ? ' with a one-time code' : '') . ($emailed ? ' (emailed to the applicant).' : ' (not emailed).'),
+        );
+
+        return redirect()->route('corex.rental-applications.show', $rentalApplication)
+            ->with('success', 'A fresh link has been issued; the old one no longer works.' . ($emailed ? ' It was emailed to the applicant.' : ''))
+            ->with('reissued_link', [
+                'url' => route('rental-applications.public.show', $rentalApplication->token),
+                'code' => $code,
+                'expires' => $expiresAt->format('d M Y'),
+            ]);
+    }
+
+    /**
+     * Audit fix A3 (2026-10-19): the exit from "reopened". An application sent back to the applicant whose applicant never
+     * resubmits stayed reopened for ever (the status endpoint refused it and Reopen did not list it). This takes it back
+     * into the agent's hands as Returned - exactly where it was before it was sent back - closes nothing, deletes nothing
+     * and keeps whatever the applicant had already typed. The applicant's link keeps working (read-only, like any
+     * returned file). Recorded in the status history and the audit trail with who and why.
+     */
+    public function cancelReopen(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationAuditService $audit)
+    {
+        $this->guardRentalApplication($rentalApplication);
+
+        $validated = $request->validate(['note' => ['nullable', 'string', 'max:1000']]);
+
+        if ($rentalApplication->status !== 'reopened') {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)
+                ->with('error', 'Only an application that was sent back to the applicant can be taken back.');
+        }
+
+        DB::transaction(function () use ($rentalApplication, $validated, $request, $audit) {
+            $rentalApplication->status = 'returned';
+            $rentalApplication->save();
+
+            RentalApplicationStatusHistory::record(
+                $rentalApplication,
+                'reopened',
+                'returned',
+                $request->user(),
+                'Taken back from the applicant without a resubmission.' . (($validated['note'] ?? '') !== '' ? ' ' . $validated['note'] : ''),
+            );
+
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'reopen',
+                eventType: 'reopen_cancelled',
+                user: $request->user(),
+                reason: $validated['note'] ?? null,
+                oldValues: ['status' => 'reopened'],
+                newValues: ['status' => 'returned'],
+                humanSummary: 'Took the application back from the applicant (they had not resubmitted).',
+            );
+        });
+
+        event(new \App\Events\RentalApplication\RentalApplicationReopenCancelled($rentalApplication->fresh(), $request->user()?->id));
+
+        return redirect()->route('corex.rental-applications.review', $rentalApplication)
+            ->with('success', 'Taken back - the application is with you again.');
+    }
+
     public function pdf(RentalApplication $rentalApplication)
     {
         $this->guardRentalApplication($rentalApplication);
@@ -1576,6 +1688,11 @@ class RentalApplicationController extends Controller
     public function destroy(Request $request, RentalApplication $rentalApplication, \App\Services\RentalApplications\RentalApplicationPdfService $pdfService)
     {
         $this->guardRentalApplication($rentalApplication);
+
+        // Audit fix A10 (2026-10-19): not while it sits with an approver or has a lease made from it.
+        if ($blocked = $rentalApplication->archiveBlockedReason()) {
+            return redirect()->route('corex.rental-applications.show', $rentalApplication)->with('error', $blocked);
+        }
 
         // Reopen/resubmit follow-up, 2026-09-09 — a cached generation PDF is
         // a derived artefact (the record of truth, snapshot_json, is

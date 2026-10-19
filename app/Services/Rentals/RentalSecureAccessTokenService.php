@@ -259,7 +259,64 @@ class RentalSecureAccessTokenService
             return null;
         }
 
-        return $record->isLive() ? $record : null;
+        if (! $record->isLive()) {
+            return null;
+        }
+        $this->renewOnUse($record);
+
+        return $record;
+    }
+
+    /**
+     * Audit fix C-D3 (19 Oct 2026): when the agency's `link_renew_on_use` is on (the default), every successful use of a contractor / crew job / crew standing link
+     * moves its expiry forward by the same number of days the link was minted with - a job that runs longer than the link's life (parts on order) no longer ends in a
+     * dead link. ONE place, because every public action resolves its link here. Never renews: a revoked or finished/cancelled target (resolveLive refused it first),
+     * a link that stands until revoked (null stays null), the tenant's completion link (it ends with its window) - and never shortens a longer expiry.
+     */
+    private function renewOnUse(RentalSecureAccessToken $record): void
+    {
+        if ($record->expires_at === null || ! RentalPortalSetting::linkRenewOnUseFor((int) $record->agency_id)) {
+            return;
+        }
+        $days = match ($record->purpose ?: RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER) {
+            RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER => RentalPortalSetting::contractorSecureLinkExpiryDaysFor((int) $record->agency_id),
+            RentalSecureAccessToken::PURPOSE_CREW_JOB_CARD => RentalPortalSetting::crewJobLinkExpiryDaysFor((int) $record->agency_id),
+            RentalSecureAccessToken::PURPOSE_CREW_STANDING => RentalPortalSetting::crewStandingLinkExpiryDaysFor((int) $record->agency_id),
+            default => null,
+        };
+        if (! $days || $days < 1) {
+            return;
+        }
+        $renewed = now()->addDays($days);
+        // one write a day at most - not one per tap
+        if ($renewed->gt($record->expires_at->copy()->addDay())) {
+            $record->forceFill(['expires_at' => $renewed])->save();
+        }
+    }
+
+    /**
+     * Audit fix C-A4: why a link that no longer opens stopped - 'cancelled' (the job was cancelled) or 'finished' (the job is done) - so the page can say so instead of
+     * "expired or replaced". Null for everything else (expired, revoked, replaced, unknown): those stay ONE identical generic page. Only someone holding the real
+     * link can ever see this, and only about the one job it was made for.
+     */
+    public function closedStateFor(string $rawToken): ?string
+    {
+        $record = RentalSecureAccessToken::withoutGlobalScopes()->where('token_hash', RentalSecureAccessToken::hashToken($rawToken))->first();
+        if (! $record) {
+            return null;
+        }
+        $woId = $record->rental_work_order_id
+            ?: ($record->rental_completion_round_id ? \App\Models\RentalWorkCompletionRound::withoutGlobalScopes()->whereKey($record->rental_completion_round_id)->value('rental_work_order_id') : null);
+        $wo = $woId ? RentalWorkOrder::withoutGlobalScopes()->find($woId) : null;
+        $card = $record->rental_job_card_id ? RentalJobCard::withoutGlobalScopes()->withTrashed()->find($record->rental_job_card_id) : null;
+        if (($wo && $wo->status === RentalWorkOrder::STATUS_CANCELLED) || ($card && $card->status === RentalJobCard::STATUS_CANCELLED)) {
+            return 'cancelled';
+        }
+        if (($wo && $wo->status === RentalWorkOrder::STATUS_COMPLETED) || ($card && $card->status === RentalJobCard::STATUS_COMPLETED)) {
+            return 'finished';
+        }
+
+        return null;
     }
 
     private function targetColumn(Model $target): string

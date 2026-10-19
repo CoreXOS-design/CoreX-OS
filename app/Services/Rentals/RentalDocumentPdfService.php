@@ -390,10 +390,16 @@ class RentalDocumentPdfService
         if ($rel === '') {
             return null;
         }
-        $rel = preg_replace('#^(public/|storage/)#', '', ltrim($rel, '/'));
+        $private = app(\App\Services\Images\PrivateImageService::class);
+        // D14: a portal upload is a `private:` ref on the private disk - resolved here, server-side, never as a URL.
+        $privateRel = $private->privateRel($rel);
+        if ($private->isPrivate($rel) && $privateRel === null) {
+            return null;
+        }
+        $rel = $privateRel ?? preg_replace('#^(public/|storage/)#', '', ltrim($rel, '/'));
 
         try {
-            $disk = Storage::disk('public');
+            $disk = Storage::disk($privateRel !== null ? \App\Services\Images\PrivateImageService::DISK : 'public');
             if (! $disk->exists($rel)) {
                 return null;
             }

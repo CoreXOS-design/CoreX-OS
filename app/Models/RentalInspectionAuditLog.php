@@ -39,6 +39,7 @@ class RentalInspectionAuditLog extends Model
     public const EVENT_INVITATION_RECORDED = 'invitation_recorded';
     public const EVENT_SIGNATURE_SUPERSEDED = 'signature_superseded';
     public const EVENT_FINDING_SUPERSEDED = 'finding_superseded';
+    public const EVENT_FINDING_RECORDED = 'finding_recorded';
     public const EVENT_COPIES_SENT = 'report_copies_sent';
     // §46 — signing by personal link.
     public const EVENT_SIGNING_LINK_SENT = 'signing_link_sent';
@@ -67,6 +68,7 @@ class RentalInspectionAuditLog extends Model
         self::EVENT_INVITATION_RECORDED => 'Invitation recorded',
         self::EVENT_SIGNATURE_SUPERSEDED => 'Signature replaced',
         self::EVENT_FINDING_SUPERSEDED => 'Finding replaced',
+        self::EVENT_FINDING_RECORDED => 'Finding recorded',
         self::EVENT_COPIES_SENT => 'Report copies sent',
         self::EVENT_SIGNING_LINK_SENT => 'Signing link sent',
         self::EVENT_SIGNING_LINK_REVOKED => 'Signing link revoked',

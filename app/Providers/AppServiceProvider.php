@@ -330,6 +330,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
         // §17.10.1 (BUILD 3) — the same crew completion also opens a completion round: the tenant is asked to check the finished work.
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
+        // Audit C-A3 - the agent who has to check and sign it off is told in-app when the crew marks a job complete.
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\NotifyAgentOfCrewCompleted::class);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five
@@ -825,6 +827,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\RentalApplication\RentalApplicationApproved::class,
             \App\Events\RentalApplication\RentalApplicationDeclined::class,
             \App\Events\RentalApplication\RentalApplicationReopened::class,
+            \App\Events\RentalApplication\RentalApplicationReopenCancelled::class,
             \App\Events\RentalApplication\RentalApplicationWithdrawn::class,
         ] as $rentalApplicationEvent) {
             Event::listen($rentalApplicationEvent, \App\Listeners\Contact\RecomputeRentalApplicationStatus::class);
@@ -1075,6 +1078,51 @@ class AppServiceProvider extends ServiceProvider
         \Illuminate\Support\Facades\Auth::viaRequest('agency-api', function (\Illuminate\Http\Request $request) {
             return app(\App\Services\AgencyApi\AgencyApiKeyResolver::class)->resolveFromRequest($request);
         });
+
+        // Rental portal / client app API throttle (audit 2026-10-19 D10) - the whole /api/v1/client* surface had no limit at all, photo uploads
+        // included. One bucket per signed-in PERSON (a phone and a browser of one person share it), sized by the agency's own setting
+        // (portal_api_per_minute, default 120); an unauthenticated caller falls back to its address. Runs after client.auth, so the user is known.
+        \Illuminate\Support\Facades\RateLimiter::for('client-portal', function (\Illuminate\Http\Request $request) {
+            // Middleware order is not guaranteed to put authentication before the throttle, so the person is found from the bearer token here.
+            $user = $request->user();
+            $agencyId = null;
+            if (! $user instanceof \App\Models\ClientUser && $request->bearerToken()) {
+                $token = \Laravel\Sanctum\PersonalAccessToken::findToken($request->bearerToken());
+                $holder = $token?->tokenable;
+                if ($holder instanceof \App\Models\ClientUser) {
+                    $user = $holder;
+                    $agencyId = $token->agency_id ? (int) $token->agency_id : null;
+                }
+            }
+            if ($user instanceof \App\Models\ClientUser) {
+                $agencyId ??= $user->activeAgencyId();
+                $perMinute = \App\Models\RentalPortalSetting::portalApiPerMinuteFor($agencyId);
+
+                return \Illuminate\Cache\RateLimiting\Limit::perMinute($perMinute)->by('client:' . $user->getKey());
+            }
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(\App\Models\RentalPortalSetting::DEFAULT_PORTAL_API_PER_MINUTE)->by('ip:' . $request->ip());
+        });
+
+        // Staff mobile API throttle (audit 2026-10-19 D10): generous - a phone syncing a property or a contact list is chatty - but finite, per
+        // signed-in staff user. Platform config (config/api.php), not an agency setting: it protects the platform, not one agency's rules.
+        \Illuminate\Support\Facades\RateLimiter::for('staff-api', function (\Illuminate\Http\Request $request) {
+            $user = $request->user();
+
+            return \Illuminate\Cache\RateLimiting\Limit::perMinute(max(60, (int) config('api.staff_per_minute', 600)))
+                ->by($user ? 'staff:' . $user->getAuthIdentifier() : 'ip:' . $request->ip());
+        });
+        // Audit fix C-D2 (19 Oct 2026): the public rental links are throttled per TOKEN (hashed), not per address, and a route has exactly ONE of these limiters - the
+        // old string limiters keyed on address only and a route carrying two of them counted every request twice. See config/rental-public-links.php.
+        $tokenKey = fn (\Illuminate\Http\Request $r) => 'tok:' . substr(hash('sha256', (string) $r->route('token')), 0, 32);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_token_per_minute', 30))->by($tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link-heavy', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, (int) config('rental-public-links.heavy_per_token_per_ten_minutes', 60))->by('heavy:' . $tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
 
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();

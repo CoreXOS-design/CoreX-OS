@@ -482,7 +482,7 @@ class RentalWorkOrderController extends Controller
                 RentalWorkOrder::REPORTED_BY_INSPECTION,
             ])],
             'reported_by_contact_id' => ['nullable', Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
-            'reported_inspection_observation_id' => ['nullable', 'exists:rental_inspection_observations,id'],
+            'reported_inspection_observation_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
             'description' => ['required', 'string'],
@@ -581,14 +581,14 @@ class RentalWorkOrderController extends Controller
             // every batch item's inspection item must belong to THIS
             // property, never a same-agency one left over from elsewhere.
             'lease_id' => ['nullable', Rule::exists('leases', 'id')->where('property_id', $propertyId)],
-            'rental_inspection_id' => ['nullable', 'exists:rental_inspections,id'],
+            'rental_inspection_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_inspections')],
             'assignment_type' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 RentalWorkOrder::ASSIGNMENT_INTERNAL,
             ])],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'batch_items' => ['required', 'array', 'min:1'],
-            'batch_items.*.observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
+            'batch_items.*.observation_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'batch_items.*.title' => ['required', 'string', 'max:191'],
             'batch_items.*.description' => ['nullable', 'string'],
             'batch_items.*.rental_inspection_item_id' => ['nullable', 'integer', Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
@@ -997,7 +997,7 @@ class RentalWorkOrderController extends Controller
         ]);
 
         // The box is read in the AGENCY timezone (the same convention as the job card's scheduling box).
-        $tz = $rentalWorkOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($rentalWorkOrder->agency);
         $at = \App\Support\AppDate::parse($validated['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {

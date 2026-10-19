@@ -81,7 +81,7 @@ final class CrewPricingBlock
             'prices_on' => $pricesOn,
             'request' => $request ? [
                 'note' => $request->note,
-                'asked_at' => $request->requested_at?->copy()->setTimezone(config('app.timezone') ?: 'Africa/Johannesburg')->format('j M, H:i'),
+                'asked_at' => $request->requested_at?->copy()->setTimezone(\App\Support\AppDate::agencyTimezone($card->agency))->format('j M, H:i'),
             ] : null,
             'lines' => $rows,
             'draft_count' => collect($rows)->where('state', 'draft')->count(),

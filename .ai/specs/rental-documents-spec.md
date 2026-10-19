@@ -3,6 +3,8 @@
 **Status:** All 6 documents exist as image-based overlays — migrating to Blade web documents rendered via Puppeteer  
 **Version:** Based on actual document review — Mandate V5, Disclosure V7, Marketing Permission V7, Application V8, Residential Lease V8, Commercial Lease V5
 
+> **Audit fixes 2026-10-19 (A21):** the signing order of the lease pack is **agent -> tenant(s) -> landlord(s)** (Johan's ruling; code unchanged). HFC-specific policy and letterhead wording is now marked as an example of one agency's own settings, never a shipped default (CLAUDE.md #9).
+
 ---
 
 ## Document Inventory
@@ -51,7 +53,7 @@ Step 6:  Mandatory Disclosure      ← Tenant and Agent sign to complete (if not
 ## Document 1: Marketing Permission
 
 ### Purpose
-Irrevocable authority granted by the landlord to Home Finders Coastal to market and rent the property. Includes Addendum A (Service Fee breakdown).
+Irrevocable authority granted by the landlord to the agency to market and rent the property. Includes Addendum A (Service Fee breakdown).
 
 ### Linked Fields — Four Pillars Mapping
 
@@ -89,7 +91,7 @@ Irrevocable authority granted by the landlord to Home Finders Coastal to market 
 7. **Agent** — signs Addendum A
 
 ### Agency Header
-All documents show the Home Finders Coastal letterhead:
+All documents show the agency's own letterhead. **Example only** - one agency's letterhead as it was captured when this spec was drafted; no value below is ever shipped as a default (CLAUDE.md #9):
 - Johan and Elize Properties T/A Home Finders Coastal
 - Shop 5 The Emporium, Cnr King Rd & Marine Drive, Shelly Beach
 - Reg no: 2017/431318/07 | FFC: 202615038880000 | VAT: 4630287821
@@ -103,7 +105,7 @@ All documents show the Home Finders Coastal letterhead:
 ## Document 2: Letting Mandate
 
 ### Purpose
-Grants Home Finders Coastal the mandate to offer the property to let. Includes commission rate, mandate period, and the landlord's bank account details for rental disbursements.
+Grants the agency the mandate to offer the property to let. Includes commission rate, mandate period, and the landlord's bank account details for rental disbursements.
 
 ### Linked Fields
 
@@ -183,7 +185,7 @@ Plus: Additional Information free-text field.
 ## Document 4: Rental Application
 
 ### Purpose
-Pre-approval form completed by prospective tenant before any viewings. Home Finders Coastal policy: no viewings without pre-approval. Includes TPN (Tenant Profile Network) credit bureau consent.
+Pre-approval form completed by prospective tenant before any viewings. Whether viewings need a pre-approved application first is the AGENCY's own policy and is a per-agency setting (never hardcoded; one agency's example: "no viewings without pre-approval"). Includes TPN (Tenant Profile Network) credit bureau consent.
 
 ### Linked Fields
 
@@ -429,16 +431,16 @@ Sent to prospective tenant independently. Not linked to a specific lease yet.
 3. If approved → Lease flow begins
 
 ### Lease Pack (Steps 5–6)
-Sent as a pack once tenant is approved:
-1. Landlord signs Residential/Commercial Lease (Lessor section)
-2. Tenant signs Lease (Lessee section)
-3. Agent signs Lease (Agent section)
-4. Addendum A signed by all three
-5. Tenant signs Mandatory Disclosure (Tenant section)
-6. Agent signs Mandatory Disclosure (Property Practitioner section)
+Sent as a pack once tenant is approved. **Signing order, ruled by Johan 2026-10-19 (audit fix A21): agent first, then the tenant(s), then the landlord(s)** - the code has always done this (leases.md R4, `LeaseSigningLauncher` recipient order); the earlier "landlord first" wording below this ruling was wrong and is replaced:
+1. Agent signs Lease (Agent section)
+2. Tenant(s) sign Lease (Lessee section)
+3. Landlord(s) sign Residential/Commercial Lease (Lessor section)
+4. Addendum A signed by all three, in the same order
+5. Agent signs Mandatory Disclosure (Property Practitioner section)
+6. Tenant signs Mandatory Disclosure (Tenant section); its Lessor section was signed earlier, at the marketing stage (Step 3)
 
 ### Sequential Signing Logic
-- Landlord receives pack first → signs → Tenant notified → signs → Agent countersigns
+- Agent signs first → Tenant(s) notified → sign → Landlord(s) notified → sign (Johan's ruling 2026-10-19, matches the code). The signing order is fixed by the lease-signing launcher, not chosen per lease.
 - Each notification goes via DocuPerfect email with agent's signature injected
 - Document is flattened after each signature before being sent to next signer
 

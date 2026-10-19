@@ -18,7 +18,7 @@ final class NoticesTabs
     public const TABS = [
         'breaches' => ['label' => 'Breaches', 'route' => 'corex.breaches.index', 'permission' => 'rental_breaches.view', 'old' => 'Breach Register'],
         'received' => ['label' => 'Notices received', 'route' => 'corex.lease-notices.index', 'permission' => 'rental_notices.review', 'old' => 'Notices Received'],
-        'sent' => ['label' => 'Notices sent', 'route' => 'corex.rental-notices.index', 'permission' => 'rental_notices.create', 'old' => 'Rental Notices'],
+        'sent' => ['label' => 'Notices sent', 'route' => 'corex.rental-notices.index', 'permission' => 'rental_notices.view', 'old' => 'Rental Notices'],
         'templates' => ['label' => 'Templates', 'route' => 'corex.rental-notice-templates.index', 'permission' => 'rental_notice_templates.manage_settings', 'old' => 'Notice Templates'],
     ];
 

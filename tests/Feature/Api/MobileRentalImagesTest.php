@@ -169,7 +169,7 @@ class MobileRentalImagesTest extends TestCase
         $this->assertCount(2, $images);
         foreach ($images as $url) {
             $this->assertStringStartsWith('http', $url); // signed links are built absolute
-            $this->assertStringContainsString('/private-image?', $url);
+            $this->assertStringContainsString('/private-image/', $url);
         }
         $this->assertSame(2, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
         $this->assertSame([], $property->fresh()->rentalImagesStructure()['in_inspection']['images']);

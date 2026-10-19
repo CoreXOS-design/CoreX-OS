@@ -28,6 +28,31 @@ use Illuminate\Support\Facades\Log;
 class PropertyStatusFollowsLeaseService
 {
     /**
+     * Audit A26 (2026-10-19) - the statuses that mean "this property is let", best first. Every one is a system status valid for
+     * every agency (Property::systemStatuses()); the FIRST one the agency's own vocabulary accepts is the one written. This list and
+     * leasedOutStatusFor() are the only place a "let" status is named - callers never carry the literal.
+     */
+    public const LEASED_OUT_STATUS_CANDIDATES = ['let_out', 'rented'];
+
+    /** The status to write when a lease goes (or returns to) active for this agency, or null when its vocabulary accepts none. */
+    public function leasedOutStatusFor(?int $agencyId): ?string
+    {
+        foreach (self::LEASED_OUT_STATUS_CANDIDATES as $candidate) {
+            if (Property::isAllowedStatus($candidate, $agencyId)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /** Plain label for a status slug ("let_out" -> "Let Out"), for audit lines. */
+    public function statusLabel(?string $status): string
+    {
+        return ucwords(str_replace('_', ' ', (string) $status)) ?: 'None';
+    }
+
+    /**
      * Called from LeaseActivationService::flipPropertyToLeasedOut() the
      * moment a property is first flipped to "leased out" — captures
      * whatever it was before, ONCE, so rows 6/7 can restore it later. A
@@ -111,8 +136,13 @@ class PropertyStatusFollowsLeaseService
             return;
         }
 
+        $leased = $this->leasedOutStatusFor($property->agency_id);
+        if ($leased === null) {
+            return;
+        }
+
         $oldStatus = $property->status;
-        $property->status = 'let_out';
+        $property->status = $leased;
         $property->lease_start_date = null;
         $property->save();
 
@@ -122,9 +152,9 @@ class PropertyStatusFollowsLeaseService
             'status_changed',
             $user,
             ['status' => $oldStatus],
-            ['status' => 'let_out'],
+            ['status' => $leased],
             metadata: ['cause' => "Notice reversed on Lease #{$lease->id}"],
-            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to Let Out — notice reversed on Lease #{$lease->id}",
+            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to " . $this->statusLabel($leased) . " — notice reversed on Lease #{$lease->id}",
         );
     }
 
@@ -174,8 +204,13 @@ class PropertyStatusFollowsLeaseService
             return;
         }
 
+        $leased = $this->leasedOutStatusFor($property->agency_id);
+        if ($leased === null) {
+            return;
+        }
+
         $oldStatus = $property->status;
-        $property->status = 'let_out';
+        $property->status = $leased;
         $property->save();
 
         app(PropertyAuditService::class)->log(
@@ -184,9 +219,9 @@ class PropertyStatusFollowsLeaseService
             'status_changed',
             $user,
             ['status' => $oldStatus],
-            ['status' => 'let_out'],
+            ['status' => $leased],
             metadata: ['cause' => "Notice reversed on Lease #{$lease->id}"],
-            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to Let Out — notice reversed on Lease #{$lease->id}",
+            humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to " . $this->statusLabel($leased) . " — notice reversed on Lease #{$lease->id}",
         );
     }
 

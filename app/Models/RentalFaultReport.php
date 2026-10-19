@@ -154,6 +154,9 @@ class RentalFaultReport extends Model
         'owner_photo_ids' => 'array',
         'owner_version_saved_at' => 'datetime',
         'sent_to_owner_at' => 'datetime',
+        'owner_reminder_1_at' => 'datetime',
+        'owner_reminder_2_at' => 'datetime',
+        'owner_queue_flagged_at' => 'datetime',
         'reported_at' => 'datetime',
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',
@@ -202,6 +205,18 @@ class RentalFaultReport extends Model
     }
 
     /** The type as people read it: the catalogue name, or "Other" while it is unclassified. Null when the report simply has no type. */
+    /** Section 6.5 / 29 (C-C2) - the fault's type is an emergency one (the agency's own catalogue says so; nothing hardcoded). */
+    public function isEmergencyType(): bool
+    {
+        return $this->faultType?->urgency === RentalFaultType::URGENCY_EMERGENCY;
+    }
+
+    /** An emergency that still needs someone: flagged and sorted above routine on the list. Closed faults are not "urgent" any more. */
+    public function isOpenEmergency(): bool
+    {
+        return $this->isEmergencyType() && ! in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED, self::STATUS_DECLINED], true);
+    }
+
     public function typeName(): ?string
     {
         return $this->faultType?->name ?: ($this->isOtherType() ? self::OTHER_TYPE_NAME : null);
@@ -334,6 +349,9 @@ class RentalFaultReport extends Model
                 'actor' => $update->createdByUser?->name,
                 'action' => match ($update->update_type) {
                     RentalFaultReportUpdate::TYPE_APPROVAL_REQUESTED => 'Sent to owner for a decision',
+                    RentalFaultReportUpdate::TYPE_OWNER_REMINDED => 'Owner reminded',
+                    RentalFaultReportUpdate::TYPE_OWNER_SILENT_FLAGGED => 'Owner has not answered - on your queue',
+                    RentalFaultReportUpdate::TYPE_OWNER_NOT_TOLD => 'Owner could not be told',
                     RentalFaultReportUpdate::TYPE_OWNER_VERSION_SAVED => 'Owner version prepared',
                     RentalFaultReportUpdate::TYPE_APPROVAL_RECORDED => 'Approval decision recorded',
                     RentalFaultReportUpdate::TYPE_WORK_ORDER_RAISED => 'Work order raised',
@@ -392,6 +410,25 @@ class RentalFaultReport extends Model
         return $this->photos()->doesntExist() && $this->rental_work_order_id === null;
     }
 
+    /**
+     * Section 29 (C-D7) - the plain reason this fault cannot be archived right now, or null. Archiving takes a fault out of every list - including the owner's - so it is
+     * refused while the owner is mid-decision (sent and not answered), once they have decided, while a work order is live, and when it has photos or a work order on record.
+     */
+    public function archiveBlockReason(): ?string
+    {
+        if ($this->hasLiveWorkOrder()) {
+            return 'This fault has a live work order and cannot be archived - cancel or complete the work order first.';
+        }
+        if (! $this->isDeletable()) {
+            return 'This fault report has photos or a linked work order and cannot be archived - cancel it instead.';
+        }
+        if (in_array($this->status, [self::STATUS_AWAITING_APPROVAL, self::STATUS_APPROVED, self::STATUS_OWNER_HANDLING], true) || ($this->sent_to_owner_at !== null && ! in_array($this->status, [self::STATUS_CANCELLED, self::STATUS_RESOLVED], true))) {
+            return 'The owner has been sent this fault and is deciding on it, so it cannot be archived.';
+        }
+
+        return null;
+    }
+
     /** Records one line in this report's own history (updates()). */
     /** AT-452 - the ONE way other code (the photo annotation service, the send gate) adds a "who did what" line to this fault's history. */
     public function recordHistory(string $type, ?User $by, ?string $note = null): void
@@ -426,6 +463,15 @@ class RentalFaultReport extends Model
             throw new \LogicException('A resolved fault report is a permanent record and cannot be cancelled.');
         }
 
+        // section 29 (C-D7) - the same rule the screen shows (the Cancel button is hidden unless the owner has not decided), enforced on the server: a direct POST can no
+        // longer cancel a fault that has a LIVE work order (the work order and the contractor's job would carry on under a cancelled fault) or one the owner has decided.
+        if ($this->hasLiveWorkOrder()) {
+            throw new \LogicException('This fault has a live work order - cancel the work order first (that resets the fault), or complete it.');
+        }
+        if (! in_array($this->status, [self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL], true)) {
+            throw new \LogicException('The owner has already decided on this fault, so it is handled through its work order or its outcome - it cannot be cancelled here.');
+        }
+
         $fromStatus = $this->status;
         $this->forceFill([
             'status' => self::STATUS_CANCELLED,
@@ -435,6 +481,24 @@ class RentalFaultReport extends Model
         ])->save();
 
         $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, $by, $reason, $fromStatus, self::STATUS_CANCELLED);
+    }
+
+    /**
+     * Audit fixes (C-A5 / D20): the TENANT withdraws their own fault - the same cancel, in their name, with a reason. Only while it is still with the agent / the owner
+     * (reported, under review, awaiting the owner's decision) and no work order is live; nothing is deleted, the report stays visible, cancelled.
+     */
+    public function cancelByTenant(\App\Models\Contact $by, string $reason): void
+    {
+        if (! in_array($this->status, [self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL], true) || $this->hasLiveWorkOrder()) {
+            throw new \LogicException('This fault is already being dealt with, so it can no longer be withdrawn - please contact your agent.');
+        }
+        $who = trim(($by->first_name ?? '') . ' ' . ($by->last_name ?? '')) ?: 'The tenant';
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'status' => self::STATUS_CANCELLED, 'cancelled_at' => now(), 'cancelled_by_user_id' => null,
+            'cancel_reason' => 'Withdrawn by the tenant: ' . $reason,
+        ])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, null, $who . ' (tenant) withdrew this fault: ' . $reason, $fromStatus, self::STATUS_CANCELLED);
     }
 
     /**
@@ -1097,7 +1161,7 @@ class RentalFaultReport extends Model
             throw new \InvalidArgumentException('outcome_note is required unless the outcome is "repaired" or "resolved_by_first_aid".');
         }
         if (in_array($outcome, [self::OUTCOME_REPAIRED, self::OUTCOME_REPAIRED_PARTIALLY], true) && empty($repairedAt)) {
-            throw new \InvalidArgumentException('repaired_at is required when the outcome is repaired or repaired_partially — Johan\'s own words: "the important part is capturing if and when the repairs were carried out."');
+            throw new \InvalidArgumentException('Say when the repair was carried out - the date is required when the outcome is repaired or repaired partially.');   // section 29 (C-H1): plain, agency-neutral wording
         }
         // §4.4 — the tenant IS reporting that it's already fixed; the
         // submission moment is the repair moment unless told otherwise.

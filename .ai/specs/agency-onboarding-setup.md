@@ -367,6 +367,17 @@ by oversight — do not reinstate them without asking:
     the wizard is one combined form. Photo-note classifications also gained a settings-page form (they
     previously had a route but no screen).
 
+- **Application approvers (RO / CO) - IN the wizard (19 Oct 2026, rental audit fix A4/A27).** The Rentals (`leases`)
+  step now has two `user_multiselect` controls, `rental_application_ro_user_ids` (Reviewers) and
+  `rental_application_co_user_ids` (Override approvers), source `rental_application` (resolved by
+  `RentalApplicationQualifyingSetting::rentalApplicationRoUserIdsFor` / `...CoUserIdsFor`), saved by the ONE narrow
+  saver `RentalApplicationSettingsController::updateAuthorisersFromWizard` - each list written only when it was
+  posted (`has()`-guarded; the control posts `key[]` plus an empty companion so "everyone un-ticked" still arrives),
+  the empty companion dropped, every id resolved inside the agency (a foreign id is a 403), audited in
+  `rental_setting_audit`. The step's `stepData` supplies `agencyUsers`. Before this a new agency finished setup with
+  nobody able to approve an application. With nobody ticked, approval falls back to one step and CoreX warns (settings
+  page + review screen) - see `rental-applications.md` "Audit fixes 2026-10-19".
+
 - **Rental application "Property Link Lock"** (`rental_application_qualifying_settings.
   lock_property_after_submission`, added 2026-09-10). A fine-tuning toggle on an already-
   running rental-applications feature (whether the linked property can still be changed once

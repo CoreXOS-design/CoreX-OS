@@ -389,6 +389,12 @@
          a screen she sends to herself. One step still requires the same
          RO/CO tier as today (Settings → Reviewers/Override below) — this
          setting removes a STEP, never a CHECK. --}}
+    @if($noAuthoriser ?? false)
+        <div class="rounded-md px-4 py-3 text-sm" data-qa="no-authoriser-warning" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #92400e); border: 1px solid var(--ds-amber, #f59e0b);">
+            <strong>No approver is set up.</strong> Nobody is ticked as a Reviewer or Override approver below, so applications are approved directly by whoever reviews them, whichever approval option is saved here. Tick at least one person below to bring the second-person check back.
+        </div>
+    @endif
+
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-1" style="color: var(--text-primary);">Application Approval</h2>
         <p class="text-xs mb-3" style="color: var(--text-muted);">

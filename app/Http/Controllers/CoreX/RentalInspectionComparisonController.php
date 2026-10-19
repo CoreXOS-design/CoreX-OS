@@ -82,8 +82,9 @@ class RentalInspectionComparisonController extends Controller
         $validated = $request->validate([
             'disposition' => ['required', 'in:' . implode(',', array_keys(\App\Models\RentalInspectionItemFinding::DISPOSITION_LABELS))],
             'note' => ['required', 'string', 'max:2000'],
-            // Audit B1 - a charge to the tenant carries its amount (CoreX records it; the money is settled in the agency's accounting system).
-            'amount' => ['nullable', 'required_if:disposition,' . \App\Models\RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT, 'numeric', 'min:0.01', 'max:99999999.99'],
+            // Audit A24 - the amount (rand) the agent has in mind for this item. Recorded only; CoreX does no money here. Audit B1 - REQUIRED
+            // (and above zero) when the judgement is a charge to the tenant: that is a deposit deduction.
+            'amount' => ['nullable', 'required_if:disposition,' . \App\Models\RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT, 'numeric', 'min:0', 'max:99999999.99'],
         ]);
 
         try {
@@ -93,7 +94,7 @@ class RentalInspectionComparisonController extends Controller
                 $validated['disposition'],
                 $validated['note'],
                 $request->user(),
-                isset($validated['amount']) ? (float) $validated['amount'] : null,
+                isset($validated['amount']) && $validated['amount'] !== '' ? (float) $validated['amount'] : null,
             );
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withInput()->withErrors(['finding' => $e->getMessage()]);

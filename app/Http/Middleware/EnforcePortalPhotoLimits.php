@@ -25,7 +25,7 @@ class EnforcePortalPhotoLimits
         }
 
         $files = is_array($files) ? $files : [$files];
-        $agencyId = $client->current_agency_id ? (int) $client->current_agency_id : null;
+        $agencyId = $client->activeAgencyId();
         $maxCount = RentalPortalSetting::faultPhotoMaxCountFor($agencyId);
         $maxMb = RentalPortalSetting::faultPhotoMaxMbFor($agencyId);
 

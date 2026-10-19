@@ -126,14 +126,17 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
         $this->assertSame('1250.50', (string) RentalInspectionItemFinding::firstOrFail()->amount);
     }
 
-    public function test_other_dispositions_carry_no_amount_even_if_one_is_posted(): void
+    public function test_another_judgement_may_carry_an_optional_amount_but_it_is_never_a_deduction(): void
     {
         [, $out, $item] = $this->declinedItemOnAnOut();
 
         $this->post(route('corex.rental-inspections.deposit-comparison.finding', [$out, $item]), ['disposition' => 'wear_and_tear', 'note' => 'Normal use', 'amount' => '999'])
             ->assertRedirect();
 
-        $this->assertNull(RentalInspectionItemFinding::firstOrFail()->amount);
+        $this->assertSame('999.00', (string) RentalInspectionItemFinding::firstOrFail()->amount, 'recorded (audit A24)');
+        $summary = app(RentalDepositDeductionsService::class)->summaryFor($this->lease);
+        $this->assertSame(0, $summary['lines']->count(), 'but only a charge to the tenant is a deduction');
+        $this->assertEqualsWithDelta(0.0, $summary['total'], 0.001);
     }
 
     public function test_the_lease_summary_adds_up_only_live_charges(): void

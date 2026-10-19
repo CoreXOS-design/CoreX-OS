@@ -61,7 +61,7 @@ class LeaseSettingsController extends Controller
             'showAdvanceAsOfSetting' => ! app(\App\Services\Rentals\LeaseTermAdvanceService::class)->isProductionInstall(),
             'allowAdvanceAsOfDate' => LeaseSetting::allowAdvanceAsOfDateFor($agencyId),
             'recentFrontHalfChanges' => \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
-                ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note'])
+                ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note', 'end_tenancy_on_move_out_date'])
                 ->with('user')->latest('id')->limit(5)->get(),
             // Round 7 (2026-10-05) — Command Centre "Unoccupied"/"Inactive"
             // tiles. Options = this agency's full write-side status
@@ -72,6 +72,7 @@ class LeaseSettingsController extends Controller
             // Property status follows the lease (rental-renewals.md "status follows the lease", rows 2/6/7).
             'autoReadvertiseOnNotice' => LeaseSetting::autoReadvertiseOnNoticeFor($agencyId),
             'autoRestoreStatusOnLeaseEnded' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agencyId),
+            'endTenancyOnMoveOutDate' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
             'autoRestoreStatusOnLeaseCancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agencyId),
             'defaultPreLetStatus' => LeaseSetting::defaultPreLetStatusFor($agencyId),
             'defaultPreLetStatusDefault' => LeaseSetting::DEFAULT_PRE_LET_STATUS,
@@ -137,6 +138,7 @@ class LeaseSettingsController extends Controller
             // Property status follows the lease — same §6.1 has()-guard: absent = "not shown", never "off".
             'auto_readvertise_on_notice' => ['nullable', 'boolean'],
             'auto_restore_status_on_lease_ended' => ['nullable', 'boolean'],
+            'end_tenancy_on_move_out_date' => ['nullable', 'boolean'],
             'auto_restore_status_on_lease_cancelled' => ['nullable', 'boolean'],
             'default_pre_let_status' => ['nullable', 'string', 'max:40', \Illuminate\Validation\Rule::in(Property::allowedStatuses($agencyId))],
         ]);
@@ -196,7 +198,7 @@ class LeaseSettingsController extends Controller
         if ($request->has('month_to_month_after_end_days')) {
             $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];
         }
-        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'auto_restore_status_on_lease_cancelled'] as $field) {
+        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'end_tenancy_on_move_out_date', 'auto_restore_status_on_lease_cancelled'] as $field) {
             if ($request->has($field)) {
                 $data[$field] = $request->boolean($field);
             }
@@ -232,6 +234,7 @@ class LeaseSettingsController extends Controller
             'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId),
             'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
             'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
+            'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
         ];
 
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);

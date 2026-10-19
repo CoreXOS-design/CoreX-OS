@@ -715,13 +715,54 @@ class RentalApplicationQualifyingSetting extends Model
      */
     public static function authoriserIds(int $agencyId): array
     {
-        $agency = \App\Models\Agency::find($agencyId);
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
         if (! $agency) {
             return [];
         }
         $ids = array_values(array_unique(array_map('intval', array_merge((array) ($agency->rental_application_ro_user_ids ?? []), (array) ($agency->rental_application_co_user_ids ?? [])))));
 
-        return $ids === [] ? [] : \App\Models\User::query()->whereIn('id', $ids)->where('agency_id', $agencyId)->where('is_active', true)->pluck('id')->map(fn ($i) => (int) $i)->all();
+        return $ids === [] ? [] : \App\Models\User::withoutGlobalScopes()->whereIn('id', $ids)->where('agency_id', $agencyId)->whereNull('deleted_at')->where('is_active', true)->pluck('id')->map(fn ($i) => (int) $i)->all();
+    }
+
+    /**
+     * Audit fix A4/A27 (2026-10-19) - does the agency have ANY active Reviewer / Override approver at all? A brand new
+     * agency has none (the default mode is two-step), and an application handed over then reached nobody for ever.
+     */
+    public static function hasAuthoriserFor(?int $agencyId): bool
+    {
+        return $agencyId !== null && $agencyId > 0 && self::authoriserIds($agencyId) !== [];
+    }
+
+    /**
+     * The approval mode actually IN FORCE. The agency's saved choice, except that with nobody to hand an application to
+     * the answer is always one step (whoever reviews it decides it) - never a hand-off into an empty queue. Every
+     * decision rule reads this; approvalModeFor() stays the raw saved choice for the settings screen.
+     */
+    public static function effectiveApprovalModeFor(?int $agencyId): string
+    {
+        return self::hasAuthoriserFor($agencyId) ? self::approvalModeFor($agencyId) : 'one_step';
+    }
+
+    /** Setup Wizard (Rentals step): the ticked Reviewers, as user ids. Source `rental_application`, key `rental_application_ro_user_ids`. */
+    public static function rentalApplicationRoUserIdsFor(?int $agencyId): array
+    {
+        return self::tierIdsFor($agencyId, 'rental_application_ro_user_ids');
+    }
+
+    /** Setup Wizard: the ticked Override approvers, as user ids. */
+    public static function rentalApplicationCoUserIdsFor(?int $agencyId): array
+    {
+        return self::tierIdsFor($agencyId, 'rental_application_co_user_ids');
+    }
+
+    private static function tierIdsFor(?int $agencyId, string $column): array
+    {
+        if ($agencyId === null || $agencyId <= 0) {
+            return [];
+        }
+        $agency = \App\Models\Agency::withoutGlobalScopes()->find($agencyId);
+
+        return array_values(array_map('intval', (array) ($agency?->{$column} ?? [])));
     }
 
     /** The agency has exactly one approver and it is this user: there is nobody else to hand an application to. */

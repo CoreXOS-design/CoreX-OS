@@ -92,6 +92,8 @@ class RentalApplicationSettingsController extends Controller
         // agencies. See RentalApplicationQualifyingSetting::DEFAULT_APPROVAL_MODE's
         // own docblock for the full reasoning.
         $approvalMode = RentalApplicationQualifyingSetting::approvalModeFor($agencyId);
+        // Audit fix A4/A27 (2026-10-19): nobody ticked as an approver means approval falls back to one step - the screen says so.
+        $noAuthoriser = ! RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId);
 
         $rentAboveApprovedMode = RentalApplicationQualifyingSetting::rentAboveApprovedModeFor($agencyId);
 
@@ -288,7 +290,7 @@ class RentalApplicationSettingsController extends Controller
             ->whereIn('setting_key', array_keys($frontHalf))->with('user')->latest('id')->limit(5)->get();
 
         return view('corex.settings.rental-applications', compact(
-            'frontHalf', 'recentFrontHalfChanges', 'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'rentAboveApprovedMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel'
+            'frontHalf', 'recentFrontHalfChanges', 'documentTypes', 'checklists', 'isConfigured', 'qualifyingMaxRentPercent', 'qualifyingExceedsLegalCeiling', 'agencyUsers', 'roUserIds', 'coUserIds', 'declineEmail', 'reopenLinkExpiryDays', 'propertyLockEnabled', 'tenantTaggingEnabled', 'autosaveDebounceSeconds', 'autosaveRateLimitMax', 'autosaveRateLimitWindowMinutes', 'documentRateLimitMax', 'documentRateLimitWindowMinutes', 'documentUploadsOpenAfterApproval', 'requireFicaBeforeAuthorisation', 'approvalMode', 'rentAboveApprovedMode', 'requireChecklistComplete', 'fieldRegistry', 'requiredFieldKeys', 'hiddenFieldKeys', 'fieldLabelOverrides', 'fieldHelpTextOverrides', 'fieldOrder', 'fieldSections', 'maritalStatusOptions', 'returnGateMethod', 'returnGateAttemptMax', 'returnGateAttemptWindowMinutes', 'identityGateEnabled', 'identityGateOtpLength', 'identityGateOtpExpiryMinutes', 'identityGateAttemptMax', 'identityGateAttemptWindowMinutes', 'identityGateResendCooldownSeconds', 'identityGateUnreachableByDesign', 'showRateLimitMax', 'showRateLimitWindowMinutes', 'submitRateLimitMax', 'submitRateLimitWindowMinutes', 'pdfRateLimitMax', 'pdfRateLimitWindowMinutes', 'documentViewRateLimitMax', 'documentViewRateLimitWindowMinutes', 'autosaveRequestRateLimitMax', 'autosaveRequestRateLimitWindowMinutes', 'maxPropertiesInEmail', 'activeHighlighters', 'archivedHighlighters', 'highlighterQuery', 'highlighterArchivedSort', 'activeCustomFields', 'retiredCustomFields', 'validityDefaults', 'validityOverrides', 'creditBureauName', 'tenantedLabel', 'noAuthoriser'
         ));
     }
 
@@ -360,6 +362,52 @@ class RentalApplicationSettingsController extends Controller
 
         return redirect()->route('corex.settings.rental-applications.edit')
             ->with('success', 'Overrides saved.');
+    }
+
+    /**
+     * Audit fix A4/A27 (2026-10-19): who may approve applications, reachable from the Setup Wizard. A new agency used to
+     * finish setup with nobody ticked as a Reviewer or Override approver, and the wizard had no control for either - so
+     * every application sat in a queue nobody could open. ONE narrow saver for both lists, each written ONLY when its field
+     * was posted (has()-guarded: the wizard control posts `key[]` plus an empty companion so "everyone un-ticked" still
+     * arrives; a step that did not render the control posts nothing and changes nothing - onboarding spec section 6.1).
+     * Blank companions are dropped before the agency-scope check. Audited like the other rental settings.
+     */
+    public function updateAuthorisersFromWizard(Request $request)
+    {
+        // The Setup Wizard calls this method directly, so the permission is checked here as well as on the route.
+        abort_unless($request->user()?->hasPermission('rental_applications.manage_settings'), 403);
+
+        $agencyId = (int) $request->user()->effectiveAgencyId();
+        $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
+
+        foreach ([
+            'rental_application_ro_user_ids' => 'Reviewer',
+            'rental_application_co_user_ids' => 'Override',
+        ] as $field => $label) {
+            if (! $request->has($field)) {
+                continue;
+            }
+            $before = (array) (Agency::withoutGlobalScopes()->whereKey($agencyId)->value($field) ?? []);
+            $posted = array_values(array_filter((array) $request->input($field, []), fn ($v) => $v !== null && $v !== ''));
+            foreach ($posted as $v) {
+                if (! is_numeric($v)) {
+                    abort(422, "One of the selected {$label} users is not valid.");
+                }
+            }
+            $ids = $this->resolveAgencyScopedUserIds($posted, $agencyId, $request, $label);
+
+            Agency::whereKey($agencyId)->update([$field => ! empty($ids) ? $ids : null]);
+
+            sort($before);
+            $after = $ids;
+            sort($after);
+            if ($before !== $after) {
+                \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), $field, implode(',', $before), implode(',', $after), $source);
+            }
+        }
+
+        return redirect()->route('corex.settings.rental-applications.edit')
+            ->with('success', 'Approvers saved.');
     }
 
     /**

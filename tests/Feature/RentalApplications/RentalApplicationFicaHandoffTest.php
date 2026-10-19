@@ -52,6 +52,8 @@ final class RentalApplicationFicaHandoffTest extends TestCase
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho@example.co.za',
         ]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        // The hand-off needs somebody to hand to (rental audit fix A4/A27: with no approver it is refused).
+        $this->agency->update(['rental_application_ro_user_ids' => [$this->agent->id]]);
         // Submission identity gate, 2026-09-13 — this file is entirely
         // about the FICA hand-off that happens immediately on submit();
         // the contact's own email would otherwise route every submit()

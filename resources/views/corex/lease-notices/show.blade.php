@@ -161,7 +161,7 @@
             <p class="text-xs">
                 The {{ $notice->otherParty() }} ({{ $otherPartyNames ?: 'no one linked' }})
                 @if($notice->other_party_told_at) was told on {{ $notice->other_party_told_at->format('j M Y H:i') }} - by email, and they see the notice in their portal under Notices.
-                @else has not been told (no email address on file). They see the notice in their portal under Notices. @endif
+                @else has <strong>not</strong> been told - there is no email address on file for them, or the email could not be sent (the lease log says which). Phone them, or add their email address on the contact. They still see the notice in their portal under Notices. @endif
             </p>
         </div>
     @endif

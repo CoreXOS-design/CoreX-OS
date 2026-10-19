@@ -667,7 +667,7 @@ class RentalInspectionController extends Controller
 
         $validated = $request->validate([
             'observation_ids' => ['required', 'array', 'min:1'],
-            'observation_ids.*' => ['integer', 'exists:rental_inspection_observations,id'],
+            'observation_ids.*' => ['integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
         ]);
 
         $result = app(RentalInspectionFollowUpService::class)->createFaultReports(

@@ -8,7 +8,7 @@
     $tpTenant = $faultReport->reported_by_type === \App\Models\RentalFaultReport::REPORTED_BY_TENANT;
     $tpChecks = $faultReport->tenantSelfChecks();
     $tpConf = $faultReport->tenantConfirmation();
-    $tpTz = $faultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $tpTz = \App\Support\AppDate::agencyTimezone($faultReport->agency);
     $tpCanConfirm = auth()->user()->hasPermission('rental_fault_reports.create') && $faultReport->status !== \App\Models\RentalFaultReport::STATUS_CANCELLED;
     $tpWho = $faultReport->reportedByContact ? trim($faultReport->reportedByContact->first_name . ' ' . $faultReport->reportedByContact->last_name) : ($faultReport->reportedByUser?->name ?? '');
 @endphp

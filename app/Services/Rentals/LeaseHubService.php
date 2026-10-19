@@ -95,7 +95,7 @@ class LeaseHubService
      * `route_name` is null when the step is a statement with nothing to click (the agreement is with someone else);
      * `post` is true when the click must be a form post ("Prepare again"), not a link.
      *
-     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool}|null
+     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool,fragment?:string}|null
      */
     public function nextStep(Lease $lease, ?\App\Models\User $user = null): ?array
     {
@@ -109,8 +109,13 @@ class LeaseHubService
                 return $step;
             }
 
-            // Rule 1 — no signed lease document, no agreement in flight: a link into the ordinary Edit/Activate
-            // action, which IS what moves a draft lease forward.
+            // Rule 1 — no signed lease document, no agreement in flight. Audit A1 (2026-10-19): a plain draft (not a renewal) can be got
+            // signed after all - prepare the agreement, attach the signed paper copy - or activated without one; the card that offers all
+            // three sits on this screen. A renewal draft keeps its own screens: the old link into the Edit/Activate action.
+            if (! $lease->previous_lease_id && $user && $user->hasPermission('leases.create')) {
+                return ['label' => 'Get the lease signed', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id, 'fragment' => 'draft-follow-up'];
+            }
+
             return ['label' => 'Activate lease', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
         }
 

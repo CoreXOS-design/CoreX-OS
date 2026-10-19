@@ -24,8 +24,10 @@ Two things on the **Property** screens:
 ## Backend API (already live)
 
 Base URL: same host + auth (Sanctum bearer token) as the existing mobile
-property endpoints, e.g. `https://corex.hfcoastal.co.za/api/v1`.
+property endpoints, e.g. `https://corexos.co.za/api/v1`.
 (The legacy un-versioned `/api/mobile/...` paths still work too.)
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ### 1. Portal links — dedicated endpoint
 

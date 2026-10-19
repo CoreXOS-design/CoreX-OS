@@ -280,6 +280,6 @@ class RentalFaultProgressService
     {
         $agency = Agency::withoutGlobalScopes()->find($fault->agency_id);
 
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 }

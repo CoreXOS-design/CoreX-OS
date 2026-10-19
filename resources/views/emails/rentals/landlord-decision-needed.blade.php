@@ -7,6 +7,7 @@
     </div>
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $recipientName }},</p>
+        @if($reminderNumber > 0)<p data-reminder-line><strong>{{ $reminderNumber > 1 ? 'A second reminder:' : 'A reminder:' }}</strong> your agent is still waiting for your answer.</p>@endif
         @if($isFault)
             <p>At {{ $propertyAddress }}:</p>
             <p><strong>{{ $title }}</strong></p>

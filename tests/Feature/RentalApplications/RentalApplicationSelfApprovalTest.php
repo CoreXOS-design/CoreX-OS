@@ -120,7 +120,9 @@ final class RentalApplicationSelfApprovalTest extends TestCase
     {
         $agent = $this->user('agent');
         $app = $this->pendingApplication($agent);
-        // Deliberately NOT added to either list — the outer tier gate is what fires here.
+        // Deliberately NOT added to either list — the outer tier gate is what fires here. (Somebody ELSE is an approver: with
+        // no approver at all the agency falls back to one-step approval and whoever reviews decides - rental audit fix A4/A27.)
+        $this->setRO([$this->user('branch_manager')->id]);
 
         $this->actingAs($agent)->post($this->approveUrl($app), ['approved_rental_amount' => 15000])
             ->assertForbidden();
@@ -232,20 +234,19 @@ final class RentalApplicationSelfApprovalTest extends TestCase
     }
 
     /**
-     * The one case worth an explicit, separate proof: an admin role WITHOUT
-     * any RO/CO tier membership is still blocked outright by the outer tier
-     * gate — role alone is never enough to even REACH the decision screen,
-     * let alone bypass self-approval. Confirms the two exemptions
-     * (role-tier, CO-list) are genuinely independent checks, not role
-     * silently granting tier.
+     * Rental audit fix A11 (19 Oct 2026) - this used to assert the opposite ("an admin with no RO/CO tick still cannot
+     * decide"). An administrator is the override tier everywhere else (reopen, self-approval, re-deciding), so refusing
+     * them here was the inconsistency. They may now decide; a plain agent with no tick still may not (persona 1).
      */
-    public function test_an_admin_with_no_ro_or_co_tier_membership_still_cannot_decide_at_all(): void
+    public function test_an_admin_with_no_ro_or_co_tier_membership_may_decide_because_admin_is_the_override_tier(): void
     {
         $admin = $this->user('admin');
         $app = $this->pendingApplication($admin);
-        // Deliberately not added to either list.
+        $this->setRO([$this->user('branch_manager')->id]);   // approvers exist; the admin is not one of them
 
         $this->actingAs($admin)->post($this->approveUrl($app), ['approved_rental_amount' => 15000])
-            ->assertForbidden();
+            ->assertRedirect();
+
+        $this->assertSame('approved', $app->fresh()->status);
     }
 }
