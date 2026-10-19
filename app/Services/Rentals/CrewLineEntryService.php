@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals;
 
+use App\Models\RentalCatalogueItem;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardLine;
 use Illuminate\Http\Request;
@@ -70,38 +71,90 @@ final class CrewLineEntryService
         $request->validate(self::rules(), self::messages());
 
         $key = $request->input('client_key');
-        $cacheKey = $key ? "crew-line-key:{$ctx->tokenId}:{$card->id}:{$key}" : null;
+        $jobCards = app(RentalJobCardService::class);
 
-        $create = function () use ($card, $request, $ctx, $cacheKey): array {
-            // a retried tap: the first try got through, only the answer was lost - hand back that line, never a second one
-            if ($cacheKey && ($lineId = Cache::get($cacheKey))) {
-                $existing = RentalJobCardLine::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->whereKey($lineId)->first();
-                if ($existing) {
-                    return $this->result($card, $existing, 'Added to your list.', '', true);
+        $create = function () use ($card, $request, $ctx, $key, $jobCards): array {
+            // a retried tap, or a phone replaying a queued add hours later: the first try got through, only the answer was lost - hand back
+            // that line, never a second one. The key is stored on the line itself (no expiry, survives a deploy).
+            $existing = $jobCards->lineForClientKey($card, $key);
+            if ($existing && $this->isCrewLine($existing)) {
+                return $this->result($card, $existing, 'Added to your list.', '', true);
+            }
+            $storeKey = $existing ? null : ($key ?: null); // a key that belongs to an office line is never reused (the pair is unique)
+
+            $duplicate = $this->duplicateOnTheCard($card, $request->only(self::ADD_FIELDS));
+            $note = '';
+            if ($duplicate) {
+                // JavaScript on: ask first. A plain form post cannot be asked, so it saves and says so in the banner.
+                if ($this->canBeAsked($request) && ! $request->boolean('add_anyway')) {
+                    throw new CrewLineLooksDuplicate($duplicate);
                 }
+                $note = ' Note: the office already has "' . $duplicate->description . '" on the job card.';
             }
 
             $line = $this->jobs->addLine(
                 $card,
-                $request->only(self::ADD_FIELDS),
+                $request->only(self::ADD_FIELDS) + ['client_key' => $storeKey],
                 array_values($request->file('photos', [])),
                 $ctx,
                 $this->receiptFrom($request),
             );
-            if ($cacheKey) {
-                Cache::put($cacheKey, $line->id, now()->addMinutes(self::KEY_TTL_MINUTES));
-            }
 
             return $this->result(
                 $card,
                 $line,
-                'Added to your list. Nothing has gone to the office yet - press "Send to office" when your list is ready.',
-                'Added a ' . $line->type . ' line (draft): ' . $line->description,
+                'Added to your list. Nothing has gone to the office yet - press "Send to office" when your list is ready.' . $note,
+                'Added a ' . $line->type . ' line (draft): ' . $line->description . ($duplicate ? ' (the office already had it)' : ''),
             );
         };
 
         // two taps at once with the same key queue here, so the second finds the first one's line
-        return $cacheKey ? Cache::lock($cacheKey . ':lock', 15)->block(10, $create) : $create();
+        return $key ? Cache::lock("crew-line-key:{$card->id}:{$key}:lock", 15)->block(10, $create) : $create();
+    }
+
+    /** Only the crew's own lines are handed back for a key (an office line can never be returned to a public link, whatever key is sent). */
+    private function isCrewLine(RentalJobCardLine $line): bool
+    {
+        return in_array($line->origin, [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA], true);
+    }
+
+    private function canBeAsked(Request $request): bool
+    {
+        return $request->expectsJson() || $request->ajax();
+    }
+
+    /**
+     * §17.43 / audit C-E3 - a PART the office has already accepted onto this card: the same catalogue item, or (free-typed, no item) the
+     * same words. A crew line has no task of its own, so the match is on the card, whichever task the office filed it under. Labour is
+     * never flagged: another call-out or more hours is normal. Drafts and pending crew lines are not "the office already has it".
+     */
+    private function duplicateOnTheCard(RentalJobCard $card, array $data): ?RentalJobCardLine
+    {
+        $itemId = (int) ($data['rental_catalogue_item_id'] ?? 0);
+        $item = $itemId > 0
+            ? RentalCatalogueItem::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($itemId)
+            : null;
+        $type = $item?->kind() ?? (string) ($data['type'] ?? RentalCatalogueItem::TYPE_PART);
+        if ($type !== RentalCatalogueItem::TYPE_PART) {
+            return null;
+        }
+
+        $query = RentalJobCardLine::withoutGlobalScopes()
+            ->where('rental_job_card_id', $card->id)->whereNull('deleted_at')
+            ->where('office_status', RentalJobCardLine::OFFICE_ACCEPTED)
+            ->where('type', RentalCatalogueItem::TYPE_PART);
+
+        if ($item) {
+            $query->where('rental_catalogue_item_id', $item->id);
+        } else {
+            $words = mb_strtolower(trim((string) ($data['description'] ?? '')));
+            if ($words === '') {
+                return null;
+            }
+            $query->whereNull('rental_catalogue_item_id')->whereRaw('LOWER(TRIM(description)) = ?', [$words]);
+        }
+
+        return $query->orderBy('id')->first();
     }
 
     /** @return array{line: RentalJobCardLine, row: array<string, mixed>, draft_count: int, message: string, audit: string, replayed: bool} */

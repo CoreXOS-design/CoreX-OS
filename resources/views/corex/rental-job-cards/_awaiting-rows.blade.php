@@ -15,27 +15,25 @@
 @foreach($rows as $l)
     <div class="jc-await" data-awaiting-line="{{ $l->id }}">
         <div style="{{ $awGrid }}" class="py-1 text-xs">
-            <span class="truncate" style="color: var(--text-muted); {{ $awCell }}">crew</span>
+            {{-- 19 Oct 2026: same compact tracks as the saved lines - Description (with a small line under it), Qty, [Cost], Selling, Total, actions --}}
             <span style="min-width:0; overflow-wrap:anywhere; {{ $awCell }}"><strong>{{ $l->description }}</strong>@if($l->origin === 'crew_extra') <span style="color: var(--text-muted);">· extra</span>@endif
-                @if(($receipts ?? collect())->has($l->id) && $l->type === 'part') @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$l->id], 'label' => $l->description])@endif</span>
-            <span class="truncate" style="{{ $awCell }}">{{ ucfirst($l->type) }}</span>
+                @if(($receipts ?? collect())->has($l->id) && $l->type === 'part') @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$l->id], 'label' => $l->description])@endif
+                <span style="display:block; font-size:10px; color: var(--text-muted);">crew · {{ ucfirst($l->type) }}@if($pricesOn && $l->unit) · {{ $l->unit }}@endif</span></span>
             @if($pricesOn)
-                <span class="truncate" style="{{ $awCell }}">{{ $l->unit }}</span>
-                <span class="truncate" style="{{ $awCell }}">{{ rtrim(rtrim(number_format((float) $l->quantity, 2), '0'), '.') }}</span>
+                <span class="truncate" style="{{ $awCell }} text-align:right; padding-right:9px;">{{ rtrim(rtrim(number_format((float) $l->quantity, 2), '0'), '.') }}</span>
                 @if($awShowCost)
                     @if($canPrice && $isOpen)
-                        <input type="number" form="jc-accept-{{ $l->id }}" name="unit_cost" step="0.01" min="0" value="{{ $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : '' }}" placeholder="cost" aria-label="Cost each" title="Cost each" class="w-full rounded-md px-2 text-xs" style="{{ \App\Support\RentalJobCardLineGrid::fieldStyle() }}">
+                        <input type="number" form="jc-accept-{{ $l->id }}" name="unit_cost" step="0.01" min="0" value="{{ $l->unit_cost !== null ? number_format((float) $l->unit_cost, 2, '.', '') : '' }}" placeholder="cost" aria-label="Cost each" title="Cost each" class="w-full rounded-md px-2 text-xs" style="{{ \App\Support\RentalJobCardLineGrid::amountFieldStyle() }}">
                     @else
-                        <span class="truncate" style="{{ $awCell }}">{{ $l->unit_cost !== null ? $awMoney($l->unit_cost) : '—' }}</span>
+                        <span class="truncate" style="{{ $awCell }} text-align:right; padding-right:9px;">{{ $l->unit_cost !== null ? $awMoney($l->unit_cost) : '—' }}</span>
                     @endif
                 @endif
                 @if($canPrice && $isOpen)
-                    <input type="number" form="jc-accept-{{ $l->id }}" name="unit_price" step="0.01" min="0" placeholder="auto" aria-label="Selling each" title="Selling each - leave blank to price it by the rules" class="w-full rounded-md px-2 text-xs" style="{{ \App\Support\RentalJobCardLineGrid::fieldStyle() }}">
+                    <input type="number" form="jc-accept-{{ $l->id }}" name="unit_price" step="0.01" min="0" placeholder="auto" aria-label="Selling each" title="Selling each - leave blank to price it by the rules" class="w-full rounded-md px-2 text-xs" style="{{ \App\Support\RentalJobCardLineGrid::amountFieldStyle() }}">
                 @else
-                    <span style="{{ $awCell }}">—</span>
+                    <span style="{{ $awCell }} text-align:right; padding-right:9px;">—</span>
                 @endif
-                @if($vat['registered'])<span></span>@endif
-                @if($awShowCost)<span></span>@endif
+                <span></span>{{-- Total: only once accepted and priced --}}
             @endif
             <span></span>
         </div>

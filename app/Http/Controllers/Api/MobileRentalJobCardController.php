@@ -53,7 +53,7 @@ class MobileRentalJobCardController extends Controller
 
         // §14.21 — a closed card's tasks never change; a clear 422, not a 500.
         try {
-            $service->toggleTask($rentalJobCard, $task, $request->user());
+            $service->toggleTask($rentalJobCard, $task, $request->user(), $request->has('done') ? $request->boolean('done') : null);
         } catch (\LogicException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
