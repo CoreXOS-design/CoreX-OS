@@ -175,7 +175,7 @@ final class NightFlowFixesTest extends TestCase
         $this->postQuote($wo, 4120);
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
 
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too expensive, please get another quote.'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too expensive, please get another quote.'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         $wo = $wo->fresh();
         $this->assertSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->owner_approval_status);
@@ -192,7 +192,7 @@ final class NightFlowFixesTest extends TestCase
         $this->postQuote($wo, 4120);
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
 
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
         $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $subject, $payload) => $key === 'rental_work_order.owner_decided'
@@ -289,7 +289,7 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
 
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         // the quote itself
         $b = $b->fresh();
@@ -415,7 +415,7 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         // the owner on the portal with no reason -> refused
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline'])->assertStatus(422);
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         // and the model itself never takes a reasonless decline
         try {
@@ -425,7 +425,7 @@ final class NightFlowFixesTest extends TestCase
             $this->assertStringContainsString('reason is required', $e->getMessage());
         }
         // with a reason it goes through
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too dear'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too dear'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
     }
 
@@ -453,7 +453,7 @@ final class NightFlowFixesTest extends TestCase
         \Illuminate\Support\Facades\Mail::assertNotQueued(\App\Mail\Rentals\RentalWorkOrderAppointmentMail::class);
 
         // the owner approves -> the box appears and the appointment can be set
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $html = $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $wo))->assertOk()->getContent();
         $this->assertStringContainsString('name="appointment_at"', $html);
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.appointment.store', $wo), ['appointment_at' => $at])->assertSessionHasNoErrors();
@@ -588,7 +588,7 @@ final class NightFlowFixesTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
 
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
-        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'])->assertOk();
+        $this->postJson(self::L . "/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Far too expensive'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         $q = $wo->quotes()->first()->fresh();
         $this->assertFalse((bool) $q->is_selected);

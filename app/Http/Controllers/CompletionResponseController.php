@@ -86,11 +86,11 @@ class CompletionResponseController extends Controller
             'answer' => ['required', 'in:fixed,not_fixed'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ], [
             'answer.required' => 'Please choose one of the two answers.',
             'photos.max' => 'You can attach up to ' . RentalCompletionService::MAX_DISPUTE_PHOTOS . ' photos.',
-            'photos.*.image' => 'Photos must be image files (JPG, PNG, WEBP or HEIC).',
+            'photos.*.mimes' => 'Photos must be image files (JPG, PNG, WEBP or HEIC).',
             'photos.*.max' => 'Each photo can be up to 15 MB.',
         ]);
 

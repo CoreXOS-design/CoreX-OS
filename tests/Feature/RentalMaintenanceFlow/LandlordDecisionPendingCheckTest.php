@@ -57,9 +57,9 @@ final class LandlordDecisionPendingCheckTest extends TestCase
     {
         $wo = $this->externalWorkOrder(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING]);
 
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve', 'note' => 'Go ahead'])->assertOk()->assertJsonPath('work_order.owner_approval_status', 'approved');
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve', 'note' => 'Go ahead'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk()->assertJsonPath('work_order.owner_approval_status', 'approved');
 
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'decline'])->assertStatus(422)->assertJsonPath('message', 'This is not waiting for your decision any more.');
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'decline'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422)->assertJsonPath('message', 'This is not waiting for your decision any more.');
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status, 'the second answer changed nothing');
     }
 
@@ -68,7 +68,7 @@ final class LandlordDecisionPendingCheckTest extends TestCase
         foreach ([RentalWorkOrder::APPROVAL_NOT_REQUIRED, RentalWorkOrder::APPROVAL_APPROVED, RentalWorkOrder::APPROVAL_DECLINED] as $state) {
             $wo = $this->externalWorkOrder(['owner_approval_status' => $state, 'title' => "Job {$state}"]);
 
-            $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve'])->assertStatus(422);
+            $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
             $this->assertSame($state, $wo->fresh()->owner_approval_status);
         }
         $this->assertSame(0, \App\Models\RentalApproval::withoutGlobalScopes()->count(), 'no evidence row was written for a refused decision');
@@ -81,7 +81,7 @@ final class LandlordDecisionPendingCheckTest extends TestCase
         $wo->selectQuote($quote, $this->admin);
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
 
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve'])->assertOk();
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         $this->assertSame('3000.00', $wo->fresh()->approved_amount);
         $this->assertSame('owner_decision', $wo->fresh()->approval_basis);
@@ -96,9 +96,9 @@ final class LandlordDecisionPendingCheckTest extends TestCase
     {
         $wo = $this->externalWorkOrder(['owner_approval_status' => RentalWorkOrder::APPROVAL_PENDING]);
 
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', [])->assertStatus(422);
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'maybe'])->assertStatus(422);
-        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve', 'note' => str_repeat('x', 2001)])->assertStatus(422);
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', [] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'maybe'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
+        $this->postJson(self::L . '/work-orders/' . $wo->id . '/decision', ['decision' => 'approve', 'note' => str_repeat('x', 2001)] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
     }
 

@@ -62,7 +62,7 @@ final class RentalLifecycleInternalCrewTest extends TestCase
             $this->asPortal($this->landlord);
             $row = collect($this->portalGet('/landlord/work-orders')->assertOk()->json('work_orders'))->firstWhere('id', $wo->id);
             $this->assertSame('pending', $row['client']['owner_approval_status']);
-            $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'], ['X-Submission-Key' => 'e2e-' . uniqid()])->assertOk();
+            $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo), ['X-Submission-Key' => 'e2e-' . uniqid()])->assertOk();
             $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
         }, ['9.1']);
 

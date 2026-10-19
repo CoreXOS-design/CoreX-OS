@@ -32,7 +32,7 @@ class PropertyImageStorer
     public function store(UploadedFile $file, int $propertyId): string
     {
         $disk = Storage::disk('public');
-        $path = $file->store("properties/{$propertyId}", 'public');
+        $path = $this->storeConverted($file, $propertyId) ?? $file->store("properties/{$propertyId}", 'public');
         $this->assertStored($disk, $path, 'immediately after the initial write');
 
         // Bake EXIF orientation into the original before downscaling. downscale()
@@ -54,6 +54,29 @@ class PropertyImageStorer
         app(PropertyThumbnailService::class)->generateForUrl($url);
 
         return $url;
+    }
+
+    /**
+     * Section 29 (C-I1 / B19): an iPhone HEIC / HEIF photo becomes an upright, downscaled JPEG here, in the one place every upload goes through. Returns the stored
+     * relative path, or null when the file is not HEIC or cannot be converted on this host (the caller then stores the original, as before).
+     */
+    private function storeConverted(UploadedFile $file, int $propertyId): ?string
+    {
+        if (! HeicConverter::isHeic($file)) {
+            return null;
+        }
+        $tmp = tempnam(sys_get_temp_dir(), 'heic') . '.jpg';
+        try {
+            if (! HeicConverter::convert((string) $file->getRealPath(), $tmp, $this->maxEdge, $this->quality)) {
+                return null;
+            }
+            $path = "properties/{$propertyId}/" . \Illuminate\Support\Str::random(40) . '.jpg';
+            Storage::disk('public')->put($path, (string) file_get_contents($tmp));
+
+            return $path;
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /**

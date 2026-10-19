@@ -33,7 +33,7 @@ class MobileRentalJobCardController extends Controller
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
         $rentalJobCard->load(['property', 'lease.tenants.contact', 'crew.members', 'assignedUser', 'tasks', 'lines.catalogueItem', 'workOrder.photos']);
 
-        return response()->json($this->payload($rentalJobCard));
+        return response()->json($this->payload($rentalJobCard, $request->user()));
     }
 
     public function update(Request $request, RentalJobCard $rentalJobCard): JsonResponse
@@ -43,7 +43,7 @@ class MobileRentalJobCardController extends Controller
         $validated = $request->validate(['access_notes' => ['nullable', 'string']]);
         $rentalJobCard->update($validated);
 
-        return response()->json($this->payload($rentalJobCard));
+        return response()->json($this->payload($rentalJobCard, $request->user()));
     }
 
     public function tickTask(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardTask $task): JsonResponse
@@ -73,12 +73,31 @@ class MobileRentalJobCardController extends Controller
 
         $photo = $service->storePhoto($rentalJobCard, $request->file('photo'), $validated['photo_type'], $request->user(), $validated['client_idempotency_key'] ?? null);
 
-        return response()->json($photo, 201);
+        // audit fixes (D18): the stored path is a /storage URL; the app needs an absolute one it can load
+        $out = $photo->toArray();
+        if (isset($out['storage_path'])) {
+            $out['url'] = self::absoluteUrl((string) $out['storage_path']);
+        }
+
+        return response()->json($out, 201);
     }
 
-    private function payload(RentalJobCard $jobCard): array
+    /** Audit fixes (D18): every image URL the API returns is absolute (spec rental-images.md 7a), so the device can load it. */
+    private static function absoluteUrl(string $url): string
     {
-        return [
+        $url = trim($url);
+        if ($url === '' || preg_match('#^(https?:)?//#i', $url)) {
+            return $url;
+        }
+
+        return rtrim((string) config('app.url'), '/') . '/' . ltrim($url, '/');
+    }
+
+    private function payload(RentalJobCard $jobCard, \App\Models\User $user): array
+    {
+        // Audit fixes (D8 / D18): the money columns need `rental_job_cards.view_costs`, exactly like the web screen and the reports; without it they are absent
+        $canMoney = $user->hasPermission('rental_job_cards.view_costs');
+        $payload = [
             'id' => $jobCard->id,
             'title' => $jobCard->title,
             'status' => $jobCard->status,
@@ -95,16 +114,20 @@ class MobileRentalJobCardController extends Controller
             'assigned_user' => $jobCard->assignedUser?->only(['id', 'name']),
             'scheduled_at' => $jobCard->scheduled_at?->toIso8601String(),
             'due_at' => $jobCard->due_at?->toIso8601String(),
-            'total_amount' => $jobCard->total_amount,
             'prices_on' => RentalWorkOrderSetting::capturePricesOnJobCardsFor($jobCard->agency_id),
             'tasks' => $jobCard->tasks->map(fn ($t) => [
                 'id' => $t->id, 'description' => $t->description, 'is_done' => $t->is_done,
             ]),
             'lines' => $jobCard->lines->filter(fn ($l) => $l->isAccepted())->values()->map(fn ($l) => [
                 'id' => $l->id, 'description' => $l->description, 'type' => $l->type,
-                'quantity' => $l->quantity, 'unit' => $l->unit, 'unit_price' => $l->unit_price, 'line_total' => $l->line_total,
-            ]),
-            'photos' => $jobCard->workOrder?->photos->map(fn ($p) => ['id' => $p->id, 'url' => $p->storage_path, 'type' => $p->photo_type]),
+                'quantity' => $l->quantity, 'unit' => $l->unit,
+            ] + ($canMoney ? ['unit_price' => $l->unit_price, 'line_total' => $l->line_total] : [])),
+            'photos' => $jobCard->workOrder?->photos->map(fn ($p) => ['id' => $p->id, 'url' => self::absoluteUrl((string) $p->storage_path), 'type' => $p->photo_type]),
         ];
+        if ($canMoney) {
+            $payload['total_amount'] = $jobCard->total_amount;
+        }
+
+        return $payload;
     }
 }

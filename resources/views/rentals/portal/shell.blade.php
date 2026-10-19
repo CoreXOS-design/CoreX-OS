@@ -1748,8 +1748,12 @@ function rentalsPortal() {
             if (this.busy[bk]) return;
             this.busy[bk] = true;
             try {
-                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note: note ? String(note).trim() : '' }), key: 'decide-wo-' + id + '-' + decision });
+                // the decision carries the quote the owner saw (a changed quote answers 409 and the list is refreshed)
+                const w = (this.decisions.work_orders || []).find((x) => x.id === id) || {};
+                const q = w.quote || {};
+                const r = await portalFetch('/api/v1/client/rentals/landlord/work-orders/' + id + '/decision', { method: 'POST', body: JSON.stringify({ decision, note: note ? String(note).trim() : '', quote_id: q.id, quote_revision: q.revision, quote_amount: q.amount }), key: 'decide-wo-' + id + '-' + decision });
                 if (r.ok) { await this.loadDecisions(); await this.loadWorkOrders(); }
+                else if (r.status === 409) { this.say(r.data?.message || 'The quote has changed - please look again.'); await this.loadDecisions(); await this.loadWorkOrders(); }
                 else this.say(r.data?.message || 'Could not record decision.');
             } finally { this.busy[bk] = false; }
         },
