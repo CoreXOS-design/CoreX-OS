@@ -179,8 +179,10 @@ final class AuditP3PortalTest extends TestCase
 
     public function test_a_photo_that_fails_to_store_leaves_no_fault_and_the_retry_makes_exactly_one(): void
     {
+        Storage::fake('local');
+        // a tenant's picture is stored on the PRIVATE disk since audit D14 (PrivateImageService -> PropertyImageStorer::storeOnDisk)
         $this->app->bind(PropertyImageStorer::class, fn () => new class extends PropertyImageStorer {
-            public function store(UploadedFile $file, int $propertyId): string
+            public function storeOnDisk(UploadedFile $file, string $directory, string $diskName): string
             {
                 throw new \RuntimeException('disk full');
             }
@@ -217,10 +219,11 @@ final class AuditP3PortalTest extends TestCase
         if (! HeicConverter::available()) {
             $this->markTestSkipped('No HEIC support in Imagick on this host.');
         }
+        Storage::fake('local');
         $f = RentalFaultReport::withoutGlobalScopes()->findOrFail($this->report(['photos' => [$this->heic()]])->assertStatus(201)->json('fault_report.id'));
         $photo = $f->photos()->firstOrFail();
         $this->assertStringEndsWith('.jpg', $photo->storage_path);
-        $abs = Storage::disk('public')->path(ltrim(str_replace('/storage/', '', $photo->storage_path), '/'));
+        $abs = (string) app(\App\Services\Images\PrivateImageService::class)->absolutePath($photo->storage_path);   // private disk since audit D14
         $this->assertFileExists($abs);
         $info = getimagesize($abs);
         $this->assertSame(IMAGETYPE_JPEG, $info[2]);
