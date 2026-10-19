@@ -178,6 +178,15 @@ class LeaseHubService
             return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'outcomes']];
         }
 
+        // Audit 2026-10-19 B3 - the move-out inspection is done: the next thing is to review what it recorded as charged to the tenant
+        // (the lease's Deposit deductions summary) - until the agent has said they did. CoreX only records; the money is settled elsewhere.
+        if ($hasCompletedOut && ($user === null || $user->hasPermission('rental_inspections.view'))) {
+            $out = app(RentalDepositDeductionsService::class)->outFor($lease);
+            if ($out && $out->status === RentalInspection::STATUS_COMPLETED && $out->deductions_reviewed_at === null) {
+                return ['label' => 'Review the deposit deductions', 'route_name' => 'corex.leases.deposit-deductions', 'route_param' => $lease->id];
+            }
+        }
+
         return null;
     }
 

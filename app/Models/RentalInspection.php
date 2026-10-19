@@ -146,6 +146,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         // request.
         'public_token',
         'public_token_expires_at',
+        // Audit B3 - the agent has reviewed this Out's deposit-deductions summary (written only by RentalDepositDeductionsService).
+        'deductions_reviewed_at',
+        'deductions_reviewed_by_user_id',
     ];
 
     /** Audit B22 - the hash and the ciphertext of the public link token never leave the server in a JSON payload. */
@@ -162,6 +165,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         'remotes_count' => 'integer',
         'move_in_date_recorded' => 'date',
         'public_token_expires_at' => 'datetime',
+        'deductions_reviewed_at' => 'datetime',
         'checklist_wording_snapshot' => 'array',
         'checklist_wording_snapshot_at' => 'datetime',
     ];
@@ -755,6 +759,31 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             ->whereNull('superseded_at')
             ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
             ->exists();
+    }
+
+    /**
+     * Audit B31 - keys and remotes are COUNTED on the inspection (its header is the one place they are typed - never pre-filled, a stale
+     * default must not stand in for a real count). The inventory may also list them as lines ("4 x Remotes"); those lines are shown beside the
+     * header fields as a read-only reference so the agent neither retypes them nor has to open another screen to see what was listed.
+     *
+     * @return array<int, string>  e.g. ["4 x Gate remotes"]
+     */
+    public function inventoryKeyRemoteLines(): array
+    {
+        if (! $this->lease_id) {
+            return [];
+        }
+        $inventory = RentalInventory::where('lease_id', $this->lease_id)
+            ->whereIn('status', [RentalInventory::STATUS_COMPLETED, RentalInventory::STATUS_DRAFT])
+            ->latest('id')->first();
+        if (! $inventory) {
+            return [];
+        }
+
+        return $inventory->lines()->get()
+            ->filter(fn ($line) => preg_match('/\b(keys?|remotes?|fobs?)\b/i', (string) $line->description))
+            ->map(fn ($line) => trim(($line->quantity ? $line->quantity . ' x ' : '') . $line->description))
+            ->values()->all();
     }
 
     /**
@@ -2425,6 +2454,8 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             $insp?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
             // §47 — the screen shows "Edit report" (and a locked banner) from this.
             $insp?->setAttribute('signed_locked', $insp->isSignedLocked());
+            // Audit B31 - what the inventory lists as keys / remotes, shown beside the header counts as a read-only reference.
+            $insp?->setAttribute('inventory_key_remote_lines', $insp?->inventoryKeyRemoteLines() ?? []);
             // §49 — the "Next inspection" picker greys out In (with the reason) once the tenancy already has one.
             $insp?->setAttribute('lease_in_inspection_id', $insp->leaseInInspection()?->id);
             // The "Ready to complete" pill follows the SAME per-type rules the server's Complete enforces (a Routine

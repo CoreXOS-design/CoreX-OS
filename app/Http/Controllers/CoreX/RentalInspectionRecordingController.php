@@ -2013,6 +2013,21 @@ class RentalInspectionRecordingController extends Controller
     ): JsonResponse {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Audit B2 - completing an OUT runs a checklist: open findings, open repairs, a move-out inventory check not done. They are WARNINGS,
+        // never a block - the agent sees them and completes anyway by acknowledging (`acknowledge_warnings`). Only asked of an Out that is still open.
+        if ($rentalInspection->type === RentalInspection::TYPE_OUT
+            && $rentalInspection->isRecordable()
+            && ! request()->boolean('acknowledge_warnings')) {
+            $warnings = app(\App\Services\Rentals\RentalDepositDeductionsService::class)->outCompletionWarnings($rentalInspection->loadMissing('lease'));
+            if ($warnings !== []) {
+                return response()->json([
+                    'message' => 'Before completing this move-out inspection: ' . collect($warnings)->pluck('label')->implode(' '),
+                    'requires_acknowledgement' => true,
+                    'warnings' => $warnings,
+                ], 409);
+            }
+        }
+
         try {
             $rentalInspection->markCompleted();
         } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {

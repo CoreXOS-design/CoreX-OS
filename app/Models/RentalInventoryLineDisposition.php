@@ -72,6 +72,11 @@ class RentalInventoryLineDisposition extends Model
             throw new \LogicException('Cannot record a move-out finding until the inventory itself is completed.');
         }
 
+        // Audit B5 - once the move-out check is completed it is final; nothing more is recorded against it.
+        if ($inventory->isMoveOutCompleted()) {
+            throw new \LogicException('The move-out check for this inventory is already completed - no more findings can be recorded.');
+        }
+
         $presets = RentalInventorySetting::dispositionPresetsFor($inventory->agency_id);
         $preset = collect($presets)->firstWhere('key', $dispositionKey);
         if (! $preset) {

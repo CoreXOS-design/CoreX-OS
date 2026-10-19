@@ -3848,6 +3848,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
+        // Audit 2026-10-19 B1/B3/B4 - the lease's Deposit deductions summary (what the Out recorded as charged to the tenant, with amounts)
+        // and the "reviewed" mark that clears the hub's next step. CoreX records only; the money is settled in the agency's accounting system.
+        Route::get('/{lease}/deposit-deductions', [\App\Http\Controllers\CoreX\LeaseDepositDeductionsController::class, 'show'])
+            ->middleware('permission:rental_inspections.view')->name('corex.leases.deposit-deductions');
+        Route::post('/{lease}/deposit-deductions/reviewed', [\App\Http\Controllers\CoreX\LeaseDepositDeductionsController::class, 'markReviewed'])
+            ->middleware('permission:rental_inspections.review_deposit_comparison')->name('corex.leases.deposit-deductions.reviewed');
         Route::put('/{lease}', [\App\Http\Controllers\CoreX\LeaseController::class, 'update'])
             ->middleware('permission:leases.create')->name('corex.leases.update');
         // leases.md §17 — change the lease's owner's agent / tenant's agent (same permission as editing the lease; logged).
@@ -4299,6 +4305,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.signatures.supersede-wet-ink');
         Route::post('/{rentalInventory}/complete', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'complete'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.complete');
+        // Audit 2026-10-19 B5 - completing and signing off the MOVE-OUT check (the findings on the move-in inventory's lines).
+        Route::post('/{rentalInventory}/move-out/complete', [\App\Http\Controllers\CoreX\RentalInventoryMoveOutController::class, 'complete'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.move-out.complete');
+        Route::post('/{rentalInventory}/move-out/sign-off', [\App\Http\Controllers\CoreX\RentalInventoryMoveOutController::class, 'signOff'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.move-out.sign-off');
         // §41-follow-up (Job 3) — the manual "Resend report" path (confirm
         // modal lists the recipients first). Same permission as completing.
         Route::post('/{rentalInventory}/resend-report', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'resendReport'])

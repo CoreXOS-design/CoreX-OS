@@ -40,6 +40,9 @@ class RentalInventoryRecordingController extends Controller
     private function assertMoveOutRecordable(RentalInventory $rentalInventory): void
     {
         if ($rentalInventory->status === RentalInventory::STATUS_COMPLETED) {
+            // Audit B5 - once the move-out check is completed it is final.
+            abort_if($rentalInventory->isMoveOutCompleted(), 409, 'The move-out check is already completed - no more findings or photos can be added to it.');
+
             return;
         }
         if ($rentalInventory->status === RentalInventory::STATUS_CANCELLED) {

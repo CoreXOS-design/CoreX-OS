@@ -645,6 +645,9 @@ class LeaseController extends Controller
             // leases.md §15.13 (Build L3a) — the hub's "Agreement" card; null for a lease with no agreement.
             'agreementCard' => app(LeaseSigningLauncher::class)->cardFor($lease, $user),
             'openItemCounts' => $hubService->openItemCounts($lease),
+            // Audit 2026-10-19 B1/B4 - the "Deposit deductions" card: what the tenancy's Out recorded as charged to the tenant (amounts only;
+            // the money is settled in the agency's accounting system). Null until there is an Out inspection, or for a user who cannot see inspections.
+            'depositDeductions' => $user->hasPermission('rental_inspections.view') ? app(\App\Services\Rentals\RentalDepositDeductionsService::class)->summaryFor($lease) : null,
             'landlords' => $lease->landlordContacts(),
             // Johan, 2026-10-08 — FICA never stops a lease from being activated, signed or given portal access;
             // this only WARNS (with the link to request/complete it) for any party who has not submitted FICA yet.

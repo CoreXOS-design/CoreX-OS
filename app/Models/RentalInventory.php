@@ -53,6 +53,8 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         'created_by_user_id',
         'public_token',
         'public_token_expires_at',
+        'move_out_completed_at',
+        'move_out_completed_by_user_id',
     ];
 
     protected $casts = [
@@ -60,6 +62,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         'completed_at' => 'datetime',
         'cancelled_at' => 'datetime',
         'public_token_expires_at' => 'datetime',
+        'move_out_completed_at' => 'datetime',
     ];
 
     protected static function boot(): void
@@ -211,6 +214,133 @@ class RentalInventory extends Model implements SignedDocumentDistributable
     public function photos(): HasMany
     {
         return $this->hasMany(RentalInventoryPhoto::class);
+    }
+
+    // ═══ Audit 2026-10-19 B5 - the MOVE-OUT check: completion and sign-off ═══════════════════════
+
+    public function moveOutSignOffs(): HasMany
+    {
+        return $this->hasMany(RentalInventoryMoveOutSignOff::class)->orderBy('id');
+    }
+
+    /** The move-out check has been completed: every line has a finding and nothing more can be recorded. */
+    public function isMoveOutCompleted(): bool
+    {
+        return $this->move_out_completed_at !== null;
+    }
+
+    /** The active lines that still have NO move-out finding at all. */
+    public function linesWithoutMoveOutFinding(): \Illuminate\Support\Collection
+    {
+        return $this->lines()->get()->filter(fn (RentalInventoryLine $line) => $line->latestDisposition() === null)->values();
+    }
+
+    /**
+     * Complete the move-out check. Needs the inventory itself completed (it is the baseline) and a finding on EVERY active line - "present"
+     * counts as a finding, silence does not (a tenant must never be charged for something nobody looked at).
+     *
+     * @throws \LogicException
+     */
+    public function completeMoveOut(User $by): void
+    {
+        if ($this->status !== self::STATUS_COMPLETED || $this->lease_id === null) {
+            throw new \LogicException('The move-out check is only for a completed rental inventory.');
+        }
+        if ($this->isMoveOutCompleted()) {
+            throw new \LogicException('The move-out check is already completed.');
+        }
+        $missing = $this->linesWithoutMoveOutFinding();
+        if ($missing->isNotEmpty()) {
+            throw new \LogicException($missing->count() . ' item' . ($missing->count() === 1 ? ' has' : 's have') . ' no move-out finding yet (for example ' . ($missing->first()->description ?? 'an item') . ') - record one for every item, "present" included, before completing the check.');
+        }
+
+        $this->forceFill(['move_out_completed_at' => now(), 'move_out_completed_by_user_id' => $by->id])->save();
+    }
+
+    /**
+     * The parties who sign the move-out check and where each stands: the agency's agent, every tenant on the lease and the landlord.
+     * `done` = a live row (signed or refused). The check is SIGNED OFF when every party is done and the agent has signed (not refused).
+     *
+     * @return array{parties: array<int, array{role:string, contact_id:?int, name:string, sign_off:?RentalInventoryMoveOutSignOff, done:bool}>, signed_off: bool}
+     */
+    public function moveOutSignOffState(): array
+    {
+        $live = $this->moveOutSignOffs()->get();
+        $row = fn (string $role, ?int $contactId) => $live->first(fn ($s) => $s->party_role === $role && ($contactId === null || (int) $s->party_contact_id === $contactId));
+
+        $parties = [];
+        foreach ($this->lease?->tenants ?? [] as $tenant) {
+            $contact = $tenant->contact;
+            if ($contact) {
+                $sign = $row(RentalInventoryMoveOutSignOff::PARTY_TENANT, (int) $contact->id);
+                $parties[] = ['role' => RentalInventoryMoveOutSignOff::PARTY_TENANT, 'contact_id' => (int) $contact->id, 'name' => (string) $contact->full_name, 'sign_off' => $sign, 'done' => $sign !== null];
+            }
+        }
+        $landlord = $this->property?->landlordContact();
+        if ($landlord) {
+            $sign = $row(RentalInventoryMoveOutSignOff::PARTY_LANDLORD, (int) $landlord->id);
+            $parties[] = ['role' => RentalInventoryMoveOutSignOff::PARTY_LANDLORD, 'contact_id' => (int) $landlord->id, 'name' => (string) $landlord->full_name, 'sign_off' => $sign, 'done' => $sign !== null];
+        }
+        $agentSign = $row(RentalInventoryMoveOutSignOff::PARTY_AGENT, null);
+        $parties[] = ['role' => RentalInventoryMoveOutSignOff::PARTY_AGENT, 'contact_id' => null, 'name' => 'Agent', 'sign_off' => $agentSign, 'done' => $agentSign !== null];
+
+        $signedOff = $this->isMoveOutCompleted()
+            && collect($parties)->every(fn ($p) => $p['done'])
+            && $agentSign?->disposition === RentalInventoryMoveOutSignOff::DISPOSITION_SIGNED;
+
+        return ['parties' => $parties, 'signed_off' => $signedOff];
+    }
+
+    /**
+     * Record (or correct) one party's sign-off of the move-out check. Only once the check is completed. An earlier live row for the same
+     * party is ARCHIVED, never edited or deleted, and the new row stands.
+     *
+     * @throws \LogicException|\InvalidArgumentException
+     */
+    public function recordMoveOutSignOff(string $role, ?int $contactId, string $disposition, string $signedName, ?string $refusalReason, User $by, ?string $ip, ?string $userAgent): RentalInventoryMoveOutSignOff
+    {
+        if (! $this->isMoveOutCompleted()) {
+            throw new \LogicException('Complete the move-out check before anyone signs it off.');
+        }
+        if (! in_array($role, [RentalInventoryMoveOutSignOff::PARTY_TENANT, RentalInventoryMoveOutSignOff::PARTY_LANDLORD, RentalInventoryMoveOutSignOff::PARTY_AGENT], true)) {
+            throw new \InvalidArgumentException("Unknown party: {$role}");
+        }
+        if (! in_array($disposition, [RentalInventoryMoveOutSignOff::DISPOSITION_SIGNED, RentalInventoryMoveOutSignOff::DISPOSITION_REFUSED], true)) {
+            throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
+        }
+        if ($role === RentalInventoryMoveOutSignOff::PARTY_AGENT && $disposition === RentalInventoryMoveOutSignOff::DISPOSITION_REFUSED) {
+            throw new \InvalidArgumentException('The agent has no refusal option - the agent signs, or the check is not signed off.');
+        }
+        if (trim($signedName) === '') {
+            throw new \InvalidArgumentException('A name is needed - who is signing.');
+        }
+        if ($disposition === RentalInventoryMoveOutSignOff::DISPOSITION_REFUSED && trim((string) $refusalReason) === '') {
+            throw new \InvalidArgumentException('A reason is needed when a party refuses to sign.');
+        }
+        $state = $this->moveOutSignOffState();
+        $known = collect($state['parties'])->first(fn ($p) => $p['role'] === $role && ($contactId === null ? $p['contact_id'] === null : $p['contact_id'] === $contactId));
+        if (! $known) {
+            throw new \InvalidArgumentException('That person is not a party to this tenancy.');
+        }
+
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($role, $contactId, $disposition, $signedName, $refusalReason, $by, $ip, $userAgent) {
+            $this->moveOutSignOffs()->where('party_role', $role)->when($contactId !== null, fn ($q) => $q->where('party_contact_id', $contactId))->get()
+                ->each(fn (RentalInventoryMoveOutSignOff $old) => $old->delete()); // SoftDeletes: archived, the history stays
+
+            return RentalInventoryMoveOutSignOff::create([
+                'agency_id' => $this->agency_id,
+                'rental_inventory_id' => $this->id,
+                'party_role' => $role,
+                'party_contact_id' => $contactId,
+                'disposition' => $disposition,
+                'signed_name' => mb_substr(trim($signedName), 0, 191),
+                'refusal_reason' => $disposition === RentalInventoryMoveOutSignOff::DISPOSITION_REFUSED ? mb_substr(trim((string) $refusalReason), 0, 500) : null,
+                'signed_ip' => $ip ? mb_substr($ip, 0, 45) : null,
+                'signed_user_agent' => $userAgent ? mb_substr($userAgent, 0, 500) : null,
+                'recorded_by_user_id' => $by->id,
+                'recorded_at' => now(),
+            ]);
+        });
     }
 
     /** §12 — every room an agent has explicitly confirmed has nothing in it. */

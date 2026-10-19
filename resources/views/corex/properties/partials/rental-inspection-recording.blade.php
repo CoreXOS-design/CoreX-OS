@@ -429,6 +429,10 @@
                                @input="autosaveDetails({{ $sectionJs }})" placeholder="e.g. gate remotes" class="prop-input w-full">
                     </div>
                 </div>
+                {{-- Audit B31 - keys and remotes are counted HERE (the one place they are typed); what the inventory lists is shown for reference. --}}
+                <div class="col-span-full text-xs" style="color:var(--text-muted);" x-show="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).length" x-cloak data-qa="inventory-key-remote-lines">
+                    Inventory lists: <span x-text="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).join(', ')"></span> — count them here, no need to type them in the inventory again.
+                </div>
                 {{-- 2026-09-23 — was a PHP-compile-time @if($section === 'out'),
                      baked into the compiled HTML at whatever type happened
                      to be current when this partial was first rendered.
@@ -1790,6 +1794,24 @@
 
         {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
              signature) was refused because items are ungraded. Each room name jumps to that room. --}}
+        {{-- Audit B2 - the move-out checklist: warnings before an Out is completed (never a block - "Complete anyway"). --}}
+        <div x-show="completionWarnings.length" x-cloak data-qa="completion-warnings-panel" class="text-xs space-y-1 rounded-md p-2"
+             style="border:1px solid #d97706; background:color-mix(in srgb, #d97706 8%, transparent); color:var(--text-primary);">
+            <div class="font-semibold" style="color:#b45309;">Before you complete this move-out inspection</div>
+            <template x-for="w in completionWarnings" :key="w.key">
+                <div class="flex items-center justify-between gap-2">
+                    <span x-text="w.label"></span>
+                    <a x-show="w.url" :href="w.url" class="underline font-semibold whitespace-nowrap" target="_blank" rel="noopener">Open</a>
+                </div>
+            </template>
+            <div class="pt-1">
+                <button type="button" class="px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--brand-button,#0ea5e9); color:#fff;"
+                        @click="completeInspection({{ $sectionJs }}, true)" data-qa="complete-anyway">Complete anyway</button>
+                <button type="button" class="px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                        @click="completionWarnings = []">Not yet</button>
+            </div>
+        </div>
+
         <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
              style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
             <div class="flex items-center justify-between gap-2">

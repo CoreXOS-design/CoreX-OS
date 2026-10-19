@@ -833,6 +833,25 @@
                 @endfeature
             </div>
 
+            {{-- Audit 2026-10-19 B1/B4 - Deposit deductions: what the move-out inspection recorded as charged to the tenant. Amounts only; the deposit
+                 itself is settled in the agency's accounting system. The comparison is offered once the Out is completed. --}}
+            @if(!empty($depositDeductions))
+                <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" id="deposit-deductions" data-qa="hub-deposit-deductions">
+                    <h2 class="text-sm font-semibold">Deposit deductions</h2>
+                    @if($depositDeductions['lines']->isEmpty())
+                        <p class="text-xs" style="color: var(--text-muted);">Nothing charged to the tenant at the move-out inspection{{ $depositDeductions['out_completed'] ? '' : ' so far' }}.</p>
+                    @else
+                        <div class="flex items-center justify-between"><span>{{ $depositDeductions['lines']->count() }} charge{{ $depositDeductions['lines']->count() === 1 ? '' : 's' }} recorded</span><strong>R{{ number_format($depositDeductions['total'], 2) }}</strong></div>
+                    @endif
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <a href="{{ route('corex.leases.deposit-deductions', $lease) }}" class="corex-btn-outline text-xs" data-qa="hub-dd-open">Open summary</a>
+                        @if($depositDeductions['comparison_url'])
+                            <a href="{{ $depositDeductions['comparison_url'] }}" class="corex-btn-outline text-xs" data-qa="hub-dd-comparison">Move-out comparison</a>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
             <div id="lease-edit-panel" class="hidden rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Edit lease</h2>
                 @permission('leases.create')

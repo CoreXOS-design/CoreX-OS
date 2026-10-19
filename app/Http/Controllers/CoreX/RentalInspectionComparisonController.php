@@ -82,6 +82,8 @@ class RentalInspectionComparisonController extends Controller
         $validated = $request->validate([
             'disposition' => ['required', 'in:' . implode(',', array_keys(\App\Models\RentalInspectionItemFinding::DISPOSITION_LABELS))],
             'note' => ['required', 'string', 'max:2000'],
+            // Audit B1 - a charge to the tenant carries its amount (CoreX records it; the money is settled in the agency's accounting system).
+            'amount' => ['nullable', 'required_if:disposition,' . \App\Models\RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT, 'numeric', 'min:0.01', 'max:99999999.99'],
         ]);
 
         try {
@@ -91,9 +93,10 @@ class RentalInspectionComparisonController extends Controller
                 $validated['disposition'],
                 $validated['note'],
                 $request->user(),
+                isset($validated['amount']) ? (float) $validated['amount'] : null,
             );
-        } catch (\LogicException $e) {
-            return back()->withErrors(['finding' => $e->getMessage()]);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withInput()->withErrors(['finding' => $e->getMessage()]);
         }
 
         return redirect()

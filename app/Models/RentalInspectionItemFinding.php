@@ -16,10 +16,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * cached field: it can never drift out of sync with the observations it
  * describes.
  *
- * No amount, no currency, no deduction field anywhere on this model. That
- * half of the feature is explicitly not built until Johan rules on it
- * (§7.2/§10 of the spec) — this table only ever records "is this wear and
- * tear or a genuine flagged difference," never "how much."
+ * Audit 2026-10-19 B1 (Johan's ruling: the money stays in the agency's accounting system, CoreX only RECORDS deductions with their
+ * amounts): a `charge_tenant` finding carries an `amount`. No other disposition does; CoreX computes nothing, pays nothing and settles
+ * nothing - the amounts roll up to the lease's "Deposit deductions" summary (RentalDepositDeductionsService) for the agent to carry across.
  */
 class RentalInspectionItemFinding extends Model
 {
@@ -54,6 +53,7 @@ class RentalInspectionItemFinding extends Model
         'rental_inspection_item_id',
         'disposition',
         'note',
+        'amount',
         'recorded_by_user_id',
         'recorded_at',
         'superseded_at',
@@ -61,6 +61,7 @@ class RentalInspectionItemFinding extends Model
     ];
 
     protected $casts = [
+        'amount' => 'decimal:2',
         'recorded_at' => 'datetime',
         'superseded_at' => 'datetime',
     ];
@@ -93,7 +94,7 @@ class RentalInspectionItemFinding extends Model
      * in place, matching RentalInspectionSignature::supersedeWetInk()'s own
      * transaction shape.
      */
-    public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy): self
+    public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy, ?float $amount = null): self
     {
         if (! array_key_exists($disposition, self::DISPOSITION_LABELS)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
@@ -101,8 +102,16 @@ class RentalInspectionItemFinding extends Model
         if (trim($note) === '') {
             throw new \InvalidArgumentException('A finding requires a note — the agent\'s reasoning is the record.');
         }
+        // Audit B1 - a charge to the tenant says how much; every other judgement carries no amount.
+        if ($disposition === self::DISPOSITION_CHARGE_TENANT) {
+            if ($amount === null || $amount <= 0) {
+                throw new \InvalidArgumentException('A charge to the tenant needs an amount greater than zero.');
+            }
+        } else {
+            $amount = null;
+        }
 
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($outInspection, $item, $disposition, $note, $recordedBy) {
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($outInspection, $item, $disposition, $note, $recordedBy, $amount) {
             $existing = self::where('rental_inspection_id', $outInspection->id)
                 ->where('rental_inspection_item_id', $item->id)
                 ->whereNull('superseded_at')
@@ -114,6 +123,7 @@ class RentalInspectionItemFinding extends Model
                 'rental_inspection_item_id' => $item->id,
                 'disposition' => $disposition,
                 'note' => $note,
+                'amount' => $amount,
                 'recorded_by_user_id' => $recordedBy->id,
                 'recorded_at' => now(),
             ]);

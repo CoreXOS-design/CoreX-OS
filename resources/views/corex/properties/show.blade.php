@@ -8989,6 +8989,9 @@
                 // §45.3 (Build I-1) — the server's list of checklist items still ungraded when a
                 // complete / send-for-signature attempt was refused. Cleared on every new attempt.
                 ungradedItems: [],
+                // Audit B2 - the move-out checklist warnings shown before an Out is completed (open findings, open repairs, an inventory
+                // check not done). Warnings only: "Complete anyway" posts again with acknowledge_warnings.
+                completionWarnings: [],
                 // §45.5 (Build I-3) — attendance panel state. The board itself (expected parties, recorded
                 // outcomes, invitation lines) arrives with each inspection as insp.attendance_board and is
                 // replaced wholesale by every response from the attendance endpoints.
@@ -9188,12 +9191,14 @@
                     });
                 },
 
-                async completeInspection(section) {
+                async completeInspection(section, acknowledgeWarnings) {
                     const insp = this.currentInspection(section);
                     this.lifecycleError = '';
                     this.ungradedItems = [];
+                    if (!acknowledgeWarnings) this.completionWarnings = [];
                     try {
-                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, {});
+                        const updated = await this._post(`${this.inspectionUrls.inspectionsBase}/${insp.id}/complete`, acknowledgeWarnings ? { acknowledge_warnings: 1 } : {});
+                        this.completionWarnings = [];
                         // §32, 2026-09-28 — was Object.assign(insp, updated),
                         // a bare fresh() carrying every plain column
                         // (meter readings, overall_notes, ...), not just
@@ -9205,7 +9210,10 @@
                         // Nothing types into these three directly, so a
                         // plain merge (no snapshot/unchanged check) is safe.
                         this._mergeFields(insp, updated, ['status', 'completed_at', 'fault_report_deadline_at']);
-                    } catch (e) { this.lifecycleError = e.message; this._noteUngradedItems(section, e); this._noteMissingAttendance(section, e); this.jumpToMissingRequiredNotes(section, e); }
+                    } catch (e) {
+                        if (e && e.data && e.data.requires_acknowledgement) { this.completionWarnings = e.data.warnings || []; return; }
+                        this.lifecycleError = e.message; this._noteUngradedItems(section, e); this._noteMissingAttendance(section, e); this.jumpToMissingRequiredNotes(section, e);
+                    }
                 },
 
                 async startAwaitingSignature(section) {
