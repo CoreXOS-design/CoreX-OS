@@ -7,6 +7,7 @@ use App\Models\P24SyndicationLog;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use App\Support\ExternalPublishingGuard;
 
 class Property24ApiClient
 {
@@ -552,6 +553,19 @@ class Property24ApiClient
     {
         $path = "/listing/{$this->apiVersion}" . $endpoint;
         $url  = $this->baseUrl . $path;
+
+        // Every WRITE (POST/PUT/DELETE: submit, status change, re-list, agent push) stops here on a copy of live
+        // (ExternalPublishingGuard). Reads stay allowed. One warning line, no HTTP call, no cost-window tally, no log row.
+        if (strtoupper($method) !== 'GET' && ! ExternalPublishingGuard::isAllowed()) {
+            ExternalPublishingGuard::logRefusedWrite(ExternalPublishingGuard::CHANNEL_PROPERTY24, $action, $propertyId);
+
+            return [
+                'success' => false,
+                'refused' => true,
+                'message' => ExternalPublishingGuard::userMessage(),
+                'data'    => [],
+            ];
+        }
 
         // Tally every outbound call against the current submit's cost window, so
         // performSubmit can assert the refresh-cost contract instead of trusting it.

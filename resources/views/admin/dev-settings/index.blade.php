@@ -71,6 +71,12 @@
                 ],
             ],
             [
+                'label' => 'AI',
+                'items' => [
+                    ['key'=>'ai_spend', 'label'=>'AI Spend Safety', 'type'=>'section', 'keywords'=>'ai anthropic claude spend cost alert cut-out cutout pause switch off threshold rand window hours email recipients budget'],
+                ],
+            ],
+            [
                 'label' => 'Alerts',
                 'items' => [
                     ['key'=>'queue_worker_emails', 'label'=>'Queue worker emails', 'type'=>'section', 'keywords'=>'supervisor worker down fatal stopped queue health alert email server health notification'],
@@ -140,6 +146,9 @@
                       queueBacklogEmails: {{ Js::from(array_values($queueBacklogAlertEmails)) }},
                       addQueueBacklogEmail() { this.queueBacklogEmails.push(''); },
                       removeQueueBacklogEmail(i) { this.queueBacklogEmails.splice(i, 1); },
+                      aiSpendEmails: {{ Js::from(array_values(old('ai_alert_recipients', $aiSpend['recipients']))) }},
+                      addAiSpendEmail() { this.aiSpendEmails.push(''); },
+                      removeAiSpendEmail(i) { this.aiSpendEmails.splice(i, 1); },
                   }">
                 @csrf
                 @method('PUT')
@@ -442,6 +451,93 @@
                             </template>
                             <div x-show="queueBacklogEmails.length === 0" class="text-sm" style="color: var(--text-muted);">No alert emails configured yet.</div>
                             <button type="button" @click="addQueueBacklogEmail()"
+                                    class="text-sm font-semibold mt-2" style="color: var(--brand-icon, #0ea5e9);">
+                                + Add email
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-4" style="border-top: 1px solid var(--border);">
+                        <button type="submit" class="corex-btn-primary">Save Settings</button>
+                    </div>
+                </div>
+
+                {{-- ============================================================
+                     AI SPEND SAFETY (AT-456 §A.4)
+                     ============================================================ --}}
+                <div x-show="activeSection === 'ai_spend'" x-cloak class="p-6 space-y-6">
+                    {{-- Marker: update() only touches these settings when this pane was rendered. --}}
+                    <input type="hidden" name="ai_spend_present" value="1">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">AI Spend Safety</h3>
+                        <p class="text-sm mb-4" style="color: var(--text-secondary);">
+                            CoreX adds up each agency's AI spend over the time window below. When an agency reaches the
+                            <strong>alert level</strong>, everyone on the email list is told (once per window). When it reaches the
+                            <strong>switch-off level</strong>, every AI feature for that agency stops and its users are told to contact
+                            CoreX support — other agencies carry on. AI stays off until it is turned back on from
+                            <a href="{{ route('admin.ai-usage.index') }}" class="underline">AI Usage &amp; Cost</a>.
+                            Changes apply to the very next AI request.
+                        </p>
+
+                        @error('ai_spend')
+                            <p class="text-xs mb-3" style="color: var(--ds-crimson, #c41e3a);">{{ $message }}</p>
+                        @enderror
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1rem;">
+                            <label class="block">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Alert level (R)</span>
+                                <input type="number" step="0.01" min="0.01" name="ai_alert_threshold_zar"
+                                       value="{{ old('ai_alert_threshold_zar', $aiSpend['alert_zar']) }}"
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">Email the list below. Nothing is switched off.</span>
+                            </label>
+                            <label class="block">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Switch-off level (R)</span>
+                                <input type="number" step="0.01" min="0.01" name="ai_cutout_threshold_zar"
+                                       value="{{ old('ai_cutout_threshold_zar', $aiSpend['cutout_zar']) }}"
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">AI stops for that agency. Must be higher than the alert level.</span>
+                            </label>
+                            <label class="block">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Time window (hours)</span>
+                                <input type="number" step="1" min="1" max="168" name="ai_guard_window_hours"
+                                       value="{{ old('ai_guard_window_hours', $aiSpend['window_hours']) }}"
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">Spend is added up over this many hours (1–168).</span>
+                            </label>
+                            <label class="block">
+                                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Failed AI designs per agency per day</span>
+                                <input type="number" step="1" min="1" max="100" name="ai_template_max_failed_per_day"
+                                       value="{{ old('ai_template_max_failed_per_day', $aiSpend['max_failed_per_day']) }}"
+                                       class="w-full mt-1 rounded-md px-3 py-2 text-sm font-mono"
+                                       style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">"Create with AI" attempts that were paid for but gave no usable design do not use the monthly allowance. After this many in one day an agency is asked to try again tomorrow.</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color:var(--text-muted);">Who gets the emails</h3>
+                        <div class="space-y-2" style="background:var(--surface-2); border:1px solid var(--border); border-radius:6px; padding:1rem;">
+                            <template x-for="(email, i) in aiSpendEmails" :key="i">
+                                <div class="flex items-center gap-2">
+                                    <input type="email"
+                                           :name="'ai_alert_recipients[' + i + ']'"
+                                           x-model="aiSpendEmails[i]"
+                                           placeholder="name@example.com"
+                                           class="flex-1 rounded-md px-3 py-2 text-sm"
+                                           style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+                                    <button type="button" @click="removeAiSpendEmail(i)"
+                                            class="p-2 rounded-md flex-shrink-0" style="color: var(--text-muted);" title="Remove">
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                    </button>
+                                </div>
+                            </template>
+                            <div x-show="aiSpendEmails.length === 0" class="text-sm" style="color: var(--ds-crimson, #c41e3a);">At least one email address is needed.</div>
+                            <button type="button" @click="addAiSpendEmail()"
                                     class="text-sm font-semibold mt-2" style="color: var(--brand-icon, #0ea5e9);">
                                 + Add email
                             </button>

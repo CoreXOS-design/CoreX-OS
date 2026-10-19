@@ -32,7 +32,7 @@
             <select name="portal"
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All portals</option>
                 <option value="p24"     @selected(($filters['portal'] ?? '') === 'p24')>Property24</option>
                 <option value="pp"      @selected(($filters['portal'] ?? '') === 'pp')>Private Property</option>
                 <option value="website" @selected(($filters['portal'] ?? '') === 'website')>Website</option>
@@ -71,7 +71,7 @@
                     data-tour="re-portal-leads-status"
                     class="w-full rounded-md text-sm transition-all duration-300"
                     style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                <option value="">All</option>
+                <option value="">All statuses</option>
                 <option value="new"      @selected(($filters['status'] ?? '') === 'new')>New Contact</option>
                 <option value="existing" @selected(($filters['status'] ?? '') === 'existing')>Already Exists</option>
             </select>
@@ -132,15 +132,11 @@
                         </td>
                         <td class="px-3 py-2">
                             @if($lead->portal === 'p24')
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
-                                      style="background: var(--brand-default, #0b2a4a);">P24</span>
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var(--brand-default, #0b2a4a);">P24</span>
                             @elseif($lead->portal === 'website')
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
-                                      style="background: var(--brand-icon, #0ea5e9);"
-                                      title="Website enquiry">WEB</span>
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var(--brand-icon, #0ea5e9);" title="Website enquiry">WEB</span>
                             @else
-                                <span class="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold text-white"
-                                      style="background: var(--brand-button, #0ea5e9);">PP</span>
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var(--brand-button, #0ea5e9);">PP</span>
                             @endif
                         </td>
                         <td class="px-3 py-2 text-xs" style="color: var(--text-secondary);">{{ $lead->lead_type }}{{ $lead->is_whatsapp ? ' / WhatsApp' : '' }}</td>
@@ -180,13 +176,11 @@
                         <td class="px-3 py-2 text-xs max-w-xs whitespace-pre-wrap" style="color: var(--text-secondary);">{{ $lead->message }}</td>
                         <td class="px-3 py-2">
                             @if($lead->contact_exists)
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold"
-                                      style="background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border);">
+                                <span class="ds-badge ds-badge-muted">
                                     Already Exists
                                 </span>
                             @else
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold text-white"
-                                      style="background: var(--brand-icon, #0ea5e9);">
+                                <span class="ds-badge ds-badge-info">
                                     New Contact
                                 </span>
                             @endif

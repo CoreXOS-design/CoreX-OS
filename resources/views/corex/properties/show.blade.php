@@ -153,11 +153,14 @@
         .cv-untagged-thumb-selected { opacity: 1; border-color: #3FC9E6; }
         .cv-untagged-thumb-img { width: 56px; height: 42px; }
     </style>
+    {{-- List-look polish (Johan 2026-10-17): hover lift / accent edge / animated tab underline / field hover — restyle only. --}}
+    @include('corex.properties.partials._property-polish-styles')
 <div class="w-full h-full flex flex-col space-y-4 corex-props-v2"
-     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
+     x-data="{ activeTab: '{{ $isNew ? 'info' : $activeTab }}', tabPending: null, synOpen: {{ $synOpenOnLoad ? 'true' : 'false' }}, synStep: 'main', sbCollapsed: (localStorage.getItem('hfc.propSidebar.collapsed') === '1'), wbReportOpen: false, complianceModalOpen: false, contactRequiredModalOpen: false, notSellingModalOpen: false, driveTypePref: null }"
      @corex:contact-required.window="contactRequiredModalOpen = true"
      @corex:contact-added.window="contactRequiredModalOpen = false; activeTab = 'info';"
      @corex:switch-tab.window="activeTab = $event.detail"
+     x-init="$watch('activeTab', (k) => { tabPending = null; window.ppTabEnter && window.ppTabEnter($el, k); })"
      x-effect="localStorage.setItem('hfc.propSidebar.collapsed', sbCollapsed ? '1' : '0')">
 
     {{-- Identity strip (2026-09-13 restyle, option 2) — Back, the property's identity
@@ -1011,7 +1014,7 @@
                 $readinessBarClass = $readinessPct >= 80 ? 'ds-bar-green' : 'ds-bar-amber';
                 $readinessMissing = array_keys(array_filter($readinessChecks, fn($v) => !$v));
             @endphp
-            <div class="rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
+            <div class="prop-readiness-card rounded-md p-3" style="background:var(--surface); border:1px solid var(--border);" x-data="{ readinessOpen: false }">
                 <button type="button" @click="readinessOpen = !readinessOpen"
                         class="w-full flex items-center justify-between"
                         style="background:transparent; border:0; cursor:pointer; padding:0;">
@@ -1277,8 +1280,8 @@
                             $statusLabel2 = $property->status ? $property->statusBadge() : 'Draft';
                             $brandPillStyle2 = 'background:var(--brand-default); color:#fff; border:none;';
                         @endphp
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}" data-listing-chip>{{ $listingTypeLabel2 }}</span>
-                        <span class="text-sm px-2.5 py-1 rounded-full font-semibold" style="{{ $brandPillStyle2 }}">{{ $statusLabel2 }}</span>
+                        <span class="ds-badge ds-badge-info" data-listing-chip>{{ $listingTypeLabel2 }}</span>
+                        <span class="ds-badge {{ $statusBadgeVariants[$property->status] ?? 'ds-badge-default' }}">{{ $statusLabel2 }}</span>
                         @if(!empty($property->status_label))
                             <span class="ds-badge ds-badge-warning" title="Special label on the listing's status — e.g. price reduced, or an offer received but the property is still for sale.">{{ $property->status_label }}</span>
                         @endif
@@ -1621,7 +1624,7 @@
                         <div class="rounded-md flex-1 flex flex-col justify-center" style="background:var(--surface-2); border:1px solid var(--border);">
                             @foreach($activityTimeline as $i => $event)
                                 <div x-show="activityExpanded || {{ $i }} === 0" x-cloak
-                                     class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                     class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $event['color'] }};"></div>
                                     <div class="flex-1 min-w-0">
                                         <div class="text-xs font-medium" style="color:var(--text-primary);">{{ $event['label'] }}</div>
@@ -1694,7 +1697,7 @@
                                     if ($comm->from_display) { $metaParts[] = 'by ' . $comm->from_display; }
                                     $metaLine = implode(' · ', $metaParts);
                                 @endphp
-                                <div class="flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
+                                <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5" style="{{ $i > 0 ? 'border-top:1px solid var(--border);' : '' }}">
                                     <div class="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 mt-0.5" style="background:var(--surface); color:var(--brand-icon, #0ea5e9);">
                                         {{-- envelope / paperclip --}}
                                         @if($isSecureLink)
@@ -1732,7 +1735,7 @@
                         <h3 class="text-xs font-bold uppercase tracking-wider" style="color:var(--text-muted);">Property Location</h3>
                         @if($property->latitude && $property->longitude)
                             <a href="{{ route('corex.map.index') }}?focus={{ $property->latitude }},{{ $property->longitude }}&zoom=17"
-                               class="text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
+                               class="prop-text-link text-xs font-medium" style="color: var(--brand-button); text-decoration: none;">
                                 Open full map →
                             </a>
                         @endif
@@ -1824,7 +1827,7 @@
                 <div class="lg:col-start-3 flex flex-col">
                     <h3 class="text-xs font-bold uppercase tracking-wider mb-3" style="color:var(--text-muted);">{{ $ownerLabel }}</h3>
                     @if($owner)
-                        <a href="{{ route('corex.contacts.show', $owner) }}" class="block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
+                        <a href="{{ route('corex.contacts.show', $owner) }}" class="prop-card-link block rounded-md p-4 flex-1" style="background:var(--surface-2); border:1px solid var(--border);">
                             <div class="text-sm font-semibold truncate" style="color:var(--text-primary);">{{ $ownerName }}</div>
                             @if($owner->phone)
                                 <div class="text-xs mt-0.5" style="color:var(--text-muted);">{{ $owner->phone }}</div>
@@ -1834,7 +1837,7 @@
                             @endif
                         </a>
                     @else
-                        <button type="button" @click="activeTab='contacts'" class="w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
+                        <button type="button" @click="activeTab='contacts'" class="prop-card-link w-full flex-1 rounded-md p-4 text-left text-xs" style="background:var(--surface-2); border:1px dashed var(--border); color:var(--text-muted);">
                             No owner linked yet — click to add a seller / landlord
                         </button>
                     @endif
@@ -1870,7 +1873,7 @@
 
 
         {{-- ── INFO TAB ───────────────────────────────────────────────────── --}}
-        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="px-4 pb-4">
+        <div x-show="activeTab === 'info'" {{ $isNew ? '' : 'x-cloak' }} class="prop-info-panel px-4 pb-4">
             {{-- AT-60 — duplicate-address guard. A property already matches this
                  contact's address: offer link-to-existing (kept OUTSIDE the create
                  form — no nested forms). The agent can ignore it and keep creating. --}}
@@ -1937,31 +1940,8 @@
                 </form>
             @endif
 
-            {{-- AT-432 — the "Send to Auction" entry point (.ai/specs/auctions.md
-                 §9 steps 1-2). Deliberately NOT added to the intake wizard
-                 (wizard.blade.php) — the wizard has no path to also create/attach
-                 the auction in the same step, and setting sale_method='auction'
-                 with no lot behind it is an inconsistent state. This link instead
-                 carries the property into AuctionController::create(), which
-                 attaches it as Lot 1 the moment the auction itself is created —
-                 sale_method only ever flips together with a real lot existing. --}}
-            @if(!$isNew)
-            @feature('auctions')
-            @permission('auctions.create')
-                @if($property->isAuction() && ($currentLot = $property->currentAuctionLot()))
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.lots.show', $currentLot) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">
-                        On Auction — Lot {{ $currentLot->lot_number }} ({{ $currentLot->auction->reference }})
-                    </a>
-                </div>
-                @elseif(!$property->isAuction())
-                <div class="mb-4">
-                    <a href="{{ route('corex.auctions.create', ['property_id' => $property->id]) }}" class="corex-btn-outline text-xs no-underline inline-flex items-center gap-1">Send to Auction</a>
-                </div>
-                @endif
-            @endpermission
-            @endfeature
-            @endif
+            {{-- AT-432 — the "Send to Auction" / "On Auction" entry point moved to the page header
+                 (partials/_property-shell-header.blade.php, Johan 2026-10-17). --}}
 
             <form id="prop-update-form" method="POST" enctype="multipart/form-data"
                   action="@if($isNew){{ route('corex.properties.store') }}@else{{ route('corex.properties.update', $property) }}@endif"
@@ -10037,7 +10017,7 @@
                     $isPurchaser = in_array((int) $c->id, $purchaserIds, true);
                 @endphp
                 <div x-data="{ editing: false, role: @js($c->pivot->role ?: $defaultLinkRole), confirmingUnlink: false }"
-                     class="px-4 py-3 rounded-md mb-2"
+                     class="prop-row-hover px-4 py-3 rounded-md mb-2"
                      style="background:var(--surface-2); border:1px solid {{ $isPurchaser ? 'var(--ds-green, #059669)' : 'var(--border)' }};"
                      data-contact-row="{{ $c->id }}" @if($isPurchaser) data-purchaser="1" @endif>
                     <div class="flex items-center gap-3">
@@ -10355,7 +10335,7 @@
             {{-- Notes list --}}
             <div class="space-y-3">
                 @forelse($property->notes as $note)
-                <div class="rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
+                <div class="prop-row-hover rounded-md p-4" style="background:var(--surface-2); border:1px solid var(--border);">
                     <div class="flex items-start justify-between gap-3">
                         <div class="flex-1">
                             <div class="text-sm whitespace-pre-line" style="color:var(--text-primary);">{{ $note->content }}</div>
@@ -10367,7 +10347,7 @@
                         <form method="POST" action="{{ route('corex.properties.notes.destroy', [$property, $note]) }}"
                               onsubmit="return confirm('Delete this note?')">
                             @csrf @method('DELETE')
-                            <button type="submit" class="text-xs font-semibold flex-shrink-0 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
+                            <button type="submit" class="text-xs font-semibold flex-shrink-0 rounded-md px-2 py-1 -my-1 -mr-2 transition-opacity hover:opacity-80" style="color:var(--ds-crimson);">Delete</button>
                         </form>
                         @endif
                     </div>
@@ -10406,7 +10386,7 @@
                     </div>
                 </div>
                 @forelse($fullAuditLog as $entry)
-                    <div class="flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
+                    <div class="prop-row-hover flex items-start gap-3 px-4 py-2.5 rounded" style="background:var(--surface-2); border:1px solid var(--border);" x-data="{ showDetail: false }">
                         <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="background:{{ $catColors[$entry->event_category] ?? '#94a3b8' }};"></div>
                         <div class="flex-1 min-w-0">
                             <div class="flex items-start justify-between gap-2">
@@ -11286,13 +11266,13 @@
             @foreach($coreMatches as $cm)
             @php $views = $cm->propertyViewCount($property->id); @endphp
             <div x-data="{ open: false }"
-                 class="rounded-md overflow-hidden"
+                 class="prop-cm-card rounded-md overflow-hidden"
                  style="background:var(--surface); border:1px solid var(--border);">
 
                 {{-- Row --}}
                 <button type="button"
                         @click="open = !open"
-                        class="w-full flex items-center gap-4 px-5 py-4 text-left"
+                        class="prop-cm-row w-full flex items-center gap-4 px-5 py-4 text-left"
                         style="background:transparent;">
 
                     {{-- Client avatar --}}
@@ -11402,7 +11382,7 @@
                             </div>
                             @if($cm->contact)
                             <a href="{{ route('corex.contacts.matches.results', [$cm->contact, $cm]) }}"
-                               class="inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
+                               class="prop-cm-open inline-flex items-center gap-1.5 mt-2 text-xs font-semibold no-underline"
                                style="color:var(--brand-icon);">
                                 View match results →
                             </a>
@@ -13216,6 +13196,12 @@ function propertyMapWidget(cfg) {
 
             // Render the map only after the user expands the panel.
             this.$watch('open', (val) => { if (val) this.$nextTick(() => this._renderMap()); });
+
+            // The Info tab fades/slides in when the agent comes back to it; re-measure the map once it has
+            // settled so Leaflet never keeps a stale size from while the tab was hidden.
+            window.addEventListener('corex:prop-tab-shown', (e) => {
+                if (e.detail === 'info' && this._map) setTimeout(() => this._map.invalidateSize(), 260);
+            });
 
             // On initial load: if no saved coords, kick the backend to
             // resolve from whatever address parts we have. The backend will

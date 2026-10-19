@@ -133,6 +133,7 @@
     <div id="jc-layout" class="jc-layout">
         <div id="jc-left-col" class="jc-left">
             @include('corex.rental-job-cards._job-facts')
+            @include('corex.rental-job-cards._crew-reports')
             @include('corex.rental-job-cards._tasks-lines')
             @include('corex.rental-job-cards._signoff-box')
             @if($stage['can']['signed_copy'] || $signedCopies->isNotEmpty())
@@ -328,12 +329,16 @@ function catalogueLinePicker(items, opts) {
             this.query = item.label;
             this.open = false;
             this.highlighted = -1;
-            const d = this.field('[name="description"], [x-ref$="Desc"]'); if (d) d.value = item.description;
+            // AT-466 - the description is the agent's own words (it prints on the quote): the catalogue name is only its placeholder / default.
+            // (The create screen's draft rows have no form to default it server-side, so they keep the old pre-fill.)
+            const d = this.field('[name="description"], [x-ref$="Desc"]'); if (d) { d.placeholder = item.description; if (!d.getAttribute('name') && !d.value) d.value = item.description; }
             const t = this.field('[name="type"], [x-ref$="Type"]'); if (t) t.value = item.kind || 'labour';
             const u = this.field('[name="unit"], [x-ref$="Unit"]'); if (u && item.unit) u.value = item.unit;
             // §17.4.3 — the selling price is NOT copied from the catalogue any more: left blank it resolves by the pricing rules
             // (the catalogue's default price is rule 5), so a picked item still prices itself but is not frozen as "typed by hand".
-            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p) { p.value = ''; p.placeholder = item.markupHint ? item.markupHint : ((item.priceForLine !== null && item.priceForLine !== undefined) ? ('catalogue ' + item.priceForLine) : 'auto'); }
+            const p = this.field('[name="unit_price"], [x-ref$="UnitPrice"]'); if (p) { p.value = ''; p.placeholder = (item.priceForLine !== null && item.priceForLine !== undefined) ? ('catalogue ' + item.priceForLine) : 'auto'; }
+            // AT-466 - a markup-priced item says so in the MARKUP box, never in the Selling box (it was being typed over as if it were a markup).
+            const mk = this.rootEl.querySelector('[data-markup-hint]'); if (mk) { mk.placeholder = item.markupHint ? item.markupHint : '0'; }
             const k = this.field('[name="unit_cost"], [x-ref$="UnitCost"]'); if (k && item.costForLine !== null && item.costForLine !== undefined) k.value = item.costForLine;
             const v = this.field('[name="rental_vat_type_id"], [x-ref$="VatType"]');
             if (v && item.vatTypeId) { v.value = item.vatTypeId; v.dispatchEvent(new Event('change')); }

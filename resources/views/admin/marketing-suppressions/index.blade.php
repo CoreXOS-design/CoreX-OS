@@ -47,14 +47,12 @@
                  fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="var(--text-muted, #9ca3af)">
                 <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
             </svg>
-            <input type="text" name="q" value="{{ $search }}" placeholder="Search email or number…"
-                   class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
-                   style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter w-full {{ $search !== '' ? 'is-active' : '' }}" style="padding-left:2.25rem;" type="text" name="q" value="{{ $search }}" placeholder="Search email or number…">
         </div>
-        <select name="status" onchange="this.form.submit()" class="list-header-filter">
+        <select class="list-header-filter {{ $status !== 'active' ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
             <option value="active" {{ $status === 'active' ? 'selected' : '' }}>Active</option>
             <option value="lifted" {{ $status === 'lifted' ? 'selected' : '' }}>Lifted</option>
-            <option value="all"    {{ $status === 'all' ? 'selected' : '' }}>All</option>
+            <option value="all"    {{ $status === 'all' ? 'selected' : '' }}>All statuses</option>
         </select>
         <button type="submit" class="corex-btn-primary">Search</button>
         @if($search !== '' || $status !== 'active')

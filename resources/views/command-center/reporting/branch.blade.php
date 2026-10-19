@@ -11,7 +11,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @if($branches->isNotEmpty())
-                    <select onchange="window.location.href=this.value" class="text-xs rounded-md px-2 py-1" style="background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border);">
+                    <select onchange="window.location.href=this.value" class="list-header-filter text-xs">
                         @foreach($branches as $b)
                             <option value="{{ route('command-center.reporting.branch', ['branch_id' => $b->id, 'days' => $days]) }}" {{ $b->id == $branchId ? 'selected' : '' }}>{{ $b->name }}</option>
                         @endforeach

@@ -56,12 +56,13 @@
 
     /* tasks and lines: ONE column header, then a band per task with its lines under it */
     .jc-linebox { overflow-x: auto; }
-    .jc-linebox > .jc-lines-inner { min-width: 560px; }
+    .jc-linebox > .jc-lines-inner { min-width: 980px; } /* AT-466 - wide enough for the column tracks (RentalJobCardLineGrid); narrower windows scroll sideways */
+    .jc-lines-head { padding: 0 11px; } /* = a task's 1px border + 10px body padding, so the header lines up with the lines under it */
     .jc-task { border: 1px solid var(--border); border-radius: 6px; margin-top: 10px; overflow: hidden; }
     .jc-task-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 8%, var(--surface)); border-bottom: 1px solid var(--border); }
     .jc-task-body { padding: 4px 10px 8px; }
     .jc-task.jc-general { border-style: dashed; }
-    .jc-addrow { margin-top: 6px; padding: 6px 8px 8px; border-radius: 6px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 7%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--brand-icon, #0ea5e9) 45%, var(--border)); }
+    .jc-addrow { margin: 6px -9px 0; padding: 6px 8px 8px; border-radius: 6px; background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 7%, var(--surface)); border: 1px dashed color-mix(in srgb, var(--brand-icon, #0ea5e9) 45%, var(--border)); }
     .jc-addrow-cap { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--brand-icon, #0ea5e9); }
     .jc-addrow form, .jc-addrow > div { padding-top: 2px !important; }
     .jc-addrow input, .jc-addrow select { height: 30px; box-sizing: border-box; }

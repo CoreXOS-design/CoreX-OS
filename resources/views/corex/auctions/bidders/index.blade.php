@@ -2,27 +2,30 @@
 
 @section('corex-content')
 <div class="corex-auctions w-full h-full flex flex-col gap-4">
-    <div class="-mx-4 lg:-mx-6 -mt-4 lg:-mt-6 px-6 py-3.5 flex-shrink-0 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border);">
-        <div>
-            <a href="{{ route('corex.auctions.show', $auction) }}" class="text-sm text-muted underline">&larr; {{ $auction->title }}</a>
-            <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Bidder Register</h1>
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('corex.auctions.show', $auction) }}" class="text-xs text-muted underline">&larr; {{ $auction->title }}</a>
+                <h1 class="text-base font-bold leading-tight" style="color:var(--text-primary);">Bidder Register</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Everyone registered to bid at this auction, with their deposit, rules and FICA status.</p>
+            </div>
+            @permission('auctions.bidders.approve')
+            <a href="{{ route('corex.auctions.bidders.create', $auction) }}" class="corex-btn-primary">+ Register a Bidder</a>
+            @endpermission
         </div>
-        @permission('auctions.bidders.approve')
-        <a href="{{ route('corex.auctions.bidders.create', $auction) }}" class="corex-btn-primary">+ Register a Bidder</a>
-        @endpermission
     </div>
 
     @if(session('status'))<div class="rounded-md px-4 py-2 text-sm" style="background:color-mix(in srgb,var(--ds-green,#10b981) 12%,transparent);color:var(--ds-green,#10b981);">{{ session('status') }}</div>@endif
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
+    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 text-sm rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);">
         <div>
             <label class="prop-label">Search</label>
-            <input type="text" name="search" value="{{ $filters['search'] }}" placeholder="Name, email, mobile, ID, paddle" class="list-header-filter">
+            <input class="list-header-filter {{ (!empty($filters['search'])) ? 'is-active' : '' }}" type="text" name="search" value="{{ $filters['search'] }}" placeholder="Name, email, mobile, ID, paddle">
         </div>
         <div>
             <label class="prop-label">Status</label>
-            <select name="status" class="list-header-filter">
-                <option value="">Any</option>
+            <select class="list-header-filter {{ (!empty($filters['status'])) ? 'is-active' : '' }}" name="status">
+                <option value="">All statuses</option>
                 @foreach(\App\Models\AuctionBidder::STATUSES as $s)
                     <option value="{{ $s }}" @selected($filters['status'] === $s)>{{ ucwords(str_replace('_', ' ', $s)) }}</option>
                 @endforeach
@@ -30,7 +33,7 @@
         </div>
         <div>
             <label class="prop-label">Deposit received</label>
-            <select name="deposit_received" class="list-header-filter">
+            <select class="list-header-filter {{ (($filters['depositReceived'] ?? '') !== '') ? 'is-active' : '' }}" name="deposit_received">
                 <option value="">Any</option>
                 <option value="1" @selected($filters['depositReceived'] === '1')>Yes</option>
                 <option value="0" @selected($filters['depositReceived'] === '0')>No</option>
@@ -38,7 +41,7 @@
         </div>
         <div>
             <label class="prop-label">Rules signed</label>
-            <select name="rules_signed" class="list-header-filter">
+            <select class="list-header-filter {{ (($filters['rulesSigned'] ?? '') !== '') ? 'is-active' : '' }}" name="rules_signed">
                 <option value="">Any</option>
                 <option value="1" @selected($filters['rulesSigned'] === '1')>Yes</option>
                 <option value="0" @selected($filters['rulesSigned'] === '0')>No</option>

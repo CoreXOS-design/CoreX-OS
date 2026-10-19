@@ -634,6 +634,11 @@
     </x-wo-panel>
     @endif
 
+    {{-- AT-465 - what the crew found / what is needed, from their "Send to office" (empty unless the crew reported). --}}
+    @if($workOrder->jobCard)
+        <div style="margin-bottom: 12px;">@include('corex.rental-job-cards._crew-reports', ['jobCard' => $workOrder->jobCard])</div>
+    @endif
+
     {{-- 3. Approve the cost (as built in stage 2; the owner's limits are shown once, in "The money") --}}
     @php $cdHideLimits = true; @endphp
     <x-wo-panel key="cost" title="Approve the cost" :summary="$woPanels['cost']" :open="$isOpenPanel('cost')">

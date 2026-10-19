@@ -33,24 +33,28 @@ class RentalJobCardLineGrid
         // §17.4.5 — with Cost and Margin added the row would be ~76 px wider than the 1366 px left panel (measured in a real
         // browser on QA1), so the cost-viewing grid uses a COMPACT set of widths and a 4 px gap: every figure still fits on one
         // line at 1366, and a value too wide for its column is truncated with its full text in the tooltip, as it always was.
+        // AT-466 (Johan, 15 Oct 2026, QA1): the amounts did not fit (R99,999.99 needs ~88px with padding) and the header, the saved
+        // lines and the add / edit rows each sat at a different inset, so nothing lined up. ONE set of tracks now, wide enough for
+        // R99,999.99 in Qty/Cost/Selling/VAT/Margin, Description the widest (it takes every spare pixel), Item roomy enough for a
+        // code. The container (.jc-lines-inner) has a matching min-width and scrolls sideways on a narrow window instead of squeezing.
         if ($showCost && $pricesOn) {
-            $cols = ['minmax(0,70px)', 'minmax(60px,1fr)', '72px', '52px', '44px', '62px', '70px'];
+            $cols = ['minmax(110px,150px)', 'minmax(160px,1fr)', '90px', '70px', '64px', '96px', '96px'];
             if ($vatRegistered) {
-                $cols[] = '66px';
+                $cols[] = '80px';
             }
-            $cols[] = '62px'; // Margin
+            $cols[] = '96px'; // Margin
             $cols[] = '28px';
 
             return $cols;
         }
 
-        $cols = ['minmax(0,100px)', 'minmax(70px,1fr)', '90px'];
+        $cols = ['minmax(110px,150px)', 'minmax(160px,1fr)', '96px'];
         if ($pricesOn) {
+            $cols[] = '70px';
             $cols[] = '64px';
-            $cols[] = '50px';
-            $cols[] = '84px';
+            $cols[] = '100px';
             if ($vatRegistered) {
-                $cols[] = '84px';
+                $cols[] = '90px';
             }
         }
         $cols[] = '36px';
@@ -62,7 +66,7 @@ class RentalJobCardLineGrid
     {
         $cols = implode(' ', self::columns($pricesOn, $vatRegistered, $showCost));
 
-        $gap = $showCost && $pricesOn ? '4px' : '6px';
+        $gap = '6px';
 
         return "display:grid; grid-template-columns: {$cols}; gap: {$gap}; align-items:center; min-width:0;";
     }
@@ -70,7 +74,8 @@ class RentalJobCardLineGrid
     /** Every control inside a row track also needs min-width:0 explicitly — a <select>'s own intrinsic min-content width (driven by its longest option text) otherwise forces the track wider than assigned regardless of the track size itself (every grid item defaults to min-width:auto). The actual fix for the one-line-fit, not the column widths alone. */
     public static function fieldStyle(): string
     {
-        return 'border: 1px solid var(--border); min-width:0;';
+        // one control height for every input / select in the row (AT-466)
+        return 'border: 1px solid var(--border); min-width:0; height:30px; box-sizing:border-box;';
     }
 
     /** The header row's own labels, in the same fixed order as columns() -- callers slice this to match whichever optional columns are actually rendered. */
@@ -94,6 +99,18 @@ class RentalJobCardLineGrid
         $labels[] = '';
 
         return $labels;
+    }
+
+    /** AT-466 - the money / count columns: their header label, saved value and input are all right-aligned. */
+    public static function isNumericLabel(string $label): bool
+    {
+        return in_array($label, ['Qty', 'Cost', 'Selling', 'Unit price', 'Margin'], true);
+    }
+
+    /** AT-466 - right-aligned input text for the amount boxes (same 9px inset as cellStyle(), on the right). */
+    public static function amountFieldStyle(): string
+    {
+        return self::fieldStyle() . ' text-align:right; font-variant-numeric: tabular-nums;';
     }
 
     /**

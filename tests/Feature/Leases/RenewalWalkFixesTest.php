@@ -323,6 +323,63 @@ final class RenewalWalkFixesTest extends TestCase
         $this->assertTrue(LeaseEvent::where('lease_id', $lease->id)->where('event_type', LeaseEvent::TYPE_TENANCY_ENDED)->exists());
     }
 
+    /** C-F3 (Johan, 2026-10-18): the nightly job frees the property in CoreX but pushes nothing to the portals; the agent is told instead. */
+    public function test_a_tenancy_ending_by_itself_pushes_nothing_to_the_portals_and_tells_the_agent(): void
+    {
+        $lease = $this->runningLeaseWithNotice('2028-01-31');
+        $this->completeOutInspection($lease);
+        $this->property->forceFill([
+            'pp_syndication_enabled' => true, 'pp_ref' => 'PP-1', 'pp_syndication_status' => 'active',
+            'p24_syndication_enabled' => true, 'p24_ref' => '123456', 'p24_syndication_status' => 'deactivated',
+        ])->saveQuietly();
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Http::fake();
+
+        Artisan::call('leases:advance-terms', ['--date' => '2028-01-31']);
+
+        $this->assertSame(Lease::STATUS_EXPIRED, $lease->fresh()->status);
+        $this->assertSame('active', $this->property->fresh()->status, 'back on the market in CoreX');
+        \Illuminate\Support\Facades\Queue::assertNotPushed(\App\Jobs\PrivateProperty\SyncPpListingStatusJob::class);
+        \Illuminate\Support\Facades\Queue::assertNotPushed(\App\Jobs\Syndication\DesyndicatePropertyFromPortalsJob::class);
+        \Illuminate\Support\Facades\Http::assertNothingSent();
+
+        $note = $this->agent->fresh()->notifications()->get()->first(fn ($n) => ($n->data['type'] ?? null) === 'property_ready_to_relist');
+        $this->assertNotNull($note, 'the agent who owns the listing is told in the app');
+        $this->assertStringContainsString('is free again and ready to re-list on the portals', $note->data['message']);
+        $this->assertStringContainsString('check the rent and re-list it from the listing', $note->data['message']);
+    }
+
+    /** The other side of C-F3: an agent changing the status by hand still reaches Private Property exactly as before. */
+    public function test_an_agent_changing_the_status_by_hand_still_syncs_to_private_property(): void
+    {
+        $this->property->forceFill([
+            'status' => 'let_out', 'pp_syndication_enabled' => true, 'pp_ref' => 'PP-1', 'pp_syndication_status' => 'active',
+        ])->saveQuietly();
+        \Illuminate\Support\Facades\Queue::fake();
+
+        $property = $this->property->fresh();
+        $property->status = 'active';
+        $property->save();
+
+        \Illuminate\Support\Facades\Queue::assertPushed(\App\Jobs\PrivateProperty\SyncPpListingStatusJob::class);
+    }
+
+    public function test_the_daily_job_leaves_an_agency_with_the_leases_feature_off_alone(): void
+    {
+        $lease = $this->runningLeaseWithNotice('2028-01-31');
+        $this->completeOutInspection($lease);
+        \Illuminate\Support\Facades\DB::table('agency_features')->insert([
+            'agency_id' => $this->agency->id, 'feature_key' => 'rental-leases', 'enabled' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget();
+
+        $this->assertSame([], app(LeaseTermAdvanceService::class)->endVacatedTenancies('2028-01-31'));
+        Artisan::call('leases:advance-terms', ['--date' => '2028-01-31']);
+
+        $this->assertSame(Lease::STATUS_ACTIVE, $lease->fresh()->status, 'C-F5: nothing ended for a switched-off agency');
+        $this->assertSame('let_out', $this->property->fresh()->status, 'and the property is not put back on the market');
+    }
+
     public function test_an_out_inspection_completed_on_or_after_the_move_out_date_ends_the_lease_at_once(): void
     {
         $lease = $this->runningLeaseWithNotice(now()->toDateString());

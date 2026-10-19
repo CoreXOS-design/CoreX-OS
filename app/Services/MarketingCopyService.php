@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Exceptions\AiCopyUnavailableException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\Property;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use GuzzleHttp\Client;
 use Illuminate\Support\Facades\Log;
@@ -38,7 +40,7 @@ class MarketingCopyService
      *
      * @param  bool  $emojis  When true, Ellie sprinkles tasteful emojis through the copy.
      *
-     * @throws AiCopyUnavailableException for expected states (no key, disabled, budget capped)
+     * @throws AiCopyUnavailableException for expected states (no key, disabled, AI paused)
      * @throws \RuntimeException          for unexpected upstream/parse failures
      */
     public function generateAdCopy(Property $property, string $platform, bool $emojis = false): array
@@ -52,9 +54,12 @@ class MarketingCopyService
             throw new AiCopyUnavailableException("Ellie AI isn't configured on this environment yet.");
         }
 
-        // Multi-tenant AI budget gate — never spend past the agency's monthly cap.
-        if ($property->agency && ! $property->agency->canMakeAiCall()) {
-            throw new AiCopyUnavailableException("Your agency's monthly AI budget has been reached.");
+        // AI Spend Safety (AT-456 §A.3) — no spend while the agency is paused.
+        // Mapped onto the existing friendly-failure path the callers already show.
+        try {
+            app(AiSpendGuard::class)->assertAllowed($property->agency_id !== null ? (int) $property->agency_id : null);
+        } catch (AiPausedException $e) {
+            throw new AiCopyUnavailableException($e->getMessage());
         }
 
         $model      = (string) (config('services.anthropic.models.fast') ?: self::MODEL_FALLBACK);

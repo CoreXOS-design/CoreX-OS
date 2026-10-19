@@ -36,22 +36,21 @@
                     <svg class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-4.3-4.3M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16Z"/>
                     </svg>
-                    <input type="text" name="search" value="{{ $search }}" placeholder="Subject, sender or preview…"
-                           class="w-full rounded-md pl-9 pr-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <input class="list-header-filter w-full {{ $search ? 'is-active' : '' }}" style="padding-left:2.25rem;" type="text" name="search" value="{{ $search }}" placeholder="Subject, sender or preview…">
                 </div>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Channel</label>
-                <select name="channel" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                <select class="list-header-filter {{ $channel ? 'is-active' : '' }}" name="channel" onchange="this.form.submit()">
+                    <option value="">All channels</option>
                     <option value="email" {{ $channel === 'email' ? 'selected' : '' }}>Email</option>
                     <option value="whatsapp" {{ $channel === 'whatsapp' ? 'selected' : '' }}>WhatsApp</option>
                 </select>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Direction</label>
-                <select name="direction" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                <select class="list-header-filter {{ $direction ? 'is-active' : '' }}" name="direction" onchange="this.form.submit()">
+                    <option value="">All directions</option>
                     <option value="inbound" {{ $direction === 'inbound' ? 'selected' : '' }}>Inbound</option>
                     <option value="outbound" {{ $direction === 'outbound' ? 'selected' : '' }}>Outbound</option>
                 </select>
@@ -86,7 +85,7 @@
                     <tr style="border-top: 1px solid var(--border);">
                         <td class="px-4 py-3 whitespace-nowrap" style="color: var(--text-secondary);">{{ $c->occurred_at?->format('d M Y H:i') }}</td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge {{ $c->channel === 'email' ? 'ds-badge-default' : 'ds-badge-success' }}">{{ ucfirst($c->channel) }}</span>
+                            <span class="ds-badge ds-badge-pill {{ $c->channel === 'email' ? 'ds-badge-default' : 'ds-badge-success' }}">{{ ucfirst($c->channel) }}</span>
                         </td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $c->direction === 'inbound' ? '↓ In' : '↑ Out' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-primary);">{{ $c->from_display }}</td>

@@ -110,7 +110,7 @@
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
                     $can('leases.manage_settings')
-                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out']
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out breach remedy days calendar business days vacate time days for notice to vacate rental payment proof email proof of payment']
                         : null,
                     $can('rental_lease_templates.manage_settings')
                         ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']
@@ -135,7 +135,7 @@
                         ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help tenant name phone contact crew contractor link']
                         : null,
                     $can('rental_notice_templates.manage_settings')
-                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']
+                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template notice templates payment breach ad hoc breach remedy days clause letter merge fields rentals']
                         : null,
                     // AT-442 — the agency's own parts & labour catalogue consumed
                     // by internal job cards.
@@ -198,6 +198,9 @@
                         ? ['key'=>'coc-service-types', 'label'=>'COC / Service Types', 'type'=>'link', 'href'=>route('deals-v2.settings.service-types.index'), 'keywords'=>'coc certificate compliance electrical gas beetle plumbing electric fence supplier work order service type deal pipeline certificates']
                         : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
+                    ($u && $u->hasFeature('leave') && $can('manage_leave_types'))
+                        ? ['key'=>'leave-types', 'label'=>'Leave Types', 'type'=>'section', 'keywords'=>'leave types annual sick family responsibility bcea entitlement accrual cycle public holidays']
+                        : null,
                     $can('compliance.whistleblow.configure') ? ['key'=>'whistleblow-settings', 'label'=>'Compliance Reporting', 'type'=>'section', 'keywords'=>'whistleblower ppra approver complaints'] : null,
                     $can('ppra_inspection_pack.configure') ? ['key'=>'ppra-inspection-pack-settings', 'label'=>'PPRA Inspection Pack', 'type'=>'section', 'keywords'=>'ppra inspection pack financial year s25'] : null,
                     $can('ppra_employment_letters.manage') ? ['key'=>'ppra-employment-letter-settings', 'label'=>'PPRA FFC Employment Letter', 'type'=>'section', 'keywords'=>'ppra employment letter confirmation ffc renewal principal reminder'] : null,
@@ -3991,6 +3994,30 @@
 
             </div>{{-- /dashboard --}}
 
+        </div>
+
+        {{-- ============================================================
+             LEAVE TYPES (Operations) — AT-455, moved here from Leave Management
+             ============================================================ --}}
+        <div x-show="activeSection === 'leave-types'" x-cloak class="p-6 space-y-5">
+            @if(!empty($leaveTypes))
+                @if(session('success'))
+                    <div class="px-4 py-2.5 rounded-md text-sm font-medium"
+                         style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">
+                        {{ session('success') }}
+                    </div>
+                @endif
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted); border-left:3px solid var(--brand-icon, #0ea5e9); padding-left:10px;">Leave Types</h3>
+                    <p class="text-xs mt-2" style="color:var(--text-secondary);">
+                        The kinds of leave staff can book and how each one accrues. BCEA-mandated types are system-locked; add your own for anything else.
+                        Public holidays are managed under <a href="{{ route('payroll.leave.public-holidays.index') }}" class="font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);">Leave Management → Public Holidays</a>.
+                    </p>
+                </div>
+                @include('payroll.leave.types._list', $leaveTypes)
+            @else
+                <p class="text-sm" style="color: var(--text-muted);">Leave types are managed by users who can manage leave types, with the Leave feature switched on.</p>
+            @endif
         </div>
 
         {{-- ============================================================

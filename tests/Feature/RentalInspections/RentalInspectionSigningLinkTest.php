@@ -194,6 +194,39 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->assertSame(route('rental-inspections.sign.show', $tenant->token), $tenant->url());
     }
 
+    public function test_a_signing_token_is_never_stored_in_plain_text_and_is_found_by_its_hash(): void
+    {
+        // Audit 2026-10-18 A-L4.
+        $link = $this->issue($this->inspection(), 'tenant', $this->tenant->id);
+        $plain = $link->token;
+        $raw = \Illuminate\Support\Facades\DB::table('rental_inspection_signing_links')->where('id', $link->id)->first();
+
+        $this->assertNull($raw->token, 'the plain token column stays empty');
+        $this->assertSame(hash('sha256', $plain), $raw->token_hash);
+        $this->assertStringNotContainsString($plain, json_encode($raw), 'nothing in the row (a database dump or backup) contains the working token');
+        $this->assertSame($plain, $link->fresh()->token, 'the agent screen can still show the same link (decrypted with the app key)');
+        $this->assertSame($link->id, RentalInspectionSigningLink::findLiveByToken($plain)?->id);
+        $this->assertNull(RentalInspectionSigningLink::findLiveByToken($raw->token_hash), 'the hash itself is not a working token');
+        $this->guest();
+        $this->get(route('rental-inspections.sign.show', $plain))->assertOk();
+    }
+
+    public function test_a_link_issued_before_hashing_keeps_working_after_the_migration_converts_it(): void
+    {
+        $link = $this->issue($this->inspection(), 'landlord', $this->landlord->id);
+        $plain = 'legacy-plain-token-' . str_repeat('x', 29);
+        // put the row back the way it was stored before: plain token, no hash
+        \Illuminate\Support\Facades\DB::table('rental_inspection_signing_links')->where('id', $link->id)->update(['token' => $plain, 'token_hash' => null, 'token_encrypted' => null]);
+        $this->assertNull(RentalInspectionSigningLink::findLiveByToken($plain));
+
+        (require base_path('database/migrations/2026_11_16_100000_hash_inspection_signing_link_tokens.php'))->up();
+
+        $row = \Illuminate\Support\Facades\DB::table('rental_inspection_signing_links')->where('id', $link->id)->first();
+        $this->assertNull($row->token);
+        $this->assertSame($link->id, RentalInspectionSigningLink::findLiveByToken($plain)?->id, 'the already-sent link still opens');
+        $this->assertSame($plain, RentalInspectionSigningLink::withoutGlobalScopes()->find($link->id)->token);
+    }
+
     public function test_issuing_twice_returns_the_same_live_link(): void
     {
         $inspection = $this->inspection();

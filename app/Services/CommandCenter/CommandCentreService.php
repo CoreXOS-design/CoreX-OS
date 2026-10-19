@@ -1674,7 +1674,7 @@ class CommandCentreService
             // BUILD_STANDARD §6 — single source of truth for "not live". Was
             // ['sold','withdrawn','draft']; a listing sold by another agency would
             // otherwise sit in "pending marketing" forever (AT-350).
-            ->whereNotIn('status', \App\Models\Property::OFF_MARKET_STATUSES)
+            ->onMarket()
             ->ownStock() // AT-453 — another agency's listing is never "pending marketing" for us
             ->whereNull('deleted_at');
 

@@ -3,14 +3,25 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="Accrual Statement" :back-route="route('payroll.leave.reports.register')" back-label="Reports" :flush="true" />
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('payroll.leave.reports.register') }}" class="text-xs no-underline" style="color: var(--text-muted);">&larr; Reports</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Accrual Statement</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Leave accrual ledger per employee, by leave type and cycle.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            </div>
+        </div>
+    </div>
 
-    <div class="p-4 lg:p-6 max-w-5xl">
+    <div class="max-w-5xl">
         {{-- Employee selector --}}
-        <div class="mb-4">
+        <div class="mb-4 rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
             <form method="GET" class="flex items-center gap-2">
-                <select onchange="window.location.href=this.value" class="list-header-filter">
+                <select onchange="window.location.href=this.value" class="list-header-filter is-active">
                     @foreach($employees as $emp)
                         <option value="{{ route('payroll.leave.reports.accrual-statement', $emp) }}" {{ $emp->id == $employee->id ? 'selected' : '' }}>{{ $emp->user->name }}</option>
                     @endforeach

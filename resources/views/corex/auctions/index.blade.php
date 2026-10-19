@@ -25,7 +25,7 @@
         .auction-filter-date { color-scheme: light; }
         html.dark .auction-filter-date { color-scheme: dark; }
     </style>
-    <div class="rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);" data-tour="au-filters">
+    <div class="props-filter-panel rounded-md px-4 py-3 flex-shrink-0" style="background:var(--surface);border:1px solid var(--border);" data-tour="au-filters">
         <form method="GET" action="{{ route('corex.auctions.index') }}" class="flex flex-wrap items-center gap-3">
             {{-- Search --}}
             <div class="relative flex-1 min-w-[180px] max-w-xs" data-tour="au-search">

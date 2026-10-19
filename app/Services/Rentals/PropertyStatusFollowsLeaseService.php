@@ -6,7 +6,10 @@ use App\Models\Lease;
 use App\Models\LeaseSetting;
 use App\Models\Property;
 use App\Models\User;
+use App\Notifications\PropertyReadyToRelistNotice;
 use App\Services\Audit\PropertyAuditService;
+use App\Services\CommandCenter\NotificationDispatcher;
+use Illuminate\Support\Facades\Log;
 
 /**
  * .ai/specs/rental-renewals.md §15 — GATE 2, approved 2026-10-04 WITH Johan's
@@ -193,8 +196,14 @@ class PropertyStatusFollowsLeaseService
      * falling back to the agency's configured default if none was ever
      * stored), THEN clears status_before_letting so the next lease cycle
      * captures fresh rather than reusing a stale value.
+     *
+     * $withoutPortalPush (Johan, release audit C-F3) - true when the tenancy ended BY ITSELF (the move-out date came, the out-inspection
+     * confirms vacant: LeaseTermAdvanceService::endIfVacated). The property goes back on the market in CoreX, but NOTHING is pushed to
+     * Property24 / Private Property (the save runs with skipSyndicationAutomation) - putting it back on the portals is the agent's
+     * decision, so the agent who owns the listing gets an in-app note instead. An agent changing a status by hand, and the other
+     * callers (cancel, archive), keep today's behaviour.
      */
-    public function restorePreLetStatus(Lease $lease, string $cause, string $availabilityDate, ?User $user = null): void
+    public function restorePreLetStatus(Lease $lease, string $cause, string $availabilityDate, ?User $user = null, bool $withoutPortalPush = false): void
     {
         $property = $lease->property;
         if (!$property) {
@@ -245,7 +254,13 @@ class PropertyStatusFollowsLeaseService
         if ($carriedRent !== null) {
             $property->rental_amount = $carriedRent;
         }
-        $property->save();
+        $previousSkip = $property->skipSyndicationAutomation;
+        $property->skipSyndicationAutomation = $previousSkip || $withoutPortalPush;
+        try {
+            $property->save();
+        } finally {
+            $property->skipSyndicationAutomation = $previousSkip;
+        }
 
         app(PropertyAuditService::class)->log(
             $property,
@@ -258,6 +273,28 @@ class PropertyStatusFollowsLeaseService
             humanSummary: "Status changed from " . ucfirst($oldStatus ?: 'none') . " to " . ucfirst($newStatus) . " — {$cause}"
                 . ($carriedRent !== null ? '; asking rent set to the last lease rent R ' . number_format($carriedRent, 0, '.', ' ') : ''),
         );
+
+        if ($withoutPortalPush && $oldStatus !== $newStatus) {
+            $this->tellAgentReadyToRelist($property, $lease);
+        }
+    }
+
+    /** In-app note to the agent who owns the listing (gateway event property.ready_to_relist). Best effort: never undoes the status change. */
+    private function tellAgentReadyToRelist(Property $property, Lease $lease): void
+    {
+        try {
+            $agent = $property->agent_id ? User::withoutGlobalScopes()->find($property->agent_id) : null;
+            $agent ??= $lease->created_by_user_id ? User::withoutGlobalScopes()->find($lease->created_by_user_id) : null;
+            if ($agent) {
+                app(NotificationDispatcher::class)->send(
+                    $agent, 'property.ready_to_relist', $property,
+                    new PropertyReadyToRelistNotice($property),
+                    ['threshold_hit_at' => now()],
+                );
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Ready-to-relist note could not be sent to the agent', ['property_id' => $property->id, 'error' => $e->getMessage()]);
+        }
     }
 
     /**

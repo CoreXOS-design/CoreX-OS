@@ -34,9 +34,9 @@ final class RentalsMenuLabelsTest extends TestCase
     {
         $src   = $this->sidebar();
         $start = strpos($src, '<div class="corex-nav-panel-title">Rentals</div>');
-        $end   = strpos($src, '>Core Matches</a>', (int) $start);
+        $end   = strpos($src, '>Reports</a>', (int) $start); // the last link of the Rentals panel (AT-466 grouping)
         $this->assertNotFalse($start, 'Rentals panel title not found');
-        $this->assertNotFalse($end, 'Rentals panel end (Core Matches) not found');
+        $this->assertNotFalse($end, 'Rentals panel end (Reports) not found');
 
         return substr($src, (int) $start, (int) $end - (int) $start);
     }

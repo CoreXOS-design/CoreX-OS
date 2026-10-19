@@ -20,13 +20,13 @@
     {{-- Filter bar (§3.8) --}}
     <div class="rounded-md px-4 py-3" style="background:var(--surface); border:1px solid var(--border);">
         <form method="GET" class="flex items-center gap-3 flex-wrap">
-            <select name="type" onchange="this.form.submit()" class="list-header-filter">
+            <select class="list-header-filter {{ request('type') ? 'is-active' : '' }}" name="type" onchange="this.form.submit()">
                 <option value="">All Types</option>
                 <option value="ppra_submission" {{ request('type') === 'ppra_submission' ? 'selected' : '' }}>PPRA Submission</option>
                 <option value="seller_info_email" {{ request('type') === 'seller_info_email' ? 'selected' : '' }}>Seller Info Email</option>
                 <option value="seller_info_whatsapp_link" {{ request('type') === 'seller_info_whatsapp_link' ? 'selected' : '' }}>WhatsApp Link</option>
             </select>
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <select class="list-header-filter {{ request('status') ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
                 <option value="">All Statuses</option>
                 <option value="sent" {{ request('status') === 'sent' ? 'selected' : '' }}>Sent</option>
                 <option value="failed" {{ request('status') === 'failed' ? 'selected' : '' }}>Failed</option>
@@ -72,7 +72,7 @@
                     @endphp
                     <tr>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-muted);">{{ $log->sent_at->format('d M Y H:i') }}</td>
-                        <td class="px-4 py-3"><span class="ds-badge {{ $typeBadge }}">{{ $typeLabel }}</span></td>
+                        <td class="px-4 py-3"><span class="ds-badge ds-badge-pill {{ $typeBadge }}">{{ $typeLabel }}</span></td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-primary);">{{ Str::limit($log->subject, 50) }}</td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ implode(', ', $log->recipients_to ?? []) }}</td>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $log->sentBy?->name ?? '—' }}</td>

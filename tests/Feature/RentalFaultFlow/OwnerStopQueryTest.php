@@ -134,6 +134,33 @@ final class OwnerStopQueryTest extends TestCase
         });
     }
 
+    public function test_the_stop_and_query_links_expire_like_the_fault_settings_dispute_link(): void
+    {
+        // Audit 2026-10-18 A-L5: signed AND expiring (60 days, the same as the "I do not agree" link), also on the page's own forms.
+        $f = $this->arranged();
+        Mail::assertQueued(RentalAuthorisationToOwnerMail::class, function ($m) {
+            foreach ([$m->stopUrl, $m->queryUrl] as $url) {
+                parse_str((string) parse_url($url, PHP_URL_QUERY), $q);
+                $this->assertArrayHasKey('expires', $q, 'the link carries an expiry');
+                $this->assertEqualsWithDelta(now()->addDays(60)->timestamp, (int) $q['expires'], 120);
+            }
+
+            return true;
+        });
+
+        $url = \App\Http\Controllers\RentalOwnerNoticeController::signedUrl('fault', $f->id, $this->landlord->id, 'stop');
+        $page = $this->get($url)->assertOk()->getContent();
+        $this->assertStringContainsString('expires=', html_entity_decode($page), 'the forms on the page are expiring links too');
+
+        $this->travel(59)->days();
+        $this->get($url)->assertOk();
+        $this->travel(2)->days();
+        $this->get($url)->assertForbidden();
+        $this->post($url, ['do' => 'stop', 'reason' => 'too late'])->assertForbidden();
+        $this->assertSame(0, $this->holdsFor($f)->count());
+        $this->travelBack();
+    }
+
     // ── the email link: a GET asks, only the owner's POST records ────────────
 
     public function test_a_get_on_the_stop_link_records_nothing_and_a_bad_signature_is_refused(): void

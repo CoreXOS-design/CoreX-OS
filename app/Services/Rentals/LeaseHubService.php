@@ -114,6 +114,21 @@ class LeaseHubService
             return ['label' => 'Activate lease', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
         }
 
+        // rental-notices.md §7b (AT-462) - a breach notice's remedy-by date has been reached and nobody has said whether it was fixed: that
+        // question comes first. The Next bar carries the two answers ("Breach remedied" / "Send notice to vacate"); someone who may not act
+        // on breaches just sees the question.
+        if ($lease->status === Lease::STATUS_ACTIVE && ($breach = app(LeaseBreachService::class)->awaitingFollowUp($lease)->first())) {
+            $canAct = (bool) $user?->hasPermission('rental_breaches.manage');
+
+            return [
+                'label' => 'Breach remedy date reached — was it fixed?', 'route_name' => null, 'route_param' => null,
+                'breach_followup' => [
+                    'breach_id' => $breach->id, 'can_act' => $canAct, 'tenant' => $breach->breach_party === Lease::NOTICE_BY_TENANT,
+                    'detail' => 'Breach notice of ' . $breach->issued_on->format('j M Y') . ' - remedy by ' . $breach->remedy_deadline->format('j M Y'),
+                ],
+            ];
+        }
+
         // AT-444 follow-up 2 (2026-10-05) — once notice is on file, the
         // agent's real next action is the out-inspection (due on/after
         // move-out), not a catch-up in-inspection. Checked ahead of the

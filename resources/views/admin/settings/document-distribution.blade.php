@@ -39,10 +39,7 @@
                      style="background: var(--surface-2);">
                     <div class="text-sm font-semibold flex items-center gap-2" style="color: var(--text-primary);">
                         {{ $roleLabel }}
-                        <span class="rounded px-2 py-0.5 text-[0.7rem] font-medium"
-                              style="background: {{ $count ? 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)' : 'var(--surface)' }};
-                                     border: 1px solid {{ $count ? 'color-mix(in srgb, var(--ds-green, #059669) 30%, transparent)' : 'var(--border)' }};
-                                     color: {{ $count ? 'var(--ds-green, #059669)' : 'var(--text-muted)' }};">{{ $count }} doc{{ $count===1?'':'s' }}</span>
+                        <span class="ds-badge ds-badge-pill {{ $count ? 'ds-badge-success' : 'ds-badge-default' }}">{{ $count }} doc{{ $count===1?'':'s' }}</span>
                     </div>
                     <span x-text="open ? '▲' : '▼'" class="text-xs" style="color: var(--text-muted);"></span>
                 </div>

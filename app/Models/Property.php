@@ -217,7 +217,64 @@ class Property extends Model
      */
     public function scopeOnMarket($query)
     {
-        return $query->whereNotIn('status', self::OFF_MARKET_STATUSES);
+        return self::constrainOnMarket($query);
+    }
+
+    /**
+     * Off-market listings — the exact complement of scopeOnMarket().
+     */
+    public function scopeOffMarket($query)
+    {
+        return self::constrainOffMarket($query);
+    }
+
+    /**
+     * SQL for a status column normalised EXACTLY the way isOnMarket() normalises the PHP
+     * value: trimmed, lower-cased, spaces turned into underscores. The P24 importer writes
+     * display-cased values ("Sold", "Let Out") and a stray space must not make a sold listing
+     * look live, so every query that asks "is this off the market" compares THIS expression to
+     * OFF_MARKET_STATUSES (BUILD_STANDARD §6 — one definition, SQL and PHP agree).
+     *
+     * Index note: wrapping the column in functions means MySQL cannot use an index on `status`
+     * for this predicate. It is a NOT IN / low-cardinality test that never used one usefully;
+     * the selective columns (agency_id, agent_id, ...) still drive the plan.
+     *
+     * @param string $column a plain or table-qualified column name ("status", "properties.status")
+     */
+    public static function normalisedStatusSql(string $column = 'status'): string
+    {
+        if (! preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $column)) {
+            throw new \InvalidArgumentException("Not a plain column name: {$column}");
+        }
+
+        return "LOWER(REPLACE(TRIM({$column}),' ','_'))";
+    }
+
+    /**
+     * Constrain any query builder (Eloquent or DB::table) to on-market rows. A NULL status
+     * counts as on-market, matching isOnMarket() (an empty status is not off-market).
+     */
+    public static function constrainOnMarket($query, string $column = 'status', string $boolean = 'and')
+    {
+        $expr = self::normalisedStatusSql($column);
+        $in   = implode(',', array_fill(0, count(self::OFF_MARKET_STATUSES), '?'));
+
+        return $query->whereRaw("({$column} IS NULL OR {$expr} NOT IN ({$in}))", self::OFF_MARKET_STATUSES, $boolean);
+    }
+
+    /**
+     * Constrain any query builder to off-market rows (complement of constrainOnMarket()).
+     *
+     * @param array<int, string> $except statuses to leave out of the off-market set
+     *                                   (e.g. ['sold'] where Sold has its own layer)
+     */
+    public static function constrainOffMarket($query, string $column = 'status', array $except = [], string $boolean = 'and')
+    {
+        $statuses = array_values(array_diff(self::OFF_MARKET_STATUSES, $except));
+        $expr     = self::normalisedStatusSql($column);
+        $in       = implode(',', array_fill(0, count($statuses), '?'));
+
+        return $query->whereRaw("{$expr} IN ({$in})", $statuses, $boolean);
     }
 
     /**
@@ -252,7 +309,12 @@ class Property extends Model
      */
     public function isOnMarket(): bool
     {
-        return ! in_array((string) $this->status, self::OFF_MARKET_STATUSES, true);
+        // Case- and whitespace-insensitive, the one place this is decided: the P24 importer
+        // writes display-cased values ("Sold", "Let Out") and a stray space must not make a
+        // sold listing look live. Every row-level caller goes through here, not in_array().
+        $normalised = strtolower(str_replace(' ', '_', trim((string) $this->status)));
+
+        return ! in_array($normalised, self::OFF_MARKET_STATUSES, true);
     }
 
     /**
@@ -428,7 +490,7 @@ class Property extends Model
         return $query->where(function ($q) use ($placeholders, $statuses) {
             $q->whereNull('p24_imported_at')
               ->orWhereNotNull('imported_released_at')   // AT-422 — a user has taken it over
-              ->orWhereRaw("LOWER(status) NOT IN ($placeholders)", $statuses);
+              ->orWhereRaw(self::normalisedStatusSql() . " NOT IN ($placeholders)", $statuses);
         });
     }
 
@@ -445,9 +507,7 @@ class Property extends Model
             ->whereNotNull('expiry_date')
             ->whereDate('expiry_date', '>=', $from->toDateString())
             ->whereDate('expiry_date', '<=', $to->toDateString())
-            ->where(function ($q) {
-                $q->whereNull('status')->orWhereNotIn('status', self::OFF_MARKET_STATUSES);
-            });
+            ->onMarket();
     }
 
     /**
@@ -463,7 +523,7 @@ class Property extends Model
 
         return $query->whereNotNull('p24_imported_at')
             ->whereNull('imported_released_at')   // AT-422 — released rows are ordinary properties
-            ->whereRaw("LOWER(status) IN ($placeholders)", $statuses);
+            ->whereRaw(self::normalisedStatusSql() . " IN ($placeholders)", $statuses);
     }
 
     /**
@@ -480,7 +540,7 @@ class Property extends Model
         $placeholders = implode(',', array_fill(0, count($statuses), '?'));
 
         return $query->orderByRaw(
-            "CASE WHEN p24_imported_at IS NOT NULL AND imported_released_at IS NULL AND LOWER(status) IN ($placeholders) THEN 1 ELSE 0 END",
+            "CASE WHEN p24_imported_at IS NOT NULL AND imported_released_at IS NULL AND " . self::normalisedStatusSql() . " IN ($placeholders) THEN 1 ELSE 0 END",
             $statuses
         );
     }
@@ -496,7 +556,7 @@ class Property extends Model
     {
         return $this->p24_imported_at !== null
             && $this->imported_released_at === null
-            && in_array(strtolower((string) $this->status), self::importedStockStatuses(), true);
+            && in_array(strtolower(str_replace(' ', '_', trim((string) $this->status))), self::importedStockStatuses(), true);
     }
 
     /**
@@ -3829,8 +3889,18 @@ class Property extends Model
 
             'agency_name'       => $agency?->name ?? '',
             'website'           => $agency?->website_url ?: '',
+            'agency_phone'      => trim((string) ($agency?->phone ?? '')),
             'logo'              => $logoUrl,
             'watermark'         => strtoupper((string) ($agency?->name ?? '')),
+
+            // AT-456 §B.9-1 — more listing facts (erf size, levy, rates, price per m², pet friendly, available
+            // from, rent, show day, auction), each '' when the listing has no value so the ad leaves it off.
+            ...\App\Services\AdTemplates\AdListingFacts::for($this),
+
+            // §B.9-1 — the QR block: the listing's own public page (the agency's own website where it has one,
+            // else CoreX's public page — Property::public_url), as the module grid the kernel draws.
+            'public_url'        => $this->public_url,
+            'qr_matrix'         => \App\Services\AdTemplates\ListingQrMatrix::forUrl($this->public_url),
         ];
     }
 

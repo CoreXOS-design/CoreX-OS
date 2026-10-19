@@ -19,6 +19,18 @@ use Illuminate\Http\Request;
  */
 class RentalOwnerNoticeController extends Controller
 {
+    /**
+     * How long a "Stop this" / "Query this" link lives - the same 60 days as the "I do not agree" link in the fault-settings email
+     * (RentalOwnerFaultSettingsMail). After that the owner uses the same two buttons inside their portal. Audit 2026-10-18 A-L5.
+     */
+    public const LINK_DAYS = 60;
+
+    /** The one place these links are written: signed AND expiring, for the mail and for the page's own forms. */
+    public static function signedUrl(string $kind, int $id, int $contact, string $action): string
+    {
+        return \Illuminate\Support\Facades\URL::temporarySignedRoute('rentals.owner-notice', now()->addDays(self::LINK_DAYS), ['kind' => $kind, 'id' => $id, 'contact' => $contact, 'action' => $action]);
+    }
+
     public function handle(Request $request, string $kind, int $id, int $contact, string $action, RentalOwnerHoldService $holds, RentalAuthorisationService $auth)
     {
         abort_unless(in_array($kind, ['fault', 'work-order'], true) && in_array($action, ['stop', 'query'], true), 404);
@@ -64,8 +76,8 @@ class RentalOwnerNoticeController extends Controller
             'jobTitle' => $fault ? (string) ($fault->ownerVersion()['title'] ?? $fault->title) : (string) $wo->title,
             'hold' => $hold, 'holdLine' => $hold ? $holds->stopLine($hold) : null,
             'queries' => $holds->queriesFor($subject), 'tz' => $tz,
-            'queryUrl' => \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $id, 'contact' => $contact, 'action' => 'query']),
-            'stopUrl' => \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $id, 'contact' => $contact, 'action' => 'stop']),
+            'queryUrl' => self::signedUrl($kind, $id, $contact, 'query'),
+            'stopUrl' => self::signedUrl($kind, $id, $contact, 'stop'),
             'portalUrl' => PortalLink::forContact($owner, PortalLink::VIEW_OWNER, $target),
         ]);
     }

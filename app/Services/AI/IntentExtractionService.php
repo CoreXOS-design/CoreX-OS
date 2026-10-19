@@ -34,6 +34,9 @@ class IntentExtractionService
             return ['intent' => 'unknown', 'slots' => [], 'raw' => null];
         }
 
+        // AI Spend Safety (AT-456 §A.3) — same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
+
         $nowIso = $nowIso ?: now($timezone)->toIso8601String();
 
         $system = $this->systemPrompt($timezone, $nowIso);

@@ -692,3 +692,6 @@ Tests: `RentalCommandCentreLinkParityTest` (11), `RentalCommandCentreServiceTest
 * **"Record outcome" — only where it is the next step.** `Lease::scopeAwaitingOutcome`: active, end date passed, **no notice on file**, **not already month-to-month**, **not renewed**, and **no renewal draft under way**. The row now opens the lease with the hub's outcomes menu (as the Lease Hub's own "Record outcome" next step does). The Lease Hub's per-lease next-step card was not changed (leases lane): it lacks the month-to-month and renewal-draft exclusions, so a past-end lease with a renewal draft still shows "Record outcome" there.
 * Tests: `RentalCommandCentreLinkParityTest` (16): tile = opened list = properties in the queue at own / branch / all; open rows open their inspection and drop off when completed; record-outcome rows = exactly the ended-with-nothing-on-file lease, and the hub agrees on each.
 
+
+## Restyle (AT-455, 2026-10-15)
+The command centre uses the standard CoreX page header (title, subtitle, scope toggle and Print/Inventories/Reports in the header), theme-aware uniform-height filter controls, uppercase table headers and tinted status chips. Behaviour, tiles, queue, sticky Actions column and height fitting unchanged.

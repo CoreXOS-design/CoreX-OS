@@ -31,16 +31,16 @@
     {{-- Filters (§3.8 / §3.6) — inline row, no card: the box around three
          inputs was pure chrome. Labels sit beside their inputs at the compact
          32px control height. --}}
-    <form method="GET" class="flex flex-wrap items-center gap-3" data-tour="pres-analytics-filters">
+    <form method="GET" class="props-filter-panel rounded-md px-4 py-3 flex flex-wrap items-center gap-3" style="border: 1px solid var(--border);" data-tour="pres-analytics-filters">
         <div class="flex items-center gap-2">
             <label for="filter-from" class="text-xs font-medium" style="color: var(--text-secondary);">From</label>
-            <input id="filter-from" type="date" name="from" value="{{ $from->toDateString() }}"
+            <input id="filter-from" type="date" name="from" value="{{ $from->toDateString() }}" title="From"
                    class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
         <div class="flex items-center gap-2">
             <label for="filter-to" class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
-            <input id="filter-to" data-tour="pres-analytics-to" type="date" name="to" value="{{ $to->toDateString() }}"
+            <input id="filter-to" data-tour="pres-analytics-to" type="date" name="to" value="{{ $to->toDateString() }}" title="To"
                    class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
         </div>
@@ -49,7 +49,7 @@
                 <label for="filter-agent" class="text-xs font-medium" style="color: var(--text-secondary);">Agent</label>
                 <select id="filter-agent" data-tour="pres-analytics-agent" name="agent_id" class="rounded-md px-2.5 py-1.5 text-[13px] leading-5 w-[150px]"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                    <option value="">All agents</option>
                     @foreach($agents as $a)
                         <option value="{{ $a->id }}" @selected((int) $agentFilter === (int) $a->id)>{{ $a->name }}</option>
                     @endforeach

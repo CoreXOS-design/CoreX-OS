@@ -92,10 +92,17 @@
         let collapsed = false;
         let openedAt = null; // scrollTop at which the agent unfolded it by hand
         let animTimer = null;
+        let skipScroll = false; // set when we move the list ourselves, so that scroll is not read as the user's
+        // Opt-in (data-list-collapse-reset): folding the bar starts the list at the top, so the first rows are not cut off.
+        const resetToTop = root.hasAttribute('data-list-collapse-reset');
 
         function setCollapsed(next) {
             if (next === collapsed) return;
             collapsed = next;
+            if (next && resetToTop && scroller.scrollTop !== 0) {
+                skipScroll = true;
+                scroller.scrollTop = 0;
+            }
             root.classList.add('lc-animating');
             root.classList.toggle('lc-collapsed', next);
             top.inert = next;
@@ -104,6 +111,7 @@
         }
 
         function onScroll() {
+            if (skipScroll) { skipScroll = false; return; }
             const y = scroller.scrollTop;
             if (y <= TOP_AT) { openedAt = null; setCollapsed(false); return; }
             if (openedAt !== null) {

@@ -38,6 +38,10 @@ Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 // also flagged as overdue.
 Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverlapping();
 
+// .ai/specs/rental-notices.md §7b (AT-462) — a breach notice's remedy-by date has been reached and the breach is still open: tell the
+// lease's agents once ("was it fixed?"). The lease screen's Next bar asks the same question live.
+Schedule::command('breaches:check-remedy-dates')->dailyAt('06:15')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
@@ -609,3 +613,21 @@ Schedule::command('minion:capture --cycle --by=schedule')
 // Platform E-Sign — Subscription Agreement: expire lapsed links, remind the agency and RR (spec §11.14). Hourly; the thresholds
 // are platform settings (Platform E-Sign → Agreement wording), not constants.
 Schedule::command('platform-esign:remind-agreements')->hourly()->onOneServer()->withoutOverlapping();
+
+// AT-456 Part B — AI Template Builder reference images are private and live 7 days. Daily at 03:15;
+// also runnable by hand: php artisan ai-templates:purge-reference-images
+Schedule::command('ai-templates:purge-reference-images')->dailyAt('03:15')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part C — Article Library. Runs every night at 02:30 but only does work when the owner's
+// schedule setting (/admin/article-library/settings: off · nightly · every 3 days) says it is due.
+// Spend goes to the platform AI bucket (agency NULL). Also runnable by hand: php artisan article-library:run --force
+Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->withoutOverlapping();
+
+// AT-456 Part D — Post Scheduler. Every minute: publish scheduled Facebook / Instagram posts that are due.
+// Each post is claimed with an atomic UPDATE first (overlapping runs publish once) and published inline,
+// no queue worker needed. Also runnable by hand: php artisan marketing:publish-due
+// withoutOverlapping(10): a killed run's lock expires in 10 minutes, not the 24-hour default (the atomic claim
+// already stops double publishing). runInBackground: slow Meta calls never hold up other scheduled tasks.
+Schedule::command('marketing:publish-due')->everyMinute()->onOneServer()->withoutOverlapping(10)->runInBackground();
+// Scheduled-post pictures: kept until published + 30 days; unused uploads removed after 2 days.
+Schedule::command('marketing:purge-scheduled-images')->dailyAt('03:20')->onOneServer()->withoutOverlapping();

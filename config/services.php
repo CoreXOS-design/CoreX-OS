@@ -119,6 +119,19 @@ return [
 
     'hf_ai' => [
         'base_url'            => env('HF_AI_BASE_URL', 'http://127.0.0.1:3100'),
+
+        // --- /chat spend estimate (AT-456 gap fix) --------------------------
+        // The hf-ai service's /chat calls Anthropic (a paid API) but its reply
+        // carries no token usage, so AiChatProxyController records an ESTIMATE:
+        //   input  = (system prompt + message chars) / chars_per_token
+        //   output = reply chars / chars_per_token
+        // chat_model must match the service's ANTHROPIC_MODEL (see GET /health
+        // -> chat_model; service default claude-haiku-4-5). 3.5 chars/token is
+        // deliberately a little pessimistic for English so the guard errs
+        // towards over- rather than under-counting.
+        'chat_model'                => env('HF_AI_CHAT_MODEL', 'claude-haiku-4-5'),
+        'chat_system_prompt_tokens' => (int) env('HF_AI_CHAT_SYSTEM_PROMPT_TOKENS', 350),
+        'chat_chars_per_token'      => (float) env('HF_AI_CHAT_CHARS_PER_TOKEN', 3.5),
         'transcribe_timeout'  => env('HF_AI_TRANSCRIBE_TIMEOUT', 15),
         'voice_max_seconds'   => env('AI_VOICE_MAX_SECONDS', 30),
 

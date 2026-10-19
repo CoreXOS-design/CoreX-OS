@@ -289,6 +289,13 @@ class AppServiceProvider extends ServiceProvider
         CommandTask::observe(CommandTaskObserver::class);
         CommandTask::observe(\App\Observers\CommandTaskPortalLeadObserver::class);
 
+        // AT-456 Part D — a scheduled social post that could not go out tells its agent (bell).
+        // Explicit registration: listener auto-discovery is OFF (AT-261), see register().
+        Event::listen(
+            \App\Events\Marketing\MarketingPostScheduleFailed::class,
+            \App\Listeners\Marketing\NotifyAgentOfFailedScheduledPost::class,
+        );
+
         // Portal Leads: log every new portal lead (extension point for future
         // Slack/push integrations). See .ai/specs/portal-leads.md.
         Event::listen(
@@ -567,9 +574,6 @@ class AppServiceProvider extends ServiceProvider
             // 14.5 AI
             \App\Events\AI\AINarrativeGenerated::class,
             \App\Events\AI\AINarrativeFailedFallback::class,
-            // Phase B2 — agency budget signals.
-            \App\Events\AI\AgencyAiBudgetWarning::class,
-            \App\Events\AI\AgencyAiBudgetCapped::class,
             // Presentations Phase 8 — outcome capture lifecycle.
             \App\Events\Presentation\PresentationOutcomeRecorded::class,
             \App\Events\Presentation\PresentationOutcomePrompted::class,

@@ -25,7 +25,7 @@ class RentalNoticeTemplate extends Model
     public const TYPES = [self::TYPE_BREACH_PAYMENT, self::TYPE_BREACH_OTHER, self::TYPE_NOTICE_TO_VACATE, self::TYPE_BREACH];
     public const TYPE_LABELS = [
         self::TYPE_BREACH_PAYMENT => 'Breach notice (payment)',
-        self::TYPE_BREACH_OTHER => 'Breach notice (other)',
+        self::TYPE_BREACH_OTHER => 'Breach notice (ad hoc)',
         self::TYPE_NOTICE_TO_VACATE => 'Notice to vacate',
         self::TYPE_BREACH => 'Breach notice (older template)',
     ];
@@ -45,10 +45,12 @@ class RentalNoticeTemplate extends Model
         'source_file_name',
         'source_file_path',
         'default_clause',
+        'remedy_days',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
+        'remedy_days' => 'integer',
     ];
 
     public function createdByUser(): BelongsTo

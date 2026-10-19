@@ -57,6 +57,9 @@ class VisionRecognitionService
             throw new \RuntimeException('ANTHROPIC_API_KEY is not configured.');
         }
 
+        // AI Spend Safety (AT-456 §A.3) — same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed($agencyId);
+
         $mediaType = $this->detectMediaType($absoluteImagePath);
         $imageData = base64_encode((string) file_get_contents($absoluteImagePath));
 

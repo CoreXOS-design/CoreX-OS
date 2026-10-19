@@ -1,45 +1,75 @@
 {{-- DESIGN SYSTEM COMPLIANCE: UI_DESIGN_SYSTEM.md v 2026-04-20 --}}
+{{-- AT-455 (Andre, 2026-10-14): split view — contact list on the left, the chosen
+     contact's searches on the right. No emojis, no coloured boxes: pipeline status
+     is a small dot beside the word, anything needing attention is plain amber text,
+     blue is reserved for actions. Every filter, popup and button is unchanged. --}}
 @extends('layouts.corex')
 
 @section('corex-content')
-<div class="w-full space-y-5">
+@php
+    $firstContactId = (int) optional($rows->first())['contact']?->id;
+    $showContactAgent = $scope !== 'own';
+@endphp
+{{-- On desktop the page fills the main area: header + filter bar stay put, the
+     contact list and the searches pane each scroll inside themselves. --}}
+<div class="w-full lg:h-full flex flex-col"
+     x-data="{
+        sel: (() => { const m = (location.hash || '').match(/^#c(\d+)$/); return m ? parseInt(m[1]) : {{ $firstContactId }}; })(),
+        nextUrl: @js($nextPageUrl ?? null),
+        loading: false,
+        pick(id) { this.sel = id; try { history.replaceState(null, '', '#c' + id); } catch (e) {} },
+        init() {
+            // A remembered contact that is not on the first batch (after a reload) falls back to the first.
+            if (this.$refs.panes && !this.$refs.panes.querySelector('[data-cm-pane=&quot;' + this.sel + '&quot;]')) { this.sel = {{ $firstContactId }}; }
+        },
+        async more() {
+            if (!this.nextUrl || this.loading) return;
+            this.loading = true;
+            try {
+                const r = await fetch(this.nextUrl, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+                if (!r.ok) { this.nextUrl = null; return; }
+                const doc = new DOMParser().parseFromString(await r.text(), 'text/html');
+                const list = doc.querySelector('template[data-cm-list]'), panes = doc.querySelector('template[data-cm-panes]');
+                if (!list || !panes) { this.nextUrl = null; return; }
+                // An agent heading that continues the previous batch is not repeated.
+                const lastHead = [...this.$refs.list.querySelectorAll('[data-cm-group]')].pop();
+                const firstHead = list.content.firstElementChild;
+                if (lastHead && firstHead && firstHead.hasAttribute('data-cm-group') && firstHead.textContent.trim() === lastHead.textContent.trim()) firstHead.remove();
+                const newRows = [...document.importNode(list.content, true).children];
+                const newPanes = [...document.importNode(panes.content, true).children];
+                const marker = this.$refs.list.querySelector('[data-cm-loading]');
+                newRows.forEach(el => { this.$refs.list.insertBefore(el, marker); Alpine.initTree(el); });
+                newPanes.forEach(el => { this.$refs.panes.appendChild(el); Alpine.initTree(el); });
+                this.nextUrl = doc.querySelector('[data-cm-next]')?.getAttribute('data-cm-next') || null;
+            } catch (e) { this.nextUrl = null; }
+            finally { this.loading = false; }
+        },
+     }">
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner mb-5">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div data-tour="re-core-matches-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Core Matches</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Buyer and renter search criteria saved against your contacts.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                {{-- Listing-type lens — a static label, honest not decorative, on a
-                     Rentals entry point (server-side locked, see controller). A
-                     lit-on-every-row type pill further down is suppressed for the
-                     same reason once this lock is active. --}}
+                {{-- Listing-type lens — a static label on a Rentals entry point
+                     (server-side locked, see controller). Elsewhere the Type
+                     dropdown in the filter bar does this job. --}}
                 @if($isRentalEntry)
-                <span class="corex-btn-outline text-sm" style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08); cursor:default;" title="This entry point always shows rental searches only">Rentals only</span>
-                @else
-                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-                    @foreach(['' => 'All', 'sale' => 'Sales', 'rental' => 'Rentals'] as $val => $label)
-                    <a href="{{ request()->fullUrlWithQuery(['listing_type' => $val ?: null]) }}"
-                       class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
-                       style="{{ !$loop->first ? 'border-left: 1px solid var(--border);' : '' }} {{ ($listingType ?? '') === $val ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">{{ $label }}</a>
-                    @endforeach
-                </div>
+                <span class="corex-btn-outline text-sm" style="cursor:default;" title="This entry point always shows rental searches only">Rentals only</span>
                 @endif
                 @include('layouts.partials.tour-header-launcher')
-                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm"
-                   style="color:#fff; border-color:rgba(255,255,255,0.25); background:rgba(255,255,255,0.08);">
+                <a href="{{ route('corex.contacts.index') }}" class="corex-btn-outline text-sm">
                     <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" /></svg>
                     Contacts
                 </a>
                 @permission('access_settings')
                 <a href="{{ url('/corex/settings?s=feature-matches') }}"
                    title="Core Matches Settings" aria-label="Core Matches Settings"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:30px; height:30px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="12" cy="12" r="3"/>
@@ -47,20 +77,14 @@
                     </svg>
                 </a>
                 @endpermission
-                {{-- Findability fix, 2026-09-29 (Johan, revised) — Johan couldn't find
-                     "which statuses are included in Core Matches" (the gear above opens
-                     the unrelated WhatsApp/message settings). Setting now lives in main
-                     Settings' own Core Matches section (moved off Contact Governance).
-                     Same permission as the setting itself (command_center.settings, per
-                     the route's own middleware) — only users who can actually edit it
-                     see the link. --}}
+                {{-- Findability fix, 2026-09-29 (Johan, revised) — the "which statuses are
+                     included in Core Matches" setting lives in main Settings' own Core
+                     Matches section. Same permission as the setting itself. --}}
                 @permission('command_center.settings')
                 <a href="{{ url('/corex/settings?s=core-matches') }}"
                    title="Which statuses are shown in Core Matches" aria-label="Which statuses are shown in Core Matches"
-                   class="inline-flex items-center justify-center rounded-md text-white transition-colors"
-                   style="width:30px; height:30px; background: rgba(255,255,255,0.10); border: 1px solid rgba(255,255,255,0.18);"
-                   onmouseover="this.style.background='rgba(255,255,255,0.18)'"
-                   onmouseout="this.style.background='rgba(255,255,255,0.10)'">
+                   class="inline-flex items-center justify-center rounded-md transition-colors"
+                   style="width:30px; height:30px; background: var(--surface); border: 1px solid var(--border); color: var(--text-secondary);">
                     <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
                          fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M12 3c2.755 0 5.455.232 8.083.678.533.09.917.556.917 1.096v1.044a2.25 2.25 0 0 1-.659 1.591l-5.432 5.432a2.25 2.25 0 0 0-.659 1.591v2.927a2.25 2.25 0 0 1-1.244 2.013L9.75 21v-6.568a2.25 2.25 0 0 0-.659-1.591L3.659 7.409A2.25 2.25 0 0 1 3 5.818V4.774c0-.54.384-1.006.917-1.096A48.32 48.32 0 0 1 12 3Z"/>
@@ -71,38 +95,54 @@
         </div>
     </div>
 
-    {{-- Scope selector — only rendered when the viewer actually holds more
-         than one option (core_matches.all_view). An agent with no oversight
-         permission never sees a control offering a scope they can't use. --}}
-    @if(count($availableScopes) > 1)
-    <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
-        @foreach($availableScopes as $s)
-        <a href="{{ request()->fullUrlWithQuery(['scope' => $s, 'agent_id' => null]) }}"
-           class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
-           style="{{ !$loop->first ? 'border-left: 1px solid var(--border);' : '' }} {{ $scope === $s ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">
-            {{ match($s) { 'own' => 'Mine', 'branch' => 'Branch', 'agency' => 'Agency', default => ucfirst($s) } }}
-        </a>
-        @endforeach
-    </div>
-    @endif
-
-    {{-- Search / filter / sort bar --}}
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-        <form method="GET" class="flex items-end gap-3 flex-wrap">
+    {{-- Filter / sort bar. The scope switch (Mine / Branch / Agency) sits at the left
+         of the bar, only rendered when the viewer actually holds more than one option
+         (core_matches.all_view). The name/phone/email search box lives above the
+         contact list below but posts into this same form (form="cm-filters"). --}}
+    <div class="props-filter-panel rounded-md px-5 py-4 flex-shrink-0 mb-5" style="background:var(--surface); border:1px solid var(--border);">
+        <form method="GET" id="cm-filters" class="flex items-end gap-3 flex-wrap">
             @if($isRentalEntry)<input type="hidden" name="listing_type" value="rental">@endif
             @if(count($availableScopes) > 1)<input type="hidden" name="scope" value="{{ $scope }}">@endif
 
+            @if(count($availableScopes) > 1)
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Search</label>
-                <input type="text" name="q" value="{{ $search }}" placeholder="Name, phone or email" data-tour="re-core-matches-search"
-                       class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:200px;">
+                <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+                    @foreach($availableScopes as $s)
+                    <a href="{{ request()->fullUrlWithQuery(['scope' => $s, 'agent_id' => null]) }}"
+                       class="px-3 py-2.5 text-xs font-semibold whitespace-nowrap no-underline leading-4"
+                       style="{{ !$loop->first ? 'border-left: 1px solid var(--border);' : '' }} {{ $scope === $s ? 'background: var(--brand-icon, #0ea5e9); color: #fff;' : 'background: var(--surface); color: var(--text-muted);' }}">
+                        {{ match($s) { 'own' => 'Mine', 'branch' => 'Branch', 'agency' => 'Agency', default => ucfirst($s) } }}
+                    </a>
+                    @endforeach
+                </div>
+            </div>
+            @endif
+
+            @if(!$isRentalEntry)
+            <div class="flex flex-col gap-1">
+                <select name="listing_type" onchange="this.form.submit()" class="list-header-filter {{ request('listing_type') ? 'is-active' : '' }}"
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:110px;">
+                    @foreach(['' => 'All types', 'sale' => 'Sales', 'rental' => 'Rentals'] as $val => $label)
+                    <option value="{{ $val }}" @selected(($listingType ?? '') === $val)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            @endif
+
+            <div class="flex flex-col gap-1">
+                <select name="buyer_state" onchange="this.form.submit()" class="list-header-filter {{ request('buyer_state') ? 'is-active' : '' }}"
+                        style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:120px;">
+                    <option value="" @selected($buyerState === '')>Any buyer status</option>
+                    @foreach($buyerStateOptions as $state)
+                    <option value="{{ $state }}" @selected($buyerState === $state)>{{ ucfirst($state) }}</option>
+                    @endforeach
+                </select>
             </div>
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Status</label>
-                <select name="status" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" data-tour="re-core-matches-status"
+                <select name="status" onchange="this.form.submit()" class="list-header-filter {{ request('status') ? 'is-active' : '' }}" data-tour="re-core-matches-status"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:130px;">
-                    <option value="" @selected($statusFilter === '')>Any status</option>
+                    <option value="" @selected($statusFilter === '')>Any search status</option>
                     @foreach(['active' => 'Active', 'paused' => 'Paused', 'fulfilled' => 'Fulfilled', 'expired' => 'Expired'] as $val => $label)
                     <option value="{{ $val }}" @selected($statusFilter === $val)>{{ $label }}</option>
                     @endforeach
@@ -110,20 +150,17 @@
             </div>
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Saved from</label>
-                <input type="date" name="saved_from" value="{{ $savedFrom }}" onchange="this.form.submit()"
+                <input type="date" name="saved_from" value="{{ $savedFrom }}" onchange="this.form.submit()" aria-label="Saved from" title="Saved from"
                        class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
             </div>
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Saved to</label>
-                <input type="date" name="saved_to" value="{{ $savedTo }}" onchange="this.form.submit()"
+                <input type="date" name="saved_to" value="{{ $savedTo }}" onchange="this.form.submit()" aria-label="Saved to" title="Saved to"
                        class="rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
             </div>
 
             @if($scope !== 'own')
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Agent</label>
-                <select name="agent_id" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="agent_id" onchange="this.form.submit()" class="list-header-filter {{ request('agent_id') ? 'is-active' : '' }}"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:180px;">
                     <option value="all" @selected($agentId === null)>All agents</option>
                     @foreach($agents as $agent)
@@ -134,8 +171,7 @@
             @endif
 
             <div class="flex flex-col gap-1">
-                <label class="text-xs font-medium" style="color:var(--text-secondary);">Sort</label>
-                <select name="sort" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm"
+                <select name="sort" onchange="this.form.submit()" class="list-header-filter"
                         style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary); min-width:170px;">
                     <option value="priority" @selected($sort === 'priority')>Status (default)</option>
                     <option value="saved" @selected($sort === 'saved')>Most recently saved</option>
@@ -144,23 +180,22 @@
             </div>
 
             <button type="submit" class="corex-btn-primary text-sm" data-tour="re-core-matches-apply">Apply</button>
-            @if($search !== '' || $statusFilter !== '' || $savedFrom !== '' || $savedTo !== '' || $agentId !== null || $sort !== 'priority')
+            @if($search !== '' || $statusFilter !== '' || $buyerState !== '' || (!$isRentalEntry && ($listingType ?? '') !== '') || $savedFrom !== '' || $savedTo !== '' || $agentId !== null || $sort !== 'priority')
             <a href="{{ request()->url() }}{{ $isRentalEntry ? '?listing_type=rental' : '' }}" class="corex-btn-outline text-sm">Clear</a>
             @endif
 
             <div class="flex-1"></div>
-            <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
-                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
+            <span class="text-xs font-medium whitespace-nowrap self-center" style="color:var(--text-secondary);">
                 {{ number_format($totalMatches) }} {{ Str::plural('search', $totalMatches) }} · {{ number_format($contacts->total()) }} {{ Str::plural('contact', $contacts->total()) }}
             </span>
         </form>
     </div>
 
-    @if($contacts->total() === 0 && $search === '' && $statusFilter === '' && $savedFrom === '' && $savedTo === '' && $agentId === null)
+    @if($contacts->total() === 0 && $search === '' && $statusFilter === '' && $buyerState === '' && ($isRentalEntry || ($listingType ?? '') === '') && $savedFrom === '' && $savedTo === '' && $agentId === null)
     {{-- Genuinely nothing yet — different message from "no results for this filter". --}}
-    <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md py-12 px-6 text-center flex-shrink-0 mb-5" style="background:var(--surface); border:1px solid var(--border);">
         <div class="w-12 h-12 rounded-full mx-auto mb-4 flex items-center justify-center"
-             style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9);">
+             style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z" /></svg>
         </div>
         <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">
@@ -171,334 +206,46 @@
         <a href="{{ route('corex.contacts.index') }}" class="corex-btn-primary text-sm">Go to Contacts</a>
         @endif
     </div>
-    @elseif($rows->isEmpty())
-    {{-- Matches exist, but none match the current filter. --}}
-    <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
-        <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No Core Matches match this filter</h3>
-        <p class="text-sm" style="color:var(--text-muted);">Try clearing a filter or searching a different term.</p>
-    </div>
-
     @else
-    <div class="space-y-3">
-        @foreach($rows as $row)
-        @php
-            $contact = $row['contact'];
-            $matches = $row['matches'];
-            $isFirstCard = $loop->first;
-        @endphp
+    {{-- ── SPLIT VIEW: contact list | searches pane ── --}}
+    <div class="grid grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)] gap-4 items-start lg:items-stretch lg:flex-1 lg:min-h-0 mb-5">
 
-        <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" @if($loop->first) data-tour="re-core-matches-card" @endif>
-
-            {{-- Contact header — identity + facts that belong to the CONTACT,
-                 never repeated once per search below it. --}}
-            <div class="flex items-center justify-between gap-3 px-5 py-4"
-                 style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                <div class="flex items-center gap-3 min-w-0">
-                    <div class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white flex-shrink-0"
-                         style="background:var(--brand-icon,#0ea5e9);">
-                        {{ $contact->initials }}
-                    </div>
-                    <div class="min-w-0">
-                        <div class="flex items-center gap-2 flex-wrap">
-                            <a href="{{ route('corex.contacts.show', $contact) }}?tab=matches"
-                               class="text-sm font-semibold no-underline leading-tight transition-colors duration-150"
-                               style="color:var(--text-primary);">{{ $contact->full_name }}</a>
-                            <x-buyer-state-chip :state="$contact->buyer_state" />
-                            @if($contact->type)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 12%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 25%, transparent);">
-                                {{ $contact->type->name }}
-                            </span>
-                            @endif
-                            {{-- Last contact — ONE value, one form (relative), the
-                                 absolute date on hover rather than shown twice. --}}
-                            @if($contact->last_contacted_at)
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                                  title="Last contacted {{ $contact->last_contacted_at->format('d M Y, H:i') }}">
-                                Contacted {{ $contact->last_contacted_at->diffForHumans() }}
-                            </span>
-                            @else
-                            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                                  style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
-                                Never contacted
-                            </span>
-                            @endif
-                            {{-- Notes — reachable in one click, never inline-dumped;
-                                 absent entirely when there are none. Opens in a
-                                 popup (Johan) rather than redirecting off the
-                                 board and losing the filters — read-only, fetched
-                                 on demand, never pre-loaded for every row. --}}
-                            @if($contact->contact_notes_count > 0 && in_array((int) $contact->id, $buyerNotesViewableIds ?? [], true))
-                            <button type="button" x-data
-                               @click="$dispatch('open-notes-quick-view', { url: '{{ route('corex.buyer-notes.show', $contact->id) }}' })"
-                               class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap inline-flex items-center gap-1 border-0 cursor-pointer"
-                               style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);"
-                               title="Read the notes on this contact">
-                                <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" /></svg>
-                                {{ $contact->contact_notes_count }} {{ Str::plural('note', $contact->contact_notes_count) }}
-                            </button>
-                            @endif
-                            {{-- Add a note / mark contacted — the SAME contact-notes endpoint the
-                                 contact screen posts to (ContactNoteController::store), so the note
-                                 lands on the buyer's own notes and "Contacted and note" updates
-                                 Last Contacted exactly as it does there. One shared modal below. --}}
-                            @if(in_array($contact->id, $noteableContactIds, true))
-                            <button type="button" x-data
-                               @click="$dispatch('open-core-match-note', { action: '{{ route('corex.contacts.notes.store', $contact) }}', name: @js($contact->full_name) })"
-                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
-                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
-                               title="Add a note">+ Note</button>
-                            @endif
-                            {{-- Update buyer pipeline — moves the buyer on the Buyer Pipeline board itself:
-                                 same endpoints, same statuses, same Lost-reason dialog (one shared popup
-                                 below). Shown only for contacts the viewer could move on that board. --}}
-                            @if(feature('buyer-pipeline') && in_array($contact->id, $pipelineMovableContactIds, true))
-                            <button type="button" x-data
-                               @click="$dispatch('open-core-match-pipeline', {
-                                   name: @js($contact->full_name),
-                                   state: @js($contact->buyer_state),
-                                   noun: @js($matches->contains(fn ($m) => $m->listing_type !== 'rental') ? 'buyer' : 'tenant'),
-                                   stateUrl: @js(route('command-center.buyers.update-state', $contact)),
-                                   lostUrl: @js(route('command-center.buyers.mark-lost', $contact)),
-                               })"
-                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
-                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
-                               title="Move this {{ $matches->contains(fn ($m) => $m->listing_type !== 'rental') ? 'buyer' : 'tenant' }} to a different Buyer Pipeline status">Update buyer pipeline</button>
-                            @endif
-                            {{-- Move buyer to another agent — managers only (core_matches.reassign), for
-                                 contacts the viewer can reach under their own/branch/agency scope. Moves the
-                                 primary agent AND all of the buyer's saved searches (one shared popup). --}}
-                            @if(in_array($contact->id, $reassignableContactIds, true))
-                            <button type="button" x-data
-                               @click="$dispatch('open-move-buyer', {
-                                   name: @js($contact->full_name),
-                                   current: @js(optional($moveBuyerAgents->firstWhere('id', $contact->agent_id))->name),
-                                   action: @js(route('corex.core-matches.reassign-buyer', $contact)),
-                                   currentId: {{ (int) $contact->agent_id }},
-                               })"
-                               class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap inline-flex items-center gap-1 cursor-pointer"
-                               style="background:var(--surface); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 35%, transparent);"
-                               title="Move this buyer, and all their saved searches, to another agent">Move buyer</button>
-                            @endif
-                        </div>
-                        <div class="flex items-center gap-3 mt-0.5 flex-wrap">
-                            @if($contact->phone)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->phone }}</span>@endif
-                            @if($contact->email)<span class="text-xs" style="color:var(--text-secondary);">{{ $contact->email }}</span>@endif
-                            {{-- Ruling A (Johan, 2026-10-07): the first agent to receive this buyer's
-                                 lead is their primary agent; leads they also sent to other agents are
-                                 shown as information only — never as "moved" or "reassigned". --}}
-                            @if($alsoEnquiredByContact->has($contact->id))
-                            <span class="text-xs" style="color:var(--text-muted);" title="This buyer also sent enquiries to these agents' listings. Their primary agent has not changed.">
-                                Also enquired with {{ $alsoEnquiredByContact->get($contact->id)->implode(', ') }}
-                            </span>
-                            @endif
-                        </div>
-                    </div>
-                </div>
-                <div class="flex-shrink-0">
-                    <span class="text-xs font-semibold px-2.5 py-1 rounded-md whitespace-nowrap"
-                          style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent);">
-                        {{ number_format($matches->count()) }} {{ Str::plural('search', $matches->count()) }}
-                    </span>
-                </div>
-            </div>
-
-            {{-- Properties the lead(s) came in on — Johan's own addition.
-                 Shown once per contact (it's a fact about the buyer's
-                 enquiry history, not about any one saved search), styled
-                 like the existing suburb-pin convention, compact. Absent
-                 entirely when there's nothing to show. --}}
-            @if($row['leadProperties']->isNotEmpty())
-            <div class="px-5 py-2 flex items-center gap-1.5 flex-wrap" style="border-bottom:1px solid var(--border); background:var(--surface);">
-                <span class="text-xs" style="color:var(--text-muted);">🏠 Enquired on:</span>
-                @foreach($row['leadProperties']->take(4) as $prop)
-                <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                      title="{{ $prop->title }}{{ $prop->price_on_application ? ' — Price on Application' : ($prop->price ? ' — R' . number_format($prop->price) : '') }}">
-                    {{ $prop->suburb ?: $prop->title }}
-                </span>
-                @endforeach
-                @if($row['leadProperties']->count() > 4)
-                <span class="text-xs" style="color:var(--text-muted);">+{{ $row['leadProperties']->count() - 4 }} more</span>
+        {{-- LEFT — search box, then one line per contact on this page, grouped
+             under the contact's primary agent (Branch / Agency scope). The list is
+             the page's pagination; the pane shows whichever contact is picked. --}}
+        <div class="rounded-md overflow-hidden flex flex-col max-h-[40vh] lg:max-h-none lg:h-full" style="background:var(--surface); border:1px solid var(--border);">
+            <label class="flex items-center gap-2 px-3 py-2 flex-shrink-0" style="border-bottom:1px solid var(--border);">
+                <svg class="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" name="q" form="cm-filters" value="{{ $search }}" placeholder="Search name, phone or email" class="list-header-filter {{ $search !== '' ? 'is-active' : '' }} w-full text-sm bg-transparent outline-none border-0 p-0" data-tour="re-core-matches-search"
+                       style="color:var(--text-primary);">
+            </label>
+            {{-- The list loads its next batch of contacts by itself when scrolled
+                 near its end (more() below) — no page bar. --}}
+            <div class="flex-1 min-h-0 overflow-y-auto corex-brand-scroll" x-ref="list"
+                 @scroll.throttle.200ms="if ($el.scrollTop + $el.clientHeight >= $el.scrollHeight - 160) more()">
+                @if($rows->isEmpty())
+                {{-- Matches exist, but none match the current filter. --}}
+                <div class="px-4 py-8 text-center text-sm" style="color:var(--text-muted);">No contacts match this filter.</div>
+                @else
+                @include('corex.core-matches._list', ['withTour' => true])
                 @endif
+                <div data-cm-loading x-show="loading" x-cloak class="px-4 py-3 text-center text-xs" style="color:var(--text-muted);">Loading more…</div>
+            </div>
+        </div>
+
+        {{-- RIGHT — the picked contact: header with the contact's own facts and
+             actions, then one card per saved search. Scrolls on its own. --}}
+        <div class="min-w-0 lg:h-full lg:overflow-y-auto corex-brand-scroll" x-ref="panes">
+            @if($rows->isEmpty())
+            <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">
+                <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">No Core Matches match this filter</h3>
+                <p class="text-sm" style="color:var(--text-muted);">Try clearing a filter or searching a different term.</p>
             </div>
             @endif
-
-            {{-- Match rows --}}
-            <div>
-                @foreach($matches as $match)
-                <div class="flex items-center gap-4 px-5 py-3.5 flex-wrap"
-                     style="{{ !$loop->last ? 'border-bottom:1px solid var(--border);' : '' }}">
-
-                    {{-- Type pill — suppressed when the whole board is
-                         already locked to one listing type (an always-lit
-                         badge carries no information). --}}
-                    @if(!$isRentalEntry && ($listingType ?? '') === '')
-                    <span class="text-xs font-semibold px-2.5 py-1 rounded-md flex-shrink-0 whitespace-nowrap"
-                          style="{{ $match->listing_type === 'rental'
-                              ? 'background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);'
-                              : 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 10%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 22%, transparent);' }}">
-                        {{ $match->listingTypeLabel() }}
-                    </span>
-                    @endif
-
-                    <span class="text-xs flex-shrink-0 whitespace-nowrap" style="color:var(--text-muted);" title="Saved">
-                        {{ $match->created_at?->format('d M Y, H:i') ?? '—' }}
-                    </span>
-
-                    {{-- Assigned to — only shown when scope varies row to
-                         row (Branch/Agency). On "Mine" it's always the
-                         viewer, an always-lit badge with zero information,
-                         so it's omitted entirely there. --}}
-                    @if($scope !== 'own' && $hasAgentColumn && $match->agent_id)
-                    <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                          title="Assigned to">
-                        👤 {{ $assignedAgentNames->get($match->agent_id, 'Unknown') }}
-                    </span>
-                    @endif
-
-                    {{-- "Reassigned from X to Y" — ONLY when a real reassignment
-                         record exists for this search (a manager moved the buyer
-                         by hand). Never inferred from a portal lead, from who owns
-                         or created the search, or from which agents the buyer
-                         enquired with (Johan, 2026-10-07). --}}
-                    @php $reassignment = $reassignmentByMatch->get($match->id); @endphp
-                    @if($reassignment)
-                    <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                          style="background:color-mix(in srgb, var(--ds-amber) 10%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 22%, transparent);">
-                        Reassigned
-                        @if($reassignment->from_agent_id) from {{ $flagAgentNames->get($reassignment->from_agent_id, 'Unknown') }}@endif
-                        to {{ $flagAgentNames->get($reassignment->to_agent_id, 'Unknown') }}
-                        ({{ optional($reassignment->created_at)->format('d M Y') }})
-                    </span>
-                    @endif
-
-                    {{-- Working window remaining — cc4's clock, once it exists.
-                         A REMAINING count, not the static setting value: the
-                         clock started when the lead was first received (or
-                         the match was created, if there's no portal lead
-                         behind it). Lapsed renders as a distinct warning
-                         state, never a negative number. --}}
-                    @if($hasWorkingWindowSetting && $workingWindowDays && $match->status === 'active' && isset($match->workingWindowRemainingDays))
-                        @if($match->workingWindowRemainingDays > 0)
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                              title="{{ $workingWindowDays }}-day working window">
-                            {{ $match->workingWindowRemainingDays }}d left
-                        </span>
-                        @else
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium flex-shrink-0 whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border:1px solid color-mix(in srgb, var(--ds-crimson) 22%, transparent);"
-                              title="{{ $workingWindowDays }}-day working window">
-                            Window lapsed
-                        </span>
-                        @endif
-                    @endif
-
-                    {{-- Criteria --}}
-                    <div class="flex items-center gap-1.5 flex-wrap flex-1 min-w-0">
-                        @if($match->price_min || $match->price_max)
-                        <span class="text-xs font-bold" style="color:var(--text-primary);">{{ $match->priceRangeLabel() }}</span>
-                        <span class="text-xs" style="color:var(--text-muted);">·</span>
-                        @endif
-                        @if(!empty($match->suburbList()))
-                        <span class="text-xs font-medium" style="color:var(--text-secondary);">📍 {{ implode(', ', $match->suburbList()) }}</span>
-                        <span class="text-xs" style="color:var(--text-muted);">·</span>
-                        @endif
-                        @if($match->category)
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->category }}</span>
-                        @endif
-                        @if($match->property_type)
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $match->property_type }}</span>
-                        @endif
-                        @foreach([[$match->beds_min,'Beds'],[$match->baths_min,'Baths'],[$match->garages_min,'Gar']] as [$val,$lbl])
-                        @if($val !== null)
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">{{ $val }}+ {{ $lbl }}</span>
-                        @endif
-                        @endforeach
-                        @if(!$match->category && !$match->property_type && empty($match->suburbList()) && !$match->price_min && !$match->price_max && !$match->beds_min && !$match->baths_min)
-                        <span class="text-xs italic" style="color:var(--text-muted);">Any property</span>
-                        @endif
-                    </div>
-
-                    {{-- Match counts --}}
-                    @php $counts = $matchCounts[$match->id] ?? ['total' => 0, 'visible' => 0, 'hidden' => 0]; @endphp
-                    <div class="flex items-center gap-1.5 flex-shrink-0" @if($isFirstCard && $loop->first) data-tour="re-core-matches-counts" @endif>
-                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                              style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
-                              title="Total properties matching this search">
-                            {{ number_format($counts['total']) }} {{ Str::plural('match', $counts['total']) }}
-                        </span>
-                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);"
-                              title="Visible to the client">
-                            {{ number_format($counts['visible']) }} visible
-                        </span>
-                        @if($counts['hidden'] > 0)
-                        <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);"
-                              title="Hidden from this match">
-                            {{ number_format($counts['hidden']) }} hidden
-                        </span>
-                        @endif
-                    </div>
-
-                    {{-- Share status — Johan's rule: no badge lit on every row.
-                         Never-shared gets its own honest fact-badge (no count —
-                         a baseline-less "new" tells the agent nothing). Shared
-                         with nothing unseen is silence — the absence IS the
-                         signal, same convention this board already uses for the
-                         hidden-count and reassigned badges. Shared WITH unseen
-                         matches is the one state that earns the actionable
-                         badge — the whole point of the feature: scan the board,
-                         see instantly who's worth sending to again. --}}
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
-                        @if(!$match->lastSharedAt)
-                        <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap"
-                              style="background:color-mix(in srgb, var(--ds-amber) 12%, transparent); color:var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 25%, transparent);">
-                            Never shared
-                        </span>
-                        @else
-                        <span class="text-xs whitespace-nowrap" style="color:var(--text-muted);"
-                              title="Last shared {{ $match->lastSharedAt->format('d M Y, H:i') }}">
-                            Shared {{ $match->lastSharedAt->diffForHumans() }}
-                        </span>
-                        @if($match->neverSharedCount > 0)
-                        <button type="button" x-data
-                                @click="$dispatch('open-new-since-share', { url: '{{ route('corex.core-matches.new-since-share', $match) }}' })"
-                                class="text-xs px-2 py-0.5 rounded-md font-semibold whitespace-nowrap border-0 cursor-pointer"
-                                style="background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 14%, transparent); color:var(--brand-icon,#0ea5e9); border:1px solid color-mix(in srgb, var(--brand-icon,#0ea5e9) 28%, transparent);">
-                            Send {{ $match->neverSharedCount }} new
-                        </button>
-                        @endif
-                        @endif
-                    </div>
-
-                    {{-- Action --}}
-                    @if(auth()->user()->hasPermission('access_core_matches'))
-                    <a href="{{ route('corex.contacts.matches.edit', [$contact, $match]) }}"
-                       class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5"
-                       title="Edit this wishlist / match criteria">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125" /></svg>
-                        Edit
-                    </a>
-                    @endif
-                    <a href="{{ route('corex.contacts.matches.results', [$contact, $match]) }}"
-                       @if($isFirstCard && $loop->first) data-tour="re-core-matches-view" @endif
-                       class="corex-btn-outline text-xs flex-shrink-0 whitespace-nowrap inline-flex items-center gap-1.5">
-                        View Matches
-                        <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-                    </a>
-                </div>
-                @endforeach
-            </div>
-
+            @include('corex.core-matches._panes', ['withTour' => true])
         </div>
-        @endforeach
     </div>
 
-    <div>{{ $contacts->links() }}</div>
     @endif
 
     {{-- Notes popup — Johan: "the notes should open in a popup not

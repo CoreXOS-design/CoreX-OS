@@ -18,28 +18,28 @@
     ])
 
     <form method="GET" class="rounded-md p-3 flex flex-col flex-wrap lg:flex-row gap-2 lg:items-center" style="background: var(--surface); border: 1px solid var(--border);">
-        <input type="text" name="q" value="{{ $q }}" placeholder="Search template name…" class="ds-field flex-1">
-        <select name="kind" class="list-header-filter" onchange="this.form.submit()">
+        <input type="text" name="q" value="{{ $q }}" placeholder="Search template name…" class="list-header-filter flex-1 {{ $q !== '' ? 'is-active' : '' }}">
+        <select name="kind" class="list-header-filter {{ filled(request('kind')) ? 'is-active' : '' }}" onchange="this.form.submit()">
             <option value="">All types</option>
             @foreach(\App\Models\PlatformEsign\Template::KINDS as $k => $l)<option value="{{ $k }}" @selected(request('kind') === $k)>{{ $l }}</option>@endforeach
         </select>
-        <select name="source" class="list-header-filter" onchange="this.form.submit()">
+        <select name="source" class="list-header-filter {{ filled(request('source')) ? 'is-active' : '' }}" onchange="this.form.submit()">
             <option value="">Wording + PDF</option>
             <option value="web" @selected(request('source') === 'web')>Wording</option>
             <option value="pdf" @selected(request('source') === 'pdf')>PDF</option>
         </select>
-        <select name="state" class="list-header-filter" onchange="this.form.submit()">
+        <select name="state" class="list-header-filter {{ $state !== 'active' ? 'is-active' : '' }}" onchange="this.form.submit()">
             <option value="active" @selected($state === 'active')>Available</option>
             <option value="inactive" @selected($state === 'inactive')>Switched off</option>
             <option value="archived" @selected($state === 'archived')>Archived</option>
         </select>
-        <button class="corex-btn-primary">Search</button>
-        @if($q !== '' || request()->hasAny(['kind', 'source']) || $state !== 'active')<a href="{{ route('platform-esign.templates.index') }}" class="corex-btn-outline">Clear</a>@endif
+        <button class="corex-btn-primary text-sm" style="height:2.25rem;">Search</button>
+        @if($q !== '' || request()->hasAny(['kind', 'source']) || $state !== 'active')<a href="{{ route('platform-esign.templates.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>@endif
     </form>
 
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
+            <table class="min-w-full text-sm ds-table">
                 <thead><tr style="background: var(--surface-2);">
                     <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('name', 'Template') !!}</th>
                     <th class="{{ $th }}" style="color: var(--text-muted);">{!! $sortLink('kind', 'Type') !!}</th>

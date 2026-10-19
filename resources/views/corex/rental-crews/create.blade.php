@@ -2,15 +2,20 @@
 
 {{-- 2026-10-05 — a crew can be several named members or just the name itself ("Team 1") — members are added on the next screen once the crew exists. --}}
 
-@section('content')
-<div class="p-6 max-w-2xl space-y-4">
-    <h1 class="text-lg font-semibold">Add Crew</h1>
+@section('corex-content')
+<div class="w-full space-y-5">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Add Crew</h1>
+        <p class="text-xs" style="color: var(--text-muted);">A maintenance team your job cards can assign work to. Members are added on the next screen.</p>
+    </div>
 
     @if($errors->any())
-        <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">{{ $errors->first() }}</div>
+        <div class="rounded-md px-4 py-3 text-sm max-w-3xl" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--text-primary);">{{ $errors->first() }}</div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-crews.store') }}" class="space-y-4">
+    <form method="POST" action="{{ route('corex.rental-crews.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
         <div>
             <label class="prop-label">Name</label>
@@ -30,13 +35,13 @@
             <label class="prop-label">Notes</label>
             <textarea name="notes" rows="3" class="prop-input w-full">{{ old('notes') }}</textarea>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" style="color: var(--text-primary);">
             <input type="checkbox" id="is_active" name="is_active" value="1" checked class="rounded">
             <label for="is_active" class="prop-label !mb-0">Active</label>
         </div>
-        <div class="flex justify-end gap-2 pt-2">
-            <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-xs">Add Crew</button>
+        <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
+            <a href="{{ route('corex.rental-crews.index') }}" class="corex-btn-outline text-sm">Cancel</a>
+            <button type="submit" class="corex-btn-primary text-sm">Add Crew</button>
         </div>
     </form>
 </div>

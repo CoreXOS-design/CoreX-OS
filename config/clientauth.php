@@ -29,6 +29,8 @@ return [
         'token_hours'     => (int) env('PORTAL_TAB_TOKEN_HOURS', 12),
         'remember_cookie' => 'portal_logins',
         'remember_max'    => 8,
+        // ABSOLUTE life of a "remembered here" entry, counted from the real sign-in (reuse never extends it). After it the person signs in again.
+        'remember_max_days' => (int) env('PORTAL_TAB_REMEMBER_DAYS', 7),
     ],
 
     // Sanctum token settings for client tokens

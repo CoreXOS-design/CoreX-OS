@@ -2,6 +2,7 @@
 
 @section('content')
 <div class="p-6 max-w-3xl space-y-4">
+    @include('corex.notices._tabs', ['active' => 'templates'])
     <h1 class="text-lg font-semibold">Edit Notice Template</h1>
 
     @if($errors->any())

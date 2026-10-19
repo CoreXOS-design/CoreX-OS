@@ -23,10 +23,12 @@
     };
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Rental take-on import</h1>
+@section('corex-content')
+<div class="w-full space-y-5">
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental take-on import</h1>
+        <p class="text-xs" style="color: var(--text-muted);">Bring an existing rental book into CoreX: upload it, check each row, then confirm. Nothing is created or sent until you confirm.</p>
     </div>
 
     @if (session('status'))
@@ -61,38 +63,44 @@
     </div>
     @endunless
 
-    <div class="corex-card p-4">
-        <form method="GET" class="flex flex-wrap items-end gap-3 mb-4">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+        <form method="GET" class="flex flex-wrap items-end gap-3">
             <input type="hidden" name="archived" value="{{ $showArchived ? 1 : 0 }}">
-            <div>
-                <label class="block text-xs text-muted">Search</label>
-                <input type="text" name="q" value="{{ request('q') }}" placeholder="Filename or uploader" class="prop-input text-xs">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+                <input type="text" name="q" value="{{ request('q') }}" placeholder="Filename or uploader" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
             </div>
-            <div>
-                <label class="block text-xs text-muted">Status</label>
-                <select name="status" class="prop-select text-xs">
-                    <option value="">All</option>
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+                <select name="status" class="list-header-filter text-sm {{ filled(request('status')) ? 'is-active' : '' }}">
+                    <option value="">All statuses</option>
                     @foreach (['parsing', 'mapping_pending', 'pending_confirm', 'importing', 'completed', 'failed', 'cancelled'] as $s)
                         <option value="{{ $s }}" @selected(request('status') === $s)>{{ ucfirst(str_replace('_', ' ', $s)) }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label class="block text-xs text-muted">From</label>
-                <input type="date" name="date_from" value="{{ request('date_from') }}" class="prop-input text-xs">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">From</label>
+                <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
             </div>
-            <div>
-                <label class="block text-xs text-muted">To</label>
-                <input type="date" name="date_to" value="{{ request('date_to') }}" class="prop-input text-xs">
+            <div class="flex flex-col gap-1">
+                <label class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
+                <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
             </div>
-            <button type="submit" class="corex-btn-secondary text-xs">Filter</button>
-            <a href="{{ route('corex.rentals.take-on-import.index', ['archived' => $showArchived ? 0 : 1]) }}" class="corex-btn-secondary text-xs">
+            <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+            <a href="{{ route('corex.rentals.take-on-import.index', ['archived' => $showArchived ? 0 : 1]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">
                 {{ $showArchived ? 'Back to active batches' : 'View archived batches' }}
             </a>
+        <div class="flex-1"></div>
+        <span class="ds-badge ds-badge-pill ds-badge-info">
+            {{ number_format($runs->total()) }} {{ \Illuminate\Support\Str::plural('batch', $runs->total()) }}
+        </span>
         </form>
+    </div>
 
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         @if ($runs->isEmpty())
-            <div class="ds-empty-state p-6 text-center text-sm text-muted">
+            <div class="ds-empty-state px-6 py-12 text-center text-sm text-muted">
                 @if ($showArchived)
                     No archived take-on import batches.
                 @elseif (request('q') || request('status') || request('date_from') || request('date_to'))
@@ -158,7 +166,9 @@
                 </tbody>
             </table>
             </div>
-            <div class="mt-4">{{ $runs->links() }}</div>
+            @if ($runs->hasPages())
+            <div class="px-5 py-4" style="border-top:1px solid var(--border);">{{ $runs->links() }}</div>
+            @endif
         @endif
     </div>
 </div>

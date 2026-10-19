@@ -5128,6 +5128,60 @@ Johan's QA1 case (job card 99, item PLUMB-01): the item was saved with cost 0, m
 - **Re-deriving.** Changing a line's cost (office edit, or a crew actual accepted) re-prices it through the same resolver unless the selling was set by hand (`selling_basis = manual` - unchanged). The line's own "Markup on this line" still overrides; "Back to automatic" returns to the catalogue MARKUP (not the catalogue selling). Existing lines are not mass-rewritten: they re-derive the next time they are saved, and `php artisan rentals:rederive-catalogue-markup-lines {--job-card=ID | --all} [--dry-run]` brings catalogue-sourced lines of markup items up to date (never a hand-set price, a line/card markup, or a completed/cancelled card). Run on QA1 for job card 99.
 Tests: `RentalMaintenanceFlow/CatalogueMarkupDriverTest.php`.
 
+### 17.41 Crew link: the list, the findings, and ONE "Send to office"; the NEXT bar (AT-465, 15 Oct 2026, cc6, QA1)
+
+**Johan's walk (QA1, the "Blocked drain / toilet" job, crew John Team):** he captured 2 hours of labour in the add form, then "looked for a
+submit" and found none - the only button was "Add line" at the foot of the form, under the photo field. The server log shows his link was
+opened twice and **nothing was ever posted**: the line never existed. (The earlier build already kept the crew's lines as server-side drafts
+and had a "Send to office" step; what was wrong was the page, not the storage - the form button read like a send, the real Send sat in a
+separate block that only appeared once a line existed, behind a tick box, and nothing on the page said what to do next.)
+
+**The crew's flow** (Johan): arrive -> report what you found and what you need -> send -> the office gets owner authority, or authorises
+within the owner's allowed amount -> do the work -> Mark work completed.
+
+**What the crew page does now** (both the per-job link and the crew page; one shared view):
+1. **NEXT bar** under the address block (`CrewNextBar`, read from the crew payload, key `next`): one sentence and at most one button, by state -
+   nothing sent yet ("Look at the job, then tell the office what you found ... press Send to office" / when the office asked: "The office asked you to
+   price this job: add your parts and hours, then press Send to office"), lines on the list ("Your list has N lines. Tell the office what you found,
+   then press Send to office." -> button to the Send box), sent ("Sent - waiting for the office."), approved ("Approved: booked <date>. Do the work,
+   take photos, then Mark work completed." -> button to the completion card), on hold (do not attend), completed ("Completed - thank you.").
+2. **A list, not a post.** "+ Add a part or labour" opens the form; its button reads **Add to list**; after adding, the page returns with the form
+   closed and the line on the list ("On your list - not sent yet"), with Change / Remove on each. Lines are stored server-side as the crew's drafts
+   (`office_status = crew_draft`), so a refresh keeps them and the office sees none of them. Labour is still HOURS only; the crew never prices labour.
+3. **One send.** When the list has lines, the "What did you find, and what is needed?" box appears with a sticky bottom button **Send to office (N)**
+   that submits it. The box is **required on the crew's first send for a card, optional afterwards**. One send = one `rental_job_card_crew_reports`
+   row (findings, line count, who/where), the lines it carried (`rental_job_card_lines.rental_job_card_crew_report_id`), their photos and receipts
+   (already attached per line), ONE "Crew sent N lines" history event and ONE alert. The old "tick to confirm" box is gone; the bar says "By sending
+   you confirm the costs are what you actually paid."
+4. **After sending** the lines read "Sent - waiting for the office" / "Accepted" / "Not accepted"; the crew can keep adding and send a second batch.
+5. **Mark work completed** is unchanged (offered only once the job is approved). After approval the NEXT bar's only button is Mark work completed;
+   the Parts & labour card stays on the page for a genuine extra but is no longer the call to action.
+
+**Robustness.** A send with an empty list is refused in plain words; a first send without findings is refused and the list is kept; findings are
+limited to 2000 characters. A double tap (or the same send from two tabs) takes a row lock on the card: the second finds nothing left to send and, if a
+send happened in the last 120 seconds, answers "That is already with the office." instead of an error or a second batch. An expired or revoked link
+shows the standard "no longer available" page and sends nothing.
+
+**Office side (no approval rule changed).**
+- The job card's **Returned** bar reads `Crew reported: "<findings>" - N lines, R x cost <when>` for the latest send (cost = the crew's own cost on
+  the lines of that send; omitted while it is all labour). The **Next** bar is the existing one (within the owner's limit the agent authorises;
+  above it, send the quote to the owner).
+- A **"What the crew found"** block (`_crew-reports`) on the job card (above the tasks/lines) and on the work order (above "Approve the cost").
+- The **quote PDF** gets a "What our maintenance team found" box right after Source (where it already prints the fault description), and the
+  **owner's** work-order payload appends "What our maintenance team found: ..." to its `description` (the tenant's payload is unchanged).
+
+**Alert fix found on the way.** `NotifyAgentOfCrewLines` fired the alert about the CARD, and the dispatcher's 6-hour same-event-same-subject cooldown
+silently swallowed the office's alert for any second batch (the listener's comment claimed otherwise). The alert's subject is now the crew report (one
+per send); the body adds the first 120 characters of the findings. The shared dispatcher is untouched.
+
+**Data.** Migration `2026_11_09_100000_create_rental_job_card_crew_reports_table` (new table, soft deletes, agency-scoped; one nullable column on lines).
+Setting: none (nothing here is agency-configurable, so nothing for the setup wizard).
+
+**Tests.** `RentalMaintenanceFlow/CrewStagedListAndSendTest` (two staged lines survive a refresh and nothing reaches the office; the NEXT bar in every state;
+one send = one report, one event, one alert, and the office reads it; second batch alerts again with findings optional; zero-line / no-findings /
+too-long refused; double tap sends once; expired link sends nothing; owner quote and work order carry the findings, tenant does not).
+`CrewPartsPanelTest`, `CrewLabourHoursAndReceiptTest`, `CrewPriceRequestTest` and the `BuildsPricingFixtures` helper now pass findings on a first send.
+
 ### 17.40 After an action, land on the Next bar (AT-464, 15 Oct 2026, cc5, QA1)
 Johan's walk (fault report): he recorded the owner's phone approval at the bottom of the page; after the redirect the page sat where the form had been, showing "approved", and he was stuck - the top block "Owner approved - appoint the contractor" was off-screen. Cause: the layout's global scroll-restore (`layouts/_scroll-restore.blade.php`) deliberately puts the container back at its old scroll position after any form post that returns to the same URL.
 - **One mechanism for the class**, not per button: `App\Http\Middleware\LandOnNextBar` (web group). When a POST/PUT/PATCH/DELETE answers with a redirect to the fault report, work order or job card screen (`/corex/rental-(fault-reports|work-orders|job-cards)/{id}`), it flashes `land_on_next`. The scroll-restore script then drops the saved position, scrolls to the first element marked `data-land-on-next` and flashes every marked element once (a soft ring, or a static outline for `prefers-reduced-motion`). If the bar is inside the first screenful the whole top of the page is shown (header and stepper stay in view), otherwise the bar goes to the top edge. Same script for desktop and phone. Any controller that redirects to these screens - including ones in other classes (`RentalFaultAuthorityController`, the crew-line controller, ...) - gets it with no change.
@@ -5135,3 +5189,25 @@ Johan's walk (fault report): he recorded the owner's phone approval at the botto
 - **Not applied (the action's own result decides the place):** a redirect carrying a `#fragment`, or `?create_work_order=1`; any redirect with errors or an `error` message (a refused action / failed validation shows why where it belongs, on the screen's error block or the reopened form); a controller that already flashed an explicit focus (`jc_focus_line`, `jc_focus_task` - adding/editing a line or task brings THAT row into view, which is the right place when working down a list); a controller that sets `land_on_next` itself (`->with('land_on_next', false)` opts one redirect out); forms marked `data-keep-scroll` on the job card (photo upload, ...) set `window.cxKeepScroll` and keep their place.
 - Not covered by design: a fetch()/XHR post that follows a redirect without navigating (the flag would be consumed by the next real page load).
 Tests: `RentalMaintenanceFlow/LandOnNextBarTest.php` (record-owner-decision on a fault, an action on a work order, one on a job card, refusal/explicit-anchor cases, the middleware's own rules).
+
+### 17.41 Job card line row: markup is a markup, one aligned grid, free-text description (AT-466, 15 Oct 2026, cc5, QA1)
+Johan's QA1 card 100 (PLUMB-01, a 20 % markup item, cost R789.50): the line saved with selling R10.00 "set by hand" (margin R-779.50). The log showed it was ADDED with that figure: the add row had no markup box, the item-pick put "markup 20 %" in the SELLING box's placeholder, and R10 went into Selling - which, correctly, means "I set this price".
+- **Markup never sets the price by hand.** The add row now has the same "Markup on this line" sub-row as the edit row (type: item default / % of cost / R on the line; value, its placeholder showing the catalogue item's own markup, e.g. "markup 20 %"). A markup typed there, on add or on edit, works the selling out from the line's COST (`cost + R10`, `cost x 1.2`), is basis `line_markup`, and on a line that was "set by hand" it takes the flag off. Only a figure typed in the Selling box makes a line `manual`. The Selling box's placeholder is always `auto` / the catalogue price. A line added from a markup-priced item with no markup typed prices itself on add (789.50 -> 947.40, basis `catalogue_markup`, §17.39).
+- **One grid.** `RentalJobCardLineGrid` is the single track list for the header, saved lines, the add row (General and every task) and the edit row. The three used to sit at different insets (header 0, saved line 11px = task border + padding, add row ~20px, edit row +4px), so the columns drifted. Now: the header has the same 11px inset (`.jc-lines-head`), the add row's tinted box extends -9px so its grid starts where a saved line does, the edit row has `-mx-1`. Tracks: Item 110-150px, Description `minmax(160px,1fr)` = the widest column, Type 90, Unit 70, Qty 64, Cost/Selling/Margin 96, VAT 80, actions 28; the container is `min-width: 980px` and scrolls sideways on a narrow window rather than squeezing. Qty / Cost / Selling / Margin: header, saved value and input are right-aligned (tabular figures), room for R99,999.99. Every input and select is 30px high.
+- **Description is the agent's words.** Picking an item fills the Item code and offers the catalogue name as the description's PLACEHOLDER; nothing is pre-filled (the create screen's draft rows keep the old pre-fill - they have no server-side default). A blank description on add defaults to the catalogue name; on edit a blank keeps what the line already says. What the agent types ("Plumbing parts - tap x 1") is saved and printed on the quote as typed.
+- **Catch-up:** `rentals:rederive-catalogue-markup-lines --job-card=ID --clear-hand [--line=ID] [--dry-run]` additionally takes the hand flag off a hand-set selling that equals the line's own markup value or its catalogue item's markup value (or the line named with `--line`) and re-derives it. A real hand-typed price is never touched.
+Tests: `RentalMaintenanceFlow/LineMarkupGridTest.php`.
+
+---
+
+## Audit fix 2026-10-18 — VAT types and job-card money basis
+
+- **Archived VAT types keep pricing.** A job-card line's VAT type (and a catalogue item's default VAT type) now resolves including archived types, so archiving a type can never drop an open line to 0% VAT.
+- **Archive guard.** A VAT type cannot be archived while it is the agency's default, or while any open job card (not completed/cancelled, no quote sent yet) still has a live line on it. The message says how many open job cards use it. Quoted/completed cards carry their own VAT snapshot and do not block.
+- **Report "Selling"** (job-card report) is on the same excl-VAT basis as Cost and Margin.
+- **Margin on a frozen card** reads the line's frozen `vat_excl_snapshot`, not the agency's live VAT registration.
+
+## Audit fix 2026-10-18 (rentals ops batch)
+- **A-M6** Moving a job card to a different crew (`RentalJobCard::assignCrew`) revokes every live per-job crew link on the card and logs `link_revoked`; the office issues a fresh link for the new crew. Test: `CrewJobLinkTokenTest`.
+- **A-M7** `RentalJobCardController::store` requires each supplied property / lease / work order / fault report id to be `visibleTo($user)` (404 otherwise); `RentalJobCardService::createStandalone` drops a `lease_id` that is not on the resolved property (falls back to the work order's / fault report's own lease). Tests: `RentalJobCardScopeGuardTest`, `RentalJobCardAt442FollowUpTest`.
+- **A-L8/L9** Work order `create()` only pre-fills from an inspection the user may see; `store()`/`storeBatch()` require every observation to belong to an inspection of the posted property that the user may see (and the named inspection to be that one). Test: `RentalWorkOrderAuditFixesTest`.

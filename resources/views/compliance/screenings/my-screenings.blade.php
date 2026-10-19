@@ -2,13 +2,21 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div class="-m-4 lg:-m-6">
-    <x-page-header title="My Screening Records" :back-route="route('agent.portal')" back-label="My Portal" :flush="true" />
-
-    <div class="p-4 lg:p-6">
-        <div class="text-sm mb-4" style="color:var(--text-secondary, #64748b);">
-            These are your employee screening records as required by the Financial Intelligence Centre Act. Screenings are conducted by the compliance officer.
+<div class="w-full space-y-5">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('agent.portal') }}" class="text-xs no-underline" style="color: var(--text-muted);">&larr; My Portal</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Screening Records</h1>
+                <p class="text-xs" style="color: var(--text-muted);">These are your employee screening records as required by the Financial Intelligence Centre Act. Screenings are conducted by the compliance officer.</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            </div>
         </div>
+    </div>
+
+    <div class="space-y-5">
 
         <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
             <div class="overflow-x-auto">
@@ -28,7 +36,7 @@
                     @php
                         $screeningBadge = $s->status === 'completed' ? 'ds-badge-success' : ($s->status === 'flagged' ? 'ds-badge-danger' : 'ds-badge-warning');
                     @endphp
-                    <tr style="border-top:1px solid var(--border);">
+                    <tr>
                         <td class="px-4 py-3 text-xs" style="color:var(--text-primary);">{{ \App\Models\Compliance\EmployeeScreening::$typeLabels[$s->screening_type] ?? $s->screening_type }}</td>
                         <td class="px-4 py-3">
                             <span class="ds-badge {{ $screeningBadge }}">{{ ucfirst($s->status) }}</span>
@@ -46,10 +54,10 @@
                 </tbody>
             </table>
             </div>
-        </div>
         @if($screenings->hasPages())
-        <div class="mt-4">{{ $screenings->links() }}</div>
+        <div class="px-4 py-3" style="border-top: 1px solid var(--border);">{{ $screenings->links() }}</div>
         @endif
+        </div>
     </div>
 </div>
 @endsection

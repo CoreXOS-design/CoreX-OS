@@ -60,6 +60,18 @@ class RentalVatTypeController extends Controller
         $this->authorizeAgency($agency);
         abort_unless($vatType->agency_id === $agency->id, 404);
 
+        // Audit D-H1 — archiving must never change what an open job card charges. The default type is what every new line
+        // starts with, and a type still on an open line has to be swapped off first.
+        if ($vatType->is_default) {
+            return back()->with('error', "'{$vatType->name}' is your default VAT type. Make another VAT type the default before archiving it.");
+        }
+        $open = $vatType->openJobCardCount();
+        if ($open > 0) {
+            $cards = $open === 1 ? '1 open job card uses' : "{$open} open job cards use";
+
+            return back()->with('error', "'{$vatType->name}' cannot be archived yet: {$cards} it. Change the VAT type on those job-card lines first (a job card that has been quoted or completed keeps its figures and does not count).");
+        }
+
         $vatType->archive();
 
         return back()->with('success', "VAT type '{$vatType->name}' archived.");

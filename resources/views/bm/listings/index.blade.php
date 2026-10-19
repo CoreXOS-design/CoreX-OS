@@ -66,7 +66,7 @@
                         class="w-full rounded-md text-sm px-3 py-2 transition-colors duration-150"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                     <option value="active" {{ $statusFilter==='active' ? 'selected' : '' }}>Active (contains active/for sale)</option>
-                    <option value="all" {{ $statusFilter==='all' ? 'selected' : '' }}>All</option>
+                    <option value="all" {{ $statusFilter==='all' ? 'selected' : '' }}>All statuses</option>
                     <option value="sold" {{ $statusFilter==='sold' ? 'selected' : '' }}>Contains: sold</option>
                     <option value="withdrawn" {{ $statusFilter==='withdrawn' ? 'selected' : '' }}>Contains: withdrawn</option>
                     <option value="expired" {{ $statusFilter==='expired' ? 'selected' : '' }}>Contains: expired</option>

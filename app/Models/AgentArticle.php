@@ -32,6 +32,7 @@ class AgentArticle extends Model
         'tags',
         'is_published',
         'published_at',
+        'library_article_id',
     ];
 
     protected $casts = [

@@ -28,20 +28,20 @@
         </div>
     </div>
 
-    <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         @if($principalOnly)
             <input type="hidden" name="principal" value="1">
         @endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input type="text" name="search" value="{{ request('search') }}" placeholder="Name or designation"
-                   class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Name or designation"
+                  >
         </div>
         @unless($principalOnly)
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Role</label>
-            <select name="role" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select class="list-header-filter {{ (request('role') !== null && request('role') !== '') ? 'is-active' : '' }}" name="role">
+                <option value="">All roles</option>
                 @foreach($roleOptions as $roleOption)
                     <option value="{{ $roleOption }}" @selected(request('role')===$roleOption)>{{ ucwords(str_replace('_', ' ', $roleOption)) }}</option>
                 @endforeach
@@ -50,8 +50,8 @@
         @endunless
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">FFC Status</label>
-            <select name="status" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                <option value="">All</option>
+            <select class="list-header-filter {{ (request('status') !== null && request('status') !== '') ? 'is-active' : '' }}" name="status">
+                <option value="">All FFC statuses</option>
                 <option value="green" @selected(request('status')==='green')>Valid</option>
                 <option value="amber" @selected(request('status')==='amber')>Expiring / Pending</option>
                 <option value="red" @selected(request('status')==='red')>Missing / Expired</option>
@@ -59,20 +59,16 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select name="sort" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+            <select class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
                 <option value="status" @selected(request('sort', 'status')==='status')>Status (worst first)</option>
                 <option value="name" @selected(request('sort')==='name')>Name</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
     </form>
 
     @php
-        $colourMap = [
-            'green' => ['bg' => 'color-mix(in srgb, #15803d 12%, transparent)', 'fg' => '#15803d'],
-            'amber' => ['bg' => 'color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent)', 'fg' => 'var(--ds-amber,#f59e0b)'],
-            'red'   => ['bg' => 'color-mix(in srgb, var(--ds-crimson,#c41e3a) 12%, transparent)', 'fg' => 'var(--ds-crimson,#c41e3a)'],
-        ];
+        $statusTone = ['green' => 'ds-badge-success', 'amber' => 'ds-badge-warning', 'red' => 'ds-badge-danger'];
     @endphp
 
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
@@ -93,25 +89,24 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Name</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Role</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Designation</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">FFC Number</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Status</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Expiry</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold" style="color:var(--text-muted);">Certificate</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Name</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Role</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Designation</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">FFC Number</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Status</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Expiry</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Certificate</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach($roster as $row)
-                    @php $c = $colourMap[$row['ffc']['status']]; @endphp
                     <tr style="border-bottom:1px solid var(--border);">
                         <td class="px-4 py-3 font-semibold" style="color:var(--text-primary);">{{ $row['name'] }}</td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ ucwords(str_replace('_', ' ', $row['role'])) }}</td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $row['designation'] ?? '—' }}</td>
                         <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $row['ffc_number'] ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background:{{ $c['bg'] }}; color:{{ $c['fg'] }};">
+                            <span class="ds-badge {{ $statusTone[$row['ffc']['status']] ?? 'ds-badge-muted' }}">
                                 {{ $row['ffc']['label'] }}
                             </span>
                         </td>
@@ -120,7 +115,7 @@
                         </td>
                         <td class="px-4 py-3 text-right">
                             @if($row['ffc']['document'])
-                                <a href="{{ route('user-documents.download', $row['ffc']['document']->id) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">View / Download</a>
+                                <a href="{{ route('user-documents.download', $row['ffc']['document']->id) }}" class="text-xs font-semibold uppercase tracking-wide" style="color:var(--brand-icon,#0ea5e9);">View / Download</a>
                             @else
                                 <span class="text-xs" style="color:var(--text-muted);">Not uploaded</span>
                             @endif

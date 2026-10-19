@@ -49,8 +49,8 @@ class RentalAuthorisationToOwnerMail extends Mailable implements ShouldQueue
             : \App\Support\PortalLink::unaddressed(\App\Support\PortalLink::VIEW_OWNER, $target);
         if ($recipient) {
             $kind = $authorityFor instanceof RentalFaultReport ? 'fault' : 'work-order';
-            $this->stopUrl = \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $authorityFor->id, 'contact' => $recipient->id, 'action' => 'stop']);
-            $this->queryUrl = \Illuminate\Support\Facades\URL::signedRoute('rentals.owner-notice', ['kind' => $kind, 'id' => $authorityFor->id, 'contact' => $recipient->id, 'action' => 'query']);
+            $this->stopUrl = \App\Http\Controllers\RentalOwnerNoticeController::signedUrl($kind, (int) $authorityFor->id, (int) $recipient->id, 'stop');
+            $this->queryUrl = \App\Http\Controllers\RentalOwnerNoticeController::signedUrl($kind, (int) $authorityFor->id, (int) $recipient->id, 'query');
         }
     }
 

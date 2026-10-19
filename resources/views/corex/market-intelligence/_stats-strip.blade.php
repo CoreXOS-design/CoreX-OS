@@ -39,11 +39,14 @@
         ['score_min' => $micThreshold, 'score_max' => 100, 'sort' => 'match_score']
     ));
 
-    // Defensive token + fallback pattern per UI_DESIGN_SYSTEM.md §5.10
-    $tileBaseStyle = 'background: var(--surface, #ffffff); border: 1px solid var(--border, rgba(0,0,0,0.07)); padding: 6px 8px; border-radius: 6px; min-width: 0;';
-    $tileActiveStyle = 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, var(--surface, #ffffff)); border: 1px solid var(--brand-icon, #0ea5e9); padding: 6px 8px; border-radius: 6px; min-width: 0;';
-    $labelStyle = 'font-size: 0.6125rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted, #9ca3af); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-    $valueStyle = 'font-size: 1rem; font-weight: 600; color: var(--text-primary, #111827); line-height: 1.1;';
+    // Defensive token + fallback pattern per UI_DESIGN_SYSTEM.md §5.10.
+    // AT-455 (Andre, 2026-10-14): plain figures on one surface — no filled tile
+    // boxes, no coloured numbers. The active tile is marked by its label colour
+    // and a 2px accent line, nothing else.
+    $tileBaseStyle = 'background: transparent; border: 0; border-left: 1px solid var(--border, rgba(0,0,0,0.07)); padding: 4px 12px; min-width: 0;';
+    $tileActiveStyle = 'background: transparent; border: 0; border-left: 1px solid var(--border, rgba(0,0,0,0.07)); box-shadow: inset 0 -2px 0 var(--brand-icon, #0ea5e9); padding: 4px 12px; min-width: 0;';
+    $labelStyle = 'font-size: 0.625rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted, #9ca3af); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+    $valueStyle = 'font-size: 1.0625rem; font-weight: 700; color: var(--text-primary, #111827); line-height: 1.1; font-variant-numeric: tabular-nums;';
 
     // The simplified 5-tile cockpit. Each tile is clickable; clicking sets the
     // matching action_preset query param, which the controller honours.
@@ -64,8 +67,8 @@
 @endphp
 
 <div class="mi-stats-strip"
-     style="padding: 8px 12px; background: var(--surface-2, #f0f2f8); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 6px;">
+     style="padding: 6px 0; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
+            display: grid; grid-template-columns: minmax(230px, 1.6fr) repeat(4, minmax(110px, 1fr)); gap: 0;">
 
     @foreach($tiles as $tile)
         @php $tip = $tile['tip'] ?? ''; @endphp
@@ -77,7 +80,7 @@
                 <div style="display:flex; align-items:baseline; gap:6px;">
                     {{-- Headline = properties_matched (matched canvass listings); buyers is the
                          secondary context so the number never reads as a buyer count. --}}
-                    <span style="{{ $valueStyle }}; color: {{ $tile['properties'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['properties']) }}</span>
+                    <span style="{{ $valueStyle }}; color: {{ $tile['properties'] > 0 ? 'var(--text-primary, #111827)' : 'var(--text-muted)' }};">{{ number_format($tile['properties']) }}</span>
                     <span style="font-size:0.625rem; font-weight:600; color: var(--text-muted, #9ca3af);">{{ \Illuminate\Support\Str::plural('property', $tile['properties']) }} (raw)</span>
                     <span style="font-size:0.625rem; color: var(--text-muted, #9ca3af);">·</span>
                     <span style="font-size:0.8125rem; font-weight:600; color: var(--text-primary, #111827);">{{ number_format($tile['buyers']) }}</span>
@@ -87,7 +90,7 @@
         @elseif($tile['type'] === 'snapshot')
             <div style="{{ $tileBaseStyle }}" title="{{ $tip }}">
                 <div style="{{ $labelStyle }}">{{ $tile['label'] }}</div>
-                <div style="{{ $valueStyle }}; color: {{ $tile['value'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['value']) }}</div>
+                <div style="{{ $valueStyle }}; color: {{ $tile['value'] > 0 ? 'var(--text-primary, #111827)' : 'var(--text-muted)' }};">{{ number_format($tile['value']) }}</div>
             </div>
         @else
             @php
@@ -99,7 +102,7 @@
                style="text-decoration: none; {{ $isActive ? $tileActiveStyle : $tileBaseStyle }} display: block; cursor: pointer;"
                title="{{ $tooltip }}">
                 <div style="{{ $labelStyle }}; color: {{ $isActive ? 'var(--brand-icon)' : 'var(--text-muted)' }};">{{ $tile['label'] }}</div>
-                <div style="{{ $valueStyle }}; color: {{ $tile['value'] > 0 ? $tile['accent'] : 'var(--text-muted)' }};">{{ number_format($tile['value']) }}</div>
+                <div style="{{ $valueStyle }}; color: {{ $tile['value'] > 0 ? 'var(--text-primary, #111827)' : 'var(--text-muted)' }};">{{ number_format($tile['value']) }}</div>
             </a>
         @endif
     @endforeach
@@ -110,7 +113,7 @@
      tabular-nums label on drag, navigate on release (full-page GET, consistent
      with every other MIC filter). Filters the worklist to the band + sorts %-desc. --}}
 <div class="mi-match-band" data-work-url="{{ route('market-intelligence.work', request()->except(['page','score_min','score_max','sort','action_preset'])) }}"
-     style="padding: 6px 12px; background: var(--surface-2, #f0f2f8); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
+     style="padding: 6px 12px; background: var(--surface, #ffffff); border-bottom: 1px solid var(--border, rgba(0,0,0,0.07));
             display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted, #9ca3af);">
     <span style="font-weight:600;">Buyer match %</span>
     <input type="range" id="mic-score-min" min="0" max="100" step="5" value="{{ max(0, min(100, $micScoreMin)) }}" style="flex:1; min-width:120px;">

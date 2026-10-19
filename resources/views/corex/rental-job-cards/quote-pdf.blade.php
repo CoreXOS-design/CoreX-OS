@@ -80,6 +80,17 @@
 
     @include('corex.rental-job-cards._pdf-source')
 
+    {{-- AT-465 - what the crew found / what is needed, from their "Send to office" (the owner sees why the work is quoted). --}}
+    @php $pdfCrewFound = $jobCard->crewReports->filter(fn ($r) => trim((string) $r->findings) !== '')->reverse(); @endphp
+    @if($pdfCrewFound->isNotEmpty())
+        <h2>What our maintenance team found</h2>
+        <div class="box">
+            @foreach($pdfCrewFound as $r)
+                <p>{!! nl2br(e($r->findings)) !!}</p>
+            @endforeach
+        </div>
+    @endif
+
     {{-- 2026-10-05 rebuild (req #6) — same task → lines layout as the show
          screen and the printed job card, not a separate flat list. --}}
     <h2>Our maintenance team's quote</h2>

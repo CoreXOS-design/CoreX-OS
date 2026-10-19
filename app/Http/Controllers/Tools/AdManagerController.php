@@ -153,7 +153,7 @@ class AdManagerController extends Controller
 
         $query = Property::with('agent:id,name')
             ->whereRaw(
-                'LOWER(COALESCE(properties.status, \'\')) NOT IN ('
+                'COALESCE(' . Property::normalisedStatusSql('properties.status') . ', \'\') NOT IN ('
                 . implode(',', array_fill(0, count($adDeadStatuses), '?')) . ')',
                 $adDeadStatuses
             )
@@ -214,7 +214,23 @@ class AdManagerController extends Controller
             'customTemplates' => $customTemplates,
             'platforms'       => $this->platforms(),
             'agency'          => $agency,
+            // AT-456 Part D — the "Schedule" action on the results step (null = user lacks ad_manager.schedule_posts).
+            'schedule'        => $this->scheduleConfig($user),
         ]);
+    }
+
+    /**
+     * AT-456 Part D — what the results step needs to offer "Schedule": null when the user may not schedule
+     * (the button is then not drawn at all), else the routes, the user's connected platforms and the rules.
+     */
+    private function scheduleConfig(User $user): ?array
+    {
+        if (! $user->hasPermission('ad_manager.schedule_posts')) {
+            return null;
+        }
+
+        // One definition, shared with the Company ads list's Post / Schedule (company-ads.md §7).
+        return app(\App\Services\Marketing\ScheduledPostService::class)->panelConfig($user);
     }
 
     /**

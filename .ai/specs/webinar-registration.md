@@ -870,7 +870,7 @@ Per non-negotiable #9, new facts get named past-tense events: `WebinarRegistered
 
 ### §7.1 Sidebar (non-negotiable #2 — same day)
 
-A **Webinars** entry beside **Demo Access** in the owner-only Admin block of `corex-sidebar.blade.php`. Same gate, same section — it is the same job: knowing who is evaluating CoreX.
+A **Webinars** entry beside **Demo Access** in the owner-only System Developer block of `corex-sidebar.blade.php` — since 2026-10-14 (Andre) both sit inside the **Web Access** slide-panel group. Same gate, same section — it is the same job: knowing who is evaluating CoreX.
 
 ### §7.2 Screens — `admin/dev-settings/webinars`, `owner_only`
 

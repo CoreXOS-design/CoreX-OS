@@ -1,18 +1,19 @@
 @extends('layouts.corex-app')
 
 @section('corex-content')
-<div style="max-width:1200px;margin:0 auto;padding:0 20px;">
+<div class="w-full space-y-5">
 
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <div>
-            <a href="{{ route('presentations.show', $presentation) }}"
-               style="font-size:0.75rem;color:var(--text-muted);text-decoration:none;">← Back to presentation</a>
-            <h1 style="font-size:1.25rem;font-weight:600;color:var(--text-primary);margin:6px 0 0 0;">
-                Deliveries — {{ $presentation->property_address ?: ('Presentation #' . $presentation->id) }}
-            </h1>
-            <p style="font-size:0.8125rem;color:var(--text-muted);margin:4px 0 0 0;">
-                Every email, WhatsApp, and copy-URL send for this presentation.
-            </p>
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <a href="{{ route('presentations.show', $presentation) }}" class="text-xs no-underline" style="color:var(--text-muted);">&larr; Back to presentation</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
+                    Deliveries — {{ $presentation->property_address ?: ('Presentation #' . $presentation->id) }}
+                </h1>
+                <p class="text-xs" style="color: var(--text-muted);">
+                    Every email, WhatsApp, and copy-URL send for this presentation.
+                </p>
+            </div>
         </div>
     </div>
 
@@ -37,15 +38,15 @@
                 <tbody>
                 @foreach($deliveries as $d)
                     @php
-                        $statusColors = [
-                            'queued'    => 'background:#e0e7ff;color:#3730a3;',
-                            'sent'      => 'background:#ccfbf1;color:#0f766e;',
-                            'delivered' => 'background:#dcfce7;color:#15803d;',
-                            'opened'    => 'background:#dcfce7;color:#166534;font-weight:600;',
-                            'failed'    => 'background:#fee2e2;color:#991b1b;',
-                            'bounced'   => 'background:#fef3c7;color:#92400e;',
+                        $statusTones = [
+                            'queued'    => 'ds-badge-info',
+                            'sent'      => 'ds-badge-info',
+                            'delivered' => 'ds-badge-success',
+                            'opened'    => 'ds-badge-success',
+                            'failed'    => 'ds-badge-danger',
+                            'bounced'   => 'ds-badge-warning',
                         ];
-                        $statusStyle = $statusColors[$d->status] ?? 'background:var(--surface-2);';
+                        $statusTone = $statusTones[$d->status] ?? 'ds-badge-muted';
                     @endphp
                     <tr style="border-top:1px solid var(--border);">
                         <td style="padding:8px 12px;">
@@ -74,11 +75,11 @@
                             @if($d->mode === 'teaser')
                                 <span class="ds-badge ds-badge-info">Teaser</span>
                             @else
-                                <span class="ds-badge" style="background:var(--surface-2);color:var(--text-secondary);">Full</span>
+                                <span class="ds-badge ds-badge-muted">Full</span>
                             @endif
                         </td>
                         <td style="padding:8px 12px;">
-                            <span class="ds-badge" style="{{ $statusStyle }}">{{ ucfirst($d->status) }}</span>
+                            <span class="ds-badge {{ $statusTone }}">{{ ucfirst($d->status) }}</span>
                             @if($d->error_message)<div style="font-size:0.6875rem;color:#dc2626;margin-top:2px;">{{ \Illuminate\Support\Str::limit($d->error_message, 50) }}</div>@endif
                         </td>
                         <td style="padding:8px 12px;text-align:center;font-variant-numeric:tabular-nums;">

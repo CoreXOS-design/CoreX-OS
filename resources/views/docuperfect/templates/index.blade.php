@@ -88,34 +88,34 @@
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Search templates..."
                        onchange="this.form.submit()"
-                       class="list-header-filter w-full"
+                       class="list-header-filter w-full {{ filled(request('search')) ? 'is-active' : '' }}"
                        style="padding-left: 2.25rem;">
             </div>
 
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter {{ request('status', 'active') !== 'active' ? 'is-active' : '' }}">
                 <option value="active" {{ request('status', 'active') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="archived" {{ request('status') === 'archived' ? 'selected' : '' }}>Archived</option>
             </select>
-            <select name="category" onchange="this.form.submit()" class="list-header-filter">
+            <select name="category" onchange="this.form.submit()" class="list-header-filter {{ filled(request('category')) ? 'is-active' : '' }}">
                 <option value="">All categories</option>
                 <option value="sales" {{ request('category') === 'sales' ? 'selected' : '' }}>Sales</option>
                 <option value="rentals" {{ request('category') === 'rentals' ? 'selected' : '' }}>Rentals</option>
                 <option value="none" {{ request('category') === 'none' ? 'selected' : '' }}>Uncategorized</option>
             </select>
-            <select name="type" onchange="this.form.submit()" class="list-header-filter">
+            <select name="type" onchange="this.form.submit()" class="list-header-filter {{ filled(request('type')) ? 'is-active' : '' }}">
                 <option value="">All types</option>
                 <option value="sales" {{ request('type') === 'sales' ? 'selected' : '' }}>Sales</option>
                 <option value="rental" {{ request('type') === 'rental' ? 'selected' : '' }}>Rental</option>
                 <option value="compliance" {{ request('type') === 'compliance' ? 'selected' : '' }}>Compliance</option>
             </select>
-            <select name="document_type" onchange="this.form.submit()" class="list-header-filter">
+            <select name="document_type" onchange="this.form.submit()" class="list-header-filter {{ filled(request('document_type')) ? 'is-active' : '' }}">
                 <option value="">All doc types</option>
                 @foreach($documentTypes as $dt)
                 <option value="{{ $dt->id }}" {{ request('document_type') == $dt->id ? 'selected' : '' }}>{{ $dt->name }}</option>
                 @endforeach
                 <option value="none" {{ request('document_type') === 'none' ? 'selected' : '' }}>Uncategorized</option>
             </select>
-            <select name="visibility" onchange="this.form.submit()" class="list-header-filter">
+            <select name="visibility" onchange="this.form.submit()" class="list-header-filter {{ filled(request('visibility')) ? 'is-active' : '' }}">
                 <option value="">All visibility</option>
                 <option value="global" {{ request('visibility') === 'global' ? 'selected' : '' }}>Global</option>
                 <option value="branch" {{ request('visibility') === 'branch' ? 'selected' : '' }}>Branch-specific</option>
@@ -124,7 +124,7 @@
                  persisted (session) value when the URL has no explicit
                  ?format=, so a plain revisit of this page remembers the
                  last choice. --}}
-            <select name="format" onchange="this.form.submit()" class="list-header-filter">
+            <select name="format" onchange="this.form.submit()" class="list-header-filter {{ ($format ?? 'all') !== 'all' ? 'is-active' : '' }}">
                 <option value="all" {{ ($format ?? 'all') === 'all' ? 'selected' : '' }}>All documents</option>
                 <option value="pdf" {{ ($format ?? 'all') === 'pdf' ? 'selected' : '' }}>PDF</option>
                 <option value="web" {{ ($format ?? 'all') === 'web' ? 'selected' : '' }}>Web</option>
@@ -198,7 +198,7 @@
                         <div class="font-semibold text-sm leading-tight" style="color: var(--text-primary);">@if($canTransfer)<input type="checkbox" name="ids[]" value="{{ $tpl->id }}" form="tplExportForm" class="mr-1.5 align-middle" aria-label="Select {{ $tpl->name }} for export">@endif{{ $tpl->name }}</div>
                         <div class="flex items-center gap-1 ml-2 flex-shrink-0">
                             @if($tpl->category === 'sales')
-                            <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Sales</span>
+                            <span class="ds-badge ds-badge-info">Sales</span>
                             @elseif($tpl->category === 'rentals')
                             <span class="ds-badge ds-badge-info">Rentals</span>
                             @endif
@@ -214,7 +214,7 @@
                             {{ $tpl->branches->pluck('name')->join(', ') ?: 'No branches' }}
                         @endif
                         @if($tpl->is_esign)
-                            <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">E-Sign</span>
+                            <span class="ds-badge ds-badge-info">E-Sign</span>
                         @endif
                     </div>
                     <div class="text-[0.6875rem] mb-3" style="color: var(--text-muted);">{{ $tpl->page_count }} page{{ $tpl->page_count !== 1 ? 's' : '' }} &middot; {{ $tpl->owner->name ?? '—' }} &middot; {{ $tpl->created_at?->format('d M Y') ?? '—' }}</div>
@@ -224,7 +224,7 @@
                         <svg xmlns="http://www.w3.org/2000/svg" class="w-10 h-10 mb-2" fill="none" viewBox="0 0 24 24" stroke-width="1.5" style="stroke: var(--brand-icon);">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
                         </svg>
-                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">Web Template</span>
+                        <span class="ds-badge ds-badge-info">Web Template</span>
                     </div>
                     @elseif($tpl->page_count > 0)
                     <div class="flex-1 flex items-center justify-center mb-3">
@@ -303,13 +303,13 @@
                                 <td class="px-4 py-2 font-medium" style="color: var(--text-primary);">
                                     @if($canTransfer)<input type="checkbox" name="ids[]" value="{{ $tpl->id }}" form="tplExportForm" class="mr-1.5 align-middle" aria-label="Select {{ $tpl->name }} for export">@endif{{ $tpl->name }}
                                     @if($tpl->is_esign)
-                                        <span class="ds-badge ml-1" style="background: color-mix(in srgb, var(--brand-icon) 15%, transparent); color: var(--brand-icon);">E-Sign</span>
+                                        <span class="ds-badge ds-badge-info ml-1">E-Sign</span>
                                     @endif
                                 </td>
                                 <td class="px-4 py-2">
                                     <div class="flex items-center gap-1 flex-wrap">
                                         @if($tpl->category === 'sales')
-                                        <span class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent); color: var(--brand-icon);">Sales</span>
+                                        <span class="ds-badge ds-badge-info">Sales</span>
                                         @elseif($tpl->category === 'rentals')
                                         <span class="ds-badge ds-badge-info">Rentals</span>
                                         @endif

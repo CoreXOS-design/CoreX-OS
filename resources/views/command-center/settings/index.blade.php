@@ -39,7 +39,7 @@
                                 <p class="text-sm font-medium" style="color:var(--text-primary);">
                                     {{ $rule->name }}
                                     @if($rule->is_system)
-                                        <span class="text-[10px] px-1.5 py-0.5 rounded ml-1" style="background:var(--surface-2); color:var(--text-muted);">System</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-default ml-1">System</span>
                                     @endif
                                 </p>
                                 @if($rule->description)
@@ -47,8 +47,8 @@
                                 @endif
                             </div>
                             <div class="flex items-center gap-2 text-xs" style="color:var(--text-muted);">
-                                <span class="px-2 py-0.5 rounded" style="background:var(--surface-2);">{{ $rule->trigger_model }}</span>
-                                <span class="px-2 py-0.5 rounded" style="background:var(--surface-2);">{{ $rule->trigger_event }}</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-default">{{ $rule->trigger_model }}</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-default">{{ $rule->trigger_event }}</span>
                             </div>
                         </div>
                     @endforeach
@@ -89,7 +89,7 @@
                                 <td class="py-2 px-2 text-xs" style="color:var(--text-muted);">{{ $exp->due_offset_hours }}h</td>
                                 <td class="py-2 px-2">
                                     @if($exp->required)
-                                        <span class="text-xs px-1.5 py-0.5 rounded" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson);">Required</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-danger">Required</span>
                                     @else
                                         <span class="text-xs" style="color:var(--text-muted);">Optional</span>
                                     @endif

@@ -51,6 +51,17 @@
         .crew-job .cj-photos img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .crew-job .cj-confirm { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; font-size: 14px; line-height: 1.4; }
         .crew-job .cj-confirm input { flex: 0 0 26px; width: 26px; height: 26px; margin: 0; }
+        .crew-job .cj-next { border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid #cfe9f2; background: #e6f7fb; }
+        .crew-job .cj-next .lbl { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #076e84; margin-bottom: 4px; }
+        .crew-job .cj-next .txt { font-size: 16px; font-weight: 700; line-height: 1.35; }
+        .crew-job .cj-next.warn { background: #fff8e6; border-color: #f1dfa6; }
+        .crew-job .cj-next.warn .lbl { color: #8a6100; }
+        .crew-job .cj-next.ok { background: #eafaf0; border-color: #bfe6cd; }
+        .crew-job .cj-next.ok .lbl { color: var(--cj-ok); }
+        .crew-job .cj-next.danger { background: #fdecea; border-color: #f0c2bc; }
+        .crew-job .cj-next.danger .lbl { color: #c0392b; }
+        .crew-job .cj-next a.cj-btn { text-decoration: none; margin-top: 10px; }
+        html { scroll-behavior: smooth; }
         .crew-job .cj-banner { background: #eafaf0; border: 1px solid #bfe6cd; color: var(--cj-ok); border-radius: 12px; padding: 14px; font-weight: 700; font-size: 15px; }
     </style>
 
@@ -95,6 +106,17 @@
             </div>
         @endif
     </div>
+
+    {{-- AT-465 - NEXT: what the office needs from the crew right now, one sentence and at most one button (CrewNextBar). --}}
+    @if(! empty($job['next']))
+        <div class="cj-next {{ $job['next']['tone'] }}" data-crew-next>
+            <div class="lbl">Next</div>
+            <div class="txt">{{ $job['next']['text'] }}</div>
+            @if(! empty($job['next']['button']))
+                <a class="cj-btn primary" href="{{ $job['next']['button']['target'] }}" data-next-target="{{ $job['next']['button']['target'] }}">{{ $job['next']['button']['label'] }}</a>
+            @endif
+        </div>
+    @endif
 
     {{-- §17.21.1 plug-in slots — each is empty until its build lands (see CrewApprovalBlock / CrewDisputeBlock). --}}
     @include('rentals.crew-link._block-dispute', ['block' => $job['blocks']['dispute'] ?? []])
@@ -208,7 +230,7 @@
     @elseif($job['is_open'])
         {{-- BUILD 3 — while the tenant has disputed the finished work, the same form reads "Report fixed" (§17.10.6). --}}
         @php $disputed = !empty($job['blocks']['dispute'] ?? []); @endphp
-        <div class="cj-card">
+        <div class="cj-card" id="cj-complete">
             <h2>{{ $disputed ? 'Report fixed' : 'Mark work completed' }}</h2>
             <form method="POST" action="{{ $actions['complete'] }}" class="cj-complete-form">
                 @csrf
@@ -263,6 +285,13 @@
                     var b = upload.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Uploading…';
                 });
             }
+            // The NEXT button scrolls to its target; when that is the Parts & labour card it also opens the add form.
+            root.querySelectorAll('[data-next-target="#cj-pricing"]').forEach(function (a) {
+                a.addEventListener('click', function () {
+                    var d = root.querySelector('details.cj-add-new');
+                    if (d) { d.open = true; }
+                });
+            });
             var complete = root.querySelector('.cj-complete-form');
             if (complete) {
                 complete.addEventListener('submit', function () { var b = complete.querySelector('button[type=submit]'); b.disabled = true; });

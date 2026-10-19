@@ -6,8 +6,10 @@ use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Concerns\ValidatesDocumentUploads;
 use App\Http\Controllers\Controller;
 use App\Models\Lease;
+use App\Models\LeaseNotice;
 use App\Models\RentalLeaseTemplate;
 use App\Services\Rentals\LeaseCaptureService;
+use App\Services\Rentals\LeaseNoticeService;
 use App\Services\Rentals\LeaseRenewalService;
 use App\Services\Rentals\RenewalDraftService;
 use Illuminate\Http\JsonResponse;
@@ -110,30 +112,45 @@ class LeaseRenewalApiController extends Controller
         return $this->recordNotice($request, $lease, Lease::NOTICE_BY_LANDLORD);
     }
 
+    /**
+     * lease-notices.md (audit 2026-10-18, A-M8): same as the web action - a notice given by the tenant or the landlord is NOT written
+     * onto the lease here. It becomes a case waiting for the agent's review (LeaseNoticeService::give, VIA_AGENT); the move-out date and the
+     * readvertise/withdraw/leave outcome are set only when someone with rental_notices.review accepts it.
+     */
     private function recordNotice(Request $request, Lease $lease, string $givenBy): JsonResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+
+        // Backward compatible with the mobile app's original payload (move_out_date / note / notice_outcome): the old names are mapped
+        // to the new ones, notice_date defaults to today, and notice_outcome is accepted but ignored - the reviewer chooses the outcome.
+        $request->merge(array_filter([
+            'intended_end_date' => $request->input('intended_end_date', $request->input('move_out_date')),
+            'reason' => $request->input('reason', $request->input('note')),
+            'notice_date' => $request->input('notice_date', now()->toDateString()),
+        ], fn ($v) => $v !== null));
+
         $validated = $request->validate([
-            'move_out_date' => ['required', 'date'],
-            'note' => ['nullable', 'string', 'max:500'],
-            // .ai/specs/rental-renewals.md §19 — Johan's ruling 2026-10-05:
-            // the agent picks exactly one of the three, every time; no
-            // default, same contract as the web form.
-            'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
+            'notice_outcome' => ['nullable', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
             'show_available_from_on_portals' => ['nullable', 'boolean'],
+            'notice_date' => ['required', 'date', 'before_or_equal:today'],
+            // a bare 'date' rule accepts a mistyped 6-digit year; the 2-year bound is a fixed sanity limit, not a configurable rule
+            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
+            'reason' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'max:' . LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . LeaseNoticeService::ATTACHMENT_MIMES],
+        ], [
+            'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
+            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
         ]);
 
-        $showAvailableFromOnPortals = $validated['notice_outcome'] === Lease::NOTICE_OUTCOME_READVERTISE && $request->has('show_available_from_on_portals')
-            ? $request->boolean('show_available_from_on_portals')
-            : null;
+        unset($validated['notice_outcome'], $validated['show_available_from_on_portals']);
 
         try {
-            $updated = app(LeaseRenewalService::class)->recordNotice($lease, $givenBy, $validated['move_out_date'], $validated['note'] ?? null, $request->user(), $validated['notice_outcome'], $showAvailableFromOnPortals);
+            $notice = app(LeaseNoticeService::class)->give($lease, $givenBy, $validated, LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));
         } catch (ValidationException $e) {
             return response()->json(['error' => $e->errors()], 422);
         }
 
-        return response()->json(['lease' => $updated]);
+        return response()->json(['notice' => $notice, 'lease' => $lease->fresh()]);
     }
 
     /** .ai/specs/rental-renewals.md §19 — JSON mirror of the web action. */

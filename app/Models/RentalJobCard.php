@@ -279,6 +279,12 @@ class RentalJobCard extends Model
         return $this->hasMany(RentalJobCardPriceRequest::class)->orderByDesc('requested_at')->orderByDesc('id');
     }
 
+    /** §17.41 (AT-465) — what the crew reported on each "Send to office", newest first. */
+    public function crewReports(): HasMany
+    {
+        return $this->hasMany(RentalJobCardCrewReport::class)->orderByDesc('id');
+    }
+
     /** §17.12 — an OPEN dispute reopened this card (§17.10). */
     public function isDisputed(): bool
     {
@@ -540,8 +546,24 @@ class RentalJobCard extends Model
     public function assignCrew(RentalCrew $crew, User $by): void
     {
         $this->assertOpen();
+        $previousCrewId = $this->rental_crew_id ? (int) $this->rental_crew_id : null;
         $this->update(['rental_crew_id' => $crew->id]);
         $this->logUpdate('crew_assigned', $by, $crew->name);
+
+        // Audit 2026-10-18 (A-M6): a per-job crew link is made for the crew the card was with at the time. Moving the card to
+        // another crew kills every live link on it, so the earlier crew can no longer tick tasks, upload photos, edit parts and
+        // labour or complete the job; the office issues a fresh link for the new crew. (Mirrors the contractor link, which
+        // goes dead when the work order is given to someone else.)
+        if ($previousCrewId !== null && $previousCrewId !== (int) $crew->id) {
+            $revoked = RentalSecureAccessToken::withoutGlobalScopes()
+                ->where('rental_job_card_id', $this->id)
+                ->where('purpose', RentalSecureAccessToken::PURPOSE_CREW_JOB_CARD)
+                ->whereNull('revoked_at')
+                ->update(['revoked_at' => now()]);
+            if ($revoked > 0) {
+                $this->logUpdate('link_revoked', $by, 'Crew link revoked — the job was moved to another crew');
+            }
+        }
     }
 
     /**

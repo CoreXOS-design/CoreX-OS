@@ -39,6 +39,10 @@ class LeaseSettingsController extends Controller
             'breachRemedyDayBasis' => LeaseSetting::breachRemedyDayBasisFor($agencyId),
             'vacateTime' => LeaseSetting::vacateTimeFor($agencyId),
             'vacateTimeDefault' => LeaseSetting::DEFAULT_VACATE_TIME,
+            'vacateNoticeDays' => LeaseSetting::vacateNoticeDaysFor($agencyId),
+            'vacateNoticeDaysDefault' => LeaseSetting::DEFAULT_VACATE_NOTICE_DAYS,
+            'paymentProofEmail' => LeaseSetting::paymentProofEmailSettingFor($agencyId) ?? '',
+            'agencyEmail' => (string) \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email'),
             // leases.md §18.2 — the agency's default notice / early-cancellation terms.
             'tenantNoticePeriodUnit' => LeaseSetting::tenantNoticePeriodUnitFor($agencyId),
             'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
@@ -107,6 +111,9 @@ class LeaseSettingsController extends Controller
             // rental-notices.md §5 (AT-462) - business or calendar days, and the time of day a notice to vacate asks the tenant out by; same §6.1 has()-guard.
             'breach_remedy_day_basis' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::REMEDY_BASES)],
             'vacate_time' => ['nullable', 'date_format:H:i'],
+            // rental-notices.md §7b (AT-462) - days from sending a notice to vacate to the date the tenant must be out, and where a tenant sends proof of payment; same §6.1 has()-guard.
+            'vacate_notice_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'payment_proof_email' => ['nullable', 'email', 'max:191'],
             // leases.md §18.2 — the same §6.1 has()-guard reasoning for every notice default below.
             'tenant_notice_period_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
             'default_earliest_notice_months' => ['nullable', 'integer', 'min:0', 'max:60'],
@@ -159,6 +166,13 @@ class LeaseSettingsController extends Controller
             if ($request->has($field)) {
                 $data[$field] = $validated[$field] ?? null ?: null; // blank = back to the default
             }
+        }
+        if ($request->has('vacate_notice_days')) {
+            $v = $validated['vacate_notice_days'] ?? null;
+            $data['vacate_notice_days'] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
+        }
+        if ($request->has('payment_proof_email')) {
+            $data['payment_proof_email'] = trim((string) ($validated['payment_proof_email'] ?? '')) ?: null; // blank = the agency's own email
         }
         if ($request->has('cpa_early_cancel_business_days')) {
             $v = $validated['cpa_early_cancel_business_days'] ?? null;

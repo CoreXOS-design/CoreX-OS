@@ -139,7 +139,7 @@ class RentalCatalogueItem extends Model
 
     public function defaultVatType(): BelongsTo
     {
-        return $this->belongsTo(RentalVatType::class, 'default_rental_vat_type_id');
+        return $this->belongsTo(RentalVatType::class, 'default_rental_vat_type_id')->withTrashed();
     }
 
     /** The underlying kind (labour|part) this item's type maps to — what RentalReportService groups by. Never re-derive type-level logic from this; it's a read, not a classification decision. */

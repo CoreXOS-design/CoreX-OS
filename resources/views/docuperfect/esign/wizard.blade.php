@@ -516,8 +516,8 @@
                                                         :style="(ci === (r._searchIdx || 0) ? 'background: var(--surface-2);' : '') + 'border-top: 1px solid var(--border);'">
                                                     <div class="text-sm font-medium flex items-center gap-2" style="color: var(--text-primary);">
                                                         <span x-text="contact.full_name"></span>
-                                                        <span x-show="contact.is_entity" class="ds-badge" style="background: color-mix(in srgb, var(--brand-icon,#0ea5e9) 15%, transparent); color: var(--brand-icon,#0ea5e9);">Company</span>
-                                                        <span x-show="contact.source === 'supplier'" class="ds-badge" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent); color: var(--ds-amber,#f59e0b);">Supplier</span>
+                                                        <span x-show="contact.is_entity" class="ds-badge ds-badge-info">Company</span>
+                                                        <span x-show="contact.source === 'supplier'" class="ds-badge ds-badge-warning">Supplier</span>
                                                     </div>
                                                     <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
                                                         <span x-show="contact.email" x-text="contact.email"></span>

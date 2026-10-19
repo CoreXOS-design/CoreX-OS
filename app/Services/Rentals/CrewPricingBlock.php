@@ -26,8 +26,8 @@ use App\Models\RentalWorkOrderSetting;
 final class CrewPricingBlock
 {
     private const STATES = [
-        RentalJobCardLine::OFFICE_CREW_DRAFT => ['draft', 'Draft — not sent yet'],
-        RentalJobCardLine::OFFICE_AWAITING => ['sent', 'Sent to office'],
+        RentalJobCardLine::OFFICE_CREW_DRAFT => ['draft', 'On your list — not sent yet'],
+        RentalJobCardLine::OFFICE_AWAITING => ['sent', 'Sent — waiting for the office'],
         RentalJobCardLine::OFFICE_ACCEPTED => ['accepted', 'Accepted'],
         RentalJobCardLine::OFFICE_REJECTED => ['rejected', 'Not accepted'],
         RentalJobCardLine::OFFICE_DECLINED_BY_OWNER => ['declined', 'Declined by owner'],
@@ -62,7 +62,7 @@ final class CrewPricingBlock
             $own = ($photos[$l->id] ?? collect());
             $receipt = $own->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->last();
 
-            [$state, $label] = self::STATES[$l->office_status] ?? ['sent', 'Sent to office'];
+            [$state, $label] = self::STATES[$l->office_status] ?? ['sent', 'Sent — waiting for the office'];
 
             return [
                 'id' => $l->id,
@@ -115,6 +115,9 @@ final class CrewPricingBlock
             ] : null,
             'lines' => $rows,
             'draft_count' => collect($rows)->where('state', 'draft')->count(),
+            // AT-465 - how many lines are with the office waiting, and whether this is the crew's first send (findings are then required)
+            'sent_count' => collect($rows)->where('state', 'sent')->count(),
+            'first_send' => ! \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->exists(),
             'catalogue' => $catalogue,
             'photo_limit' => CrewJobService::MAX_LINE_PHOTOS,
         ];

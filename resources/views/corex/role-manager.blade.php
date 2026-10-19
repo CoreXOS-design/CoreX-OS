@@ -139,8 +139,7 @@
                     <div class="w-full lg:w-52 flex-shrink-0 rounded-md overflow-y-auto lg:sticky lg:top-4" style="background:var(--surface); border:1px solid var(--border); max-height:calc(100vh - 8rem);">
                         <div class="px-2 pt-2 pb-2 sticky top-0 z-10" style="background:var(--surface); border-bottom:1px solid var(--border);">
                             <input type="text" x-model="featureSearch" placeholder="Search features…"
-                                   class="w-full text-xs rounded-md px-2 py-1.5"
-                                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); outline:none;">
+                                   class="list-header-filter w-full" :class="featureSearch ? 'is-active' : ''">
                         </div>
                         @foreach($matrixSections as $sectionLabel => $modules)
                             @php

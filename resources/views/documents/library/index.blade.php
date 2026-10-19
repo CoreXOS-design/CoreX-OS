@@ -103,13 +103,12 @@
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
                     <input type="text" name="q" value="{{ request('q') }}"
-                           class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
+                           class="list-header-filter w-full text-sm {{ filled(request('q')) ? 'is-active' : '' }}"
                            placeholder="Name or title...">
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Doc Type</label>
-                    <select name="doc_type" data-tour="docs-filter-type" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select name="doc_type" data-tour="docs-filter-type" class="list-header-filter w-full text-sm {{ filled(request('doc_type')) ? 'is-active' : '' }}">
                         <option value="">All types</option>
                         @foreach($docTypes as $dt)
                             <option value="{{ $dt }}" {{ request('doc_type') === $dt ? 'selected' : '' }}>
@@ -120,7 +119,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Uploaded By</label>
-                    <select name="user_id" class="w-full rounded-md px-3 py-2 text-sm transition-all duration-300 focus:outline-none" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                    <select name="user_id" class="list-header-filter w-full text-sm {{ filled(request('user_id')) ? 'is-active' : '' }}">
                         <option value="">All users</option>
                         @foreach($uploaders as $u)
                             <option value="{{ $u->id }}" {{ request('user_id') == $u->id ? 'selected' : '' }}>
@@ -260,7 +259,7 @@
                                         {{ $item->title ?? $item->original_name }}
                                     </td>
                                     <td class="px-4 py-3">
-                                        <span class="ds-badge"
+                                        <span class="ds-badge ds-badge-pill"
                                               style="background: color-mix(in srgb, var(--brand-icon) 12%, transparent);
                                                      border: 1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent);
                                                      color: var(--brand-icon);">

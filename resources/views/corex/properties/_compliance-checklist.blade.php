@@ -27,8 +27,7 @@
             <span class="text-[10px] cursor-help" style="color:var(--text-muted);"
                   title="Documents your agency requires before this property can be marketed. Ticked = a document of that type is on the Drive (or the seller's drive for FICA). Upload a missing one here and its type is set automatically.">&#9432;</span>
         </div>
-        <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded"
-              style="{{ $allPresent ? 'background:rgba(16,185,129,.15); color:#047857;' : 'background:rgba(245,158,11,.15); color:#b45309;' }}">
+        <span class="ds-badge ds-badge-pill {{ $allPresent ? 'ds-badge-success' : 'ds-badge-warning' }}">
             {{ $presentCount }} / {{ $totalCount }} on file
         </span>
     </div>

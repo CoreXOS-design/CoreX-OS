@@ -6,8 +6,12 @@ namespace Tests\Feature\Rentals\TakeOnImport;
 
 use App\Models\Agency;
 use App\Models\Branch;
+use App\Models\RentalTakeOnImportRow;
 use App\Models\RentalTakeOnImportRun;
+use App\Models\Role;
+use App\Models\RolePermission;
 use App\Models\User;
+use App\Services\PermissionService;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnFieldSchema;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnTemplateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -68,6 +72,83 @@ final class RentalTakeOnImportHttpTest extends TestCase
         $response = $this->actingAs($adminA)->get(route('corex.rentals.take-on-import.show', $runB));
 
         $response->assertNotFound();
+    }
+
+    /**
+     * Audit 2026-10-18 (A-M2): an own-scope user with .view/.manage used to open and act on a colleague's
+     * batch by direct URL (only index() applied visibleTo()).
+     */
+    public function test_an_own_scope_user_cannot_open_or_act_on_a_colleagues_batch_by_direct_url(): void
+    {
+        [$agency, $branch, $admin] = $this->makeAgencyBranchAdmin();
+        $agent = $this->ownScopeAgent($agency, $branch);
+
+        $colleagueRun = RentalTakeOnImportRun::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'user_id' => $admin->id,
+            'status' => RentalTakeOnImportRun::STATUS_PENDING_CONFIRM, 'source_filename' => 'colleague.xlsx',
+        ]);
+        $row = $this->makeRow($colleagueRun);
+
+        $this->actingAs($agent)->get(route('corex.rentals.take-on-import.show', $colleagueRun))->assertNotFound();
+        $this->actingAs($agent)->get(route('corex.rentals.take-on-import.preview', $colleagueRun))->assertNotFound();
+        $this->actingAs($agent)->get(route('corex.rentals.take-on-import.issues', $colleagueRun))->assertNotFound();
+        $this->actingAs($agent)->post(route('corex.rentals.take-on-import.cancel', $colleagueRun))->assertNotFound();
+        $this->actingAs($agent)->post(route('corex.rentals.take-on-import.archive', $colleagueRun))->assertNotFound();
+        $this->actingAs($agent)->post(route('corex.rentals.take-on-import.confirm-bulk', $colleagueRun), ['ids' => [$row->id]])->assertNotFound();
+        $this->actingAs($agent)->post(route('corex.rentals.take-on-import.rows.exclude', $row))->assertNotFound();
+        $this->actingAs($agent)->post(route('corex.rentals.take-on-import.rows.confirm', $row))->assertNotFound();
+
+        $this->assertNull($colleagueRun->fresh()->deleted_at);
+        $this->assertSame(RentalTakeOnImportRun::STATUS_PENDING_CONFIRM, $colleagueRun->fresh()->status);
+        $this->assertSame(RentalTakeOnImportRow::STATUS_PENDING, $row->fresh()->status);
+
+        // The agent's OWN batch is still reachable.
+        $ownRun = RentalTakeOnImportRun::create([
+            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'user_id' => $agent->id,
+            'status' => RentalTakeOnImportRun::STATUS_PENDING_CONFIRM, 'source_filename' => 'mine.xlsx',
+        ]);
+        $this->actingAs($agent)->get(route('corex.rentals.take-on-import.show', $ownRun))->assertOk();
+    }
+
+    /** Audit 2026-10-18 (A-M2): a row of another agency was bindable and its status writable. */
+    public function test_a_row_of_another_agency_cannot_be_excluded_or_confirmed(): void
+    {
+        [$agencyA, , $adminA] = $this->makeAgencyBranchAdmin();
+        [$agencyB, $branchB, $adminB] = $this->makeAgencyBranchAdmin();
+
+        $runB = RentalTakeOnImportRun::create([
+            'agency_id' => $agencyB->id, 'branch_id' => $branchB->id, 'user_id' => $adminB->id,
+            'status' => RentalTakeOnImportRun::STATUS_PENDING_CONFIRM, 'source_filename' => 'b.xlsx',
+        ]);
+        $rowB = $this->makeRow($runB);
+        $this->assertSame($agencyB->id, (int) $rowB->agency_id);
+
+        $this->actingAs($adminA)->post(route('corex.rentals.take-on-import.rows.exclude', $rowB))->assertNotFound();
+        $this->actingAs($adminA)->post(route('corex.rentals.take-on-import.rows.confirm', $rowB))->assertNotFound();
+
+        $this->assertSame(RentalTakeOnImportRow::STATUS_PENDING, $rowB->fresh()->status);
+    }
+
+    private function ownScopeAgent(Agency $agency, Branch $branch): User
+    {
+        Role::firstOrCreate(['name' => 'agent', 'agency_id' => $agency->id], ['label' => 'Agent']);
+        foreach (['rentals_take_on_import.view', 'rentals_take_on_import.manage'] as $key) {
+            RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => $key, 'agency_id' => $agency->id], ['scope' => 'own']);
+        }
+        PermissionService::clearCache();
+
+        return User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent', 'is_active' => true]);
+    }
+
+    private function makeRow(RentalTakeOnImportRun $run): RentalTakeOnImportRow
+    {
+        return RentalTakeOnImportRow::create([
+            'agency_id' => $run->agency_id,
+            'run_id' => $run->id,
+            'row_number' => 1,
+            'payload_json' => ['street_name' => 'Beach Road'],
+            'status' => RentalTakeOnImportRow::STATUS_PENDING,
+        ]);
     }
 
     /**

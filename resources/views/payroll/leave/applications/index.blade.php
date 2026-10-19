@@ -46,8 +46,7 @@
                class="px-3 py-2 text-xs font-semibold transition-all duration-300 inline-flex items-center gap-1.5"
                style="{{ $isActiveTab ? 'border-bottom: 2px solid var(--brand-icon, #0ea5e9); color: var(--brand-icon, #0ea5e9);' : 'border-bottom: 2px solid transparent; color: var(--text-secondary);' }}">
                 {{ $label }}
-                <span class="text-[0.6875rem] px-1.5 py-0.5 rounded-full"
-                      style="background: {{ $isActiveTab ? 'color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent)' : 'var(--surface-2)' }}; color: {{ $isActiveTab ? 'var(--brand-icon, #0ea5e9)' : 'var(--text-muted)' }};">{{ number_format($counts[$key]) }}</span>
+                <span class="ds-badge ds-badge-pill {{ $isActiveTab ? 'ds-badge-info' : 'ds-badge-default' }}">{{ number_format($counts[$key]) }}</span>
             </a>
         @endforeach
     </div>
@@ -61,9 +60,9 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search name or app #…"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+                       class="list-header-filter w-full {{ !empty($q) ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
             </div>
-            <select name="type" class="list-header-filter">
+            <select name="type" class="list-header-filter {{ !empty($typeFilter) ? 'is-active' : '' }}">
                 <option value="">All Types</option>
                 @foreach($leaveTypes as $lt)
                     <option value="{{ $lt->id }}" {{ ($typeFilter ?? '') == $lt->id ? 'selected' : '' }}>{{ $lt->label }}</option>

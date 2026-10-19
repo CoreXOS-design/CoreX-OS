@@ -13,7 +13,7 @@
                     (e.g. Resend on an e-sign request) once interception is off.
                 </p>
             </div>
-            <span class="ds-badge ds-badge-default">{{ number_format($totalCount) }} total</span>
+            <span class="ds-badge ds-badge-default ds-badge-pill">{{ number_format($totalCount) }} total</span>
         </div>
     </div>
 
@@ -23,15 +23,15 @@
         </div>
     @else
         <div class="rounded-md overflow-x-auto" style="background: var(--surface, #fff); border: 1px solid var(--border, #e5e7eb);">
-            <table class="w-full text-xs">
+            <table class="w-full text-xs ds-table">
                 <thead>
-                    <tr style="border-bottom: 1px solid var(--border);">
-                        <th class="text-left px-4 py-2" style="color: var(--text-muted);">Captured</th>
-                        <th class="text-left px-4 py-2" style="color: var(--text-muted);">Environment</th>
-                        <th class="text-left px-4 py-2" style="color: var(--text-muted);">To</th>
-                        <th class="text-left px-4 py-2" style="color: var(--text-muted);">Subject</th>
-                        <th class="text-left px-4 py-2" style="color: var(--text-muted);">Forwarded to sink</th>
-                        <th class="text-right px-4 py-2" style="color: var(--text-muted);"></th>
+                    <tr style="background: var(--surface-2);">
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Captured</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Environment</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">To</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Subject</th>
+                        <th class="text-left px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Forwarded to sink</th>
+                        <th class="text-right px-4 py-2 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);"></th>
                     </tr>
                 </thead>
                 <tbody>

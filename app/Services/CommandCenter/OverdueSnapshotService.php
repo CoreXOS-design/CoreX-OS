@@ -28,12 +28,10 @@ class OverdueSnapshotService
             $threshold = (int) $eff['threshold'];
             $hasDocs = Schema::hasTable('property_documents');
             $props = Property::where('agent_id', $user->id)
-                ->where(function ($q) {
-                    // BUILD_STANDARD §6 — single source of truth for "not live".
-                    // Chasing missing documents on a listing another agency
-                    // already sold is pure noise (AT-350).
-                    $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES);
-                })
+                // BUILD_STANDARD §6 — single source of truth for "not live".
+                // Chasing missing documents on a listing another agency
+                // already sold is pure noise (AT-350).
+                ->onMarket()
                 ->ownStock() // AT-453 — no document chase on another agency's listing
                 ->where('created_at', '<=', now()->subHours($threshold))
                 ->limit(50)->get();

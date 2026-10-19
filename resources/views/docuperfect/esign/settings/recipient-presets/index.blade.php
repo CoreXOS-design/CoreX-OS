@@ -39,8 +39,7 @@
                         <td class="px-4 py-3" style="color: var(--text-primary);">
                             <span class="font-semibold">{{ $preset->name }}</span>
                             @if($preset->is_default)
-                                <span class="ml-1.5 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md"
-                                      style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 18%, transparent); color:var(--ds-amber,#f59e0b);">Default</span>
+                                <span class="ds-badge ds-badge-pill ds-badge-warning ml-1.5">Default</span>
                             @endif
                         </td>
                         <td class="px-4 py-3" style="color: var(--text-muted);">{{ ucfirst($preset->applies_to) }}</td>

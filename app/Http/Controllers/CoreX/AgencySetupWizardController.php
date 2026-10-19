@@ -704,6 +704,8 @@ class AgencySetupWizardController extends Controller
                     'breach_remedy_business_days' => LeaseSetting::breachRemedyBusinessDaysFor($agency->id),
                     'breach_remedy_day_basis' => LeaseSetting::breachRemedyDayBasisFor($agency->id),
                     'vacate_time' => LeaseSetting::vacateTimeFor($agency->id),
+                    'vacate_notice_days' => LeaseSetting::vacateNoticeDaysFor($agency->id),
+                    'payment_proof_email' => LeaseSetting::paymentProofEmailSettingFor($agency->id) ?? '',
                     // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
                     'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
                     'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),
@@ -832,6 +834,8 @@ class AgencySetupWizardController extends Controller
                     'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),
                     'notify_landlord_enabled' => \App\Models\RentalInspectionSetting::notifyLandlordFor($agency->id),
                     'notify_inspector_enabled' => \App\Models\RentalInspectionSetting::notifyInspectorFor($agency->id),
+                    'remind_tenant_by_email' => \App\Models\RentalInspectionSetting::remindTenantByEmailFor($agency->id),
+                    'remind_landlord_by_email' => \App\Models\RentalInspectionSetting::remindLandlordByEmailFor($agency->id),
                     'notify_via_mail_enabled' => \App\Models\RentalInspectionSetting::notifyViaMailFor($agency->id),
                     'notify_via_whatsapp_enabled' => \App\Models\RentalInspectionSetting::notifyViaWhatsappFor($agency->id),
                     'minimum_notice_days' => \App\Models\RentalInspectionSetting::minimumNoticeDaysFor($agency->id),

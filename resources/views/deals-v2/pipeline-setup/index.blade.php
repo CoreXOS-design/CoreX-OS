@@ -75,12 +75,12 @@
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Search templates..."
                        onchange="this.form.submit()"
-                       class="list-header-filter w-full"
+                       class="list-header-filter w-full {{ filled(request('search')) ? 'is-active' : '' }}"
                        style="padding-left: 2.25rem;">
             </div>
 
-            <select name="deal_type" onchange="this.form.submit()" class="list-header-filter">
-                <option value="">All Types</option>
+            <select name="deal_type" onchange="this.form.submit()" class="list-header-filter {{ filled(request('deal_type')) ? 'is-active' : '' }}">
+                <option value="">All types</option>
                 <option value="bond" {{ request('deal_type') === 'bond' ? 'selected' : '' }}>Bond Sale</option>
                 <option value="cash" {{ request('deal_type') === 'cash' ? 'selected' : '' }}>Cash Sale</option>
                 <option value="sale_of_2nd" {{ request('deal_type') === 'sale_of_2nd' ? 'selected' : '' }}>Sale of 2nd</option>

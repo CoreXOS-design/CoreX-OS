@@ -1,0 +1,26 @@
+{"options":[
+ {"name":"Hero Pill","canvasBgMode":"solid","canvasBg":"#0b1220","elements":[
+  {"field":"image_1","x":0,"y":0,"w":1200,"h":628,"zIndex":1},
+  {"field":"gradient","x":0,"y":300,"w":1200,"h":328,"zIndex":2,"gradFrom":"#0b1220","gradTo":"rgba(11,18,32,0)","gradAngle":0},
+  {"field":"title","x":40,"y":440,"w":700,"h":50,"zIndex":3,"fontSize":30,"fontWeight":700,"fontFamily":"Arial","color":"white"},
+  {"field":"price","x":40,"y":500,"w":1200,"h":80,"zIndex":3,"fontSize":56,"fontWeight":"800","color":"#ffffff","bgColor":"#0b1220e6","bgOpacity":0.9},
+  {"field":"agent_name","x":760,"y":590,"w":400,"h":60,"zIndex":3,"fontSize":14,"color":"#ffffff"}
+ ]},
+ {"name":"Split Dark","canvasBgMode":"solid","canvasBg":"#0b1220f0","elements":[
+  {"field":"image_1","x":0,"y":0,"w":600,"h":628,"zIndex":1},
+  {"field":"suburb","x":20,"y":20,"w":300,"h":40,"zIndex":3,"fontSize":22,"color":"#ffffff"},
+  {"field":"color_block","x":600,"y":0,"w":600,"h":628,"zIndex":2,"bg":"#10243f"},
+  {"field":"title","x":640,"y":60,"w":520,"h":60,"zIndex":3,"fontSize":34,"color":"#1f2937"},
+  {"field":"price","x":640,"y":140,"w":520,"h":80,"zIndex":3,"fontSize":56,"color":"#ffffff"},
+  {"field":"custom_text","x":640,"y":240,"w":520,"h":80,"zIndex":3,"fontSize":20,"color":"#ffffff","text":"A beautifully presented family home in a quiet street close to the best schools, shops and the beach with room for everyone"},
+  {"field":"badge","x":640,"y":340,"w":200,"h":40,"zIndex":3,"text":""},
+  {"field":"rocket","x":10,"y":10,"w":50,"h":50},
+  {"field":"watermark","x":0,"y":0,"w":1200,"h":628,"zIndex":2,"opacity":0.4,"fontSize":120,"color":"#ffffff"}
+ ]},
+ {"name":"Broken Colour","canvasBgMode":"solid","canvasBg":"#0b1220","elements":[
+  {"field":"image_1","x":0,"y":0,"w":1200,"h":628,"zIndex":1},
+  {"field":"gradient","x":0,"y":300,"w":1200,"h":328,"zIndex":2,"gradFrom":"#0b1220","gradTo":"rgba(11,18,32,0)","gradAngle":0},
+  {"field":"title","x":40,"y":440,"w":700,"h":50,"zIndex":3,"fontSize":30,"color":"red;\"><script>alert(1)</script>"},
+  {"field":"price","x":40,"y":500,"w":500,"h":80,"zIndex":3,"fontSize":56,"color":"#ffffff"}
+ ]}
+]}
