@@ -53,6 +53,11 @@ class RentalPortalSettingsController extends Controller
             'tenantSeesAgentMarks' => RentalPortalSetting::tenantSeesAgentMarksFor($agencyId),
             'crewLinkAutoSendOnFaultJob' => RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agencyId),
             'faultRecurrenceWindowDays' => RentalPortalSetting::faultRecurrenceWindowDaysFor($agencyId),
+            'ownerReminderHours' => RentalPortalSetting::ownerReminderHoursFor($agencyId),
+            'ownerSecondReminderHours' => RentalPortalSetting::ownerSecondReminderHoursFor($agencyId),
+            'ownerQueueAfterHours' => RentalPortalSetting::ownerQueueAfterHoursFor($agencyId),
+            'linkRenewOnUse' => RentalPortalSetting::linkRenewOnUseFor($agencyId),
+            'quoteMaxAmount' => RentalPortalSetting::quoteMaxAmountFor($agencyId),
             'faqTexts' => collect(RentalPortalSetting::FAQ_KEYS)->mapWithKeys(fn ($k) => [$k => RentalPortalSetting::faqTextFor($agencyId, $k)])->all(),
             'faqDefaults' => RentalPortalSetting::FAQ_DEFAULTS,
         ]);
@@ -222,6 +227,34 @@ class RentalPortalSettingsController extends Controller
     public function updateFaultRecurrenceWindowDays(Request $request): RedirectResponse
     {
         return $this->updateBoundedInt($request, 'fault_recurrence_window_days', 1, RentalPortalSetting::MAX_FAULT_RECURRENCE_WINDOW_DAYS, 'Reported-before window');
+    }
+
+    /** Audit fixes (C-A1) - the owner-chase timings. Each is its own narrow saver: absent or blank = leave alone (onboarding §6.1). */
+    public function updateOwnerReminderHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_reminder_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'First owner reminder (hours)');
+    }
+
+    public function updateOwnerSecondReminderHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_second_reminder_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'Second owner reminder (hours)');
+    }
+
+    public function updateOwnerQueueAfterHours(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'owner_queue_after_hours', 1, RentalPortalSetting::MAX_OWNER_CHASE_HOURS, 'Agent queue after the second reminder (hours)');
+    }
+
+    /** C-D3 - contractor / crew links renew on use. has()-guarded (onboarding §6.1). */
+    public function updateLinkRenewOnUse(Request $request): RedirectResponse
+    {
+        return $this->updateToggle($request, 'link_renew_on_use', 'Links renew when used');
+    }
+
+    /** C-C6 - the largest quote a contractor may enter. Absent or blank = leave alone. */
+    public function updateQuoteMaxAmount(Request $request): RedirectResponse
+    {
+        return $this->updateBoundedInt($request, 'quote_max_amount', 1, RentalPortalSetting::MAX_QUOTE_MAX_AMOUNT, 'Largest quote (R)');
     }
 
     /** AT-452 round 2 - the crew's job link is sent automatically when a job card is made from a fault decision. has()-guarded (onboarding §6.1). */

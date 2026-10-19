@@ -3495,6 +3495,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/crew-page-upcoming-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewPageUpcomingDays'])->name('corex.settings.rental-portal.crew-page-upcoming-days');
         // rental-portal-access.md §22 — fault photos and the Home FAQ wording.
         Route::post('/fault-photo-max-count', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultPhotoMaxCount'])->name('corex.settings.rental-portal.fault-photo-max-count');
+        Route::post('/owner-reminder-hours', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateOwnerReminderHours'])->name('corex.settings.rental-portal.owner-reminder-hours');
+        Route::post('/owner-second-reminder-hours', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateOwnerSecondReminderHours'])->name('corex.settings.rental-portal.owner-second-reminder-hours');
+        Route::post('/owner-queue-after-hours', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateOwnerQueueAfterHours'])->name('corex.settings.rental-portal.owner-queue-after-hours');
+        Route::post('/link-renew-on-use', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateLinkRenewOnUse'])->name('corex.settings.rental-portal.link-renew-on-use');
+        Route::post('/quote-max-amount', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateQuoteMaxAmount'])->name('corex.settings.rental-portal.quote-max-amount');
         Route::post('/fault-recurrence-window-days', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateFaultRecurrenceWindowDays'])->name('corex.settings.rental-portal.fault-recurrence-window-days');
         Route::post('/crew-link-auto-send-on-fault-job', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateCrewLinkAutoSendOnFaultJob'])->name('corex.settings.rental-portal.crew-link-auto-send-on-fault-job');
         Route::post('/tenant-sees-agent-marks', [\App\Http\Controllers\CoreX\RentalPortalSettingsController::class, 'updateTenantSeesAgentMarks'])->name('corex.settings.rental-portal.tenant-sees-agent-marks');
