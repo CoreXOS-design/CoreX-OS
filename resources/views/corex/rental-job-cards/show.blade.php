@@ -377,13 +377,13 @@ function catalogueLinePicker(items, opts) {
     });
 })();
 
-// §17.42 - add / change / archive / restore a line WITHOUT a page reload. Every line form carries data-line-ajax (add | edit | remove | restore) and still posts
+// §17.43 - add / change / archive / restore a line WITHOUT a page reload. Every line form carries data-line-ajax (add | edit | remove | restore) and still posts
 // normally with JavaScript off. With it on: the form is sent by fetch (Accept: application/json), a refusal shows on the row, and on success the parts of the page
 // the change can touch (the "where this job is" strip, the Next bar, and the two columns with the lines, totals and the money card) are re-read from the server
 // and swapped in - so the totals are always the server's own figures, never a client sum - and the scroll stays where it was.
 (function () {
     var HDR = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
-    var REGIONS = ['[data-wo-strip]', '[data-next-step]', '#jc-layout'];
+    var REGIONS = ['ol.wo-strip', 'div.wo-next', '#jc-layout']; // the "where this job is" strip, the Next bar, the two columns
     function scroller() { return document.getElementById('appScroll') || document.scrollingElement || document.documentElement; }
     function A() { return window.Alpine || null; }
 

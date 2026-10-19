@@ -15,7 +15,7 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsPricingFixtures;
 use Tests\TestCase;
 
 /**
- * .ai/specs/rental-work-orders.md section 17.42 (19 Oct 2026) - Line entry, simplified. CrewLineEntryService is the ONE implementation of
+ * .ai/specs/rental-work-orders.md section 17.43 (19 Oct 2026) - Line entry, simplified. CrewLineEntryService is the ONE implementation of
  * the crew's add / change / remove / undo; the per-job link and the crew page both call it. The no-reload row talks JSON to the same routes
  * the plain form posts to (JavaScript off still saves and redirects).
  */

@@ -170,7 +170,7 @@ class CrewJobLinkController extends Controller
 
         return redirect()->route('rentals.crew-job.show', $token)->with('success', 'Thank you — the work has been marked completed. The agency will check it.');
     }
-    // ───────────── §17.5 (Build 1) / §17.42 — the crew's Parts & labour: add / change / remove / undo a draft, send to the office ─────────────
+    // ───────────── §17.5 (Build 1) / §17.43 — the crew's Parts & labour: add / change / remove / undo a draft, send to the office ─────────────
     // The work is CrewLineEntryService's (one implementation, shared with the crew page); this only resolves the token, builds the context
     // and picks the answer: a banner-and-redirect for a plain form post, JSON for the no-reload row.
 

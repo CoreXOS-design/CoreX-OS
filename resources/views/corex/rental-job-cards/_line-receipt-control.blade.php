@@ -1,5 +1,5 @@
 {{--
-    §17.42 - the receipt for a PART line on the office job card: the same two choices the crew link has ("Take photo" / "Choose from
+    §17.43 - the receipt for a PART line on the office job card: the same two choices the crew link has ("Take photo" / "Choose from
     phone"), the same field names (receipt_camera / receipt_file), the same storage (RentalJobCardService::attachLineReceipt - the crew
     path calls it too), shown as the same small thumbnail afterwards (_receipt-thumb). Hidden while the line's Type is Labour (labour has
     no receipt); the page script (show.blade.php) toggles it when the Type changes.

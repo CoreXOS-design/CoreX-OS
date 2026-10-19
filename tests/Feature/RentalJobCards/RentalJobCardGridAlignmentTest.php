@@ -105,7 +105,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->assertMatchesRegularExpression('/title="Edit line"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;/', $html);
     }
 
-    /** §17.42 - the add row ends in a TEXT button ("Add new line"), the same corex button the edit row's Save uses, in a footer under the grid - not a 17px "+". */
+    /** §17.43 - the add row ends in a TEXT button ("Add new line"), the same corex button the edit row's Save uses, in a footer under the grid - not a 17px "+". */
     public function test_the_add_row_ends_in_an_add_new_line_text_button_in_the_footer_not_a_plus_icon(): void
     {
         $html = $this->html();

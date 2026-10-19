@@ -66,7 +66,7 @@
     .jc-addrow-cap { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--brand-icon, #0ea5e9); }
     .jc-addrow form, .jc-addrow > div { padding-top: 2px !important; }
     .jc-addrow input, .jc-addrow select { height: 30px; box-sizing: border-box; }
-    /* §17.42 - the add row and the edit row end in a footer of TEXT buttons (add; or cancel + save), all one height and one weight, right-aligned under the grid */
+    /* §17.43 - the add row and the edit row end in a footer of TEXT buttons (add; or cancel + save), all one height and one weight, right-aligned under the grid */
     .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px 14px; padding-top: 8px; } /* left-aligned: the lines box is 980px wide and scrolls sideways in a narrow panel, so a right-aligned button would sit off screen */
     .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; min-width: 0; }
     .jc-foot-buttons { display: flex; gap: 8px; order: -1; } /* the main button first, then the receipt and markup tools (the DOM keeps fields -> tools -> buttons for the Tab order) */

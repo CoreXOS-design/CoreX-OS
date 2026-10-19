@@ -10,7 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 
 /**
- * .ai/specs/rental-work-orders.md §17.42 — how the two crew controllers answer a line request: the same banner-and-redirect a plain form
+ * .ai/specs/rental-work-orders.md §17.43 — how the two crew controllers answer a line request: the same banner-and-redirect a plain form
  * post always got (JavaScript off keeps working), or JSON for the no-reload row. The work itself is CrewLineEntryService's.
  */
 trait AnswersCrewLineRequests

@@ -8,7 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * .ai/specs/rental-work-orders.md §17.42 — the ONE implementation of the crew's line handlers (add / change / remove / undo).
+ * .ai/specs/rental-work-orders.md §17.43 — the ONE implementation of the crew's line handlers (add / change / remove / undo).
  *
  * `CrewJobLinkController` (the per-job link) and `CrewPageController` (the crew home page) used to carry a full copy each. They now
  * only resolve their token into a `CrewViewContext`, call this, and decide how to answer (a redirect with a banner for a plain form

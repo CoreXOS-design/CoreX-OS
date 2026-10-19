@@ -201,7 +201,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $this->assertSame(RentalCatalogueItem::TYPE_PART, $line->type);
     }
 
-    /** §17.42 (Johan, 19 Oct 2026): reversed from the AT-442 original - a free-typed line with no type and no item is a PART, not Labour. */
+    /** §17.43 (Johan, 19 Oct 2026): reversed from the AT-442 original - a free-typed line with no type and no item is a PART, not Labour. */
     public function test_free_text_line_with_no_type_posted_defaults_to_part(): void
     {
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
