@@ -1,5 +1,5 @@
 {{--
-    AT-460 - the work itself: ONE column header (Item · Description · Type · Unit · Qty · Cost · Selling · VAT · Margin · actions), then a band per task with its lines under it,
+    AT-460 - the work itself: ONE column header (Description · Qty · Cost · Selling · Total · actions - item code, type, unit, VAT and margin sit in a small line under each description; 19 Oct 2026), then a band per task with its lines under it,
     the crew's not-yet-accepted lines inline with Accept / Reject on the row, and the add-line row as a tinted input row on the SAME grid at the foot of each task. The General
     bucket (lines with no task) is the last block. Totals follow in _totals. Every form below posts to the route it always did.
     Receives what show.blade.php has in scope.
@@ -33,6 +33,7 @@
                     @if($isOpen)
                     <form data-keep-scroll method="POST" action="{{ route('corex.rental-job-cards.tasks.toggle', [$jobCard, $task]) }}" class="flex items-center gap-2 flex-1 min-w-0">
                         @csrf
+                        <input type="hidden" name="done" value="{{ $task->is_done ? 0 : 1 }}">{{-- §17.43: set the state, do not flip it --}}
                         <button type="submit" class="flex items-center gap-2 text-left">
                             {{-- the box submits the form itself (requestSubmit keeps the data-keep-scroll handler); the state shown always comes from the server after the reload --}}
                             <input type="checkbox" @checked($task->is_done) onclick="event.preventDefault(); this.form.requestSubmit();" class="rounded">

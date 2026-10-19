@@ -135,7 +135,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                     <input type="hidden" name="notify_landlord_on_crew_completion" value="0">
                     <input type="checkbox" name="notify_landlord_on_crew_completion" value="1" onchange="this.form.submit()" @checked($notifyLandlordOnCrewCompletion)>
-                    Email the landlord when the crew marks the work completed
+                    Email the owner as soon as the work is reported finished (crew or contractor)
                 </label>
             </form>
         </div>
@@ -277,6 +277,31 @@
                 <input type="number" name="fault_recurrence_window_days" value="{{ old('fault_recurrence_window_days', $faultRecurrenceWindowDays) }}"
                        min="1" max="730" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs" style="color: var(--text-muted);">When a tenant fixes a fault themselves and the same kind of fault is reported again on that property within this many days, the agent and the owner are shown &ldquo;Reported before &hellip; the tenant resolved it then&rdquo;. Default 90.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            {{-- Audit fixes 19 Oct 2026 (spec section 29): chasing an owner who has not answered, link renewal, the largest quote --}}
+            @foreach([['owner-reminder-hours', 'owner_reminder_hours', $ownerReminderHours, 'First reminder to the owner (hours with no answer)', 'When a fault has been with the owner this many hours and they have not answered, they are sent a reminder.'], ['owner-second-reminder-hours', 'owner_second_reminder_hours', $ownerSecondReminderHours, 'Second reminder (hours after the first)', 'If there is still no answer this many hours after the first reminder, they are reminded once more.'], ['owner-queue-after-hours', 'owner_queue_after_hours', $ownerQueueAfterHours, 'Put it on my queue (hours after the second reminder)', 'After this many more hours the fault shows on the Command Centre as "owner has not answered", for an agent to phone them.']] as [$route, $field, $val, $label, $help])
+            <form method="POST" action="{{ route('corex.settings.rental-portal.' . $route) }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">{{ $label }}</label>
+                <input type="number" name="{{ $field }}" value="{{ old($field, $val) }}" min="1" max="720" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">{{ $help }}</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            @endforeach
+            <form method="POST" action="{{ route('corex.settings.rental-portal.link-renew-on-use') }}" class="space-y-2">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="checkbox" name="link_renew_on_use" value="1" @checked($linkRenewOnUse)> Contractor and crew links renew each time they are used
+                </label>
+                <p class="text-xs" style="color: var(--text-muted);">A job that runs longer than the link's life (parts on order) keeps working as long as the contractor or crew keep using it.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.quote-max-amount') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Largest quote a contractor may enter (R)</label>
+                <input type="number" name="quote_max_amount" value="{{ old('quote_max_amount', $quoteMaxAmount) }}" min="1" max="99999999" required class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">A quote of R0, or above this, is refused on the contractor's link (it is usually a typing slip).</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.tenant-sees-agent-marks') }}" class="space-y-2">

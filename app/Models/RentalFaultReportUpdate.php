@@ -61,6 +61,10 @@ class RentalFaultReportUpdate extends Model
     // section 22.13 - what was found / the cause was recorded, and the agent's "Who pays" ruling
     public const TYPE_FINDINGS_RECORDED = 'findings_recorded';
     public const TYPE_PAYER_RULED = 'payer_ruled';
+    // audit C-A1 - the owner was reminded (1st / 2nd), the fault was put on the agent's queue because the owner is silent, or the owner could not be told at all
+    public const TYPE_OWNER_REMINDED = 'owner_reminded';
+    public const TYPE_OWNER_SILENT_FLAGGED = 'owner_silent_flagged';
+    public const TYPE_OWNER_NOT_TOLD = 'owner_not_told';
 
     protected $fillable = [
         'agency_id',

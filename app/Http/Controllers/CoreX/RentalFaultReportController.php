@@ -92,6 +92,13 @@ class RentalFaultReportController extends Controller
         } else {
             $query->orderBy("rental_fault_reports.{$sort}", $direction);
         }
+        // section 6.5 (C-C2): an OPEN emergency-type fault sorts above routine ones whatever the column sort (the type's urgency is the agency's own catalogue setting)
+        $query->reorder()->orderByRaw("(rental_fault_reports.status NOT IN ('resolved','cancelled','declined') AND EXISTS (SELECT 1 FROM rental_fault_types ft WHERE ft.id = rental_fault_reports.rental_fault_type_id AND ft.urgency = 'emergency')) DESC");
+        if ($sort === 'property') {
+            $query->orderBy('properties.title', $direction);
+        } else {
+            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        }
 
         $hasAnyFaultReports = RentalFaultReport::query()
             ->when($showArchived, fn ($q) => $q->onlyTrashed())
@@ -166,7 +173,7 @@ class RentalFaultReportController extends Controller
         $query = RentalFaultReport::query()
             ->when($onlyArchived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'createdByUser']);
+            ->with(['property', 'lease.tenants.contact', 'createdByUser', 'faultType']);
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -599,8 +606,9 @@ class RentalFaultReportController extends Controller
         // <type>?" in its own dialog, which posts send_without_contractor=1), and the decision is written to the history either way.
         $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);   // never true for an "Other" fault: the agent picks the contractor when sending
 
+        // section 29 (C-C3) - ONE way to the owner: this old endpoint is the "Send to owner to authorise" action with nobody proposed, through the same service (same gates, same history).
         try {
-            $rentalFaultReport->requestApproval($request->user());
+            app(\App\Services\Rentals\FaultInspectionService::class)->sendToOwnerToAuthorise($rentalFaultReport, $request->user(), []);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
@@ -632,13 +640,7 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
         }
 
-        // "Save and send" posts send_now=1: same two steps, one click, and the send step keeps its own permission.
-        if ($request->boolean('send_now')) {
-            abort_unless($request->user()->hasPermission('rental_fault_reports.send_to_owner'), 403);
-
-            return $this->requestApproval($request, $rentalFaultReport->fresh());
-        }
-
+        // section 29 (C-C3): there is no "save and send" - Save only saves; the one way to the owner is "Send to owner to authorise".
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Owner version saved. Nothing has been sent to the owner yet.');
     }
 
@@ -844,8 +846,8 @@ class RentalFaultReportController extends Controller
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
-        if (!$rentalFaultReport->isDeletable()) {
-            return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
+        if ($reason = $rentalFaultReport->archiveBlockReason()) {
+            return back()->withErrors(['rental_fault_report' => $reason]);
         }
 
         $rentalFaultReport->archive($request->user());

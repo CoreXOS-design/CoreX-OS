@@ -36,7 +36,7 @@ final class CrewDisputeBlock
             return [];
         }
 
-        $tz = $card->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($card->agency);
         $photos = RentalWorkOrderPhoto::withoutGlobalScopes()
             ->where('agency_id', $ctx->agencyId)
             ->where('rental_completion_round_id', $round->id)

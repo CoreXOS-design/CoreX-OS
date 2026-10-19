@@ -33,7 +33,8 @@ class RentalPortalSetting extends Model
     public const DEFAULT_CREW_LINK_SHOW_COSTS = false;
     // AT-459 (Johan, 15 Oct 2026): the crew and the contractor get the tenant's name + phone unless the agency switches it off.
     public const DEFAULT_CREW_LINK_SHOW_TENANT_CONTACT = true;
-    public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = true;
+    /** Audit C-C4: OFF by default - Johan's 14 Oct ruling (spec 22.17 item 6) is that the owner hears at the agent's close; an agency can choose to tell the owner when the work is reported finished (OwnerFinishNotice). */
+    public const DEFAULT_NOTIFY_LANDLORD_ON_CREW_COMPLETION = false;
 
     // .ai/specs/rental-work-orders.md §14.27.3 — Build 2 (crew page + client visibility).
     public const CREW_PHOTOS_IN_PROGRESS_AND_COMPLETED = 'in_progress_and_completed';
@@ -56,6 +57,16 @@ class RentalPortalSetting extends Model
     /** AT-452 round 2 (F-OWNER) - days after a tenant-resolved report within which a new one of the same type is flagged "reported before". */
     public const DEFAULT_FAULT_RECURRENCE_WINDOW_DAYS = 90;
     public const MAX_FAULT_RECURRENCE_WINDOW_DAYS = 730;
+    /** Audit fixes 19 Oct 2026 (C-A1): hours with no owner answer before the first reminder, then the second (after the first), then an agent queue row (after the second). */
+    public const DEFAULT_OWNER_REMINDER_HOURS = 24;
+    public const DEFAULT_OWNER_SECOND_REMINDER_HOURS = 24;
+    public const DEFAULT_OWNER_QUEUE_AFTER_HOURS = 24;
+    public const MAX_OWNER_CHASE_HOURS = 720;
+    /** C-D3: a contractor / crew link's expiry slides forward every time it is used. On unless the agency turns it off. */
+    public const DEFAULT_LINK_RENEW_ON_USE = true;
+    /** C-C6: the largest quote a contractor may enter on their link (Rand). */
+    public const DEFAULT_QUOTE_MAX_AMOUNT = 1000000;
+    public const MAX_QUOTE_MAX_AMOUNT = 99999999;
 
     // Portal security timings and limits (audit 2026-10-19). Each is an agency setting; a blank column resolves to the default.
     /** D12 - how long a browser remembers a portal sign-in. rental-portal-access.md section 28.5 / audit A-L1: absolute 7 days. */
@@ -126,6 +137,7 @@ class RentalPortalSetting extends Model
         'crew_link_auto_send_on_fault_job',
         'fault_recurrence_window_days',
         'portal_remember_days', 'portal_app_token_days', 'portal_api_per_minute', 'portal_photo_link_minutes', 'portal_link_days',
+        'owner_reminder_hours', 'owner_second_reminder_hours', 'owner_queue_after_hours', 'link_renew_on_use', 'quote_max_amount',
         'faq_tenant_notice_question', 'faq_tenant_notice_answer', 'faq_tenant_early_question', 'faq_tenant_early_answer',
         'faq_landlord_notice_question', 'faq_landlord_notice_answer', 'faq_landlord_early_question', 'faq_landlord_early_answer',
         'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no',
@@ -157,6 +169,11 @@ class RentalPortalSetting extends Model
         'portal_api_per_minute' => 'integer',
         'portal_photo_link_minutes' => 'integer',
         'portal_link_days' => 'integer',
+        'owner_reminder_hours' => 'integer',
+        'owner_second_reminder_hours' => 'integer',
+        'owner_queue_after_hours' => 'integer',
+        'link_renew_on_use' => 'boolean',
+        'quote_max_amount' => 'integer',
     ];
 
     private static function boolFor(?int $agencyId, string $column, bool $default): bool
@@ -369,6 +386,36 @@ class RentalPortalSetting extends Model
     public static function portalLinkDaysFor(?int $agencyId): int
     {
         return self::boundedIntFor($agencyId, 'portal_link_days', self::DEFAULT_PORTAL_LINK_DAYS, 1, self::MAX_PORTAL_LINK_DAYS);
+    }
+
+    /** C-A1 - hours with no answer from the owner before the FIRST reminder (1-720; unset = 24). */
+    public static function ownerReminderHoursFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'owner_reminder_hours', self::DEFAULT_OWNER_REMINDER_HOURS, 1, self::MAX_OWNER_CHASE_HOURS);
+    }
+
+    /** C-A1 - hours after the first reminder before the SECOND (1-720; unset = 24). */
+    public static function ownerSecondReminderHoursFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'owner_second_reminder_hours', self::DEFAULT_OWNER_SECOND_REMINDER_HOURS, 1, self::MAX_OWNER_CHASE_HOURS);
+    }
+
+    /** C-A1 - hours after the second reminder before the fault goes on the agent's queue as "owner has not answered" (1-720; unset = 24). */
+    public static function ownerQueueAfterHoursFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'owner_queue_after_hours', self::DEFAULT_OWNER_QUEUE_AFTER_HOURS, 1, self::MAX_OWNER_CHASE_HOURS);
+    }
+
+    /** C-D3 - a contractor / crew link renews its expiry each time it is used. */
+    public static function linkRenewOnUseFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'link_renew_on_use', self::DEFAULT_LINK_RENEW_ON_USE);
+    }
+
+    /** C-C6 - the largest quote (Rand) a contractor may enter on their link. */
+    public static function quoteMaxAmountFor(?int $agencyId): int
+    {
+        return self::boundedIntFor($agencyId, 'quote_max_amount', self::DEFAULT_QUOTE_MAX_AMOUNT, 1, self::MAX_QUOTE_MAX_AMOUNT);
     }
 
     /** One FAQ wording (a question or an answer): the agency's own text when saved and not blank, else the default. */

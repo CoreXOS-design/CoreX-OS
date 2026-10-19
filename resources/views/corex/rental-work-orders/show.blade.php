@@ -788,7 +788,7 @@
                 @if($completeNeedsFindings)
                 <div data-complete-findings>
                     <label class="text-xs font-medium" for="wo-found">What was found <span class="font-normal" style="color: var(--text-muted);">(optional here - the Who pays panel asks for it before a ruling)</span></label>
-                    <textarea id="wo-found" name="found_text" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text') }}</textarea>
+                    <textarea id="wo-found" name="found_text" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text', $whoPaysSvc->carriedFindings($workOrder)) }}</textarea>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>

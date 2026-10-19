@@ -135,7 +135,7 @@ class RentalWorkCompletionRound extends Model
      */
     public function statusText(?string $timezone = null): string
     {
-        $tz = $timezone ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = $timezone ?: \App\Support\AppDate::appTimezone();
         $on = fn ($at) => $at ? $at->copy()->setTimezone($tz)->format('j M Y') : '';
 
         return match ($this->outcome) {

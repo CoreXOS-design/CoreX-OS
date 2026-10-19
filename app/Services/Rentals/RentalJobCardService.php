@@ -306,12 +306,16 @@ class RentalJobCardService
         $jobCard->logUpdate('task_renamed', $by, "{$old} \u{2192} {$description}");
     }
 
-    public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by): void
+    /** §17.43 (audit C-E5): with $done given the task is SET to that state (a retry changes nothing the second time); without it, it flips as before. */
+    public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by, ?bool $done = null): void
     {
         $jobCard->assertContentEditable();
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
 
-        $isDone = ! $task->is_done;
+        $isDone = $done ?? ! $task->is_done;
+        if ((bool) $task->is_done === $isDone) {
+            return;
+        }
         $task->forceFill([
             'is_done' => $isDone,
             'done_by_user_id' => $isDone ? $by->id : null,
@@ -347,6 +351,20 @@ class RentalJobCardService
         $jobCard->logUpdate('task_added', $by, 'Restored: ' . $task->description);
 
         return $task;
+    }
+
+    /**
+     * §17.43 (audit C-E4/C-E5) - the line an earlier request with this retry key already made on this card, if any. Archived lines count:
+     * a replay of an add the person has since removed must not bring the line back. The ONE lookup both the office and the crew add use.
+     */
+    public function lineForClientKey(RentalJobCard $jobCard, ?string $clientKey): ?RentalJobCardLine
+    {
+        if ($clientKey === null || $clientKey === '') {
+            return null;
+        }
+
+        return RentalJobCardLine::withoutGlobalScopes()->withTrashed()
+            ->where('rental_job_card_id', $jobCard->id)->where('client_key', $clientKey)->first();
     }
 
     /**
@@ -446,6 +464,8 @@ class RentalJobCardService
             'custom_vat_rate' => $customVatRate,
             'sort_order' => (int) ($jobCard->lines()->max('sort_order') ?? 0) + 1,
             'created_by_user_id' => $by?->id,
+            // §17.43 - the retry key of the request that made this line (null for a caller without one)
+            'client_key' => $attributes['client_key'] ?? null,
         ]);
 
         // An office line is priced straight away by the one resolver; a crew line stays unpriced until the office accepts it.

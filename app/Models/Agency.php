@@ -675,7 +675,7 @@ class Agency extends Model
      */
     public function outreachTimezone(): string
     {
-        return config('app.timezone') ?: 'Africa/Johannesburg';
+        return config('app.timezone') ?: 'UTC';
     }
 
     /**

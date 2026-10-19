@@ -6,5 +6,6 @@
             @if($amount !== null)<br>Final amount: <strong>R{{ $amount }}</strong>@endif
         </div>
         @if($emergencyBanner)<div class="banner">{{ $emergencyBanner }}</div>@endif
+        @if(! empty($rulingLine))<p data-final-statement-ruling>Who pays has now been decided: <strong>{{ $rulingLine }}</strong>. This updated statement replaces the one sent earlier.</p>@endif
         <p>Your final statement is attached.</p>
 @include('emails.rentals.maintenance._foot')

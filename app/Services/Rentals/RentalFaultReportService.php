@@ -209,15 +209,81 @@ class RentalFaultReportService
                 'rental_fault_report.created',
                 $faultReport,
                 [
-                    'title' => \App\Support\RentalAlertTitle::withProperty($faultReport->isOwnerRequested() ? 'Work requested by the owner' : 'Fault reported', $property),
+                    'title' => \App\Support\RentalAlertTitle::withProperty($faultReport->isOwnerRequested() ? 'Work requested by the owner' : ($faultReport->isEmergencyType() ? 'EMERGENCY fault reported' : 'Fault reported'), $property),
                     'body' => $faultReport->isOwnerRequested() ? $faultReport->title . ' — arrange a contractor and a quote.' : $faultReport->title,
                     'action_url' => $faultReport->isOwnerRequested()
                         ? route('corex.rental-fault-reports.show', ['rentalFaultReport' => $faultReport->id, 'create_work_order' => 1])
                         : route('corex.rental-fault-reports.show', $faultReport->id),
-                    'severity' => 'info',
+                    // section 6.5 (C-C2): an emergency-type fault goes out at the elevated severity the dispatcher already carries ('warning'), whichever route it takes afterwards
+                    'severity' => $faultReport->isEmergencyType() ? 'warning' : 'info',
                     'threshold_hit_at' => now(),
                 ]
             );
+        }
+    }
+
+    /**
+     * Audit fixes (C-A5 / D20): the tenant adds a note and/or photos to their own OPEN fault. Both land on the agent's fault page (a history line, the photos with no
+     * uploader = the tenant); the owner sees nothing new unless the agent shares it (owner-version rules are untouched). The agents hear through their own alert type.
+     *
+     * @param array<int, \Illuminate\Http\UploadedFile> $photos
+     * @return array{notes: int, photos: int}
+     */
+    public function tenantAddsToFault(RentalFaultReport $fault, \App\Models\Contact $contact, ?string $note, array $photos): array
+    {
+        $note = trim(strip_tags((string) $note));
+        if ($note === '' && $photos === []) {
+            throw new \InvalidArgumentException('Write a note or add a photo.');
+        }
+        if (in_array($fault->status, [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED, RentalFaultReport::STATUS_DECLINED], true) || $fault->isTenantSelfResolved()) {
+            throw new \LogicException('This fault is closed. If the problem is back, please report it again.');
+        }
+
+        // files first, rows after: a photo that fails to store leaves nothing behind
+        $storer = app(\App\Services\Images\PropertyImageStorer::class);
+        $paths = [];
+        foreach ($photos as $photo) {
+            $paths[] = ['path' => $storer->store($photo, (int) $fault->property_id), 'size' => $photo->getSize()];
+        }
+        \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $contact, $note, $paths) {
+            foreach ($paths as $p) {
+                $fault->photos()->create([
+                    'agency_id' => $fault->agency_id, 'storage_path' => $p['path'], 'file_size_bytes' => $p['size'],
+                    'client_idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+                ]);
+            }
+            $who = trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')) ?: 'The tenant';
+            $bits = array_filter([$note !== '' ? 'a note: "' . \Illuminate\Support\Str::limit($note, 500) . '"' : null, $paths ? count($paths) . ($paths ? (count($paths) === 1 ? ' photo' : ' photos') : '') : null]);
+            $fault->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_NOTE, null, $who . ' (tenant) added ' . implode(' and ', $bits) . '.');
+        });
+        $this->notifyTenantUpdate($fault, 'Tenant added to a fault', ($note !== '' ? \Illuminate\Support\Str::limit($note, 140) : count($paths) . ' new photo(s)') . ' - ' . $fault->title);
+
+        return ['notes' => $note !== '' ? 1 : 0, 'photos' => count($paths)];
+    }
+
+    /** Audit fixes (C-A5 / D20): the tenant withdraws their own fault (see RentalFaultReport::cancelByTenant for when). A reason is required. */
+    public function tenantWithdraws(RentalFaultReport $fault, \App\Models\Contact $contact, string $reason): void
+    {
+        $reason = trim(strip_tags($reason));
+        if (mb_strlen($reason) < 3) {
+            throw new \InvalidArgumentException('Tell us why you are withdrawing it.');
+        }
+        $fault->cancelByTenant($contact, \Illuminate\Support\Str::limit($reason, 500, ''));
+        $this->notifyTenantUpdate($fault, 'Tenant withdrew a fault', $fault->title . ': ' . \Illuminate\Support\Str::limit($reason, 140));
+    }
+
+    /** The lease's agents (same recipients as a new fault), through the tenant-update alert type; skip-not-fail like notifyCreated(). */
+    private function notifyTenantUpdate(RentalFaultReport $fault, string $title, string $body): void
+    {
+        $property = $fault->property()->withoutGlobalScopes()->first();
+        if (! $property) {
+            return;
+        }
+        foreach (app(LeaseAgentService::class)->recipientsForEvent($fault->lease, $property, (int) $fault->agency_id, null) as $user) {
+            app(NotificationDispatcher::class)->fire($user, 'rental_fault_report.tenant_update', $fault, [
+                'title' => \App\Support\RentalAlertTitle::withProperty($title, $property), 'body' => $body,
+                'action_url' => route('corex.rental-fault-reports.show', $fault->id), 'severity' => 'info', 'threshold_hit_at' => now(),
+            ]);
         }
     }
 

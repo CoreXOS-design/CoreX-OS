@@ -384,12 +384,19 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertSame('declined', $wo->fresh()->contractor_response);
         $this->assertSame('Fully booked this week', $wo->fresh()->contractor_decline_reason);
 
+        // audit fix C-C6: a contractor who declined cannot quote - the server refuses, and the answer is not flipped back
+        $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertSessionHasErrors('quote');
+        $this->assertSame('declined', $wo->fresh()->contractor_response);
+        $this->assertSame(0, $wo->quotes()->count());
+
+        // they change their mind: accept first, then quote
+        $this->post(route('rentals.secure-link.respond', $token), ['answer' => 'accept'])->assertRedirect();
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertRedirect();
         $this->assertSame('quote_uploaded', $wo->fresh()->contractor_response);
         $this->assertSame(1, $wo->quotes()->count());
 
         $types = $wo->updates()->pluck('update_type')->all();
-        $this->assertSame(3, count(array_keys($types, 'contractor_response')), 'accepted, declined, quote - each written to the history');
+        $this->assertSame(4, count(array_keys($types, 'contractor_response')), 'accepted, declined, accepted again, quote - each written to the history');
 
         // and the supplier card shows it, not just a data row
         $card = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->getContent();
@@ -415,7 +422,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '1250.5', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and cartridge'])->assertRedirect();
 
         $alerts = collect($this->agentAlerts());
-        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_responded' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts');
+        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_accepted' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts (its own type since the audit split, C-B1)');
         $quote = $alerts->first(fn ($a) => $a[0] === 'rental_work_order.quote_received');
         $this->assertNotNull($quote, 'the quote alerts the agent');
         $this->assertSame('Quote received - Cape Peninsula Plumbing R1,250.50 - ' . $wo->property->buildDisplayAddress(), $quote[1]);
@@ -861,7 +868,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertContains('rental_work_order.contractor_job_not_sent', $events);
 
         app(Jobs::class)->recordResponse($wo->fresh(), 'accepted');
-        $this->assertContains('rental_work_order.contractor_responded', $events);
+        $this->assertContains('rental_work_order.contractor_accepted', $events);
         app(Jobs::class)->recordResponse($wo->fresh(), 'quote_uploaded');
         $this->assertContains('rental_work_order.quote_received', $events, 'a quote has its own alert type');
         $this->assertSame(4, \Illuminate\Support\Facades\DB::table('notification_event_types')->whereIn('key', [

@@ -47,7 +47,7 @@ class LeaseRenewalApiController extends Controller
     public function draftFromTemplate(Request $request, Lease $lease): JsonResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
-        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', 'exists:rental_lease_templates,id']]);
+        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_lease_templates')]]);
         $terms = $this->validateTerms($request);
         $rentalLeaseTemplate = RentalLeaseTemplate::findOrFail($validated['rental_lease_template_id']);
 

@@ -330,6 +330,8 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\SendLandlordCrewCompletionMail::class);
         // §17.10.1 (BUILD 3) — the same crew completion also opens a completion round: the tenant is asked to check the finished work.
         Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\OpenCompletionRound::class);
+        // Audit C-A3 - the agent who has to check and sign it off is told in-app when the crew marks a job complete.
+        Event::listen(\App\Events\Rentals\RentalJobCardCrewCompleted::class, \App\Listeners\Rentals\NotifyAgentOfCrewCompleted::class);
         // §17.16 (Build 2) — the owner's final statement when a work order closes, whichever route closed it.
         Event::listen(\App\Events\Rentals\RentalWorkOrderClosed::class, \App\Listeners\Rentals\SendOwnerFinalStatement::class);
         // LEASE-AGREEMENT BEGIN (leases.md §15.15 — Build L1, live from Build L3b): SignatureService announces these five
@@ -1109,6 +1111,17 @@ class AppServiceProvider extends ServiceProvider
             return \Illuminate\Cache\RateLimiting\Limit::perMinute(max(60, (int) config('api.staff_per_minute', 600)))
                 ->by($user ? 'staff:' . $user->getAuthIdentifier() : 'ip:' . $request->ip());
         });
+        // Audit fix C-D2 (19 Oct 2026): the public rental links are throttled per TOKEN (hashed), not per address, and a route has exactly ONE of these limiters - the
+        // old string limiters keyed on address only and a route carrying two of them counted every request twice. See config/rental-public-links.php.
+        $tokenKey = fn (\Illuminate\Http\Request $r) => 'tok:' . substr(hash('sha256', (string) $r->route('token')), 0, 32);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_token_per_minute', 30))->by($tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link-heavy', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, (int) config('rental-public-links.heavy_per_token_per_ten_minutes', 60))->by('heavy:' . $tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
 
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();

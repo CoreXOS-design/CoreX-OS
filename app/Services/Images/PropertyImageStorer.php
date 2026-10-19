@@ -51,7 +51,8 @@ class PropertyImageStorer
     public function storeOnDisk(UploadedFile $file, string $directory, string $diskName): string
     {
         $disk = Storage::disk($diskName);
-        $path = $file->store($directory, $diskName);
+        // Section 29 (C-I1 / B19): an iPhone HEIC photo becomes an upright JPEG here, on whichever disk the caller stores to.
+        $path = $this->storeConverted($file, $directory, $diskName) ?? $file->store($directory, $diskName);
         $this->assertStored($disk, $path, 'immediately after the initial write');
 
         // Bake EXIF orientation into the original before downscaling. downscale()
@@ -66,6 +67,29 @@ class PropertyImageStorer
         $this->assertStored($disk, $path, 'after downscale()');
 
         return $path;
+    }
+
+    /**
+     * Section 29 (C-I1 / B19): an iPhone HEIC / HEIF photo becomes an upright, downscaled JPEG here, in the one place every upload goes through. Returns the stored
+     * relative path, or null when the file is not HEIC or cannot be converted on this host (the caller then stores the original, as before).
+     */
+    private function storeConverted(UploadedFile $file, string $directory, string $diskName): ?string
+    {
+        if (! HeicConverter::isHeic($file)) {
+            return null;
+        }
+        $tmp = tempnam(sys_get_temp_dir(), 'heic') . '.jpg';
+        try {
+            if (! HeicConverter::convert((string) $file->getRealPath(), $tmp, $this->maxEdge, $this->quality)) {
+                return null;
+            }
+            $path = rtrim($directory, '/') . '/' . \Illuminate\Support\Str::random(40) . '.jpg';
+            Storage::disk($diskName)->put($path, (string) file_get_contents($tmp));
+
+            return $path;
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /**

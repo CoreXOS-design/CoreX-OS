@@ -178,9 +178,9 @@ class RentalJobCardController extends Controller
     {
         $validated = $request->validate([
             'property_id' => ['required_without_all:fault_report_id,rental_work_order_id', 'nullable', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_work_order_id' => ['nullable', 'exists:rental_work_orders,id'],
-            'fault_report_id' => ['nullable', 'exists:rental_fault_reports,id'],
+            'lease_id' => ['nullable', \App\Rules\FoundInAgency::in('leases')],
+            'rental_work_order_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_work_orders')],
+            'fault_report_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_fault_reports')],
             'title' => ['required', 'string', 'max:191'],
             'access_contact_name' => ['nullable', 'string', 'max:191'],
             'access_contact_phone' => ['nullable', 'string', 'max:50'],
@@ -444,7 +444,7 @@ class RentalJobCardController extends Controller
     /** The timezone this card's agency works in (same source as the outreach window; one place to change when a per-agency column lands). */
     private function agencyTimezone(?\App\Models\Agency $agency): string
     {
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 
     /**
@@ -548,7 +548,7 @@ class RentalJobCardController extends Controller
         }
 
         try {
-            $service->toggleTask($rentalJobCard, $task, $request->user());
+            $service->toggleTask($rentalJobCard, $task, $request->user(), $request->has('done') ? $request->boolean('done') : null);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
@@ -614,7 +614,7 @@ class RentalJobCardController extends Controller
 
         $validated = $request->validate([
             'rental_job_card_task_id' => ['nullable', Rule::exists('rental_job_card_tasks', 'id')->where('rental_job_card_id', $rentalJobCard->id)],
-            'rental_catalogue_item_id' => ['nullable', 'exists:rental_catalogue_items,id'],
+            'rental_catalogue_item_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_catalogue_items')],
             'type' => ['nullable', 'in:labour,part'],
             'description' => ['nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
@@ -625,7 +625,9 @@ class RentalJobCardController extends Controller
             'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ] + $this->receiptRules(), $this->receiptMessages());
+            // §17.43 (audit C-E4) - the retry key of this form: a double tap or a retried request finds the line it already made
+            'client_key' => ['nullable', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/'],
+        ] + $this->receiptRules(), $this->receiptMessages() + ['client_key.regex' => 'That did not save - please try again.']);
         unset($validated['receipt_camera'], $validated['receipt_file']);
         $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
@@ -634,10 +636,21 @@ class RentalJobCardController extends Controller
         }
 
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
-        try {
+        $key = $validated['client_key'] ?? null;
+        $create = function () use ($service, $rentalJobCard, $validated, $request, $task, $key) {
+            // a retried tap: the first try got through and only the answer was lost - answer with that line, add nothing, attach nothing twice
+            if ($existing = $service->lineForClientKey($rentalJobCard, $key)) {
+                return $existing;
+            }
             $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
             // §17.43 - the same receipt component as the crew's: stored against the new line (a part only)
             $service->attachLineReceipt($rentalJobCard, $line, $this->receiptFrom($request), $request->user());
+
+            return $line;
+        };
+        try {
+            // two taps at once with the same key queue here, so the second finds the first one's line
+            $line = $key ? \Illuminate\Support\Facades\Cache::lock("office-line-key:{$rentalJobCard->id}:{$key}:lock", 15)->block(10, $create) : $create();
         } catch (\LogicException $e) {
             return $this->lineProblem($request, $e->getMessage());
         }

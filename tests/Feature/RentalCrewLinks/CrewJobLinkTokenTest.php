@@ -118,7 +118,8 @@ final class CrewJobLinkTokenTest extends TestCase
         $c3 = $this->makeJobCard(['title' => 'Cancelled']);
         $i3 = $this->issue($c3);
         $c3->cancel($this->admin, 'no longer needed');
-        $dead['cancelled'] = '/secure/job-cards/' . $i3['raw_token'];
+        // (audit fix C-A4: a CANCELLED job's link says "This job was cancelled" - asserted below; every other dead link is the one identical page)
+        $this->get('/secure/job-cards/' . $i3['raw_token'])->assertOk()->assertSee('This job was cancelled');
 
         // completed
         $c4 = $this->makeJobCard(['title' => 'Completed']);

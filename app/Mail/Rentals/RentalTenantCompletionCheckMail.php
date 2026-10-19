@@ -47,7 +47,7 @@ class RentalTenantCompletionCheckMail extends BaseSignatureMail
 
     public function content(): Content
     {
-        $tz = $this->workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($this->workOrder->agency);
 
         return new Content(view: 'emails.rentals.tenant-completion-check', with: [
             'agencyName' => $this->agencyName(),

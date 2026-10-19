@@ -32,6 +32,12 @@ use Illuminate\Support\Facades\Storage;
  */
 class RentalWorkOrderService
 {
+    /** Audit C-B2: who reported progress is part of the alert type, so a same-day start then finish (or not fixed) is never swallowed by the per-subject cooldown. */
+    public const EV_OWNER_STARTED = 'rental_work_order.owner_started';
+    public const EV_OWNER_FINISHED = 'rental_work_order.owner_finished';
+    public const EV_TENANT_STARTED = 'rental_work_order.tenant_started';
+    public const EV_TENANT_NOT_FIXED = 'rental_work_order.tenant_not_fixed';
+
     /**
      * §3.2 — a work order raised directly: owner-instructed proactive work,
      * straight from an inspection observation, or (per §3.2's own flagged
@@ -293,7 +299,7 @@ class RentalWorkOrderService
         $this->fireInternal($workOrder, 'rental_work_order.overdue', 'Work order overdue — ' . $this->addressFor($workOrder), $workOrder->title, $workOrder->updated_at);
     }
 
-    private function fireInternal(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $thresholdHitAt = null, ?int $actorUserId = null): void
+    private function fireInternal(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $thresholdHitAt = null, ?int $actorUserId = null, ?\Illuminate\Database\Eloquent\Model $subject = null): void
     {
         $property = $workOrder->property()->withoutGlobalScopes()->first();
         if (! $property) {
@@ -309,7 +315,7 @@ class RentalWorkOrderService
             app(NotificationDispatcher::class)->fire(
                 $user,
                 $eventKey,
-                $workOrder,
+                $subject ?? $workOrder,
                 [
                     'title' => \App\Support\RentalAlertTitle::withProperty($title, $property),
                     'body' => $body,
@@ -434,7 +440,7 @@ class RentalWorkOrderService
         $this->emailContractorUpdate(
             $fresh,
             $previous ? 'Appointment changed' : 'Appointment set',
-            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, $fresh->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg')) . ($note ? ' (' . $note . ')' : '')
+            'The appointment for this job is now ' . \App\Support\AppDate::dateTime($when, \App\Support\AppDate::agencyTimezone($fresh->agency)) . ($note ? ' (' . $note . ')' : '')
                 . ($contractorNote ? ' Note for you from the agent: ' . $contractorNote : '') . '.',
             $byUser,
         );
@@ -593,7 +599,7 @@ class RentalWorkOrderService
                 'agency_id' => $workOrder->agency_id, 'update_type' => 'tenant_progress',
                 'note' => 'Work started - reported by tenant ' . $name . ' (the contractor has arrived)' . ($note ? ': ' . $note : ''),
             ]);
-            $this->notifyAgentOfOwnerAction($workOrder->fresh(), 'rental_work_order.owner_progress', 'Tenant reported the work started - ' . $address, $workOrder->title, now());
+            $this->notifyAgentOfOwnerAction($workOrder->fresh(), self::EV_TENANT_STARTED, 'Tenant reported the work started - ' . $address, $workOrder->title, now());
 
             return;
         }
@@ -627,7 +633,7 @@ class RentalWorkOrderService
         // the SAME tenant-check fields every other tenant answer writes (the agent's Next line reads them): not fixed, who, when, the reason
         $workOrder->mirrorCompletionAnswer(false, $note, $tenant->id);
         $this->storeTenantPhotos($workOrder, $photos);
-        $this->notifyAgentOfOwnerAction($workOrder->fresh(), 'rental_work_order.owner_progress', 'Tenant says it is not fixed - ' . $address, mb_substr($note, 0, 240), now());
+        $this->notifyAgentOfOwnerAction($workOrder->fresh(), self::EV_TENANT_NOT_FIXED, 'Tenant says it is not fixed - ' . $address, mb_substr($note, 0, 240), now());
     }
 
     /** @param array<int, UploadedFile> $photos */
@@ -636,6 +642,52 @@ class RentalWorkOrderService
         foreach (array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile)) as $file) {
             $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null);
         }
+    }
+
+    /**
+     * Audit fix C-A6 (19 Oct 2026): the contractor's OWN optional "I have started" on their private link. Spec 22.18 says the tenant (or the owner when nobody lives
+     * there) normally reports the start; if neither does, a job went from "sent" straight to "completed" and the progress line never moved. This is an additional way
+     * to the SAME state, through the SAME service path as the tenant's / owner's (startProgress, history line, agent alert).
+     * Refused, in the contractor's words: closed job, owner's hold, a job the contractor declined, a job whose cost the owner has not authorised, a job whose go-ahead
+     * has not gone, the agency's own team (their job card carries it). Already in progress is a quiet no-op.
+     *
+     * @throws \LogicException in plain words
+     */
+    public function recordContractorStarted(RentalWorkOrder $workOrder, string $contractorName): void
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL || $workOrder->isOwnerContractor()) {
+            throw new \LogicException('This job does not run through your link.');
+        }
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This job is closed.');
+        }
+        if (app(RentalOwnerHoldService::class)->holdReason($workOrder)) {
+            throw new \LogicException('This job is on hold - please do not attend until you hear from us.');
+        }
+        if ($workOrder->contractor_response === RentalContractorJobService::RESPONSE_DECLINED) {
+            throw new \LogicException('You declined this job. Please accept it first if you can take it after all.');
+        }
+        if (! app(RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
+            throw new \LogicException('This job has not been authorised yet - the agency will tell you when you can go ahead.');
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED || ! $this->goAheadGone($workOrder)) {
+            throw new \LogicException('The agency has not sent you the go-ahead yet.');
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
+            return;
+        }
+        if (app(RentalWorkOrderClientViewService::class)->reportedFinished($workOrder)) {
+            throw new \LogicException('You have already told us the work is finished - the agency will check it and close the job.');
+        }
+
+        $workOrder->startProgress(null, 'Reported by the contractor ' . $contractorName . ' on their link');
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'contractor_progress',
+            'note' => 'Work started - reported by the contractor ' . $contractorName . ' (' . 'they pressed "I have started" on their link).',
+        ]);
+        $this->notifyAgentOfOwnerAction(
+            $workOrder->fresh(), RentalContractorJobService::EV_STARTED, 'Contractor started the work - ' . $this->addressFor($workOrder), $contractorName . ': ' . $workOrder->title, now()
+        );
     }
 
     public function recordOwnerProgress(RentalWorkOrder $workOrder, \App\Models\Contact $owner, string $action, ?string $note = null): void
@@ -660,7 +712,7 @@ class RentalWorkOrderService
                 'note' => 'Work started - ' . $via . (trim((string) $note) !== '' ? ': ' . trim((string) $note) : ''),
             ]);
             $this->notifyAgentOfOwnerAction(
-                $workOrder->fresh(), 'rental_work_order.owner_progress',
+                $workOrder->fresh(), self::EV_OWNER_STARTED,
                 'Owner reported the work started - ' . $this->addressFor($workOrder), $workOrder->title, now()
             );
 
@@ -671,7 +723,7 @@ class RentalWorkOrderService
         // The same job reported done twice opens ONE tenant check, so it is ONE message to the agent.
         if ($round->wasRecentlyCreated) {
             $this->notifyAgentOfOwnerAction(
-                $workOrder->fresh(), 'rental_work_order.owner_progress',
+                $workOrder->fresh(), self::EV_OWNER_FINISHED,
                 'Owner reported the work finished - ' . $this->addressFor($workOrder), $workOrder->title . ' (the tenant has been asked to check)', $round->opened_at ?? now()
             );
         }
@@ -911,6 +963,53 @@ class RentalWorkOrderService
         return $sent;
     }
 
+    /**
+     * Audit C-F2 - the owner's final statement said "Not yet paid" and the ruling came later, so the owner held a statement that contradicts the ruling email. After a
+     * Who-pays ruling on a closed job whose statement already went out, the statement is regenerated (it now shows the ruling) and re-sent ONCE per ruling
+     * (`final_statement_ruling_id`), with a history line. No money flow: CoreX raises no charge (that stays with reOS).
+     */
+    public function resendFinalStatementForRuling(RentalWorkOrder $workOrder, \App\Models\RentalPayerRuling $ruling): int
+    {
+        $workOrder = RentalWorkOrder::withoutGlobalScopes()->find($workOrder->id) ?? $workOrder;
+        if ($workOrder->status !== RentalWorkOrder::STATUS_COMPLETED || (int) $workOrder->final_statement_ruling_id === (int) $ruling->id) {
+            return 0;
+        }
+        $wasSent = $workOrder->updates()->where('update_type', 'note')->where('note', 'like', 'Final statement emailed to the owner%')->exists();
+        if (! $wasSent) {
+            return 0;   // the statement has not gone out yet (or never could): the first one will already show the ruling
+        }
+        // claim first - two rulings racing, or a retry, cannot both send
+        $claimed = RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrder->id)
+            ->where(fn ($q) => $q->whereNull('final_statement_ruling_id')->orWhere('final_statement_ruling_id', '!=', $ruling->id))
+            ->update(['final_statement_ruling_id' => $ruling->id]);
+        if ($claimed === 0) {
+            return 0;
+        }
+        $workOrder = $workOrder->fresh();
+        $workOrder->loadMissing(['property', 'lease', 'agency']);
+        $pdfService = app(RentalDocumentPdfService::class);
+        $contents = $pdfService->finalStatementPdf($workOrder)->output();
+        $filename = $pdfService->finalStatementFilename($workOrder);
+        $agent = $this->senderFor($workOrder, null);
+        $sent = 0;
+        foreach ($this->ownerRecipients($workOrder) as $owner) {
+            $mail = new RentalOwnerFinalStatementMail($workOrder, (string) ($owner->first_name ?? ''), $contents, $filename, $workOrder->emergencyBanner(), $agent, $ruling->summary());
+            if ($this->dispatchMail($owner->email, $mail)) {
+                $sent++;
+            }
+        }
+        $line = $sent > 0 ? 'Updated final statement emailed to the owner - who pays ruled: ' . $ruling->summary() : 'Updated final statement not emailed - no owner email on file';
+        $this->noteSent($workOrder, null, $line);
+        $this->faultForRuling($workOrder)?->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_PAYER_RULED, null, $line);
+
+        return $sent;
+    }
+
+    private function faultForRuling(RentalWorkOrder $workOrder): ?\App\Models\RentalFaultReport
+    {
+        return $workOrder->reported_fault_report_id ? \App\Models\RentalFaultReport::withoutGlobalScopes()->find($workOrder->reported_fault_report_id) : null;
+    }
+
     /** §17.16 — in-app note to the property's agent that extra work was raised (rental_work_order.variation_raised). */
     public function notifyVariationRaised(RentalWorkOrderVariation $variation): void
     {
@@ -925,6 +1024,8 @@ class RentalWorkOrderService
             'Extra work ' . $what . ' — ' . $this->addressFor($workOrder),
             $workOrder->title . ': extra R' . number_format((float) $variation->extra_amount, 2) . ', new total R' . number_format((float) $variation->new_total, 2),
             now(),
+            null,
+            $variation,   // audit C-B5: the subject is THIS request, so a second extra on the same work order within the cooldown is its own alert
         );
     }
 

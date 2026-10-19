@@ -65,7 +65,7 @@ class RentalOwnerNoticeController extends Controller
         [$fault, $wo] = $holds->jobOf($subject);
         $job = $fault ?? $wo;
         $agency = $job->agency;
-        $tz = $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($agency);
         $target = $fault ? ['fault' => $fault->id] : ['wo' => $wo->id];
 
         return response()->view('rentals.owner-notice', [

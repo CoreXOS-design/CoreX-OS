@@ -94,6 +94,7 @@ class RentalJobCardLine extends Model
         'reject_reason',
         'rental_job_card_price_request_id',
         'rental_work_order_variation_id',
+        'client_key',
     ];
 
     protected $casts = [
