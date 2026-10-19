@@ -7031,6 +7031,36 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * Per-party role-block expansion for the download-only (paper) copy — the same
+     * normalize + expandWithLooping pair, over the same recipients, that the step-6
+     * preview runs (templatePages()). Returns the input untouched when there are no
+     * recipients to loop over. Nothing here is persisted.
+     *
+     * @param  list<array<string, mixed>> $rawRecipients
+     * @param  array<string, mixed>       $webTemplateData
+     */
+    private function expandRoleBlocksForPaper(Template $template, Flow $flow, string $html, array $rawRecipients, $user, array $webTemplateData): string
+    {
+        $wizardRecipients = $this->buildTransientSignatureRequestsForPreview(
+            $flow,
+            $this->expandEntityRecipients($rawRecipients, $user),
+        );
+        if ($wizardRecipients->isEmpty()) {
+            return $html;
+        }
+
+        $html = app(\App\Services\Docuperfect\RoleBlockNormalizer::class)->normalize($html);
+        $html = app(\App\Services\Docuperfect\RoleBlockExpansionService::class)
+            ->expandWithLooping($template, $html, $wizardRecipients);
+
+        return app(\App\Services\Docuperfect\CanonicalDocumentRenderer::class)
+            ->applyFillReviewAuthoritativeOverlay(
+                $html,
+                is_array($webTemplateData['_fill_review_overlay'] ?? null) ? $webTemplateData['_fill_review_overlay'] : [],
+            );
+    }
+
+    /**
      * Map a canonical role token (owner_party / acquiring_party / agent)
      * back to the wizard-side aliases that may carry recipients.
      *
@@ -7444,7 +7474,18 @@ class ESignWizardController extends Controller
                 $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
             }
 
-            $webTemplateData['merged_html'] = $styles . $bodyHtml;
+            // HOTFIX 2026-10-19 — the printed copy must carry one domicilium / address block
+            // per party exactly as the step-6 preview and the e-sign document do. Download-only
+            // has no SignatureTemplate (so no compose()), and merged_html is what the PDF prints,
+            // so the per-party expansion has to happen here.
+            $webTemplateData['merged_html'] = $this->expandRoleBlocksForPaper(
+                $template,
+                $flow,
+                $styles . $bodyHtml,
+                $recipients,
+                $user,
+                $webTemplateData,
+            );
         }
 
         $document = Document::create([
@@ -7980,7 +8021,15 @@ class ESignWizardController extends Controller
 
         $user = $request->user();
         $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId); // AT-267 / AUDIT 2026-07-26 (F3)
-        $mergedHtml = $document->web_template_data['merged_html'] ?? '';
+        // HOTFIX 2026-10-19 — a wet-ink document stores its composed, per-party-expanded canonical
+        // (composeAndStore at send); its merged_html is the UN-expanded template output (one block
+        // per role) and must stay that way, because compose() expands it. Print what was composed,
+        // minus the on-screen add-condition controls. Download-only documents carry no canonical and
+        // keep printing merged_html, which prepareDownloadOnly() expands when it is built.
+        $canonicalHtml = trim((string) ($document->web_template_data['canonical_html'] ?? ''));
+        $mergedHtml = $canonicalHtml !== ''
+            ? '<style>.btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn{display:none !important;}</style>' . $canonicalHtml
+            : ($document->web_template_data['merged_html'] ?? '');
 
         if (empty($mergedHtml)) {
             abort(404, 'Document content not available for PDF generation.');
