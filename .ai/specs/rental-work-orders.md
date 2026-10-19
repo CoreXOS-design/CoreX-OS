@@ -5236,3 +5236,28 @@ Tests: `RentalMaintenanceFlow/LineMarkupGridTest.php`.
 - **A-M6** Moving a job card to a different crew (`RentalJobCard::assignCrew`) revokes every live per-job crew link on the card and logs `link_revoked`; the office issues a fresh link for the new crew. Test: `CrewJobLinkTokenTest`.
 - **A-M7** `RentalJobCardController::store` requires each supplied property / lease / work order / fault report id to be `visibleTo($user)` (404 otherwise); `RentalJobCardService::createStandalone` drops a `lease_id` that is not on the resolved property (falls back to the work order's / fault report's own lease). Tests: `RentalJobCardScopeGuardTest`, `RentalJobCardAt442FollowUpTest`.
 - **A-L8/L9** Work order `create()` only pre-fills from an inspection the user may see; `store()`/`storeBatch()` require every observation to belong to an inspection of the posted property that the user may see (and the named inspection to be that one). Test: `RentalWorkOrderAuditFixesTest`.
+
+### 17.42 Line entry (simplified, 19 Oct 2026) — crew link first, then the office job card (Johan approved 19 Oct; QA1)
+
+**Johan:** "I would really let them add, and once done with a line there's an 'add new line', click it and add - not click this and that before adding a new line." Investigation: `/root/audit-crew-lines-2026-10-19.md` (about 33 steps and 3 reloads on the crew link; about 27 steps and 3 reloads on the office card).
+**No rule changes, no migration, no new setting (so nothing for the Setup Wizard).** Parts carry cost; labour carries hours only; the crew never sees markup or a selling price; crew lines stay drafts until the one "Send to office" (§17.41, AT-465); nothing is ever hard-deleted.
+
+**One service for the line handlers.** `CrewLineEntryService` is the single implementation of add / change / remove / restore for a crew line. `CrewJobLinkController` (per-job link) and `CrewPageController` (crew home page) both call it, so there is no second copy to drift. They differ only in the `CrewViewContext` they build, where they redirect, and the crew-page audit line. Each handler answers a normal form post with the same redirect-and-banner as before (JS-off keeps working), and a fetch (`Accept: application/json`) with the saved line as JSON, or a 422 `{message}` in plain language.
+
+#### Part A - crew link (built first)
+1. **One blank row, open by default.** The "+ Add a part or labour" toggle and the "Change this line" panel are gone. The Parts & labour card always shows one blank row. **"Add new line"** saves the row by fetch (no reload, scroll position kept), shows the saved line in the list above and opens a fresh blank row with focus. Errors appear inline on the row, in the server's own plain-language words. A client key on each row stops a retried tap creating a double (the same key returns the line already saved).
+2. **A picked catalogue item is not asked again.** Part or labour, unit and cost come from the item: the type chip, the unit box and (for labour) the cost are hidden while an item is picked; a part's cost stays editable (the crew types what they actually paid). A free-typed row defaults to Part and shows a small "Part | Labour" choice only while no item is picked (free-typed labour exists, AT-459).
+3. **Receipt camera on each part row** (`accept=image/*`, `capture=environment`), the existing `crew_receipt` photo type against the line (not one of the up-to-3 photos, never shown to the owner or tenant). Taken before the line is saved, it travels with the save; taken on a saved draft, it uploads at once against that line.
+4. **Remove has Undo.** Remove archives (soft delete) and the row shows "Removed - Undo" for the rest of the page; Undo restores the same line (`CrewJobService::restoreDraft`, own draft of this card only). A restore of a line that was already sent is refused.
+5. **JS off still works.** The existing `lines.store / update / archive` routes and their redirects are kept; one new route per context (`lines.restore`) serves Undo.
+6. **The crew still never sees** markup, selling price, margin or labour money (`CrewPayloadNeverCarriesSellingTest`).
+
+#### Part B - office job card (after Part A is reported)
+1. **Add, edit and remove with no reload**; edit in place; Remove has Undo (archive and restore; the restore route already exists).
+2. **Markup** sits behind a "Markup" link on each line instead of its own row under every line.
+3. **A free-typed (non-catalogue) office line defaults to Part**, not Labour (Johan's ruling). Was: the first configured type, usually Labour (`RentalJobCardService::addLine`).
+4. **Office receipt photo on a part line**: the same component as the crew's (Johan approved), stored the same way (`crew_receipt` against the line, supersedes on replace).
+5. **Buttons match in size and line up** (the §14.24 grid is kept).
+6. Reuse the CoreX components exactly; no restyled lookalikes.
+
+**Tests.** `RentalMaintenanceFlow/LineEntryServiceTest` (add, edit, archive/undo, Part default, receipt attach, crew payload carries no markup); existing crew-line tests updated where the page shape changed.
