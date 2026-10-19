@@ -19,7 +19,7 @@
                     <h3 id="cxod-title" class="cxod-title">Record the owner's decision</h3>
                     <p class="cxod-sub">Use this when the owner has told you their decision by phone, WhatsApp or email. It is saved under your name and cannot be edited afterwards &mdash; it can only be replaced by a newer one, until a work order is created. The owner is emailed what you write down and can query it.</p>
                     @if($roActive && $roActive->isCaptured())
-                        <p class="cxod-warn" data-owner-decision-replaces>A decision is already recorded ({{ $roActive->isAuthorised() ? 'Send someone to look and quote' : 'Declined' }}, {{ $roActive->created_at?->copy()->setTimezone($roTz)->format('j M Y H:i') }}). Saving this replaces it; both stay in the history.</p>
+                        <p class="cxod-warn" data-owner-decision-replaces>A decision is already recorded ({{ $roActive->isAuthorised() ? 'Owner said send a contractor out for a quote' : 'Declined' }}, {{ $roActive->created_at?->copy()->setTimezone($roTz)->format('j M Y H:i') }}). Saving this replaces it; both stay in the history.</p>
                     @endif
                     <form method="POST" action="{{ route('corex.rental-fault-reports.owner-decision.store', $faultReport) }}" enctype="multipart/form-data" class="space-y-3" data-owner-decision-form>
                         @csrf
@@ -35,7 +35,7 @@
                         <div>
                             <span class="cxod-lbl">What did the owner decide?</span>
                             <div class="flex flex-wrap gap-4 mt-1 text-sm">
-                                <label class="flex items-center gap-2"><input type="radio" name="decision" value="authorise" x-model="decision" required data-od-decision="authorise"> Send someone to look and quote</label>
+                                <label class="flex items-center gap-2"><input type="radio" name="decision" value="authorise" x-model="decision" required data-od-decision="authorise"> Spoke / WhatsApped owner — owner said send a contractor out for a quote</label>
                                 <label class="flex items-center gap-2"><input type="radio" name="decision" value="declined" x-model="decision" data-od-decision="declined"> Declined</label>
                             </div>
                         </div>

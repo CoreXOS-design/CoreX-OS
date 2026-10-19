@@ -55,6 +55,10 @@ return [
     'awaiting_quote' => [
         'agent' => 'Created', 'owner' => 'Waiting for a quote', 'tenant' => 'Created',
     ],
+    // AT-452 quote-first (Johan, 12 Oct 2026): a contractor was authorised to look and quote; the quote has not landed yet. Same words for everyone.
+    'awaiting_contractor_quote' => [
+        'agent' => "Waiting for the contractor's quote", 'owner' => "Waiting for the contractor's quote", 'tenant' => "Waiting for the contractor's quote",
+    ],
     'approved_to_send' => [
         'agent' => 'Approved - ready to send', 'owner' => 'Approved - being arranged', 'tenant' => 'Created',
     ],

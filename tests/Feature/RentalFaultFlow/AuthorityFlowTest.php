@@ -709,4 +709,73 @@ final class AuthorityFlowTest extends TestCase
         $f->fresh()->recordApproval($this->landlord, ['decision' => 'approved', 'approval_route' => 'agency_appoints', 'evidence_type' => 'portal']);
         $this->assertSame('Owner approved', app(RentalFaultProgressService::class)->forFault($f->fresh(), 'tenant')['current_label']);
     }
+
+    // ── quote-first (Johan, 12 Oct 2026): "owner said send a contractor out for a quote" ──
+
+    public function test_the_agents_option_uses_johans_wording_and_keeps_the_channel_picker(): void
+    {
+        $f = $this->fault();
+        $f->requestApproval($this->agent);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $f->fresh()))->assertOk()->getContent();
+        $this->assertStringContainsString('Spoke / WhatsApped owner — owner said send a contractor out for a quote', $html);
+        $this->assertStringNotContainsString('> Send someone to look and quote</label>', $html, 'the agent form no longer uses the old wording');
+        foreach (['value="phone_call"', 'value="whatsapp"', 'value="email"'] as $channel) {
+            $this->assertStringContainsString($channel, $html);
+        }
+    }
+
+    public function test_after_a_captured_quote_instruction_every_audience_reads_waiting_for_the_contractors_quote_until_the_quote_lands(): void
+    {
+        $f = $this->fault();
+        $f->requestApproval($this->agent);
+        $this->record($f->fresh(), ['told_via' => 'whatsapp', 'note' => 'Lenny WhatsApped: get the plumber to quote'])->assertSessionHasNoErrors();
+        $f = $f->fresh();
+        $supplier = $this->supplier('Quote Plumbing');
+        $result = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($f, $this->agent, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id]);
+        $wo = RentalWorkOrder::withoutGlobalScopes()->findOrFail($result['work_order']->id ?? $f->fresh()->rental_work_order_id);
+        $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->status, 'a job raised from the owner\'s go-ahead goes straight out to the contractor');
+        $auth = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        $view = app(\App\Services\Rentals\RentalWorkOrderClientViewService::class);
+        $progress = app(RentalFaultProgressService::class);
+        $words = "Waiting for the contractor's quote";
+
+        $this->assertFalse($auth->hasCostAuthority($wo), 'authority to send someone to QUOTE is never authority for the cost');
+        $this->assertTrue($view->awaitingContractorQuote($wo));
+        foreach (['tenant', 'landlord', 'agent'] as $aud) {
+            $this->assertSame($words, $view->stageLabel($wo, $aud), $aud);
+        }
+        foreach (['tenant', 'owner', 'agent'] as $aud) {
+            $p = $progress->forFault($f->fresh(), $aud);
+            $this->assertSame($words, $p['current_label'], $aud);
+        }
+        // the owner's own screen keeps saying the instruction was captured by the agent, with the channel
+        $payload = $auth->ownerPayload($f->fresh());
+        $this->assertStringContainsString('on your instruction, given by WhatsApp', $payload['sentence']);
+
+        // the quote lands: the waiting line goes and the ordinary cost-authority flow takes over (the owner is asked for the amount)
+        $quote = $wo->recordQuote(['agency_service_provider_id' => $supplier->id, 'amount' => 4200, 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace the tap'], $this->agent);
+        $wo->selectQuote($quote, $this->agent);
+        $this->assertFalse($view->awaitingContractorQuote($wo->fresh()));
+        $this->assertNotSame($words, $progress->forFault($f->fresh(), 'owner')['current_label']);
+        $this->assertNotSame($words, $view->stageLabel($wo->fresh(), 'landlord'));
+    }
+
+    public function test_the_waiting_line_does_not_appear_without_a_quote_instruction_or_for_the_owners_own_contractor(): void
+    {
+        $view = app(\App\Services\Rentals\RentalWorkOrderClientViewService::class);
+        $f = $this->fault();
+        $wo = RentalWorkOrder::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'property_id' => $this->property->id, 'assignment_type' => RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
+            'reported_by_type' => RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_by_user_id' => $this->agent->id, 'title' => 'Tap', 'description' => 'Tap', 'trade_type' => 'plumbing',
+            'status' => RentalWorkOrder::STATUS_ORDERED, 'owner_approval_status' => RentalWorkOrder::APPROVAL_NOT_REQUIRED, 'reported_at' => now(), 'created_by_user_id' => $this->agent->id,
+        ]);
+        $this->assertFalse($view->awaitingContractorQuote($wo), 'no look-and-quote authority recorded');
+        RentalAuthorisation::withoutGlobalScopes()->forceCreate([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $wo->id, 'point' => RentalAuthorisation::POINT_INSPECT, 'outcome' => RentalAuthorisation::OUTCOME_AUTHORISED,
+            'basis' => 'owner_instruction', 'told_at' => now(), 'by_user_id' => $this->agent->id, 'created_at' => now(),
+        ]);
+        $this->assertTrue($view->awaitingContractorQuote($wo->fresh()));
+        $wo->forceFill(['assignment_type' => RentalWorkOrder::ASSIGNMENT_OWNER_CONTRACTOR, 'contractor_name' => 'Owner Bob'])->save();
+        $this->assertFalse($view->awaitingContractorQuote($wo->fresh()), 'the owner arranges and pays their own contractor');
+    }
 }
