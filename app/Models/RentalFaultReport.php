@@ -290,7 +290,7 @@ class RentalFaultReport extends Model
 
     public function approvals(): HasMany
     {
-        return $this->hasMany(RentalApproval::class)->orderByDesc('created_at');
+        return $this->hasMany(RentalApproval::class)->orderByDesc('created_at')->orderByDesc('id');   // newest first; id breaks a tie (a decision changed within the same second must still win)
     }
 
     /**

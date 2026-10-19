@@ -318,6 +318,10 @@ final class FaultScreenSimplifiedTest extends TestCase
         $f = $f->fresh();
         $this->assertNotSame(RentalFaultReport::STATUS_DECLINED, $f->status);
         $this->assertSame(RentalFaultReport::STATUS_APPROVED, $f->status);
+        $after = $this->page($f);
+        $this->assertStringContainsString('Owner approved by phone call', $after, 'the bar reads the NEWER decision');
+        $this->assertStringContainsString('Lenny rang back: go ahead after all', $after);
+        $this->assertSame('Lenny rang back: go ahead after all', $f->decision()->evidence_text, 'the standing decision is the newest, even inside the same second');
 
         $this->assertSame(2, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->where('point', 'inspect')->count(), 'both entries stay');
         $this->assertSame(1, RentalAuthorisation::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->where('point', 'inspect')->whereNull('superseded_at')->count());
