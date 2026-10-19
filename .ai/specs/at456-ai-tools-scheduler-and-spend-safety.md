@@ -542,7 +542,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 
 **Multi-agency.** Pattern rows are per agency (pinned to the agency being worked in, also for an owner account); nothing defaults to any one agency's agents, days or wording.
 
-**Tests:** `tests/Feature/Tools/ScheduleByAgentTest.php` (A to Z slots, own order + missing agents, too-many refusal saves nothing, a full week × 5, past-midnight, 5-minute rule, company ad / out-of-scope listing refused, pattern remembered + handed to the page + second agency isolated, `orderAgents`).
+**Tests:** `tests/Feature/Tools/ScheduleByAgentTest.php` (A to Z slots, own order + missing agents, too-many refusal saves nothing, a full week × 5, past-midnight, 5-minute rule, company ad / out-of-scope listing refused, pattern remembered + handed to the page + second agency isolated, `orderAgents`). Green 2026-10-19: 9/9, and `ScheduledPostsTest` 41/41 unchanged.
 
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
