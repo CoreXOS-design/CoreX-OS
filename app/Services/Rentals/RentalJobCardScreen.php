@@ -23,7 +23,7 @@ final class RentalJobCardScreen
     /** @return array{steps: array, returned: array, next: array, authorised: array, tz: string} */
     public function build(RentalJobCard $card, array $stage, array $c): array
     {
-        $tz = $card->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($card->agency);
         $fmt = fn ($d) => $d ? AppDate::dateTime($d, $tz) : null;
         $wo = $card->workOrder;
         $costActive = $wo ? app(RentalAuthorisationService::class)->activeFor($wo, RentalAuthorisation::POINT_COST) : null;

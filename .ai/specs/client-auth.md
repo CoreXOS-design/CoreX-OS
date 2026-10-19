@@ -81,7 +81,7 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | `id` | bigint pk |
 | `contact_id` | FK contacts |
 | `agency_id` | FK agencies |
-| `event` | enum: `lookup`, `otp_sent`, `otp_verified`, `otp_failed`, `password_set`, `password_changed`, `password_login_success`, `password_login_failed`, `password_reset_by_agent`, `agency_selected`, `agency_locked`, `logout`, `screen_viewed`, `account_deleted` (self-service, one row per linked agency/contact — see "Account deletion") |
+| `event` | enum: `lookup`, `otp_sent`, `otp_verified`, `otp_failed`, `password_set`, `password_changed`, `password_login_success`, `password_login_failed`, `password_reset_by_agent`, `agency_selected`, `agency_locked`, `logout`, `screen_viewed`, `contact_link_withheld` (a sign-in matched a tenancy party the agency has not given portal access - see "Rental parties are never linked by email code"), `account_deleted` (self-service, one row per linked agency/contact — see "Account deletion") |
 | `meta` | json (e.g. screen name, agency_id chosen) |
 | `ip` | string |
 | `user_agent` | string |
@@ -102,7 +102,9 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 ### Sanctum
 - Token name: device name from app (`"iPhone 15 — André"`)
 - Ability: `client` (distinct from agent tokens which have no/different abilities)
-- Expiry: 30 days, sliding (renewed on use via middleware)
+- Expiry: `portal_app_token_days` (an agency setting on `rental_portal_settings`, default 30, 1-90) counted from the token's LAST use, sliding: `AuthenticateClientPortal::renewAppToken` pushes `expires_at` forward at most once an hour on any authenticated `/client*` call. A web-portal tab token (12 hours) and the 15-minute activation token are never extended. (Built 2026-10-19 - the 30 days used to be fixed.)
+- Agency: a token remembers the agency it works in (`personal_access_tokens.agency_id`, set at sign-in and by `agency/select`), so a phone and a browser of one person never flip each other's agency. `ClientUser::activeAgencyId()` = the token's agency, else the login's `current_agency_id`. Always read the agency through it on the portal's request path.
+- A new password (set, change or recovery) revokes EVERY other token of the login - the phone app's as well as the browser tabs' - except the token making the change.
 
 ## API surface — all under `/api/v1/client-auth/*` and `/api/v1/client/*`
 
@@ -128,7 +130,9 @@ Same intent as draft. Keyed by `email` (so OTPs can be issued before a ClientUse
 | POST | `/api/v1/client/matches/{match}/view/{property}` | `client.matches.view` | `auth:sanctum` (`client`) | Increment per-property view counter on the match |
 | GET  | `/api/v1/client/properties/{property}` | `client.properties.show` | `auth:sanctum` (`client`) | Full property detail (mobile equivalent of the web Live Preview); only properties that appear in the client's match results are accessible |
 
-Rate limits: `lookup`/`login` — 10/min/IP. `otp/send` — 1/min, 5/hour per email+IP. `password/forgot` — 3/hour per email.
+Rate limits: `lookup` - 10/min/IP, 60/hour/IP and 20/hour per address asked about (`config/clientauth.php` `lookup.*`, env `CLIENT_AUTH_LOOKUP_*`; platform limits because the call is anonymous). `login` — 10/min/IP. `otp/send` — 1/min, 5/hour per email+IP. `password/forgot` — 3/hour per email. Every authenticated `/api/v1/client*` call is throttled per signed-in person at `portal_api_per_minute` (agency setting, default 120, 30-1000) by the `client-portal` limiter; the staff mobile API at `config/api.php` `staff_per_minute` (default 600) by the `staff-api` limiter (2026-10-19).
+
+**Lookup is a known enumeration surface.** The documented response (`exists`, `agencies`) tells an anonymous caller whether an address is a client and of which agencies. It is kept because the shipped buyer/seller client depends on it; the layered limits above are the mitigation. A new client (the rental app) should not rely on it: sign in with `otp/send` + `otp/verify` and read the agency list from the sign-in response.
 
 ## User flows
 
@@ -462,3 +466,12 @@ tests: `.ai/specs/rental-portal-access.md` §17. A new portal route must use `cl
 ## Addendum 7 Oct 2026 (3) — the portal Documents area
 Tenant and owner Documents list (signed lease agreements, distributed inspection reports, agency-shared documents) and the authorised
 `…/documents/{document}/file` routes: `.ai/specs/rental-portal-access.md` §19.
+
+
+## Rental parties are never linked by an emailed code (2026-10-19, audit D1)
+
+`findOrCreateClientUser()` used to link EVERY contact whose email matched, across all agencies, to whoever proved the mailbox with a code. For a buyer or seller that is the long-standing way in and is unchanged. For a **tenancy party** - a contact on a lease (`lease_tenants`) or linked to a property as `landlord` / `lessor` - it let the real owner of a mailbox the agency had mistyped on a contact open somebody else's lease, faults and documents. `ClientAuthService::isRentalParty()` now recognises such a contact; it is **not** linked at sign-in. The sign-in logs a `contact_link_withheld` row instead. A tenant's or owner's portal access is given only by the agency - `RentalPortalAccessService::attach()` (lease screen "Set up portal access", automatic access when a lease is signed), which carries the same-person rule and an audit row. A person who confirmed their email but has no linked contact in any agency gets `403 {code: no_portal_access}` with "Your agency has not given you portal access yet. Please ask your agent to set it up for you." from every `/client/rentals/*` call (not the old "Select an agency first").
+
+## Portal link reference (`r`) (2026-10-19, audit D8)
+
+`App\Support\PortalLink` seals the recipient reference: `e1.` + the URL-safe form of `Crypt::encryptString(json{c: contact id, e: email, x: expiry})`. Opaque (no readable address), tamper-proof, and it stops being recognised after the agency's `portal_link_days` (default 60, 1-365). An expired or tampered `r` is simply ignored - the portal still opens, the person signs in as normal. A reference sealed before this change (`base64(json).hmac`, never expiring) is still read for the sign-in pre-fill and the agency header but is flagged `legacy` and is refused by the QA1-only `qa-link-signin`. A bare `?email=` pre-fills the sign-in but earns no agency header (`RentalPortalShellController`): answering it would tell anyone which agency an address is a client of.

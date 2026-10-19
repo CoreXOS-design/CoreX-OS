@@ -12,7 +12,7 @@ use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderVariation;
 use App\Services\Rentals\RentalApprovalGateService;
 use App\Services\Rentals\StaleVariationRevision;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageService;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalFaultContractorService;
 use App\Services\Rentals\RentalFaultTypeService;
@@ -275,7 +275,7 @@ class ClientLandlordRentalsController extends Controller
             'comment' => 'nullable|string|max:2000',
             'follows_fault_report_id' => 'nullable|integer',
             'photos' => 'nullable|array|max:10',
-            'photos.*' => 'file|image|max:15360',
+            'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',
         ]);
 
         // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the new request follows a report the tenant resolved themselves. The owner must be able
@@ -316,7 +316,8 @@ class ClientLandlordRentalsController extends Controller
         $faultReport = $this->faultReportService->reportOwnerRequest($propertyModel, $contact, $attributes, $data['comment'] ?? null);
 
         foreach ($request->file('photos', []) as $photo) {
-            $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
+            // D14 - a picture a tenant / owner sends is kept on the PRIVATE disk (stored as a `private:` ref), never at a public /storage address.
+            $path = app(PrivateImageService::class)->storeUpload($photo, $propertyModel->id);
             $faultReport->photos()->create([
                 'agency_id' => $contact->agency_id,
                 'storage_path' => $path,
@@ -376,6 +377,8 @@ class ClientLandlordRentalsController extends Controller
                 'owner_approval_status' => $w->owner_approval_status,
                 // Amounts ARE shown to the landlord (§3: "work orders with amounts").
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
+                // Audit fixes (D26): the quote the owner is looking at - the decision carries this back
+                'quote' => ($sq = $w->quotes()->where('is_selected', true)->first()) ? ['id' => $sq->id, 'revision' => (int) $sq->revision, 'amount' => round((float) $sq->ownerFacingAmount(), 2)] : null,
                 // §14.29 — photos of the work (own + linked job card), filtered by the agency's visibility rule.
                 'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($w)),
                 // BUILD 3 — §17.3.5: the portal's Jobs list reads these (plain stage, who, rounds); amounts stay owner-facing only.
@@ -439,6 +442,8 @@ class ClientLandlordRentalsController extends Controller
             'work_orders' => $workOrders->map(fn ($w) => [
                 'id' => $w->id, 'title' => $w->title, 'kind' => 'work_order',
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
+                // Audit fixes (D26): the quote the owner is looking at - the decision carries this back
+                'quote' => ($sq = $w->quotes()->where('is_selected', true)->first()) ? ['id' => $sq->id, 'revision' => (int) $sq->revision, 'amount' => round((float) $sq->ownerFacingAmount(), 2)] : null,
                 // §17.8.3 — emergency work is flagged for the owner on their own work-order card.
                 'emergency' => $w->approval_basis === RentalWorkOrder::BASIS_EMERGENCY,
             ])->values(),
@@ -474,7 +479,7 @@ class ClientLandlordRentalsController extends Controller
                 'total' => $l->line_total !== null ? (float) $l->line_total : null,
                 'note' => $l->crew_note,
             ])->values(),
-            'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path))->values(),
+            'photos' => $photos->map(fn ($p) => ['id' => $p->id] + app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path, $p->imageGuards(), (int) $variation->agency_id))->values(),
             'term_text' => (string) $variation->term_text,
             // spec 22.17 - when the CONTRACTOR asked for the extra, their own words (amount and reason)
             'reason' => $variation->origin === \App\Models\RentalWorkOrderVariation::ORIGIN_CONTRACTOR ? (string) $variation->note : null,
@@ -691,7 +696,7 @@ class ClientLandlordRentalsController extends Controller
         $holds = app(\App\Services\Rentals\RentalOwnerHoldService::class);
         $hold = $holds->activeFor($fault);
         $block = $holds->stopBlock($fault);
-        $tz = $fault->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($fault->agency);
 
         return [
             'show' => $hold !== null || $fault->isArrangedByAgent() || $this->authorisationFor($fault) !== null,
@@ -906,7 +911,7 @@ class ClientLandlordRentalsController extends Controller
                 'agency_service_provider_id' => $handledBy === 'list' ? ($data['agency_service_provider_id'] ?? null) : null,
             ]);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         // AT-452 (§19.12): whatever the owner wrote (the reason for a decline, or an optional note on an approval) is ALSO their comment to the agent -
@@ -953,7 +958,7 @@ class ClientLandlordRentalsController extends Controller
             'appointment_at' => 'required|date',
             'note' => 'nullable|string|max:500',
         ]);
-        $tz = $order->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($order->agency);
         $at = \App\Support\AppDate::parse($data['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {
@@ -1011,11 +1016,23 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
+        // Audit fixes (D26): when a quote is selected the owner's decision must carry the quote they SAW (id, revision, amount). A work order with no selected quote
+        // (an old record) has nothing to snapshot and decides as before. A quote that appeared since they loaded the screen makes the fields required -> 422, look again.
+        $current = $order->quotes()->where('is_selected', true)->whereNull('declined_at')->first();
+        $snap = $current ? 'required' : 'nullable';
         $data = $request->validate([
             'decision' => 'required|in:approve,decline',
             // Q4 (Johan, 9 Oct 2026): a decline always carries the owner's reason.
             'note' => 'nullable|required_if:decision,decline|string|max:2000',
+            'quote_id' => $snap . '|integer',
+            'quote_revision' => $snap . '|integer|min:0',
+            'quote_amount' => $snap . '|numeric',
         ]);
+
+        if ($current && ((int) $current->id !== (int) $data['quote_id'] || (int) $current->revision !== (int) $data['quote_revision']
+            || round((float) $current->ownerFacingAmount() * 100) !== round((float) $data['quote_amount'] * 100))) {
+            return response()->json(['message' => 'The quote has changed since you looked at it - please look again before you decide.'], 409);
+        }
 
         try {
             $order->recordApproval($contact, [
@@ -1024,7 +1041,7 @@ class ClientLandlordRentalsController extends Controller
                 'evidence_text' => $data['note'] ?? null,
             ]);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         // Johan, 9 Oct 2026: the agent is told when the owner decides on the quote (before this nothing told them, so an approved work
@@ -1084,11 +1101,26 @@ class ClientLandlordRentalsController extends Controller
         } catch (StaleVariationRevision $e) {
             return response()->json(['message' => $e->getMessage()], 409);
         } catch (\Throwable $e) {
-            return response()->json(['message' => $e->getMessage()], 422);
+            return $this->decisionFailure($e);
         }
 
         $record->refresh();
 
         return response()->json(['variation' => ['id' => $record->id, 'status' => $record->status, 'revision' => (int) $record->revision]]);
+    }
+
+    /**
+     * The answer for a decision that could not be recorded. A rule the owner can act on (a LogicException - "not waiting for your decision any
+     * more", "give a reason") is told in its own words; anything else (a database or code fault) is logged for us and the owner is told only
+     * that it did not save, never the exception text (audit 2026-10-19 D11).
+     */
+    private function decisionFailure(\Throwable $e): JsonResponse
+    {
+        if ($e instanceof \LogicException) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+        report($e);
+
+        return response()->json(['message' => 'That could not be saved. Please try again, or ask your agent.'], 500);
     }
 }

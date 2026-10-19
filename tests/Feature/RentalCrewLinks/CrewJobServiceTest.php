@@ -86,7 +86,7 @@ final class CrewJobServiceTest extends TestCase
         // `authorised` (§17.29) is a plain yes/no — never the approval gate's note, which can carry amounts — and only decides whether
         // the page offers "Mark work completed".
         $this->assertSame(
-            ['access', 'access_notes', 'address', 'agency', 'authorised', 'blocks', 'cost_total', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'on_hold', 'photos', 'reported_photos', 'scheduled_at', 'show_costs', 'status', 'status_label', 'tasks', 'tenant', 'title', 'work_order_id'],
+            ['access', 'access_notes', 'address', 'agency', 'authorised', 'blocks', 'cost_total', 'crew_completed', 'crew_name', 'due_at', 'is_open', 'labour', 'map_url', 'materials', 'next', 'on_hold', 'photos', 'reported_photos', 'scheduled_at', 'show_costs', 'status', 'status_label', 'tasks', 'tenant', 'title', 'work_order_id'],
             collect(array_keys($payload))->sort()->values()->all(),
         );
     }
@@ -102,7 +102,7 @@ final class CrewJobServiceTest extends TestCase
         $blocks = collect($payload['blocks'])->sortKeys()->all();
         $this->assertSame([], $blocks['approval']);
         $this->assertSame([], $blocks['dispute']);
-        $this->assertSame(['catalogue', 'draft_count', 'lines', 'photo_limit', 'prices_on', 'request'], collect($blocks['pricing'])->keys()->sort()->values()->all());
+        $this->assertSame(['catalogue', 'draft_count', 'first_send', 'lines', 'photo_limit', 'prices_on', 'request', 'sent_count'], collect($blocks['pricing'])->keys()->sort()->values()->all());
         $this->assertSame([], $blocks['pricing']['lines']);
         $this->assertNull($blocks['pricing']['request']);
         $this->assertSame(0, $blocks['pricing']['draft_count']);
@@ -495,7 +495,7 @@ final class CrewJobServiceTest extends TestCase
         $this->assertSame(14, RentalPortalSetting::crewJobLinkExpiryDaysFor($id));
         $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
         $this->assertTrue(RentalPortalSetting::crewLinkShowTenantContactFor($id), 'on by default (AT-459)');
-        $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
+        $this->assertFalse(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id), 'OFF by default (section 29, C-C4: the owner hears at the agent\'s close)');
     }
 
     // ── archived work never reaches the crew (same rule as the crew page + office card) ──

@@ -178,9 +178,9 @@ class RentalJobCardController extends Controller
     {
         $validated = $request->validate([
             'property_id' => ['required_without_all:fault_report_id,rental_work_order_id', 'nullable', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_work_order_id' => ['nullable', 'exists:rental_work_orders,id'],
-            'fault_report_id' => ['nullable', 'exists:rental_fault_reports,id'],
+            'lease_id' => ['nullable', \App\Rules\FoundInAgency::in('leases')],
+            'rental_work_order_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_work_orders')],
+            'fault_report_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_fault_reports')],
             'title' => ['required', 'string', 'max:191'],
             'access_contact_name' => ['nullable', 'string', 'max:191'],
             'access_contact_phone' => ['nullable', 'string', 'max:50'],
@@ -444,7 +444,7 @@ class RentalJobCardController extends Controller
     /** The timezone this card's agency works in (same source as the outreach window; one place to change when a per-agency column lands). */
     private function agencyTimezone(?\App\Models\Agency $agency): string
     {
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 
     /**
@@ -614,7 +614,7 @@ class RentalJobCardController extends Controller
 
         $validated = $request->validate([
             'rental_job_card_task_id' => ['nullable', Rule::exists('rental_job_card_tasks', 'id')->where('rental_job_card_id', $rentalJobCard->id)],
-            'rental_catalogue_item_id' => ['nullable', 'exists:rental_catalogue_items,id'],
+            'rental_catalogue_item_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_catalogue_items')],
             'type' => ['nullable', 'in:labour,part'],
             'description' => ['nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],

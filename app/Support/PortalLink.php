@@ -15,10 +15,12 @@ use App\Models\Contact;
  *
  *   /portal?r=<recipient>&as=owner|tenant&fault=ID | wo=ID | insp=ID | lease=ID | docs=1
  *
- *   r    a SIGNED recipient reference: the contact id and the address the mail was written to, with an HMAC made from the app key.
- *        Not guessable and not forgeable, and it carries no readable address in the URL. The page reads it SERVER-side, so the
- *        sign-in is pre-filled for that person, the "this link is for somebody else" card can name them, and the agency's header
- *        shows before sign-in.
+ *   r    a SEALED recipient reference: the contact id and the address the mail was written to, encrypted with the app key and carrying its
+ *        own expiry (the agency's `portal_link_days` setting, default 60). Opaque - the address is not readable in the URL - not forgeable,
+ *        and not reusable for ever (audit 2026-10-19 D8). The page reads it SERVER-side, so the sign-in is pre-filled for that person, the
+ *        "this link is for somebody else" card can name them, and the agency's header shows before sign-in. An EXPIRED reference is
+ *        simply not recognised: the portal still opens, the person just signs in as normal. References sealed before this change (an
+ *        unencrypted payload plus an HMAC, never expiring) are still read for the pre-fill - flagged `legacy` - but sign nobody in.
  *   as   the view the mail was written for. A person who is both tenant and owner on the same lease lands in THAT view, whichever
  *        side they used last.
  *   target  the fault / work order / inspection / lease / documents the mail is about; the portal opens it after sign-in.
@@ -36,7 +38,7 @@ final class PortalLink
     /** A link for a known contact (the usual case: the mail is going to $contact->email). */
     public static function forContact(Contact $contact, string $view, array $target = []): string
     {
-        return self::build((string) $contact->email, $view, $target, (int) $contact->id);
+        return self::build((string) $contact->email, $view, $target, (int) $contact->id, $contact->agency_id ? (int) $contact->agency_id : null);
     }
 
     /**
@@ -59,8 +61,7 @@ final class PortalLink
         $query = ['email' => $email];
         // ...plus the signed reference, so the page can tell a genuine link from a hand-typed address
         if (preg_match('/^[^\s@]+@[^\s@]+$/', $email)) {
-            $payload = rtrim(strtr(base64_encode(json_encode(['c' => max(0, $contactId), 'e' => $email])), '+/', '-_'), '=');
-            $query['r'] = $payload . '.' . self::sign($payload);
+            $query['r'] = self::seal($email, max(0, $contactId), null);
         }
         $query['as'] = $view === self::VIEW_OWNER ? self::VIEW_OWNER : self::VIEW_TENANT;
         foreach (self::TARGETS as $key) {
@@ -84,12 +85,15 @@ final class PortalLink
     /**
      * Read a signed recipient reference. Null for anything that is not exactly what {@see self::build()} made.
      *
-     * @return array{contact_id:int, email:string}|null
+     * @return array{contact_id:int, email:string, legacy?:bool}|null
      */
     public static function parse(mixed $ref): ?array
     {
-        if (! is_string($ref) || $ref === '' || strlen($ref) > 600 || substr_count($ref, '.') !== 1) {
+        if (! is_string($ref) || $ref === '' || strlen($ref) > 1200 || substr_count($ref, '.') !== 1) {
             return null;
+        }
+        if (str_starts_with($ref, self::SEALED_PREFIX)) {
+            return self::unseal(substr($ref, strlen(self::SEALED_PREFIX)));
         }
         [$payload, $sig] = explode('.', $ref, 2);
         if (! hash_equals(self::sign($payload), $sig)) {
@@ -101,7 +105,8 @@ final class PortalLink
             return null;
         }
 
-        return ['contact_id' => (int) ($data['c'] ?? 0), 'email' => strtolower($data['e'])];
+        // a reference sealed before encryption and expiry existed: recognised for the pre-fill only
+        return ['contact_id' => (int) ($data['c'] ?? 0), 'email' => strtolower($data['e']), 'legacy' => true];
     }
 
     /** The view a mail to a contact with this role in the rental should open. */
@@ -110,16 +115,62 @@ final class PortalLink
         return in_array(strtolower($role), ['landlord', 'owner', 'lessor'], true) ? self::VIEW_OWNER : self::VIEW_TENANT;
     }
 
-    private static function build(string $email, string $view, array $target, int $contactId): string
+    private static function build(string $email, string $view, array $target, int $contactId, ?int $agencyId = null): string
     {
         $email = strtolower(trim($email));
         $ref = null;
         if (preg_match('/^[^\s@]+@[^\s@]+$/', $email)) {
-            $payload = rtrim(strtr(base64_encode(json_encode(['c' => $contactId, 'e' => $email])), '+/', '-_'), '=');
-            $ref = $payload . '.' . self::sign($payload);
+            $ref = self::seal($email, $contactId, $agencyId);
         }
 
         return self::compose($ref, $view, $target);
+    }
+
+    /** Marks a sealed (encrypted, expiring) reference; anything else is the older HMAC form. */
+    private const SEALED_PREFIX = 'e1.';
+
+    /**
+     * Seal a recipient reference: the contact and the address, encrypted with the app key, with the moment it stops being recognised inside
+     * the ciphertext. The lifetime is the agency's `portal_link_days` (the contact's agency, looked up from the contact when the caller has
+     * no agency id; the platform default when there is neither).
+     */
+    private static function seal(string $email, int $contactId, ?int $agencyId): string
+    {
+        $agencyId ??= self::agencyIdOfContact($contactId);
+        $days = \App\Models\RentalPortalSetting::portalLinkDaysFor($agencyId);
+        $json = json_encode(['c' => $contactId, 'e' => $email, 'x' => now()->addDays($days)->timestamp]);
+
+        return self::SEALED_PREFIX . rtrim(strtr(\Illuminate\Support\Facades\Crypt::encryptString($json), '+/', '-_'), '=');
+    }
+
+    /** @return array{contact_id:int, email:string}|null null when not sealed by this app, tampered with, malformed or expired */
+    private static function unseal(string $sealed): ?array
+    {
+        $b64 = strtr($sealed, '-_', '+/');
+        $b64 .= str_repeat('=', (4 - strlen($b64) % 4) % 4);
+        try {
+            $data = json_decode(\Illuminate\Support\Facades\Crypt::decryptString($b64), true);
+        } catch (\Throwable) {
+            return null;
+        }
+        if (! is_array($data) || ! isset($data['e'], $data['x']) || ! is_string($data['e']) || ! is_numeric($data['x'])
+            || ! preg_match('/^[^\s@]+@[^\s@]+$/', $data['e']) || (int) $data['x'] < now()->timestamp) {
+            return null;
+        }
+
+        return ['contact_id' => (int) ($data['c'] ?? 0), 'email' => strtolower($data['e'])];
+    }
+
+    /** @var array<int, ?int> contact id => agency id, per request */
+    private static array $agencyOfContact = [];
+
+    private static function agencyIdOfContact(int $contactId): ?int
+    {
+        if ($contactId < 1) {
+            return null;
+        }
+
+        return self::$agencyOfContact[$contactId] ??= (($id = Contact::withoutGlobalScopes()->whereKey($contactId)->value('agency_id')) ? (int) $id : null);
     }
 
     private static function compose(?string $ref, string $view, array $target): string

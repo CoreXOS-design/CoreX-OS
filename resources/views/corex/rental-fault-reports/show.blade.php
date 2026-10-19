@@ -271,7 +271,7 @@
                         @foreach($faultReport->photos as $photo)
                             <div class="text-xs flex flex-col items-center gap-1">
                                 <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
-                                    <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
+                                    <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->displayUrl() }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px; border: 1px solid var(--border);">
                                 </button>
                                 <label><input type="checkbox" name="owner_photo_ids[]" value="{{ $photo->id }}" @checked(in_array($photo->id, (array) old('owner_photo_ids', $faultReport->owner_photo_ids ?? []), true))> Share</label>
                             </div>
@@ -301,7 +301,7 @@
                 <div class="font-medium">{{ $ov['title'] }}</div>
                 @if($ov['description'])<div>{{ $ov['description'] }}</div>@endif
                 @if($ov['photos']->isNotEmpty())
-                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo" class="p-0 bg-transparent border-0 cursor-zoom-in"><img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px;"></button>@endforeach</div>
+                    <div class="flex flex-wrap gap-2 pt-1">@foreach($ov['photos'] as $photo)<button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo" class="p-0 bg-transparent border-0 cursor-zoom-in"><img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->displayUrl() }}" alt="Photo" loading="lazy" class="rounded-md object-cover" style="width: 90px; height: 70px;"></button>@endforeach</div>
                 @endif
                 @if($ov['agent_note'])<div class="text-xs pt-1" style="color: var(--text-muted);">Agent note: {{ $ov['agent_note'] }}</div>@endif
             </div>
@@ -469,7 +469,7 @@
             <div class="grid grid-cols-2 gap-2">
                 @foreach($faultReport->photos as $photo)
                     <button type="button" data-open-photo="{{ $photo->id }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in">
-                        <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->storage_path }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md w-full h-24 object-cover">
+                        <img src="{{ $vp[$photo->id]['thumb_url'] ?? $photo->displayUrl() }}" alt="Photo {{ $loop->iteration }}" loading="lazy" class="rounded-md w-full h-24 object-cover">
                         @php($pv = $vp[$photo->id] ?? null)
                         @if($pv && (count($pv['marks']) || $pv['note']))<span class="text-xs block" style="color: var(--text-muted);">{{ count($pv['marks']) ? count($pv['marks']) . ' mark' . (count($pv['marks']) > 1 ? 's' : '') : '' }}{{ count($pv['marks']) && $pv['note'] ? ' · ' : '' }}{{ $pv['note'] ? 'note' : '' }}</span>@endif
                     </button>

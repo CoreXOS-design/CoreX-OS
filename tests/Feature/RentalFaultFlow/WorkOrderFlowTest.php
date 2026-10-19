@@ -443,11 +443,11 @@ class WorkOrderFlowTest extends TestCase
 
         $this->postJson("$base/progress", ['action' => 'started'])->assertOk();
         $this->postJson("$base/progress", ['action' => 'started'])->assertOk();   // already started: no second message
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'started'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_started' && str_contains($args['title'], 'started'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
 
         $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();
         $this->postJson("$base/progress", ['action' => 'finished'])->assertOk();  // same job reported done twice: one tenant check, one message
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_progress' && str_contains($args['title'], 'finished'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key, $s, $args) => $key === 'rental_work_order.owner_finished' && str_contains($args['title'], 'finished'))->times(2);   // one alert per lease agent (owner's side + tenant's side)
         // AT-451 round 2: BOTH lease agents hear every step (the owner's agent set above, and the tenant's side - which falls back to the
         // property's agent while unset) - so four owner actions are eight alerts, one per person each, not four.
         $notifier->shouldHaveReceived('fire')->times(8);
@@ -468,7 +468,7 @@ class WorkOrderFlowTest extends TestCase
         \App\Models\Lease::withoutGlobalScopes()->where('property_id', $wo->property_id)->update(['status' => \App\Models\Lease::STATUS_EXPIRED]);
         Sanctum::actingAs($this->clientUserFor($this->landlord), ['client']);
         $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/progress", ['action' => 'started'])->assertOk();
-        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $user->id === $this->property->agent_id && $key === 'rental_work_order.owner_progress')->once();
+        $notifier->shouldHaveReceived('fire')->withArgs(fn ($user, $key) => $user->id === $this->property->agent_id && $key === 'rental_work_order.owner_started')->once();
 
         // Nobody responsible (agent deactivated, no lease agent): no error, no message.
         User::withoutGlobalScopes()->whereKey($this->property->agent_id)->update(['is_active' => false]);

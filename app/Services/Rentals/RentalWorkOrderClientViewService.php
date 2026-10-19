@@ -367,6 +367,8 @@ class RentalWorkOrderClientViewService
             // P2: what the quote covers, so the owner has something to judge the figure by - the quote's details text and (when no agency fee
             // sits on top of it) a link to the contractor's document. Never the contractor's own total when a fee applies.
             $payload['quote'] = $selected ? [
+                // Audit fixes (D26): what the owner is shown, as a snapshot the decision must carry back - a quote changed since is refused with a 409
+                'id' => $selected->id, 'revision' => (int) $selected->revision, 'amount' => round((float) $selected->ownerFacingAmount(), 2),
                 'details' => $selected->detail_text ?: null,
                 'document_url' => ($selected->document_storage_path && $selected->ownerMayOpenDocument())
                     ? route('client.rentals.landlord.work-orders.quote-file', ['workOrder' => $workOrder->id], false) : null,

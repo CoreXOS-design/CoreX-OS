@@ -41,7 +41,8 @@ final class RentalCrewLinkSettingsTest extends TestCase
         $this->assertFalse(RentalPortalSetting::crewLinkShowCostsFor($id));
         // AT-459 (Johan, 15 Oct 2026): the crew and the contractor get the tenant's name + phone unless the agency switches it off
         $this->assertTrue(RentalPortalSetting::crewLinkShowTenantContactFor($id));
-        $this->assertTrue(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
+        // audit C-C4 (19 Oct 2026): OFF by default - the owner hears at the agent's close, as for a contractor's finish
+        $this->assertFalse(RentalPortalSetting::notifyLandlordOnCrewCompletionFor($id));
 
         RentalPortalSetting::updateOrCreate(['agency_id' => $id], ['crew_link_show_tenant_contact' => false]);
         $this->assertFalse(RentalPortalSetting::crewLinkShowTenantContactFor($id), 'an agency can still switch it off');

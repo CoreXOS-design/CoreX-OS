@@ -199,7 +199,7 @@ class RentalFaultAuthorityController extends Controller
         if (in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_CANCELLED], true)) {
             return redirect($this->back($rentalFaultReport))->withErrors(['tenant_confirmation' => 'This fault was cancelled.']);
         }
-        $tz = $rentalFaultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($rentalFaultReport->agency);
         try {
             $at = \App\Support\AppDate::parse($v['at'], $tz);   // stored in the app timezone (->utc() showed the time two hours early)
         } catch (\Throwable) {

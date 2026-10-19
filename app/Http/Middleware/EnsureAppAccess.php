@@ -23,6 +23,13 @@ class EnsureAppAccess
     {
         $user = $request->user();
 
+        // This group is the STAFF app's API. A portal person's token (a ClientUser: tenant, owner, buyer, seller) is a perfectly valid Sanctum
+        // token, but it is not a staff login: refuse it with a plain 403 here instead of letting it fall into hasAppAccess(), which only exists on
+        // User and answered a 500 (audit 2026-10-19 D9). The reverse - a staff token on a portal route - is refused by EnsureClientAbility.
+        if ($user && ! $user instanceof \App\Models\User) {
+            abort(403, 'Staff app token required.');
+        }
+
         if ($user && ! $user->hasAppAccess()) {
             abort(403, 'This account has been deleted.');
         }

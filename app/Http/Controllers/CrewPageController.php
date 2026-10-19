@@ -49,7 +49,16 @@ class CrewPageController extends Controller
 
     private function unavailable(): Response
     {
-        return response()->view('rentals.crew-link.crew-page-unavailable', [], 404);
+        // audit fix C-A4: a card of this crew that the agency CANCELLED says so (the crew page itself is still live, so this is not "expired or replaced")
+        $cancelled = false;
+        $cardId = (int) request()->route('card');
+        $record = $cardId ? \App\Models\RentalSecureAccessToken::withoutGlobalScopes()->where('token_hash', \App\Models\RentalSecureAccessToken::hashToken((string) request()->route('token')))->first() : null;
+        if ($record && $record->isLive()) {
+            $cancelled = \App\Models\RentalJobCard::withoutGlobalScopes()->withTrashed()->where('agency_id', $record->agency_id)->where('rental_crew_id', $record->rental_crew_id)
+                ->whereKey($cardId)->where('status', \App\Models\RentalJobCard::STATUS_CANCELLED)->exists();
+        }
+
+        return response()->view('rentals.crew-link.crew-page-unavailable', ['cancelled' => $cancelled], 404);
     }
 
     public function show(Request $request, string $token): View|Response

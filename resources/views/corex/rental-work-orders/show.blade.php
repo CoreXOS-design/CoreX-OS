@@ -788,7 +788,7 @@
                 @if($completeNeedsFindings)
                 <div data-complete-findings>
                     <label class="text-xs font-medium" for="wo-found">What was found <span class="font-normal" style="color: var(--text-muted);">(optional here - the Who pays panel asks for it before a ruling)</span></label>
-                    <textarea id="wo-found" name="found_text" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text') }}</textarea>
+                    <textarea id="wo-found" name="found_text" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text', $whoPaysSvc->carriedFindings($workOrder)) }}</textarea>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
@@ -851,7 +851,7 @@
                 @foreach($workOrder->photos as $photo)
                     <div>
                         {{-- AT-452 - opens in the shared viewer (a popup); a copy of a fault photo carries the agent's marks and note --}}
-                        <button type="button" data-open-wo-photo="{{ $loop->index }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in w-full"><img src="{{ $woViewerPhotos[$loop->index]['thumb_url'] ?? $photo->storage_path }}" alt="{{ $woViewerPhotos[$loop->index]['alt'] ?? 'Photo' }}" loading="lazy" class="rounded-md w-full h-24 object-cover"></button>
+                        <button type="button" data-open-wo-photo="{{ $loop->index }}" aria-label="Open photo {{ $loop->iteration }}" class="p-0 bg-transparent border-0 cursor-zoom-in w-full"><img src="{{ $woViewerPhotos[$loop->index]['thumb_url'] ?? $photo->displayUrl() }}" alt="{{ $woViewerPhotos[$loop->index]['alt'] ?? 'Photo' }}" loading="lazy" class="rounded-md w-full h-24 object-cover"></button>
                         <span class="text-xs" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $photo->photo_type)) }}</span>
                     </div>
                 @endforeach

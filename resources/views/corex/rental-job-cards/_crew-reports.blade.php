@@ -4,7 +4,7 @@
     Receives $jobCard (RentalJobCard) and optional $tz.
 --}}
 @php
-    $crTz = $tz ?? ($screen['tz'] ?? (config('app.timezone') ?: 'Africa/Johannesburg'));
+    $crTz = $tz ?? ($screen['tz'] ?? \App\Support\AppDate::appTimezone());
     $crReports = $jobCard->crewReports->filter(fn ($r) => trim((string) $r->findings) !== '');
 @endphp
 @if($crReports->isNotEmpty())

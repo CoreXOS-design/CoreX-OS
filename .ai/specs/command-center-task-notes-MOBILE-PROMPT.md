@@ -7,7 +7,9 @@
 
 ## ▼▼▼ COPY-PASTE INTO MOBILE APP CLAUDE SESSION ▼▼▼
 
-Add **Task Notes (threaded)** and **Task Checklist** to the Command Center → Tasks screen, syncing to the CoreX OS backend at `https://corex.hfcoastal.co.za`. The web app already has these features live; this brings parity to mobile.
+Add **Task Notes (threaded)** and **Task Checklist** to the Command Center → Tasks screen, syncing to the CoreX OS backend at `https://corexos.co.za`. The web app already has these features live; this brings parity to mobile.
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ### Data shapes
 
@@ -30,7 +32,7 @@ Add **Task Notes (threaded)** and **Task Checklist** to the Command Center → T
 
 ### Endpoints (sanctum bearer token, same auth as existing mobile endpoints)
 
-Base: `https://corex.hfcoastal.co.za/api/command-center/tasks/{taskId}`
+Base: `https://corexos.co.za/api/command-center/tasks/{taskId}`
 
 | Method | Path                              | Body                       | Returns           |
 |--------|-----------------------------------|----------------------------|-------------------|

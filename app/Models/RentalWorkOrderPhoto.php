@@ -72,4 +72,37 @@ class RentalWorkOrderPhoto extends Model
     {
         return $this->belongsTo(User::class, 'uploaded_by_user_id');
     }
+
+    /**
+     * D14 - the guards that kill a signed picture URL the moment this photo, its work order or its job card is removed / archived.
+     *
+     * @return array<int,array{0:string,1:int}>
+     */
+    public function imageGuards(): array
+    {
+        $guards = [['rental_work_order_photos', (int) $this->id]];
+        if ($this->rental_work_order_id) {
+            $guards[] = ['rental_work_orders', (int) $this->rental_work_order_id];
+        }
+        if ($this->rental_job_card_id) {
+            $guards[] = ['rental_job_cards', (int) $this->rental_job_card_id];
+        }
+
+        return $guards;
+    }
+
+    /**
+     * What an office screen puts in an `<img src>`: a signed, expiring URL for a `private:` picture (a fault photo that travelled onto
+     * the work order), the stored address untouched for a public one.
+     */
+    public function displayUrl(string $variant = \App\Services\Images\PrivateImageService::VARIANT_FULL): ?string
+    {
+        return app(\App\Services\Images\PrivateImageService::class)->displayUrl($this->storage_path, (int) $this->agency_id, $this->imageGuards(), $variant);
+    }
+
+    /** The file on disk (PDF, mail attachment, GD) for either kind of stored picture; null when it is not there. */
+    public function absolutePath(): ?string
+    {
+        return app(\App\Services\Images\PrivateImageService::class)->absolutePath($this->storage_path);
+    }
 }

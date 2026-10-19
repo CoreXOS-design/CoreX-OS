@@ -20,24 +20,46 @@ use Illuminate\Support\Facades\Mail;
  */
 class RentalPortalNotificationService
 {
-    public function notifyLandlordDecisionNeeded(RentalFaultReport|RentalWorkOrder $subject): void
+    /**
+     * Tell the owner a decision is waiting. $reminderNumber 0 = the first mail, 1 / 2 = the first / second reminder (audit C-A1).
+     *
+     * Audit C-A1: this used to send NOTHING, silently, when the agency's setting was off or no owner had an email. It now says so: the return value tells the caller
+     * and, for a fault, the fault's history carries a line the agent can see ("Owner could not be told - ...").
+     *
+     * @return array{sent: int, reason: ?string} reason = why nobody was emailed (null when at least one owner was)
+     */
+    public function notifyLandlordDecisionNeeded(RentalFaultReport|RentalWorkOrder $subject, int $reminderNumber = 0): array
     {
         $agencyId = $subject->agency_id;
+        $say = function (string $reason) use ($subject, $reminderNumber): array {
+            if ($subject instanceof RentalFaultReport) {
+                $subject->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_NOT_TOLD, null, ($reminderNumber > 0 ? 'Owner reminder not sent' : 'Owner could not be told') . ' - ' . $reason);
+            }
+
+            return ['sent' => 0, 'reason' => $reason];
+        };
         if (!RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId)) {
-            return;
+            return $say('the agency has switched off the email that tells the owner a decision is needed. Phone them.');
         }
 
-        $lease = $subject instanceof RentalFaultReport ? $subject->lease : $subject->lease;
+        $lease = $subject->lease;
         $landlords = $lease ? $lease->landlordContacts() : collect();
         if ($landlords->isEmpty() && $subject->property) {
             $landlords = $subject->property->contactsForRole('landlord')->merge($subject->property->contactsForRole('lessor'))->unique('id');
         }
 
+        $sent = 0;
         foreach ($landlords as $landlord) {
             if ($landlord->email) {
-                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email, $landlord));
+                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email, $landlord, $reminderNumber));
+                $sent++;
             }
         }
+        if ($sent === 0) {
+            return $say($landlords->isEmpty() ? 'no owner is on file for this property. Phone them.' : 'no owner has an email address on file. Phone them.');
+        }
+
+        return ['sent' => $sent, 'reason' => null];
     }
 
     /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */

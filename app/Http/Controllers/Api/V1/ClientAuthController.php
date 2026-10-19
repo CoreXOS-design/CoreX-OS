@@ -34,13 +34,26 @@ class ClientAuthController extends Controller
     {
         $data = $request->validate(['email' => 'required|email|max:255']);
 
-        $key = 'clientauth.lookup:' . $request->ip();
-        if (RateLimiter::tooManyAttempts($key, 10)) {
-            return response()->json(['message' => 'Too many requests. Please slow down.'], 429);
-        }
-        RateLimiter::hit($key, 60);
-
+        // Layered limits (audit 2026-10-19 D2): this endpoint tells an anonymous caller whether an address is a client and of which agencies, so it
+        // is throttled per minute AND per hour for one address of origin, and per hour for one address being asked about - a slow crawl of many
+        // addresses from one place, or one address probed from many places, both run out. Limits are platform config (clientauth.lookup.*): there is
+        // no agency yet at this point to read a setting from.
         $email   = strtolower(trim($data['email']));
+        $limits  = (array) config('clientauth.lookup', []);
+        $buckets = [
+            ['clientauth.lookup:' . $request->ip(), (int) ($limits['per_minute_ip'] ?? 10), 60],
+            ['clientauth.lookup.hour:' . $request->ip(), (int) ($limits['per_hour_ip'] ?? 60), 3600],
+            ['clientauth.lookup.email:' . sha1($email), (int) ($limits['per_hour_email'] ?? 20), 3600],
+        ];
+        foreach ($buckets as [$key, $max]) {
+            if (RateLimiter::tooManyAttempts($key, $max)) {
+                return response()->json(['message' => 'Too many requests. Please slow down.'], 429);
+            }
+        }
+        foreach ($buckets as [$key, , $decay]) {
+            RateLimiter::hit($key, $decay);
+        }
+
         $matches = $this->service->findContactsByIdentifierAcrossAgencies($email);
 
         $clientUser = ClientUser::where('email', $email)->first();
@@ -210,8 +223,9 @@ class ClientAuthController extends Controller
         if ($isActivation && $isRealToken) {
             $token->delete();
         }
-        // a new password ends every web-portal tab login of this person (A-L1); the tab signing in below gets a fresh one
-        $this->tabs->revokeTabTokens($tokenable, $isRealToken && ! $isActivation ? (int) $token->id : null);
+        // a new password ends EVERY token of this person - the phone app's as well as every web-portal tab (A-L1, D4); the one signing in below
+        // gets a fresh one
+        $this->tabs->revokeAllTokens($tokenable, $isRealToken && ! $isActivation ? (int) $token->id : null);
 
         // AT-445 — a stateful (same-origin browser) request establishes a
         // session instead of receiving a bearer token: the web portal never
@@ -257,6 +271,7 @@ class ClientAuthController extends Controller
         if ($agencyId && $tokenable->current_agency_id !== $agencyId) {
             $tokenable->forceFill(['current_agency_id' => $agencyId])->save();
         }
+        $this->service->stampPlainToken($sessionToken, $agencyId ? (int) $agencyId : null);   // the token just issued works in ITS agency (D5)
 
         $payload = ['agencies' => $agencies, 'client' => $this->summarise($tokenable)];
         if ($sessionToken !== null) {
@@ -333,6 +348,7 @@ class ClientAuthController extends Controller
         if ($agencyId) {
             $clientUser->forceFill(['current_agency_id' => $agencyId])->save();
         }
+        $this->service->stampPlainToken($token, $agencyId ? (int) $agencyId : null);   // the token just issued works in ITS agency (D5)
 
         if (!$clientUser->first_login_at) {
             $clientUser->forceFill(['first_login_at' => now()])->save();
@@ -372,14 +388,18 @@ class ClientAuthController extends Controller
             return response()->json(['message' => 'Agency not available for this client.'], 422);
         }
 
-        $patch = ['current_agency_id' => (int) $data['agency_id']];
+        // The choice belongs to THIS sign-in (its token); it is also kept as the login's default for the next token issued (audit 2026-10-19 D5).
+        $clientUser->chooseAgency((int) $data['agency_id']);
+        $patch = [];
         if (!empty($data['favourite'])) {
             $patch['preferred_agency_id'] = (int) $data['agency_id'];
         }
         if (!empty($data['lock'])) {
             $patch['locked_to_agency_id'] = (int) $data['agency_id'];
         }
-        $clientUser->forceFill($patch)->save();
+        if ($patch !== []) {
+            $clientUser->forceFill($patch)->save();
+        }
 
         $event = !empty($data['lock']) ? 'agency_locked' : 'agency_selected';
         $this->service->log($clientUser, (int) $data['agency_id'], null, $event, $request, [
@@ -421,9 +441,9 @@ class ClientAuthController extends Controller
 
         $this->service->log($clientUser, $clientUser->current_agency_id, null, 'password_changed', $request);
 
-        // a new password ends every web-portal tab login of this person (A-L1) except the tab making the change; this browser keeps
-        // remembering them under the new password
-        $this->tabs->revokeTabTokens($clientUser, $token instanceof \Laravel\Sanctum\PersonalAccessToken ? (int) $token->id : null);
+        // a new password ends EVERY other token of this person (A-L1, D4: the phone app's too) except the one making the change; this browser
+        // keeps remembering them under the new password
+        $this->tabs->revokeAllTokens($clientUser, $token instanceof \Laravel\Sanctum\PersonalAccessToken ? (int) $token->id : null);
         if ($wasRemembered) {
             $this->tabs->remember($request, $clientUser);
         }
@@ -617,6 +637,10 @@ class ClientAuthController extends Controller
         if (! $ref) {
             return response()->json(['message' => 'This link could not be read.'], 422);
         }
+        if (! empty($ref['legacy'])) {
+            // an older link carries an unsealed reference that never expires: good enough to pre-fill a sign-in, never to sign anyone in (D8)
+            return response()->json(['message' => 'This link is out of date. Ask for a new one.'], 422);
+        }
 
         $contact = $ref['contact_id'] > 0 ? Contact::withoutGlobalScopes()->whereNull('deleted_at')->find($ref['contact_id']) : null;
         $login = $contact && $contact->client_user_id ? ClientUser::find($contact->client_user_id) : null;
@@ -688,7 +712,7 @@ class ClientAuthController extends Controller
             'password_must_change'  => (bool) $clientUser->password_must_change,
             'preferred_agency_id'   => $clientUser->preferred_agency_id,
             'locked_to_agency_id'   => $clientUser->locked_to_agency_id,
-            'current_agency_id'     => $clientUser->current_agency_id,
+            'current_agency_id'     => $clientUser->activeAgencyId(),
         ];
     }
 }

@@ -47,10 +47,11 @@ class ClientPortalController extends Controller
         // (X-Portal-Contact) wins among the login's own. With neither it is the lowest-id contact, exactly as before.
         $identity = app(\App\Services\Rentals\PortalIdentityService::class);
         $hint = \App\Services\Rentals\PortalIdentityService::hintFrom($request);
-        $contact = $client->current_agency_id
-            ? $identity->contactFor($client, (int) $client->current_agency_id, $request->query('as'), $hint)
+        $agencyId = $client->activeAgencyId();   // this sign-in's own agency (audit 2026-10-19 D5)
+        $contact = $agencyId
+            ? $identity->contactFor($client, $agencyId, $request->query('as'), $hint)
             : null;
-        $sideContacts = $client->current_agency_id ? $identity->contactsBySide($client, (int) $client->current_agency_id, $hint) : [];
+        $sideContacts = $agencyId ? $identity->contactsBySide($client, $agencyId, $hint) : [];
 
         $agent = $contact ? $this->resolveAssignedAgent($contact) : null;
 
@@ -62,7 +63,7 @@ class ClientPortalController extends Controller
                 'password_must_change'  => (bool) $client->password_must_change,
                 'preferred_agency_id'   => $client->preferred_agency_id,
                 'locked_to_agency_id'   => $client->locked_to_agency_id,
-                'current_agency_id'     => $client->current_agency_id,
+                'current_agency_id'     => $agencyId,
                 'last_login_at'         => $client->last_login_at,
             ],
             'agencies' => $agencies,
@@ -525,7 +526,7 @@ class ClientPortalController extends Controller
         /** @var ClientUser $client */
         $client = $request->user();
 
-        $agencyId = $client->current_agency_id;
+        $agencyId = $client->activeAgencyId();   // this sign-in's own agency (audit 2026-10-19 D5)
         if (!$agencyId) {
             return response()->json([
                 'message' => 'Select an agency first.',

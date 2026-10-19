@@ -25,7 +25,7 @@
         && ! in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_COMPLETED, \App\Models\RentalWorkOrder::STATUS_CANCELLED, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true);
     $cpFinishedBy = $cpLatest ? ($cpLatest->reported_via === \App\Models\RentalWorkCompletionRound::VIA_OWNER_PORTAL ? 'the owner' : ($cpLatest->reported_by_label ?: 'the contractor')) : '';
     $cpCanReportDone = $cpExternal && in_array($workOrder->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS, \App\Models\RentalWorkOrder::STATUS_DISPUTED], true);
-    $cpTz = $workOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+    $cpTz = \App\Support\AppDate::agencyTimezone($workOrder->agency);
     $cpReturnTo = ($context ?? 'work_order') === 'job_card' ? 'job_card' : 'work_order';
     $cpShow = $cpRounds->isNotEmpty() || $cpCanReportDone;
 @endphp

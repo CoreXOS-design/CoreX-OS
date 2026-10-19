@@ -134,6 +134,22 @@ class RentalWhoPaysService
      *
      * @throws \InvalidArgumentException in plain words
      */
+    /**
+     * Audit fix C-E1 (19 Oct 2026): "what was found" is typed ONCE. What is already on file for this job: the findings recorded on the work order, else what the crew wrote at their
+     * first "Send to office" (the latest crew report of its job card). Every "What was found" box starts with this, editable, so nobody types the same fact twice.
+     */
+    public function carriedFindings(RentalWorkOrder $wo): ?string
+    {
+        $found = trim((string) $wo->found_text);
+        if ($found !== '') {
+            return $found;
+        }
+        $card = \App\Models\RentalJobCard::withoutGlobalScopes()->where('agency_id', $wo->agency_id)->where('rental_work_order_id', $wo->id)->first();
+        $said = $card ? trim((string) \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->whereNotNull('findings')->orderByDesc('id')->value('findings')) : '';
+
+        return $said !== '' ? $said : null;
+    }
+
     public function recordFindings(RentalWorkOrder $wo, ?string $found, ?int $causeId, ?string $causeNote, string $by, ?User $user = null): bool
     {
         $found = trim((string) $found);
@@ -236,6 +252,12 @@ class RentalWhoPaysService
         $this->faultFor($wo)?->recordHistory(RentalFaultReportUpdate::TYPE_PAYER_RULED, $by, $line);
 
         $this->tellParties($wo, $ruling);
+        // audit C-F2: a statement already sent said "Not yet paid" - the owner gets the updated one, once per ruling
+        try {
+            app(RentalWorkOrderService::class)->resendFinalStatementForRuling($wo->fresh(), $ruling);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Updated final statement failed', ['work_order' => $wo->id, 'error' => $e->getMessage()]);
+        }
 
         return $ruling->fresh();
     }
@@ -300,7 +322,7 @@ class RentalWhoPaysService
             // an earlier ruling asked the tenant to pay; this one no longer does - say only what changed for them (no reason: it may speak of the owner)
             $headline = 'You are no longer asked to pay for this repair.';
         }
-        $tz = $r->workOrder?->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($r->workOrder?->agency);
 
         return [
             'payer' => $r->payer,

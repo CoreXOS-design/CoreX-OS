@@ -8,7 +8,7 @@ use App\Http\Controllers\Api\V1\Concerns\ServesPortalDocuments;
 use App\Models\Property;
 use App\Models\RentalFaultReport;
 use App\Models\RentalFaultType;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageService;
 use App\Services\Rentals\RentalFaultReportService;
 use App\Services\Rentals\RentalJobCardClientViewService;
 use App\Services\Rentals\RentalFaultTypeService;
@@ -241,7 +241,7 @@ class ClientTenantRentalsController extends Controller
             'title' => 'required_without:other_type|nullable|string|max:191',
             'description' => 'required_if:other_type,1,true|nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
-            'photos.*' => 'file|image|max:15360',
+            'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',   // section 29 (C-I1): an iPhone HEIC is accepted and converted
             // section 22.3 - what the tenant ticked: JSON [{text, ticked}] (a snapshot of the steps they were shown)
             'self_checks' => 'nullable|string|max:20000',
         ]);
@@ -287,22 +287,88 @@ class ClientTenantRentalsController extends Controller
             }
         }
 
-        // AT-452 round 2 (F) - "That fixed it": logged for the agent to see, but born closed - no alert, no queue, no owner step.
-        $faultReport = $data['resolution'] === 'first_aid_resolved'
-            ? $this->faultReportService->reportSelfResolved($propertyModel, $attributes)
-            : $this->faultReportService->report($propertyModel, $attributes);
-
+        // Audit fixes (C-I2): the files are stored FIRST and the fault + its photo rows are made in ONE transaction. A photo that fails to store now fails before any fault
+        // exists, so the retry of the same press (same submission key) makes the one fault - it can no longer find a half-made first fault and make a second.
+        $private = app(PrivateImageService::class);
+        $stored = [];
         foreach ($request->file('photos', []) as $photo) {
-            $path = app(PropertyImageStorer::class)->store($photo, $propertyModel->id);
-            $faultReport->photos()->create([
-                'agency_id' => $contact->agency_id,
-                'storage_path' => $path,
-                'client_idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
-                'file_size_bytes' => $photo->getSize(),
-            ]);
+            // D14 - a picture a tenant / owner sends is kept on the PRIVATE disk (stored as a `private:` ref), never at a public /storage address.
+            $stored[] = ['path' => $private->storeUpload($photo, $propertyModel->id), 'size' => $photo->getSize()];
         }
 
+        // AT-452 round 2 (F) - "That fixed it": logged for the agent to see, but born closed - no alert, no queue, no owner step.
+        $faultReport = \Illuminate\Support\Facades\DB::transaction(function () use ($data, $propertyModel, $attributes, $stored, $contact) {
+            $fault = $data['resolution'] === 'first_aid_resolved'
+                ? $this->faultReportService->reportSelfResolved($propertyModel, $attributes)
+                : $this->faultReportService->report($propertyModel, $attributes);
+            foreach ($stored as $p) {
+                $fault->photos()->create([
+                    'agency_id' => $contact->agency_id,
+                    'storage_path' => $p['path'],
+                    'client_idempotency_key' => (string) \Illuminate\Support\Str::uuid(),
+                    'file_size_bytes' => $p['size'],
+                ]);
+            }
+
+            return $fault;
+        });
+
         return response()->json(['fault_report' => $this->faultReportSummary($faultReport->refresh())], 201);
+    }
+
+    /**
+     * Audit fixes (C-A5 / D20) - the tenant adds a note and/or photos to their own open fault. Scoped to their own leases at the query layer; replay-safe through
+     * portal.once; photos go through the same storer (HEIC converted) as the first report.
+     */
+    public function faultReportAddTo(Request $request, int $faultReport): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $fault = $this->scope->tenantFaultReport($contact, $faultReport);
+        if (! $fault) {
+            return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+        $data = $request->validate([
+            'note' => 'nullable|string|max:2000',
+            'photos' => 'nullable|array|max:10',
+            'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',
+        ]);
+
+        try {
+            $this->faultReportService->tenantAddsToFault($fault, $contact, $data['note'] ?? null, $request->file('photos', []));
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json(['fault_report' => $this->faultReportSummary($fault->refresh())], 201);
+    }
+
+    /** Audit fixes (C-A5 / D20) - the tenant withdraws their own fault while it is still with the agent / the owner and no work order is live. Never deletes. */
+    public function faultReportWithdraw(Request $request, int $faultReport): JsonResponse
+    {
+        $contact = $this->resolvePortalContact($request);
+        if ($contact instanceof JsonResponse) {
+            return $contact;
+        }
+        $fault = $this->scope->tenantFaultReport($contact, $faultReport);
+        if (! $fault) {
+            return response()->json(['message' => 'Fault report not found.'], 404);
+        }
+        $data = $request->validate(['reason' => 'required|string|min:3|max:500']);
+
+        try {
+            $this->faultReportService->tenantWithdraws($fault, $contact, $data['reason']);
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+
+        return response()->json(['fault_report' => $this->faultReportSummary($fault->refresh())]);
     }
 
     /** Section 22.3 - the tenant's ticks, cleaned: at most 30 steps, plain text, ticked true/false. Anything that is not that shape is dropped. */
@@ -352,6 +418,12 @@ class ClientTenantRentalsController extends Controller
         ], app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->payload($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT))]);
     }
 
+    /**
+     * LEGACY (deprecated, audit fixes 19 Oct 2026, D19): the tenant's "is it fixed?" answer now has ONE rule set; this route is kept only so an older app keeps working.
+     * It delegates to the same writers the current routes use - a waiting completion round: RentalCompletionService::respond (as `/completion-response`); an open job:
+     * RentalWorkOrderService::recordTenantProgress (as `/progress`); only a COMPLETED job keeps its old plain sign-off. New clients use `/progress` (open job) and
+     * `/completion-response` (waiting round). Photos follow the same limits (`portal.photos`) and the HEIC rule.
+     */
     public function workOrderConfirm(Request $request, int $workOrder): JsonResponse
     {
         $contact = $this->resolvePortalContact($request);
@@ -359,7 +431,8 @@ class ClientTenantRentalsController extends Controller
             return $contact;
         }
 
-        $order = $this->scope->tenantWorkOrder($contact, $workOrder);
+        // A write: only on a lease still in force (audit 2026-10-19 D17).
+        $order = $this->scope->tenantActionableWorkOrder($contact, $workOrder);
         if (!$order) {
             return response()->json(['message' => 'Work order not found.'], 404);
         }
@@ -367,36 +440,35 @@ class ClientTenantRentalsController extends Controller
         $data = $request->validate([
             'fixed' => 'required|boolean',
             'note' => 'nullable|string|max:2000',
+            'photos' => ['nullable', 'array', 'max:' . \App\Services\Rentals\RentalCompletionService::MAX_DISPUTE_PHOTOS],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ]);
+        $fixed = (bool) $data['fixed'];
+        $photos = $request->file('photos', []);
 
-        // BUILD 3 — §17.10.4: a compatibility alias. With a completion round waiting for this tenant it answers THAT round
-        // (the same rules as the response link and `…/completion-response`); with none open it behaves as before — a
-        // completed work order's plain fixed / not-fixed sign-off.
-        $round = $this->scope->tenantCompletionRound($contact, $order->id);
-        if ($round && $round->isAwaitingTenant()) {
-            try {
-                app(\App\Services\Rentals\RentalCompletionService::class)->respond($round, (bool) $data['fixed'], $data['note'] ?? null, [], [
+        try {
+            $round = $this->scope->tenantCompletionRound($contact, $order->id);
+            if ($round && $round->isAwaitingTenant()) {
+                app(\App\Services\Rentals\RentalCompletionService::class)->respond($round, $fixed, $data['note'] ?? null, $photos, [
                     'contact' => $contact,
                     'via' => \App\Models\RentalWorkCompletionRound::RESPONDED_PORTAL,
                     'ip' => $request->ip(),
                 ]);
-            } catch (\InvalidArgumentException|\LogicException $e) {
-                return response()->json(['message' => $e->getMessage()], 422);
+            } elseif (in_array($order->status, [\App\Models\RentalWorkOrder::STATUS_ORDERED, \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
+                app(\App\Services\Rentals\RentalWorkOrderService::class)->recordTenantProgress($order, $contact, $fixed ? 'finished' : 'not_fixed', $data['note'] ?? null, $photos);
+            } else {
+                $order->confirmByTenant($contact, $fixed, $data['note'] ?? null);
             }
-            $order = $order->fresh();
-        } else {
-            try {
-                $order->confirmByTenant($contact, (bool) $data['fixed'], $data['note'] ?? null);
-            } catch (\LogicException $e) {
-                return response()->json(['message' => $e->getMessage()], 422);
-            }
+        } catch (\InvalidArgumentException|\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
+        $order = $order->fresh();
 
-        return response()->json(['work_order' => [
+        return response()->json(['work_order' => array_merge([
             'id' => $order->id,
             'tenant_confirmed_at' => $order->tenant_confirmed_at?->toIso8601String(),
             'tenant_confirmed_fixed' => $order->tenant_confirmed_fixed,
-        ]]);
+        ], app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->payload($order, \App\Services\Rentals\RentalWorkOrderClientViewService::AUDIENCE_TENANT))]);
     }
 
     /** @return array<string, mixed>|null the fault's work order summary, in plain words (§17.3.5, W2) */
@@ -451,6 +523,9 @@ class ClientTenantRentalsController extends Controller
             'self_resolved' => $fault->isTenantSelfResolved(),
             // AT-452 round 2 (G) - closed faults are ONE collapsed line ("<type> - reported <date> - <end state>"); open ones stay expanded.
             'closed' => $fault->isClosedState(),
+            // Audit fixes (C-A5 / D20): what the tenant may still do - add a note / photos while it is open; withdraw while it is still with the agent / owner and no work order is live
+            'can_add' => ! in_array($fault->status, [RentalFaultReport::STATUS_RESOLVED, RentalFaultReport::STATUS_CANCELLED, RentalFaultReport::STATUS_DECLINED], true) && ! $fault->isTenantSelfResolved(),
+            'can_withdraw' => in_array($fault->status, [RentalFaultReport::STATUS_REPORTED, RentalFaultReport::STATUS_UNDER_REVIEW, RentalFaultReport::STATUS_AWAITING_APPROVAL], true) && ! $fault->hasLiveWorkOrder(),
             'end_state' => $fault->endStateFor('tenant'),
             'resolved_at' => $fault->resolved_at?->toIso8601String(),
             'fault_type_id' => $fault->rental_fault_type_id,

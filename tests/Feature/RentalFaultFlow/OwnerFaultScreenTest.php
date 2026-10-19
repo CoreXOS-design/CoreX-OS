@@ -230,7 +230,7 @@ class OwnerFaultScreenTest extends TestCase
         $this->assertSame('Needs your decision', $row['client']['stage_label']);
         // ...and the approve / decline endpoints are unchanged.
         $this->getJson('/api/v1/client/rentals/landlord/decisions')->assertOk()->assertJsonPath('work_orders.0.id', $wo->id);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame('approved', $wo->fresh()->owner_approval_status);
     }
 
