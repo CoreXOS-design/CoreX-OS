@@ -304,7 +304,7 @@ final class RentalWorkOrderLifecycleTest extends TestCase
         $workOrder = $this->workOrder(['status' => RentalWorkOrder::STATUS_ORDERED]);
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.complete', $workOrder), [
-            'paid_by' => 'not_yet_paid',
+            'paid_by' => 'not_yet_paid', 'cost_amount' => 0,   // section 28.2: an outside contractor's job needs a final cost (0 is a cost)
         ])->assertRedirect();
 
         $this->assertSame(RentalWorkOrder::STATUS_COMPLETED, $workOrder->fresh()->status);

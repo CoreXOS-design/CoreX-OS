@@ -416,6 +416,15 @@ final class FaultScreenSimplifiedTest extends TestCase
         $this->assertSame(RentalWorkOrder::PAID_BY_NOT_YET_PAID, $wo->fresh()->paid_by);
     }
 
+    public function test_completing_a_fault_job_after_a_ruling_keeps_paid_by_in_step_with_the_ruling(): void
+    {
+        [, $wo] = $this->readyToComplete();
+        $wo->forceFill(['who_pays' => 'tenant'])->saveQuietly();
+
+        $this->actingAs($this->agent)->post(route('corex.rental-work-orders.complete', $wo), ['cost_amount' => 1700])->assertSessionDoesntHaveErrors(['paid_by']);
+        $this->assertSame(RentalWorkOrder::PAID_BY_TENANT, $wo->fresh()->paid_by);
+    }
+
     public function test_the_cause_never_silently_records_the_first_option(): void
     {
         [, $wo] = $this->readyToComplete();
