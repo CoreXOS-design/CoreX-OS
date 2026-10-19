@@ -520,6 +520,30 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Status sort** on Scheduled Posts follows the lifecycle (scheduled, publishing, published, failed, cancelled, draft), not the database enum order.
 - **Direct publish wording/logging.** `ScheduledPostPublisher::explain()` takes a context: a direct publish says "…then post it again", a scheduled one "…then schedule the post again". The direct-publish error log keeps the original Meta message (token-scrubbed) for diagnosis; the user still sees the plain reason.
 
+### D.9 Schedule by agent (Johan 2026-10-19) — as built
+**Why.** Every Sunday the marketing person generates 2 ads per agent, then schedules agent by agent from the top of the list: each agent's 1st ad on Tuesday, 2nd on Thursday, agents 30 minutes apart. Clicking each ad was the only way. Johan's answers (2026-10-19): agent order is **A to Z or the user's own order**, and every day uses that same order; the user picks the ads, so an agent with 1 ad posts on 1 day and an agent with **more ads than ticked days is refused, naming the agent**; any days of the week (a full week with 5 ads per agent is normal); no Instagram yet (the platform ticks are unchanged).
+
+**Where.** Ad Manager results step → the existing **Schedule N ads** button → the Schedule window gets a third choice, **By agent**, above "One a day" and "All at the same time". Listing ads only (company ads keep their own Post / Schedule).
+
+**What the window shows (mode `agents`).**
+- "N ads for M agents · X per agent" (or "X to Y per agent") — detected from the batch, grouped by each listing's agent.
+- **Starting from** (date) and **Post on** Mon–Sun ticks. Each ticked weekday becomes its first date on or after Starting from; days are used earliest first.
+- **First post each day at** (time) and **Time between agents** (5–240 minutes; offered 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240).
+- **Agent order**: A to Z, or My own order (a numbered list with up / down buttons; moving an agent switches to My own order). Listings with no agent come last, as "Unassigned".
+- A live **Preview** table (agent × day, time + listing title per cell). Problems (too many ads, past midnight, no day ticked, over the batch limit) show instead and the Schedule button is disabled.
+
+**The rule (server, `ScheduledPostService::planByAgent`).** Agent of each ad = the listing's stored `agent_id` (never a client value). Agent k's n-th ad (in batch order) goes on the n-th day. On each day the agents that have an ad that day post one after the other in the order shown, from the first time, `gap` minutes apart (so a day with fewer agents finishes earlier — no empty slots). Refused, nothing saved: an agent with more ads than days ("Angelique Botha has 3 ads, but only 2 days are ticked. Each agent gets one ad per day: remove ads or tick more days."); a day running past midnight; the usual 5-minute / 60-day window on the earliest and latest post. The order the window showed is sent as `agents`; the server puts those first and anyone missing after them A to Z (`orderAgents`).
+
+**Remembered.** The pattern (weekdays, first time, gap, order, own-order list) is saved per user per agency in `ad_schedule_patterns` (migration `2026_11_17_100000`, `BelongsToAgency`, soft deletes, unique agency+user) in the same transaction as the posts, and opens the window next time (mode defaults to By agent once a pattern exists; first time: Tue + Thu, 30 minutes, A to Z). Choosing A to Z keeps the previous own order for later. Not an agency setting — a remembered choice, so not in the Setup Wizard.
+
+**Limits.** A By-agent batch takes up to 150 ads (`MAX_AGENT_BATCH`; other modes stay at 50). A big batch can outrun the 60-a-minute picture upload limit; the window then waits 20 seconds and carries on (up to 4 waits per picture) instead of failing.
+
+**API.** No new route: `api.v1.ad-manager.scheduled.store` takes `mode=agents` with `time`, `days[]` (Y-m-d, 1–7, distinct), `gap`, `order` (`alpha`|`custom`), `agents[]`. Result rows from the generator now carry `agent_id`.
+
+**Multi-agency.** Pattern rows are per agency (pinned to the agency being worked in, also for an owner account); nothing defaults to any one agency's agents, days or wording.
+
+**Tests:** `tests/Feature/Tools/ScheduleByAgentTest.php` (A to Z slots, own order + missing agents, too-many refusal saves nothing, a full week × 5, past-midnight, 5-minute rule, company ad / out-of-scope listing refused, pattern remembered + handed to the page + second agency isolated, `orderAgents`).
+
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
 - QA2 has no scheduler cron and no queue worker running; test on QA1/Staging or start them on QA2.
@@ -562,6 +586,7 @@ Every other AT-456 route returns a page or a redirect (Dev Settings Article Libr
 | Per-agency template generation limit (default 20) | AI usage agency page (owner) | **No** — Johan sets it per agency |
 | Article sources, schedule, max per run | `/admin/article-library` (owner) | **No** — system-level |
 | (none for D) | — | n/a |
+| D.9 remembered "Schedule by agent" pattern | Per user, saved when a batch is scheduled | **No** — a remembered choice, not an agency setting |
 
 ## Multi-agency check ("what does it look like for the SECOND agency?")
 Own colours/logo in B; own drafts and own count in C; own posts, scope and connection in D; own spend window and pause state in A. No HFC wording, ids or defaults anywhere; library articles carry no agency name until an agent edits their copy.
