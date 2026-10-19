@@ -866,6 +866,8 @@ plus the download route and its cross-agency 404.
 > rows (< 1.5 x the tick-box sensitivity) and leave them blank. §13.8's "one PDF or one image per upload" is superseded: a multi-page PDF is read
 > page by page (the 22 Sep code read a multi-page PDF as its last page repeated - fixed). `rental_inspection_scans.read_notes` holds the notes.
 
+> **Changed 19 Oct 2026 (AT-463, `rental-inspections.md` §62).** The corner marks are now found with a dither-tolerant matched filter, any two to four place the page (the QR alone if fewer), every row is located from its own printed boxes (a scanner stretches a page 1-2 %), ink is measured inside the box at a default sensitivity of 0.04 (a hand tick is 5-20 % of a box, not 35 %), each page gets a plain-words result, and `rental-inspections:reread-scan` re-reads a stored scan. Where this section's thresholds (0.35 etc.) differ, §62 governs.
+
 Built against §12's manifest exactly as specified — no geometry re-derived from
 `RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —
 COLUMN MARKING ONLY. We do NOT read handwriting, ever."** This service never runs OCR and never samples
