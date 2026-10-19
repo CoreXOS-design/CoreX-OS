@@ -1078,6 +1078,18 @@ class AppServiceProvider extends ServiceProvider
             return app(\App\Services\AgencyApi\AgencyApiKeyResolver::class)->resolveFromRequest($request);
         });
 
+        // Audit fix C-D2 (19 Oct 2026): the public rental links are throttled per TOKEN (hashed), not per address, and a route has exactly ONE of these limiters - the
+        // old string limiters keyed on address only and a route carrying two of them counted every request twice. See config/rental-public-links.php.
+        $tokenKey = fn (\Illuminate\Http\Request $r) => 'tok:' . substr(hash('sha256', (string) $r->route('token')), 0, 32);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_token_per_minute', 30))->by($tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
+        \Illuminate\Support\Facades\RateLimiter::for('rental-link-heavy', fn (\Illuminate\Http\Request $r) => [
+            \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, (int) config('rental-public-links.heavy_per_token_per_ten_minutes', 60))->by('heavy:' . $tokenKey($r)),
+            \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
+        ]);
+
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();
             $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;

@@ -249,7 +249,9 @@ class CrewJobService
         $workOrder = $card->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($card->rental_work_order_id) : null;
         $who = app(RentalWhoPaysService::class);
         if ($workOrder && $who->isFaultJob($workOrder)) {
-            $who->recordFindings($workOrder, $report['found_text'] ?? null, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
+            // audit fix C-E1: what the crew already told the office at "Send to office" is carried - a blank box here never loses it
+            $found = trim((string) ($report['found_text'] ?? '')) !== '' ? $report['found_text'] : $who->carriedFindings($workOrder);
+            $who->recordFindings($workOrder, $found, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
         }
 
         DB::transaction(function () use ($card, $fullName, $ctx) {

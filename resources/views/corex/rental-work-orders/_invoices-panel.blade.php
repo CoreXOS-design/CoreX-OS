@@ -108,7 +108,8 @@
             </div>
             <div>
                 <label class="wo-lbl" for="wo-inv-amount">Amount (R)</label>
-                <input id="wo-inv-amount" type="number" name="amount" required min="0" step="0.01" value="{{ old('amount') }}" class="wo-ctl">
+                @php $invSuggest = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class)->suggestedInvoiceAmount($workOrder); @endphp   {{-- audit fix C-E2: what was authorised for the contractor, less what is already filed --}}
+                <input id="wo-inv-amount" type="number" name="amount" required min="0" step="0.01" value="{{ old('amount', $invSuggest !== null ? number_format($invSuggest, 2, '.', '') : '') }}" class="wo-ctl" data-invoice-amount>
             </div>
             <div>
                 <label class="wo-lbl" for="wo-inv-supplier">Supplier</label>

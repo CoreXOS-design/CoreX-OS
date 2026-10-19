@@ -216,6 +216,7 @@ final class CrewPageLinkTest extends TestCase
 
     public function test_the_standing_link_lasts_180_days_by_default(): void
     {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['link_renew_on_use' => false]);   // this test is about the FIXED life; renewal on use has its own test (AuditP2CrewLinksTest)
         $token = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->firstOrFail();
         $this->assertNotNull($token->expires_at);
         $this->assertEqualsWithDelta(180, now()->diffInDays($token->expires_at, false), 1);
@@ -241,7 +242,7 @@ final class CrewPageLinkTest extends TestCase
 
     public function test_an_agency_set_expiry_ends_the_link_on_time(): void
     {
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_standing_link_expiry_days' => 30]);
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_standing_link_expiry_days' => 30, 'link_renew_on_use' => false]);   // the FIXED life; renewal on use has its own test
         $raw = $this->issue($this->crew); // regenerate under the new setting
         $this->assertUnavailable($this->page()); // the earlier link died when this one was issued
 

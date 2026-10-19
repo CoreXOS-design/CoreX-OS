@@ -50,7 +50,9 @@ class CompletionResponseController extends Controller
 
     private function unavailable(?string $message = null): View
     {
-        return view('rentals.completion.unavailable', ['message' => $message]);
+        $state = app(RentalSecureAccessTokenService::class)->closedStateFor((string) request()->route('token'));
+
+        return view('rentals.completion.unavailable', ['message' => $message, 'cancelled' => $state === 'cancelled']);
     }
 
     public function show(Request $request, string $token): View

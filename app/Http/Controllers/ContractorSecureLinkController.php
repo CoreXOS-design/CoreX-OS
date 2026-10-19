@@ -42,6 +42,14 @@ class ContractorSecureLinkController extends Controller
         return $record;
     }
 
+    /** One dead-link page. A link that stopped because the job was CANCELLED or FINISHED says so (audit fix C-A4); every other reason stays the one generic page. */
+    private function unavailable(string $token): View
+    {
+        $state = app(\App\Services\Rentals\RentalSecureAccessTokenService::class)->closedStateFor($token);
+
+        return view('rentals.secure-link.unavailable', ['finished' => $state === 'finished', 'cancelled' => $state === 'cancelled']);
+    }
+
     /** section 22.7 - the plain line a contractor reads while the owner has the job on hold; never the owner's reason. */
     private function onHold(RentalSecureAccessToken $record): ?string
     {
@@ -54,11 +62,7 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            // a link that stopped working because the job is FINISHED says so - it is not "expired or replaced"
-            $closed = \App\Models\RentalSecureAccessToken::withoutGlobalScopes()->where('token_hash', \App\Models\RentalSecureAccessToken::hashToken($token))
-                ->where('purpose', \App\Models\RentalSecureAccessToken::PURPOSE_CONTRACTOR_WORK_ORDER)->first()?->workOrder;
-
-            return view('rentals.secure-link.unavailable', ['finished' => $closed && $closed->status === \App\Models\RentalWorkOrder::STATUS_COMPLETED]);
+            return $this->unavailable($token);
         }
 
         $workOrder = $record->workOrder()->with(['property', 'quotes', 'photos', 'supplier'])->first();
@@ -109,6 +113,13 @@ class ContractorSecureLinkController extends Controller
             'appointmentNote' => trim((string) $workOrder->appointment_note) ?: null,
             'appointmentContractorNote' => trim((string) $workOrder->appointment_contractor_note) ?: null,   // the agent's private word to the contractor
             'invoices' => $unlocked ? $workOrder->invoices()->orderBy('id')->get() : collect(),
+            // audit fix C-E2: the invoice starts at what was authorised for the contractor less what they already invoiced - nothing they must retype
+            'invoiceSuggested' => $unlocked ? $invoiceService->suggestedInvoiceAmount($workOrder) : null,
+            // audit fix C-A6: "I have started" is offered once, while the job has not started and is not waiting for the agent's check
+            'canStart' => $unlocked && ! in_array($workOrder->status, [RentalWorkOrder::STATUS_IN_PROGRESS, RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED, RentalWorkOrder::STATUS_DISPUTED], true)
+                && $workOrder->contractor_response !== \App\Services\Rentals\RentalContractorJobService::RESPONSE_DECLINED
+                && ! app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedFinished($workOrder),
+            'hasStarted' => $workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS,
             'invoiceLimits' => $invoiceService->limitsText($workOrder->agency_id),
             'extraOpen' => $variations->first(fn ($v) => $v->isAwaitingOwner()),
             'extraLast' => $variations->first(fn ($v) => ! $v->isAwaitingOwner() && $v->status !== \App\Models\RentalWorkOrderVariation::STATUS_WITHDRAWN),
@@ -138,7 +149,7 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (! $record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
@@ -182,7 +193,7 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (! $record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
@@ -219,7 +230,7 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
@@ -232,6 +243,10 @@ class ContractorSecureLinkController extends Controller
         $workOrder = $record->workOrder;
         if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
             return back()->withErrors(['answer' => 'This job is already closed.']);
+        }
+        // audit fix C-C6: once the work has started (or the cost is authorised and the job is under way) it can no longer be declined - the agency has to be called
+        if ($data['answer'] === 'decline' && app(\App\Services\Rentals\RentalOwnerHoldService::class)->workStarted($workOrder)) {
+            return back()->withErrors(['answer' => 'The work has already started, so the job cannot be declined here. Please phone the agency.'])->withInput();
         }
         app(\App\Services\Rentals\RentalContractorJobService::class)->recordResponse(
             $workOrder, $data['answer'] === 'accept' ? \App\Services\Rentals\RentalContractorJobService::RESPONSE_ACCEPTED : \App\Services\Rentals\RentalContractorJobService::RESPONSE_DECLINED,
@@ -246,24 +261,37 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
         }
 
+        // audit fix C-C6: the order is enforced on the server (the page only hides the form). A contractor who declined cannot quote - they have to accept the job first -
+        // and nothing is quoted on a job that has started or that the owner has already authorised.
+        $workOrder = $record->workOrder;
+        if ($workOrder->contractor_response === \App\Services\Rentals\RentalContractorJobService::RESPONSE_DECLINED) {
+            return back()->withErrors(['quote' => 'You declined this job, so you cannot send a quote. If you can take it after all, accept the job first.'])->withInput();
+        }
+        if (app(\App\Services\Rentals\RentalOwnerHoldService::class)->workStarted($workOrder) || app(\App\Services\Rentals\RentalGoAheadService::class)->jobOpenForWork($workOrder)) {
+            return back()->withErrors(['quote' => 'This job has already been authorised, so a new quote is not needed. If the price has changed, use "Ask for extra money".'])->withInput();
+        }
+
+        $max = \App\Models\RentalPortalSetting::quoteMaxAmountFor((int) $record->agency_id);
         $data = $request->validate([
-            'amount' => ['required', 'numeric', 'min:0'],
+            'amount' => ['required', 'numeric', 'gt:0', 'max:' . $max],
             'quote_date' => ['required', 'date'],
             'detail_text' => ['nullable', 'string', 'max:2000'],
             'document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp,heic,heif', 'max:20480'],
+        ], [
+            'amount.gt' => 'The quote must be more than R0.',
+            'amount.max' => 'A quote can be at most R' . number_format($max, 0, '.', ',') . ' here. If that is right, please phone the agency.',
         ]);
 
         if (empty($data['detail_text']) && !$request->hasFile('document')) {
             return back()->withErrors(['quote' => 'Attach the quote document, or enter its details — at least one is required.'])->withInput();
         }
 
-        $workOrder = $record->workOrder;
         if ($request->hasFile('document')) {
             $data['document_storage_path'] = $request->file('document')
                 ->store("rental-work-order-quotes/{$workOrder->id}", 'local');
@@ -283,7 +311,7 @@ class ContractorSecureLinkController extends Controller
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
@@ -308,11 +336,32 @@ class ContractorSecureLinkController extends Controller
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Photo uploaded.');
     }
 
+    /** Audit fix C-A6: the contractor's own, optional "I have started" - the same state change as the tenant's / owner's report, refused in plain words when it does not apply. */
+    public function started(Request $request, string $token): RedirectResponse|View
+    {
+        $record = $this->resolveToken($token);
+        if (! $record) {
+            return $this->unavailable($token);
+        }
+        if ($held = $this->onHold($record)) {
+            return back()->withErrors(['work_order' => $held]);
+        }
+        $workOrder = $record->workOrder;
+        try {
+            app(RentalWorkOrderService::class)->recordContractorStarted($workOrder, $this->contractorName($workOrder));
+        } catch (\LogicException $e) {
+            return back()->withErrors(['work_order' => $e->getMessage()]);
+        }
+        $record->forceFill(['last_used_at' => now()])->save();
+
+        return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told you have started.');
+    }
+
     public function markDone(Request $request, string $token): RedirectResponse|View
     {
         $record = $this->resolveToken($token);
         if (!$record) {
-            return view('rentals.secure-link.unavailable');
+            return $this->unavailable($token);
         }
         if ($held = $this->onHold($record)) {
             return back()->withErrors(['work_order' => $held]);
