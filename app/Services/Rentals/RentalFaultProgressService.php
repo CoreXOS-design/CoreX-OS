@@ -192,8 +192,8 @@ class RentalFaultProgressService
                 }
             }
         }
-        // AT-452 quote-first: the contractor was authorised to look and QUOTE (never the work) and no quote has landed - the current step says so, for every audience
-        if ($ended === null && $last !== null && $wo && $steps[$last]['key'] === 'sent_to_contractor'
+        // AT-452 quote-first: the contractor was authorised to look and QUOTE (never the work) and no quote has landed - the current step says so for the owner and the agent (D1/Q2: the tenant is never told about quotes and keeps the plain line)
+        if ($ended === null && $last !== null && $wo && $aud !== self::AUDIENCE_TENANT && $steps[$last]['key'] === 'sent_to_contractor'
             && app(RentalWorkOrderClientViewService::class)->awaitingContractorQuote($wo)) {
             $steps[$last]['label'] = $this->label('awaiting_contractor_quote', $aud);
             $steps[$last]['awaiting_quote'] = true;

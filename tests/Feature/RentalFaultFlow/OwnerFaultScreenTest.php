@@ -359,8 +359,8 @@ class OwnerFaultScreenTest extends TestCase
 
         $this->assertSame('owner_decided', $this->progress($fault->fresh())['current'], 'not sent to the contractor until the office sends it');
         $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now()])->save();
-        // AT-452 quote-first: the owner's approval authorised a look-and-quote visit only, and no quote has landed - so the line says that, not "scheduling"
-        $this->assertSame("Waiting for the contractor's quote", $this->progress($fault->fresh())['current_label']);
+        // (this helper reads the TENANT's line: D1/Q2 - the tenant is never told about quotes, so it stays "scheduling" even while the owner and agent read "Waiting for the contractor's quote")
+        $this->assertSame('Sent to contractor for scheduling', $this->progress($fault->fresh())['current_label']);
         // cc5 walk 2 (14 Oct 2026): an appointment waits for the owner's go-ahead - a merely SENT job cannot be booked, so the cost is authorised first
         \App\Models\RentalAuthorisation::withoutGlobalScopes()->forceCreate([
             'agency_id' => $this->agency->id, 'rental_work_order_id' => $wo->id, 'point' => \App\Models\RentalAuthorisation::POINT_COST, 'outcome' => \App\Models\RentalAuthorisation::OUTCOME_AUTHORISED,

@@ -724,13 +724,13 @@ final class AuthorityFlowTest extends TestCase
         }
     }
 
-    public function test_after_a_captured_quote_instruction_every_audience_reads_waiting_for_the_contractors_quote_until_the_quote_lands(): void
+    public function test_after_a_captured_quote_instruction_owner_and_agent_read_waiting_for_the_contractors_quote_and_the_tenant_stays_neutral_until_the_quote_lands(): void
     {
         $f = $this->fault();
         $f->requestApproval($this->agent);
         $this->record($f->fresh(), ['told_via' => 'whatsapp', 'note' => 'Lenny WhatsApped: get the plumber to quote'])->assertSessionHasNoErrors();
         $f = $f->fresh();
-        $supplier = $this->supplier('Quote Plumbing');
+        $supplier = $this->supplier('Acme Plumbing');
         $result = app(\App\Services\Rentals\RentalWorkOrderService::class)->createFromFaultDecision($f, $this->agent, ['assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $supplier->id]);
         $wo = RentalWorkOrder::withoutGlobalScopes()->findOrFail($result['work_order']->id ?? $f->fresh()->rental_work_order_id);
         $this->assertSame(RentalWorkOrder::STATUS_ORDERED, $wo->status, 'a job raised from the owner\'s go-ahead goes straight out to the contractor');
@@ -741,13 +741,18 @@ final class AuthorityFlowTest extends TestCase
 
         $this->assertFalse($auth->hasCostAuthority($wo), 'authority to send someone to QUOTE is never authority for the cost');
         $this->assertTrue($view->awaitingContractorQuote($wo));
-        foreach (['tenant', 'landlord', 'agent'] as $aud) {
+        foreach (['landlord', 'agent'] as $aud) {
             $this->assertSame($words, $view->stageLabel($wo, $aud), $aud);
         }
-        foreach (['tenant', 'owner', 'agent'] as $aud) {
-            $p = $progress->forFault($f->fresh(), $aud);
-            $this->assertSame($words, $p['current_label'], $aud);
+        foreach (['owner', 'agent'] as $aud) {
+            $this->assertSame($words, $progress->forFault($f->fresh(), $aud)['current_label'], $aud);
         }
+        // D1/Q2: the tenant is never told about quotes - the plain stage, the plain progress line, and no quote key or flag anywhere in what they are given
+        $this->assertSame('Created', $view->stageLabel($wo, 'tenant'));
+        $this->assertSame('created', $view->stageKey($wo, 'tenant'));
+        $tp = $progress->forFault($f->fresh(), 'tenant');
+        $this->assertSame('Sent to contractor for scheduling', $tp['current_label']);
+        $this->assertStringNotContainsStringIgnoringCase('quote', json_encode([$tp, $view->summary($wo, 'tenant')]));
         // the owner's own screen keeps saying the instruction was captured by the agent, with the channel
         $payload = $auth->ownerPayload($f->fresh());
         $this->assertStringContainsString('on your instruction, given by WhatsApp', $payload['sentence']);

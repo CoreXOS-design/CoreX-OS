@@ -38,7 +38,7 @@ return [
     'wait_declined' => ['tenant' => 'Being arranged', 'owner' => 'You declined the quote - your agent will get another', 'agent' => 'Owner declined the quote - get another quote'],
     'wait_send' => ['tenant' => 'Being arranged with the contractor', 'owner' => 'Approved - your agent is sending it to the contractor', 'agent' => 'Approved - send it to the contractor'],
     // AT-452 quote-first: the contractor was authorised to look and quote; the quote has not landed. Replaces the "sent to contractor" line while it is the current step.
-    'awaiting_contractor_quote' => ['tenant' => "Waiting for the contractor's quote", 'owner' => "Waiting for the contractor's quote", 'agent' => "Waiting for the contractor's quote"],
+    'awaiting_contractor_quote' => ['tenant' => 'Sent to contractor for scheduling', 'owner' => "Waiting for the contractor's quote", 'agent' => "Waiting for the contractor's quote"],
     'appointment_set' => ['tenant' => 'Appointment set', 'owner' => 'Appointment set', 'agent' => 'Appointment set'],
     // section 22.7 - the owner pressed "Stop this": the job is paused until the owner says go ahead. The tenant is never told why.
     'on_hold' => ['tenant' => 'On hold', 'owner' => 'On hold - you stopped this', 'agent' => 'PAUSED BY OWNER'],

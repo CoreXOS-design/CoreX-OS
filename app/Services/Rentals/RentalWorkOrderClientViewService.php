@@ -79,8 +79,8 @@ class RentalWorkOrderClientViewService
         if ($this->appointmentAt($workOrder, $audience === 'agent')) {
             return 'appointment_set';
         }
-        // AT-452 quote-first: a contractor was authorised to look and quote, and no quote has landed yet (every audience reads the same words)
-        if ($this->awaitingContractorQuote($workOrder)) {
+        // AT-452 quote-first: a contractor was authorised to look and quote, and no quote has landed yet (owner and agent only: D1/Q2 - the tenant is never told about quotes, so the tenant keeps the plain stage)
+        if ($audience !== self::AUDIENCE_TENANT && $this->awaitingContractorQuote($workOrder)) {
             return 'awaiting_contractor_quote';
         }
 
