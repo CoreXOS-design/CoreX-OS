@@ -20,8 +20,16 @@
 </head>
 <body>
     <div class="card">
-        <h1>This link is no longer available</h1>
-        <p>It may have expired, been replaced with a new one, or the job may be closed. Contact the agency for a fresh link.</p>
+        @if (! empty($cancelled))
+            <h1>This job was cancelled</h1>
+            <p>The agency has cancelled this job, so there is nothing more to do here and no need to attend. If you think this is a mistake, please contact the agency.</p>
+        @elseif (! empty($finished))
+            <h1>This job is finished</h1>
+            <p>Thank you - there is nothing more to do here. If something is not right, please contact the agency.</p>
+        @else
+            <h1>This link is no longer available</h1>
+            <p>It may have expired, been replaced with a new one, or the job may be closed. Contact the agency for a fresh link.</p>
+        @endif
     </div>
 </body>
 </html>

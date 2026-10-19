@@ -638,6 +638,52 @@ class RentalWorkOrderService
         }
     }
 
+    /**
+     * Audit fix C-A6 (19 Oct 2026): the contractor's OWN optional "I have started" on their private link. Spec 22.18 says the tenant (or the owner when nobody lives
+     * there) normally reports the start; if neither does, a job went from "sent" straight to "completed" and the progress line never moved. This is an additional way
+     * to the SAME state, through the SAME service path as the tenant's / owner's (startProgress, history line, agent alert).
+     * Refused, in the contractor's words: closed job, owner's hold, a job the contractor declined, a job whose cost the owner has not authorised, a job whose go-ahead
+     * has not gone, the agency's own team (their job card carries it). Already in progress is a quiet no-op.
+     *
+     * @throws \LogicException in plain words
+     */
+    public function recordContractorStarted(RentalWorkOrder $workOrder, string $contractorName): void
+    {
+        if ($workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL || $workOrder->isOwnerContractor()) {
+            throw new \LogicException('This job does not run through your link.');
+        }
+        if (in_array($workOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true)) {
+            throw new \LogicException('This job is closed.');
+        }
+        if (app(RentalOwnerHoldService::class)->holdReason($workOrder)) {
+            throw new \LogicException('This job is on hold - please do not attend until you hear from us.');
+        }
+        if ($workOrder->contractor_response === RentalContractorJobService::RESPONSE_DECLINED) {
+            throw new \LogicException('You declined this job. Please accept it first if you can take it after all.');
+        }
+        if (! app(RentalAuthorisationService::class)->hasCostAuthority($workOrder)) {
+            throw new \LogicException('This job has not been authorised yet - the agency will tell you when you can go ahead.');
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED || ! $this->goAheadGone($workOrder)) {
+            throw new \LogicException('The agency has not sent you the go-ahead yet.');
+        }
+        if ($workOrder->status === RentalWorkOrder::STATUS_IN_PROGRESS) {
+            return;
+        }
+        if (app(RentalWorkOrderClientViewService::class)->reportedFinished($workOrder)) {
+            throw new \LogicException('You have already told us the work is finished - the agency will check it and close the job.');
+        }
+
+        $workOrder->startProgress(null, 'Reported by the contractor ' . $contractorName . ' on their link');
+        $workOrder->updates()->create([
+            'agency_id' => $workOrder->agency_id, 'update_type' => 'contractor_progress',
+            'note' => 'Work started - reported by the contractor ' . $contractorName . ' (' . 'they pressed "I have started" on their link).',
+        ]);
+        $this->notifyAgentOfOwnerAction(
+            $workOrder->fresh(), RentalContractorJobService::EV_STARTED, 'Contractor started the work - ' . $this->addressFor($workOrder), $contractorName . ': ' . $workOrder->title, now()
+        );
+    }
+
     public function recordOwnerProgress(RentalWorkOrder $workOrder, \App\Models\Contact $owner, string $action, ?string $note = null): void
     {
         // spec 22.18 - one rule for both people: with a tenant living there only the tenant acts; also needs the authorised cost and the go-ahead gone

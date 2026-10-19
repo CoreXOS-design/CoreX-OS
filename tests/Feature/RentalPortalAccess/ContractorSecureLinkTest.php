@@ -147,6 +147,7 @@ class ContractorSecureLinkTest extends TestCase
         $agency = $this->makeAgency();
         $agent = User::factory()->create(['agency_id' => $agency->id, 'role' => 'admin']);
         $workOrder = $this->makeWorkOrder($agency, $agent);
+        $workOrder->forceFill(['approval_basis' => null])->save();   // a job the owner has not authorised yet - that is when a contractor quotes (audit fix C-C6 enforces the order)
         $issued = app(RentalSecureAccessTokenService::class)->issueFor($workOrder, $agent);
 
         $this->post('/secure/work-orders/' . $issued['raw_token'] . '/quote', [

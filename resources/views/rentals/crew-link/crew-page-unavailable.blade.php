@@ -22,8 +22,13 @@
 <body>
     <div class="wrap" data-crew-link-unavailable>
         <div class="card">
-            <h1>This link is no longer available</h1>
-            <p>It may have expired, or been replaced with a new one. Please ask the office for a fresh link.</p>
+            @if(! empty($cancelled))
+                <h1>This job was cancelled</h1>
+                <p>The office has cancelled this job, so there is nothing more to do on it and no need to attend. Your other jobs are still on your page.</p>
+            @else
+                <h1>This link is no longer available</h1>
+                <p>It may have expired, or been replaced with a new one. Please ask the office for a fresh link.</p>
+            @endif
         </div>
     </div>
 </body>

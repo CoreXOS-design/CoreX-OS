@@ -19,7 +19,10 @@
 </head>
 <body>
     <div class="card">
-        @if(!empty($message))
+        @if(!empty($cancelled))
+            <h1>This job was cancelled</h1>
+            <p>The agency has cancelled this job, so there is nothing more to check here.</p>
+        @elseif(!empty($message))
             <h1>{{ $message }}</h1>
             <p>If something is still wrong with the work, please report it as a new fault.</p>
         @else

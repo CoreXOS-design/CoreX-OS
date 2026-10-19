@@ -61,7 +61,10 @@ class CrewJobLinkController extends Controller
 
     private function unavailable(): View
     {
-        return view('rentals.crew-link.unavailable');
+        $state = app(RentalSecureAccessTokenService::class)->closedStateFor((string) request()->route('token'));
+
+        // a finished card keeps the one generic page; only a CANCELLED job is named (audit fix C-A4)
+        return view('rentals.crew-link.unavailable', ['cancelled' => $state === 'cancelled']);
     }
 
     public function show(Request $request, string $token): View

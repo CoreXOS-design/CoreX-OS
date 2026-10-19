@@ -384,12 +384,19 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertSame('declined', $wo->fresh()->contractor_response);
         $this->assertSame('Fully booked this week', $wo->fresh()->contractor_decline_reason);
 
+        // audit fix C-C6: a contractor who declined cannot quote - the server refuses, and the answer is not flipped back
+        $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertSessionHasErrors('quote');
+        $this->assertSame('declined', $wo->fresh()->contractor_response);
+        $this->assertSame(0, $wo->quotes()->count());
+
+        // they change their mind: accept first, then quote
+        $this->post(route('rentals.secure-link.respond', $token), ['answer' => 'accept'])->assertRedirect();
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertRedirect();
         $this->assertSame('quote_uploaded', $wo->fresh()->contractor_response);
         $this->assertSame(1, $wo->quotes()->count());
 
         $types = $wo->updates()->pluck('update_type')->all();
-        $this->assertSame(3, count(array_keys($types, 'contractor_response')), 'accepted, declined, quote - each written to the history');
+        $this->assertSame(4, count(array_keys($types, 'contractor_response')), 'accepted, declined, accepted again, quote - each written to the history');
 
         // and the supplier card shows it, not just a data row
         $card = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->getContent();

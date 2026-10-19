@@ -39,6 +39,8 @@ class RentalContractorJobService
     public const EV_RESPONDED = 'rental_work_order.contractor_responded';
     /** Its own alert type: NotificationDispatcher drops a second alert of the SAME type for the same work order within the person's cooldown (6 h by default), so a quote sent after "accepted" under EV_RESPONDED never reached anyone (WO 192, 14 Oct 2026). */
     public const EV_QUOTE = 'rental_work_order.quote_received';
+    /** Audit fix C-A6: the contractor pressed "I have started" - its own alert type (registered by migration 2026_11_21_100000) so the cooldown on EV_RESPONDED can never swallow it. */
+    public const EV_STARTED = 'rental_work_order.contractor_started';
 
     public const RESPONSE_PENDING = 'pending';
     public const RESPONSE_ACCEPTED = 'accepted';
