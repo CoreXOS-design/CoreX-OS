@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Concerns;
 use App\Models\RentalJobCard;
 use App\Models\RentalJobCardCrewReport;
 use App\Services\Rentals\CrewLineEntryService;
+use App\Services\Rentals\CrewLineLooksDuplicate;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,6 +46,12 @@ trait AnswersCrewLineRequests
         $back = redirect($redirectTo)->withErrors(['crew' => $message]);
 
         return $keepInput ? $back->withInput() : $back;
+    }
+
+    /** §17.43 (C-E3): not a failure - a question. 409 + the words to show and what the office already has; the page sends the same add again with add_anyway=1. */
+    protected function lineDuplicate(CrewLineLooksDuplicate $e): JsonResponse
+    {
+        return response()->json(['ok' => false, 'duplicate' => true, 'message' => $e->getMessage(), 'existing' => $e->summary()], 409);
     }
 
     protected function wantsLineJson(Request $request): bool

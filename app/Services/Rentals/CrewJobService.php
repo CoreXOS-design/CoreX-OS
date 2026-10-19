@@ -157,14 +157,22 @@ class CrewJobService
         return $payload;
     }
 
-    /** Tick or untick a task. */
-    public function tick(RentalJobCard $card, RentalJobCardTask $task, CrewViewContext $ctx): void
+    /**
+     * Tick or untick a task. §17.43 (audit C-E5): with $done given the task is SET to that state - a retried or queued tick that arrives twice
+     * (or after the office already ticked it) changes nothing the second time. Without it (an older client) the task flips, as it always did.
+     */
+    public function tick(RentalJobCard $card, RentalJobCardTask $task, CrewViewContext $ctx, ?bool $done = null): void
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
         abort_unless((int) $task->rental_job_card_id === (int) $card->id && $task->trashed() === false, 404);
 
-        $isDone = ! $task->is_done;
+        $isDone = $done ?? ! $task->is_done;
+        if ((bool) $task->is_done === $isDone) {
+            $this->touchToken($ctx);
+
+            return; // already in that state: nothing to change, nothing to log twice
+        }
         $task->forceFill([
             'is_done' => $isDone,
             'done_by_user_id' => null,
@@ -286,13 +294,15 @@ class CrewJobService
         $request = $card->priceRequests()->withoutGlobalScopes()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->latest('id')->first();
         $isExtra = ! empty($data['is_extra']) || ! $request;
 
-        $line = DB::transaction(function () use ($card, $clean, $request, $isExtra, $ctx) {
+        $clientKey = ! empty($data['client_key']) ? (string) $data['client_key'] : null; // §17.43 - the retry key is stored on the line
+        $line = DB::transaction(function () use ($card, $clean, $request, $isExtra, $ctx, $clientKey) {
             return app(RentalJobCardService::class)->addLine($card, $clean + [
                 'origin' => $isExtra ? RentalJobCardLine::ORIGIN_CREW_EXTRA : RentalJobCardLine::ORIGIN_CREW_PRICING,
                 'office_status' => RentalJobCardLine::OFFICE_CREW_DRAFT,
                 'crew_added_by_label' => mb_substr($ctx->actorLabel, 0, 191),
                 'crew_added_at' => now(),
                 'rental_job_card_price_request_id' => $isExtra ? null : $request?->id,
+                'client_key' => $clientKey,
             ], null, null, false);
         });
 

@@ -128,6 +128,8 @@
             @foreach($job['tasks'] as $task)
                 <form method="POST" action="{{ str_replace('__TASK__', $task['id'], $actions['tick']) }}" class="cj-tick-form">
                     @csrf
+                    {{-- §17.43 (audit C-E5): the state this tap asks for - a retry or a second tap sets it again instead of flipping it back --}}
+                    <input type="hidden" name="done" value="{{ $task['is_done'] ? 0 : 1 }}">
                     <button type="submit" class="cj-task {{ $task['is_done'] ? 'done' : '' }}" @disabled(! $job['is_open'])>
                         <span class="box">{{ $task['is_done'] ? '✓' : '' }}</span>
                         <span class="txt">{{ $task['number'] }}. {{ $task['description'] }}</span>

@@ -234,17 +234,30 @@
                 // ── the blank row: "Add new line" saves it, then opens the next one ──
                 row.dataset.clientKey = row.dataset.clientKey || uuid();
                 var addBtn = row.querySelector('.cj-add-new-line');
-                function addNew() {
+                function addNew(anyway) {
                     if (saving) { return; }
                     saving = true; addBtn.disabled = true; showError(row, '');
                     var fd = new FormData(row); fd.set('client_key', row.dataset.clientKey);
+                    if (anyway === true) { fd.set('add_anyway', '1'); }
                     send(row.dataset.addUrl, fd).then(function (res) {
                         saving = false; addBtn.disabled = false;
+                        // the office already has this part: ask, never silently double it
+                        if (res.status === 409 && res.data.duplicate) { askAddAnyway(res.data); return; }
                         if (!res.ok) { showError(row, res.data.message); return; }
                         becomeSaved(res.data);
                         applySend(res.data.send_html, res.data.draft_count);
                         openNextRow();
                     });
+                }
+                function askAddAnyway(data) {
+                    var box = row.querySelector('.cj-row-error');
+                    var ex = data.existing || {};
+                    box.textContent = '';
+                    box.appendChild(document.createTextNode(data.message + (ex.description ? ' (' + ex.description + (ex.quantity ? ', ' + ex.quantity + (ex.unit ? ' ' + ex.unit : '') : '') + ')' : '') + ' '));
+                    var yes = el('button', 'cj-btn small cj-add-anyway', 'Add anyway'); yes.type = 'button';
+                    yes.addEventListener('click', function () { addNew(true); });
+                    box.appendChild(yes);
+                    box.hidden = false;
                 }
                 // one submit handler for the row's whole life: a blank row adds, a saved row saves its changes (Enter in a box, or the button with JS on)
                 row.addEventListener('submit', function (e) { e.preventDefault(); if (row.classList.contains('is-new')) { addNew(); } else { autosave(); } });

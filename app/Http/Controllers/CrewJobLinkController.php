@@ -102,7 +102,7 @@ class CrewJobLinkController extends Controller
         $taskModel = RentalJobCardTask::withoutGlobalScopes()
             ->where('rental_job_card_id', $card->id)->whereKey($task)->firstOrFail();
 
-        app(CrewJobService::class)->tick($card, $taskModel, CrewViewContext::forJobLink($record, $card, $request));
+        app(CrewJobService::class)->tick($card, $taskModel, CrewViewContext::forJobLink($record, $card, $request), $request->has('done') ? $request->boolean('done') : null);
 
         if ($request->expectsJson()) {
             return response()->json(['is_done' => (bool) $taskModel->fresh()->is_done]);
@@ -188,6 +188,8 @@ class CrewJobLinkController extends Controller
 
         try {
             $result = $this->lineEntry()->add($card, $request, CrewViewContext::forJobLink($record, $card, $request));
+        } catch (\App\Services\Rentals\CrewLineLooksDuplicate $e) {
+            return $this->lineDuplicate($e);
         } catch (\InvalidArgumentException $e) {
             return $this->lineFailure($request, $e->getMessage(), $back, true);
         } catch (\LogicException $e) {
