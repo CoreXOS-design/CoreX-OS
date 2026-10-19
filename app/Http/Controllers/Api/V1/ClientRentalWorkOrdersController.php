@@ -68,7 +68,7 @@ class ClientRentalWorkOrdersController extends Controller
             'fixed' => ['required', 'boolean'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ]);
 
         return $this->answer($order, $round, (bool) $data['fixed'], $data['note'] ?? null, $request->file('photos', []), $contact, $request);
@@ -92,7 +92,7 @@ class ClientRentalWorkOrdersController extends Controller
             'action' => ['required', 'in:started,finished,not_fixed'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ]);
 
         try {

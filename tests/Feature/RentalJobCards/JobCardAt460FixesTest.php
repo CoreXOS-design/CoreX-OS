@@ -178,7 +178,7 @@ final class JobCardAt460FixesTest extends TestCase
     private function ownerApprovalAlertTitle(RentalWorkOrder $wo): string
     {
         Sanctum::actingAs($this->owner ??= $this->clientFor($this->landlord), ['client']);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         $titles = \Illuminate\Support\Facades\DB::table('notifications')->get()
             ->map(fn ($n) => json_decode($n->data, true))
@@ -216,7 +216,7 @@ final class JobCardAt460FixesTest extends TestCase
 
         // the owner approves: the pill is no longer "Created" - and never reaches the tenant
         Sanctum::actingAs($this->clientFor($this->landlord), ['client']);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame('Approved - being booked', $view->stageLabel($wo->fresh(), $view::AUDIENCE_LANDLORD));
         $this->assertSame('Approved - ready to book', $view->stageLabel($wo->fresh(), 'agent'), 'the office reads its own words');
         $this->assertSame('Created', $view->stageLabel($wo->fresh(), $view::AUDIENCE_TENANT), 'the tenant is never told about approvals');

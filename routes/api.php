@@ -236,8 +236,12 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientTenantRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
+            // Audit fixes 19 Oct 2026 (C-A5 / D20): add a note / photos to an open fault, or withdraw it (replay-safe: the group carries portal.once)
+            Route::post('/fault-reports/{faultReport}/notes', [ClientTenantRentalsController::class, 'faultReportAddTo'])->whereNumber('faultReport')->middleware('portal.photos')->name('fault-reports.add-to');
+            Route::post('/fault-reports/{faultReport}/withdraw', [ClientTenantRentalsController::class, 'faultReportWithdraw'])->whereNumber('faultReport')->name('fault-reports.withdraw');
             Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
-            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
+            // DEPRECATED (audit fixes D19): delegates to the same rules as /progress and /completion-response; new clients use those two
+            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->middleware('portal.photos')->name('work-orders.confirm');
             // W4 (8 Oct 2026): the job card is INTERNAL - tenants and owners see the work order's progress, never the job card.
             // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
             // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)

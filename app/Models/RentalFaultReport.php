@@ -438,6 +438,24 @@ class RentalFaultReport extends Model
     }
 
     /**
+     * Audit fixes (C-A5 / D20): the TENANT withdraws their own fault - the same cancel, in their name, with a reason. Only while it is still with the agent / the owner
+     * (reported, under review, awaiting the owner's decision) and no work order is live; nothing is deleted, the report stays visible, cancelled.
+     */
+    public function cancelByTenant(\App\Models\Contact $by, string $reason): void
+    {
+        if (! in_array($this->status, [self::STATUS_REPORTED, self::STATUS_UNDER_REVIEW, self::STATUS_AWAITING_APPROVAL], true) || $this->hasLiveWorkOrder()) {
+            throw new \LogicException('This fault is already being dealt with, so it can no longer be withdrawn - please contact your agent.');
+        }
+        $who = trim(($by->first_name ?? '') . ' ' . ($by->last_name ?? '')) ?: 'The tenant';
+        $fromStatus = $this->status;
+        $this->forceFill([
+            'status' => self::STATUS_CANCELLED, 'cancelled_at' => now(), 'cancelled_by_user_id' => null,
+            'cancel_reason' => 'Withdrawn by the tenant: ' . $reason,
+        ])->save();
+        $this->logUpdate(RentalFaultReportUpdate::TYPE_STATUS_CHANGE, null, $who . ' (tenant) withdrew this fault: ' . $reason, $fromStatus, self::STATUS_CANCELLED);
+    }
+
+    /**
      * Johan, 2026-09-22 — archive/restore captured in the same "who did
      * what" history as every other action on this record.
      */

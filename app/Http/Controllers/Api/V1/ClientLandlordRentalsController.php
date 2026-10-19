@@ -275,7 +275,7 @@ class ClientLandlordRentalsController extends Controller
             'comment' => 'nullable|string|max:2000',
             'follows_fault_report_id' => 'nullable|integer',
             'photos' => 'nullable|array|max:10',
-            'photos.*' => 'file|image|max:15360',
+            'photos.*' => 'file|mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES . '|max:15360',
         ]);
 
         // AT-452 round 2 (F-OWNER) - "Have this repaired anyway": the new request follows a report the tenant resolved themselves. The owner must be able
@@ -376,6 +376,8 @@ class ClientLandlordRentalsController extends Controller
                 'owner_approval_status' => $w->owner_approval_status,
                 // Amounts ARE shown to the landlord (§3: "work orders with amounts").
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
+                // Audit fixes (D26): the quote the owner is looking at - the decision carries this back
+                'quote' => ($sq = $w->quotes()->where('is_selected', true)->first()) ? ['id' => $sq->id, 'revision' => (int) $sq->revision, 'amount' => round((float) $sq->ownerFacingAmount(), 2)] : null,
                 // §14.29 — photos of the work (own + linked job card), filtered by the agency's visibility rule.
                 'photos' => $this->jobCardView->photosPayload($this->jobCardView->photosForWorkOrder($w)),
                 // BUILD 3 — §17.3.5: the portal's Jobs list reads these (plain stage, who, rounds); amounts stay owner-facing only.
@@ -439,6 +441,8 @@ class ClientLandlordRentalsController extends Controller
             'work_orders' => $workOrders->map(fn ($w) => [
                 'id' => $w->id, 'title' => $w->title, 'kind' => 'work_order',
                 'selected_quote_amount' => optional($w->quotes()->where('is_selected', true)->first())?->ownerFacingAmount(),
+                // Audit fixes (D26): the quote the owner is looking at - the decision carries this back
+                'quote' => ($sq = $w->quotes()->where('is_selected', true)->first()) ? ['id' => $sq->id, 'revision' => (int) $sq->revision, 'amount' => round((float) $sq->ownerFacingAmount(), 2)] : null,
                 // §17.8.3 — emergency work is flagged for the owner on their own work-order card.
                 'emergency' => $w->approval_basis === RentalWorkOrder::BASIS_EMERGENCY,
             ])->values(),
@@ -1011,11 +1015,23 @@ class ClientLandlordRentalsController extends Controller
             return response()->json(['message' => 'This is not waiting for your decision any more.'], 422);
         }
 
+        // Audit fixes (D26): when a quote is selected the owner's decision must carry the quote they SAW (id, revision, amount). A work order with no selected quote
+        // (an old record) has nothing to snapshot and decides as before. A quote that appeared since they loaded the screen makes the fields required -> 422, look again.
+        $current = $order->quotes()->where('is_selected', true)->whereNull('declined_at')->first();
+        $snap = $current ? 'required' : 'nullable';
         $data = $request->validate([
             'decision' => 'required|in:approve,decline',
             // Q4 (Johan, 9 Oct 2026): a decline always carries the owner's reason.
             'note' => 'nullable|required_if:decision,decline|string|max:2000',
+            'quote_id' => $snap . '|integer',
+            'quote_revision' => $snap . '|integer|min:0',
+            'quote_amount' => $snap . '|numeric',
         ]);
+
+        if ($current && ((int) $current->id !== (int) $data['quote_id'] || (int) $current->revision !== (int) $data['quote_revision']
+            || round((float) $current->ownerFacingAmount() * 100) !== round((float) $data['quote_amount'] * 100))) {
+            return response()->json(['message' => 'The quote has changed since you looked at it - please look again before you decide.'], 409);
+        }
 
         try {
             $order->recordApproval($contact, [
