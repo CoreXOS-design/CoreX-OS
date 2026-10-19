@@ -97,15 +97,26 @@ final class RentalJobCardGridAlignmentTest extends TestCase
     {
         $html = $this->html();
 
-        foreach (['title="Edit line"', 'title="Archive"', 'aria-label="Add line"'] as $needle) {
+        foreach (['title="Edit line"', 'title="Archive"'] as $needle) {
             $this->assertStringContainsString($needle, $html);
         }
         // Each carries the compact style, with !important on the properties the card-wide rule forces.
         $this->assertMatchesRegularExpression('/title="Archive"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;[^"]*background:transparent !important;/', $html);
         $this->assertMatchesRegularExpression('/title="Edit line"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;/', $html);
-        $this->assertMatchesRegularExpression('/aria-label="Add line"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;[^"]*justify-self:end;/', $html);
-        // …and the + is no longer the full-size outline button
-        $this->assertDoesNotMatchRegularExpression('/aria-label="Add line"[^>]*class="[^"]*corex-btn/', $html);
+    }
+
+    /** §17.42 - the add row ends in a TEXT button ("Add new line"), the same corex button the edit row's Save uses, in a footer under the grid - not a 17px "+". */
+    public function test_the_add_row_ends_in_an_add_new_line_text_button_in_the_footer_not_a_plus_icon(): void
+    {
+        $html = $this->html();
+
+        $this->assertStringContainsString('Add new line', $html);
+        $this->assertStringNotContainsString('aria-label="Add line"', $html, 'the + icon is gone from the show screen');
+        $this->assertMatchesRegularExpression('/class="corex-btn-primary text-xs" data-add-line>Add new line</', $html);
+        $this->assertStringContainsString('data-line-foot', $html);
+        // the one rule that sizes the footer buttons gives Add / Save / Cancel the same height
+        $this->assertStringContainsString('.jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px !important; min-height: 30px !important;', $html);
+        $this->assertStringNotContainsString('.jc-addrow button[type="submit"] { width: 26px !important', $html, 'the old square-submit rule would squash the text button');
     }
 
     public function test_the_add_row_stays_one_line_and_the_action_column_is_the_narrow_last_track(): void
@@ -123,6 +134,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->assertStringNotContainsString('title="Edit line"', $html);
         $this->assertStringNotContainsString('title="Archive"', $html);
         $this->assertStringNotContainsString('aria-label="Add line"', $html);
+        $this->assertStringNotContainsString('Add new line', $html);
     }
 
     // ── §14.25 — the on-screen VAT column never shows a dash ─────────────

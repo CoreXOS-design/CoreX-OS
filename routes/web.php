@@ -113,12 +113,14 @@ Route::prefix('secure/job-cards/{token}')->middleware('throttle:30,1')->whereNum
     Route::post('/lines/send', [\App\Http\Controllers\CrewJobLinkController::class, 'sendLines'])->name('rentals.crew-job.lines.send');
     Route::post('/lines/{line}', [\App\Http\Controllers\CrewJobLinkController::class, 'updateLine'])->middleware('throttle:60,10')->name('rentals.crew-job.lines.update');
     Route::post('/lines/{line}/archive', [\App\Http\Controllers\CrewJobLinkController::class, 'archiveLine'])->name('rentals.crew-job.lines.archive');
+    Route::post('/lines/{line}/restore', [\App\Http\Controllers\CrewJobLinkController::class, 'restoreLine'])->middleware('throttle:60,10')->name('rentals.crew-job.lines.restore');
 });
 Route::prefix('secure/crews/{token}')->middleware('throttle:30,1')->whereNumber(['card', 'line'])->group(function () {
     Route::post('/job-cards/{card}/lines', [\App\Http\Controllers\CrewPageController::class, 'addLine'])->middleware('throttle:60,10')->name('rentals.crew-page.lines.store');
     Route::post('/job-cards/{card}/lines/send', [\App\Http\Controllers\CrewPageController::class, 'sendLines'])->name('rentals.crew-page.lines.send');
     Route::post('/job-cards/{card}/lines/{line}', [\App\Http\Controllers\CrewPageController::class, 'updateLine'])->middleware('throttle:60,10')->name('rentals.crew-page.lines.update');
     Route::post('/job-cards/{card}/lines/{line}/archive', [\App\Http\Controllers\CrewPageController::class, 'archiveLine'])->name('rentals.crew-page.lines.archive');
+    Route::post('/job-cards/{card}/lines/{line}/restore', [\App\Http\Controllers\CrewPageController::class, 'restoreLine'])->middleware('throttle:60,10')->name('rentals.crew-page.lines.restore');
 });
 // BUILD 1 END
 
