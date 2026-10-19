@@ -66,7 +66,25 @@
     .jc-addrow-cap { font-size: 11px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--brand-icon, #0ea5e9); }
     .jc-addrow form, .jc-addrow > div { padding-top: 2px !important; }
     .jc-addrow input, .jc-addrow select { height: 30px; box-sizing: border-box; }
-    .jc-addrow button[type="submit"] { width: 26px !important; height: 26px !important; background: var(--brand-icon, #0ea5e9) !important; color: #fff !important; border-color: var(--brand-icon, #0ea5e9) !important; font-size: 17px !important; }
+    /* §17.42 - the add row and the edit row end in a footer of TEXT buttons (add; or cancel + save), all one height and one weight, right-aligned under the grid */
+    .jc-line-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 14px; padding-top: 8px; }
+    .jc-foot-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; flex: 1 1 auto; min-width: 0; }
+    .jc-foot-buttons { display: flex; gap: 8px; margin-left: auto; }
+    .jc-line-foot .corex-btn-primary, .jc-line-foot .corex-btn-outline { height: 30px; min-height: 30px; padding: 0 14px; display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; box-sizing: border-box; }
+    .jc-receipt { display: inline-flex; align-items: center; gap: 6px; }
+    .jc-receipt[hidden] { display: none; }
+    .jc-foot-label { font-size: 12px; color: var(--text-muted); }
+    .jc-filebtn { position: relative; overflow: hidden; cursor: pointer; }
+    .jc-filebtn.has-file { background: color-mix(in srgb, #16a34a 14%, var(--surface)); border-color: #16a34a; color: #15803d; }
+    .jc-file-hidden { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 0; }
+    .jc-markup > summary { cursor: pointer; list-style: none; font-size: 12px; font-weight: 600; color: var(--brand-icon, #0ea5e9); }
+    .jc-markup > summary::-webkit-details-marker { display: none; }
+    .jc-markup[open] > summary { margin-bottom: 4px; }
+    .jc-markup-body { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12px; color: var(--text-muted); }
+    .jc-line-error { flex: 1 1 100%; order: 3; font-size: 12px; color: var(--ds-crimson, #dc2626); }
+    .jc-line-error[hidden] { display: none; }
+    .jc-undo-strip { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 4px 0; padding: 6px 10px; font-size: 12px; border-radius: 6px; background: color-mix(in srgb, var(--text-muted, #64748b) 12%, var(--surface)); }
+    .jc-undo-strip button { height: 26px; }
     .jc-await { margin-top: 6px; border: 1px solid #f59e0b; border-radius: 6px; padding: 4px 8px 8px; background: color-mix(in srgb, #f59e0b 9%, var(--surface)); }
     .jc-await input { height: 30px; box-sizing: border-box; }
     .jc-await-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--text-muted); }

@@ -424,7 +424,8 @@ class RentalJobCardService
             // explicitly posted type wins, same as description/unit/price
             // already work. See RentalJobCardAt442FollowUpTest's renamed
             // assertion for the behaviour this replaces.
-            'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_LABOUR,
+            // §17.42 (Johan, 19 Oct 2026): a free-typed line with no type and no catalogue item is a PART, not Labour.
+            'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_PART,
             'description' => $attributes['description'] ?? $catalogueItem?->description ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
             'quantity' => $quantity,
@@ -620,6 +621,28 @@ class RentalJobCardService
         if ($jobCard->vat_snapshotted_at !== null && ! $jobCard->isClosed()) {
             $this->vat->refreshLineSnapshot($jobCard, $line);
         }
+    }
+
+    /**
+     * §17.42 / AT-459 - the receipt for a PART line (what was paid, proved): the ONE method the crew link, the crew page and the office
+     * job card all use. Stored like a line photo (against the line, not in the job gallery) with its own photo_type, so it never counts
+     * as one of a crew line's up-to-3 photos and never reaches anything the owner or tenant sees. A newer receipt supersedes an older
+     * one on screen (photo rows are immutable). Labour has no receipt - nothing is stored and false is returned.
+     */
+    public function attachLineReceipt(RentalJobCard $jobCard, RentalJobCardLine $line, ?UploadedFile $file, ?User $by = null, ?string $uploadedVia = null): bool
+    {
+        abort_unless((int) $line->rental_job_card_id === (int) $jobCard->id, 404);
+        if (! $file || $line->type !== RentalCatalogueItem::TYPE_PART) {
+            return false;
+        }
+
+        // the crew's own uploads pass no user and write one summary line per send elsewhere; an office receipt is one history line
+        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id);
+        if ($by) {
+            $jobCard->logUpdate('photo_added', $by, 'Receipt added: ' . $line->description);
+        }
+
+        return true;
     }
 
     public function archiveLine(RentalJobCard $jobCard, RentalJobCardLine $line, User $by): void

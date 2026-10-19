@@ -604,12 +604,12 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task restored.')->with('jc_focus_task', $task);
     }
 
-    public function storeLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
+    public function storeLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         $validated = $request->validate([
@@ -625,26 +625,29 @@ class RentalJobCardController extends Controller
             'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ]);
+        ] + $this->receiptRules(), $this->receiptMessages());
+        unset($validated['receipt_camera'], $validated['receipt_file']);
         $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         if (empty($validated['rental_catalogue_item_id']) && empty($validated['description'])) {
-            return back()->withErrors(['rental_job_card' => 'Pick a catalogue item or type a description.']);
+            return $this->lineProblem($request, 'Pick a catalogue item or type a description.');
         }
 
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
         try {
             $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
+            // §17.42 - the same receipt component as the crew's: stored against the new line (a part only)
+            $service->attachLineReceipt($rentalJobCard, $line, $this->receiptFrom($request), $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
         // jc_focus_line — the show screen scrolls the changed line into view
         // after restoring the panel's scroll position (see show.blade.php).
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line added.')->with('jc_focus_line', $line->id);
+        return $this->lineDone($request, $rentalJobCard, 'Line added.', $line->id);
     }
 
-    public function updateLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
+    public function updateLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
@@ -652,8 +655,8 @@ class RentalJobCardController extends Controller
         // cancelled is a dead record). The edit control isn't rendered there
         // either; this is the server-side guard behind the hidden link
         // (RentalJobCardService enforces the same rule a second time).
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         // quantity is `sometimes` — an agency with prices off renders no
@@ -673,50 +676,107 @@ class RentalJobCardController extends Controller
             'back_to_auto' => ['nullable', 'boolean'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ]);
+        ] + $this->receiptRules(), $this->receiptMessages());
+        unset($validated['receipt_camera'], $validated['receipt_file']);
         $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         try {
             $service->updateLine($rentalJobCard, $line, $validated, $request->user());
+            // a new receipt replaces the one shown (only if the line is, after the edit, a part)
+            $service->attachLineReceipt($rentalJobCard, $line->refresh(), $this->receiptFrom($request), $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line updated.')->with('jc_focus_line', $line->id);
+        return $this->lineDone($request, $rentalJobCard, 'Line updated.', $line->id);
     }
 
-    public function destroyLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
+    public function destroyLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         try {
             $service->archiveLine($rentalJobCard, $line, $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line archived.');
+        // §17.42 - the no-reload screen offers Undo (restoreLine below); the id and wording are returned for it
+        return $this->lineDone($request, $rentalJobCard, 'Line archived.', null, ['removed_line_id' => $line->id, 'description' => $line->description], false);
     }
 
-    public function restoreLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, int $line): RedirectResponse
+    public function restoreLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, int $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         try {
             $service->restoreLine($rentalJobCard, $line, $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line restored.')->with('jc_focus_line', $line);
+        return $this->lineDone($request, $rentalJobCard, 'Line restored.', $line);
+    }
+
+    // ───────────── §17.42 — the line actions answer a fetch with JSON and a plain form post with the redirect they always did ─────────────
+
+    /** @return array<string, array<int, string>> */
+    private function receiptRules(): array
+    {
+        return [
+            // AT-459 - the receipt for a part: camera or the phone's / computer's files, one or the other
+            'receipt_camera' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'receipt_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function receiptMessages(): array
+    {
+        return [
+            'receipt_camera.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_file.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_camera.max' => 'The receipt photo is too large — it can be up to 50 MB.',
+            'receipt_file.max' => 'The receipt photo is too large — it can be up to 50 MB.',
+        ];
+    }
+
+    private function receiptFrom(Request $request): ?\Illuminate\Http\UploadedFile
+    {
+        return $request->file('receipt_camera') ?? $request->file('receipt_file');
+    }
+
+    private function wantsLineJson(Request $request): bool
+    {
+        return $request->expectsJson() || $request->ajax();
+    }
+
+    private function lineProblem(Request $request, string $message): RedirectResponse|JsonResponse
+    {
+        if ($this->wantsLineJson($request)) {
+            return response()->json(['ok' => false, 'message' => $message], 422);
+        }
+
+        return back()->withErrors(['rental_job_card' => $message]);
+    }
+
+    /** @param array<string, mixed> $extra */
+    private function lineDone(Request $request, RentalJobCard $card, string $message, ?int $focusLineId, array $extra = [], bool $focus = true): RedirectResponse|JsonResponse
+    {
+        if ($this->wantsLineJson($request)) {
+            return response()->json(['ok' => true, 'message' => $message, 'line_id' => $focusLineId] + $extra);
+        }
+        $back = redirect()->route('corex.rental-job-cards.show', $card)->with('success', $message);
+
+        return $focus && $focusLineId ? $back->with('jc_focus_line', $focusLineId) : $back;
     }
 
     /** req #5 — "Send to owner as quote." */

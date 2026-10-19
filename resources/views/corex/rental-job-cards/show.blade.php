@@ -332,7 +332,7 @@ function catalogueLinePicker(items, opts) {
             // AT-466 - the description is the agent's own words (it prints on the quote): the catalogue name is only its placeholder / default.
             // (The create screen's draft rows have no form to default it server-side, so they keep the old pre-fill.)
             const d = this.field('[name="description"], [x-ref$="Desc"]'); if (d) { d.placeholder = item.description; if (!d.getAttribute('name') && !d.value) d.value = item.description; }
-            const t = this.field('[name="type"], [x-ref$="Type"]'); if (t) t.value = item.kind || 'labour';
+            const t = this.field('[name="type"], [x-ref$="Type"]'); if (t) { t.value = item.kind || 'labour'; t.dispatchEvent(new Event('change', { bubbles: true })); }
             const u = this.field('[name="unit"], [x-ref$="Unit"]'); if (u && item.unit) u.value = item.unit;
             // §17.4.3 — the selling price is NOT copied from the catalogue any more: left blank it resolves by the pricing rules
             // (the catalogue's default price is rule 5), so a picked item still prices itself but is not frozen as "typed by hand".
@@ -375,6 +375,147 @@ function catalogueLinePicker(items, opts) {
             if (focus) { var f = document.querySelector(focus); if (f) { open(f); f.focus({ preventScroll: true }); } }
         }, 350);
     });
+})();
+
+// §17.42 - add / change / archive / restore a line WITHOUT a page reload. Every line form carries data-line-ajax (add | edit | remove | restore) and still posts
+// normally with JavaScript off. With it on: the form is sent by fetch (Accept: application/json), a refusal shows on the row, and on success the parts of the page
+// the change can touch (the "where this job is" strip, the Next bar, and the two columns with the lines, totals and the money card) are re-read from the server
+// and swapped in - so the totals are always the server's own figures, never a client sum - and the scroll stays where it was.
+(function () {
+    var HDR = { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' };
+    var REGIONS = ['[data-wo-strip]', '[data-next-step]', '#jc-layout'];
+    function scroller() { return document.getElementById('appScroll') || document.scrollingElement || document.documentElement; }
+    function A() { return window.Alpine || null; }
+
+    function say(form, msg) {
+        var box = form.querySelector('[data-line-error]');
+        if (box) { box.textContent = msg || ''; box.hidden = !msg; }
+        else if (msg && window.corexNotice) { window.corexNotice(msg); }
+    }
+    function problem(r) {
+        var d = r.d || {};
+        if (r.status === 419) { return 'This page has expired - reload it and try again.'; }
+        if (d.errors) { return Object.keys(d.errors).map(function (k) { return d.errors[k][0]; }).join(' · '); }
+        return d.message || (r.status === 0 ? 'Not saved - no connection. Try again.' : 'That did not save - please try again.');
+    }
+    function send(form) {
+        return fetch(form.action, { method: 'POST', headers: HDR, body: new FormData(form), credentials: 'same-origin' })
+            .then(function (res) { return res.json().catch(function () { return {}; }).then(function (d) { return { ok: res.ok && d.ok !== false, status: res.status, d: d }; }); },
+                  function () { return { ok: false, status: 0, d: {} }; });
+    }
+
+    // Re-read the page and swap the regions a line change can touch. Resolves false if anything is missing (the caller then reloads).
+    function refresh() {
+        return fetch(location.href, { headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+            .then(function (res) { return res.ok ? res.text() : Promise.reject(new Error('status ' + res.status)); })
+            .then(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var pairs = REGIONS.map(function (sel) { return [document.querySelector(sel), doc.querySelector(sel)]; });
+                if (pairs.some(function (p) { return !p[0] || !p[1]; })) { return false; }
+                var y = scroller().scrollTop, alpine = A();
+                pairs.forEach(function (p) {
+                    var fresh = document.importNode(p[1], true);
+                    if (alpine && alpine.destroyTree) { alpine.destroyTree(p[0]); }
+                    p[0].replaceWith(fresh);
+                    if (alpine && alpine.initTree) { alpine.initTree(fresh); }
+                });
+                scroller().scrollTop = y;
+                return true;
+            })
+            .catch(function () { return false; });
+    }
+    function flash(id) {
+        var el = id ? document.querySelector('[data-line-id="' + id + '"]') : null;
+        if (!el) { return; }
+        el.style.transition = 'background-color .4s'; el.style.backgroundColor = 'rgba(14,165,233,.16)';
+        setTimeout(function () { el.style.backgroundColor = ''; }, 2200);
+    }
+    function addRowFor(taskId) {
+        var scope = taskId ? document.querySelector('[data-task-id="' + taskId + '"]') : document.querySelector('[data-general-lines]');
+        return scope ? scope.querySelector('[data-add-line-row] [aria-label="Item"]') : null;
+    }
+
+    document.addEventListener('submit', function (e) {
+        var form = e.target;
+        var kind = form && form.getAttribute && form.getAttribute('data-line-ajax');
+        if (!kind) { return; }
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (form.dataset.busy) { return; }
+        form.dataset.busy = '1'; say(form, '');
+        var buttons = form.querySelectorAll('button[type=submit]'); buttons.forEach(function (b) { b.disabled = true; });
+        var taskInput = form.querySelector('[name="rental_job_card_task_id"]'), taskId = taskInput ? taskInput.value : '';
+        var row = form.closest('[data-line-id]'), anchorTask = form.closest('[data-task-id]') || form.closest('[data-general-lines]');
+        var wasTask = anchorTask && anchorTask.getAttribute('data-task-id');
+        var restoreUrl = form.getAttribute('data-restore-url');
+
+        send(form).then(function (r) {
+            delete form.dataset.busy; buttons.forEach(function (b) { b.disabled = false; });
+            if (!r.ok) { say(form, problem(r)); return; }
+            var d = r.d;
+            refresh().then(function (swapped) {
+                if (!swapped) { location.reload(); return; }
+                if (kind === 'add') { var input = addRowFor(taskId); if (input) { input.focus({ preventScroll: true }); } flash(d.line_id); }
+                else if (kind === 'edit' || kind === 'restore') { flash(d.line_id); }
+                else if (kind === 'remove') { undoStrip(d, restoreUrl, wasTask); }
+            });
+        });
+    }, true);
+
+    // "Archived: <line> - Undo": shown where the line was (above the task's add row). Undo is the existing restore route; the line comes back as it was.
+    function undoStrip(d, restoreUrl, taskId) {
+        var scope = taskId ? document.querySelector('[data-task-id="' + taskId + '"]') : document.querySelector('[data-general-lines]');
+        var host = scope ? scope.querySelector('[data-add-line-row]') : null;
+        if (!host || !restoreUrl) { return; }
+        var strip = document.createElement('div'); strip.className = 'jc-undo-strip'; strip.setAttribute('data-undo-strip', '');
+        var label = document.createElement('span'); label.textContent = 'Archived: ' + (d.description || 'that line');
+        var undo = document.createElement('button'); undo.type = 'button'; undo.className = 'corex-btn-outline text-xs'; undo.textContent = 'Undo';
+        strip.appendChild(label); strip.appendChild(undo); host.before(strip);
+        undo.addEventListener('click', function () {
+            undo.disabled = true;
+            var token = document.querySelector('meta[name="csrf-token"]');
+            var fd = new FormData(); fd.set('_token', token ? token.content : '');
+            fetch(restoreUrl, { method: 'POST', headers: HDR, body: fd, credentials: 'same-origin' })
+                .then(function (res) { return res.json().catch(function () { return {}; }).then(function (j) { return { ok: res.ok && j.ok !== false, status: res.status, d: j }; }); }, function () { return { ok: false, status: 0, d: {} }; })
+                .then(function (r) {
+                    if (!r.ok) { undo.disabled = false; label.textContent = problem(r); return; }
+                    strip.remove();
+                    refresh().then(function (swapped) { if (!swapped) { location.reload(); } else { flash(r.d.line_id); } });
+                });
+        });
+    }
+
+    // The receipt control follows the line's Type: labour has no receipt. A chosen file marks its button; one receipt per line (camera OR file).
+    document.addEventListener('change', function (e) {
+        var t = e.target;
+        if (!t || !t.closest) { return; }
+        var form = t.closest('form[data-line-ajax]');
+        if (!form) { return; }
+        if (t.matches('select[name="type"]')) {
+            var rc = form.querySelector('[data-receipt-control]');
+            if (rc) { rc.hidden = t.value === 'labour'; }
+        } else if (t.matches('.jc-filebtn input[type=file]')) {
+            form.querySelectorAll('.jc-filebtn').forEach(function (b) {
+                var label = b.querySelector('span'); if (!label.dataset.was) { label.dataset.was = label.textContent; }
+                var input = b.querySelector('input'), mine = input === t;
+                if (!mine) { input.value = ''; }
+                b.classList.toggle('has-file', mine && !!(t.files && t.files.length));
+                label.textContent = mine && t.files && t.files.length ? 'Receipt ready' : label.dataset.was;
+            });
+        }
+    });
+
+    // The receipt thumbnail opens in the shared photo popup. Wired here (not only in _receipt-thumb) because a thumbnail can now appear without a reload.
+    if (!window.__cxReceiptWired) {
+        window.__cxReceiptWired = true;
+        document.addEventListener('click', function (e) {
+            var b = e.target.closest ? e.target.closest('[data-open-receipt]') : null;
+            if (!b || !window.CorexPhotoViewer) { return; }
+            window.CorexPhotoViewer.open({
+                photos: [{ id: 'receipt', url: b.getAttribute('data-open-receipt'), thumb_url: b.getAttribute('data-open-receipt'), alt: 'Receipt for ' + (b.getAttribute('data-receipt-label') || 'this line'), marks: [], note: null }],
+                index: 0, editable: false, returnFocus: b
+            });
+        });
+    }
 })();
 
 // Adding / editing / archiving a line is a plain form POST + redirect, so the browser loads a fresh document and the page starts at the top.

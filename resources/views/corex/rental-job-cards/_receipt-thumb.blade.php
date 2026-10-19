@@ -13,6 +13,8 @@
     @once
         <script>
             (function () {
+                if (window.__cxReceiptWired) { return; } // §17.42 - show.blade.php wires the same handler once for the whole page
+                window.__cxReceiptWired = true;
                 document.addEventListener('click', function (e) {
                     var b = e.target.closest ? e.target.closest('[data-open-receipt]') : null;
                     if (!b || !window.CorexPhotoViewer) { return; }

@@ -584,10 +584,7 @@ class CrewJobService
      */
     private function storeReceipt(RentalJobCard $card, RentalJobCardLine $line, ?UploadedFile $receipt, CrewViewContext $ctx): void
     {
-        if (! $receipt || $line->type !== RentalCatalogueItem::TYPE_PART) {
-            return;
-        }
-        app(RentalJobCardService::class)->storePhoto($card, $receipt, RentalJobCardLine::RECEIPT_PHOTO_TYPE, null, null, null, $ctx->photoVia(), false, $line->id);
+        app(RentalJobCardService::class)->attachLineReceipt($card, $line, $receipt, null, $ctx->photoVia());
     }
 
     /** Only the crew's own, still-draft, live line of THIS card — anything else is the same 404/refusal a stranger would get. */

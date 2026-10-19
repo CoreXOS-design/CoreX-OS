@@ -110,7 +110,8 @@
                             @permission('rental_job_cards.create')
                             @if($canEditLines)
                                 <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)') }}">&#9998;</button>
-                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" data-confirm="Archive this line?" data-confirm-danger data-confirm-label="Archive" class="inline" style="display:inline-flex;" data-keep-scroll>
+                            {{-- §17.42: no confirm dialog - the line is archived (soft delete) and an "Undo" is offered in its place --}}
+                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" class="inline" style="display:inline-flex;" data-keep-scroll data-line-ajax="remove" data-restore-url="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $line->id]) }}">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" title="Archive" aria-label="Archive" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--ds-red, #dc2626)') }}">&times;</button>

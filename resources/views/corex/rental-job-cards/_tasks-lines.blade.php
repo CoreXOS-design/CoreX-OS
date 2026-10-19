@@ -145,7 +145,7 @@
                                     <span style="color: var(--text-muted);">{{ $al->description }}</span>
                                     @permission('rental_job_cards.create')
                                     @if($isOpen)
-                                    <form method="POST" action="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $al->id]) }}" data-keep-scroll>
+                                    <form method="POST" action="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $al->id]) }}" data-keep-scroll data-line-ajax="restore">
                                         @csrf
                                         <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
                                     </form>
