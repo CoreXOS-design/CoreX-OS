@@ -926,20 +926,29 @@ class RentalWorkOrderController extends Controller
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
 
+        // section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so the Complete form no longer posts paid_by for it; it follows the
+        // ruling (owner / tenant) when there is one, else stays "not yet paid". Any other job still asks.
+        $fromFault = $rentalWorkOrder->reported_fault_report_id !== null;
         $validated = $request->validate([
-            'paid_by' => ['required', 'in:' . implode(',', [
+            'paid_by' => [$fromFault ? 'nullable' : 'required', 'in:' . implode(',', [
                 RentalWorkOrder::PAID_BY_OWNER,
                 RentalWorkOrder::PAID_BY_TENANT,
                 RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION,
                 RentalWorkOrder::PAID_BY_NOT_YET_PAID,
             ])],
-            'cost_amount' => ['nullable', 'numeric', 'min:0'],
+            // section 28.2: a blank final cost sent the owner a final statement with no amount - an outside contractor's job cannot be completed without one
+            'cost_amount' => [$rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $rentalWorkOrder->hasOpenDispute() ? 'required' : 'nullable', 'numeric', 'min:0'],
             'completion_notes' => ['nullable', 'string'],
             // section 24.5: for a job that came from a fault, "what was found" + the cause are entered in this SAME form (one step, not three)
             'found_text' => ['nullable', 'string', 'max:2000'],
             'cause_id' => ['nullable', 'integer'],
             'cause_note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'cost_amount.required' => 'Say the final cost - the owner is sent a statement with it. It starts with the invoices, the authorised amount or the quote; change it if the final cost is different.',
         ]);
+        if ($fromFault && empty($validated['paid_by'])) {
+            $validated['paid_by'] = in_array($rentalWorkOrder->who_pays, ['owner', 'tenant'], true) ? $rentalWorkOrder->who_pays : RentalWorkOrder::PAID_BY_NOT_YET_PAID;
+        }
 
         // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
         // This Complete form is the outside contractor's close; posting it for an internal job would close the work order and

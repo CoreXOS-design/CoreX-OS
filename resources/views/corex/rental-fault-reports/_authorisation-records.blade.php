@@ -4,7 +4,7 @@
 @php $ohSvcRec = app(\App\Services\Rentals\RentalOwnerHoldService::class); $ownerHolds = $ownerHolds ?? collect(); @endphp
 @if($authorisations->isNotEmpty() || $ownerHolds->isNotEmpty())
 <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-authorisation-records>
-    <h2 class="text-sm font-semibold">Authorisation records</h2>
+    <h2 class="text-sm font-semibold wo-embedded-title">Authorisation records</h2>
     <ul class="space-y-2 text-xs">
         @foreach($authorisations as $ar)
             <li @if($ar->superseded_at) style="opacity:.65" @endif data-authorisation-row="{{ $ar->id }}" data-authorisation-basis="{{ $ar->basis }}">

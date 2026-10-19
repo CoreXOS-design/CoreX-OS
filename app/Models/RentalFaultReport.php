@@ -561,6 +561,15 @@ class RentalFaultReport extends Model
      *
      * @param array{owner_title:string, owner_description?:?string, owner_agent_note?:?string, owner_photo_ids?:array<int>} $attributes
      */
+    /** Section 28.7 item 8 - the ONE place the owner-version rules are written (the fault controller and the authority controller both validate with it). A blank title means "use the fault's own title". */
+    public const OWNER_VERSION_RULES = [
+        'owner_title' => ['nullable', 'string', 'max:191'],
+        'owner_description' => ['nullable', 'string', 'max:5000'],
+        'owner_agent_note' => ['nullable', 'string', 'max:3000'],
+        'owner_photo_ids' => ['nullable', 'array'],
+        'owner_photo_ids.*' => ['integer'],
+    ];
+
     public function saveOwnerVersion(array $attributes, User $by): void
     {
         if (in_array($this->status, [self::STATUS_RESOLVED, self::STATUS_CANCELLED], true)) {
@@ -569,7 +578,8 @@ class RentalFaultReport extends Model
         if ($this->sent_to_owner_at !== null || in_array($this->owner_approval_status, [self::APPROVAL_APPROVED, self::APPROVAL_DECLINED], true)) {
             throw new \LogicException('This fault report has already been sent to the owner - the version they see can no longer be changed.');
         }
-        $title = trim((string) ($attributes['owner_title'] ?? ''));
+        // section 28.2: a blank owner title is not an error - the owner is shown the fault's own title
+        $title = trim((string) ($attributes['owner_title'] ?? '')) ?: trim((string) $this->title);
         if ($title === '') {
             throw new \InvalidArgumentException('The owner version needs a title.');
         }

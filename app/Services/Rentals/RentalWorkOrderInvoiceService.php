@@ -196,6 +196,36 @@ class RentalWorkOrderInvoiceService
     }
 
     /**
+     * Section 28.2 - what the Complete form's "Final cost" starts with when the job has no recorded cost yet: the live invoices' total, else the amount the owner
+     * authorised, else the selected quote's owner-facing amount. A suggestion only - the agent can change it, and every completion rule (the hard lock: not even
+     * R0.01 over the authorised amount) runs on whatever figure is submitted.
+     *
+     * @return array{amount: float, source: string}|null source = invoices | authorised | quote
+     */
+    public function suggestedFinalCost(RentalWorkOrder $workOrder): ?array
+    {
+        if ($workOrder->cost_amount !== null) {
+            return null;
+        }
+        if ($workOrder->invoices()->exists()) {
+            return ['amount' => $this->total($workOrder), 'source' => 'invoices'];
+        }
+        $authorised = app(RentalAuthorisationService::class)->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+        if ($authorised && $authorised->isAuthorised() && $authorised->amount_up_to !== null) {
+            return ['amount' => round((float) $authorised->amount_up_to, 2), 'source' => 'authorised'];
+        }
+        if ($workOrder->approved_amount !== null && (float) $workOrder->approved_amount > 0) {
+            return ['amount' => round((float) $workOrder->approved_amount, 2), 'source' => 'authorised'];
+        }
+        $quote = $workOrder->quotes()->where('is_selected', true)->first();
+        if ($quote) {
+            return ['amount' => round((float) $quote->ownerFacingAmount(), 2), 'source' => 'quote'];
+        }
+
+        return null;
+    }
+
+    /**
      * The ONLY client-facing shape of an invoice: the owner's portal, shared invoices only. No uploader, no internal
      * supplier id, no storage path; the link is an authorised in-portal route, never a file URL.
      *

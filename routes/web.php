@@ -4626,6 +4626,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.authorise');
         Route::post('/{rentalWorkOrder}/cost/owner-decision', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'recordOwnerDecision'])
             ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.owner-decision');
+        Route::post('/{rentalWorkOrder}/cost/use-same-call', [\App\Http\Controllers\CoreX\RentalWorkOrderCostController::class, 'useSameCall'])
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.cost.use-same-call');
         Route::post('/{rentalWorkOrder}/emergency-approval/{approval}/void', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'void'])
             ->middleware('permission:rental_work_orders.record_emergency_approval')->name('corex.rental-work-orders.emergency-approval.void');
         Route::get('/{rentalWorkOrder}/emergency-approval/{approval}/attachment', [\App\Http\Controllers\CoreX\RentalEmergencyApprovalController::class, 'attachment'])

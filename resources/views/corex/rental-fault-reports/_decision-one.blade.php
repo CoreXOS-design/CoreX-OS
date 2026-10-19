@@ -12,7 +12,6 @@
     $d1Sent = $faultReport->sent_to_owner_at !== null;
     $d1Default = (string) ($firstResponders->first()['supplier_id'] ?? ($faultReport->proposed_supplier_id ?: ''));
     if ($d1Default !== '' && ! isset($d1Notices[$d1Default])) { $d1Default = ''; }
-    $d1First = $firstResponders->first();
     $d1CanInspect = auth()->user()->hasPermission('rental_fault_reports.raise_work_order');
     $d1CanSend = auth()->user()->hasPermission('rental_fault_reports.send_to_owner') && ! $d1Sent;
 @endphp
@@ -48,17 +47,9 @@
         }
      }">
     <div>
-        <h2 class="text-sm font-semibold">Who goes to look first?</h2>
+        <h2 class="text-sm font-semibold wo-embedded-title">Who goes to look first?</h2>
         <p class="text-xs" style="color: var(--text-muted);">Nothing is sent until you press a button.</p>
     </div>
-
-    @if($d1First)
-        <div class="text-xs" data-first-look-block>
-            <strong>First to look at this:</strong> <span data-first-look-name>{{ $d1First['name'] }}</span>
-            <span style="color: var(--text-muted);">({{ $d1First['kind_label'] }})</span>@if($d1First['callout_line']) <span data-first-look-callout>- {{ $d1First['callout_line'] }}</span>@endif
-            <span style="color: var(--text-muted);"> &middot; {{ $d1First['source_label'] }} &middot; {{ $d1First['tell_label'] }}.@if($firstResponders->count() > 1) Then: {{ $firstResponders->slice(1)->map(fn ($r) => $r['name'] . ' (' . $r['kind_label'] . ')')->implode(', then ') }}.@endif</span>
-        </div>
-    @endif
 
     <form x-ref="look" method="POST" action="" data-decision-one-form>
         @csrf

@@ -459,13 +459,13 @@ final class AuthorityFlowTest extends TestCase
         $this->assertStringNotContainsString('name="description"', $html);
     }
 
-    public function test_confirmation_needs_how_when_and_a_note_and_a_newer_one_keeps_the_old_in_the_history(): void
+    public function test_confirmation_needs_how_and_when_and_a_newer_one_keeps_the_old_in_the_history(): void
     {
         $f = $this->fault();
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'telepathy', 'at' => now()->format('Y-m-d\TH:i'), 'note' => 'x'])->assertSessionHasErrors('via');
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->format('Y-m-d\TH:i'), 'note' => ''])->assertSessionHasErrors('note');
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->format('Y-m-d\TH:i'), 'note' => ''])->assertSessionHasNoErrors();   // section 28.4: how and when are enough - what the tenant said is optional
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'email', 'at' => now()->addDay()->format('Y-m-d\TH:i'), 'note' => 'x'])->assertSessionHasErrors('tenant_confirmation');
-        $this->assertNull($f->fresh()->tenant_confirmed_via);
+        $this->assertSame('email', $f->fresh()->tenant_confirmed_via, 'the optional-note save went through; the future-dated one did not overwrite it');
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'phone_call', 'at' => now()->subHour()->format('Y-m-d\TH:i'), 'note' => 'First call'])->assertSessionHasNoErrors();
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.tenant-confirmation', $f), ['via' => 'in_person', 'at' => now()->format('Y-m-d\TH:i'), 'note' => 'Second visit'])->assertSessionHasNoErrors();
         $this->assertSame('in_person', $f->fresh()->tenant_confirmed_via);
@@ -563,14 +563,16 @@ final class AuthorityFlowTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_AWAITING_APPROVAL, $f->status);
     }
 
-    public function test_send_to_inspect_also_saves_the_draft_but_refuses_an_empty_title(): void
+    public function test_send_to_inspect_also_saves_the_draft_and_a_blank_title_uses_the_faults_own(): void
     {
         $p = $this->supplier('Free Visit Plumbing', 'no');
-        $bad = $this->fault(false);
-        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $bad), [
+        // section 28.2 (19 Oct 2026): the owner's title is no longer compulsory - blank means the fault's own title, and the send goes ahead
+        $blank = $this->fault(false);
+        $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $blank), [
             'assignment_type' => 'outside_supplier', 'agency_service_provider_id' => $p->id, 'owner_title' => '',
-        ])->assertSessionHasErrors('owner_title');
-        $this->assertNull($bad->fresh()->rental_work_order_id, 'nothing is sent when the draft is not valid');
+        ])->assertSessionHasNoErrors();
+        $this->assertNotNull($blank->fresh()->rental_work_order_id);
+        $this->assertSame('TENANT WORDS: tap', $blank->fresh()->owner_title);
 
         $f = $this->fault(false);
         $this->actingAs($this->agent)->post(route('corex.rental-fault-reports.send-to-inspect', $f), [

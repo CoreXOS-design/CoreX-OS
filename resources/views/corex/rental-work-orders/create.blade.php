@@ -140,15 +140,7 @@
             </div>
         @endif
 
-        <div>
-            <label class="prop-label">Trade type</label>
-            <select name="trade_type" class="prop-input">
-                <option value="">— Not yet known —</option>
-                @foreach(\App\Models\DealV2\AgencyServiceType::work()->orderBy('label')->get() as $type)
-                    <option value="{{ $type->code }}">{{ $type->label }}</option>
-                @endforeach
-            </select>
-        </div>
+        {{-- section 28.7: no Trade type here - it was never used to choose the contractor (the contractor's trades come from the fault's type and the supplier's ticked service types) --}}
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ $property ? route('corex.properties.show', $property->id) : route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-sm">Cancel</a>

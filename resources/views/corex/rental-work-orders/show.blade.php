@@ -587,14 +587,18 @@
                     </div>
                 </div>
                 @include('partials.contractor-inspect-choice', ['notices' => \App\Models\DealV2\AgencyServiceProvider::noticeMap($quotePickList), 'model' => 'chosen'])
-                <div class="wo-grid-2">
-                    <div>
-                        <label class="wo-lbl" for="wo-quote-details">Details (optional &mdash; required if no document attached)</label>
-                        <textarea id="wo-quote-details" name="detail_text" rows="2" class="wo-ctl wo-ta">{{ old('detail_text') }}</textarea>
-                    </div>
-                    <div>
-                        <label class="wo-lbl" for="wo-quote-doc">Document (optional)</label>
-                        <input id="wo-quote-doc" type="file" name="document" accept=".pdf,image/*" class="w-full text-xs">
+                {{-- section 28.4 - a quote given over the phone: amount + date, no document, no details. The owner still authorises the cost. --}}
+                <div x-data="{ phone: {{ old('quoted_by_phone') ? 'true' : 'false' }} }" class="space-y-2">
+                    <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="quoted_by_phone" value="1" x-model="phone" data-quoted-by-phone> Quoted by phone (no document or details to attach)</label>
+                    <div class="wo-grid-2" x-show="!phone">
+                        <div>
+                            <label class="wo-lbl" for="wo-quote-details">Details (optional &mdash; required if no document attached)</label>
+                            <textarea id="wo-quote-details" name="detail_text" rows="2" class="wo-ctl wo-ta">{{ old('detail_text') }}</textarea>
+                        </div>
+                        <div>
+                            <label class="wo-lbl" for="wo-quote-doc">Document (optional)</label>
+                            <input id="wo-quote-doc" type="file" name="document" accept=".pdf,image/*" class="w-full text-xs">
+                        </div>
                     </div>
                 </div>
                 @if($selectedQuote)
@@ -697,6 +701,12 @@
                     <summary class="text-xs cursor-pointer" style="color: var(--text-muted);">{{ $woAccess['any'] ? 'Change access details' : 'Add access details' }}</summary>
                     <form method="POST" action="{{ route('corex.rental-work-orders.access-contact.update', $workOrder) }}" class="space-y-2 mt-2">
                         @csrf
+                        @php $woTenants = \App\Services\Rentals\JobSiteInfo::tenants($workOrder->lease_id); @endphp
+                        @if(! empty($woTenants))
+                            {{-- section 28.2: the tenant on the lease is already known - one press fills their name and number (still editable) --}}
+                            <button type="button" class="corex-btn-outline text-xs" data-tenant-is-access
+                                    onclick="var f=this.closest('form'); f.elements['access_contact_name'].value={{ \Illuminate\Support\Js::from($woTenants[0]['name']) }}; f.elements['access_contact_phone'].value={{ \Illuminate\Support\Js::from($woTenants[0]['phone'] ?? '') }};">The tenant ({{ $woTenants[0]['name'] }}) is the access contact</button>
+                        @endif
                         <div class="grid grid-cols-2 gap-3">
                             <div>
                                 <label class="text-xs font-medium">Access contact name</label>
@@ -745,10 +755,8 @@
             @if($woCan['complete'])
             <form id="complete-work-order-form" method="POST" action="{{ route('corex.rental-work-orders.complete', $workOrder) }}" enctype="multipart/form-data" class="{{ $completeOpen ? '' : 'hidden ' }}space-y-3">
                 @csrf
-                @if($workOrder->reported_fault_report_id)
-                    {{-- section 22.13: a job from a fault has ONE place for who pays - the "Who pays" panel. This field follows the ruling (owner / tenant), else stays "not yet paid". --}}
-                    <input type="hidden" name="paid_by" value="{{ in_array($workOrder->who_pays, ['owner', 'tenant'], true) ? $workOrder->who_pays : 'not_yet_paid' }}">
-                @else
+                @unless($workOrder->reported_fault_report_id)
+                {{-- section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so this form does not ask (the server keeps "not yet paid" until it is ruled). Any other job asks, Owner first. --}}
                 <div>
                     <label class="text-xs font-medium">Paid by</label>
                     <select name="paid_by" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
@@ -758,26 +766,37 @@
                         <option value="not_yet_paid">Not yet paid</option>
                     </select>
                 </div>
-                @endif
+                @endunless
                 <div>
-                    <label class="text-xs font-medium">Final cost (R, optional)</label>
-                    @php $suggestedInvoiceCost = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class)->suggestedCost($workOrder); @endphp
-                    <input type="number" name="cost_amount" step="0.01" min="0" value="{{ old('cost_amount', $suggestedInvoiceCost !== null ? number_format($suggestedInvoiceCost, 2, '.', '') : '') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                    @if($suggestedInvoiceCost !== null)
-                        <p class="text-xs mt-1" style="color: var(--text-muted);" data-cost-from-invoices>From the supplier invoices filed ({{ $money($suggestedInvoiceCost) }}) &mdash; change it if the final cost is different.</p>
+                    @php
+                        // section 28.2: starts with the invoices' total, else the amount the owner authorised, else the quote - editable; a blank final cost cannot be saved for an outside contractor
+                        $suggestedFinal = app(\App\Services\Rentals\RentalWorkOrderInvoiceService::class)->suggestedFinalCost($workOrder);
+                        $finalStart = $workOrder->cost_amount !== null ? (float) $workOrder->cost_amount : ($suggestedFinal['amount'] ?? null);
+                        $finalRequired = $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER;
+                    @endphp
+                    <label class="text-xs font-medium">Final cost (R){{ $finalRequired ? '' : ', optional' }}</label>
+                    <input type="number" name="cost_amount" step="0.01" min="0" @if($finalRequired) required @endif value="{{ old('cost_amount', $finalStart !== null ? number_format($finalStart, 2, '.', '') : '') }}" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" data-final-cost>
+                    @if($suggestedFinal !== null)
+                        <p class="text-xs mt-1" style="color: var(--text-muted);" data-cost-from-{{ $suggestedFinal['source'] }}>
+                            @if($suggestedFinal['source'] === 'invoices')From the supplier invoices filed ({{ $money($suggestedFinal['amount']) }})
+                            @elseif($suggestedFinal['source'] === 'authorised')The amount the owner authorised ({{ $money($suggestedFinal['amount']) }})
+                            @else The selected quote ({{ $money($suggestedFinal['amount']) }})@endif
+                            &mdash; change it if the final cost is different.
+                        </p>
                     @endif
                 </div>
                 @if($completeNeedsFindings)
                 <div data-complete-findings>
-                    <label class="text-xs font-medium" for="wo-found">What was found (required)</label>
-                    <textarea id="wo-found" name="found_text" rows="2" required maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text') }}</textarea>
+                    <label class="text-xs font-medium" for="wo-found">What was found <span class="font-normal" style="color: var(--text-muted);">(optional here - the Who pays panel asks for it before a ruling)</span></label>
+                    <textarea id="wo-found" name="found_text" rows="2" maxlength="2000" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('found_text') }}</textarea>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                        <label class="text-xs font-medium" for="wo-cause">Cause (required)</label>
+                        <label class="text-xs font-medium" for="wo-cause">Cause <span class="font-normal" style="color: var(--text-muted);">(choose one when you say what was found)</span></label>
                         <select id="wo-cause" name="cause_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+                            <option value="" @selected(! old('cause_id'))>Choose&hellip;</option>
                             @foreach($causeOptions as $o)<option value="{{ $o->id }}" @selected((int) old('cause_id') === $o->id)>{{ $o->label }}</option>@endforeach
-                            <option value="" @selected(old('found_text') !== null && ! old('cause_id'))>Something else (describe it)</option>
+                            <option value="">Something else (describe it)</option>
                         </select>
                     </div>
                     <div>
@@ -788,7 +807,7 @@
                 @endif
                 <div>
                     <label class="text-xs font-medium">Completion notes</label>
-                    <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('completion_notes') }}</textarea>
+                    <textarea name="completion_notes" rows="2" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);" data-completion-notes>{{ old('completion_notes', trim((string) $woFinishedRound?->reported_note)) }}</textarea>
                 </div>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $completionRequiresPhoto ? 'A "completed" photo is required before this can be saved.' : 'A "completed" photo is optional.' }}</p>
                 <button type="submit" class="corex-btn-primary text-xs">Mark complete</button>
@@ -841,10 +860,11 @@
         @permission('rental_work_orders.create')
         <form method="POST" action="{{ route('corex.rental-work-orders.photos.store', $workOrder) }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2">
             @csrf
-            <select name="photo_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="reported">Reported (before)</option>
-                <option value="in_progress">In progress</option>
-                <option value="completed">Completed (after)</option>
+            @php $woPhotoDefault = $workOrder->status === \App\Models\RentalWorkOrder::STATUS_COMPLETED ? 'completed' : ($workOrder->status === \App\Models\RentalWorkOrder::STATUS_IN_PROGRESS ? 'in_progress' : 'reported'); @endphp   {{-- section 28.7: the type follows where the job is --}}
+            <select name="photo_type" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" data-photo-type>
+                <option value="reported" @selected($woPhotoDefault === 'reported')>Reported (before)</option>
+                <option value="in_progress" @selected($woPhotoDefault === 'in_progress')>In progress</option>
+                <option value="completed" @selected($woPhotoDefault === 'completed')>Completed (after)</option>
             </select>
             <input type="file" name="photo" accept="image/*" required class="text-xs">
             <button type="submit" class="corex-btn-outline text-xs">Upload photo</button>
@@ -910,20 +930,7 @@
                 <label class="text-xs font-medium">Description</label>
                 <textarea name="description" required rows="4" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('description', $workOrder->description) }}</textarea>
             </div>
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="text-xs font-medium">Access contact name</label>
-                    <input type="text" name="access_contact_name" maxlength="191" value="{{ old('access_contact_name', $workOrder->access_contact_name) }}" placeholder="Who lets the worker in" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                </div>
-                <div>
-                    <label class="text-xs font-medium">Access contact phone</label>
-                    <input type="text" name="access_contact_phone" maxlength="50" value="{{ old('access_contact_phone', $workOrder->access_contact_phone) }}" placeholder="Their cell number" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
-                </div>
-            </div>
-            <div>
-                <label class="text-xs font-medium">Access note</label>
-                <textarea name="access_note" rows="2" maxlength="2000" placeholder="Gate code, dog on site, tenant works from home, etc." class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">{{ old('access_note', $workOrder->access_note) }}</textarea>
-            </div>
+            {{-- section 28.7: who lets the worker in is entered in the Appointment panel only (it was a second copy of the same three boxes here) --}}
             <div class="wo-btnrow">
                 <button type="submit" class="corex-btn-primary text-xs">Save changes</button>
                 <button type="button" @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
