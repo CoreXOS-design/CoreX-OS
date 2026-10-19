@@ -51,14 +51,15 @@
         </form>
     </div>
 
-    <form method="GET" action="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ $q }}" placeholder="Reason or guidance text" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $q }}" placeholder="Reason or guidance text" class="list-header-filter text-sm {{ filled($q) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ $status !== 'active' ? 'is-active' : '' }}">
                 <option value="active" @selected($status === 'active')>Active</option>
                 <option value="archived" @selected($status === 'archived')>Archived</option>
                 <option value="all" @selected($status === 'all')>All</option>
@@ -66,11 +67,16 @@
         </div>
         <input type="hidden" name="sort" value="{{ $sort }}">
         <input type="hidden" name="direction" value="{{ $direction }}">
-        <button type="submit" class="corex-btn-primary text-xs">Apply</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Apply</button>
         @if($q || $status !== 'active')
-            <a href="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="text-xs" style="color: var(--text-muted);">Clear</a>
+            <a href="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
+            <div class="flex-1"></div>
+        <span class="ds-badge ds-badge-pill ds-badge-info">
+            {{ number_format($templates->total()) }} {{ \Illuminate\Support\Str::plural('template', $templates->total()) }}
+        </span>
     </form>
+    </div>
 
     @php
         $sortLink = fn ($col) => route('corex.settings.rental-applications.decline-reason-templates.index', array_merge(
@@ -80,30 +86,31 @@
         $sortIndicator = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
     @endphp
 
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('reason') }}" style="color: var(--text-muted);">Reason{{ $sortIndicator('reason') }}</a></th>
-                    <th class="text-left px-4 py-2" style="color: var(--text-muted);">Guidance</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('sort_order') }}" style="color: var(--text-muted);">Order{{ $sortIndicator('sort_order') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('created_at') }}" style="color: var(--text-muted);">Created{{ $sortIndicator('created_at') }}</a></th>
-                    <th></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('reason') }}">Reason{{ $sortIndicator('reason') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Guidance</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('sort_order') }}">Order{{ $sortIndicator('sort_order') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('created_at') }}">Created{{ $sortIndicator('created_at') }}</a></th>
+                    <th class="px-4 py-3"></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($templates as $template)
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2 align-top" style="white-space: nowrap;">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                    <td class="px-4 py-3 align-top" style="white-space: nowrap;">
                         {{ $template->reason }}
                         @if($template->trashed())
                             <span class="ds-badge ds-badge-muted">Archived</span>
                         @endif
                     </td>
-                    <td class="px-4 py-2 align-top" style="max-width: 480px; color: var(--text-secondary);">{{ \Illuminate\Support\Str::limit($template->guidance, 160) }}</td>
-                    <td class="px-4 py-2 align-top">{{ $template->sort_order }}</td>
-                    <td class="px-4 py-2 align-top">{{ $template->created_at->format('d M Y') }}</td>
-                    <td class="px-4 py-2 align-top text-right whitespace-nowrap">
+                    <td class="px-4 py-3 align-top" style="max-width: 480px; color: var(--text-secondary);">{{ \Illuminate\Support\Str::limit($template->guidance, 160) }}</td>
+                    <td class="px-4 py-3 align-top">{{ $template->sort_order }}</td>
+                    <td class="px-4 py-3 align-top">{{ $template->created_at->format('d M Y') }}</td>
+                    <td class="px-4 py-3 align-top text-right whitespace-nowrap">
                         @if($template->trashed())
                             <form method="POST" action="{{ route('corex.settings.rental-applications.decline-reason-templates.restore', $template->id) }}" class="inline">
                                 @csrf
@@ -142,7 +149,7 @@
                 </tr>
                 @endif
                 @empty
-                <tr><td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="5" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                     @if($q)
                         No decline reason templates match this search. <a href="{{ route('corex.settings.rental-applications.decline-reason-templates.index') }}" style="color: var(--ds-blue, #2563eb);">Clear the search</a>.
                     @else
@@ -154,7 +161,11 @@
             </tbody>
         </table>
     </div>
-
-    {{ $templates->links() }}
+        @if($templates->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $templates->links() }}
+        </div>
+        @endif
+    </div>
 </div>
 @endsection

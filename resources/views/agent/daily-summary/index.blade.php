@@ -68,7 +68,7 @@
                             <a class="flex-1 min-w-0 truncate text-[13px] font-medium hover:underline" style="color: var(--brand-icon, #0ea5e9);" href="{{ $drill($it) }}">
                                 {{ $it['name'] }}
                             </a>
-                            <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold whitespace-nowrap" style="background: var(--surface-2); color: var(--text-primary);">
+                            <span class="ds-badge ds-badge-pill ds-badge-default">
                                 {{ number_format((int)$it['count']) }}
                             </span>
                             <span class="text-xs tabular-nums w-14 text-right whitespace-nowrap" style="color: var(--text-secondary);">{{ number_format((float)$it['points'], 0) }} pts</span>
@@ -130,7 +130,7 @@
                                     </a>
                                 </td>
                                 <td class="px-4 py-2 text-right">
-                                    <span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold whitespace-nowrap" style="background: var(--surface-2); color: var(--text-primary);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">
                                         {{ number_format((int)$it['count']) }}
                                     </span>
                                 </td>

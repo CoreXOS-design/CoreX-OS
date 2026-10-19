@@ -47,8 +47,10 @@ const el = (o) => Object.assign(K.makeElement(o.field, 0, 0, 1), o);
 section('The four drift bugs the bulk Ad Manager was shipping');
 
 const star = el({ field: 'shape', shapeType: 'star', bg: '#ff0000' });
-ok('star shape emits its clip-path (was rendering as a rounded blob)',
-    K.contentHtml(star, prop, {}).includes('clip-path:polygon(50% 0,61% 35%'));
+// AT-456 §B.9-2: the polygon is now an inline SVG <polygon> (html2canvas ignores clip-path, so the export
+// drew every polygon shape as a rectangle). Same geometry: 50% 0,61% 35%,… is 50,0 61,35 ….
+ok('star shape emits its polygon (was rendering as a rounded blob, then a rectangle in the export)',
+    K.contentHtml(star, prop, {}).includes('<polygon points="50,0 61,35 98,35'));
 
 ok('custom_image renders its uploaded <img> (was an empty box)',
     /<img src="\/storage\/ad-media\/1\/x\.jpg"/.test(

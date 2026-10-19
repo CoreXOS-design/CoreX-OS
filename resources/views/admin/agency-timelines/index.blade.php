@@ -24,23 +24,23 @@
     <form method="GET" class="flex flex-wrap items-end gap-3 rounded-md p-3" style="background: var(--surface); border:1px solid var(--border);">
         <div>
             <label class="ds-label block mb-1">Search agency</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Agency name…" class="ds-field" style="min-width:14rem;">
+            <input class="list-header-filter {{ request('q') ? 'is-active' : '' }}" type="text" name="q" value="{{ request('q') }}" placeholder="Agency name…">
         </div>
         <div>
             <label class="ds-label block mb-1">Status</label>
-            <select name="status" class="ds-field">
-                <option value="">All</option>
+            <select class="list-header-filter {{ $status ? 'is-active' : '' }}" name="status">
+                <option value="">All statuses</option>
                 @foreach($tones as $k => [$label])<option value="{{ $k }}" @selected($status === $k)>{{ $label }}</option>@endforeach
                 <option value="archived" @selected($status === 'archived')>Archived</option>
             </select>
         </div>
         <div>
             <label class="ds-label block mb-1">Started from</label>
-            <input type="date" name="start_from" value="{{ request('start_from') }}" class="ds-field">
+            <input class="list-header-filter {{ request('start_from') ? 'is-active' : '' }}" type="date" name="start_from" value="{{ request('start_from') }}">
         </div>
         <div>
             <label class="ds-label block mb-1">Started to</label>
-            <input type="date" name="start_to" value="{{ request('start_to') }}" class="ds-field">
+            <input class="list-header-filter {{ request('start_to') ? 'is-active' : '' }}" type="date" name="start_to" value="{{ request('start_to') }}">
         </div>
         <label class="flex items-center gap-2 text-xs pb-2" style="color: var(--text-secondary);"><input type="checkbox" name="hide_demo" value="1" @checked(request()->boolean('hide_demo'))> Hide demo and inactive agencies</label>
         <input type="hidden" name="sort" value="{{ $sort }}"><input type="hidden" name="dir" value="{{ $dir }}">
@@ -95,10 +95,10 @@
                     <tr>
                         <td class="px-4 py-3 font-medium" style="color:var(--text-primary);">
                             {{ $a->name }}
-                            @if($a->is_demo)<span class="ds-badge ds-badge-default ml-1">Demo</span>@endif
+                            @if($a->is_demo)<span class="ds-badge ds-badge-default ds-badge-pill ml-1">Demo</span>@endif
                             @unless($a->is_active)<span class="ds-badge ds-badge-default ml-1">Inactive</span>@endunless
                         </td>
-                        <td class="px-4 py-3"><span class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold" style="background: color-mix(in srgb, {{ $tone }} 14%, transparent); color: {{ $tone }};">{{ $label }}</span></td>
+                        <td class="px-4 py-3"><span class="ds-badge" style="--ds-badge-c: {{ $tone }};">{{ $label }}</span></td>
                         <td class="px-4 py-3" style="min-width:140px;">
                             @if($r['timeline'])
                                 <div class="flex items-center gap-2">

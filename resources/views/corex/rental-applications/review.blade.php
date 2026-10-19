@@ -1665,10 +1665,10 @@
                 <span class="flex items-center gap-1.5">
                     {{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}
                     @if($viewerRole === 'agent')
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                        <span class="ds-badge ds-badge-pill ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
                               title="You type these — nothing here is pre-filled from the application, and nothing here is sent to the applicant or shown anywhere else.">?</span>
                     @else
-                        <span class="ds-badge ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
+                        <span class="ds-badge ds-badge-pill ds-badge-muted" style="cursor: help; padding: 0 5px;" @click.stop
                               title="Captured by the agent. You can add your own lines. If you disagree with a figure, strike it out — that opens a box to add the correct one right there. The struck line stays visible with what replaced it, never edited in place.">?</span>
                     @endif
                 </span>
@@ -1807,7 +1807,7 @@
                 @if($viewerRole === 'agent')
                     <div class="flex items-center justify-between gap-1 mb-1">
                         <label class="text-[11px] font-medium" style="color: var(--text-secondary);">Statement period</label>
-                        <span class="ds-badge ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-info flex-shrink-0" style="font-size: 9px; padding: 1px 4px;" title="Every field here saves the moment you click away from it — no button needed.">Autosaves</span>
                     </div>
                     {{-- BUG FIX, 2026-09-11 — Johan, live on QA1: "typing a
                          date straight through (20260901) produces

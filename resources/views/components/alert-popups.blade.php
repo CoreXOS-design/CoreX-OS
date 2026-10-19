@@ -215,6 +215,15 @@
         var width = Math.min(384, window.innerWidth - 16);
         var left = (window.innerWidth - r.right - 8 >= width) ? r.right + 8 : Math.max(8, Math.min(r.left, window.innerWidth - width - 8));
         panel.style.left = left + 'px';
+        if (r.top < window.innerHeight / 2) {
+            // A bell near the top of the screen (the menu's top bar): the panel opens downward from it.
+            var top = Math.max(8, r.top);
+            panel.style.top = top + 'px';
+            panel.style.bottom = 'auto';
+            panel.style.maxHeight = Math.max(160, Math.min(window.innerHeight * 0.7, window.innerHeight - top - 8)) + 'px';
+            return;
+        }
+        panel.style.top = 'auto';
         panel.style.bottom = Math.max(8, window.innerHeight - r.bottom) + 'px';
         panel.style.maxHeight = Math.max(160, Math.min(window.innerHeight * 0.7, r.bottom - 8)) + 'px';
     }

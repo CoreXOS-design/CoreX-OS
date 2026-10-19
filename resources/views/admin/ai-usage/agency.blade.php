@@ -19,12 +19,117 @@
                 <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="corex-btn-outline text-xs">&larr; AI Usage &amp; Cost</a>
                 <form method="GET" class="flex items-center gap-2">
                     <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input class="list-header-filter" type="month" name="month" value="{{ $month }}">
                     <button type="submit" class="corex-btn-primary text-xs">View</button>
                 </form>
             </div>
         </div>
+    </div>
+
+    @if(session('status'))
+        <div class="rounded-md px-4 py-3 text-sm"
+             style="background:color-mix(in srgb, var(--ds-green,#059669) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green,#059669) 30%, transparent); color:var(--text-primary);">
+            {{ session('status') }}
+        </div>
+    @endif
+
+    {{-- AI Spend Safety (AT-456 §A.5) --}}
+    @php
+        $statusBadge = [
+            'active'  => ['ds-badge-success', 'Active'],
+            'alerted' => ['ds-badge-warning', 'Alerted'],
+            'paused'  => ['ds-badge-danger',  'Paused'],
+        ];
+        $eventLabel = [
+            'alert'  => ['ds-badge-warning', 'Alert email sent'],
+            'pause'  => ['ds-badge-danger',  'AI paused'],
+            'resume' => ['ds-badge-success', 'AI turned back on'],
+            'template_limit' => ['ds-badge-info', 'Template limit changed'],
+        ];
+    @endphp
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="px-4 py-3 border-b flex flex-wrap items-center justify-between gap-3" style="border-color:var(--border);">
+            <div>
+                <h2 class="text-sm font-semibold" style="color:var(--text-primary);">
+                    AI Spend Safety
+                    <span class="ds-badge {{ $statusBadge[$guardSnapshot['status']][0] }} ml-1">{{ $statusBadge[$guardSnapshot['status']][1] }}</span>
+                </h2>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">
+                    R {{ number_format($guardSnapshot['spend_zar'], 2) }} counted since {{ $guardSnapshot['window_start']->format('d M H:i') }}
+                    @if($guardSnapshot['since_resume']) (when AI was turned back on) @endif
+                    — alert at R {{ number_format($guard['alert_zar'], 2) }}, switched off at R {{ number_format($guard['cutout_zar'], 2) }}.
+                </p>
+                @if($guardSnapshot['status'] === 'paused' && $agency->ai_paused_reason)
+                    <p class="text-xs mt-1" style="color:var(--ds-crimson,#c41e3a);">Paused {{ $agency->ai_paused_at?->format('d M Y H:i') }} — {{ $agency->ai_paused_reason }}</p>
+                @endif
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('admin.dev-settings.index', ['s' => 'ai_spend']) }}" class="corex-btn-outline text-xs">Change thresholds</a>
+                @if($guardSnapshot['status'] === 'paused')
+                    <form method="POST" action="{{ route('admin.ai-usage.resume', ['agency' => $agency->id]) }}"
+                          onsubmit="return confirm(@js('Turn AI back on for ' . $agency->name . '? Spend will be counted afresh from now.'));">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary text-xs">Turn AI back on</button>
+                    </form>
+                @endif
+            </div>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full text-sm ds-table">
+                <thead>
+                    <tr style="background:var(--surface-2);">
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">When</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">What happened</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Spend at the time</th>
+                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">By</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($guardHistory as $h)
+                        <tr style="border-top:1px solid var(--border);">
+                            <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">{{ $h->occurred_at->format('d M Y H:i') }}</td>
+                            <td class="px-4 py-3">
+                                <span class="ds-badge {{ $eventLabel[$h->type][0] ?? 'ds-badge-default' }}">{{ $eventLabel[$h->type][1] ?? ucfirst($h->type) }}</span>
+                                @if($h->type === 'template_limit')
+                                    <span class="text-xs ml-1" style="color:var(--text-secondary);">{{ $h->details['old'] ?? '?' }} → {{ $h->details['new'] ?? '?' }} a month</span>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">{{ $h->type === 'template_limit' ? '—' : 'R ' . number_format((float) $h->spend_zar, 2) }}</td>
+                            <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $h->user?->name ?? 'CoreX (automatic)' }}</td>
+                        </tr>
+                    @empty
+                        <tr><td colspan="4" class="px-4 py-8 text-center text-sm" style="color:var(--text-muted);">No alerts or pauses yet for {{ $agency->name }}.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {{-- AI Template Builder allowance (AT-456 Part B §B.4). Owner-only page; the limit is Johan's per-agency dial. --}}
+    <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+        <div class="flex flex-wrap items-end justify-between gap-4">
+            <div>
+                <h2 class="text-sm font-semibold" style="color:var(--text-primary);">AI template generations</h2>
+                <p class="text-xs mt-1" style="color:var(--text-muted);">
+                    {{ $templateUsage['used'] }} of {{ $templateUsage['limit'] }} used this month
+                    (Property templates {{ $templateUsageByKind['property_template'] ?? 0 }} · Company ads {{ $templateUsageByKind['company_ad'] ?? 0 }};
+                    resets {{ $templateUsage['resets_at']->format('j F Y') }}) · {{ $templatesSaved }} AI template{{ $templatesSaved === 1 ? '' : 's' }} saved in total.
+                    One generation = one idea submitted; a failed attempt is not counted.
+                </p>
+            </div>
+            <form method="POST" action="{{ route('admin.ai-usage.template-limit', ['agency' => $agency->id]) }}" class="flex items-end gap-2">
+                @csrf
+                <label class="block">
+                    <span class="block text-[11px] font-semibold uppercase tracking-wider mb-1" style="color:var(--text-secondary);">Generations per month</span>
+                    <input type="number" name="limit" min="0" max="1000" step="1" required value="{{ old('limit', $templateUsage['limit']) }}"
+                           class="w-32 rounded-md px-3 py-2 text-sm" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                </label>
+                <button type="submit" class="corex-btn-primary text-xs px-4 py-2">Save limit</button>
+            </form>
+        </div>
+        @error('limit')
+            <p class="text-xs mt-2" style="color:var(--ds-crimson,#c41e3a);">{{ $message }}</p>
+        @enderror
     </div>
 
     {{-- KPI tiles --}}
@@ -105,8 +210,8 @@
                         <td class="px-4 py-3 whitespace-nowrap" style="color:var(--text-secondary);">{{ \Illuminate\Support\Carbon::parse($r['occurred_at'])->format('d M H:i') }}</td>
                         <td class="px-4 py-3" style="color:var(--text-primary);">{{ $r['user'] }}</td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge ds-badge-info">{{ ucwords(str_replace('_', ' ', $r['source'])) }}</span>
-                            @if($r['fallback'])<span class="ds-badge ds-badge-warning">Fallback</span>@elseif($r['cache_hit'])<span class="ds-badge ds-badge-default">Cache</span>@endif
+                            <span class="ds-badge ds-badge-info ds-badge-pill">{{ ucwords(str_replace('_', ' ', $r['source'])) }}</span>
+                            @if($r['fallback'])<span class="ds-badge ds-badge-warning ds-badge-pill">Fallback</span>@elseif($r['cache_hit'])<span class="ds-badge ds-badge-default ds-badge-pill">Cache</span>@endif
                         </td>
                         <td class="px-4 py-3 font-mono text-xs" style="color:var(--text-muted);">{{ $r['surface'] ?: '—' }}</td>
                         <td class="px-4 py-3 font-mono text-xs" style="color:var(--text-secondary);">{{ $r['model'] }}</td>

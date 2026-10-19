@@ -73,12 +73,12 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         // header + saved row + add row (+ the General block's three) all carry the one grid style
         $this->assertGreaterThanOrEqual(3, substr_count($this->html(), 'style="' . $grid), 'header, saved row and add row must render from the one grid style string');
         $this->assertSame(
-            'minmax(0,70px) minmax(60px,1fr) 72px 52px 44px 62px 70px 66px 62px 28px',
+            'minmax(110px,150px) minmax(160px,1fr) 90px 70px 64px 96px 96px 80px 96px 28px',
             implode(' ', RentalJobCardLineGrid::columns(true, true, true)),
-            'with costs: a compact grid (so it fits 1366 px) with Cost before the selling price and Margin after VAT',
+            'with costs: Cost before the selling price and Margin after VAT, every money column wide enough for R99,999.99 (AT-466)',
         );
         $this->assertSame(
-            'minmax(0,100px) minmax(70px,1fr) 90px 64px 50px 84px 84px 36px',
+            'minmax(110px,150px) minmax(160px,1fr) 96px 70px 64px 100px 90px 36px',
             implode(' ', RentalJobCardLineGrid::columns(true, true)),
         );
     }

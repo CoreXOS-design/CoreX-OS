@@ -104,7 +104,7 @@
                                     @if($rec->isComplete())
                                         <span class="ds-badge ds-badge-success">Completed</span>
                                     @else
-                                        <span class="ds-badge ds-badge-warning">Step {{ array_search($rec->current_step, $stepKeys) + 1 }} of {{ count($stepKeys) }}</span>
+                                        <span class="ds-badge ds-badge-warning ds-badge-pill">Step {{ array_search($rec->current_step, $stepKeys) + 1 }} of {{ count($stepKeys) }}</span>
                                     @endif
                                 </td>
                                 <td class="px-4 py-3 text-right">

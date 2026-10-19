@@ -29,19 +29,15 @@
     </div>
 
     {{-- Period filter --}}
-    <form method="GET" class="flex items-end gap-3 flex-wrap rounded-md p-4"
+    <form method="GET" class="props-filter-panel flex items-end gap-3 flex-wrap rounded-md p-4"
           style="background:var(--surface); border:1px solid var(--border);">
         <div>
             <label for="from" class="block text-[10px] font-medium mb-1" style="color:var(--text-secondary);">From</label>
-            <input type="date" id="from" name="from" value="{{ $from->toDateString() }}"
-                   class="rounded px-2 py-1 text-xs"
-                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+            <input class="list-header-filter {{ (request()->filled('from')) ? 'is-active' : '' }}" type="date" id="from" name="from" value="{{ $from->toDateString() }}">
         </div>
         <div>
             <label for="to" class="block text-[10px] font-medium mb-1" style="color:var(--text-secondary);">To</label>
-            <input type="date" id="to" name="to" value="{{ $to->toDateString() }}"
-                   class="rounded px-2 py-1 text-xs"
-                   style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary); color-scheme: light dark;">
+            <input class="list-header-filter {{ (request()->filled('to')) ? 'is-active' : '' }}" type="date" id="to" name="to" value="{{ $to->toDateString() }}">
         </div>
         <button type="submit" class="px-3 py-1.5 rounded-md text-xs font-semibold text-white"
                 style="background:var(--brand-button, #0ea5e9);">Apply</button>
@@ -175,13 +171,13 @@
             <table class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <th class="px-4 py-2 text-left font-semibold" style="color:var(--text-secondary);">Property</th>
-                        <th class="px-4 py-2 text-left font-semibold" style="color:var(--text-secondary);">Sold by</th>
-                        <th class="px-4 py-2 text-right font-semibold" style="color:var(--text-secondary);">Their price</th>
-                        <th class="px-4 py-2 text-right font-semibold" style="color:var(--text-secondary);">Our asking</th>
-                        <th class="px-4 py-2 text-left font-semibold" style="color:var(--text-secondary);">Sold</th>
-                        <th class="px-4 py-2 text-left font-semibold" style="color:var(--text-secondary);">Why</th>
-                        <th class="px-4 py-2 text-left font-semibold" style="color:var(--text-secondary);">Agent</th>
+                        <th class="px-4 py-2 text-left font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Property</th>
+                        <th class="px-4 py-2 text-left font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Sold by</th>
+                        <th class="px-4 py-2 text-right font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Their price</th>
+                        <th class="px-4 py-2 text-right font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Our asking</th>
+                        <th class="px-4 py-2 text-left font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Sold</th>
+                        <th class="px-4 py-2 text-left font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Why</th>
+                        <th class="px-4 py-2 text-left font-semibold uppercase tracking-wide" style="color:var(--text-secondary);">Agent</th>
                     </tr>
                 </thead>
                 <tbody>

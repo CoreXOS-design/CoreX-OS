@@ -62,17 +62,17 @@
     @else
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border:1px solid var(--border);">
         <div class="overflow-x-auto">
-            <table class="w-full text-sm">
+            <table class="w-full text-sm ds-table">
                 <thead>
                     <tr style="background: var(--surface-2); color: var(--text-secondary);">
-                        <th class="text-left font-semibold px-4 py-3">Agent</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agent</th>
                         @if($spansAgencies ?? false)
-                            <th class="text-left font-semibold px-4 py-3">Agency</th>
+                            <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Agency</th>
                         @endif
-                        <th class="text-left font-semibold px-4 py-3">Role</th>
-                        <th class="text-left font-semibold px-4 py-3">Archived</th>
-                        <th class="text-left font-semibold px-4 py-3">Hold</th>
-                        <th class="text-right font-semibold px-4 py-3">Action</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Role</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Archived</th>
+                        <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Hold</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -99,15 +99,13 @@
                         </td>
                         <td class="px-4 py-3">
                             @if($blocking)
-                                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold"
-                                      style="background: color-mix(in srgb, var(--ds-amber) 12%, transparent); color: var(--ds-amber); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent);"
+                                <span class="ds-badge ds-badge-warning"
                                       title="A released agent is locked for {{ $lockDays }} days before they can be added back.">
                                     Held until {{ $release->reinstatable_at->format('j M Y') }}
                                     ({{ $release->remainingDays() }} {{ \Illuminate\Support\Str::plural('day', $release->remainingDays()) }})
                                 </span>
                             @else
-                                <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-semibold"
-                                      style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent);">
+                                <span class="ds-badge ds-badge-success">
                                     Eligible to restore
                                 </span>
                             @endif

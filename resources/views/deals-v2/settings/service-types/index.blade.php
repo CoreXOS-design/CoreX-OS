@@ -14,18 +14,18 @@
 <div class="w-full space-y-5" x-data="{ showAdd: false, editId: null, editGroup: null, showGroups: {{ $errors->has('label') ? 'true' : 'false' }} }">
 
     {{-- Page header (branded — §2.4 Pattern A) --}}
-    <div class="rounded-md px-6 py-5" style="background: var(--brand-default, #0b2a4a);">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">COC / Service Types</h1>
-                <p class="text-sm text-white/60">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">COC / Service Types</h1>
+                <p class="text-xs" style="color: var(--text-muted);">
                     Your agency's certificate &amp; service list (Electrical, Beetle, Gas, Electric Fence, Plumbing, Security, Transfer Attorney…), kept in groups.
                     The groups are what the supplier form's Trade dropdown shows.
                 </p>
             </div>
             <div class="flex gap-2">
-                <button type="button" @click="showGroups = !showGroups" class="text-sm px-4 py-2 rounded font-medium" style="background: rgba(255,255,255,.15); color: #ffffff; border: 1px solid rgba(255,255,255,.4);" data-groups-toggle>Groups</button>
-                <button type="button" @click="showAdd = !showAdd" class="text-sm px-4 py-2 rounded font-medium" style="background: #ffffff; color: var(--brand-default, #0b2a4a);">+ Add service type</button>
+                <button type="button" @click="showGroups = !showGroups" class="corex-btn-outline text-xs" data-groups-toggle>Groups</button>
+                <button type="button" @click="showAdd = !showAdd" class="corex-btn-primary text-xs">+ Add service type</button>
             </div>
         </div>
     </div>
@@ -108,10 +108,11 @@
     </div>
 
     {{-- Filter --}}
+    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
     <form method="GET" class="flex flex-wrap items-end gap-3">
         <div>
             <label for="st-group" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Group</label>
-            <select id="st-group" name="group" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
+            <select id="st-group" name="group" onchange="this.form.submit()" class="list-header-filter text-sm {{ $groupFilter ? 'is-active' : '' }}">
                 <option value="">All groups</option>
                 @foreach($groups as $g)<option value="{{ $g->id }}" @selected($groupFilter === $g->id)>{{ $g->label }}</option>@endforeach
             </select>
@@ -119,18 +120,19 @@
         <input type="hidden" name="sort" value="{{ $sort }}"><input type="hidden" name="dir" value="{{ $dir }}">
         @if($groupFilter)<a href="{{ route('deals-v2.settings.service-types.index') }}" class="text-xs pb-2 underline" style="color: var(--text-muted);">Clear</a>@endif
     </form>
+    </div>
 
     {{-- List --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm ds-table">
             <thead>
                 <tr style="background: var(--surface-2); color: var(--text-muted);">
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ $sortUrl('order') }}" class="no-underline" data-sort="order">Order{{ $arrow('order') }}</a></th>
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ $sortUrl('label') }}" class="no-underline" data-sort="label">Service type{{ $arrow('label') }}</a></th>
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ $sortUrl('group') }}" class="no-underline" data-sort="group">Group{{ $arrow('group') }}</a></th>
-                    <th class="text-left px-4 py-2 font-medium"><a href="{{ $sortUrl('code') }}" class="no-underline" data-sort="code">Stored value{{ $arrow('code') }}</a></th>
-                    <th class="text-left px-4 py-2 font-medium">Status</th>
-                    <th class="text-right px-4 py-2 font-medium">Actions</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortUrl('order') }}" class="no-underline" data-sort="order">Order{{ $arrow('order') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortUrl('label') }}" class="no-underline" data-sort="label">Service type{{ $arrow('label') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortUrl('group') }}" class="no-underline" data-sort="group">Group{{ $arrow('group') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide"><a href="{{ $sortUrl('code') }}" class="no-underline" data-sort="code">Stored value{{ $arrow('code') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide">Status</th>
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide">Actions</th>
                 </tr>
             </thead>
             <tbody>
@@ -143,9 +145,9 @@
                         <td class="px-4 py-2"><code class="text-xs" style="color: var(--text-muted);">{{ $t->code }}</code></td>
                         <td class="px-4 py-2">
                             @if($t->is_active)
-                                <span class="text-xs px-2 py-0.5 rounded-full" style="background:#ecfdf5;color:#065f46;">Active</span>
+                                <span class="ds-badge ds-badge-success">Active</span>
                             @else
-                                <span class="text-xs px-2 py-0.5 rounded-full" style="background:#f3f4f6;color:#6b7280;">Inactive</span>
+                                <span class="ds-badge ds-badge-muted">Inactive</span>
                             @endif
                         </td>
                         <td class="px-4 py-2 text-right whitespace-nowrap">

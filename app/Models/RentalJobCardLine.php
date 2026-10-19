@@ -131,7 +131,8 @@ class RentalJobCardLine extends Model
 
     public function vatType(): BelongsTo
     {
-        return $this->belongsTo(RentalVatType::class, 'rental_vat_type_id');
+        // An archived VAT type must keep pricing the lines already using it (audit D-H1) — never resolve to null (= 0%).
+        return $this->belongsTo(RentalVatType::class, 'rental_vat_type_id')->withTrashed();
     }
 
     public function isVatSnapshotted(): bool

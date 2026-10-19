@@ -87,14 +87,14 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left  px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Agency</th>
-                        <th class="text-right px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Users</th>
-                        <th class="text-right px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Branches</th>
-                        <th class="text-left  px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Plan</th>
-                        <th class="text-right px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">List price</th>
-                        <th class="text-left  px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Basis</th>
-                        <th class="text-right px-4 py-2.5 font-semibold" style="color:var(--text-secondary);">Payable</th>
-                        <th class="text-right px-4 py-2.5 font-semibold" style="color:var(--text-secondary);"></th>
+                        <th class="text-left  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Agency</th>
+                        <th class="text-right  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Users</th>
+                        <th class="text-right  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Branches</th>
+                        <th class="text-left  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Plan</th>
+                        <th class="text-right  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">List price</th>
+                        <th class="text-left  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Basis</th>
+                        <th class="text-right  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Payable</th>
+                        <th class="text-right  px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);"></th>
                     </tr>
                 </thead>
 
@@ -126,7 +126,7 @@
                             @endif
                         </td>
                         <td class="px-4 py-3">
-                            <span class="ds-badge {{ $quote->derivedPlan === AgencySubscription::PLAN_AGENCY ? 'ds-badge-info' : 'ds-badge-success' }}">
+                            <span class="ds-badge ds-badge-pill {{ $quote->derivedPlan === AgencySubscription::PLAN_AGENCY ? 'ds-badge-info' : 'ds-badge-success' }}">
                                 {{ $quote->planLabel }}
                             </span>
                         </td>

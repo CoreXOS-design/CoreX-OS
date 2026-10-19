@@ -19,8 +19,7 @@
                 <h1 class="text-base font-bold leading-tight flex items-center gap-2" style="color: var(--text-primary);">
                     {{ $drive->name }}
                     @if($drive->is_restricted)
-                        <span class="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md"
-                              style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">Restricted</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default">Restricted</span>
                     @endif
                 </h1>
                 <p class="text-xs" style="color: var(--text-muted);">{{ $drive->is_restricted ? 'Visible only to invited members.' : 'Shared with everyone in the agency.' }} Max 50&nbsp;MB per file.</p>

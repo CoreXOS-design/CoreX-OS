@@ -59,7 +59,7 @@
                 </p>
             </div>
 
-            <form method="GET" action="{{ route('bm.worksheet.market') }}" class="flex flex-wrap gap-3 items-end">
+            <form method="GET" action="{{ route('bm.worksheet.market') }}" class="props-filter-panel rounded-md px-4 py-3 flex flex-wrap gap-3 items-end" style="border: 1px solid var(--border);">
                 <input type="hidden" name="period" value="{{ $period }}" />
 
                 <div>

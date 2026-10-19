@@ -2,25 +2,24 @@
 
 @section('corex-content')
 
-<div style="background: var(--brand-default, #0b2a4a);" class="rounded-md px-6 py-4 mb-6">
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+<div class="rounded-md px-6 py-5 corex-page-banner mb-5">
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-            <h2 class="text-xl font-bold text-white leading-tight">{{ $pageTitle }}</h2>
-            <div class="text-sm text-white/60">Compiled presentation packs</div>
+            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $pageTitle }}</h1>
+            <p class="text-xs" style="color: var(--text-muted);">Compiled presentation packs</p>
         </div>
-        <a href="{{ route('presentations.index') }}"
-           class="corex-btn-outline" style="color:#fff; border-color:rgba(255,255,255,0.3); background:transparent;">
+        <a href="{{ route('presentations.index') }}" class="corex-btn-outline text-xs">
             &larr; All Presentations
         </a>
     </div>
 </div>
 
 {{-- FILTERS --}}
-<form method="GET" class="mb-4 flex flex-wrap gap-2 items-end">
+<form method="GET" class="props-filter-panel mb-4 flex flex-wrap gap-3 items-end rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
     @if($isAdmin)
         <div>
-            <label class="ds-label block mb-1">Branch</label>
-            <select name="branch_id" class="pres-select px-2 py-1.5 text-xs">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch</label>
+            <select class="list-header-filter {{ (!empty($filters['branch_id'])) ? 'is-active' : '' }}" name="branch_id">
                 <option value="">All branches</option>
                 @foreach($branches as $branch)
                     <option value="{{ $branch->id }}"
@@ -31,25 +30,25 @@
             </select>
         </div>
         <div>
-            <label class="ds-label block mb-1">User ID</label>
-            <input type="number" name="user_id" value="{{ $filters['user_id'] ?? '' }}"
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">User ID</label>
+            <input class="list-header-filter {{ (!empty($filters['user_id'])) ? 'is-active' : '' }}" type="number" name="user_id" style="width:6rem;" value="{{ $filters['user_id'] ?? '' }}"
                    placeholder="Any"
-                   class="pres-input px-2 py-1.5 text-xs w-24">
+                  >
         </div>
     @endif
 
     <div>
-        <label class="ds-label block mb-1">Presentation ID</label>
-        <input type="number" name="presentation_id" value="{{ $filters['presentation_id'] ?? '' }}"
+        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Presentation ID</label>
+        <input class="list-header-filter {{ (!empty($filters['presentation_id'])) ? 'is-active' : '' }}" type="number" name="presentation_id" style="width:7rem;" value="{{ $filters['presentation_id'] ?? '' }}"
                placeholder="Any"
-               class="pres-input px-2 py-1.5 text-xs w-28">
+              >
     </div>
 
     <div>
-        <label class="ds-label block mb-1">Period (YYYY-MM)</label>
-        <input type="text" name="period" value="{{ $filters['period'] ?? '' }}"
+        <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Period (YYYY-MM)</label>
+        <input class="list-header-filter {{ (!empty($filters['period'])) ? 'is-active' : '' }}" type="text" name="period" style="width:7rem;" value="{{ $filters['period'] ?? '' }}"
                placeholder="e.g. 2026-02"
-               class="pres-input px-2 py-1.5 text-xs w-28">
+              >
     </div>
 
     <button type="submit" class="corex-btn-primary" style="padding:0.375rem 0.75rem; font-size:0.75rem;">
@@ -69,11 +68,11 @@
     <table class="ds-table w-full text-sm">
         <thead>
             <tr>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase" style="color: var(--text-muted);">Compiled</th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase" style="color: var(--text-muted);">Presentation</th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase" style="color: var(--text-muted);">Compiled by</th>
-                <th class="px-4 py-3 text-left text-xs font-medium uppercase" style="color: var(--text-muted);">Blueprint</th>
-                <th class="px-4 py-3 text-right text-xs font-medium uppercase" style="color: var(--text-muted);">Links</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Compiled</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Presentation</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Compiled by</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Blueprint</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide" style="color: var(--text-muted);">Links</th>
             </tr>
         </thead>
         <tbody class="divide-y" style="border-color: var(--border);">

@@ -42,6 +42,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        RolePermission::withTrashed()->where('permission_key', self::KEY)->forceDelete();
+        // Audit fix 2026-10-18: soft delete (was forceDelete) - never hard-delete permission rows an agency may since have edited.
+        RolePermission::where('permission_key', self::KEY)->delete();
     }
 };

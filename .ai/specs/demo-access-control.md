@@ -576,7 +576,7 @@ exactly (`routes/web.php:2318`; the sidebar link at
 Enforced at **three** layers regardless:
 1. Route middleware `owner_only`.
 2. `abort_unless($user->isOwnerRole(), 403)` at the top of **every** controller action.
-3. The sidebar's existing owner-gated block.
+3. The sidebar's existing owner-gated block. Nav home since 2026-10-14 (Andre): System Developer → **Web Access** group, beside Webinars (Demo Connection on the demo box). Route unchanged.
 
 `php artisan corex:sync-permissions` must be a **no-op** for this feature. If it reports
 new keys, a permission was added and it should not have been.

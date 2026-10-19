@@ -116,13 +116,13 @@
     </div>
 
     {{-- ══════ FILTER BAR ══════ --}}
-    <div class="rounded-md p-3 flex flex-wrap items-center gap-2" data-tour="task-filters"
+    <div class="props-filter-panel rounded-md px-4 py-3 flex flex-wrap items-center gap-2" data-tour="task-filters"
          style="background: var(--surface); border: 1px solid var(--border);">
         {{-- Search --}}
         <div class="relative">
             <input type="text" x-model="search" placeholder="Search tasks…" data-tour="task-search"
-                   class="pl-8 pr-3 py-1.5 rounded-md text-xs w-56"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                   class="list-header-filter w-56" :class="{ 'is-active': search }"
+                   style="padding-left: 2rem; cursor: text;">
             <svg class="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2" style="color: var(--text-muted);" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
         </div>
 
@@ -133,10 +133,8 @@
             { key: 'week',     label: 'This Week', var: '--brand-icon' },
         ]" :key="f.key">
             <button type="button" @click="toggleFilter(f.key)"
-                    class="px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors"
-                    :style="filters[f.key]
-                        ? `background: color-mix(in srgb, var(${f.var}) 12%, transparent); border-color: color-mix(in srgb, var(${f.var}) 40%, transparent); color: var(${f.var});`
-                        : 'background: var(--surface-2); border-color: var(--border); color: var(--text-secondary);'">
+                    class="list-header-filter px-3 font-semibold"
+                    :class="{ 'is-active': filters[f.key] }">
                 <span x-text="f.label"></span>
             </button>
         </template>
@@ -145,17 +143,13 @@
 
         {{-- Priority chips --}}
         <button type="button" @click="toggleFilter('critical')"
-                class="px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors"
-                :style="filters.critical
-                    ? 'background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border-color: color-mix(in srgb, var(--ds-crimson) 40%, transparent); color: var(--ds-crimson);'
-                    : 'background: var(--surface-2); border-color: var(--border); color: var(--text-secondary);'">
+                class="list-header-filter px-3 font-semibold"
+                :class="{ 'is-active': filters.critical }">
             Critical
         </button>
         <button type="button" @click="toggleFilter('high')"
-                class="px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors"
-                :style="filters.high
-                    ? 'background: color-mix(in srgb, var(--ds-amber) 12%, transparent); border-color: color-mix(in srgb, var(--ds-amber) 40%, transparent); color: var(--ds-amber);'
-                    : 'background: var(--surface-2); border-color: var(--border); color: var(--text-secondary);'">
+                class="list-header-filter px-3 font-semibold"
+                :class="{ 'is-active': filters.high }">
             High+
         </button>
 
@@ -164,10 +158,8 @@
         {{-- Pillar chips --}}
         @foreach($pillarStyle as $pk => $ps)
             <button type="button" @click="togglePillar('{{ $pk }}')"
-                    class="px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors"
-                    :style="pillars.includes('{{ $pk }}')
-                        ? 'background: color-mix(in srgb, var({{ $ps['var'] }}) 12%, transparent); border-color: color-mix(in srgb, var({{ $ps['var'] }}) 40%, transparent); color: var({{ $ps['var'] }});'
-                        : 'background: var(--surface-2); border-color: var(--border); color: var(--text-secondary);'">
+                    class="list-header-filter px-3 font-semibold"
+                    :class="{ 'is-active': pillars.includes('{{ $pk }}') }">
                 {{ $ps['label'] }}
             </button>
         @endforeach
@@ -207,9 +199,7 @@
                             <span class="w-2 h-2 rounded-full" style="background: var({{ $colVar }});"></span>
                             <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-primary);">{{ $statusLabel }}</span>
                         </div>
-                        <span class="inline-flex items-center justify-center rounded-full text-[0.6875rem] font-semibold px-2 py-0.5"
-                              style="background: var(--surface-2); color: var(--text-secondary); min-width: 1.5rem;"
-                              data-col-count>{{ number_format($colTasks->count()) }}</span>
+                        <span class="ds-badge ds-badge-pill ds-badge-default" data-col-count>{{ number_format($colTasks->count()) }}</span>
                     </button>
 
                     {{-- Column body — fills the column and scrolls inside itself --}}
@@ -256,9 +246,7 @@
                                 </svg>
                                 <span class="w-2 h-2 rounded-full" style="background: var({{ $bucket['var'] }});"></span>
                                 <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-primary);">{{ $bucket['label'] }}</span>
-                                <span class="inline-flex items-center justify-center rounded-full text-[0.6875rem] font-semibold px-2 py-0.5"
-                                      data-group-count
-                                      style="background: color-mix(in srgb, var({{ $bucket['var'] }}) 18%, transparent); color: var({{ $bucket['var'] }}); min-width: 1.5rem;">{{ number_format($bucket['tasks']->count()) }}</span>
+                                <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $bucket['var'] }});" data-group-count>{{ number_format($bucket['tasks']->count()) }}</span>
                             </div>
                         </button>
 
@@ -295,8 +283,7 @@
                                                 <td class="px-4 py-3" style="color: var(--text-primary);">
                                                     <div class="flex items-center gap-2 flex-wrap">
                                                         @if($tag && isset($pillarStyle[$tag]))
-                                                            <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wider flex-shrink-0"
-                                                                  style="background: color-mix(in srgb, var({{ $pillarStyle[$tag]['var'] }}) 15%, transparent); color: var({{ $pillarStyle[$tag]['var'] }}); white-space: nowrap;">
+                                                            <span class="ds-badge ds-badge-pill flex-shrink-0" style="--ds-badge-c: var({{ $pillarStyle[$tag]['var'] }});">
                                                                 {{ $pillarStyle[$tag]['label'] }}
                                                             </span>
                                                         @endif

@@ -249,7 +249,9 @@ final class CoreMatchBuyerStatusGateTest extends TestCase
         $this->assertStringContainsString('data-buyer-state="lost"', $html);
         // exactly two chips for three rows: the buyer with no pipeline record has none
         $this->assertSame(2, substr_count($html, 'data-buyer-state='));
-        $this->assertStringContainsString('ds-badge-danger', $html);
+        // AT-455 (Andre, 2026-10-14): the status is a small coloured dot beside the word, not a filled chip -
+        // lost carries the crimson dot.
+        $this->assertMatchesRegularExpression('/data-buyer-state="lost"[^>]*><span style="[^"]*background:var\(--ds-crimson[^"]*"><\/span>Lost/', $html);
     }
 
     // ---- Notes control: same endpoint, same effects as the contact screen -----

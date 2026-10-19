@@ -18,19 +18,28 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Audit fix 2026-10-18: every add is hasColumn-guarded - a database that ran the since-deleted
+        // 2026_10_29_120000_add_builder_limits_to_rts_settings already holds some of these (e.g. add_to_day_max).
         Schema::table('rts_settings', function (Blueprint $table) {
-            $table->char('public_holiday_country', 2)->default('ZA')->after('area_refresh_warn_days');
-            $table->json('buyer_match_tiers')->nullable();
-            $table->json('active_buyer_states')->nullable();
-            $table->json('taken_statuses')->nullable();
-            $table->json('on_market_statuses')->nullable();
-            $table->unsignedSmallInteger('add_to_day_max')->default(100);
-            $table->unsignedSmallInteger('scan_page_size')->default(200);
-            $table->unsignedSmallInteger('scan_max_pages')->default(8);
-            $table->unsignedSmallInteger('hot_pocket_weight_buyers')->default(1);
-            $table->unsignedSmallInteger('hot_pocket_weight_leads')->default(1);
-            $table->unsignedSmallInteger('hot_pocket_weight_sales')->default(1);
-            $table->softDeletes();
+            if (! Schema::hasColumn('rts_settings', 'public_holiday_country')) {
+                $table->char('public_holiday_country', 2)->default('ZA')->after('area_refresh_warn_days');
+            }
+            foreach (['buyer_match_tiers', 'active_buyer_states', 'taken_statuses', 'on_market_statuses'] as $column) {
+                if (! Schema::hasColumn('rts_settings', $column)) {
+                    $table->json($column)->nullable();
+                }
+            }
+            foreach ([
+                'add_to_day_max' => 100, 'scan_page_size' => 200, 'scan_max_pages' => 8,
+                'hot_pocket_weight_buyers' => 1, 'hot_pocket_weight_leads' => 1, 'hot_pocket_weight_sales' => 1,
+            ] as $column => $default) {
+                if (! Schema::hasColumn('rts_settings', $column)) {
+                    $table->unsignedSmallInteger($column)->default($default);
+                }
+            }
+            if (! Schema::hasColumn('rts_settings', 'deleted_at')) {
+                $table->softDeletes();
+            }
         });
     }
 

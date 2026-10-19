@@ -279,13 +279,43 @@ class RentalInventorySignature extends Model
         return \App\Support\StorageDataUri::fromPublicStoragePath($path);
     }
 
-    /** Same real-file storage pattern as RentalInspectionSignature::storeWetInkUpload(). */
+    /**
+     * Same real-file storage pattern as RentalInspectionSignature::storeWetInkUpload().
+     *
+     * Audit A-H1 (2026-10-18) — the client's filename/extension is never used and the file is no
+     * longer written to the web-readable public disk: private disk, server-generated name, extension
+     * from the sniffed MIME via a fixed allow-list, read back through fileUrl()/fileResponse().
+     *
+     * @throws \InvalidArgumentException when the file type is not allowed
+     */
     public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
     {
-        $filename = uniqid('wetink_', true) . '.' . ($file->getClientOriginalExtension() ?: $file->extension());
-        $path = $file->storeAs("properties/{$propertyId}/rental-inventory-signatures", $filename, 'public');
+        return \App\Support\PrivateScanFile::store($file, "rental-inventory-signatures/{$propertyId}/wet-ink");
+    }
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+    /**
+     * The URL a screen should use for this row's wet-ink scan. A legacy public-disk value is returned
+     * as-is; a private one goes through an authorised route: the agent-side one by default, or — when
+     * $publicToken is given (the public report page) — the token-authorised one.
+     */
+    public function wetInkFileUrl(?string $publicToken = null): ?string
+    {
+        $stored = $this->wet_ink_upload_path;
+        if (! $stored) {
+            return null;
+        }
+        if (! \App\Support\PrivateScanFile::isPrivate($stored)) {
+            return $stored;
+        }
+
+        return $publicToken
+            ? route('rental-inventories.public.signature-wet-ink-file', ['token' => $publicToken, 'signature' => $this->id])
+            : route('corex.rental-inventories.signatures.wet-ink-file', ['rentalInventory' => $this->rental_inventory_id, 'signature' => $this->id]);
+    }
+
+    public function wetInkFileResponse(): \Symfony\Component\HttpFoundation\Response
+    {
+        return \App\Support\PrivateScanFile::response($this->wet_ink_upload_path);
     }
 
     /**

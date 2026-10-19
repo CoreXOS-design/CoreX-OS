@@ -105,6 +105,20 @@ final class LeaseAutoMonthToMonthTest extends TestCase
         $this->assertSame('active', $this->property->fresh()->status, 'the property keeps its status (§12.5.3)');
     }
 
+    public function test_an_agency_with_the_leases_feature_off_is_left_alone(): void
+    {
+        $lease = $this->lease('3');
+        \Illuminate\Support\Facades\DB::table('agency_features')->insert([
+            'agency_id' => $this->agency->id, 'feature_key' => 'rental-leases', 'enabled' => 0, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        app(\App\Services\Features\AgencyFeatureService::class)->forget();
+
+        $this->runCommand();
+
+        $this->assertFalse((bool) $lease->fresh()->is_month_to_month, 'C-F5: switched-off agency untouched');
+        $this->assertNotNull($lease->fresh()->end_date);
+    }
+
     public function test_it_does_not_switch_before_the_day_after(): void
     {
         $endsToday = $this->lease('0');

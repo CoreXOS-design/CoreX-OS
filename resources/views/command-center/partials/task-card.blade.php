@@ -61,8 +61,7 @@
     {{-- Row 1: tag + priority --}}
     <div class="flex items-center gap-1.5 flex-wrap">
         @if(($showPillar ?? true) && $tag && isset($pillarStyle[$tag]))
-            <span class="inline-flex items-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wider"
-                  style="background: color-mix(in srgb, var({{ $pillarStyle[$tag]['var'] }}) 15%, transparent); color: var({{ $pillarStyle[$tag]['var'] }}); white-space: nowrap;">
+            <span class="ds-badge ds-badge-pill" style="--ds-badge-c: var({{ $pillarStyle[$tag]['var'] }});">
                 {{ $pillarStyle[$tag]['label'] }}
             </span>
         @endif

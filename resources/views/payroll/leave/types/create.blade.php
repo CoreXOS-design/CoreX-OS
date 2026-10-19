@@ -12,7 +12,7 @@
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
-                <a href="{{ route('payroll.leave.types.index') }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
+                <a href="{{ route('corex.settings', ['s' => 'leave-types']) }}" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
                     Leave Types
                 </a>

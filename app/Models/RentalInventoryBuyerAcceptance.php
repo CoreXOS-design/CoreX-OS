@@ -66,25 +66,7 @@ class RentalInventoryBuyerAcceptance extends Model
      */
     public static function capture(RentalInventory $inventory, Contact $buyer, string $disposition, array $attributes = []): self
     {
-        if (! $inventory->buyerAcceptanceOfferedFor()) {
-            throw new \LogicException('Buyer acceptance is not offered on this inventory — it requires a completed sale-property inventory with a committed (accepted-offer) deal.');
-        }
-
-        $isEligibleBuyer = $inventory->eligibleBuyerContacts()->contains(fn (Contact $c) => (int) $c->id === (int) $buyer->id);
-        if (! $isEligibleBuyer) {
-            throw new \InvalidArgumentException('This contact is not a buyer on the property\'s current committed deal.');
-        }
-
-        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
-            throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
-        }
-
-        $alreadyAccepted = $inventory->buyerAcceptances()
-            ->where('buyer_contact_id', $buyer->id)
-            ->exists();
-        if ($alreadyAccepted) {
-            throw new \LogicException('This buyer has already recorded their acceptance of this inventory.');
-        }
+        self::assertCanCapture($inventory, $buyer, $disposition);
 
         if ($disposition === self::DISPOSITION_SIGNED) {
             if (empty($attributes['party_signature_path'])) {
@@ -107,24 +89,96 @@ class RentalInventoryBuyerAcceptance extends Model
         ]));
     }
 
-    /** Same canvas-capture storage pattern as RentalInventorySignature::storeCanvasImage(), own folder. */
+    /**
+     * The eligibility checks capture() enforces, callable on their own so the
+     * public route can refuse BEFORE it writes any uploaded file (audit
+     * A-H1: a rejected attempt used to leave its file on disk).
+     *
+     * @throws \LogicException|\InvalidArgumentException
+     */
+    public static function assertCanCapture(RentalInventory $inventory, Contact $buyer, string $disposition): void
+    {
+        if (! $inventory->buyerAcceptanceOfferedFor()) {
+            throw new \LogicException('Buyer acceptance is not offered on this inventory — it requires a completed sale-property inventory with a committed (accepted-offer) deal.');
+        }
+
+        $isEligibleBuyer = $inventory->eligibleBuyerContacts()->contains(fn (Contact $c) => (int) $c->id === (int) $buyer->id);
+        if (! $isEligibleBuyer) {
+            throw new \InvalidArgumentException('This contact is not a buyer on the property\'s current committed deal.');
+        }
+
+        if (! in_array($disposition, [self::DISPOSITION_SIGNED, self::DISPOSITION_WET_INK], true)) {
+            throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
+        }
+
+        $alreadyAccepted = $inventory->buyerAcceptances()
+            ->where('buyer_contact_id', $buyer->id)
+            ->exists();
+        if ($alreadyAccepted) {
+            throw new \LogicException('This buyer has already recorded their acceptance of this inventory.');
+        }
+    }
+
+    /**
+     * Same canvas-capture storage pattern as RentalInventorySignature::storeCanvasImage(), own folder.
+     * Audit A-H1 (2026-10-18) — this is reached by an unauthenticated visitor, so the decoded bytes must
+     * really be a PNG within the size cap (re-encoded so only pixels are written), not whatever was posted.
+     *
+     * @throws \InvalidArgumentException when the payload is not a usable PNG
+     */
     public static function storeCanvasImage(string $base64, int $propertyId): string
     {
-        $data = str_contains($base64, ',') ? explode(',', $base64, 2)[1] : $base64;
-        $binary = base64_decode($data, true) ?: '';
+        $binary = \App\Support\PrivateScanFile::validatedPng($base64);
 
-        $path = "properties/{$propertyId}/rental-inventory-buyer-acceptances/" . uniqid('sig_', true) . '.png';
+        $path = "properties/{$propertyId}/rental-inventory-buyer-acceptances/" . bin2hex(random_bytes(16)) . '.png';
         \Illuminate\Support\Facades\Storage::disk('public')->put($path, $binary);
 
         return \Illuminate\Support\Facades\Storage::url($path);
     }
 
-    /** Same real-file storage pattern as RentalInventorySignature::storeWetInkUpload(), own folder. */
+    /** Audit A-H1 — wet-ink scans are stored on the PRIVATE disk and referenced as "private:<disk path>"; legacy rows hold a public "/storage/..." URL. */
+    public const PRIVATE_PREFIX = \App\Support\PrivateScanFile::PRIVATE_PREFIX;
+
+    /**
+     * Audit A-H1 (2026-10-18) — this is reached by an unauthenticated
+     * visitor, so the file used to land on the public disk under the
+     * browser-supplied extension. Now: private disk, server-generated name,
+     * extension from the sniffed MIME via a fixed allow-list, served only
+     * through wetInkFileResponse() behind an own/branch-checked agent route.
+     *
+     * @throws \InvalidArgumentException when the file type is not allowed
+     */
     public static function storeWetInkUpload(\Illuminate\Http\UploadedFile $file, int $propertyId): string
     {
-        $filename = uniqid('wetink_', true) . '.' . ($file->getClientOriginalExtension() ?: $file->extension());
-        $path = $file->storeAs("properties/{$propertyId}/rental-inventory-buyer-acceptances", $filename, 'public');
+        return \App\Support\PrivateScanFile::store($file, "rental-inventory-buyer-acceptances/{$propertyId}");
+    }
 
-        return \Illuminate\Support\Facades\Storage::url($path);
+    /** Remove a just-stored private scan again (used when the acceptance it was uploaded for is then refused). */
+    public static function discardStoredWetInk(?string $stored): void
+    {
+        \App\Support\PrivateScanFile::discard($stored);
+    }
+
+    /** The URL the agent's inventory page links for the wet-ink scan: the checked route for a private file, the stored URL as-is for a legacy public one. */
+    public function wetInkFileUrl(): ?string
+    {
+        $stored = $this->wet_ink_upload_path;
+        if (! $stored) {
+            return null;
+        }
+        if (! str_starts_with($stored, self::PRIVATE_PREFIX)) {
+            return $stored;
+        }
+
+        return route('corex.rental-inventories.buyer-acceptances.wet-ink-file', [
+            'rentalInventory' => $this->rental_inventory_id,
+            'acceptance' => $this->id,
+        ]);
+    }
+
+    /** Stream the wet-ink scan (nosniff, sandbox CSP, image/PDF types only — see PrivateScanFile::response()). */
+    public function wetInkFileResponse(): \Symfony\Component\HttpFoundation\Response
+    {
+        return \App\Support\PrivateScanFile::response($this->wet_ink_upload_path);
     }
 }

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\AI\Ellie;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\User;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
@@ -79,6 +81,7 @@ class EllieAgentService
     public function __construct(
         private readonly EllieToolkit $toolkit,
         private readonly AiUsageRecorder $usage,
+        private readonly AiSpendGuard $spendGuard,
     ) {
     }
 
@@ -122,6 +125,10 @@ class EllieAgentService
                 // knowledge searches, no reply. With no tools available the
                 // model must synthesise from what it has already gathered.
                 $isFinalPass = ($i === self::MAX_ITERATIONS - 1);
+
+                // AI Spend Safety (AT-456 §A.3) — checked before EVERY round-trip,
+                // so a cut-out stops Ellie mid-conversation, not just at the start.
+                $this->spendGuard->assertAllowed();
 
                 $call = $this->callApi(
                     $apiKey,
@@ -195,6 +202,12 @@ class EllieAgentService
                     : "That turned into a bigger lookup than I could finish. Try asking me one part of it at a time.",
                 'tools_used' => $toolsUsed,
                 'guides'     => $this->toolkit->guides(),
+            ];
+        } catch (AiPausedException $e) {
+            return [
+                'ok'         => false,
+                'reply'      => $e->getMessage(),
+                'tools_used' => $toolsUsed,
             ];
         } catch (Throwable $e) {
             Log::error('ELLIE_AGENT_EXCEPTION', [

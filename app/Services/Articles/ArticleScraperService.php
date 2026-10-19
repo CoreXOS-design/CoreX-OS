@@ -3,22 +3,28 @@
 namespace App\Services\Articles;
 
 use App\Models\ArticlePool;
+use App\Models\ArticleSource;
+use App\Support\Net\SafeFeedUrl;
 use App\Support\SuburbMapper;
+use App\Support\Text\PlainText;
+use Psr\Http\Message\StreamInterface;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ArticleScraperService
 {
-    /**
-     * RSS feeds to scrape. Key = source label, value = feed URL.
-     */
-    private const FEEDS = [
-        'BusinessTech Property'   => 'https://businesstech.co.za/news/category/property/feed/',
-        'Daily Investor Property' => 'https://dailyinvestor.com/category/south-africa/property/feed/',
-        'IOL Property'            => 'https://www.iol.co.za/news/south-africa/rss',
-        'Property24 Advice'       => 'https://www.property24.com/articles/rss',
-        'MyBroadband Property'    => 'https://mybroadband.co.za/news/category/property/feed/',
-    ];
+    /** Longest slice of a feed's full-text (content:encoded) kept for the Article Library's brief. */
+    private const CONTENT_MAX_CHARS = 3000;
+
+    /** A feed bigger than this is refused (read stops at the cap), whatever the server claims. */
+    public const MAX_FEED_BYTES = 2 * 1024 * 1024;
+
+    /** Redirects followed by hand, each hop re-checked by SafeFeedUrl. */
+    public const MAX_REDIRECTS = 3;
+
+    private const FETCH_DEADLINE_SECS = 30;
+
+    private const CONTENT_NS = 'http://purl.org/rss/1.0/modules/content/';
 
     private const SUBURBS = [
         'Uvongo', 'Manaba Beach', 'Margate', 'Ramsgate', 'Shelly Beach',
@@ -43,7 +49,10 @@ class ArticleScraperService
     ];
 
     /**
-     * Scrape all configured RSS feeds and return summary stats.
+     * Scrape every fetchable article source (the `article_sources` table — AT-456 Part C; the five
+     * feeds that used to be hard-coded here are seeded into it) and return summary stats.
+     *
+     * Archived and paused sources are skipped.
      *
      * @return array{feeds_attempted: int, feeds_succeeded: int, articles_upserted: int, errors: array}
      */
@@ -56,15 +65,14 @@ class ArticleScraperService
             'errors'            => [],
         ];
 
-        foreach (self::FEEDS as $source => $feedUrl) {
+        foreach (ArticleSource::query()->fetchable()->orderBy('id')->get() as $source) {
             $stats['feeds_attempted']++;
 
             try {
-                $count = $this->scrapeFeed($source, $feedUrl);
+                $stats['articles_upserted'] += count($this->fetchSource($source));
                 $stats['feeds_succeeded']++;
-                $stats['articles_upserted'] += $count;
             } catch (\Throwable $e) {
-                $msg = "[{$source}] {$e->getMessage()}";
+                $msg = "[{$source->name}] {$e->getMessage()}";
                 $stats['errors'][] = $msg;
                 Log::warning("ArticleScraperService: {$msg}");
             }
@@ -74,25 +82,138 @@ class ArticleScraperService
     }
 
     /**
-     * Scrape a single RSS feed and upsert articles into article_pool.
+     * Fetch one source, upsert its items into article_pool (the staging store the presentations
+     * also read) and record the fetch outcome on the source row.
+     *
+     * Returns the items found, newest first, each with the extra fields the Article Library needs
+     * and article_pool does not keep: a longer plain-text `content` where the feed supplies full
+     * text. Nothing is fetched beyond the feed itself — never the article's own page.
+     *
+     * @return list<array{hash: string, title: string, url: string, snippet: string, content: string, published_at: ?\DateTimeImmutable, source: string}>
+     *
+     * @throws \Throwable the fetch/parse error, after it has been recorded on the source.
      */
-    private function scrapeFeed(string $source, string $feedUrl): int
+    public function fetchSource(ArticleSource $source): array
     {
-        $response = Http::timeout(15)->connectTimeout(10)->get($feedUrl);
+        try {
+            $items = $this->parseAndStore($source->name, $this->fetchFeedBody($source->url));
+        } catch (\Throwable $e) {
+            $source->forceFill([
+                'last_run_at' => now(),
+                'last_status' => ArticleSource::STATUS_FAILED,
+                'last_error'  => mb_substr($e->getMessage(), 0, 1000),
+            ])->save();
 
-        if (!$response->successful()) {
-            throw new \RuntimeException("HTTP {$response->status()} fetching {$feedUrl}");
+            throw $e;
         }
 
-        $xml = $response->body();
+        $source->forceFill([
+            'last_run_at' => now(),
+            'last_status' => ArticleSource::STATUS_OK,
+            'last_error'  => null,
+        ])->save();
 
-        return $this->parseAndStore($source, $xml);
+        usort($items, fn ($a, $b) => ($b['published_at']?->getTimestamp() ?? 0) <=> ($a['published_at']?->getTimestamp() ?? 0));
+
+        return $items;
+    }
+
+    /**
+     * Fetch a feed's body safely: the address is checked (SafeFeedUrl — public hosts only, ports
+     * 80/443, every resolved IP public) before the request and again on each redirect hop; redirects
+     * are followed by hand, at most MAX_REDIRECTS; the connection is pinned to the IP that was
+     * checked (no second DNS lookup to swap); and reading stops at MAX_FEED_BYTES.
+     *
+     * @throws \RuntimeException with a plain-words reason.
+     */
+    private function fetchFeedBody(string $url): string
+    {
+        $guard   = app(SafeFeedUrl::class);
+        $current = $url;
+
+        for ($hop = 0; $hop <= self::MAX_REDIRECTS; $hop++) {
+            $check = $guard->inspect($current);
+            if (! $check['ok']) {
+                throw new \RuntimeException(($hop === 0 ? '' : 'A redirect led somewhere not allowed. ') . $check['error']);
+            }
+
+            $options = ['stream' => true];
+            if (! $check['literal']) {
+                // Connect to exactly the address that was just checked.
+                $options['curl'] = [CURLOPT_RESOLVE => ["{$check['host']}:{$check['port']}:{$check['ips'][0]}"]];
+            }
+
+            $response = Http::timeout(15)->connectTimeout(10)->withoutRedirecting()->withOptions($options)->get($current);
+
+            if (in_array($response->status(), [301, 302, 303, 307, 308], true)) {
+                $location = trim($response->header('Location'));
+                if ($location === '') {
+                    throw new \RuntimeException('The feed redirected without saying where.');
+                }
+                $current = $this->absoluteUrl($current, $location);
+
+                continue;
+            }
+
+            if (! $response->successful()) {
+                throw new \RuntimeException("The feed address answered with an error (HTTP {$response->status()}).");
+            }
+
+            return $this->readCapped($response->toPsrResponse()->getBody(), (int) $response->header('Content-Length'));
+        }
+
+        throw new \RuntimeException('The feed redirected too many times (more than ' . self::MAX_REDIRECTS . ').');
+    }
+
+    private function readCapped(StreamInterface $body, int $declaredLength): string
+    {
+        $tooBig = 'The feed is too large to read (over ' . (self::MAX_FEED_BYTES / 1024 / 1024) . ' MB).';
+        if ($declaredLength > self::MAX_FEED_BYTES) {
+            throw new \RuntimeException($tooBig);
+        }
+
+        $deadline = microtime(true) + self::FETCH_DEADLINE_SECS;
+        $out      = '';
+        while (! $body->eof()) {
+            $out .= $body->read(8192);
+            if (strlen($out) > self::MAX_FEED_BYTES) {
+                throw new \RuntimeException($tooBig);
+            }
+            if (microtime(true) > $deadline) {
+                throw new \RuntimeException('The feed took too long to download.');
+            }
+        }
+        // The stream is released when the response goes out of scope.
+
+        return $out;
+    }
+
+    /** Resolve a Location header (absolute, scheme-relative, root-relative or relative) against the URL it came from. */
+    private function absoluteUrl(string $base, string $location): string
+    {
+        if (preg_match('#^https?://#i', $location) === 1) {
+            return $location;
+        }
+        $p = parse_url($base) ?: [];
+        $origin = ($p['scheme'] ?? 'http') . '://' . ($p['host'] ?? '') . (isset($p['port']) ? ':' . $p['port'] : '');
+
+        if (str_starts_with($location, '//')) {
+            return ($p['scheme'] ?? 'http') . ':' . $location;
+        }
+        if (str_starts_with($location, '/')) {
+            return $origin . $location;
+        }
+        $dir = isset($p['path']) ? preg_replace('#/[^/]*$#', '/', $p['path']) : '/';
+
+        return $origin . $dir . $location;
     }
 
     /**
      * Parse RSS XML and upsert items into article_pool.
+     *
+     * @return list<array{hash: string, title: string, url: string, snippet: string, content: string, published_at: ?\DateTimeImmutable, source: string}>
      */
-    private function parseAndStore(string $source, string $xml): int
+    private function parseAndStore(string $source, string $xml): array
     {
         libxml_use_internal_errors(true);
         $feed = simplexml_load_string($xml);
@@ -113,10 +234,10 @@ class ArticleScraperService
             $items = $feed->entry;
         }
 
-        $upserted = 0;
+        $found = [];
 
         foreach ($items as $item) {
-            $title       = $this->extractText($item, 'title');
+            $title       = trim(preg_replace('/\s+/', ' ', PlainText::strip($this->extractText($item, 'title'))) ?? '');
             $link        = $this->extractLink($item);
             $description = $this->extractText($item, 'description');
             $pubDate     = $this->extractText($item, 'pubDate')
@@ -158,10 +279,35 @@ class ArticleScraperService
                 ]
             );
 
-            $upserted++;
+            $found[] = [
+                'hash'         => $urlHash,
+                'title'        => mb_substr($title, 0, 255),
+                'url'          => $link,
+                'snippet'      => $snippet,
+                'content'      => $this->extractFullText($item),
+                'published_at' => $publishedAt,
+                'source'       => $source,
+            ];
         }
 
-        return $upserted;
+        return $found;
+    }
+
+    /**
+     * Full text from `<content:encoded>` where the feed supplies it (plain text, capped). Empty
+     * when it does not — the library then writes from the title + snippet only.
+     */
+    private function extractFullText(\SimpleXMLElement $item): string
+    {
+        $content = $item->children(self::CONTENT_NS);
+        if (!isset($content->encoded)) {
+            return '';
+        }
+
+        $text = PlainText::strip((string) $content->encoded);
+        $text = trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+
+        return mb_substr($text, 0, self::CONTENT_MAX_CHARS);
     }
 
     /**
@@ -206,11 +352,8 @@ class ArticleScraperService
             return '';
         }
 
-        // Strip HTML
-        $clean = strip_tags($text);
-
-        // Decode entities
-        $clean = html_entity_decode($clean, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        // Decode entities and strip HTML until stable (an encoded tag must not survive as a literal one)
+        $clean = PlainText::strip($text);
 
         // Collapse whitespace
         $clean = preg_replace('/\s+/', ' ', $clean) ?? $clean;

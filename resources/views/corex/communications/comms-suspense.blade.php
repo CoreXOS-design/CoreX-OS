@@ -14,10 +14,10 @@
     $firstRecent  = $recent->first()?->id;
     $chipFor = function (?string $conf): array {
         return $conf === 'high'
-            ? ['High confidence', 'color-mix(in srgb, var(--ds-green, #059669) 12%, transparent)', 'var(--ds-green, #059669)', 'none']
+            ? ['High confidence', 'ds-badge-success']
             : ($conf === 'medium'
-                ? ['Medium', 'color-mix(in srgb, var(--ds-amber, #f59e0b) 16%, transparent)', 'var(--ds-amber, #f59e0b)', 'none']
-                : ['Needs a deal', 'var(--surface-2)', 'var(--text-muted)', '1px solid var(--border)']);
+                ? ['Medium', 'ds-badge-warning']
+                : ['Needs a deal', 'ds-badge-muted']);
     };
     $controlStyle = 'background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);';
     // Header search filters the visible list client-side on subject + sender + deal (the "hay").
@@ -32,12 +32,12 @@
         <div class="flex items-center justify-between gap-4 flex-wrap">
             <div class="flex items-center gap-3 min-w-0">
                 <h1 class="text-base font-bold leading-tight whitespace-nowrap" style="color: var(--text-primary);">Comms Suspense</h1>
-                <span class="text-xs px-2 py-0.5 rounded-full whitespace-nowrap" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $items->total() }} to review</span>
+                <span class="ds-badge ds-badge-pill ds-badge-muted whitespace-nowrap">{{ $items->total() }} to review</span>
                 <p class="text-xs truncate" style="color: var(--text-muted);">Attorney email to file — confirm the deal once, the rest of that reference files itself.</p>
             </div>
-            <label class="flex items-center gap-2 rounded-md px-3 py-1.5 w-full sm:w-64" style="{{ $controlStyle }}">
-                <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                <input type="text" x-model="q" placeholder="Search subject, sender, deal…" class="w-full text-xs bg-transparent outline-none border-0 p-0" style="color: var(--text-primary);">
+            <label class="relative flex items-center w-full sm:w-64">
+                <svg class="w-3.5 h-3.5 shrink-0 absolute left-3 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color: var(--text-muted);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" x-model="q" placeholder="Search subject, sender, deal…" class="list-header-filter w-full" :class="{ 'is-active': q }" style="padding-left:2.25rem;">
             </label>
         </div>
     </div>
@@ -65,13 +65,13 @@
                         class="flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 -mb-px"
                         :style="tab === 'review' ? 'color: var(--text-primary); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-muted); border-color: transparent;'">
                     To review
-                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: var(--brand-icon, #0ea5e9); color: #fff;">{{ $items->total() }}</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-info">{{ $items->total() }}</span>
                 </button>
                 <button type="button" @click="tab = 'filed'"
                         class="flex items-center gap-2 px-3 py-2 text-xs font-medium border-b-2 -mb-px"
                         :style="tab === 'filed' ? 'color: var(--text-primary); border-color: var(--brand-icon, #0ea5e9);' : 'color: var(--text-muted); border-color: transparent;'">
                     Recently filed
-                    <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">{{ $recent->count() }}</span>
+                    <span class="ds-badge ds-badge-pill ds-badge-default">{{ $recent->count() }}</span>
                 </button>
             </div>
 
@@ -86,10 +86,10 @@
                         $hay  = $hayOf($s, $sug);
                     @endphp
                     <button type="button" @click="sel.review = {{ (int) $s->id }}" x-show="hit($el.dataset.hay)" data-hay="{{ $hay }}"
-                            class="w-full text-left flex flex-col gap-0.5 px-3.5 py-2.5 transition-colors"
+                            class="list-row-hover w-full text-left flex flex-col gap-0.5 px-3.5 py-2.5 transition-colors"
                             :style="sel.review === {{ (int) $s->id }} ? 'background: var(--surface-2); box-shadow: inset 3px 0 0 var(--brand-icon, #0ea5e9); border-bottom: 1px solid var(--border);' : 'border-bottom: 1px solid var(--border);'">
                         <div class="flex items-center justify-between gap-2">
-                            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background:{{ $chip[1] }}; color:{{ $chip[2] }}; border:{{ $chip[3] }};">{{ $chip[0] }}</span>
+                            <span class="ds-badge {{ $chip[1] }}">{{ $chip[0] }}</span>
                             <span class="text-[11px] whitespace-nowrap" style="color: var(--text-muted);">{{ optional($c?->occurred_at)->diffForHumans() }}</span>
                         </div>
                         <div class="text-[13px] truncate" :class="sel.review === {{ (int) $s->id }} ? 'font-semibold' : 'font-medium'" style="color: var(--text-primary);">{{ $c?->subject ?: '(no subject)' }}</div>
@@ -104,7 +104,18 @@
                 <div class="px-3.5 py-2 text-xs" x-show="q && !hays.review.some(h => hit(h))" x-cloak style="color: var(--text-muted);">No emails match your search.</div>
             </div>
             @if($items->hasPages())
-                <div x-show="tab === 'review'" class="flex-shrink-0 px-3 py-2 text-xs" style="border-top: 1px solid var(--border);">{{ $items->links() }}</div>
+                {{-- Compact pager for the 380px list column: the full page-number bar
+                     overflowed the column once it reached seven pages (Andre, 2026-10-14;
+                     same fix as Deeds Capture). Range text on its own line, Previous /
+                     Next below it. --}}
+                <div x-show="tab === 'review'" class="flex-shrink-0 px-3 py-2 text-xs space-y-1.5" style="border-top: 1px solid var(--border);">
+                    @if($items->hasPages())
+                        <div style="color: var(--text-muted);">{{ number_format($items->firstItem()) }}–{{ number_format($items->lastItem()) }} of {{ number_format($items->total()) }} · page {{ $items->currentPage() }} of {{ $items->lastPage() }}</div>
+                        {{ $items->links('pagination::simple-tailwind') }}
+                    @else
+                        <div style="color: var(--text-muted);">{{ number_format($items->total()) }} to review</div>
+                    @endif
+                </div>
             @endif
 
             {{-- recently filed list --}}
@@ -116,7 +127,7 @@
                         $hay = $hayOf($s, $s->resolvedDeal);
                     @endphp
                     <button type="button" @click="sel.filed = {{ (int) $s->id }}" x-show="hit($el.dataset.hay)" data-hay="{{ $hay }}"
-                            class="w-full text-left flex flex-col gap-0.5 px-3.5 py-2.5 transition-colors"
+                            class="list-row-hover w-full text-left flex flex-col gap-0.5 px-3.5 py-2.5 transition-colors"
                             :style="sel.filed === {{ (int) $s->id }} ? 'background: var(--surface-2); box-shadow: inset 3px 0 0 var(--brand-icon, #0ea5e9); border-bottom: 1px solid var(--border);' : 'border-bottom: 1px solid var(--border);'">
                         <div class="flex items-center justify-between gap-2">
                             <span class="text-[11px] font-semibold" style="color: var(--text-secondary);">→ {{ $dl }}</span>
@@ -146,7 +157,7 @@
                 <div x-show="tab === 'review' && sel.review === {{ (int) $s->id }}" x-cloak class="flex-1 min-h-0 flex flex-col">
                     <div class="flex-shrink-0 flex flex-col gap-1.5 px-5 py-4" style="border-bottom: 1px solid var(--border);">
                         <div class="flex items-center gap-2.5 flex-wrap">
-                            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background:{{ $chip[1] }}; color:{{ $chip[2] }}; border:{{ $chip[3] }};">{{ $chip[0] }}</span>
+                            <span class="ds-badge {{ $chip[1] }}">{{ $chip[0] }}</span>
                             <span class="text-[11px]" style="color: var(--text-muted);">Received {{ optional($c?->occurred_at)->format('D j M Y, H:i') ?? '—' }}@if($c?->occurred_at) · {{ $c->occurred_at->diffForHumans() }}@endif</span>
                         </div>
                         <div class="text-[15px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $c?->subject ?: '(no subject)' }}</div>
@@ -205,7 +216,7 @@
                 <div x-show="tab === 'filed' && sel.filed === {{ (int) $s->id }}" x-cloak class="flex-1 min-h-0 flex flex-col">
                     <div class="flex-shrink-0 flex flex-col gap-1.5 px-5 py-4" style="border-bottom: 1px solid var(--border);">
                         <div class="flex items-center gap-2.5 flex-wrap">
-                            <span class="text-[10px] font-semibold px-2 py-0.5 rounded-full" style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669);">Filed to {{ $dl }}</span>
+                            <span class="ds-badge ds-badge-pill ds-badge-success">Filed to {{ $dl }}</span>
                             <span class="text-[11px]" style="color: var(--text-muted);">{{ $s->resolved_at ? 'Filed '.$s->resolved_at->diffForHumans() : '' }}@if($c?->occurred_at) · received {{ $c->occurred_at->format('D j M Y, H:i') }}@endif</span>
                         </div>
                         <div class="text-[15px] font-semibold leading-snug" style="color: var(--text-primary);">{{ $c?->subject ?: '(no subject)' }}</div>

@@ -47,8 +47,12 @@
 </div>
 
 
+{{-- Sticky offset is the main area's own top padding (p-4 / lg:p-6), set in the
+     <style> block below, so the strip pins flush to the top edge of the scroll
+     area — at top:0 a padding-high band above it showed the list scrolling
+     through (Andre, 2026-10-14). --}}
 <header class="mi-header" id="mic-slot-stats"
-        style="position: sticky; top: 0; z-index: 10; background: var(--surface);">
+        style="position: sticky; z-index: 10; background: var(--surface);">
     @include('corex.market-intelligence._stats-strip')
 </header>
 
@@ -246,16 +250,24 @@
 </script>
 
 <style>
+    .mi-header { top: -1rem; }
+    /* Buyer rows in the rail: layout lives here, not inline, because Alpine's
+       x-show removes the inline display property when it re-shows an element. */
+    .mi-rail-row { display: flex; justify-content: space-between; align-items: center; }
     .mi-filter-rail {
         width: 200px;
         flex-shrink: 0;
         background: var(--surface);
         border-right: 1px solid var(--border);
         position: sticky;
-        top: var(--mi-header-h, 110px);
+        top: calc(var(--mi-header-h, 110px) - 1rem);
         max-height: calc(100vh - var(--mi-header-h, 110px));
         overflow-y: auto;
         align-self: start;
+    }
+    @media (min-width: 1024px) {
+        .mi-header { top: -1.5rem; }
+        .mi-filter-rail { top: calc(var(--mi-header-h, 110px) - 1.5rem); }
     }
     @media (max-width: 768px) {
         .mi-split { grid-template-columns: 1fr !important; }

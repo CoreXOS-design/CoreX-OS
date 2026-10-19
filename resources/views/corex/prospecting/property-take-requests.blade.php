@@ -41,8 +41,7 @@
                     </td>
                     <td class="px-4 py-3" style="color:var(--text-secondary);">{{ $r->requestedBy->name ?? 'Unknown' }}</td>
                     <td class="px-4 py-3">
-                        <span class="text-xs px-2 py-0.5 rounded-full font-bold"
-                              style="background:color-mix(in srgb, var(--ds-amber,#f59e0b) 15%, transparent); color:var(--ds-amber,#f59e0b);">
+                        <span class="ds-badge ds-badge-pill ds-badge-warning">
                             {{ $r->age_days }} day{{ $r->age_days === 1 ? '' : 's' }}
                         </span>
                         <div class="text-[11px] mt-0.5" style="color:var(--text-muted);">

@@ -4,7 +4,9 @@ namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Crypt;
 
 /**
  * .ai/specs/rental-inspections.md §46 — a personal signing link: one party (a tenant, the landlord, or the agent) of
@@ -52,6 +54,8 @@ class RentalInspectionSigningLink extends Model
         'revoked_at', 'revoked_by_user_id', 'revoked_reason', 'created_by_user_id',
     ];
 
+    protected $hidden = ['token_hash', 'token_encrypted'];
+
     protected $casts = [
         'expires_at' => 'datetime',
         'last_sent_at' => 'datetime',
@@ -62,6 +66,36 @@ class RentalInspectionSigningLink extends Model
         'send_count' => 'integer',
         'open_count' => 'integer',
     ];
+
+    /**
+     * The token is never stored in plain text (audit 2026-10-18 A-L4): setting it writes its SHA-256 hash (the lookup key) and a copy encrypted
+     * with the application key (so the agent's screen can show the same link again); the plain `token` column stays empty. Reading it
+     * decrypts - null when this row has no ciphertext.
+     */
+    public function setTokenAttribute(?string $value): void
+    {
+        $this->attributes['token'] = null;
+        $this->attributes['token_hash'] = $value === null ? null : static::hashToken($value);
+        $this->attributes['token_encrypted'] = $value === null ? null : Crypt::encryptString($value);
+    }
+
+    public function getTokenAttribute(): ?string
+    {
+        $cipher = $this->attributes['token_encrypted'] ?? null;
+        if ($cipher === null || $cipher === '') {
+            return $this->attributes['token'] ?? null;
+        }
+        try {
+            return Crypt::decryptString($cipher);
+        } catch (DecryptException) {
+            return null;
+        }
+    }
+
+    public static function hashToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
 
     public function inspection(): BelongsTo
     {
@@ -132,7 +166,7 @@ class RentalInspectionSigningLink extends Model
         }
 
         $link = static::withoutGlobalScopes()
-            ->where('token', $token)
+            ->where('token_hash', static::hashToken($token))
             ->whereNull('revoked_at')
             ->where('expires_at', '>', now())
             ->first();

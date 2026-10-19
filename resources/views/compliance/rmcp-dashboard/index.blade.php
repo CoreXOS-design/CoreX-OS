@@ -98,14 +98,11 @@
         <form method="GET" class="flex flex-wrap items-end gap-3">
             <div class="flex-1 min-w-[200px]">
                 <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-                <input id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff..."
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <input class="list-header-filter w-full {{ $search ? 'is-active' : '' }}" id="search" type="text" name="search" value="{{ $search }}" placeholder="Search staff...">
             </div>
             <div>
                 <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                <select id="status" name="status" onchange="this.form.submit()" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <select class="list-header-filter {{ $filterStatus ? 'is-active' : '' }}" id="status" name="status" onchange="this.form.submit()">
                     <option value="">All statuses</option>
                     <option value="valid" {{ $filterStatus === 'valid' ? 'selected' : '' }}>Acknowledged</option>
                     <option value="in_progress" {{ $filterStatus === 'in_progress' ? 'selected' : '' }}>In Progress</option>

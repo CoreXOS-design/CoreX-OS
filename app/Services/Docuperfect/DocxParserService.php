@@ -252,6 +252,8 @@ class DocxParserService
                         'reason' => 'both_failed',
                     ]);
                 }
+            } catch (\App\Exceptions\AI\AiPausedException $e) {
+                throw $e; // AT-456 — a pause is a refusal the importer shows, not a fallback
             } catch (\Throwable $e) {
                 Log::error('DocxParser: AI field detection failed, using regex fallback', [
                     'error' => $e->getMessage(),

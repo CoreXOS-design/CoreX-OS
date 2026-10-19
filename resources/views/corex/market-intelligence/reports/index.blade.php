@@ -102,10 +102,7 @@
                                     {{ $r->file_name }}
                                 </a>
                                 @if($r->trashed())
-                                    <span style="margin-left: 6px; padding: 1px 6px; font-size: 0.625rem; font-weight: 600;
-                                                 color: var(--ds-amber, #d97706);
-                                                 background: color-mix(in srgb, var(--ds-amber, #d97706) 14%, transparent);
-                                                 border-radius: 8px; vertical-align: middle;">Archived</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-warning" style="margin-left: 6px; vertical-align: middle;">Archived</span>
                                 @endif
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $r->reportType?->display_name ?? '—' }}</td>

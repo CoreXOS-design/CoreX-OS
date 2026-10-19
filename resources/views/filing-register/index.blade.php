@@ -30,16 +30,13 @@
         <form method="GET" action="{{ route('filing-register.index') }}" class="flex flex-wrap items-end gap-3">
             <div class="flex-1 min-w-[220px]">
                 <label for="search" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
-                <input id="search" type="text" name="search" value="{{ request('search') }}"
-                       placeholder="Address, reference, seller, seq..."
-                       class="w-full rounded-md px-3 py-2 text-sm"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <input class="list-header-filter w-full {{ request('search') ? 'is-active' : '' }}" id="search" type="text" name="search" value="{{ request('search') }}"
+                       placeholder="Address, reference, seller, seq...">
             </div>
             <div>
                 <label for="document_type" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Type</label>
-                <select id="document_type" name="document_type" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="All" {{ request('document_type') === 'All' ? 'selected' : '' }}>All</option>
+                <select class="list-header-filter {{ request('document_type') && request('document_type') !== 'All' ? 'is-active' : '' }}" id="document_type" name="document_type">
+                    <option value="All" {{ request('document_type') === 'All' ? 'selected' : '' }}>All types</option>
                     <option value="OA" {{ request('document_type') === 'OA' ? 'selected' : '' }}>OA</option>
                     <option value="EA" {{ request('document_type') === 'EA' ? 'selected' : '' }}>EA</option>
                     <option value="Other" {{ request('document_type') === 'Other' ? 'selected' : '' }}>Other</option>
@@ -47,9 +44,8 @@
             </div>
             <div>
                 <label for="status" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Status</label>
-                <select id="status" name="status" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="All" {{ request('status') === 'All' ? 'selected' : '' }}>All</option>
+                <select class="list-header-filter {{ request('status') && request('status') !== 'All' ? 'is-active' : '' }}" id="status" name="status">
+                    <option value="All" {{ request('status') === 'All' ? 'selected' : '' }}>All statuses</option>
                     <option value="Active" {{ request('status') === 'Active' ? 'selected' : '' }}>Active</option>
                     <option value="Expiring" {{ request('status') === 'Expiring' ? 'selected' : '' }}>Expiring Soon</option>
                     <option value="Expired" {{ request('status') === 'Expired' ? 'selected' : '' }}>Expired</option>
@@ -59,8 +55,7 @@
             @if($isAdmin)
             <div>
                 <label for="branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch</label>
-                <select id="branch_id" name="branch_id" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <select class="list-header-filter {{ request('branch_id') ? 'is-active' : '' }}" id="branch_id" name="branch_id">
                     <option value="">All Branches</option>
                     @foreach($branches as $branch)
                     <option value="{{ $branch->id }}" {{ request('branch_id') == $branch->id ? 'selected' : '' }}>{{ $branch->name }}</option>
@@ -70,8 +65,7 @@
             @endif
             <div>
                 <label for="agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Agent</label>
-                <select id="agent_id" name="agent_id" class="list-header-filter rounded-md px-3 py-2 text-sm"
-                        style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                <select class="list-header-filter {{ request('agent_id') ? 'is-active' : '' }}" id="agent_id" name="agent_id">
                     <option value="">All Agents</option>
                     @foreach($agents as $ag)
                     <option value="{{ $ag->id }}" {{ request('agent_id') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>
@@ -143,8 +137,7 @@
                                 style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
                             <span class="flex items-center gap-2">
                                 <span class="font-medium" x-text="r.address || r.label"></span>
-                                <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
-                                      :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                <span class="ds-badge" :style="rOnMarket(r) ? '--ds-badge-c:#065f46' : '--ds-badge-c:#b91c1c'"
                                       x-text="rStatus(r)"></span>
                             </span>
                             <span class="block text-xs" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>
@@ -171,7 +164,7 @@
             <div>
                 <label for="new_branch_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
                     Branch
-                    <span x-show="derivedFrom.branch" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                    <span x-show="derivedFrom.branch" x-cloak class="ds-badge ds-badge-success ds-badge-pill" style="margin-left:.3rem;">from property</span>
                 </label>
                 <select id="new_branch_id" name="branch_id" x-model="branchId" tabindex="5" class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
@@ -184,7 +177,7 @@
             <div>
                 <label for="new_agent_id" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
                     Agent
-                    <span x-show="derivedFrom.agent" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                    <span x-show="derivedFrom.agent" x-cloak class="ds-badge ds-badge-success ds-badge-pill" style="margin-left:.3rem;">from property</span>
                 </label>
                 <select id="new_agent_id" name="agent_id" x-model="agentId" tabindex="6" class="w-full rounded-md px-3 py-2 text-sm"
                         style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
@@ -224,7 +217,7 @@
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">
                     Seller
-                    <span x-show="derivedFrom.seller" x-cloak class="ds-badge ds-badge-success" style="margin-left:.3rem;">from property</span>
+                    <span x-show="derivedFrom.seller" x-cloak class="ds-badge ds-badge-success ds-badge-pill" style="margin-left:.3rem;">from property</span>
                 </label>
                 <input type="hidden" name="seller_contact_id" :value="sellerContactId">
 
@@ -314,11 +307,11 @@
                         <td x-show="!editing" class="px-4 py-3 font-mono text-xs whitespace-nowrap">{{ $filing->full_reference }}</td>
                         <td x-show="!editing" class="px-4 py-3">
                             @if($filing->document_type === 'OA')
-                                <span class="ds-badge ds-badge-info">OA</span>
+                                <span class="ds-badge ds-badge-info ds-badge-pill">OA</span>
                             @elseif($filing->document_type === 'EA')
-                                <span class="ds-badge ds-badge-info">EA</span>
+                                <span class="ds-badge ds-badge-info ds-badge-pill">EA</span>
                             @else
-                                <span class="ds-badge ds-badge-default">Other</span>
+                                <span class="ds-badge ds-badge-default ds-badge-pill">Other</span>
                             @endif
                         </td>
                         {{-- AT-238 — show the LINKED record when there is one (the register stops
@@ -327,7 +320,7 @@
                             @if($filing->property)
                                 <a href="{{ route('corex.properties.show', $filing->property) }}"
                                    class="no-underline hover:underline" style="color: var(--text-primary);">{{ $filing->property_display }}</a>
-                                <span class="ds-badge ds-badge-success" style="margin-left:.35rem;"
+                                <span class="ds-badge ds-badge-success ds-badge-pill" style="margin-left:.35rem;"
                                       title="Linked to the property record — address, seller and mandate expiry come from the property, not retyped.">Linked</span>
                             @else
                                 {{ $filing->property_address }}
@@ -430,8 +423,7 @@
                                                     style="color: var(--text-primary); border-bottom: 1px solid var(--border);">
                                                 <span class="flex items-center gap-2">
                                                     <span class="font-medium" x-text="r.address || r.label"></span>
-                                                    <span class="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded whitespace-nowrap"
-                                                          :style="rOnMarket(r) ? 'color:#065f46;background:#ecfdf5;' : 'color:#b91c1c;background:#fef2f2;'"
+                                                    <span class="ds-badge" :style="rOnMarket(r) ? '--ds-badge-c:#065f46' : '--ds-badge-c:#b91c1c'"
                                                           x-text="rStatus(r)"></span>
                                                 </span>
                                                 <span class="block" style="color: var(--text-muted);" x-show="rSub(r)" x-text="rSub(r)"></span>

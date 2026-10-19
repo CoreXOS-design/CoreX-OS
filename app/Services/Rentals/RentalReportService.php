@@ -227,6 +227,7 @@ class RentalReportService
 
         $query = RentalFaultReport::query()
             ->visibleTo($user, $scope)
+            ->tap(fn ($q) => RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'rental_fault_reports.agency_id')) // owner agency lock
             ->with(['property', 'lease.tenants.contact', 'faultType', 'workOrder']);
 
         if ($period['from']) {
@@ -321,6 +322,7 @@ class RentalReportService
 
         $query = RentalWorkOrder::query()
             ->visibleTo($user, $scope)
+            ->tap(fn ($q) => RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'rental_work_orders.agency_id')) // owner agency lock
             // BUILD 3 — §17.17: completion rounds, variations and (for margin) the job card, loaded once for the whole report.
             ->with(['property', 'lease.tenants.contact', 'supplier', 'quotes', 'completionRounds', 'variations', 'jobCard']);
 
@@ -502,6 +504,7 @@ class RentalReportService
 
         $query = RentalJobCard::query()
             ->visibleTo($user, $scope)
+            ->tap(fn ($q) => RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'rental_job_cards.agency_id')) // owner agency lock
             ->with(['property', 'assignedUser', 'lines.vatType']);
 
         if ($period['from']) {
@@ -572,7 +575,10 @@ class RentalReportService
         $pricing = $canViewCosts ? app(RentalPricingService::class) : null;
         $costVat = $canViewCosts ? ($vatService ?? app(RentalJobCardVatService::class)) : null;
 
-        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat) {
+        $sellingPricing = $pricing ?? app(RentalPricingService::class);
+        $sellingExcl = fn (RentalJobCard $c): float => $sellingPricing->marginFor($c)['sellingExcl'];
+
+        $rows = $cards->map(function (RentalJobCard $c) use ($vatService, $vatRegistered, $canViewCosts, $pricing, $costVat, $sellingExcl) {
             // §17.4.6 — a crew's pending line is not work done and not money: ACCEPTED lines only.
             $lines = $c->lines->filter(fn ($l) => $l->isAccepted());
             $labourHours = (float) $lines->where('type', \App\Models\RentalCatalogueItem::TYPE_LABOUR)->sum('quantity');
@@ -593,7 +599,9 @@ class RentalReportService
                 // layer renders it blank rather than "R 0.00".
                 // §17.17 — this is SELLING (what the owner is charged), formerly mislabelled "Total cost". The agency's own cost is
                 // `total_cost` below, view_costs only.
-                'total_selling' => $c->total_amount !== null ? (float) $c->total_amount : null,
+                // Audit D-L4: on the SAME basis as Cost and Margin — excl VAT — never the raw capture-mode total_amount (which is
+                // incl VAT for an agency that captures incl). Null when the card has no price at all.
+                'total_selling' => $c->total_amount !== null ? $sellingExcl($c) : null,
             ];
 
             if ($canViewCosts) {
@@ -768,6 +776,7 @@ class RentalReportService
 
         $query = Lease::query()
             ->visibleTo($user, $scope)
+            ->tap(fn ($q) => RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'leases.agency_id')) // owner agency lock
             ->where('status', Lease::STATUS_ACTIVE)
             ->whereNotNull('end_date')
             ->with(['property', 'tenants.contact']);
@@ -840,6 +849,7 @@ class RentalReportService
 
         $query = RentalInspection::query()
             ->visibleTo($user, $scope)
+            ->tap(fn ($q) => RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'rental_inspections.agency_id')) // owner agency lock
             ->with(['property', 'lease.tenants.contact', 'createdBy'])
             ->withCount([]);
 

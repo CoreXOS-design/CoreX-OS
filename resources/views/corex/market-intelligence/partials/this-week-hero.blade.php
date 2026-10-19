@@ -17,9 +17,7 @@
 <section class="mic-this-week"
          style="padding: 20px 24px;
                 margin-bottom: 20px;
-                background: linear-gradient(135deg,
-                    color-mix(in srgb, var(--brand-button) 4%, var(--surface)) 0%,
-                    var(--surface) 60%);
+                background: var(--surface);
                 border: 1px solid var(--border);
                 border-radius: 6px;">
     <div style="display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px;">

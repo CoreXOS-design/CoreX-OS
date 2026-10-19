@@ -2,7 +2,9 @@
 
 namespace App\Services\Docuperfect;
 
+use App\Exceptions\AI\AiPausedException;
 use App\Models\AI\AiUsageEvent;
+use App\Services\AI\AiSpendGuard;
 use App\Services\AI\AiUsageRecorder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -25,6 +27,9 @@ use Illuminate\Support\Facades\Log;
  */
 class ImporterAiService
 {
+    /** HTTP timeout for the PDF-to-Sonnet request (the gateway default of 30s is too short for a document). */
+    public const PDF_TIMEOUT_SECONDS = 120;
+
     /**
      * Detect fields via Claude, falling back to the regex extractor.
      * Returns parsed JSON array, or empty array when the model call fails.
@@ -70,6 +75,11 @@ class ImporterAiService
             Log::warning('ImporterAI: Claude — no API key configured');
             return null;
         }
+
+        // AI Spend Safety (AT-456 §A.3) — deliberately OUTSIDE the try below:
+        // a pause must reach the importer as a refusal, not degrade silently
+        // to the regex fallback. Same bucket the recorder charges below.
+        app(AiSpendGuard::class)->assertAllowed();
 
         $startTime = microtime(true);
 
@@ -419,6 +429,10 @@ PROMPT;
                 'media_type' => 'application/pdf',
                 'data'       => base64_encode($pdfBytes),
             ]],
+            // File the spend under DocuPerfect, not the gateway's MIC default.
+            source:          \App\Models\AI\AiUsageEvent::SOURCE_DOCUPERFECT_VISION,
+            // A real PDF at 6000 output tokens routinely outruns the gateway's 30s default.
+            timeoutSeconds:  self::PDF_TIMEOUT_SECONDS,
         );
 
         try {
@@ -427,6 +441,8 @@ PROMPT;
                 'insertable_blocks' => 'array of detected insertable blocks',
             ]);
             $payload = $response->outputJson ?? $this->parseJsonResponse($response->outputText) ?? [];
+        } catch (AiPausedException $e) {
+            throw $e; // AT-456 — the importer shows the refusal; never a silent empty result
         } catch (\Throwable $e) {
             Log::warning('ImporterAI: PDF vision call failed', ['error' => $e->getMessage()]);
             $payload = [];

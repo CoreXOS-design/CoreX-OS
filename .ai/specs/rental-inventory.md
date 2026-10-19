@@ -3124,3 +3124,34 @@ pass with the lane's mail redirect set (33/33 together).
 Files: `app/Models/RentalInventory.php` (`findByPublicToken`),
 `tests/Feature/RentalInventory/RentalInventoryPublicLinkLifecycleTest.php`. No migration, setting, permission,
 route or view change.
+
+---
+
+## 26. Release audit fixes — buyer acceptance and inventory access (2026-10-18, audit batch 1-inventory)
+
+- **Buyer acceptance is per buyer (A-M5).** The inventory's single public link is held by the tenant, landlord and
+  seller, so it no longer accepts a buyer acceptance on its own, and the buyer is never taken from the request body.
+  The "Send for acceptance" email now carries a personal link: the report page plus `?buyer=<id>.<hmac>`
+  (`RentalInventory::buyerAcceptanceTokenFor()` / `buyerAcceptanceUrlFor()`). The HMAC covers the inventory, the buyer
+  and the current public token, so it is unforgeable from the shared link, valid for one buyer only, and dies when the
+  link is revoked, regenerated or expires. Nothing is stored (no migration). The shared link shows no signing block;
+  a personal link shows only that buyer's block. `POST /rental-inventory-report/{token}/buyer-acceptance` takes
+  `buyer_token`; a missing/forged token and an unknown/foreign contact all answer the same 404.
+- **Wet-ink scans are private (A-H1).** The buyer's uploaded scan is stored on the private disk as
+  `private:rental-inventory-buyer-acceptances/{property}/wetink_<random>.<ext>` (extension from the sniffed MIME via a
+  fixed allow-list, never the client's), and the agent's "View uploaded scan" link goes through
+  `corex.rental-inventories.buyer-acceptances.wet-ink-file` (own/branch checked; `nosniff` + sandbox CSP). Eligibility
+  is checked before any file is written; only the evidence for the chosen disposition is stored; `signature_image` is
+  size-capped. Rows stored before this change keep their public URL and are still linked as-is.
+- **Access checks (A-H2, A-M3, A-M4).** `printForSignature`, `supersedeWetInkSignature` and the buyer-acceptance
+  `send` action now call `assertVisible()` first. `printForSignature` no longer creates a public link from the GET
+  (same as `report()`: a PDF with no live link omits the QR).
+
+**Follow-up (same batch, 2026-10-18).** Same class as the buyer-scan fix: (a) the buyer's on-screen signature
+(`RentalInventoryBuyerAcceptance::storeCanvasImage`, public route) now must decode to a real, size-capped PNG and is
+re-encoded before it is written; (b) a party's wet-ink scan (`RentalInventorySignature::storeWetInkUpload`, agent upload)
+now goes to the private disk with a server-chosen name/extension and is read back through
+`corex.rental-inventories.signatures.wet-ink-file` (agent, own/branch-checked) or
+`rental-inventories.public.signature-wet-ink-file` (public report page, live token only) — old public-URL values keep
+working as-is; (c) the PDF-vs-image decision when filing a scan to the property (inventory and inspection) uses the
+sniffed content type, not the client filename. Shared code: `App\Support\PrivateScanFile`.

@@ -14,7 +14,7 @@ use Throwable;
  * The single sink for AI cost. Every Anthropic call across CoreX — the MIC
  * gateway and all direct callers (mobile voice, image analysis, DocuPerfect,
  * marketing copy, presentation evidence) — records here, so the cost
- * dashboard and the per-agency budget cap see every surface.
+ * dashboard and AI Spend Safety (AiSpendGuard) see every surface.
  *
  * Defensive by contract: record() NEVER throws into the caller. Recording cost
  * must never break the AI call that earns the money (same posture the gateway
@@ -25,8 +25,10 @@ use Throwable;
  */
 final class AiUsageRecorder
 {
-    public function __construct(private readonly AiCostCalculator $calculator)
-    {
+    public function __construct(
+        private readonly AiCostCalculator $calculator,
+        private readonly AiSpendGuard $spendGuard,
+    ) {
     }
 
     /**
@@ -41,6 +43,9 @@ final class AiUsageRecorder
      * @param string|null $surfaceRef   Correlation handle (cache_key, analysis id, …).
      * @param bool        $cacheHit     True when served from cache (cost forced to 0).
      * @param bool        $fallback     True when degraded to fallback text (cost forced to 0).
+     * @param bool        $system       AT-456 Part C — charge the platform/system bucket (agency NULL)
+     *                                  regardless of $agencyId and of who is signed in. For work no
+     *                                  agency owns (Article Library). Default false = unchanged.
      */
     public function record(
         string $source,
@@ -52,6 +57,7 @@ final class AiUsageRecorder
         ?string $surfaceRef = null,
         bool $cacheHit = false,
         bool $fallback = false,
+        bool $system = false,
     ): void {
         try {
             // No API spend on a cache hit or a fallback — log the event (tokens
@@ -60,8 +66,10 @@ final class AiUsageRecorder
                 ? 0.0
                 : $this->calculator->zar($model, $inputTokens, $outputTokens);
 
+            $agencyId = $system ? null : ($agencyId ?? $this->resolveAgencyId());
+
             AiUsageEvent::create([
-                'agency_id'     => $agencyId ?? $this->resolveAgencyId(),
+                'agency_id'     => $agencyId,
                 'user_id'       => $userId ?? Auth::id(),
                 'source'        => $source,
                 'surface_ref'   => $surfaceRef !== null ? mb_substr($surfaceRef, 0, 120) : null,
@@ -73,6 +81,13 @@ final class AiUsageRecorder
                 'fallback'      => $fallback,
                 'occurred_at'   => Carbon::now(),
             ]);
+
+            // AI Spend Safety (AT-456 §A.3) — trip the alert / cut-out off the
+            // row just written. Zero-cost rows (cache hits, fallbacks) cannot
+            // move the total, so they skip the check. evaluate() never throws.
+            if ($costZar > 0) {
+                $this->spendGuard->evaluate($agencyId);
+            }
         } catch (Throwable $e) {
             Log::warning('AiUsageRecorder: failed to record AI usage', [
                 'source' => $source,

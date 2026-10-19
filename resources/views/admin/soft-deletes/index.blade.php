@@ -14,9 +14,7 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <span class="inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-xs font-semibold"
-                      style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);"
-                      title="Total archived records you can restore">
+                <span class="ds-badge ds-badge-pill ds-badge-info" title="Total archived records you can restore">
                     {{ number_format($totalArchived) }} archived
                 </span>
             </div>

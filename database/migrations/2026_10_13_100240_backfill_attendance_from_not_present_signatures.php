@@ -53,6 +53,11 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('rental_inspection_attendances')->where('note', 'from signature record')->delete();
+        // Audit fix 2026-10-18: withdraw (the table's own convention - superseded_at, no deleted_at) instead of a hard delete,
+        // limited to the rows this migration created.
+        DB::table('rental_inspection_attendances')
+            ->where('note', 'from signature record')
+            ->whereNull('superseded_at')
+            ->update(['superseded_at' => now()]);
     }
 };

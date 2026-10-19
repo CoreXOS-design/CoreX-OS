@@ -182,7 +182,7 @@
                             <td class="px-2 py-2 text-center text-xs font-semibold" style="color:var(--text-primary);">{{ number_format($la->working_days_requested, 1) }}</td>
                             <td class="px-2 py-2 text-center">
                                 @if($la->affects_payroll)
-                                    <span class="px-1.5 py-0.5 text-[10px] font-semibold" style="background:color-mix(in srgb, var(--ds-crimson) 10%, transparent); color:var(--ds-crimson); border-radius:6px;">Yes</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-danger">Yes</span>
                                 @else
                                     <span class="text-xs" style="color:var(--text-muted);">No</span>
                                 @endif

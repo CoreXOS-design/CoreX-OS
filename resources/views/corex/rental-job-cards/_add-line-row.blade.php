@@ -77,6 +77,7 @@
     $canEditCost = $showCost && $canPrice;
     $gridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vatRegistered, $showCost);
     $fieldStyle = \App\Support\RentalJobCardLineGrid::fieldStyle();
+    $amountStyle = \App\Support\RentalJobCardLineGrid::amountFieldStyle(); // AT-466 - right-aligned, room for R99,999.99
     $rowId = $refPrefix ?? ('t' . ($taskId ?? 'gen'));
     $isEdit = $mode === 'edit';
     $named = $mode !== 'draft'; // form + edit post real named fields; draft uses x-ref.
@@ -106,7 +107,7 @@
     @csrf
     @if($taskId)<input type="hidden" name="rental_job_card_task_id" value="{{ $taskId }}">@endif
 @elseif($isEdit)
-<form method="POST" action="{{ route('corex.rental-job-cards.lines.update', [$jobCard, $line]) }}" class="py-2 px-1 rounded-md" data-keep-scroll
+<form method="POST" action="{{ route('corex.rental-job-cards.lines.update', [$jobCard, $line]) }}" class="py-2 px-1 -mx-1 rounded-md" data-keep-scroll
       id="jc-edit-line-{{ $line->id }}" style="background: var(--surface-2, rgba(0,0,0,.03));"
       x-data="catalogueLinePicker(window.jcCatalogueItems || [], {{ \Illuminate\Support\Js::from($pickerInit) }})">
     @csrf
@@ -149,8 +150,9 @@
             </template>
         </div>
         <input type="text" {{ $named ? 'name=description' : 'x-ref=' . $refPrefix . 'Desc' }}
-               maxlength="255" placeholder="Description" aria-label="Description"
-               @if($isEdit) value="{{ $val('description', $line->description) }}" required @endif
+               maxlength="255" placeholder="{{ $isEdit ? ($line->catalogueItem?->description ?? 'Description') : 'Description (blank = the item\'s name)' }}" aria-label="Description"
+               title="What prints on the quote. Free text - the catalogue name is only the default."
+               @if($isEdit) value="{{ $val('description', $line->description) }}" @endif
                class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
         <select {{ $named ? 'name=type' : 'x-ref=' . $refPrefix . 'Type' }}
                 aria-label="Type" title="Type"
@@ -180,12 +182,12 @@
             <input type="number" {{ $named ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
                    step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) required @endif
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
             @if($canEditCost)
             <input type="number" {{ $named ? 'name=unit_cost' : 'x-ref=' . $refPrefix . 'UnitCost' }}
                    step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) value="{{ $costValue }}" @endif placeholder="cost"
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
             @elseif($showCost)
             <span></span>
             @endif
@@ -193,7 +195,7 @@
             <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
                    step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost." onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
                    @if($isEdit) value="{{ $priceValue }}" @endif placeholder="auto"
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
             @else
             <span></span>
             @endif
@@ -260,6 +262,20 @@
     </div>
 </form>
 @elseif($mode === 'form')
+    @if($canPrice)
+    {{-- AT-466 - markup on the NEW line (a % or a set amount on top of the cost): it works the selling out from the cost and does NOT make the
+         selling "set by hand". Only a figure typed in the Selling box does that. Left empty, the item's own catalogue markup (if any) applies. --}}
+    <div class="flex items-center gap-2 pt-2 flex-wrap text-xs" style="color: var(--text-muted);" data-line-markup>
+        <span>Markup on this line</span>
+        <select name="markup_type" aria-label="Markup type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+            <option value="">— item default —</option>
+            <option value="percent">% of cost</option>
+            <option value="amount">R on the line</option>
+        </select>
+        <input type="number" name="markup_value" step="0.01" min="0" aria-label="Markup value" data-markup-hint onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 110px; text-align:right;">
+        <span>(leave the Selling box empty to price from cost)</span>
+    </div>
+    @endif
 </form>
 @else
 </div>

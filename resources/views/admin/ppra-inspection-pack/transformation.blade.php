@@ -108,29 +108,29 @@
     <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <h2 class="text-sm font-bold mb-3" style="color:var(--text-primary);">Version History</h2>
 
-        <form method="GET" class="flex flex-wrap items-end gap-3 mb-3">
+        <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 mb-3">
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-                <input type="text" name="search" value="{{ request('search') }}" placeholder="Summary text"
-                       class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Summary text"
+                      >
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Type</label>
-                <select name="entry_type" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
-                    <option value="">All</option>
+                <select class="list-header-filter {{ (request('entry_type') !== null && request('entry_type') !== '') ? 'is-active' : '' }}" name="entry_type">
+                    <option value="">All types</option>
                     <option value="structured" @selected(request('entry_type')==='structured')>Structured</option>
                     <option value="document" @selected(request('entry_type')==='document')>Document</option>
                 </select>
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">From</label>
-                <input type="date" name="date_from" value="{{ request('date_from') }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <input class="list-header-filter {{ (request('date_from') !== null && request('date_from') !== '') ? 'is-active' : '' }}" type="date" name="date_from" value="{{ request('date_from') }}">
             </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">To</label>
-                <input type="date" name="date_to" value="{{ request('date_to') }}" class="text-sm rounded-md px-3 py-1.5" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                <input class="list-header-filter {{ (request('date_to') !== null && request('date_to') !== '') ? 'is-active' : '' }}" type="date" name="date_to" value="{{ request('date_to') }}">
             </div>
-            <button type="submit" class="corex-btn-primary text-xs">Filter</button>
+            <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
         </form>
 
         @if($versions->isEmpty())
@@ -143,12 +143,12 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr style="background:var(--surface-2); border-bottom:1px solid var(--border);">
-                        <th class="text-left px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">Summary</th>
-                        <th class="text-left px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">Type</th>
-                        <th class="text-left px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">Saved</th>
-                        <th class="text-left px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">By</th>
-                        <th class="text-left px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">Status</th>
-                        <th class="text-right px-3 py-2 text-xs font-semibold" style="color:var(--text-muted);">Actions</th>
+                        <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Summary</th>
+                        <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Type</th>
+                        <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Saved</th>
+                        <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">By</th>
+                        <th class="text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Status</th>
+                        <th class="text-right px-3 py-2 text-xs font-semibold uppercase tracking-wide" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -160,9 +160,9 @@
                         <td class="px-3 py-2" style="color:var(--text-secondary);">{{ $version->createdBy?->name ?? '—' }}</td>
                         <td class="px-3 py-2">
                             @if(!$version->trashed())
-                                <span class="text-xs font-semibold px-2 py-0.5 rounded-full" style="background:color-mix(in srgb, #15803d 12%, transparent); color:#15803d;">Current</span>
+                                <span class="ds-badge ds-badge-success">Current</span>
                             @else
-                                <span class="text-xs" style="color:var(--text-muted);">Archived</span>
+                                <span class="ds-badge ds-badge-muted">Archived</span>
                             @endif
                         </td>
                         <td class="px-3 py-2 text-right">

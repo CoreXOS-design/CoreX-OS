@@ -1,21 +1,20 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
-    <div style="background:var(--brand-default)" class="rounded-2xl px-6 py-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Monthly Goals</h2>
-                <div class="text-sm text-white/60">Company &amp; branch monthly targets.</div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Monthly Goals</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Company &amp; branch monthly targets.</p>
             </div>
 
-            <form method="GET" action="{{ route('admin.monthly-goals') }}" class="flex items-center gap-2">
-                <input type="month" name="period" value="{{ $period }}"
-                       class="rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5">
+            <form method="GET" action="{{ route('admin.monthly-goals') }}" class="flex flex-wrap items-center gap-2">
+                <input type="month" name="period" value="{{ $period }}" class="list-header-filter">
 
                 @if($isAdmin)
-                    <select name="branch_id" class="rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5 [&>option]:text-slate-900">
+                    <select name="branch_id" class="list-header-filter {{ filled($branchId) ? 'is-active' : '' }}">
                         <option value="">Company scope</option>
                         @foreach($branchNames as $id => $name)
                             <option value="{{ $id }}" @selected((int)$branchId === (int)$id)>{{ $name }}</option>
@@ -23,7 +22,7 @@
                     </select>
                 @endif
 
-                <button class="corex-btn-primary text-sm">Load</button>
+                <button class="corex-btn-primary text-xs">Load</button>
             </form>
         </div>
     </div>

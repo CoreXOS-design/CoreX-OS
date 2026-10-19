@@ -32,14 +32,14 @@
                         <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                     </svg>
                     <input type="text" name="search" value="{{ $search }}" placeholder="Search identifier or name…"
-                           class="w-full rounded-md pl-9 pr-3 py-2 text-sm"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+                           class="list-header-filter w-full text-sm {{ $search !== '' ? 'is-active' : '' }}"
+                           style="padding-left:2.25rem;">
                 </div>
             </div>
             <div>
                 <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Flag</label>
-                <select name="flag" onchange="this.form.submit()" class="rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-                    <option value="">All</option>
+                <select name="flag" onchange="this.form.submit()" class="list-header-filter text-sm {{ $flag ? 'is-active' : '' }}">
+                    <option value="">All flags</option>
                     <option value="not_real_estate" {{ $flag === 'not_real_estate' ? 'selected' : '' }}>Not real estate</option>
                     <option value="real_estate" {{ $flag === 'real_estate' ? 'selected' : '' }}>Real estate</option>
                 </select>
@@ -80,10 +80,8 @@
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->identifier_name ?: '—' }}</td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">{{ $row->user?->name ?? '—' }}</td>
                         <td class="px-4 py-3">
-                            {{-- real_estate keeps the semantic green; the neutral variant uses
-                                 surface-2 + border tokens instead of ds-badge-default's fixed grey. --}}
-                            <span class="ds-badge {{ $row->flag === 'real_estate' ? 'ds-badge-success' : '' }}"
-                                  @if($row->flag !== 'real_estate') style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);" @endif>{{ str_replace('_', ' ', $row->flag) }}</span>
+                            {{-- real_estate keeps the semantic green; the neutral variant uses the shared muted dot. --}}
+                            <span class="ds-badge {{ $row->flag === 'real_estate' ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ str_replace('_', ' ', $row->flag) }}</span>
                         </td>
                         <td class="px-4 py-3" style="color: var(--text-secondary);">
                             @if($row->ai_is_real_estate === null)

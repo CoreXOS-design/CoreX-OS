@@ -164,13 +164,11 @@
                             </td>
                             <td class="px-4 py-2.5 whitespace-nowrap align-top">
                                 @if($typeBadge['var'])
-                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                          style="background:color-mix(in srgb, {{ $typeBadge['var'] }} 12%, transparent); color:{{ $typeBadge['var'] }}; border:1px solid color-mix(in srgb, {{ $typeBadge['var'] }} 25%, transparent);">
+                                    <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $typeBadge['var'] }};">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 @else
-                                    <span class="text-xs font-semibold px-2 py-0.5 rounded-md whitespace-nowrap"
-                                          style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">
+                                    <span class="ds-badge ds-badge-pill ds-badge-default">
                                         {{ $typeBadge['label'] }}
                                     </span>
                                 @endif

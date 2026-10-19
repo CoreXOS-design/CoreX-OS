@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Jobs\AI;
 
 use App\Models\User;
+use App\Services\AI\AiSpendGuard;
 use App\Services\MarketIntelligence\ThisWeekTileBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,10 +20,9 @@ use Throwable;
  *
  * Runs at 02:30 SAST so the first agent visit of the day is sub-100ms
  * (cache hit) and the AI cost lands overnight rather than during peak
- * working hours. Skips agents whose agency has hit its monthly hard
- * cap (canMakeAiCall() == false) so over-budget agencies stop accruing
- * cost without breaking the surface — agent visits during the day fall
- * back to deterministic tiles per Phase B2.
+ * working hours. Skips agents whose agency is paused by AI Spend Safety
+ * (AT-456 §A) so a cut-out agency stops accruing cost without breaking the
+ * surface — agent visits during the day fall back to deterministic tiles.
  *
  * Spec: .ai/specs/mic-complete-spec.md §4.2.
  */
@@ -30,7 +30,7 @@ class WarmThisWeekTilesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function handle(ThisWeekTileBuilder $builder): void
+    public function handle(ThisWeekTileBuilder $builder, AiSpendGuard $spendGuard): void
     {
         $started = microtime(true);
 
@@ -42,7 +42,7 @@ class WarmThisWeekTilesJob implements ShouldQueue
             ->get();
 
         $built = 0;
-        $skippedBudget = 0;
+        $skippedPaused = 0;
         $skippedNoAgency = 0;
         $errors = 0;
 
@@ -52,8 +52,8 @@ class WarmThisWeekTilesJob implements ShouldQueue
                 $skippedNoAgency++;
                 continue;
             }
-            if (!$agency->canMakeAiCall()) {
-                $skippedBudget++;
+            if ($spendGuard->isPaused((int) $agency->id)) {
+                $skippedPaused++;
                 continue;
             }
 
@@ -73,7 +73,7 @@ class WarmThisWeekTilesJob implements ShouldQueue
 
         Log::info('WarmThisWeekTilesJob complete', [
             'agents_built'         => $built,
-            'skipped_budget'       => $skippedBudget,
+            'skipped_ai_paused'    => $skippedPaused,
             'skipped_no_agency'    => $skippedNoAgency,
             'errors'               => $errors,
             'total_eligible'       => $agents->count(),

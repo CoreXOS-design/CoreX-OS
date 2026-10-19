@@ -394,3 +394,7 @@ None structural. Two items carried forward from the master spec, unchanged by th
 - Default aging buckets for the (not-yet-built) Outstanding report — master spec §6, Stage 8.
 - Exact "expiring in window" threshold — already resolved by reusing the existing
   `LeaseSetting::expiryNoticeWindowDaysFor()` setting; no second threshold introduced.
+
+## Audit fix 2026-10-18 (A-L7, A-L12)
+- Sent-notices list (`RentalNoticeController::index`): `?sort=` is whitelisted (`sent_at`, `notice_type`, `created_at`); anything else falls back to the default.
+- **Owner agency lock** (Johan, 2026-10-18): an owner-role account sees only the agency it is working in (`effectiveAgencyId()`), as for Template Manager / Scheduled Posts. Applied to `AuthorizesRentalRecordScope::guardRentalRecordScope` (no early return for owners), the rentals report service (`RentalReportService`, so web and `Api/V1/RentalReportController`), `RentalCommandCentreService` (so web and `Api/V1/RentalCommandCentreController`), `RentalInspectionDueController::leaseReach` (and so `loadableLeases`) and `BuyerNotesAccess::visibleContactIds`, via `RentalDataScope::pinOwnerToWorkingAgency()`. An owner with no working agency sees nothing there until they switch into one. Test: `OwnerAgencyLockTest`.

@@ -22,9 +22,9 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
                 <input type="text" name="q" value="{{ $q ?? '' }}" placeholder="Search employee…"
-                       class="list-header-filter w-full" style="padding-left: 2.25rem;">
+                       class="list-header-filter w-full {{ !empty($q) ? 'is-active' : '' }}" style="padding-left: 2.25rem;">
             </div>
-            <select name="branch" onchange="this.form.submit()" class="list-header-filter">
+            <select name="branch" onchange="this.form.submit()" class="list-header-filter {{ !empty($branchFilter) ? 'is-active' : '' }}">
                 <option value="">All Branches</option>
                 @foreach($branches as $b)
                     <option value="{{ $b->id }}" {{ ($branchFilter ?? '') == $b->id ? 'selected' : '' }}>{{ $b->name }}</option>
@@ -109,7 +109,7 @@
                             @if($to?->isComplete())
                                 <span class="ds-badge ds-badge-success">Done</span>
                             @elseif($to)
-                                <span class="ds-badge ds-badge-warning">{{ number_format($to->progressPercentage()) }}%</span>
+                                <span class="ds-badge ds-badge-warning ds-badge-pill">{{ number_format($to->progressPercentage()) }}%</span>
                             @else
                                 <span style="color: var(--text-muted);">—</span>
                             @endif

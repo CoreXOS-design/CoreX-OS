@@ -1,19 +1,19 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+@section('corex-content')
+<div class="w-full space-y-5">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h2 class="text-xl font-bold text-white leading-tight">Listing Targets</h2>
-                <div class="text-sm text-white/60">Set per-agent listing targets for each month.</div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Listing Targets</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Set per-agent listing targets for each month.</p>
             </div>
 
             <div class="flex items-center gap-2">
                 <form method="GET" action="{{ route('admin.listing-targets') }}" class="flex items-center gap-2">
                     <input type="month" name="period" value="{{ $period }}"
-                           class="rounded-lg border-0 bg-white/10 text-white text-sm px-3 py-1.5">
+                           class="list-header-filter {{ $period ? 'is-active' : '' }}">
                     <button class="corex-btn-primary text-sm">View</button>
                 </form>
 
@@ -30,7 +30,7 @@
         @csrf
         <input type="hidden" name="period" value="{{ $period }}">
 
-        <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
+        <div class="rounded-md border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
             <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
                 <h3 class="ds-section-header">Targets for {{ $period }}</h3>
                 <button class="corex-btn-primary text-sm">Save Targets</button>

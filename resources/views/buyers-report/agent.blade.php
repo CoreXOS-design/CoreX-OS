@@ -18,17 +18,19 @@
     ]);
 @endphp
 
-<div class="max-w-6xl mx-auto px-4 py-6" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="flex items-center justify-between mb-6 flex-wrap gap-3">
-        <div>
-            <a href="{{ route('buyers-report.index') }}" class="text-xs" style="color: var(--brand, #3b82f6);">&larr; Buyers Report</a>
-            <h1 class="text-xl font-semibold mt-1" style="color: var(--text-primary);">{{ $targetUser->name }}</h1>
-            <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $preset)) }}@if($type) · {{ $types[$type] }} only @endif</p>
-        </div>
-        <div class="flex items-end gap-3 flex-wrap">
-            @include('buyers-report._print-buttons', ['extraQuery' => ['scope' => 'own', 'user_id' => $targetUser->id]])
-            @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
-            @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+<div class="w-full space-y-5" x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+                <a href="{{ route('buyers-report.index') }}" class="text-xs" style="color: var(--brand, #3b82f6);">&larr; Buyers Report</a>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ $targetUser->name }}</h1>
+                <p class="text-xs mt-0.5" style="color: var(--text-muted);">{{ ucfirst(str_replace('_', ' ', $preset)) }}@if($type) · {{ $types[$type] }} only @endif</p>
+            </div>
+            <div class="flex items-end gap-3 flex-wrap">
+                @include('buyers-report._print-buttons', ['extraQuery' => ['scope' => 'own', 'user_id' => $targetUser->id]])
+                @include('buyers-report._type-selector', ['type' => $type, 'types' => $types])
+                @include('performance.agency-report._period-selector', ['preset' => $preset, 'presets' => $presets, 'compareMode' => $compareMode, 'compareModes' => $compareModes])
+            </div>
         </div>
     </div>
 
@@ -46,7 +48,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-xs">
                 <thead>
-                    <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <tr class="uppercase tracking-wide" style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                         <th class="text-left px-3 py-2">Buyer</th>
                         <th class="text-left px-3 py-2">State</th>
                         <th class="text-right px-3 py-2">Days in state</th>
@@ -83,7 +85,7 @@
         <div class="overflow-x-auto">
             <table class="w-full text-xs">
                 <thead>
-                    <tr style="color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <tr class="uppercase tracking-wide" style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
                         <th class="text-left px-3 py-2">Buyer</th>
                         <th class="text-left px-3 py-2">Reason</th>
                         <th class="text-right px-3 py-2">Value lost</th>

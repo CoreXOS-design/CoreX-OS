@@ -41,8 +41,7 @@
                     @endif
                 </div>
             </div>
-            <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap flex-shrink-0"
-                  style="background:color-mix(in srgb, {{ $reasonColor }} 12%, transparent); color:{{ $reasonColor }}; border:1px solid color-mix(in srgb, {{ $reasonColor }} 25%, transparent);">
+            <span class="ds-badge ds-badge-pill flex-shrink-0" style="--ds-badge-c: {{ $reasonColor }};">
                 {{ $reasonLabel }}
             </span>
         </div>

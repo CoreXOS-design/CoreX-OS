@@ -76,7 +76,7 @@
         <div x-show="rows.length > 0" class="overflow-auto" style="max-height: 320px;">
             <table class="w-full text-xs ds-table">
                 <thead>
-                    <tr style="background: var(--surface-2);">
+                    <tr class="uppercase tracking-wide" style="background: var(--surface-2);">
                         <th class="px-3 py-2 text-left" style="color: var(--text-muted);">Buyer</th>
                         <th class="px-3 py-2 text-left" style="color: var(--text-muted);">Agent</th>
                         <th class="px-3 py-2 text-left" style="color: var(--text-muted);">Looking for</th>

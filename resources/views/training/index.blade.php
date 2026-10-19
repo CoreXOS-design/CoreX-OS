@@ -8,11 +8,11 @@
     <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="train-courses-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-xl font-bold text-white leading-tight">My Training</h1>
-                <p class="text-sm text-white/60">Complete your required courses to stay compliant.</p>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">My Training</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Complete your required courses to stay compliant.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                @include('layouts.partials.tour-header-launcher')
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -59,18 +59,18 @@
             $catFallback = $catFallbacks[$catToken];
             $barVariant = $isCompleted ? 'ds-bar-green' : 'ds-bar-navy';
         @endphp
-        <a href="{{ route('training.show', $course) }}" class="block no-underline rounded-md transition-colors"
+        <a href="{{ route('training.show', $course) }}" class="list-row-hover block no-underline rounded-md transition-colors"
            @if($loop->first) data-tour="train-courses-card" @endif
            style="background: var(--surface); border: 1px solid var(--border);">
             <div class="p-5">
                 <div class="flex items-start justify-between gap-2 mb-2">
                     <h3 class="text-sm font-bold" style="color: var(--text-primary);">{{ $course->title }}</h3>
                     <div class="flex items-center gap-1.5 flex-shrink-0">
-                        <span class="ds-badge" style="background: color-mix(in srgb, var({{ $catToken }}, {{ $catFallback }}) 14%, transparent); color: var({{ $catToken }}, {{ $catFallback }});">
+                        <span class="ds-badge ds-badge-pill" style="background: color-mix(in srgb, var({{ $catToken }}, {{ $catFallback }}) 14%, transparent); color: var({{ $catToken }}, {{ $catFallback }});">
                             {{ $course->category_label }}
                         </span>
                         @if($course->is_required)
-                        <span class="ds-badge ds-badge-warning">Required</span>
+                        <span class="ds-badge ds-badge-warning ds-badge-pill">Required</span>
                         @endif
                     </div>
                 </div>

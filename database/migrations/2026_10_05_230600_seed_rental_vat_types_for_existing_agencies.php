@@ -22,6 +22,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('rental_vat_types')->truncate();
+        // Audit fix 2026-10-18: was a truncate() - that wiped every agency's VAT types (including ones agencies created
+        // themselves) and orphaned job-card lines pointing at them. up() is idempotent seeding of defaults; nothing to undo.
     }
 };

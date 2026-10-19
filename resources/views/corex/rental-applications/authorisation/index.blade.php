@@ -52,62 +52,69 @@
          which DOES expose it) — the backend capability existed, nothing on
          screen could reach it. Added to match the standard every other
          rental-application list screen already has. --}}
-    <form method="GET" action="{{ route('corex.rental-applications.authorisation.index') }}" class="rounded-md p-4 flex flex-wrap items-end gap-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Search</label>
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" action="{{ route('corex.rental-applications.authorisation.index') }}" class="flex flex-wrap items-end gap-3">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Applicant name, email, property, or agent"
-                   class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border); min-width: 260px;">
+                   class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}" style="min-width: 260px;">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Submitted from</label>
-            <input type="date" name="date_from" value="{{ request('date_from') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Submitted from</label>
+            <input type="date" name="date_from" value="{{ request('date_from') }}" class="list-header-filter text-sm {{ filled(request('date_from')) ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Submitted to</label>
-            <input type="date" name="date_to" value="{{ request('date_to') }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Submitted to</label>
+            <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
         {{-- 2026-09-09 (cc5 regression pass) — this screen's per-page control
              was missing entirely (paginate(20) was hardcoded, ?per_page= did
              nothing). Same options, same onchange-submit pattern, as
              index.blade.php/returned.blade.php's own selectors. --}}
-        <div>
-            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Per page</label>
-            <select name="per_page" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" onchange="this.form.submit()">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Per page</label>
+            <select name="per_page" class="list-header-filter text-sm" onchange="this.form.submit()">
                 @foreach([10, 25, 50, 100] as $option)
                     <option value="{{ $option }}" @selected($perPage === $option)>{{ $option }}</option>
                 @endforeach
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'date_from', 'date_to', 'per_page']))
-            <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Clear</a>
+            <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
+            <div class="flex-1"></div>
+        <span class="ds-badge ds-badge-pill ds-badge-info">
+            {{ number_format($applications->total()) }} {{ \Illuminate\Support\Str::plural('application', $applications->total()) }}
+        </span>
     </form>
+    </div>
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('contact') }}" style="color: var(--text-muted);">Contact{{ $sortIndicator('contact') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('agent') }}" style="color: var(--text-muted);">Agent{{ $sortIndicator('agent') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('date') }}" style="color: var(--text-muted);">Submitted for approval{{ $sortIndicator('date') }}</a></th>
-                    <th></th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('contact') }}">Contact{{ $sortIndicator('contact') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('agent') }}">Agent{{ $sortIndicator('agent') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('date') }}">Submitted for approval{{ $sortIndicator('date') }}</a></th>
+                    <th class="px-4 py-3"></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($applications as $application)
-                <tr style="border-bottom: 1px solid var(--border);">
-                    <td class="px-4 py-2">{{ $application->contact->full_name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->createdBy->name ?? '—' }}</td>
-                    <td class="px-4 py-2">{{ $application->submitted_for_approval_at?->format('d M Y H:i') }}</td>
-                    <td class="px-4 py-2 text-right">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $application->contact->full_name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->property?->buildDisplayAddress() ?? $application->property_address_override ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->createdBy->name ?? '—' }}</td>
+                    <td class="px-4 py-3">{{ $application->submitted_for_approval_at?->format('d M Y H:i') }}</td>
+                    <td class="px-4 py-3 text-right">
                         <a href="{{ route('corex.rental-applications.authorisation.show', $application) }}" class="corex-btn-primary text-xs">Review &amp; Decide</a>
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="5" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="5" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                     @if(request()->hasAny(['q', 'date_from', 'date_to']))
                         No applications awaiting your decision match this search/filter. Try clearing it.
                     @else
@@ -118,7 +125,11 @@
             </tbody>
         </table>
     </div>
-
-    {{ $applications->links() }}
+        @if($applications->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $applications->links() }}
+        </div>
+        @endif
+    </div>
 </div>
 @endsection

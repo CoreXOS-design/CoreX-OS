@@ -216,6 +216,6 @@
         <button type="submit" class="corex-btn-primary text-sm">
             {{ isset($type) && $type->exists ? 'Update' : 'Save' }} Leave Type
         </button>
-        <a href="{{ route('payroll.leave.types.index') }}" class="corex-btn-outline text-sm">Cancel</a>
+        <a href="{{ route('corex.settings', ['s' => 'leave-types']) }}" class="corex-btn-outline text-sm">Cancel</a>
     </div>
 </div>

@@ -49,7 +49,7 @@
         ['key'=>'core-matches', 'label'=>'Core Matches'],
     ];
 @endphp
-<div class="flex overflow-x-auto sticky top-0 z-10" style="border-bottom:1px solid var(--border); background:var(--surface);"
+<div class="prop-tabbar flex overflow-x-auto sticky top-0 z-10" style="border-bottom:1px solid var(--border); background:var(--surface);"
      @if($mode === 'spa')
      {{-- AT-402 - the Rental tab follows a live listing_type change on a brand-new property. --}}
      x-data="{ isRentalListing: document.querySelector('[name=listing_type]')?.value === 'rental' }"
@@ -123,10 +123,12 @@
     @else
         <button type="button"
                 data-prop-tab="{{ $tab['key'] }}" data-tour="prop-tab-{{ $tab['key'] }}"
-                @click="activeTab = '{{ $tab['key'] }}'"
+                {{-- Johan 2026-10-17: ppSwitchTab() fades the open panel out, swaps activeTab, fades the new one in
+                     (see _property-polish-styles). `tabPending` lights the clicked tab at once, before the swap. --}}
+                @click="window.ppSwitchTab ? window.ppSwitchTab($data, '{{ $tab['key'] }}') : (activeTab = '{{ $tab['key'] }}')"
                 @if($tab['key'] === 'rental') x-show="isRentalListing" x-cloak @endif
-                :class="'border-b-2'"
-                :style="activeTab === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
+                :class="(tabPending || activeTab) === '{{ $tab['key'] }}' ? 'border-b-2 is-active' : 'border-b-2'"
+                :style="(tabPending || activeTab) === '{{ $tab['key'] }}' ? 'color:var(--brand-icon); border-color:var(--brand-icon); background:color-mix(in srgb, var(--brand-icon) 6%, transparent);' : 'color:var(--text-secondary); border-color:transparent; background:transparent;'"
                 class="px-6 py-4 text-sm font-semibold whitespace-nowrap flex-shrink-0 transition-colors duration-150 outline-none focus:outline-none">
             {{ $tab['label'] }}
             @if($badgeCount)

@@ -109,7 +109,7 @@
     @endif
 
     {{-- Filter bar --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('deals-dr2.index') }}" class="flex flex-wrap items-center gap-3">
             {{-- Preserve sort params --}}
             @if(request('sort'))
@@ -124,11 +124,11 @@
                 </svg>
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Search seller, buyer, property, deal no…"
-                       class="w-full pl-10 pr-3 py-2 text-sm rounded-md transition-all duration-300"
-                       style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary); outline: none;">
+                       class="list-header-filter w-full {{ request('search') ? 'is-active' : '' }}"
+                       style="padding-left: 2.25rem;">
             </div>
 
-            <select name="status" onchange="this.form.submit()" class="list-header-filter">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter {{ request('status') ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
                 <option value="Pending" {{ request('status') === 'Pending' ? 'selected' : '' }}>Pending</option>
                 <option value="Granted" {{ request('status') === 'Granted' ? 'selected' : '' }}>Granted</option>
@@ -136,7 +136,7 @@
                 <option value="Declined" {{ request('status') === 'Declined' ? 'selected' : '' }}>Declined</option>
             </select>
 
-            <select name="commission" onchange="this.form.submit()" class="list-header-filter">
+            <select name="commission" onchange="this.form.submit()" class="list-header-filter {{ request('commission') ? 'is-active' : '' }}">
                 <option value="">All commission</option>
                 <option value="Not Paid" {{ request('commission') === 'Not Paid' ? 'selected' : '' }}>Not Paid</option>
                 <option value="Paid" {{ request('commission') === 'Paid' ? 'selected' : '' }}>Paid</option>
@@ -144,7 +144,7 @@
             </select>
 
             @permission('settle_deals')
-            <select name="branch" onchange="this.form.submit()" class="list-header-filter">
+            <select name="branch" onchange="this.form.submit()" class="list-header-filter {{ request('branch') ? 'is-active' : '' }}">
                 <option value="">All branches</option>
                 {{-- Active branches first, then an Archived group (AT-420) --}}
                 @foreach($branches->whereNull('deleted_at') as $br)
@@ -160,7 +160,7 @@
             </select>
             @endpermission
 
-            <select name="agent" onchange="this.form.submit()" class="list-header-filter">
+            <select name="agent" onchange="this.form.submit()" class="list-header-filter {{ request('agent') ? 'is-active' : '' }}">
                 <option value="">All agents</option>
                 @foreach($agents as $ag)
                 <option value="{{ $ag->id }}" {{ request('agent') == $ag->id ? 'selected' : '' }}>{{ $ag->name }}</option>

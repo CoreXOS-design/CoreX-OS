@@ -150,8 +150,7 @@
                                     <td class="px-4 py-3">{{ $modeLabels[$rule->delivery_mode] ?? $rule->delivery_mode }}</td>
                                     <td class="px-4 py-3">
                                         @if($rule->auto_on_stage_tick)
-                                            <span class="ds-badge" title="Sends automatically when this stage is ticked"
-                                                  style="background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 14%, transparent); color: var(--brand-icon, #0ea5e9);">Auto</span>
+                                            <span class="ds-badge ds-badge-info" title="Sends automatically when this stage is ticked">Auto</span>
                                         @else
                                             <span class="ds-badge ds-badge-default">Manual</span>
                                         @endif

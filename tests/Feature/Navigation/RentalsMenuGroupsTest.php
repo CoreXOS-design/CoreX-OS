@@ -38,7 +38,7 @@ final class RentalsMenuGroupsTest extends TestCase
         $this->assertSame([
             'Command Centre',
             '# Letting', 'Properties', 'Applications', 'Application Authorisation', 'Core Matches', 'Contacts', 'Rental Pipeline',
-            '# Leases', 'Leases', 'Inspections', 'Notices Received', 'Breach Register', 'Rental Notices',
+            '# Leases', 'Leases', 'Inspections', 'Notices',
             '# Maintenance', 'Fault Reports', 'Job Cards', 'Crews', 'Parts & Labour Catalogue', 'Rental Work Orders', 'Suppliers & contractors',
             '# Set-up', 'Fault Types', 'Rental Take-On Import',
             '# Reports', 'Reports',

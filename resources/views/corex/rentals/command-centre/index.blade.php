@@ -68,15 +68,15 @@
         ['sort' => $col, 'direction' => ($sort === $col && $direction === 'asc') ? 'desc' : 'asc']
     ));
     $sortIndicator = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
-    $statusBadgeClass = fn ($status) => match (true) {
-        in_array($status, ['withdrawn', 'unavailable', 'archived'], true) => 'ds-badge-muted',
-        in_array($status, ['sold', 'sold_by_3rd_party'], true) => 'ds-badge-danger',
-        default => 'ds-badge-success',
+    $statusTone = fn ($status) => match (true) {
+        in_array($status, ['withdrawn', 'unavailable', 'archived'], true) => '--text-muted',
+        in_array($status, ['sold', 'sold_by_3rd_party'], true) => '--ds-crimson',
+        default => '--ds-green',
     };
     $humanise = fn ($value) => $value ? ucwords(str_replace('_', ' ', (string) $value)) : '—';
 @endphp
 
-@section('content')
+@section('corex-content')
 {{-- cc5 walk 2 (14 Oct 2026): at 1366 / 1280 the "Showing 1 to 25 of 577 results" text was squeezed into a sliver beside the long page-button row and ran on top of it
      (and the narrow needs-action panel did the same). Here the count sits on its own line ABOVE the buttons, and a long row of page buttons wraps instead of overflowing. --}}
 <style>
@@ -84,12 +84,18 @@
     .cc-pager nav > div:nth-of-type(2) > div { max-width: 100%; }
     .cc-pager nav > div:nth-of-type(2) p { white-space: normal; }
     .cc-pager nav > div:nth-of-type(2) span.inline-flex { flex-wrap: wrap; row-gap: 4px; }
+    #rcc-table-scroll tbody tr:hover td { background: var(--surface-2) !important; }
 </style>
-<div class="p-6 space-y-4">
-    @include('corex.alerts-off._summary-line')
-    <div class="flex items-center justify-between flex-wrap gap-2">
-        <h1 class="text-lg font-semibold">Rental Command Centre</h1>
-        <div class="flex items-center gap-3">
+<div class="w-full space-y-4">
+
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Command Centre</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every rental property's current state in one place, and what needs action.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
             @if(count($scopeOptions) > 1)
             <div class="flex items-center gap-2">
                 <span class="text-xs font-medium" style="color: var(--text-secondary);">Showing:</span>
@@ -113,8 +119,11 @@
             <a href="{{ route('corex.rentals.reports.index') }}" class="corex-btn-outline text-xs">Reports</a>
             @endfeature
             @endif
+            </div>
         </div>
     </div>
+
+    @include('corex.alerts-off._summary-line')
 
     {{-- §3.1 — eleven clickable tiles, Properties-screen pstat-v2 pattern.
          Round 7 (2026-10-05, Johan) — open_faults/open_work_orders are
@@ -175,8 +184,8 @@
         </div>
 
         <div id="rcc-queue-panel" class="{{ $queueCollapsed ? 'hidden' : 'flex' }} w-full lg:basis-[300px] lg:max-w-[28%] lg:flex-shrink-0 lg:grow-0 flex-col rounded-md" style="background: var(--surface); border: 1px solid var(--border); min-height: 0;">
-            <div class="px-3 py-2 flex items-center justify-between gap-2 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
-                <span class="text-sm font-semibold">Needs action ({{ $queueTotalCount }})</span>
+            <div class="px-3 py-2.5 flex items-center justify-between gap-2 flex-shrink-0" style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+                <span class="text-sm font-semibold" style="color: var(--text-primary);">Needs action ({{ $queueTotalCount }})</span>
                 <button type="button" onclick="corexRccSetQueueCollapsed(true)" class="text-xs flex-shrink-0" style="color: var(--text-muted);">Collapse</button>
             </div>
 
@@ -222,17 +231,17 @@
                 @foreach(request()->except(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to', 'queue_page']) as $qk => $qv)
                     @if(!is_array($qv))<input type="hidden" name="{{ $qk }}" value="{{ $qv }}">@endif
                 @endforeach
-                <select name="queue_group_by" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 56px;" aria-label="Group needs-action by">
+                <select name="queue_group_by" onchange="this.form.submit()" class="list-header-filter {{ $queueGroupBy !== 'none' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 56px;" aria-label="Group needs-action by">
                     <option value="none" @selected($queueGroupBy === 'none')>No grp</option>
                     <option value="property" @selected($queueGroupBy === 'property')>By prop</option>
                     <option value="date" @selected($queueGroupBy === 'date')>By date</option>
                 </select>
-                <select name="queue_sort" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 46px;" aria-label="Sort needs-action by">
+                <select name="queue_sort" onchange="this.form.submit()" class="list-header-filter {{ $queueSort !== 'urgency' ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 46px;" aria-label="Sort needs-action by">
                     <option value="urgency" @selected($queueSort === 'urgency')>Urgent</option>
                     <option value="date" @selected($queueSort === 'date')>Date</option>
                     <option value="property" @selected($queueSort === 'property')>Prop</option>
                 </select>
-                <select name="queue_property_id" onchange="this.form.submit()" class="rounded-md px-1 py-1 text-[11px] flex-shrink-0 min-w-0" style="border: 1px solid var(--border); width: 52px;" aria-label="Filter needs-action by property">
+                <select name="queue_property_id" onchange="this.form.submit()" class="list-header-filter {{ $queuePropertyId ? 'is-active' : '' }} text-[11px] flex-shrink-0 min-w-0" style="height: auto; padding: 0.25rem; width: 52px;" aria-label="Filter needs-action by property">
                     <option value="">Prop</option>
                     @foreach($queuePropertyOptions as $p)
                         <option value="{{ $p->id }}" @selected($queuePropertyId === $p->id)>{{ \Illuminate\Support\Str::limit($p->buildDisplayAddress(), 18) }}</option>
@@ -244,13 +253,13 @@
                      so the dropdown itself only needs to be as wide as ONE
                      date input, not two. --}}
                 <details id="rcc-queue-dates" class="relative inline-block flex-shrink-0">
-                    <summary class="rounded-md px-1 py-1 text-[11px] cursor-pointer list-none text-center" style="border: 1px solid var(--border); width: 40px;" aria-label="Needs-action date range">Dates{{ ($queueDateFrom || $queueDateTo) ? ' •' : '' }}</summary>
+                    <summary class="list-header-filter {{ ($queueDateFrom || $queueDateTo) ? 'is-active' : '' }} text-[11px] list-none text-center" style="height: auto; padding: 0.25rem; width: 40px;" aria-label="Needs-action date range">Dates{{ ($queueDateFrom || $queueDateTo) ? ' •' : '' }}</summary>
                     <div class="absolute z-20 mt-1 rounded-md p-2 space-y-1.5" style="right: 0; width: 132px; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.12);">
                         <label class="block text-[10px]" style="color: var(--text-muted);">From
-                            <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="border: 1px solid var(--border);" aria-label="Needs-action date from">
+                            <input type="date" name="queue_date_from" value="{{ $queueDateFrom }}" onchange="this.form.submit()" class="list-header-filter {{ $queueDateFrom ? 'is-active' : '' }} w-full text-[11px] mt-0.5" style="height: auto; padding: 0.25rem;" aria-label="Needs-action date from">
                         </label>
                         <label class="block text-[10px]" style="color: var(--text-muted);">To
-                            <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="w-full rounded-md px-1 py-1 text-[11px] mt-0.5" style="border: 1px solid var(--border);" aria-label="Needs-action date to">
+                            <input type="date" name="queue_date_to" value="{{ $queueDateTo }}" onchange="this.form.submit()" class="list-header-filter {{ $queueDateTo ? 'is-active' : '' }} w-full text-[11px] mt-0.5" style="height: auto; padding: 0.25rem;" aria-label="Needs-action date to">
                         </label>
                     </div>
                 </details>
@@ -315,7 +324,7 @@
             {{-- Heading (Johan, 2026-10-07: the right-hand panel had none) — says what the list is, how many rows the
                  current tile / search / filters leave, and which tile is filtering it. --}}
             <div class="flex items-center justify-between gap-2 flex-shrink-0 mb-1.5">
-                <h2 class="text-sm font-semibold">Property list ({{ number_format($properties->total()) }})</h2>
+                <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Property list ({{ number_format($properties->total()) }})</h2>
                 @if($filters['tile'] && isset($tiles[$filters['tile']]))
                     <span class="text-[11px]" style="color: var(--text-muted);">Showing: {{ $tiles[$filters['tile']] }}</span>
                 @endif
@@ -331,35 +340,35 @@
                 @foreach(request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']) as $qk => $qv)
                     <input type="hidden" name="{{ $qk }}" value="{{ $qv }}">
                 @endforeach
-                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 120px;">
-                <select name="status" aria-label="Status" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 86px;">
+                <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Search" aria-label="Search address, tenant, landlord, or erf number" class="list-header-filter {{ filled($filters['q'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 120px;">
+                <select name="status" aria-label="Status" class="list-header-filter {{ filled($filters['status'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
                     <option value="">Status</option>
                     @foreach($statusOptions as $s)
                         <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $humanise($s) }}</option>
                     @endforeach
                 </select>
-                <select name="agent_id" aria-label="Agent" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 90px;">
+                <select name="agent_id" aria-label="Agent" class="list-header-filter {{ filled($filters['agent_id'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 90px;">
                     <option value="">Agent</option>
                     @foreach($agents as $a)
                         <option value="{{ $a->id }}" @selected((string) ($filters['agent_id'] ?? '') === (string) $a->id)>{{ $a->name }}</option>
                     @endforeach
                 </select>
-                <select name="branch_id" aria-label="Branch" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 86px;">
+                <select name="branch_id" aria-label="Branch" class="list-header-filter {{ filled($filters['branch_id'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 86px;">
                     <option value="">Branch</option>
                     @foreach($branches as $b)
                         <option value="{{ $b->id }}" @selected((string) ($filters['branch_id'] ?? '') === (string) $b->id)>{{ $b->name }}</option>
                     @endforeach
                 </select>
-                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 98px;">
-                <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 98px;">
-                <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="rounded-md px-2 py-1 text-xs flex-shrink-0" style="border: 1px solid var(--border); width: 54px;">
+                <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" aria-label="Lease end from" class="list-header-filter {{ filled($filters['date_from'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
+                <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" aria-label="Lease end to" class="list-header-filter {{ filled($filters['date_to'] ?? null) ? 'is-active' : '' }} text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 98px;">
+                <select name="per_page" onchange="this.form.submit()" aria-label="Rows per page" class="list-header-filter text-xs flex-shrink-0" style="height: 2rem; font-size: 0.75rem; width: 54px;">
                     @foreach([10, 25, 50, 100] as $pp)
                         <option value="{{ $pp }}" @selected($properties->perPage() === $pp)>{{ $pp }}</option>
                     @endforeach
                 </select>
-                <button type="submit" class="corex-btn-outline text-xs flex-shrink-0">Filter</button>
+                <button type="submit" class="corex-btn-primary text-xs flex-shrink-0" style="height: 2rem;">Filter</button>
                 @if(request()->hasAny(['q', 'status', 'agent_id', 'branch_id', 'date_from', 'date_to', 'tile']))
-                    <a href="{{ route('corex.rentals.command-centre.index', array_merge(['scope' => $scope], request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']))) }}" class="corex-btn-outline text-xs flex-shrink-0">Clear</a>
+                    <a href="{{ route('corex.rentals.command-centre.index', array_merge(['scope' => $scope], request()->only(['queue_group_by', 'queue_sort', 'queue_property_id', 'queue_date_from', 'queue_date_to']))) }}" class="corex-btn-outline text-xs flex-shrink-0" style="height: 2rem;">Clear</a>
                 @endif
             </form>
 
@@ -367,22 +376,22 @@
                 <table class="w-full text-sm">
                     <thead>
                         <tr style="border-bottom: 1px solid var(--border);">
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);">Tenant(s)</th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; background: var(--surface);"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
-                            <th class="text-left px-3 py-2" style="position: sticky; top: 0; right: 0; background: var(--surface);"></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);"><a href="{{ $sortLink('address') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('address') }}</a></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);">Tenant(s)</th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);"><a href="{{ $sortLink('lease_end') }}" style="color: var(--text-muted);">Lease end{{ $sortIndicator('lease_end') }}</a></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);"><a href="{{ $sortLink('open_total') }}" style="color: var(--text-muted);" title="Open faults · open work orders">Open{{ $sortIndicator('open_total') }}</a></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; background: var(--surface-2);"><a href="{{ $sortLink('last_inspection') }}" style="color: var(--text-muted);">Last inspection{{ $sortIndicator('last_inspection') }}</a></th>
+                            <th class="text-left px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap" style="position: sticky; top: 0; right: 0; background: var(--surface-2);"></th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($properties as $property)
-                        <tr style="border-bottom: 1px solid var(--border);" data-qa="rcc-row-{{ $property->id }}">
+                        <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" data-qa="rcc-row-{{ $property->id }}">
                             <td class="px-3 py-2" style="max-width: 340px;">
                                 <span title="{{ $property->buildDisplayAddress() }}" style="display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; line-height: 1.3; max-height: 2.6em;">{{ $property->buildDisplayAddress() }}</span>
                             </td>
-                            <td class="px-3 py-2"><span class="ds-badge {{ $statusBadgeClass($property->status) }}">{{ $humanise($property->status) }}</span></td>
+                            <td class="px-3 py-2"><span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var({{ $statusTone($property->status) }}) 12%, transparent); color:var({{ $statusTone($property->status) }}); border:1px solid color-mix(in srgb, var({{ $statusTone($property->status) }}) 25%, transparent);">{{ $humanise($property->status) }}</span></td>
                             <td class="px-3 py-2">
                                 <div title="{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? '') : '' }}" style="display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">{{ $property->active_lease_id ? ($tenantNamesByLeaseId[$property->active_lease_id] ?? 'No tenant linked') : '— vacant —' }}</div>
                                 {{-- Agent — merged into this cell (round 3 layout fix) to free a whole

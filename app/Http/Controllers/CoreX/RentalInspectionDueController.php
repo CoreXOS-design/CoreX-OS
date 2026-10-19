@@ -327,6 +327,9 @@ class RentalInspectionDueController extends Controller
     private function leaseReach(User $user, ?string $requestedScope): \Closure
     {
         return function ($q) use ($user, $requestedScope) {
+            // Owner agency lock (Johan, 2026-10-18): an owner account reaches only the leases of the agency it is working in.
+            RentalDataScope::pinOwnerToWorkingAgency($q, $user, 'leases.agency_id');
+
             $max = RentalDataScope::ceiling($user, 'rental_inspections');
             $scope = PermissionService::clampScope($requestedScope, $max);
             if ($scope === 'all') {

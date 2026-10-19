@@ -195,6 +195,21 @@ class RentalJobCardController extends Controller
 
         $user = $request->user();
 
+        // Audit 2026-10-18 (A-M7): `exists:` only proves the id is real, not that THIS user may see it. Every id the form
+        // supplies must be inside the user's own/branch/agency scope for its module (the same rule
+        // RentalWorkOrderController::store() applies to its property) - a colleague's work order or fault report, or a
+        // property outside the user's reach, answers 404 and nothing is created.
+        foreach ([
+            'property_id' => Property::query(),
+            'lease_id' => Lease::query(),
+            'rental_work_order_id' => \App\Models\RentalWorkOrder::query(),
+            'fault_report_id' => RentalFaultReport::query(),
+        ] as $field => $query) {
+            if (!empty($validated[$field])) {
+                abort_unless($query->visibleTo($user)->whereKey($validated[$field])->exists(), 404);
+            }
+        }
+
         // Each line (both under a task and in the General group) is
         // validated against the SAME shape storeLine() already uses below
         // — a flat Rule::exists() can't be expressed against a
@@ -646,7 +661,9 @@ class RentalJobCardController extends Controller
         $validated = $request->validate([
             'rental_catalogue_item_id' => ['nullable', Rule::exists('rental_catalogue_items', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'type' => ['nullable', 'in:labour,part'],
-            'description' => ['required', 'string', 'max:255'],
+            // AT-466 - the agent's own wording. With a catalogue item picked a blank keeps what the line already says (the item's name is only a
+            // default); a free-text line still needs its words.
+            'description' => ['required_without:rental_catalogue_item_id', 'nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],

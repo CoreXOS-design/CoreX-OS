@@ -52,20 +52,14 @@
 
     {{-- Filter bar --}}
     <form method="GET" class="rounded-md p-3 flex flex-wrap items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);">
-        <input type="text" name="search" value="{{ request('search') }}" placeholder="Search staff..."
-               class="flex-1 min-w-[200px] rounded-md px-3 py-2 text-xs"
-               style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-        <select name="risk_tier" onchange="this.form.submit()"
-                class="rounded-md px-3 py-2 text-xs"
-                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+        <input class="list-header-filter flex-1 min-w-[200px] {{ request('search') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Search staff...">
+        <select class="list-header-filter {{ request('risk_tier') ? 'is-active' : '' }}" name="risk_tier" onchange="this.form.submit()">
             <option value="">All tiers</option>
             <option value="high" {{ request('risk_tier') === 'high' ? 'selected' : '' }}>High</option>
             <option value="medium" {{ request('risk_tier') === 'medium' ? 'selected' : '' }}>Medium</option>
             <option value="low" {{ request('risk_tier') === 'low' ? 'selected' : '' }}>Low</option>
         </select>
-        <select name="status" onchange="this.form.submit()"
-                class="rounded-md px-3 py-2 text-xs"
-                style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+        <select class="list-header-filter {{ request('status') ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
             <option value="">All statuses</option>
             <option value="clear" {{ request('status') === 'clear' ? 'selected' : '' }}>Clear</option>
             <option value="concerns_flagged" {{ request('status') === 'concerns_flagged' ? 'selected' : '' }}>Flagged</option>

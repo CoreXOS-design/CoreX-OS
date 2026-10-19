@@ -36,7 +36,7 @@
     @endif
 
     {{-- Filter bar --}}
-    <div class="rounded-md px-4 py-3" data-tour="deals-filter" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-4 py-3" data-tour="deals-filter" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route('deals-v2.index') }}" class="flex flex-wrap items-center gap-3">
 
             {{-- Search --}}
@@ -47,18 +47,18 @@
                 <input type="text" name="search" value="{{ request('search') }}"
                        placeholder="Search by reference, property..."
                        onchange="this.form.submit()"
-                       class="list-header-filter w-full"
+                       class="list-header-filter w-full {{ request('search') ? 'is-active' : '' }}"
                        style="padding-left: 2.25rem;">
             </div>
 
-            <select name="deal_type" onchange="this.form.submit()" class="list-header-filter">
+            <select name="deal_type" onchange="this.form.submit()" class="list-header-filter {{ request('deal_type') ? 'is-active' : '' }}">
                 <option value="">All Types</option>
                 <option value="bond" {{ request('deal_type') === 'bond' ? 'selected' : '' }}>Bond</option>
                 <option value="cash" {{ request('deal_type') === 'cash' ? 'selected' : '' }}>Cash</option>
                 <option value="sale_of_2nd" {{ request('deal_type') === 'sale_of_2nd' ? 'selected' : '' }}>Sale of 2nd</option>
             </select>
 
-            <select name="status" onchange="this.form.submit()" class="list-header-filter" data-tour="deals-status">
+            <select name="status" onchange="this.form.submit()" class="list-header-filter {{ request('status') ? 'is-active' : '' }}" data-tour="deals-status">
                 <option value="">All Statuses</option>
                 <option value="active" {{ request('status') === 'active' ? 'selected' : '' }}>Active</option>
                 <option value="completed" {{ request('status') === 'completed' ? 'selected' : '' }}>Completed</option>

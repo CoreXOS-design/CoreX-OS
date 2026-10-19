@@ -9,13 +9,12 @@
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">AI Usage &amp; Cost</h1>
-                <p class="text-xs" style="color: var(--text-muted);">Anthropic spend, tokens, cache health and per-agency budgets — {{ $monthLabel }}. Click an agency to see where and who the spend comes from.</p>
+                <p class="text-xs" style="color: var(--text-muted);">Anthropic spend, tokens, cache health and AI Spend Safety — {{ $monthLabel }}. Click an agency to see where and who the spend comes from.</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
                 <form method="GET" class="flex items-center gap-2">
                     <label class="text-xs font-medium" style="color: var(--text-muted);">Month</label>
-                    <input type="month" name="month" value="{{ $month }}" class="rounded-md px-3 py-1.5 text-xs"
-                           style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
+                    <input class="list-header-filter" type="month" name="month" value="{{ $month }}">
                     <button type="submit" class="corex-btn-primary text-xs">View</button>
                 </form>
             </div>
@@ -149,96 +148,144 @@
         </div>
     </div>
 
-    {{-- Per-agency budgets --}}
+    {{-- AI Spend Safety (AT-456 §A.5) — replaces the retired per-agency budgets.
+         Thresholds live in Dev Settings → AI Spend Safety; this is where an owner
+         sees who is close to them and turns a paused agency back on. --}}
+    @php
+        $statusBadge = [
+            'active'  => ['ds-badge-success', 'Active'],
+            'alerted' => ['ds-badge-warning', 'Alerted'],
+            'paused'  => ['ds-badge-danger',  'Paused'],
+        ];
+        $hasFilters = $filters['search'] !== '' || $filters['status'] !== 'all';
+    @endphp
     <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
-        <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border);">
-            <h2 class="text-sm font-semibold" style="color:var(--text-primary);">Per-agency budgets</h2>
-            @unless($canEditBudgets)
-                <span class="text-xs" style="color:var(--text-muted);">View-only — super_admin required to edit.</span>
-            @endunless
+        <div class="px-4 py-3 border-b flex flex-col md:flex-row md:items-center md:justify-between gap-2" style="border-color:var(--border);">
+            <div>
+                <h2 class="text-sm font-semibold" style="color:var(--text-primary);">AI Spend Safety</h2>
+                <p class="text-xs" style="color:var(--text-muted);">
+                    Alert email at R {{ number_format($guard['alert_zar'], 2) }} · AI switched off at R {{ number_format($guard['cutout_zar'], 2) }}
+                    · counted over the last {{ $guard['window_hours'] }} hours per agency.
+                </p>
+            </div>
+            <a href="{{ route('admin.dev-settings.index', ['s' => 'ai_spend']) }}" class="corex-btn-outline text-xs">Change thresholds</a>
         </div>
-        {{-- Per-row budget forms live OUTSIDE the table: a <form> cannot be a child of
-             <tr>/<tbody> (the HTML parser foster-parents it out, shifting every cell).
-             Inputs/buttons in the cells associate to these via the form="" attribute. --}}
-        @if($canEditBudgets)
-            @foreach($agencies as $a)
-                <form id="ai-budget-form-{{ $a['id'] }}" method="POST"
-                      action="{{ route('admin.ai-usage.budget.update', ['agency' => $a['id']]) }}" class="hidden">
+
+        {{-- Platform (no-agency) AI — e.g. the Article Library. Its own window and its own switch. --}}
+        <div class="px-4 py-3 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
+            <div class="text-sm" style="color:var(--text-primary);">
+                <span class="font-semibold">Platform AI</span>
+                <span class="text-xs" style="color:var(--text-muted);">(AI no agency owns)</span>
+                — R {{ number_format($system['spend_zar'], 2) }} in the last {{ $guard['window_hours'] }}h
+                <span class="ds-badge {{ $statusBadge[$system['status']][0] }} ml-1">{{ $statusBadge[$system['status']][1] }}</span>
+            </div>
+            @if($system['status'] === 'paused')
+                <form method="POST" action="{{ route('admin.ai-usage.system.resume') }}"
+                      onsubmit="return confirm('Turn platform AI back on? Spend will be counted afresh from now.');">
                     @csrf
+                    <button type="submit" class="corex-btn-primary text-xs">Turn AI back on</button>
                 </form>
-            @endforeach
-        @endif
+            @endif
+        </div>
+
+        {{-- Search + filters --}}
+        <form method="GET" action="{{ route('admin.ai-usage.index') }}" class="px-4 py-3 flex flex-wrap items-center gap-3" style="border-bottom:1px solid var(--border);">
+            <input type="hidden" name="month" value="{{ $month }}">
+            <input type="hidden" name="sort" value="{{ $filters['sort'] }}">
+            <input type="hidden" name="direction" value="{{ $filters['direction'] }}">
+            <div class="relative flex-1 min-w-[12rem] max-w-sm">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color: var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
+                </svg>
+                <input class="list-header-filter w-full {{ !empty($filters['search']) ? 'is-active' : '' }}" style="padding-left:2.5rem;" type="text" name="search" value="{{ $filters['search'] }}" placeholder="Search agency name…">
+            </div>
+            <select class="list-header-filter {{ ($filters['status'] ?? 'all') !== 'all' ? 'is-active' : '' }}" name="status" onchange="this.form.submit()">
+                <option value="all" @selected($filters['status'] === 'all')>All statuses</option>
+                <option value="active" @selected($filters['status'] === 'active')>Active</option>
+                <option value="alerted" @selected($filters['status'] === 'alerted')>Alerted</option>
+                <option value="paused" @selected($filters['status'] === 'paused')>Paused</option>
+            </select>
+            <button type="submit" class="corex-btn-outline text-xs px-3 py-2">Search</button>
+            @if($hasFilters)
+                <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="text-xs font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear filters</a>
+            @endif
+        </form>
+
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
                     <tr style="background:var(--surface-2);">
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Agency</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Budget (R)</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Used</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">%</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Status</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Warn / Hard cap</th>
-                        <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Overage</th>
-                        @if($canEditBudgets)<th class="px-4 py-2.5"></th>@endif
+                        <x-sort-header field="name" label="Agency" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="spend_24h" label="Spend — last {{ $guard['window_hours'] }}h" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="spend_month" label="Spend — {{ $monthLabel }}" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="status" label="Status" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="template_gens" label="Template generations" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="templates_saved" label="AI templates saved" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <x-sort-header field="library_used" label="Library articles used" align="right" :current-sort="$filters['sort']" :current-direction="$filters['direction']" />
+                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @php
-                        $statusBadge = [
-                            'healthy'  => 'ds-badge-success',
-                            'warning'  => 'ds-badge-warning',
-                            'critical' => 'ds-badge-danger',
-                            'capped'   => 'ds-badge-danger',
-                        ];
-                    @endphp
-                    @foreach($agencies as $a)
+                    @forelse($agencies as $a)
                         @php
-                            $pctColor = $a['used_pct'] >= 95 ? 'var(--ds-crimson,#c41e3a)' : ($a['used_pct'] >= 80 ? 'var(--ds-amber,#f59e0b)' : 'var(--text-primary)');
-                            $agencyLink = route('admin.ai-usage.agency', ['agency' => $a['id'], 'month' => $month]);
+                            $spendColor = $a['spend_24h'] >= $guard['cutout_zar']
+                                ? 'var(--ds-crimson,#c41e3a)'
+                                : ($a['spend_24h'] >= $guard['alert_zar'] ? 'var(--ds-amber,#f59e0b)' : 'var(--text-primary)');
                         @endphp
                         <tr style="border-top:1px solid var(--border);">
-                            @if($canEditBudgets)
-                                @php $budgetForm = 'ai-budget-form-' . $a['id']; @endphp
-                                <td class="px-4 py-3"><a href="{{ $agencyLink }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a></td>
-                                <td class="px-4 py-3 text-right">
-                                    <input type="number" step="0.01" min="0" name="ai_monthly_budget_zar" form="{{ $budgetForm }}"
-                                           value="{{ number_format($a['budget_zar'], 2, '.', '') }}"
-                                           class="w-28 text-right rounded-md px-2 py-1 text-sm font-mono"
-                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                </td>
-                                <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['used_zar'], 2) }}</td>
-                                <td class="px-4 py-3 text-right font-mono" style="color: {{ $pctColor }};">{{ number_format($a['used_pct'], 1) }}%</td>
-                                <td class="px-4 py-3"><span class="ds-badge {{ $statusBadge[$a['status']] ?? 'ds-badge-default' }}">{{ ucfirst($a['status']) }}</span></td>
-                                <td class="px-4 py-3 text-right whitespace-nowrap">
-                                    <input type="number" min="0" max="100" name="ai_budget_warning_pct" value="{{ $a['warning_pct'] }}" form="{{ $budgetForm }}"
-                                           class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
-                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                    /
-                                    <input type="number" min="50" max="200" name="ai_budget_hard_cap_pct" value="{{ $a['hard_cap_pct'] }}" form="{{ $budgetForm }}"
-                                           class="w-12 text-right rounded-md px-1 py-1 text-xs font-mono"
-                                           style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);">
-                                </td>
-                                <td class="px-4 py-3">
-                                    <label class="inline-flex items-center gap-1 text-xs" style="color:var(--text-secondary);">
-                                        <input type="checkbox" name="ai_budget_overage_allowed" value="1" form="{{ $budgetForm }}" {{ $a['overage_allowed'] ? 'checked' : '' }}
-                                               style="accent-color:var(--brand-button,#0ea5e9);"> allow
-                                    </label>
-                                </td>
-                                <td class="px-4 py-3 text-right"><button type="submit" form="{{ $budgetForm }}" class="corex-btn-primary text-xs">Save</button></td>
-                            @else
-                                <td class="px-4 py-3"><a href="{{ $agencyLink }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a></td>
-                                <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['budget_zar'], 2) }}</td>
-                                <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['used_zar'], 2) }}</td>
-                                <td class="px-4 py-3 text-right font-mono" style="color: {{ $pctColor }};">{{ number_format($a['used_pct'], 1) }}%</td>
-                                <td class="px-4 py-3"><span class="ds-badge {{ $statusBadge[$a['status']] ?? 'ds-badge-default' }}">{{ ucfirst($a['status']) }}</span></td>
-                                <td class="px-4 py-3 text-right text-xs font-mono" style="color:var(--text-secondary);">{{ $a['warning_pct'] }}% / {{ $a['hard_cap_pct'] }}%</td>
-                                <td class="px-4 py-3 text-xs" style="color:var(--text-secondary);">{{ $a['overage_allowed'] ? 'allowed' : 'blocked' }}</td>
-                            @endif
+                            <td class="px-4 py-3">
+                                <a href="{{ route('admin.ai-usage.agency', ['agency' => $a['id'], 'month' => $month]) }}"
+                                   class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">{{ $a['name'] }}</a>
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                                <span class="font-mono" style="color: {{ $spendColor }};">R {{ number_format($a['spend_24h'], 2) }}</span>
+                                @if($a['since_resume'])
+                                    <div class="text-[11px]" style="color:var(--text-muted);">since turned back on {{ $a['window_start']->format('d M H:i') }}</div>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">R {{ number_format($a['spend_month'], 2) }}</td>
+                            <td class="px-4 py-3">
+                                <span class="ds-badge {{ $statusBadge[$a['status']][0] }}">{{ $statusBadge[$a['status']][1] }}</span>
+                                @if($a['status'] === 'paused' && $a['paused_at'])
+                                    <div class="text-[11px] mt-1" style="color:var(--text-muted);">since {{ $a['paused_at']->format('d M H:i') }}</div>
+                                @endif
+                            </td>
+                            <td class="px-4 py-3 text-right whitespace-nowrap font-mono"
+                                style="color: {{ $a['template_used'] >= $a['template_limit'] ? 'var(--ds-crimson,#c41e3a)' : 'var(--text-primary)' }};"
+                                title="AI template ideas used this calendar month / the agency's monthly limit">
+                                {{ number_format($a['template_used']) }} / {{ number_format($a['template_limit']) }}
+                            </td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);">{{ number_format($a['templates_saved']) }}</td>
+                            <td class="px-4 py-3 text-right font-mono" style="color:var(--text-primary);" title="Article Library articles this agency's people copied into their drafts">{{ number_format($a['library_used']) }}</td>
+                            <td class="px-4 py-3 text-right whitespace-nowrap">
+                                @if($a['status'] === 'paused')
+                                    <form method="POST" action="{{ route('admin.ai-usage.resume', ['agency' => $a['id']]) }}" class="inline"
+                                          onsubmit="return confirm(@js('Turn AI back on for ' . $a['name'] . '? Spend will be counted afresh from now.'));">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-primary text-xs">Turn AI back on</button>
+                                    </form>
+                                @endif
+                                <a href="{{ route('admin.ai-usage.agency', ['agency' => $a['id'], 'month' => $month]) }}" class="corex-btn-outline text-xs">View detail</a>
+                            </td>
                         </tr>
-                    @endforeach
+                    @empty
+                        <tr>
+                            <td colspan="8" class="px-4 py-12 text-center text-sm" style="color:var(--text-muted);">
+                                @if($hasFilters)
+                                    No agencies match these filters.
+                                    <a href="{{ route('admin.ai-usage.index', ['month' => $month]) }}" class="font-semibold" style="color:var(--brand-icon,#0ea5e9);">Clear filters</a>
+                                @else
+                                    No agencies yet.
+                                @endif
+                            </td>
+                        </tr>
+                    @endforelse
                 </tbody>
             </table>
         </div>
+        @if($agencies->hasPages())
+            <div class="px-4 py-3" style="border-top:1px solid var(--border);">{{ $agencies->links() }}</div>
+        @endif
     </div>
 </div>
 @endsection

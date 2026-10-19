@@ -92,7 +92,7 @@
     </div>
 
     {{-- Search + filters --}}
-    <div class="rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route($indexRouteName ?? 'command-center.buyers.pipeline') }}" class="flex flex-wrap items-center gap-2">
             <input type="hidden" name="view" value="{{ $view }}">
             <input type="hidden" name="scope" value="{{ $pipelineScope ?? '' }}">
@@ -101,18 +101,17 @@
             @endunless
             @if(!empty($sortBy ?? null))<input type="hidden" name="sort" value="{{ $sortBy }}">@endif
             @if(!empty($sortDir ?? null))<input type="hidden" name="dir" value="{{ $sortDir }}">@endif
-            <input type="text" name="q" data-tour="buyers-search" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
-                   class="flex-1 min-w-[200px] px-3 py-1.5 rounded-md text-sm"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
-            <select name="state" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (($search ?? '') !== '') ? 'is-active' : '' }}" type="text" name="q" data-tour="buyers-search" value="{{ $search ?? '' }}" placeholder="Search name, phone or email…"
+                   style="flex: 1 1 0%; min-width: 200px; cursor: text;">
+            <select class="list-header-filter {{ (!empty($stateFilter ?? null)) ? 'is-active' : '' }}" name="state" onchange="this.form.submit()"
+                   >
                 <option value="">All states</option>
                 @foreach(['new' => 'New', 'warm' => 'Warm', 'cold' => 'Cold', 'lost' => 'Lost'] as $stateOptKey => $stateOptLabel)
                     <option value="{{ $stateOptKey }}" {{ ($stateFilter ?? '') === $stateOptKey ? 'selected' : '' }}>{{ $stateOptLabel }}</option>
                 @endforeach
             </select>
-            <select name="agent_id" onchange="this.form.submit()" class="px-3 py-1.5 rounded-md text-xs max-w-[200px]"
-                    style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <select class="list-header-filter {{ (!empty($agentFilter ?? null)) ? 'is-active' : '' }}" name="agent_id" onchange="this.form.submit()"
+                   style="max-width: 200px;">
                 <option value="">All agents</option>
                 @foreach($agentOptions ?? [] as $agentOpt)
                     <option value="{{ $agentOpt->id }}" {{ (string) ($agentFilter ?? '') === (string) $agentOpt->id ? 'selected' : '' }}>{{ $agentOpt->name }}</option>
@@ -124,13 +123,13 @@
                  who's been sitting on the board since before a given date,
                  not just what state they're in. --}}
             <span class="text-xs whitespace-nowrap" style="color: var(--text-muted);">Since</span>
-            <input type="date" name="entered_from" value="{{ $enteredFrom ?? '' }}"
-                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/after"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($enteredFrom ?? null)) ? 'is-active' : '' }}" type="date" name="entered_from" value="{{ $enteredFrom ?? '' }}"
+                   title="Entered pipeline on/after"
+                  >
             <span class="text-xs" style="color: var(--text-muted);">–</span>
-            <input type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
-                   class="px-2 py-1.5 rounded-md text-xs" title="Entered pipeline on/before"
-                   style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            <input class="list-header-filter {{ (!empty($enteredTo ?? null)) ? 'is-active' : '' }}" type="date" name="entered_to" value="{{ $enteredTo ?? '' }}"
+                   title="Entered pipeline on/before"
+                  >
             <button type="submit" data-tour="buyers-search-btn" class="corex-btn-outline text-xs">Search</button>
             @if(($search ?? '') !== '' || !empty($stateFilter ?? null) || !empty($agentFilter ?? null))
                 <a href="{{ route($indexRouteName ?? 'command-center.buyers.pipeline', array_merge(request()->only('view', 'scope', 'lead_type'), [])) }}"
@@ -191,7 +190,7 @@
                      :style="dragTarget === '{{ $stateKey }}' ? 'outline: 2px solid {{ $stateColour }}; outline-offset: -2px;' : ''">
                     <div class="px-4 py-3 flex items-center justify-between shrink-0" style="border-bottom: 2px solid {{ $stateColour }};">
                         <span class="text-sm font-semibold" style="color: var(--text-primary);">{{ $stateLabel }}</span>
-                        <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, {{ $stateColour }} 15%, transparent); color: {{ $stateColour }};">{{ number_format($counts[$stateKey] ?? 0) }}</span>
+                        <span class="ds-badge ds-badge-pill" style="--ds-badge-c: {{ $stateColour }};">{{ number_format($counts[$stateKey] ?? 0) }}</span>
                     </div>
                     {{-- Column body — fills the column and scrolls inside itself, sidebar-style bar --}}
                     <div class="flex-1 min-h-[8rem] md:min-h-0 p-2 space-y-2 overflow-y-auto corex-brand-scroll">
@@ -232,8 +231,7 @@
                                         <div class="text-xs font-semibold truncate flex items-center gap-1.5">
                                             <span class="truncate" style="color: var(--text-primary);">{{ $buyer->full_name }}</span>
                                             @if($showsMixedTypes)
-                                                <span class="text-[9px] font-bold px-1 py-0.5 rounded whitespace-nowrap flex-shrink-0"
-                                                      style="{{ $buyerIsRental ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);' : 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);' }}">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
+                                                <span class="ds-badge ds-badge-pill {{ $buyerIsRental ? 'ds-badge-info' : 'ds-badge-success' }} flex-shrink-0">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
                                             @endif
                                         </div>
                                         <div class="text-[10px] truncate" style="color: var(--text-muted);">
@@ -244,9 +242,7 @@
                                 </div>
                                 @unless($buyer->hasCountableWishlist())
                                     <div class="mt-1">
-                                        <span class="inline-block text-[10px] font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap"
-                                              style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
-                                              title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                        <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                     </div>
                                 @endunless
                                 <div class="flex items-center justify-between text-[10px] mt-1" style="color: var(--text-muted);">
@@ -347,13 +343,10 @@
                                     {{ $buyer->full_name }}
                                 </a>
                                 @if($showsMixedTypes)
-                                    <span class="inline-block ml-1.5 text-[9px] font-bold px-1 py-0.5 rounded align-middle whitespace-nowrap"
-                                          style="{{ $buyerIsRental ? 'background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color: var(--brand-icon, #0ea5e9);' : 'background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);' }}">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
+                                    <span class="ds-badge ds-badge-pill {{ $buyerIsRental ? 'ds-badge-info' : 'ds-badge-success' }} ml-1.5 align-middle">{{ $buyerIsRental ? 'RENTAL' : 'SALE' }}</span>
                                 @endif
                                 @unless($buyer->hasCountableWishlist())
-                                    <span class="inline-block ml-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-md align-middle whitespace-nowrap"
-                                          style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color: var(--ds-amber, #f59e0b);"
-                                          title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
+                                    <span class="ds-badge ds-badge-pill ds-badge-text ds-badge-warning ml-2 align-middle" title="On the pipeline but has no countable wishlist (search criteria removed), so this {{ $personNoun }} is excluded from all match figures. Add a wishlist to include them.">No core match · not in figures</span>
                                 @endunless
                             </td>
                             <td class="px-4 py-3">
@@ -401,7 +394,7 @@
     <div class="rounded-md overflow-hidden md:shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-4 py-3 flex items-center justify-between" style="border-bottom: 2px solid var(--ds-green, #059669);">
             <span class="text-sm font-semibold" style="color: var(--text-primary);">Won / Success</span>
-            <span class="text-xs px-2 py-0.5 rounded-full font-bold whitespace-nowrap" style="background: color-mix(in srgb, var(--ds-green, #059669) 15%, transparent); color: var(--ds-green, #059669);">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
+            <span class="ds-badge ds-badge-pill ds-badge-success">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
         </div>
         @if($wonBuyers->isEmpty())
             <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a property, they move here automatically.</div>

@@ -182,7 +182,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-amber); color: #fff;">AMENDMENT — APPROVAL REQUIRED</span>
+                                <span class="ds-badge ds-badge-warning ml-2">Amendment — approval required</span>
                             </div>
                             <div class="flex flex-wrap items-center gap-2 mt-2">
                                 <span class="text-xs" style="color: var(--text-muted);">
@@ -280,7 +280,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">RETURNED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Returned</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 The authoriser sent this back for changes. Your signature stays in place — open it, make the changes, initial each change, then resubmit. You do not re-sign the whole document.
@@ -328,7 +328,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FINALISATION FAILED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Finalisation failed</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 Every party signed this document, but generating the signed PDF, filing it, or
@@ -377,7 +377,7 @@
                         <div class="flex-1 min-w-0">
                             <div class="font-semibold" style="color: var(--text-primary);">
                                 {{ $doc->name ?? 'Untitled' }}
-                                <span class="ds-badge ml-2" style="background: var(--ds-crimson); color: #fff;">FLAGGED</span>
+                                <span class="ds-badge ds-badge-danger ml-2">Flagged</span>
                             </div>
                             <div class="text-xs mt-2" style="color: var(--ds-crimson);">
                                 A signing party flagged a clause &mdash; signing is paused until you review it and resolve or re-send the document.

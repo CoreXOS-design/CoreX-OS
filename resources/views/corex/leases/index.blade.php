@@ -14,24 +14,39 @@
         ['sort' => $col, 'direction' => ($sort === $col && $direction === 'asc') ? 'desc' : 'asc']
     ));
     $sortIndicator = fn ($col) => $sort === $col ? ($direction === 'asc' ? ' ▲' : ' ▼') : '';
-    $statusBadgeClass = fn ($status) => match ($status) {
-        'active' => 'ds-badge-success',
-        'draft' => 'ds-badge-muted',
-        'cancelled' => 'ds-badge-danger',
-        default => 'ds-badge-info',
+    $statusTone = fn ($status) => match ($status) {
+        'active' => '--ds-green',
+        'draft' => '--text-muted',
+        'cancelled' => '--ds-crimson',
+        default => '--brand-icon',
+    };
+    $badge = fn (string $tone) => match ($tone) {
+        '--ds-green' => 'ds-badge-success',
+        '--ds-amber' => 'ds-badge-warning',
+        '--ds-crimson' => 'ds-badge-danger',
+        '--brand-icon' => 'ds-badge-info',
+        default => 'ds-badge-muted',
     };
 @endphp
 
-@section('content')
-<div class="p-6 space-y-4" x-data="leasesPropertyFilter({{ Js::from([
+@section('corex-content')
+<div class="w-full space-y-4" x-data="leasesPropertyFilter({{ Js::from([
     'propertyId' => $filteredProperty?->id ?? ($filters['property_id'] ?? ''),
     'propertyLabel' => $filteredProperty?->buildDisplayAddress() ?? '',
 ]) }})">
-    <div class="flex items-center justify-between">
-        <h1 class="text-lg font-semibold">Leases</h1>
-        @permission('leases.create')
-        <a href="{{ route('corex.leases.create') }}" class="corex-btn-primary text-xs">New Lease</a>
-        @endpermission
+    {{-- Page header --}}
+    <div class="rounded-md px-6 py-5 corex-page-banner">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Leases</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every rental tenancy, soonest to expire first, and where each stands.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                @permission('leases.create')
+                <a href="{{ route('corex.leases.create') }}" class="corex-btn-primary text-xs">New Lease</a>
+                @endpermission
+            </div>
+        </div>
     </div>
 
     {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
@@ -83,69 +98,71 @@
         :export-csv-url="route('corex.leases.export', array_merge(request()->query(), ['format' => 'csv']))"
     />
 
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.leases.index') }}" class="flex flex-wrap items-end gap-3">
         @if($showArchived)
             <input type="hidden" name="archived" value="1">
         @endif
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
+            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address or tenant name" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Status</label><br>
-            <select name="status" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
+            <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All statuses</option>
                 @foreach(['draft', 'signed_awaiting_start', 'active', 'expired', 'cancelled'] as $s)
                     <option value="{{ $s }}" @selected(($filters['status'] ?? '') === $s)>{{ $s === 'signed_awaiting_start' ? 'Signed - starts later' : ucfirst($s) }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Agreement</label><br>
-            <select name="agreement" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Agreement</label>
+            <select name="agreement" class="list-header-filter text-sm {{ filled($filters['agreement'] ?? null) ? 'is-active' : '' }}">
+                <option value="">All agreements</option>
                 @foreach(\App\Models\Lease::SIGNING_LABELS as $signingKey => $signingLabel)
                     <option value="{{ $signingKey }}" @selected(($filters['agreement'] ?? '') === $signingKey)>{{ $signingLabel }}</option>
                 @endforeach
             </select>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">Notice terms</label><br>
-            <select name="notice_terms" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" data-qa="lease-filter-notice-terms">
-                <option value="">All</option>
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Notice terms</label>
+            <select name="notice_terms" class="list-header-filter text-sm {{ filled($filters['notice_terms'] ?? null) ? 'is-active' : '' }}" data-qa="lease-filter-notice-terms">
+                <option value="">All notice terms</option>
                 <option value="unconfirmed" @selected(($filters['notice_terms'] ?? '') === 'unconfirmed')>To check — not confirmed</option>
             </select>
         </div>
-        <div class="relative">
-            <label class="text-xs" style="color: var(--text-muted);">Property</label><br>
+        <div class="relative flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">Property</label>
             {{-- Only properties with a lease visible to this user — never
                  every rental property (that's the create form's own job,
                  unaffected). --}}
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties by address…"
-                   class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+                   class="list-header-filter text-sm" :class="{ 'is-active': propertyQuery }">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
-            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto bg-white" style="border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
+            <div class="absolute z-10 mt-1 rounded-md max-h-72 overflow-y-auto" style="top:100%; background: var(--surface); border: 1px solid var(--border);" x-show="propertyResults.length" x-cloak>
                 <template x-for="p in propertyResults" :key="p.id">
-                    <button type="button" @click="selectProperty(p)" class="block w-full text-left px-3 py-2 text-xs hover:bg-slate-50">
+                    <button type="button" @click="selectProperty(p)" class="list-row-hover block w-full text-left px-3 py-2 text-xs" style="color:var(--text-primary);">
                         <span x-text="p.label"></span>
                     </button>
                 </template>
             </div>
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">End date from</label><br>
-            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">End date from</label>
+            <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div>
-            <label class="text-xs" style="color: var(--text-muted);">End date to</label><br>
-            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+        <div class="flex flex-col gap-1">
+            <label class="text-xs font-medium" style="color: var(--text-secondary);">End date to</label>
+            <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <button type="submit" class="corex-btn-outline text-xs">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         @if(request()->hasAny(['q', 'status', 'agreement', 'notice_terms', 'property_id', 'date_from', 'date_to']))
-            <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-xs">Clear</a>
+            <a href="{{ route('corex.leases.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
     </form>
+    </div>
 
     <script>
     function leasesPropertyFilter(old) {
@@ -177,27 +194,28 @@
     @endpermission
     @endfeature
 
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
-                <tr style="border-bottom: 1px solid var(--border);">
-                    @permission('rental_breaches.manage')<th class="px-3 py-2 w-8"><input type="checkbox" aria-label="Tick all running leases" onclick="document.querySelectorAll('input[name=&quot;leases[]&quot;]').forEach(c => c.checked = this.checked)"></th>@endpermission
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('property') }}" style="color: var(--text-muted);">Property{{ $sortIndicator('property') }}</a></th>
-                    <th class="text-left px-4 py-2">Tenant(s)</th>
-                    <th class="text-left px-4 py-2">Agents</th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('status') }}" style="color: var(--text-muted);">Status{{ $sortIndicator('status') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('start_date') }}" style="color: var(--text-muted);">Start{{ $sortIndicator('start_date') }}</a></th>
-                    <th class="text-left px-4 py-2"><a href="{{ $sortLink('end_date') }}" style="color: var(--text-muted);">End{{ $sortIndicator('end_date') }}</a></th>
-                    <th class="text-left px-4 py-2">Rent</th>
+                <tr style="background: var(--surface-2); color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                    @permission('rental_breaches.manage')<th class="px-3 py-3 w-8"><input type="checkbox" aria-label="Tick all running leases" onclick="document.querySelectorAll('input[name=&quot;leases[]&quot;]').forEach(c => c.checked = this.checked)"></th>@endpermission
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('property') }}">Property{{ $sortIndicator('property') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Tenant(s)</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Agents</th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('start_date') }}">Start{{ $sortIndicator('start_date') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ $sortLink('end_date') }}">End{{ $sortIndicator('end_date') }}</a></th>
+                    <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Rent</th>
                     <th></th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($leases as $lease)
-                <tr style="border-bottom: 1px solid var(--border);" data-qa="lease-row-{{ $lease->id }}">
-                    @permission('rental_breaches.manage')<td class="px-3 py-2">@if($lease->status === 'active' && !$lease->trashed())<input type="checkbox" name="leases[]" value="{{ $lease->id }}" form="leases-bulk-form" aria-label="Tick this lease">@endif</td>@endpermission
-                    <td class="px-4 py-2">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-2">
+                <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="lease-row-{{ $lease->id }}">
+                    @permission('rental_breaches.manage')<td class="px-3 py-3">@if($lease->status === 'active' && !$lease->trashed())<input type="checkbox" name="leases[]" value="{{ $lease->id }}" form="leases-bulk-form" aria-label="Tick this lease">@endif</td>@endpermission
+                    <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $lease->property?->trashed() ? ' (archived)' : '' }}</td>
+                    <td class="px-4 py-3">
                         <div>{{ $lease->tenantNames() }}</div>
                         @if($lease->landlordContacts()->isNotEmpty())
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->landlordNames() }}</div>
@@ -212,27 +230,27 @@
                         @endif
                     </td>
                     {{-- leases.md §17 — the lease's own owner's agent / tenant's agent (a lease not yet back-filled shows a dash). --}}
-                    <td class="px-4 py-2" data-qa="lease-agents-cell">
+                    <td class="px-4 py-3" data-qa="lease-agents-cell">
                         <div class="text-xs"><span style="color: var(--text-muted);">Owner:</span> {{ $lease->ownerAgent?->name ?: '—' }}</div>
                         <div class="text-xs"><span style="color: var(--text-muted);">Tenant:</span> {{ $lease->tenantAgent?->name ?: '—' }}</div>
                     </td>
-                    <td class="px-4 py-2">
+                    <td class="px-4 py-3">
                         @if($showArchived)
-                            <span class="ds-badge ds-badge-muted">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
+                            <span class="ds-badge {{ $badge('--text-muted') }}">Archived {{ $lease->deleted_at?->format('Y-m-d') }}</span>
                             <div class="text-xs mt-0.5" style="color: var(--text-muted);">
                                 Was {{ $lease->archived_from_status ?: $lease->status }}@if($lease->archive_reason) — {{ \Illuminate\Support\Str::limit($lease->archive_reason, 80) }}@endif
                             </div>
                         @else
-                            <span class="ds-badge {{ $statusBadgeClass($lease->status) }}">{{ $lease->displayStatus() }}</span>
+                            <span class="ds-badge {{ $badge($statusTone($lease->status)) }}">{{ $lease->displayStatus() }}</span>
                             @if($lease->signingStatusLabel())
                                 <div class="text-xs mt-0.5" style="color: var(--text-muted);">{{ $lease->signingStatusLabel() }}</div>
                             @endif
                         @endif
                     </td>
-                    <td class="px-4 py-2">{{ $lease->start_date?->format('Y-m-d') }}</td>
-                    <td class="px-4 py-2">{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>
-                    <td class="px-4 py-2">R{{ number_format((float) $lease->rental_amount, 2) }}</td>
-                    <td class="px-4 py-2 text-right">
+                    <td class="px-4 py-3">{{ $lease->start_date?->format('Y-m-d') }}</td>
+                    <td class="px-4 py-3">{{ $lease->end_date?->format('Y-m-d') ?? ($lease->is_month_to_month ? 'Month-to-month' : '—') }}</td>
+                    <td class="px-4 py-3">R{{ number_format((float) $lease->rental_amount, 2) }}</td>
+                    <td class="px-4 py-3 text-right">
                         @if($showArchived)
                             {{-- Bringing a draft/active tenancy back needs the cancel permission (leases.md §3.8). --}}
                             @if(auth()->user()->hasPermission('leases.create') && (!in_array($lease->archived_from_status ?: $lease->status, ['draft', 'active'], true) || auth()->user()->hasPermission('leases.cancel')))
@@ -247,7 +265,7 @@
                     </td>
                 </tr>
                 @empty
-                <tr><td colspan="9" class="px-4 py-8 text-center text-sm" style="color: var(--text-muted);">
+                <tr><td colspan="9" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                     @if($showArchived)
                         No archived leases on this agency.
                     @elseif(!$hasAnyLeases)
@@ -259,8 +277,12 @@
                 @endforelse
             </tbody>
         </table>
+        </div>
+        @if($leases->hasPages())
+        <div class="px-5 py-4" style="border-top:1px solid var(--border);">
+            {{ $leases->links() }}
+        </div>
+        @endif
     </div>
-
-    {{ $leases->links() }}
 </div>
 @endsection

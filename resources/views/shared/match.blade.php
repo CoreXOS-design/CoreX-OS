@@ -129,7 +129,7 @@
             @else
                 <div class="text-lg font-bold tracking-tight text-white">{{ $agency->name ?? 'Property Matches' }}</div>
             @endif
-            <span class="ds-badge" style="background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2);">
+            <span class="ds-badge ds-badge-pill" style="background: rgba(255,255,255,0.1); color: #fff; border-color: rgba(255,255,255,0.2);">
                 Property Matches
             </span>
         </div>

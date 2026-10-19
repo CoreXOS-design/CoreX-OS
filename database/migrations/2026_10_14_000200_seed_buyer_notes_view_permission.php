@@ -92,7 +92,9 @@ return new class extends Migration
 
     public function down(): void
     {
-        DB::table('role_permissions')->where('permission_key', self::KEY)->delete();
-        DB::table('assistant_assignment_permissions')->where('permission_key', self::KEY)->delete();
+        // Audit fix 2026-10-18: soft delete (was a hard delete) - rows may have been customised per agency since up().
+        $now = now();
+        DB::table('role_permissions')->where('permission_key', self::KEY)->whereNull('deleted_at')->update(['deleted_at' => $now]);
+        DB::table('assistant_assignment_permissions')->where('permission_key', self::KEY)->whereNull('deleted_at')->update(['deleted_at' => $now]);
     }
 };

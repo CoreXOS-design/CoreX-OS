@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Agency;
+use App\Services\Features\AgencyFeatureService;
 use App\Services\Rentals\LeaseAutoMonthToMonthService;
 use Illuminate\Console\Command;
 
@@ -28,6 +29,11 @@ class AutoMonthToMonthLeases extends Command
         $switched = 0;
 
         foreach (Agency::all() as $agency) {
+            // Rentals / Leases switched off for this agency: its leases are left exactly as they are (C-F5, release audit 2026-10-18).
+            if (! app(AgencyFeatureService::class)->enabled('rental-leases', $agency)) {
+                continue;
+            }
+
             foreach ($service->dueFor($agency, null, $only) as $lease) {
                 $due++;
                 $line = "lease #{$lease->id} (agency {$agency->id}) ended {$lease->end_date->format('Y-m-d')}";

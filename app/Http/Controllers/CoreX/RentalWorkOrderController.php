@@ -399,7 +399,8 @@ class RentalWorkOrderController extends Controller
         $followUp = null;
         $observationIds = array_filter((array) $request->get('observation_ids', []));
         if ($request->filled('rental_inspection_id') && !empty($observationIds)) {
-            $inspection = \App\Models\RentalInspection::find($request->get('rental_inspection_id'));
+            // Audit 2026-10-18 (A-L8): only an inspection this user may see can pre-fill the form.
+            $inspection = \App\Models\RentalInspection::query()->visibleTo($user)->find($request->get('rental_inspection_id'));
             if ($inspection) {
                 $followUp = app(RentalInspectionFollowUpService::class)->buildWorkOrderPrefill(
                     $inspection,
@@ -497,6 +498,11 @@ class RentalWorkOrderController extends Controller
         );
         $user = $request->user();
 
+        // Audit 2026-10-18 (A-L9): the observation must belong to an inspection of THIS property that the user may see.
+        if (!empty($validated['reported_inspection_observation_id'])) {
+            abort_unless($this->observationsBelongToVisibleInspection($user, $property->id, [$validated['reported_inspection_observation_id']]), 404);
+        }
+
         // AT-442 fix #1 — "the lease wins" (Johan's ruling): never trust a
         // property_id posted alongside a lease_id without checking they
         // agree. A stale/independently-resolved lease_id (e.g. left over
@@ -529,6 +535,31 @@ class RentalWorkOrderController extends Controller
         $workOrder = $service->report($property, $attributes);
 
         return redirect()->route('corex.rental-work-orders.show', $workOrder)->with('success', 'Work order logged.');
+    }
+
+    /**
+     * Audit 2026-10-18 (A-L9): true only when every id is a real observation (agency-scoped) on an inspection of $propertyId
+     * (optionally the named $inspectionId) that $user may see.
+     *
+     * @param array<int, mixed> $observationIds
+     */
+    private function observationsBelongToVisibleInspection(\App\Models\User $user, int $propertyId, array $observationIds, ?int $inspectionId = null): bool
+    {
+        $ids = array_values(array_unique(array_map('intval', $observationIds)));
+        if ($ids === []) {
+            return true;
+        }
+
+        $count = \App\Models\RentalInspectionObservation::query()
+            ->whereIn('id', $ids)
+            ->whereIn('rental_inspection_id', \App\Models\RentalInspection::query()
+                ->visibleTo($user)
+                ->where('property_id', $propertyId)
+                ->when($inspectionId, fn ($q) => $q->whereKey($inspectionId))
+                ->select('rental_inspections.id'))
+            ->count();
+
+        return $count === count($ids);
     }
 
     /**
@@ -570,6 +601,24 @@ class RentalWorkOrderController extends Controller
             404
         );
         $user = $request->user();
+
+        // Audit 2026-10-18 (A-L9): every observation in the batch must belong to an inspection of THIS property that the user may
+        // see, and the named inspection (if any) must be that one - nothing from another agency or another property is "used up".
+        abort_unless(
+            $this->observationsBelongToVisibleInspection(
+                $user,
+                $property->id,
+                array_column($validated['batch_items'], 'observation_id'),
+                $validated['rental_inspection_id'] ?? null,
+            ),
+            404
+        );
+        if (!empty($validated['rental_inspection_id'])) {
+            abort_unless(
+                \App\Models\RentalInspection::query()->visibleTo($user)->whereKey($validated['rental_inspection_id'])->where('property_id', $property->id)->exists(),
+                404
+            );
+        }
         $created = [];
 
         foreach ($validated['batch_items'] as $item) {
