@@ -197,8 +197,10 @@ class RentalInspectionController extends Controller
             $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — scheduled anyway, parties are still notified.";
         }
 
-        $redirect = redirect()->route('corex.rental-inspections.show', $inspection)
-            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}.");
+        // Audit B33 - a scheduled inspection lands on its NEXT ACTION: the property's Inspections tab, where it waits with its Start control and
+        // where the agent records on the day (the same place Start-now lands) - not the read-only agency-level page, a dead end with no way to act.
+        $redirect = redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
+            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}. Start it here when you arrive.");
 
         return $warning ? $redirect->with('warning', $warning) : $redirect;
     }

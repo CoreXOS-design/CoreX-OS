@@ -87,12 +87,16 @@ class RentalInspectionObservation extends Model
         'window_decision_by_user_id',
         'window_decision_at',
         'client_idempotency_key',
+        'received_at',
+        'added_after_signing_at',
         'created_at',
     ];
 
     protected $casts = [
         'reported_outside_window' => 'boolean',
         'window_decision_at' => 'datetime',
+        'received_at' => 'datetime',
+        'added_after_signing_at' => 'datetime',
         'created_at' => 'datetime',
     ];
 
@@ -150,7 +154,9 @@ class RentalInspectionObservation extends Model
      */
     public function scopeRecorded(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
     {
-        return $query->where('condition', '!=', self::CONDITION_PENDING);
+        // Audit B9 - an observation that arrived late, after the report was signed or completed, is evidence on file but never the item's
+        // current condition (the signed report body does not change), so it is not "recorded" in this sense.
+        return $query->where('condition', '!=', self::CONDITION_PENDING)->whereNull('added_after_signing_at');
     }
 
     /**

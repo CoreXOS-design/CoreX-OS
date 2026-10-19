@@ -757,6 +757,40 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             ->exists();
     }
 
+    /**
+     * Audit B9 - the moment this report's content was locked: the earlier of its completion and its first live signature (signed or wet
+     * ink). Null while nothing has locked it.
+     */
+    public function contentLockedAt(): ?\Illuminate\Support\Carbon
+    {
+        $firstSignature = $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->min('disposition_recorded_at');
+        $times = collect([
+            $this->status === self::STATUS_COMPLETED ? $this->completed_at : null,
+            $firstSignature ? \Illuminate\Support\Carbon::parse($firstSignature) : null,
+        ])->filter();
+
+        return $times->isEmpty() ? null : $times->sortBy(fn ($t) => $t->getTimestamp())->first();
+    }
+
+    /**
+     * Audit B9 (spec 14.4 case 4) - may a write be taken in even though the report is locked (signed or completed)? Yes when it is OFFLINE
+     * evidence: it carries the app's own capture time and that moment is not after the lock - the fact happened before the report was
+     * locked, only the signal arrived late. A cancelled or archived inspection never takes it (nothing would ever show it), and a write
+     * with no capture time, or captured after the lock, is a live change to a locked report and stays refused.
+     */
+    public function acceptsLateEvidence(?\Illuminate\Support\Carbon $capturedAt): bool
+    {
+        if ($capturedAt === null || $this->trashed() || $this->status === self::STATUS_CANCELLED) {
+            return false;
+        }
+        $lockedAt = $this->contentLockedAt();
+
+        return $lockedAt !== null && $capturedAt->lte($lockedAt);
+    }
+
     /** The one guard for changing a report's CONTENT (conditions, notes, photos, details): recordable AND not signed-locked. */
     public function assertContentEditable(): void
     {
@@ -877,6 +911,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function isAddedAfterSent(RentalInspectionObservation $observation): bool
     {
+        // Audit B9 - late offline evidence stored after the report was signed or completed is flagged on the row itself.
+        if ($observation->added_after_signing_at !== null) {
+            return true;
+        }
+
         return $this->status === self::STATUS_COMPLETED
             && $this->completed_at !== null
             && $observation->source === RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT
@@ -1175,6 +1214,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         }
         $this->guardUngradedItems('start the signing window');
         $this->guardMissingRequiredNotes('start the signing window');
+        // Audit B12 - who was present is asked BEFORE anyone signs, not only at Complete after every signature is collected (a party who
+        // signs from their own link still needs an attendance row, so the question cannot wait until the end).
+        $this->guardAttendanceRecorded('start the signing window');
 
         // §52 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
         if (RentalInspectionSetting::ruleFor($this->agency_id, 'photos_required_to_sign')) {

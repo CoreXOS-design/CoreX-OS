@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Property;
+use App\Models\RentalInspection;
+use App\Models\RentalInspectionPhoto;
 use App\Models\User;
+use App\Services\Images\PrivateImageStore;
 use App\Services\Images\PropertyImageStorer;
 use App\Services\Images\PropertyThumbnailService;
 use Illuminate\Http\JsonResponse;
@@ -87,6 +90,13 @@ class MobileRentalImagesController extends Controller
 
         $section  = $request->section;
         $customId = $request->custom_id;
+
+        // Audit B7 - the In and Out sections ARE the inspection's own photo store now: a photo goes to the inspection under way (private
+        // disk, signed links), the same place the recording screen, comparison, match groups and report read from - not the old flat JSON
+        // list nothing reads. Custom sections stay as they were.
+        if (in_array($section, ['in_inspection', 'out_inspection'], true)) {
+            return $this->uploadToInspection($request, $property, $section);
+        }
 
         // ── Per-photo path (idempotent, commit-verified) ──
         if ($request->hasFile('image')) {
@@ -248,6 +258,14 @@ class MobileRentalImagesController extends Controller
 
         $index = (int) $data['index'];
 
+        // Audit B7 - the In/Out lists are the legacy images followed by the inspection's own photos; an index past the legacy ones is a photo.
+        if ($data['section'] !== 'custom') {
+            $legacyCount = count($property->rentalImagesStructure()[$data['section']]['images']);
+            if ($index >= $legacyCount) {
+                return $this->archiveInspectionPhotoAt($request, $property, $data['section'], $index - $legacyCount);
+            }
+        }
+
         // Row lock: a delete-by-index must not race a concurrent upload/append
         // (which would shift indices) or another delete on the same JSON column.
         DB::transaction(function () use ($property, $data, $index, $request) {
@@ -270,6 +288,116 @@ class MobileRentalImagesController extends Controller
             $locked->rental_images_json = $structure;
             $locked->saveQuietly();
         });
+
+        return response()->json($this->payload($property));
+    }
+
+    // ── Inspection photo store (audit B7) ────────────────────────────────
+
+    private function inspectionTypeFor(string $section): string
+    {
+        return $section === 'in_inspection' ? RentalInspection::TYPE_IN : RentalInspection::TYPE_OUT;
+    }
+
+    /** The inspection of that type a photo is being added to: the one under way; null when none is. */
+    private function currentInspectionFor(Property $property, string $section): ?RentalInspection
+    {
+        return RentalInspection::currentFor($property, $this->inspectionTypeFor($section));
+    }
+
+    /** The photos behind a section's inspection-store images, in the order the list shows them. */
+    private function inspectionPhotosFor(Property $property, string $section)
+    {
+        $inspection = $this->currentInspectionFor($property, $section) ?? RentalInspection::mostRecentFor($property, $this->inspectionTypeFor($section));
+
+        return $inspection
+            ? RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->orderBy('id')->get()
+            : collect();
+    }
+
+    private function uploadToInspection(Request $request, Property $property, string $section): JsonResponse
+    {
+        $inspection = $this->currentInspectionFor($property, $section);
+        if (! $inspection) {
+            return response()->json([
+                'message' => 'There is no ' . ($section === 'in_inspection' ? 'in' : 'out') . '-inspection under way for this property. Start it in CoreX first, then add the photos.',
+                'code' => 'no_inspection_under_way',
+            ], 409);
+        }
+        // the same own/branch/agency reach the recording screen enforces
+        abort_unless(RentalInspection::query()->visibleTo($request->user())->whereKey($inspection->id)->exists(), 404);
+
+        $files = $request->hasFile('image') ? [$request->file('image')] : array_values((array) $request->file('images'));
+        $clientUploadId = trim((string) $request->input('client_upload_id'));
+        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
+        $store = app(PrivateImageStore::class);
+        $directory = "rental-inspections/{$inspection->agency_id}/{$inspection->id}";
+        $photos = [];
+        $duplicate = false;
+        $late = false;
+
+        foreach ($files as $i => $file) {
+            // a retried upload (same client_upload_id) is answered from what is stored - one stable uuid per (inspection, key)
+            $key = ($clientUploadId !== '' && count($files) === 1)
+                ? \Ramsey\Uuid\Uuid::uuid5('6ba7b810-9dad-11d1-80b4-00c04fd430c8', $inspection->id . '|' . $clientUploadId)->toString()
+                : null;
+            if ($key && ($existing = RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()->where('client_idempotency_key', $key)->first())) {
+                $photos[] = $existing;
+                $duplicate = true;
+                continue;
+            }
+
+            $capture = $captureTime->resolve($file, is_string($request->input('captured_at')) ? $request->input('captured_at') : null, ['rental_inspection_id' => $inspection->id, 'user_id' => $request->user()->id]);
+
+            try {
+                $inspection->assertContentEditable();
+            } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+                // spec 14.4 case 4: offline evidence captured before the report was locked is stored, flagged - never lost to a 409
+                $isReal = $capture['taken_at_source'] !== RentalInspectionPhoto::TAKEN_AT_SERVER;
+                if (! $isReal || ! $inspection->acceptsLateEvidence($capture['taken_at'])) {
+                    return response()->json(['message' => $e->getMessage(), 'code' => 'not_recordable'], 409);
+                }
+                $late = true;
+            }
+
+            $reference = $store->store($file, $directory);
+            $photos[] = RentalInspectionPhoto::create(array_filter([
+                'agency_id' => $inspection->agency_id,
+                'rental_inspection_id' => $inspection->id,
+                'storage_path' => $reference,
+                'uploaded_by_user_id' => $request->user()->id,
+                'client_idempotency_key' => $key,
+                'file_size_bytes' => $file->getSize(),
+                'taken_at' => $capture['taken_at'],
+                'taken_at_source' => $capture['taken_at_source'],
+                'added_after_signing_at' => $late ? now() : null,
+            ], fn ($v) => $v !== null));
+        }
+
+        return response()->json(
+            $this->payload($property) + [
+                'uploaded' => collect($photos)->map(fn ($p) => $p->storage_path)->values()->all(),
+                'duplicate' => $duplicate,
+            ] + ($late ? ['added_after_signing' => true, 'message' => 'Recorded, but this inspection was already signed or completed - it is on file as added after signing.'] : []),
+            $duplicate && count($photos) === 1 ? 200 : 201
+        );
+    }
+
+    /** Remove one inspection-store photo from the In/Out list - ARCHIVED (never deleted), same as the recording screen's own remove. */
+    private function archiveInspectionPhotoAt(Request $request, Property $property, string $section, int $offset): JsonResponse
+    {
+        $photo = $this->inspectionPhotosFor($property, $section)->values()->get($offset);
+        if (! $photo) {
+            return response()->json($this->payload($property));
+        }
+        $inspection = RentalInspection::findOrFail($photo->rental_inspection_id);
+        abort_unless(RentalInspection::query()->visibleTo($request->user())->whereKey($inspection->id)->exists(), 404);
+        try {
+            $inspection->assertContentEditable();
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException $e) {
+            return response()->json(['message' => $e->getMessage(), 'code' => 'not_recordable'], 409);
+        }
+        $photo->archive($request->user());
 
         return response()->json($this->payload($property));
     }
@@ -352,7 +480,8 @@ class MobileRentalImagesController extends Controller
             ], 422));
         }
 
-        if (!$property->isOnMarket()) {
+        // Audit B7 - a LET property is off the market but is exactly when its inspections happen (an In needs an active lease).
+        if (!$property->isOnMarket() && !$property->isLetOrRented()) {
             abort(response()->json([
                 'message' => 'Rental inspections become available once the property is listed and live.',
                 'code'    => 'not_live',
@@ -371,17 +500,26 @@ class MobileRentalImagesController extends Controller
         return [
             'property_id'  => $property->id,
             'listing_type' => $property->listing_type,
-            'is_live'      => $property->isOnMarket(),
+            'is_live'      => $property->isOnMarket() || $property->isLetOrRented(),
             'available'    => true, // guard() already proved eligibility
             'rental_images' => [
-                'in_inspection'  => $this->absolutiseSection($structure['in_inspection']),
-                'out_inspection' => $this->absolutiseSection($structure['out_inspection']),
+                'in_inspection'  => $this->absolutiseSection($this->withInspectionPhotos($property, 'in_inspection', $structure['in_inspection'])),
+                'out_inspection' => $this->absolutiseSection($this->withInspectionPhotos($property, 'out_inspection', $structure['out_inspection'])),
                 'custom'         => array_map(
                     fn (array $sec) => $this->absolutiseSection($sec),
                     $structure['custom']
                 ),
             ],
         ];
+    }
+
+    /** Audit B7 - an In/Out section lists the legacy images first, then the inspection's own photos (signed links, already absolute). */
+    private function withInspectionPhotos(Property $property, string $section, array $sectionData): array
+    {
+        $urls = $this->inspectionPhotosFor($property, $section)->map(fn ($p) => $p->storage_path)->values()->all();
+        $sectionData['images'] = array_values(array_merge($sectionData['images'] ?? [], $urls));
+
+        return $sectionData;
     }
 
     /** Absolutise the images of one section, leaving date/id/name intact. */

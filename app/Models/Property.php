@@ -2880,7 +2880,16 @@ class Property extends Model
      */
     public function rentalInspectionsAvailable(): bool
     {
-        return strtolower((string) $this->listing_type) === 'rental' && $this->isOnMarket();
+        return strtolower((string) $this->listing_type) === 'rental' && ($this->isOnMarket() || $this->isLetOrRented());
+    }
+
+    /**
+     * Audit B7 - a let property is OFF the market ('let_out' / 'rented' are in OFF_MARKET_STATUSES) yet it is exactly when its inspections
+     * happen (In needs an active lease, which sets let_out). So "available for rental inspections" is on-market OR let/rented.
+     */
+    public function isLetOrRented(): bool
+    {
+        return in_array(strtolower(str_replace(' ', '_', trim((string) $this->status))), ['let_out', 'rented'], true);
     }
 
     /**

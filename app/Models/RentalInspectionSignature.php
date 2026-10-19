@@ -64,6 +64,7 @@ class RentalInspectionSignature extends Model
         'refusal_reason_preset',
         'refusal_reason_note',
         'recorded_by_user_id',
+        'client_idempotency_key',
         'disposition_recorded_at',
         'superseded_at',
         'superseded_by_signature_id',

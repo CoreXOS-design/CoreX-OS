@@ -39,9 +39,7 @@ class RentalInspectionAddedAfterSentService
      */
     public function entriesFor(RentalInspection $inspection): Collection
     {
-        if ($inspection->status !== RentalInspection::STATUS_COMPLETED || ! $inspection->completed_at) {
-            return collect();
-        }
+        $completed = $inspection->status === RentalInspection::STATUS_COMPLETED && $inspection->completed_at;
 
         $agencyId = $inspection->agency_id;
         $conditionLabels = collect(RentalInspectionSetting::conditionStatesFor($agencyId))->pluck('label', 'key');
@@ -57,10 +55,62 @@ class RentalInspectionAddedAfterSentService
 
         $entries = collect();
 
+        // Audit B9 - offline evidence that arrived after the report was signed or completed (flagged on the row) is listed whatever the
+        // inspection's status; the tenant-fault-report and move-out-finding entries below only exist once it has been completed.
+        $lateObservations = RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $inspection->id)
+            ->whereNotNull('added_after_signing_at')
+            ->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)
+            ->orderBy('id')
+            ->get();
+        $latePhotos = RentalInspectionPhoto::withoutGlobalScopes()
+            ->where('rental_inspection_id', $inspection->id)
+            ->whereNotNull('added_after_signing_at')
+            ->whereNull('deleted_at')
+            ->orderBy('id')->get();
+        $latePhotosByObservation = $latePhotos->groupBy('rental_inspection_observation_id');
+        foreach ($lateObservations as $o) {
+            $item = $items->get($o->rental_inspection_item_id);
+            $entries->push([
+                'kind' => 'late_observation',
+                'kind_label' => 'Recorded offline - added after signing',
+                'room' => $item?->room?->label,
+                'item' => $item?->label ?? 'Unknown item',
+                'headline' => $conditionLabels->get($o->condition) ?? ucfirst(str_replace('_', ' ', (string) $o->condition)),
+                'note' => $o->notes,
+                'at' => $o->added_after_signing_at,
+                'by' => $this->who($o),
+                'photos' => $latePhotosByObservation->get($o->id) ?? collect(),
+            ]);
+        }
+        // A late photo whose observation is not itself a late one (it hangs on an earlier observation or a room) is listed on its own.
+        $lateObservationIds = $lateObservations->pluck('id');
+        $roomLabels = \App\Models\PropertyRoom::withoutGlobalScopes()->whereIn('id', $latePhotos->pluck('property_room_id')->filter())->pluck('label', 'id');
+        foreach ($latePhotos->reject(fn ($p) => $p->rental_inspection_observation_id && $lateObservationIds->contains($p->rental_inspection_observation_id)) as $p) {
+            $observation = $p->rental_inspection_observation_id ? RentalInspectionObservation::withoutGlobalScopes()->find($p->rental_inspection_observation_id) : null;
+            $item = $observation ? $items->get($observation->rental_inspection_item_id) : null;
+            $entries->push([
+                'kind' => 'late_photo',
+                'kind_label' => 'Photo recorded offline - added after signing',
+                'room' => $item?->room?->label ?? ($p->property_room_id ? ($roomLabels[$p->property_room_id] ?? null) : null),
+                'item' => $item?->label ?? 'Photo',
+                'headline' => 'Photo',
+                'note' => null,
+                'at' => $p->added_after_signing_at,
+                'by' => $p->uploaded_by_user_id ? (User::withoutGlobalScopes()->find($p->uploaded_by_user_id)?->name ?? 'Unknown') : 'Unknown',
+                'photos' => collect([$p]),
+            ]);
+        }
+
+        if (! $completed) {
+            return $entries->sortBy(fn (array $e) => $e['at']?->getTimestamp() ?? 0)->values();
+        }
+
         $observations = RentalInspectionObservation::withoutGlobalScopes()
             ->where('rental_inspection_id', $inspection->id)
             ->where('source', RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT)
             ->where('condition', '!=', RentalInspectionObservation::CONDITION_PENDING)
+            ->whereNull('added_after_signing_at')
             ->where('created_at', '>=', $inspection->completed_at)
             ->orderBy('id')
             ->get();

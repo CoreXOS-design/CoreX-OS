@@ -72,6 +72,29 @@ class RentalInspectionPhotoCaptureTime
         return ['taken_at' => $claim, 'taken_at_source' => $source];
     }
 
+    /**
+     * Audit B8 - the app's own capture time for a record that is not a photo (an observation): the claim when it is a usable time, else
+     * null ("no claim"). Same absorb-never-break rule as photos: a missing, malformed or implausible value is no claim, and one later than now
+     * + the clock-skew allowance is rejected (logged) - the record is then stamped with the moment the server received it.
+     */
+    public function clientTime(?string $clientCapturedAt, array $logContext = []): ?Carbon
+    {
+        $claim = $this->parseClientTime($clientCapturedAt);
+        if ($claim === null) {
+            return null;
+        }
+        if ($claim->gt(now()->addMinutes(self::CLOCK_SKEW_MINUTES))) {
+            Log::warning('Rental inspection record: capture time in the future rejected - stamped with the server receive time', $logContext + [
+                'claimed_captured_at' => $claim->toIso8601String(),
+                'received_at' => now()->toIso8601String(),
+            ]);
+
+            return null;
+        }
+
+        return $claim;
+    }
+
     /** @return array{taken_at: Carbon, taken_at_source: string} */
     private function serverTime(): array
     {

@@ -7980,6 +7980,8 @@
                     if (!entry || entry.stamp !== stamp || entry.list !== list) {
                         const byItem = new Map();
                         list.forEach(o => {
+                            // Audit B9 - evidence that arrived after the report was signed/completed is on file but is never the item's condition.
+                            if (o.added_after_signing_at) return;
                             const k = o.rental_inspection_item_id;
                             if (!byItem.has(k)) byItem.set(k, []);
                             byItem.get(k).push(o);

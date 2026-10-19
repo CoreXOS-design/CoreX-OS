@@ -48,6 +48,7 @@ class RentalInspectionPhoto extends Model
         'file_size_bytes',
         'taken_at',
         'taken_at_source',
+        'added_after_signing_at',
         'created_at',
     ];
 
@@ -85,6 +86,7 @@ class RentalInspectionPhoto extends Model
         'created_at' => 'datetime',
         'tagged_at' => 'datetime',
         'taken_at' => 'datetime',
+        'added_after_signing_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
 
@@ -202,7 +204,8 @@ class RentalInspectionPhoto extends Model
 
     public function getTakenCaptionAttribute(): string
     {
-        return $this->captionLabel();
+        // Audit B9 - evidence that arrived after the report was signed or completed says so wherever the caption is shown.
+        return $this->captionLabel() . ($this->added_after_signing_at !== null ? ' · added after signing' : '');
     }
 
     /** "12 Aug 14:03" for a real capture time, "Uploaded 14:03" when only the upload time is known. */
@@ -213,9 +216,11 @@ class RentalInspectionPhoto extends Model
             return '';
         }
 
-        return ($this->taken_at_source ?: self::TAKEN_AT_SERVER) === self::TAKEN_AT_SERVER
+        $short = ($this->taken_at_source ?: self::TAKEN_AT_SERVER) === self::TAKEN_AT_SERVER
             ? 'Uploaded ' . $takenAt->format('H:i')
             : $takenAt->format('d M H:i');
+
+        return $this->added_after_signing_at !== null ? $short . ' · late' : $short;
     }
 
     public function isUntagged(): bool

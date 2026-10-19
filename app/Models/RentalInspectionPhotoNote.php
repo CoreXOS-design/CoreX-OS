@@ -55,6 +55,7 @@ class RentalInspectionPhotoNote extends Model
         'created_by_user_id',
         'updated_by_user_id',
         'archived_by_user_id',
+        'client_idempotency_key',
     ];
 
     protected $casts = [
