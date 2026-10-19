@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services\Marketing;
 
+use App\Models\AdSchedulePattern;
 use App\Models\AgentSocialAccount;
 use App\Models\CompanyAd;
 use App\Models\Property;
@@ -29,6 +30,12 @@ final class ScheduledPostService
     public const MAX_LEAD_DAYS    = 60;
 
     public const PLATFORMS = ['facebook' => 'Facebook', 'instagram' => 'Instagram'];
+
+    /** "Schedule by agent" (§D.9): minutes between one agent's post and the next on the same day. */
+    public const MIN_GAP_MINUTES = 5;
+    public const MAX_GAP_MINUTES = 240;
+    /** Most ads one "Schedule by agent" batch may hold (a full week for a large office). */
+    public const MAX_AGENT_BATCH = 150;
 
     public function __construct(private readonly ScheduledPostImages $images) {}
 
@@ -99,6 +106,158 @@ final class ScheduledPostService
         $this->assertInWindow($slots[$count - 1]);
 
         return $slots;
+    }
+
+    /**
+     * "Schedule by agent" (§D.9): each agent's 1st ad goes out on the first chosen day, the 2nd on the second day,
+     * and so on. Within a day the agents post one after the other in the chosen order, $gap minutes apart, from
+     * $time. An agent with fewer ads posts on fewer days (the first ones); an agent with more ads than days is
+     * refused, naming the agent. Every day follows the same agent order: $agentOrder as the window showed it
+     * (A to Z, or the user's own order), any agent missing from it after them A to Z.
+     *
+     * @param  array<int, array{0:int, 1:string}>  $agentOf  item index => [agent user id (0 = no agent), agent name], in batch order
+     * @param  list<string>  $days  local dates, Y-m-d
+     * @param  list<int>  $agentOrder  agent user ids, first to last
+     * @return array<int, Carbon>  item index => UTC instant
+     * @throws ScheduleException
+     */
+    public function planByAgent(array $agentOf, array $days, string $time, int $gap, array $agentOrder = []): array
+    {
+        $days = array_values(array_unique(array_map('strval', $days)));
+        sort($days);
+        if ($days === []) {
+            throw new ScheduleException('Tick at least one day to post on.');
+        }
+        if ($gap < self::MIN_GAP_MINUTES || $gap > self::MAX_GAP_MINUTES) {
+            throw new ScheduleException('The time between agents must be ' . self::MIN_GAP_MINUTES . ' to ' . self::MAX_GAP_MINUTES . ' minutes.');
+        }
+
+        $groups = [];
+        $names  = [];
+        foreach ($agentOf as $i => [$agentId, $name]) {
+            $groups[(int) $agentId][] = $i;
+            $names[(int) $agentId]    = (string) $name;
+        }
+
+        $tooMany = [];
+        foreach ($groups as $agentId => $items) {
+            if (count($items) > count($days)) {
+                $tooMany[] = $names[$agentId] . ' has ' . count($items) . ' ads';
+            }
+        }
+        if ($tooMany !== []) {
+            $dayWord = count($days) === 1 ? '1 day is' : count($days) . ' days are';
+            throw new ScheduleException(implode(', ', $tooMany) . ', but only ' . $dayWord . ' ticked. Each agent gets one ad per day: remove ads or tick more days.');
+        }
+
+        $agents = $this->orderAgents($names, $agentOrder);
+        $tz     = $this->timezone();
+        $slots  = [];
+
+        foreach ($days as $d => $day) {
+            $start    = $this->toUtc($day, $time);
+            $position = 0;
+            foreach ($agents as $agentId) {
+                if (! isset($groups[$agentId][$d])) {
+                    continue;
+                }
+                $at = $start->copy()->addMinutes($position * $gap);
+                if ($at->copy()->setTimezone($tz)->format('Y-m-d') !== $day) {
+                    throw new ScheduleException('The posts on ' . Carbon::parse($day, $tz)->format('l j F') . ' would run past midnight. Start earlier or make the time between agents shorter.');
+                }
+                $slots[$groups[$agentId][$d]] = $at;
+                $position++;
+            }
+        }
+
+        // The earliest must clear the 5-minute rule and the last the 60-day rule.
+        $ordered = collect($slots)->sortBy(fn (Carbon $c) => $c->getTimestamp())->values();
+        $this->assertInWindow($ordered->first());
+        $this->assertInWindow($ordered->last());
+
+        ksort($slots);
+
+        return $slots;
+    }
+
+    /**
+     * Agent ids in posting order: the given ids first (in that order), any agent not in the list after them A to Z
+     * by name. Listings with no agent (id 0) always come last.
+     *
+     * @param  array<int, string>  $names  agent id => name
+     * @param  list<int>  $agentOrder
+     * @return list<int>
+     */
+    public function orderAgents(array $names, array $agentOrder = []): array
+    {
+        $alpha = array_keys($names);
+        usort($alpha, function (int $a, int $b) use ($names): int {
+            if (($a === 0) !== ($b === 0)) {
+                return $a === 0 ? 1 : -1;
+            }
+
+            return strnatcasecmp($names[$a], $names[$b]) ?: $a <=> $b;
+        });
+
+        $custom = array_values(array_filter(
+            array_unique(array_map('intval', $agentOrder)),
+            fn (int $id) => $id !== 0 && array_key_exists($id, $names)
+        ));
+
+        return array_values(array_merge($custom, array_diff($alpha, $custom)));
+    }
+
+    /**
+     * The user's last "Schedule by agent" pattern in the agency they are working in, for the Schedule window's
+     * defaults; null when they have never used it there.
+     *
+     * @return array{weekdays:list<int>, time:string, gap:int, order:string, agents:list<int>}|null
+     */
+    public function savedPattern(User $user): ?array
+    {
+        $row = AdSchedulePattern::query()
+            ->where('agency_id', (int) $user->effectiveAgencyId())
+            ->where('user_id', $user->id)
+            ->first();
+
+        return $row ? [
+            'weekdays' => array_values(array_map('intval', (array) $row->weekdays)),
+            'time'     => (string) $row->first_time,
+            'gap'      => (int) $row->gap_minutes,
+            'order'    => (string) $row->agent_order,
+            'agents'   => array_values(array_map('intval', (array) ($row->custom_agent_ids ?? []))),
+        ] : null;
+    }
+
+    /**
+     * Remember the pattern. The agent list is kept only for 'custom' - choosing A to Z keeps the user's own order
+     * from before, so switching back to it later brings it back.
+     *
+     * @param list<string> $days @param list<int> $agentOrder
+     */
+    private function rememberPattern(User $user, array $days, string $time, int $gap, string $order, array $agentOrder): void
+    {
+        $agencyId = (int) $user->effectiveAgencyId();
+        $row = AdSchedulePattern::withTrashed()
+            ->where('agency_id', $agencyId)
+            ->where('user_id', $user->id)
+            ->first() ?? new AdSchedulePattern();
+
+        $custom = $order === AdSchedulePattern::ORDER_CUSTOM;
+
+        $row->agency_id = $agencyId;
+        $row->user_id   = $user->id;
+        $row->fill([
+            'weekdays'    => collect($days)->map(fn ($d) => Carbon::parse($d)->isoWeekday())->unique()->sort()->values()->all(),
+            'first_time'  => substr($time, 0, 5),
+            'gap_minutes' => $gap,
+            'agent_order' => $custom ? AdSchedulePattern::ORDER_CUSTOM : AdSchedulePattern::ORDER_ALPHA,
+        ]);
+        if ($custom) {
+            $row->custom_agent_ids = array_values(array_unique(array_map('intval', $agentOrder)));
+        }
+        $row->deleted_at = null;
+        $row->save();
     }
 
     // ── who / what ──────────────────────────────────────────────────────────
@@ -208,15 +367,20 @@ final class ScheduledPostService
     /**
      * Schedule one post per (ad, platform). All or nothing: if any ad or the time is refused, nothing is saved.
      * An item is about a listing (property_id) or a company ad (company_ad_id) - never both.
-     * Mode 'now' (company ads only, Company Ads §7 "Post now"): every post is stored due this minute and the caller
+     * Mode 'now' (company ads, Company Ads §7 "Post now", or one listing ad, §D.10): every post is stored due this minute and the caller
      * publishes it straight away through the same claim + checks as a scheduled post (ScheduledPostPublisher).
+     * Mode 'agents' (listing ads only, §D.9 "Schedule by agent"): the times come from planByAgent() using each
+     * listing's own agent as stored (never a client value); $pattern carries days, gap, order ('alpha'|'custom',
+     * remembered) and agents (the posting order the window showed).
+     * The pattern is remembered for the user in the same transaction.
      *
      * @param  list<array{property_id?:int|string, company_ad_id?:int|string, copy:string, image_path:string}>  $items
      * @param  list<string>  $platforms
+     * @param  array{days?:list<string>, time?:string, gap?:int, order?:string, agents?:list<int>}  $pattern
      * @return Collection<int,PropertyMarketingPost>
      * @throws ScheduleException
      */
-    public function schedule(User $user, array $items, array $platforms, string $mode, string $date, string $time): Collection
+    public function schedule(User $user, array $items, array $platforms, string $mode, string $date, string $time, array $pattern = []): Collection
     {
         $platforms = array_values(array_intersect(array_keys(self::PLATFORMS), $platforms));
         if ($platforms === [] || $items === []) {
@@ -233,12 +397,20 @@ final class ScheduledPostService
         }
 
         if ($mode === 'now') {
-            foreach ($items as $item) {
-                if (empty($item['company_ad_id']) || ! empty($item['property_id'])) {
-                    throw new ScheduleException('Only a company ad can be posted straight away from here.');
-                }
+            // Company ads (any number, Company Ads §7) or ONE listing ad (Ad Manager "Post now", §D.10) - never a
+            // batch of listings at once: that is what scheduling is for.
+            $listings = count(array_filter($items, fn ($item) => ! empty($item['property_id'])));
+            if ($listings > 0 && count($items) > 1) {
+                throw new ScheduleException('Post one listing ad at a time straight away, or schedule them.');
             }
             $slots = array_fill(0, count($items), now()->utc()->startOfSecond());
+        } elseif ($mode === 'agents') {
+            foreach ($items as $item) {
+                if (! empty($item['company_ad_id']) || empty($item['property_id'])) {
+                    throw new ScheduleException('Schedule by agent is for listing ads only.');
+                }
+            }
+            $slots = []; // planned below, once every listing (and so its agent) is known
         } else {
             $slots = $this->plan($mode, $date, $time, count($items));
         }
@@ -266,7 +438,21 @@ final class ScheduledPostService
             $checked[$i] = [$subject, $copy, $path];
         }
 
-        return DB::transaction(function () use ($user, $checked, $platforms, $slots) {
+        if ($mode === 'agents') {
+            $agentOf = [];
+            foreach ($checked as $i => [$subject]) {
+                $agentOf[$i] = [(int) $subject->agent_id, $subject->agent?->name ?? 'Unassigned'];
+            }
+            $slots = $this->planByAgent(
+                $agentOf,
+                (array) ($pattern['days'] ?? []),
+                $time,
+                (int) ($pattern['gap'] ?? 0),
+                (array) ($pattern['agents'] ?? []),
+            );
+        }
+
+        return DB::transaction(function () use ($user, $checked, $platforms, $slots, $mode, $time, $pattern) {
             $created = collect();
             foreach ($checked as $i => [$subject, $copy, $path]) {
                 $isAd = $subject instanceof CompanyAd;
@@ -283,6 +469,10 @@ final class ScheduledPostService
                         'scheduled_for' => $slots[$i],
                     ]));
                 }
+            }
+
+            if ($mode === 'agents') {
+                $this->rememberPattern($user, (array) $pattern['days'], $time, (int) $pattern['gap'], (string) ($pattern['order'] ?? ''), (array) ($pattern['agents'] ?? []));
             }
 
             return $created;
