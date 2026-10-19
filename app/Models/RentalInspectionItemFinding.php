@@ -27,6 +27,25 @@ class RentalInspectionItemFinding extends Model
 
     public const DISPOSITION_WEAR_AND_TEAR = 'wear_and_tear';
     public const DISPOSITION_FLAGGED = 'flagged';
+    // §45.7a (Build I-7) — the three added classifications. `disposition` is string(20), so no schema
+    // change; every value is <= 20 chars. They are the agent's recorded JUDGEMENT only — nothing here
+    // is, or turns into, a money figure (the finance build, parked I-8, will read `charge_tenant` rows).
+    public const DISPOSITION_PRE_EXISTING = 'pre_existing';
+    public const DISPOSITION_LANDLORD_COST = 'landlord_cost';
+    public const DISPOSITION_CHARGE_TENANT = 'charge_tenant';
+
+    /**
+     * The one list of valid dispositions, with the words the screen shows for each. The three new
+     * words are PROVISIONAL — §45.11 item 4 leaves the exact wording to Johan — kept in this single
+     * map so approving or changing one is a one-line edit.
+     */
+    public const DISPOSITION_LABELS = [
+        self::DISPOSITION_WEAR_AND_TEAR => 'Fair wear and tear',
+        self::DISPOSITION_FLAGGED => 'Flag as a genuine difference',
+        self::DISPOSITION_PRE_EXISTING => 'Pre-existing',
+        self::DISPOSITION_LANDLORD_COST => "Landlord's responsibility",
+        self::DISPOSITION_CHARGE_TENANT => 'Charge to tenant',
+    ];
 
     protected $fillable = [
         'agency_id',
@@ -75,7 +94,7 @@ class RentalInspectionItemFinding extends Model
      */
     public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy): self
     {
-        if (! in_array($disposition, [self::DISPOSITION_WEAR_AND_TEAR, self::DISPOSITION_FLAGGED], true)) {
+        if (! array_key_exists($disposition, self::DISPOSITION_LABELS)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
         }
         if (trim($note) === '') {

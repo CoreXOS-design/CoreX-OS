@@ -95,10 +95,53 @@ class RentalInspectionFollowUpService
      */
     public function followUpObservations(RentalInspection $inspection): Collection
     {
-        return $inspection->observations
+        $observations = $inspection->observations
             ->reject(fn (RentalInspectionObservation $o) => $o->isPending())
             ->filter(fn (RentalInspectionObservation $o) => \App\Models\RentalInspectionSetting::conditionNeedsFollowUpFor($inspection->agency_id, $o->condition))
             ->sortBy('id')
+            ->values();
+
+        return $inspection->type === RentalInspection::TYPE_OUT
+            ? $this->orderAgainstMoveIn($inspection, $observations)
+            : $observations;
+    }
+
+    /**
+     * §45.7a item 5 (Build I-7) — on an OUT-inspection the Follow-up list is comparison-aware: a defect
+     * that is new or worse than at move-in comes first, and one that was ALREADY there at move-in (the
+     * item was a problem state then too) is labelled "Already present at move-in" and listed after.
+     * Ordering and the label only: nothing is hidden and nothing is ticked for the agent — raising a
+     * repair record for an old defect stays possible, it is just deliberate. The flag is carried on the
+     * observation as a transient attribute (never saved).
+     *
+     * @param Collection<int, RentalInspectionObservation> $observations
+     * @return Collection<int, RentalInspectionObservation>
+     */
+    private function orderAgainstMoveIn(RentalInspection $inspection, Collection $observations): Collection
+    {
+        if ($observations->isEmpty()) {
+            return $observations;
+        }
+
+        $rows = app(\App\Services\RentalInspectionComparisonService::class)
+            ->compareItems($inspection)
+            ->keyBy(fn (array $row) => $row['item']?->id);
+
+        $alreadyPresent = [
+            \App\Services\RentalInspectionComparisonService::UNCHANGED,
+            \App\Services\RentalInspectionComparisonService::DIFFERENT,
+            \App\Services\RentalInspectionComparisonService::IMPROVED,
+        ];
+
+        return $observations
+            ->each(function (RentalInspectionObservation $o) use ($rows, $inspection, $alreadyPresent) {
+                $row = $rows->get($o->rental_inspection_item_id);
+                $o->setAttribute('already_present_at_move_in', $row !== null
+                    && $row['in_observation'] !== null
+                    && in_array($row['classification'], $alreadyPresent, true)
+                    && \App\Models\RentalInspectionSetting::conditionNeedsFollowUpFor($inspection->agency_id, $row['in_observation']->condition));
+            })
+            ->sortBy(fn (RentalInspectionObservation $o) => [$o->getAttribute('already_present_at_move_in') ? 1 : 0, $o->id])
             ->values();
     }
 

@@ -111,12 +111,13 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $this->assertSame(RentalInspectionComparisonService::UNCHANGED, $rows->first()['classification']);
     }
 
-    public function test_moving_to_good_is_improved(): void
+    /** §45.7a — "better" means a better severity bucket (damaged is red, good is calm), not just a nicer word. */
+    public function test_moving_to_a_better_severity_bucket_is_improved(): void
     {
         $item = $this->item();
         $in = $this->inInspection();
         $out = $this->outInspection();
-        $this->observe($in, $item, 'fair', 'Scuffed on move-in.');
+        $this->observe($in, $item, 'damaged', 'Scuffed on move-in.');
         $this->observe($out, $item, 'good');
 
         $rows = $this->service->compareItems($out);
@@ -142,7 +143,8 @@ final class RentalInspectionComparisonServiceTest extends TestCase
         $this->assertSame('Stove top plates stain marks.', $row['out_observation']->notes);
     }
 
-    public function test_changing_between_two_non_good_values_is_still_declined_not_silently_dropped(): void
+    /** §45.7a — same severity bucket, different state: marked "Different", never auto-called worse, never dropped. */
+    public function test_changing_between_two_problem_states_is_different_not_silently_dropped(): void
     {
         $item = $this->item();
         $in = $this->inInspection();
@@ -152,7 +154,7 @@ final class RentalInspectionComparisonServiceTest extends TestCase
 
         $rows = $this->service->compareItems($out);
 
-        $this->assertSame(RentalInspectionComparisonService::DECLINED, $rows->first()['classification']);
+        $this->assertSame(RentalInspectionComparisonService::DIFFERENT, $rows->first()['classification']);
     }
 
     /**

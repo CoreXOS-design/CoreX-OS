@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItem;
+use App\Models\RentalInspectionItemFinding;
+use App\Models\RentalInventory;
 use App\Services\RentalInspectionComparisonService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,14 +42,40 @@ class RentalInspectionComparisonController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $rentalInspection->load('property', 'lease.tenants.contact');
-        $inInspection = $this->comparison->matchingInInspection($rentalInspection);
 
-        return view('corex.rental-inspections.partials.deposit-comparison-page', [
+        // §45.7a — the baseline is resolved from the tenancy's lease chain inside the service, never from
+        // anything the request carries. Search / filter / sort are plain GET parameters, normalised there
+        // (a malformed value is absorbed to its default, never a 500).
+        $comparison = $this->comparison->buildComparison($rentalInspection, $request->query());
+
+        return view('corex.rental-inspections.partials.deposit-comparison-page', $comparison + [
             'inspection' => $rentalInspection,
-            'inInspection' => $inInspection,
-            'items' => $this->comparison->compareItems($rentalInspection),
-            'headerFacts' => $this->comparison->compareHeaderFacts($inInspection, $rentalInspection),
+            'inInspection' => $comparison['baseline'],
+            'headerFacts' => $this->comparison->compareHeaderFacts($comparison['baseline'], $rentalInspection),
+            'dispositionLabels' => RentalInspectionItemFinding::DISPOSITION_LABELS,
+            'inventoryComparison' => $this->inventoryComparisonFor($request, $rentalInspection),
         ]);
+    }
+
+    /**
+     * §45.7a item 6 — the inventory comparison stays its own page; this screen only LINKS to it. Offered
+     * only for a completed inventory on this tenancy that the viewer is allowed to see, so the link never
+     * reveals an inventory the viewer's own scope would hide.
+     */
+    private function inventoryComparisonFor(Request $request, RentalInspection $inspection): ?RentalInventory
+    {
+        $leaseIds = $this->comparison->tenancyLeaseIds($inspection->lease, $inspection->lease_id);
+        // No inventories permission at all (a null data scope) means no link — and never a lookup that would throw.
+        if ($leaseIds === [] || \App\Services\PermissionService::getDataScope($request->user(), 'rental_inventories') === null) {
+            return null;
+        }
+
+        return RentalInventory::query()
+            ->visibleTo($request->user())
+            ->whereIn('lease_id', $leaseIds)
+            ->where('status', RentalInventory::STATUS_COMPLETED)
+            ->latest('id')
+            ->first();
     }
 
     public function recordFinding(Request $request, RentalInspection $rentalInspection, RentalInspectionItem $rentalInspectionItem): RedirectResponse
@@ -56,7 +84,7 @@ class RentalInspectionComparisonController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'disposition' => ['required', 'in:wear_and_tear,flagged'],
+            'disposition' => ['required', 'in:' . implode(',', array_keys(RentalInspectionItemFinding::DISPOSITION_LABELS))],
             'note' => ['required', 'string', 'max:2000'],
         ]);
 

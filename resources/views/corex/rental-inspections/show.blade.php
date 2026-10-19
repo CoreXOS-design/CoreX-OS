@@ -442,6 +442,7 @@
                                 <span>
                                     {{ $roomLabel }} — {{ $itemLabel }}
                                     <span class="ds-badge {{ $conditionBadgeClass($observation->condition) }}">{{ ucfirst(str_replace('_', ' ', $observation->condition)) }}</span>
+                                    @if($observation->getAttribute('already_present_at_move_in')) <span class="ds-badge ds-badge-muted">Already present at move-in</span> @endif
                                     @if($observation->notes) — <span style="color: var(--text-muted);">{{ $observation->notes }}</span> @endif
                                     @if($observation->photos->isNotEmpty())
                                         <span class="text-xs" style="color: var(--text-muted);">· {{ $observation->photos->count() }} photo(s)</span>
