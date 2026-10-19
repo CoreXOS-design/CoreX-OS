@@ -32,9 +32,17 @@ class AgencySubscription extends Model
     public const PLAN_TEAM   = 'team';
     public const PLAN_AGENCY = 'agency';
 
+    /** Above the last band of the band price list: the fee is on quotation (spec §3 D7). */
+    public const PLAN_QUOTE  = 'quote';
+
+    /** The price lists an agency can be pinned to (config/corex-billing.php, spec §3 D7). */
+    public const PRICE_LIST_TIERS = 'tiers_2026_07';
+    public const PRICE_LIST_BANDS = 'bands_2026_10';
+
     protected $fillable = [
         'agency_id',
         'plan',
+        'price_list',
         'plan_changed_at',
         'custom_amount_zar',
         'custom_amount_note',
@@ -68,15 +76,33 @@ class AgencySubscription extends Model
     {
         if ($agencyId <= 0) {
             return (new self())->forceFill([
-                'agency_id' => null,
-                'plan'      => self::PLAN_TEAM,
+                'agency_id'  => null,
+                'plan'       => self::PLAN_TEAM,
+                'price_list' => self::currentPriceList(),
             ]);
         }
 
+        // A new agency joins on the price list CoreX sells today. Its plan is
+        // settled silently by the first reconcile (SubscriptionReconciler).
         return static::withoutGlobalScopes()->firstOrCreate(
             ['agency_id' => $agencyId],
-            ['plan' => self::PLAN_TEAM, 'plan_changed_at' => now()],
+            ['plan' => self::PLAN_TEAM, 'price_list' => self::currentPriceList(), 'plan_changed_at' => now()],
         );
+    }
+
+    /** The price list a newly created agency is put on. */
+    public static function currentPriceList(): string
+    {
+        return (string) config('corex-billing.price_list', self::PRICE_LIST_BANDS);
+    }
+
+    /**
+     * Is this agency priced by headcount band (rather than the Team / Agency
+     * plans)? A row with no price list recorded follows the current one.
+     */
+    public function usesBands(): bool
+    {
+        return ($this->price_list ?: self::currentPriceList()) === self::PRICE_LIST_BANDS;
     }
 
     /** A custom amount is set — it is the price, and it beats any discount (D5). */

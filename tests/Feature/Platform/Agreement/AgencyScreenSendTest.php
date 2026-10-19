@@ -22,6 +22,8 @@ use Tests\TestCase;
 class AgencyScreenSendTest extends TestCase
 {
     use RefreshDatabase;
+    // Written against the tier-priced agreement (version 1.0): the environment as it was before the band pricing (spec §11.5a).
+    use \Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing;
 
     protected function tearDown(): void
     {

@@ -23,6 +23,8 @@ use Tests\TestCase;
 class AgreementSingleEntryTest extends TestCase
 {
     use RefreshDatabase;
+    // Written against the tier-priced agreement (version 1.0): the environment as it was before the band pricing (spec §11.5a).
+    use \Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing;
 
     private const BANK = ['m_holder' => 'Caprivi Realty (Pty) Ltd', 'm_bank' => 'First National Bank', 'm_branch_no' => '250655', 'm_account' => '62123456789', 'm_account_type' => 'savings'];
 

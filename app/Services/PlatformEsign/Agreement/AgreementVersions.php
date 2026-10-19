@@ -33,6 +33,25 @@ class AgreementVersions
         'quote_above_agents' => ['Show the “quoted rate” notice above this many agents', 'int'],
     ];
 
+    /** The editable pricing of a band-shaped version (spec §11.5a). */
+    public const BAND_RATE_FIELDS = [
+        'band1' => ['Band 1 — monthly fee (R)', 'money'], 'band1_max' => ['Band 1 runs up to this many agents', 'int'],
+        'band2' => ['Band 2 — monthly fee (R)', 'money'], 'band2_max' => ['Band 2 runs up to this many agents', 'int'],
+        'band3' => ['Band 3 — monthly fee (R)', 'money'], 'band3_max' => ['Band 3 runs up to this many agents', 'int'],
+        'band4' => ['Band 4 — monthly fee (R)', 'money'], 'band4_max' => ['Band 4 runs up to this many agents', 'int'],
+        'band5' => ['Band 5 — monthly fee (R)', 'money'], 'band5_max' => ['Band 5 runs up to this many agents', 'int'],
+        'band6' => ['Band 6 — monthly fee (R)', 'money'], 'band6_max' => ['Band 6 runs up to this many agents', 'int'],
+        'band7' => ['Band 7 — monthly fee (R)', 'money'], 'band7_max' => ['Band 7 runs up to this many agents', 'int'],
+        'band8' => ['Band 8 — monthly fee (R)', 'money'], 'band8_max' => ['Band 8 (the last) runs up to this many agents — above it the fee is on quotation', 'int'],
+        'branch' => ['Additional branch — price per branch (R)', 'money'],
+    ];
+
+    /** The rate fields of a version's price shape. @return array<string,array{0:string,1:string}> */
+    public static function rateFields(array $rates): array
+    {
+        return AgreementPricing::isBands($rates) ? self::BAND_RATE_FIELDS : self::RATE_FIELDS;
+    }
+
     public function __construct(private AgreementContent $content, private AgreementLayout $layout)
     {
     }
@@ -179,7 +198,8 @@ class AgreementVersions
      */
     public function saveRates(WordingVersion $draft, array $input, int $rev, int $userId): int
     {
-        $rates = $this->cleanRates($input);
+        // The draft keeps its price shape: the fields offered (and accepted) are those of the shape it was copied with.
+        $rates = $this->cleanRates($input, AgreementPricing::isBands((array) $draft->rates_json));
 
         return DB::transaction(function () use ($draft, $rates, $rev, $userId) {
             $locked = WordingVersion::drafts()->whereKey($draft->id)->lockForUpdate()->first();
@@ -192,7 +212,7 @@ class AgreementVersions
             $changed = [];
             foreach ($rates as $k => $v) {
                 if ((float) ($locked->rates_json[$k] ?? -1) !== (float) $v) {
-                    $changed[] = self::RATE_FIELDS[$k][0] . ': ' . AgreementPricing::number((float) ($locked->rates_json[$k] ?? 0)) . ' → ' . AgreementPricing::number((float) $v);
+                    $changed[] = self::rateFields($rates)[$k][0] . ': ' . AgreementPricing::number((float) ($locked->rates_json[$k] ?? 0)) . ' → ' . AgreementPricing::number((float) $v);
                 }
             }
             $locked->rates_json = $rates;
@@ -208,11 +228,12 @@ class AgreementVersions
     }
 
     /** @return array<string,int|float> @throws WordingInvalid */
-    public function cleanRates(array $input): array
+    public function cleanRates(array $input, ?bool $bands = null): array
     {
+        $bands ??= AgreementPricing::isBands($input);
         $errors = [];
         $out = [];
-        foreach (self::RATE_FIELDS as $key => [$label, $kind]) {
+        foreach ($bands ? self::BAND_RATE_FIELDS : self::RATE_FIELDS as $key => [$label, $kind]) {
             $entered = trim((string) ($input[$key] ?? ''));
             if (str_contains($entered, ',')) {
                 // "1,49" could be R1.49 or R149 — never guess with money. Spaces as thousands separators and a dot for cents are fine.
@@ -231,7 +252,13 @@ class AgreementVersions
             }
             $out[$key] = $kind === 'int' ? (int) $raw : (fmod((float) $raw, 1.0) === 0.0 ? (int) $raw : (float) $raw);
         }
-        if (!$errors) {
+        if (!$errors && $bands) {
+            for ($i = 2; $i <= AgreementPricing::BAND_COUNT; $i++) {
+                if ($out['band' . $i . '_max'] <= $out['band' . ($i - 1) . '_max']) {
+                    $errors[] = 'Band ' . $i . ' must run up to more agents than band ' . ($i - 1) . ' (bands follow one another without gaps or overlaps).';
+                }
+            }
+        } elseif (!$errors) {
             if ($out['agency_t2_max'] <= $out['agency_t1_max']) {
                 $errors[] = 'The second tier must end at a higher seat number than the first.';
             }
@@ -277,7 +304,7 @@ class AgreementVersions
 
     private function ratesOf(WordingVersion $v): array
     {
-        $r = array_merge(AgreementPricing::DEFAULT_RATES, (array) $v->rates_json);
+        $r = AgreementPricing::withDefaults((array) $v->rates_json);
         ksort($r);
 
         return array_map('floatval', $r);
@@ -445,12 +472,14 @@ class AgreementVersions
             }
             $parts[$part] = ['label' => $label, 'rows' => $rows, 'summary' => $sum];
         }
-        $ra = array_merge(AgreementPricing::DEFAULT_RATES, (array) $a->rates_json);
-        $rb = array_merge(AgreementPricing::DEFAULT_RATES, (array) $b->rates_json);
+        $ra = AgreementPricing::withDefaults((array) $a->rates_json);
+        $rb = AgreementPricing::withDefaults((array) $b->rates_json);
         $rates = [];
-        foreach (self::RATE_FIELDS as $key => [$label]) {
-            if ((float) ($ra[$key] ?? 0) !== (float) ($rb[$key] ?? 0)) {
-                $rates[] = ['label' => $label, 'a' => AgreementPricing::number((float) ($ra[$key] ?? 0)), 'b' => AgreementPricing::number((float) ($rb[$key] ?? 0))];
+        // Across a change of price shape the fields of BOTH shapes are listed: a rate one version does not have shows as "—".
+        $show = fn (array $r, string $k) => array_key_exists($k, $r) ? AgreementPricing::number((float) $r[$k]) : '—';
+        foreach (self::rateFields($ra) + self::rateFields($rb) as $key => [$label]) {
+            if ($show($ra, $key) !== $show($rb, $key)) {
+                $rates[] = ['label' => $label, 'a' => $show($ra, $key), 'b' => $show($rb, $key)];
             }
         }
 

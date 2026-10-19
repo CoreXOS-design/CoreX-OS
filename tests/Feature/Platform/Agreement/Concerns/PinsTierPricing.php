@@ -1,0 +1,38 @@
+<?php
+
+namespace Tests\Feature\Platform\Agreement\Concerns;
+
+use App\Models\PlatformEsign\Template;
+use App\Models\PlatformEsign\WordingAudit;
+use App\Models\PlatformEsign\WordingVersion;
+use App\Services\PlatformEsign\Agreement\AgreementContent;
+use App\Services\PlatformEsign\Agreement\AgreementPricing;
+
+/**
+ * For tests written against the tier-priced agreement (CoreX Team / CoreX Agency, versions before the October 2026 price change):
+ * the environment as it was BEFORE the band pricing was published — the seed 1.0 is the current version.
+ *
+ * A fresh database now seeds the band-priced version on top of 1.0 (spec §11.5a); agreements already sent on 1.0 keep pricing by
+ * tiers, and these tests keep proving that they do. Removing the band version here is test-database set-up, not product behaviour.
+ */
+trait PinsTierPricing
+{
+    protected function setUpPinsTierPricing(): void
+    {
+        app(AgreementContent::class)->ensureSeeded();
+        WordingVersion::withTrashed()->get()
+            ->filter(fn (WordingVersion $v) => AgreementPricing::isBands((array) $v->rates_json))
+            ->each(function (WordingVersion $v) {
+                WordingAudit::where('version_id', $v->id)->delete();
+                $v->forceDelete();
+            });
+    }
+
+    /** Back to a database that has never seeded the agreement (for tests of the very first seed). */
+    protected function unseedAgreement(): void
+    {
+        WordingAudit::query()->delete();
+        WordingVersion::withTrashed()->get()->each(fn (WordingVersion $v) => $v->forceDelete());
+        Template::withTrashed()->where('name', AgreementContent::TEMPLATE_NAME)->get()->each(fn (Template $t) => $t->forceDelete());
+    }
+}

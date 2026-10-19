@@ -49,8 +49,9 @@ class BillingReconcileCommand extends Command
                     // Reproduce the decision without taking it.
                     $pricing = app(\App\Services\Billing\SubscriptionPricingService::class);
                     $seats   = $pricing->billableSeats($agency);
-                    $derived = $pricing->derivePlan($seats);
-                    $stored  = (string) \App\Models\Billing\AgencySubscription::forAgency((int) $agency->id)->plan;
+                    $sub     = \App\Models\Billing\AgencySubscription::forAgency((int) $agency->id);
+                    $derived = $pricing->derivePlan($seats, $sub);
+                    $stored  = (string) $sub->plan;
 
                     if ($stored !== $derived) {
                         $changed++;

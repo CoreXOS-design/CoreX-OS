@@ -49,6 +49,13 @@
                             to <strong>{{ $toPlanLabel }}</strong>. This happened automatically — nobody changed it by hand.
                         </p>
 
+                        @if($needsQuote)
+                            <p style="margin:0 0 24px; font-size:0.9375rem; line-height:1.6; color:#111827;">
+                                <strong>Their fee is now on quotation.</strong> They have more users than the price bands cover, so
+                                they are not charged for their users until you agree a price: open Agency Billing and set a custom amount.
+                            </p>
+                        @endif
+
                         {{-- Before / after --}}
                         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:12px;">
                             <tr>

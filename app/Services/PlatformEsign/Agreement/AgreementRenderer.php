@@ -151,7 +151,7 @@ class AgreementRenderer
             'f' => $this->field($a),
             'o' => $this->option($a, $b),
             'q' => $this->quantity($a),
-            'rate' => e(AgreementPricing::rate((float) ($this->ctx['rates'][$a] ?? AgreementPricing::DEFAULT_RATES[$a] ?? 0))),
+            'rate' => e(AgreementPricing::rate((float) (AgreementPricing::withDefaults((array) $this->ctx['rates'])[$a] ?? 0))),
             'amt' => $this->amount($a),
             'rr' => $this->rrField($a),
             'sig' => $this->signature($a),
@@ -414,6 +414,10 @@ class AgreementRenderer
     private function applies(string $line): bool
     {
         $plan = (string) ($this->ctx['values']['plan'] ?? '');
+        if (AgreementPricing::isBands((array) $this->ctx['rates'])) {
+            // Band pricing: the one line carrying the agents' fee (band1 … band8 or quoted), plus additional branches.
+            return $plan !== '' && in_array($line, [$plan, 'branches'], true);
+        }
 
         return in_array($line, self::LINE_APPLIES[$plan] ?? [], true);
     }
@@ -554,7 +558,11 @@ class AgreementRenderer
             return '<span class="keep-next"></span>'; // layout estimation only: keep this block on the page of the fee table that follows
         }
         $calc = $this->ctx['calc'];
-        $limit = (int) ($this->ctx['rates']['quote_above_agents'] ?? 40);
+        $bands = AgreementPricing::isBands((array) $this->ctx['rates']);
+        $limit = $bands ? AgreementPricing::topOfBands((array) $this->ctx['rates']) : (int) ($this->ctx['rates']['quote_above_agents'] ?? 40);
+        if ($bands) {
+            return $this->bandControl($calc, $limit);
+        }
         if (in_array($this->mode, ['rr', 'preview'], true)) {
             // RR side: the quoted-rate reminder only (nothing is printed in the contract itself).
             return ($calc['over_quote_threshold'] ?? false) ? '<span class="ctl"><span class="ctl-note">Over ' . $limit . ' agents a quoted rate applies — record it under “Agreed variations”.</span></span>' : '';
@@ -570,5 +578,34 @@ class AgreementRenderer
             . '<span class="ctl-item"><label for="fld-agents"><strong>Number of agents</strong></label> ' . $this->input('agents', $schema['agents']) . '</span>'
             . '<span class="ctl-item"><label for="fld-branches"><strong>Number of branches</strong></label> ' . $this->input('branches', $schema['branches']) . '</span>'
             . '</span><span class="ctl-note" data-calc="note:agents">' . e($note) . '</span></span>';
+    }
+
+    /**
+     * Band pricing (spec §11.5a): above the last band the fee is on quotation. With the sender's quoted fee recorded the fee table carries it;
+     * without one the recipient is told to contact CoreX and the agreement cannot be completed (AgreementFields::validateRecipient).
+     */
+    private function bandControl(?array $calc, int $limit): string
+    {
+        $over = (bool) ($calc['over_quote_threshold'] ?? false);
+        $quoted = (float) ($calc['lines']['quoted']['amount'] ?? 0) > 0;
+        if (in_array($this->mode, ['rr', 'preview'], true)) {
+            return $over && !$quoted ? '<span class="ctl"><span class="ctl-note">More than ' . $limit . ' agents and no quoted fee was recorded when this agreement was sent.</span></span>' : '';
+        }
+        if (!$this->isForm()) {
+            return '';
+        }
+        $schema = AgreementFields::schema();
+        $note = $over && !$quoted ? self::overBandsNote($limit) : '';
+
+        return '<span class="ctl"><span class="ctl-pair">'
+            . '<span class="ctl-item"><label for="fld-agents"><strong>Number of agents</strong></label> ' . $this->input('agents', $schema['agents']) . '</span>'
+            . '<span class="ctl-item"><label for="fld-branches"><strong>Number of branches</strong></label> ' . $this->input('branches', $schema['branches']) . '</span>'
+            . '</span><span class="ctl-note" data-calc="note:agents">' . e($note) . '</span></span>';
+    }
+
+    /** What the recipient reads above the last band when no quoted fee was recorded (the page JS shows the same words). */
+    public static function overBandsNote(int $limit): string
+    {
+        return 'For more than ' . $limit . ' agents the monthly fee is on quotation. Please contact CoreX — we will send you an agreement with your quoted fee.';
     }
 }

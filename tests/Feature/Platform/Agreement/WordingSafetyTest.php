@@ -28,6 +28,8 @@ use Tests\TestCase;
 class WordingSafetyTest extends TestCase
 {
     use RefreshDatabase;
+    // Written against the tier-priced agreement (version 1.0): the environment as it was before the band pricing (spec §11.5a).
+    use \Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing;
 
     protected function tearDown(): void
     {
@@ -139,10 +141,11 @@ class WordingSafetyTest extends TestCase
 
     public function test_the_first_visit_seeds_once_and_later_visits_write_nothing(): void
     {
+        $this->unseedAgreement();
         $this->assertSame(0, Template::where('name', AgreementContent::TEMPLATE_NAME)->count());
         $this->get('/legal')->assertOk();
         $this->assertSame(1, Template::where('name', AgreementContent::TEMPLATE_NAME)->count());
-        $this->assertSame(1, WordingVersion::count());
+        $this->assertSame(2, WordingVersion::count(), 'a fresh environment seeds 1.0 and the band-priced 1.1 on top of it (spec §11.5a)');
 
         $writes = [];
         DB::listen(function ($q) use (&$writes) {
@@ -151,13 +154,13 @@ class WordingSafetyTest extends TestCase
             }
         });
         $this->get('/legal')->assertOk();
-        $this->get('/legal/v/1.0')->assertRedirect();
+        $this->get('/legal/v/1.1')->assertRedirect();
         $this->assertSame([], array_values(array_filter($writes, fn ($s) => str_contains($s, 'platform_esign'))), 'a public GET must not write wording rows');
 
         app(AgreementContent::class)->ensureSeeded();
         app(AgreementContent::class)->ensureSeeded();
         $this->assertSame(1, Template::where('name', AgreementContent::TEMPLATE_NAME)->count(), 'seeding is idempotent');
-        $this->assertSame(1, WordingVersion::count());
+        $this->assertSame(2, WordingVersion::count());
     }
 
     public function test_a_missing_wording_table_answers_503_not_a_stack_trace(): void
