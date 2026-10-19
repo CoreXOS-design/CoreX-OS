@@ -41,6 +41,11 @@ class RentalFaultContractorService
      */
     public function hasContractorFor(RentalFaultReport $fault): bool
     {
+        // "Other - not on the list" has no trade yet: the agent picks the contractor when sending, so this is never a "no contractor for this type" case
+        if ($fault->isOtherType()) {
+            return true;
+        }
+
         return $this->classify($fault)['suits']->isNotEmpty();
     }
 

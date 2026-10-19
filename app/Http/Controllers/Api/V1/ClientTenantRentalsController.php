@@ -233,36 +233,51 @@ class ClientTenantRentalsController extends Controller
         }
 
         $data = $request->validate([
-            'rental_fault_type_id' => 'required|integer',
+            // AT-452 - "Other - not on the list": no catalogue type, a required description, no self-checks, and it can never be "That fixed it"
+            'other_type' => 'nullable|boolean',
+            'rental_fault_type_id' => 'required_without:other_type|nullable|integer',
             'resolution' => 'required|in:first_aid_resolved,still_a_problem',
             'follows_fault_report_id' => 'nullable|integer',
-            'title' => 'required|string|max:191',
-            'description' => 'nullable|string|max:5000',
+            'title' => 'required_without:other_type|nullable|string|max:191',
+            'description' => 'required_if:other_type,1,true|nullable|string|max:5000',
             'photos' => 'nullable|array|max:10',
             'photos.*' => 'file|image|max:15360',
             // section 22.3 - what the tenant ticked: JSON [{text, ticked}] (a snapshot of the steps they were shown)
             'self_checks' => 'nullable|string|max:20000',
         ]);
 
-        $faultType = RentalFaultType::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->where('is_active', true)
-            ->find($data['rental_fault_type_id']);
-        if (!$faultType) {
-            return response()->json(['message' => 'Unknown fault type.'], 422);
+        $isOther = $request->boolean('other_type');
+        $faultType = null;
+        if ($isOther) {
+            if (trim((string) ($data['description'] ?? '')) === '') {
+                return response()->json(['message' => 'Tell us what needs attention.'], 422);
+            }
+            if ($data['resolution'] !== 'still_a_problem') {
+                return response()->json(['message' => 'Unknown fault type.'], 422);
+            }
+        } else {
+            $faultType = RentalFaultType::withoutGlobalScopes()
+                ->where('agency_id', $contact->agency_id)
+                ->where('is_active', true)
+                ->find($data['rental_fault_type_id']);
+            if (!$faultType) {
+                return response()->json(['message' => 'Unknown fault type.'], 422);
+            }
         }
 
         $leaseId = $this->scope->tenantLeaseIdForProperty($contact, $property);
 
         $attributes = [
             'lease_id' => $leaseId,
-            'rental_fault_type_id' => $faultType->id,
+            'rental_fault_type_id' => $faultType?->id,
+            'fault_type_other' => $isOther,
             'reported_by_type' => RentalFaultReport::REPORTED_BY_TENANT,
             'reported_by_contact_id' => $contact->id,
             'reported_channel' => RentalFaultReport::CHANNEL_APP,
-            'title' => $data['title'],
+            // an "Other" report has no title field on the form: the title is the start of what the tenant wrote
+            'title' => $isOther ? 'Other: ' . \Illuminate\Support\Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags((string) $data['description']))), 90, '...') : $data['title'],
             'description' => $data['description'] ?? '',
-            'tenant_self_checks' => $this->selfChecksFrom($data['self_checks'] ?? null),
+            'tenant_self_checks' => $isOther ? null : $this->selfChecksFrom($data['self_checks'] ?? null),
         ];
         // "Still a problem? Report it again" on a fault the tenant fixed themselves: the new report is linked back to it (their own, on this property).
         if (! empty($data['follows_fault_report_id'])) {
@@ -439,7 +454,7 @@ class ClientTenantRentalsController extends Controller
             'end_state' => $fault->endStateFor('tenant'),
             'resolved_at' => $fault->resolved_at?->toIso8601String(),
             'fault_type_id' => $fault->rental_fault_type_id,
-            'fault_type_name' => $fault->faultType?->name,
+            'fault_type_name' => $fault->typeName(),
             // AT-452 - the tenant's OWN photos (what they sent), opened in the shared viewer; the agent's marks / notes ride along only when the agency allows it.
             'reported_photos' => app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->payload($fault, app(\App\Services\Rentals\RentalFaultPhotoAnnotationService::class)->tenantPhotos($fault), \App\Services\Rentals\RentalFaultPhotoAnnotationService::AUDIENCE_TENANT),
             // BUILD 3 — §17.3.5: the linked work order's plain stage ("Being arranged", "In progress", …), never a price.

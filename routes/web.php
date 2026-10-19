@@ -4402,6 +4402,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/{rentalFaultReport}/pdf', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'pdf'])->name('corex.rental-fault-reports.pdf');
         Route::put('/{rentalFaultReport}', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'update'])
             ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.update');
+        // AT-452 - re-classify a fault the reporter marked "Other - not on the list" to a proper type (logged in the history).
+        Route::post('/{rentalFaultReport}/reclassify', [\App\Http\Controllers\CoreX\RentalFaultReportController::class, 'reclassify'])
+            ->middleware('permission:rental_fault_reports.create')->name('corex.rental-fault-reports.reclassify');
         // Section 22 (Decision 1): the two buttons once someone is picked to look, the owner's decision taken by the agent, and the tenant confirmation.
         Route::post('/{rentalFaultReport}/send-to-inspect', [\App\Http\Controllers\CoreX\RentalFaultAuthorityController::class, 'inspect'])
             ->middleware('permission:rental_fault_reports.raise_work_order')->name('corex.rental-fault-reports.send-to-inspect');

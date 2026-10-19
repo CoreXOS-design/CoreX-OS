@@ -45,6 +45,8 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_OWNER_REPAIR_REQUEST = 'owner_repair_request';
     public const TYPE_OWNER_COMMENT = 'owner_comment';
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
+    // AT-452 - the agent re-classified an "Other" fault to a proper type
+    public const TYPE_TYPE_CHANGED = 'type_changed';
     // section 21.3 - the agent chose a first responder to look at the fault (nothing is sent by this alone)
     public const TYPE_FIRST_RESPONDER_CHOSEN = 'first_responder_chosen';
     // section 22 - the authorisation record (Decision 1: who goes to look), the owner's decision taken by the agent, the tenant's confirmation

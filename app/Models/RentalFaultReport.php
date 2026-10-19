@@ -87,6 +87,10 @@ class RentalFaultReport extends Model
     public const ARRANGED_INSPECT_CALLOUT = 'inspect_callout';
     public const SELF_RESOLVED_LABEL = 'Resolved by tenant - tried the suggested fix';
 
+    /** AT-452 - the always-there last choice on the problem list (tenant link and agent form). */
+    public const OTHER_TYPE_NAME = 'Other';
+    public const OTHER_TYPE_OPTION = 'Other — not on the list';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
@@ -94,6 +98,7 @@ class RentalFaultReport extends Model
         'lease_id',
         'rental_inspection_item_id',
         'rental_fault_type_id',
+        'fault_type_other',
         'reported_inspection_observation_id',
         'rental_work_order_id',
         'follows_fault_report_id',
@@ -158,6 +163,7 @@ class RentalFaultReport extends Model
         'tenant_self_checks' => 'array',
         'tenant_confirmed_at' => 'datetime',
         'tenant_confirmed_recorded_at' => 'datetime',
+        'fault_type_other' => 'boolean',
     ];
 
     /** Deleted-related-record rule (.ai/BUILD_STANDARD.md §4) — see Lease::property(). */
@@ -187,6 +193,18 @@ class RentalFaultReport extends Model
     public function faultType(): BelongsTo
     {
         return $this->belongsTo(RentalFaultType::class, 'rental_fault_type_id');
+    }
+
+    /** AT-452 - the reporter chose "Other - not on the list" and nobody has re-classified it yet (it has no catalogue type until then). */
+    public function isOtherType(): bool
+    {
+        return (bool) $this->fault_type_other && ! $this->rental_fault_type_id;
+    }
+
+    /** The type as people read it: the catalogue name, or "Other" while it is unclassified. Null when the report simply has no type. */
+    public function typeName(): ?string
+    {
+        return $this->faultType?->name ?: ($this->isOtherType() ? self::OTHER_TYPE_NAME : null);
     }
 
     public function reportedInspectionObservation(): BelongsTo
@@ -335,6 +353,7 @@ class RentalFaultReport extends Model
                     RentalFaultReportUpdate::TYPE_PHOTO_NOTE_SET => 'Photo note saved',
                     RentalFaultReportUpdate::TYPE_PHOTO_NOTE_REMOVED => 'Photo note removed',
                     RentalFaultReportUpdate::TYPE_SENT_WITHOUT_CONTRACTOR => 'Sent to owner without a contractor',
+                    RentalFaultReportUpdate::TYPE_TYPE_CHANGED => 'Type of fault changed',
                     RentalFaultReportUpdate::TYPE_FIRST_RESPONDER_CHOSEN => 'First to look at this chosen',
                     RentalFaultReportUpdate::TYPE_AUTHORISATION_RECORDED => 'Authorisation recorded',
                     RentalFaultReportUpdate::TYPE_AUTHORISATION_SUPERSEDED => 'Authorisation replaced',

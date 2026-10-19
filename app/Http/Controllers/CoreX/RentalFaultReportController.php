@@ -378,6 +378,12 @@ class RentalFaultReportController extends Controller
         $agencyId = $request->user()->effectiveAgencyId();
         $propertyId = $request->input('property_id');
 
+        // AT-452 - "Other - not on the list" is the form's last choice: no catalogue type, the report is marked Other until the agent re-classifies it.
+        $isOther = $request->input('rental_fault_type_id') === 'other';
+        if ($isOther) {
+            $request->merge(['rental_fault_type_id' => null]);
+        }
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
             // Lease / inspection item must belong to THIS property (audit L2).
@@ -417,6 +423,9 @@ class RentalFaultReportController extends Controller
 
         $attributes = $validated;
         unset($attributes['property_id']);
+        if ($isOther) {
+            $attributes['fault_type_other'] = true;
+        }
 
         // §3.2a — every row is agent-captured today; the reporter (contact/
         // user) is a separate fact from who typed it in.
@@ -530,6 +539,31 @@ class RentalFaultReportController extends Controller
     }
 
     /**
+     * AT-452 - an "Other" fault is re-classified by the agent to a proper type of the agency's own catalogue. The tenant's words stay exactly as
+     * they wrote them; only the type changes, and the change is written to the history (who, from what, to what). Not once the fault is closed.
+     */
+    public function reclassify(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        abort_unless($rentalFaultReport->isOtherType(), 409, 'Only a fault marked "Other" is re-classified here.');
+        abort_if($rentalFaultReport->isClosedState(), 409, 'This fault is closed.');
+
+        $validated = $request->validate([
+            'rental_fault_type_id' => ['required', \Illuminate\Validation\Rule::exists('rental_fault_types', 'id')->where('agency_id', $request->user()->effectiveAgencyId())->whereNull('deleted_at')->where('is_active', true)],
+        ]);
+        $type = \App\Models\RentalFaultType::findOrFail($validated['rental_fault_type_id']);
+
+        $rentalFaultReport->update(['rental_fault_type_id' => $type->id, 'fault_type_other' => false]);
+        $rentalFaultReport->recordHistory(
+            RentalFaultReportUpdate::TYPE_TYPE_CHANGED,
+            $request->user(),
+            'Type changed from "Other" to "' . $type->name . '".'
+        );
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Type changed to ' . $type->name . '.');
+    }
+
+    /**
      * §3a.1 — purely a status marker, no evidence. See
      * RentalFaultReport::requestApproval()'s own note on why this is
      * optional, not a required gate before recordApproval() below.
@@ -545,7 +579,7 @@ class RentalFaultReportController extends Controller
 
         // AT-452 item 9 - no active contractor covers this type of work: sending stays allowed (the page asks "Send without a contractor for
         // <type>?" in its own dialog, which posts send_without_contractor=1), and the decision is written to the history either way.
-        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);
+        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);   // never true for an "Other" fault: the agent picks the contractor when sending
 
         try {
             $rentalFaultReport->requestApproval($request->user());

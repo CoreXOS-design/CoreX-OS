@@ -269,6 +269,8 @@
                                                     <template x-for="ft in (faultTypesByProperty[faultWizard.property] || [])" :key="ft.id">
                                                         <option :value="ft.id" x-text="ft.name"></option>
                                                     </template>
+                                                    {{-- AT-452 - always the last choice, on top of the agency's own list --}}
+                                                    <option value="other" data-fault-type-other>{{ \App\Models\RentalFaultReport::OTHER_TYPE_OPTION }}</option>
                                                 </select>
 
                                                 {{-- Before you report: the steps, photos and documents for the chosen fault type. --}}
@@ -284,10 +286,20 @@
 
                                                 <template x-if="faultWizard.faultTypeId && faultWizard.step === 'form'">
                                                     <div data-fault-form>
-                                                        <label>Title</label>
-                                                        <input type="text" x-model="faultWizard.title" :disabled="!!(faultWizard.sending)">
-                                                        <label>Describe the problem</label>
-                                                        <textarea rows="3" x-model="faultWizard.description" :disabled="!!(faultWizard.sending)"></textarea>
+                                                        <template x-if="faultWizard.faultTypeId === 'other'">
+                                                            <div data-fault-other>
+                                                                <label>What needs attention?</label>
+                                                                <textarea rows="3" required x-model="faultWizard.description" :disabled="!!(faultWizard.sending)" placeholder="Tell us in a few words"></textarea>
+                                                            </div>
+                                                        </template>
+                                                        <template x-if="faultWizard.faultTypeId !== 'other'">
+                                                            <div>
+                                                                <label>Title</label>
+                                                                <input type="text" x-model="faultWizard.title" :disabled="!!(faultWizard.sending)">
+                                                                <label>Describe the problem</label>
+                                                                <textarea rows="3" x-model="faultWizard.description" :disabled="!!(faultWizard.sending)"></textarea>
+                                                            </div>
+                                                        </template>
                                                         <label>Photos</label>
                                                         @include('rentals.portal._photo-picker', ['bind' => 'faultWizard'])
                                                         <button class="btn btn-danger" data-fault-submit :disabled="!!(faultWizard.sending || faultWizard.photoBusy)" @click="submitFault('still_a_problem')"
@@ -1563,6 +1575,14 @@ function rentalsPortal() {
             w.ftype = t || null;
             w.error = null;
             w.checks = {};   // the ticks belong to THIS type's steps
+            // AT-452 - "Other - not on the list": straight to the form, no suggested self-checks, no "That fixed it"
+            if (String(w.faultTypeId) === 'other') {
+                w.ftype = { id: 'other', name: 'Other', steps: [] };
+                w.step = 'form';
+                w.title = '';
+                w.lastTypeName = '';
+                return;
+            }
             if (!t) { w.step = 'pick'; return; }
             const hasAid = !!(String(t.first_aid_steps || '').trim() || (t.photos || []).length || (t.documents || []).length);
             w.step = hasAid ? 'aid' : 'form';
@@ -1578,9 +1598,11 @@ function rentalsPortal() {
             if (w.sending || w.photoBusy) return; // one press, one report
             w.error = null;
             const form = new FormData();
-            form.append('rental_fault_type_id', w.faultTypeId);
+            const isOther = String(w.faultTypeId) === 'other';
+            if (isOther && !(w.description || '').trim()) { w.error = 'Please tell us what needs attention.'; return; }
+            if (isOther) form.append('other_type', '1'); else form.append('rental_fault_type_id', w.faultTypeId);
             form.append('resolution', resolution);
-            form.append('title', w.title || 'Fault reported');
+            if (!isOther) form.append('title', w.title || 'Fault reported');
             form.append('description', w.description || '');
             form.append('submission_key', w.key);
             // section 22.3 - what the tenant ticked: every step they were shown, ticked or not (the agent reads it as "what the tenant says they checked")

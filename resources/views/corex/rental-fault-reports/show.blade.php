@@ -67,8 +67,23 @@
         <div>
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
-            @if($faultReport->faultType)
-                <span class="ds-badge ds-badge-muted">{{ $faultReport->faultType->name }}</span>
+            @if($faultReport->typeName())
+                <span class="ds-badge ds-badge-muted" @if($faultReport->isOtherType()) data-type-other @endif>{{ $faultReport->typeName() }}</span>
+            @endif
+            {{-- AT-452 - a fault marked "Other - not on the list": the tenant's words stay; the agent can give it a proper type (logged in the history). --}}
+            @if($faultReport->isOtherType() && ! $faultReport->isClosedState())
+                @permission('rental_fault_reports.create')
+                    <form method="POST" action="{{ route('corex.rental-fault-reports.reclassify', $faultReport) }}" class="inline-flex items-center gap-1" data-reclassify>
+                        @csrf
+                        <select name="rental_fault_type_id" required class="prop-input text-xs" aria-label="Change the type of this fault">
+                            <option value="">Change type&hellip;</option>
+                            @foreach(\App\Models\RentalFaultType::where('is_active', true)->orderBy('sort_order')->get() as $ft)
+                                <option value="{{ $ft->id }}">{{ $ft->name }}</option>
+                            @endforeach
+                        </select>
+                        <button type="submit" class="corex-btn-outline text-xs">Save type</button>
+                    </form>
+                @endpermission
             @endif
             <span class="text-xs">
                 @if($faultReport->property && !$faultReport->property->trashed())
