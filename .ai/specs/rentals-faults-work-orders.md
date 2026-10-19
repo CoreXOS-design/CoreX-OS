@@ -18,7 +18,7 @@ emergency bypasses owner approval — were HELD, taken to Johan directly.
 tenants and owners get a real CoreX login — passwordless email one-time code, reusing the existing
 `ClientUser`/OTP machinery (`.ai/specs/client-auth.md`), the same account usable on web now and in
 Andre's app later; contractors keep a secure link per job, no account (§4, rewritten). (2) ROUTING IS
-CONFIGURED, NEVER HARDCODED — a per-property fault routing profile (agency default + per-property
+CONFIGURED, NEVER HARDCODED [REJECTED 19 Oct 2026, see §13] — a per-property fault routing profile (agency default + per-property
 override, category/urgency rules, caretaker/supplier/owner-first targets each with their own spend
 limit, every automatic decision logged with the rule that fired) — entirely new §13, inserted before the
 open-questions section, which is now §14. **Standing instruction: do not commit or build yet.** See §14
@@ -536,7 +536,7 @@ Per §1.3's full flow description, walked through against what's built vs new:
 
 1. **Fault** — tenant self-service (§4) or agent-captured (existing) → `rental_fault_reports` row, now
    optionally carrying `rental_fault_type_id` (§2.2).
-2. **Routing resolves immediately** — new, §13. `RentalFaultRoutingService::resolve()` runs the moment
+2. **~~Routing resolves immediately~~ [REJECTED 19 Oct 2026 - no automatic routing; the agent picks]** — was: new, §13. `RentalFaultRoutingService::resolve()` runs the moment
    the fault report is created, BEFORE step 3 — not after step 4 as an earlier draft of this section had
    it. Its outcome decides whether step 3 is the normal agent-review path at all: `route='agent_review'`
    (the default, today's unchanged behaviour) proceeds to step 3 exactly as built; `route='caretaker'` /
@@ -574,7 +574,7 @@ created.
 
 ### 6.5 Emergency handling
 
-Per §1.1's "urgency/emergency flag" and §1.3's "emergency handling." **As of the 2026-09-29 routing
+Per §1.1's "urgency/emergency flag" and §1.3's "emergency handling." **[The routing ruling of 2026-09-29 (§13) was REJECTED on 19 Oct 2026: an emergency is flagged and sorted first (§29), never auto-routed to a caretaker or supplier.]** As of the 2026-09-29 routing
 ruling (§13), emergency handling is no longer a bare notification-priority treatment — it is the primary
 thing the fault routing profile (§13) exists to configure**: WHO an emergency-flagged fault routes to
 (caretaker, nominated supplier, or owner-first) and what spend limit applies to that route, entirely
@@ -755,7 +755,7 @@ spec reuses splits archive/restore out from create/edit — `rental_work_orders.
   `rental_work_orders.record_approval` already established (§5.1 records a real external decision).
 - `rental_work_orders.manage_invoices` — same reasoning as `.manage_quotes` (§3.4c of the existing
   spec) — a second money-adjacent evidence type, same permission shape.
-- `rental_fault_routing.manage` — **new, §13** — managing the agency-default and per-property routing
+- ~~`rental_fault_routing.manage`~~ **(withdrawn 19 Oct 2026 - §13 rejected, no such permission is built)** — **new, §13** — managing the agency-default and per-property routing
   profiles/rules (§13.2). One key, same single-key shape as the rest of this section, since a routing
   profile is edited as a whole (profile + its rules), not through separately-permissioned sub-actions.
 - **No new permission for the contractor token surface** (§7.3, §4.2) — by design, that surface has no
@@ -785,7 +785,7 @@ DOES add to agency settings:
 - **The fault catalogue itself (§2) is NOT a single on/off setting** — it is a full CRUD screen (§8.1),
   not a wizard toggle, matching how `AgencyServiceType`'s own catalogue is managed (its own screen, not
   a wizard field) rather than treated as a setup-wizard checkbox.
-- **The agency-default routing profile (§13) gets its own Setup Wizard entry** — non-negotiable #10a
+- ~~**The agency-default routing profile (§13) gets its own Setup Wizard entry**~~ **(withdrawn 19 Oct 2026 - §13 rejected)** — non-negotiable #10a
   applies to it directly: explain: "who an emergency fault (burst pipe, no power) gets sent to before an
   agent even looks at it — your caretaker, a nominated supplier, or the property owner directly, and up
   to what amount"; affects: "changes who's contacted first when something urgent is reported, and
@@ -829,7 +829,7 @@ account takes is scoped to the specific agency/property/lease the linked Contact
   tying it to `property_rooms` is a real future enhancement, not built here.
 - **Reconciling the existing `priority` field and this spec's new `urgency`/emergency flag** (§6.5) —
   flagged as likely-overlapping, not resolved here.
-- **A complex/estate-level routing-profile tier** (§13.1) — investigated per Johan's own instruction and
+- ~~**A complex/estate-level routing-profile tier** (§13.1)~~ **(withdrawn 19 Oct 2026 - routing profiles are rejected, so this future gap no longer exists)** — investigated per Johan's own instruction and
   confirmed NOT to exist as a real grouping entity in CoreX today (`complex_name` is free text only);
   building one is a separate, larger decision, not taken on here.
 - **Building Andre's mobile app itself** — his job; this spec's job is the API it consumes (§7),
@@ -837,7 +837,9 @@ account takes is scoped to the specific agency/property/lease the linked Contact
 
 ---
 
-## 13. Fault routing profiles — configured, never hardcoded, per Johan's ruling on §14(2)
+## 13. Fault routing profiles — Rejected by Johan 19 Oct 2026 – agent or owner selects the contractor
+
+> **REJECTED by Johan, 19 Oct 2026 - the agent or the owner selects and appoints the contractor; CoreX never sends a fault or work order to a contractor by itself (by specialty, category, urgency or any rule).** Everything in this section (the routing profile tables, `RentalFaultRoutingService`, the permission `rental_fault_routing.manage`, its Setup Wizard entry, the routing log and its screens) is **VOID and must not be built**; it is kept below only as the record of what was rejected. What stands instead: §21 (the agent's "who looks first" list is a pick-list the agent confirms), §22 (nothing is automatic - every job carries an authorisation record), §23 (the owner's own limits) and §26 (quote-first).
 
 **Settled, 2026-09-29.** Johan's design doctrine, verbatim: *"don't build one way where there are
 options; build the options and let the agency set it up; it can vary PER PROPERTY."* This section
@@ -1045,7 +1047,7 @@ settings sub-panel" treatment the existing quotes/routing-adjacent screens alrea
 1. **Access: secure link, or login?** **SETTLED, 2026-09-29 — Johan ruled directly.** Tenants and owners
    get a real `ClientUser` login, passwordless one-time email code, the same account on web now and
    Andre's app later; contractors keep a secure link per job, no account. §4 rewritten in full.
-2. **Routing.** **SETTLED, 2026-09-29 — Johan ruled directly.** Never hardcoded — a per-property fault
+2. **Routing.** ~~SETTLED, 2026-09-29~~ **REJECTED by Johan, 19 Oct 2026 - agent or owner selects the contractor; §13 is void.** (Original text follows.) **SETTLED, 2026-09-29 — Johan ruled directly.** Never hardcoded — a per-property fault
    routing profile (agency default + per-property override), covering emergency routing
    (caretaker/supplier/owner-first, each with its own spend limit), non-emergency routing
    (auto-approve-under-threshold, unchanged, or route straight to a caretaker/supplier), per-category/
@@ -1888,5 +1890,9 @@ Rule for the future: an alert type names ONE kind of event; a new event never re
 ### 29.P4 Staff side (conductor)
 - **C-D7 - cancel and archive are guarded on the server, not only hidden.** `RentalFaultReport::cancel()` refuses a fault with a LIVE work order ("cancel the work order first") and any fault the owner has already decided (the screen rule: Cancel exists only while reported / under review / awaiting the owner). `RentalFaultReport::archiveBlockReason()` is the one reason Archive refuses: a live work order, photos or a linked work order on record, or the owner being sent the fault and deciding on it (awaiting approval / approved / owner handling) - archiving takes the fault off the owner's list. Tests: `AuditP4StaffGuardsTest`.
 - **C-C3 - ONE way to the owner (supersedes the leftover wording of 22.3).** The only action that sends a fault to the owner is "Send to owner to authorise" (`FaultInspectionService::sendToOwnerToAuthorise`). The old `POST .../send-to-owner` endpoint is kept as the same action with nobody proposed - it now calls that service, so it has the same gates (owner version saved, not on hold, not decided, no live work order) and the same history line; the duplicate `request-approval` route is gone; "Save" on the owner version no longer honours `send_now` (Save only saves).
-- **C-C2 - emergency priority (spec 6.5) built; routing profiles (spec 13) NOT built - sized.** An emergency-type fault (the fault type's own `urgency = emergency` in the agency's catalogue - nothing hardcoded) now: sends `rental_fault_report.created` at the dispatcher's existing elevated severity (`warning`, titled "EMERGENCY fault reported") to every agent who is told of a new fault; is flagged "Emergency" on the fault list and sorted above routine faults while it is open (closed/declined ones are not flagged). **Section 13 (routing profiles) size:** per-property + agency-default profile tables, a resolver service, per-category/urgency rules, a "rule that fired" ledger, caretaker resolution, owner-first/spend-limit logic, settings screens and Setup Wizard steps, and tests - roughly 6-8 lane-days. Most of its purpose is already covered by 21 (who looks first), 22/23 (the owner's own limits per property) and 26 (quote-first), so what is left is the per-fault-type routing rule and its log; recommendation: do not build until an agency asks for per-type routing.
+- **C-C2 - emergency priority (spec 6.5) built; routing profiles (spec 13) REJECTED.** An emergency-type fault (the fault type's own `urgency = emergency` in the agency's catalogue - nothing hardcoded) now: sends `rental_fault_report.created` at the dispatcher's existing elevated severity (`warning`, titled "EMERGENCY fault reported") to every agent who is told of a new fault; is flagged "Emergency" on the fault list and sorted above routine faults while it is open (closed/declined ones are not flagged). **Section 13 (routing profiles) was rejected by Johan on 19 Oct 2026 - agent or owner selects the contractor** (see §13 and the ruling below); nothing is built for it and no code path sends a fault or work order to a contractor by itself.
 - **C-H1 - wording and timezone.** The user-visible "Johan's own words" exception text (repaired date required) is plain agency-neutral wording. The hardcoded `Africa/Johannesburg` literal that backed the timezone fallback in ~30 places is replaced by ONE helper (`AppDate::agencyTimezone()`), which reads the agency's timezone, then the application timezone, and never a place name; `CrewPricingBlock` now uses the agency timezone like every other crew screen.
+
+### 29.R Johan's rulings on the audit fixes (19 Oct 2026)
+1. **The owner is told the work is complete only when the agent marks it complete.** `notify_landlord_on_crew_completion` stays **default OFF** (C-C4). With it off the owner hears at the agent's close on every route (crew, contractor, owner-reported); an agency may switch it on to be emailed when the crew or contractor REPORTS the work finished. Specs 14.27 Q11 (landlord emailed at crew completion, default ON) is superseded by this ruling and by 22.17 item 6.
+2. **Routing profiles (§13, sending a fault or work order to a contractor automatically, e.g. by specialty) are REJECTED - the agent or the owner selects and appoints the contractor.** §13 is marked rejected and its permission key, Setup Wizard entry and future-gap items are withdrawn. A code audit the same day found **no server path that assigns a contractor by itself**; the only automatic behaviours are pre-selections in forms that still need the agent's press, and sending the job to the contractor already chosen (reported to Johan, not changed): the "Who goes to look first?" picker pre-ticks the property's first-responder (§21) or the contractor proposed when sent to the owner; the "Create work order" form pre-fills the owner's pick, then the proposed one, then the property's first-responder (§28.2); both crew pickers pre-select the agency's only crew when there is exactly one; the quote form pre-fills the work order's contractor; the go-ahead (§22.15) is sent automatically to the contractor the agent already chose once the cost is authorised.
