@@ -230,7 +230,15 @@ class AdManagerController extends Controller
         }
 
         // One definition, shared with the Company ads list's Post / Schedule (company-ads.md §7).
-        return app(\App\Services\Marketing\ScheduledPostService::class)->panelConfig($user);
+        $svc = app(\App\Services\Marketing\ScheduledPostService::class);
+
+        // Plus this page's own "Schedule by agent" (AT-456 §D.9): the user's last pattern and its limits.
+        return $svc->panelConfig($user) + [
+            'pattern'  => $svc->savedPattern($user),
+            'minGap'   => $svc::MIN_GAP_MINUTES,
+            'maxGap'   => $svc::MAX_GAP_MINUTES,
+            'maxBatch' => $svc::MAX_AGENT_BATCH,
+        ];
     }
 
     /**
@@ -340,6 +348,7 @@ class AdManagerController extends Controller
             $row = [
                 'id'          => $p->id,
                 'title'       => $p->title,
+                'agent_id'    => (int) $p->agent_id,
                 'agent_name'  => $p->agent?->name ?? 'Unassigned',
                 'description' => null,
                 'ai_error'    => null,
