@@ -49,7 +49,7 @@ class SendLandlordCrewCompletionMailJob implements ShouldQueue
             return;
         }
 
-        if (! RentalPortalSetting::notifyLandlordOnCrewCompletionFor($card->agency_id)) {
+        if (! \App\Services\Rentals\OwnerFinishNotice::tellOwnerWhenReportedFinished($card->agency_id)) {
             return;
         }
 

@@ -135,7 +135,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                     <input type="hidden" name="notify_landlord_on_crew_completion" value="0">
                     <input type="checkbox" name="notify_landlord_on_crew_completion" value="1" onchange="this.form.submit()" @checked($notifyLandlordOnCrewCompletion)>
-                    Email the landlord when the crew marks the work completed
+                    Email the owner as soon as the work is reported finished (crew or contractor)
                 </label>
             </form>
         </div>

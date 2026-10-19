@@ -131,7 +131,7 @@ final class FaultResolvedOnEveryCompletionRouteTest extends TestCase
         $this->assertNotSame('completed', $fault->fresh()->tenant_progress_notified, 'the tenant was not told the work is completed');
 
         // the agent is told once, through the one dispatcher the alert popup reads; pressing again tells nobody twice
-        $finishedAlerts = fn () => count(array_filter($alerts, fn ($a) => $a[0] === 'rental_work_order.contractor_responded' && str_starts_with($a[1], 'Finished - awaiting your check')));
+        $finishedAlerts = fn () => count(array_filter($alerts, fn ($a) => $a[0] === 'rental_work_order.contractor_finished' && str_starts_with($a[1], 'Finished - awaiting your check')));
         $first = $finishedAlerts();
         $this->assertGreaterThan(0, $first, 'the agent gets the alert');
         $this->post(route('rentals.secure-link.mark-done', $raw))->assertSessionHasNoErrors();

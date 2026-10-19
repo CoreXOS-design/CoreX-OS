@@ -236,6 +236,12 @@ class RentalWhoPaysService
         $this->faultFor($wo)?->recordHistory(RentalFaultReportUpdate::TYPE_PAYER_RULED, $by, $line);
 
         $this->tellParties($wo, $ruling);
+        // audit C-F2: a statement already sent said "Not yet paid" - the owner gets the updated one, once per ruling
+        try {
+            app(RentalWorkOrderService::class)->resendFinalStatementForRuling($wo->fresh(), $ruling);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Updated final statement failed', ['work_order' => $wo->id, 'error' => $e->getMessage()]);
+        }
 
         return $ruling->fresh();
     }

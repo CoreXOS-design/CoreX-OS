@@ -415,7 +415,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '1250.5', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and cartridge'])->assertRedirect();
 
         $alerts = collect($this->agentAlerts());
-        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_responded' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts');
+        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_accepted' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts (its own type since the audit split, C-B1)');
         $quote = $alerts->first(fn ($a) => $a[0] === 'rental_work_order.quote_received');
         $this->assertNotNull($quote, 'the quote alerts the agent');
         $this->assertSame('Quote received - Cape Peninsula Plumbing R1,250.50 - ' . $wo->property->buildDisplayAddress(), $quote[1]);
@@ -861,7 +861,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertContains('rental_work_order.contractor_job_not_sent', $events);
 
         app(Jobs::class)->recordResponse($wo->fresh(), 'accepted');
-        $this->assertContains('rental_work_order.contractor_responded', $events);
+        $this->assertContains('rental_work_order.contractor_accepted', $events);
         app(Jobs::class)->recordResponse($wo->fresh(), 'quote_uploaded');
         $this->assertContains('rental_work_order.quote_received', $events, 'a quote has its own alert type');
         $this->assertSame(4, \Illuminate\Support\Facades\DB::table('notification_event_types')->whereIn('key', [

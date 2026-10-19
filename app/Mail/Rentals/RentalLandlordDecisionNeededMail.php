@@ -29,8 +29,12 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
     public ?string $proposedCost = null;
     public bool $isFault = false;
 
-    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName, ?string $recipientEmail = null, ?\App\Models\Contact $recipient = null)
+    /** audit C-A1: 0 = the first mail; 1 / 2 = the first / second reminder (the same mail, said plainly as a reminder). */
+    public int $reminderNumber = 0;
+
+    public function __construct(public RentalFaultReport|RentalWorkOrder $decisionSubject, string $recipientName, ?string $recipientEmail = null, ?\App\Models\Contact $recipient = null, int $reminderNumber = 0)
     {
+        $this->reminderNumber = $reminderNumber;
         $this->onQueue('mail');
         $this->recipientName = $recipientName ?: 'there';
         $this->propertyAddress = $decisionSubject->property?->buildDisplayAddress() ?: ('Property #' . $decisionSubject->property_id);
@@ -53,7 +57,7 @@ class RentalLandlordDecisionNeededMail extends Mailable implements ShouldQueue
 
     public function envelope(): Envelope
     {
-        return new Envelope(subject: ($this->isFault ? 'Your agent needs your go-ahead' : 'A decision is needed') . " — {$this->propertyAddress}");
+        return new Envelope(subject: ($this->reminderNumber > 0 ? 'Reminder: ' : '') . ($this->isFault ? 'Your agent needs your go-ahead' : 'A decision is needed') . " — {$this->propertyAddress}");
     }
 
     public function content(): Content

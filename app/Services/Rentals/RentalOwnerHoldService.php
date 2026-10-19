@@ -32,6 +32,8 @@ use Illuminate\Support\Facades\Mail;
 class RentalOwnerHoldService
 {
     public const EV_HOLD = 'rental_fault_report.owner_hold';
+    /** Audit C-B4: lifting the hold is its own alert type (it shared EV_HOLD and the resume alert was swallowed within the cooldown of the stop). */
+    public const EV_RESUMED = 'rental_fault_report.owner_resumed';
     public const EV_QUERY = 'rental_fault_report.owner_query';
 
     public function __construct(private RentalAuthorisationService $authorisations) {}
@@ -312,7 +314,7 @@ class RentalOwnerHoldService
         });
         if ($result === 'resumed') {
             $addr = ($fault ?? $wo)->property?->buildDisplayAddress() ?: ('Property #' . ($fault ?? $wo)->property_id);
-            $this->tellAgents($fault, $wo, self::EV_HOLD, 'The owner said go ahead after all - ' . $addr,
+            $this->tellAgents($fault, $wo, self::EV_RESUMED, 'The owner said go ahead after all - ' . $addr,
                 $this->ownerName($owner) . ' pressed "Go ahead after all" on "' . $this->jobTitle($fault, $wo) . '". The hold is lifted. If the contractor or crew were told to wait, send the job again.', 'info');
         }
 
