@@ -276,6 +276,14 @@
                     <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The property returns to the status it had before it was let, and the agent who owns the listing gets an in-app alert that it is free again. Nothing is sent to Property24 or Private Property - the agent checks the rent and re-lists it on the portals. Off leaves it as "let out" until an agent changes it.</p>
                 </div>
                 <div>
+                    <input type="hidden" name="end_tenancy_on_move_out_date" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="end_tenancy_on_move_out_date" value="1" @checked(old('end_tenancy_on_move_out_date', $endTenancyOnMoveOutDate))>
+                        End the tenancy on the move-out date from an accepted notice
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. Once a notice is accepted the lease has a move-out date; on that date the lease is marked ended even if no move-out inspection has been completed. Off keeps the lease active until a completed move-out inspection confirms the property is empty.</p>
+                </div>
+                <div>
                     <input type="hidden" name="auto_restore_status_on_lease_cancelled" value="0">
                     <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                         <input type="checkbox" name="auto_restore_status_on_lease_cancelled" value="1" @checked(old('auto_restore_status_on_lease_cancelled', $autoRestoreStatusOnLeaseCancelled))>

@@ -543,6 +543,8 @@ return [
             // require_checklist_complete is has()-guarded like every other
             // toggle above.
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateApprovalMode'],
+            // Audit fix A4/A27 (2026-10-19): who approves applications. One narrow saver, each list written only when posted (has()-guarded).
+            ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateAuthorisersFromWizard'],
             // Johan, 2026-10-07 — lease rent above the approved amount. has()-guarded on its own field.
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRentAboveApprovedMode'],
             ['controller' => \App\Http\Controllers\CoreX\RentalApplicationSettingsController::class, 'method' => 'updateRequireChecklistComplete'],
@@ -670,6 +672,10 @@ return [
              'label' => 'Put the property back on the market when the move-out inspection confirms it is empty',
              'explain' => 'When a move-out inspection confirms the property is vacant, CoreX can return it to the status it had before it was let, and the agent who owns the listing is told it is free again.',
              'affects' => 'On: a vacant property goes back on the market in CoreX by itself and the agent gets an in-app alert; nothing is pushed to Property24 or Private Property - the agent checks the rent and re-lists it on the portals. Off: it stays "let out" until an agent changes it.'],
+            ['key' => 'end_tenancy_on_move_out_date', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
+             'label' => 'End the tenancy on the move-out date from an accepted notice',
+             'explain' => 'When a notice has been accepted, the lease carries a move-out date. This decides whether the lease ends by itself on that date, or only after a move-out inspection has been completed.',
+             'affects' => 'On: on the move-out date the lease is marked ended (the property follows the setting above) even if nobody has done the move-out inspection yet. Off: the lease stays active until a completed move-out inspection confirms the property is empty.'],
             ['key' => 'auto_restore_status_on_lease_cancelled', 'source' => 'leases', 'type' => 'toggle', 'default' => 1,
              'label' => 'Put the property back on the market when a lease is cancelled',
              'explain' => 'When an active lease is cancelled, CoreX can return the property to the status it had before it was let.',
@@ -1169,6 +1175,16 @@ return [
              'label' => 'Application approval',
              'explain' => 'Two step keeps the existing hand-off to a second authoriser. One step lets an agent who is already configured as a Reviewer or Override user approve or decline an application directly, without a separate hand-off — for agencies where the same person handles and decides applications.',
              'affects' => 'Whether the review screen shows "Submit for approval" (two step) or "Approve application"/"Decline application" directly (one step) to an agent who is also a configured Reviewer or Override user. Someone who is neither still always sees "Submit for approval".'],
+            // Audit fix A4/A27 (2026-10-19): the approvers. Without anyone ticked here an application handed over for approval
+            // reached nobody; CoreX now falls back to one-step approval (and warns) until at least one person is chosen.
+            ['key' => 'rental_application_ro_user_ids', 'source' => 'rental_application', 'type' => 'user_multiselect', 'default' => [],
+             'label' => 'Who reviews and approves applications (Reviewers)',
+             'explain' => 'Tick the people who may approve or decline a rental application. A Reviewer cannot approve an application they created (unless your agency has just the one approver) and cannot change a decision once made. If you tick nobody, whoever reviews an application approves it directly and CoreX shows a warning on the screen.',
+             'affects' => 'Who is told when an application is handed over for approval and who can approve or decline it. With nobody ticked there is no second check on a decision.'],
+            ['key' => 'rental_application_co_user_ids', 'source' => 'rental_application', 'type' => 'user_multiselect', 'default' => [],
+             'label' => 'Who can override a decision (Override approvers)',
+             'explain' => 'Tick the people who can do everything a Reviewer can, plus decide an application they created themselves and change a decision that has already been made (a reason is then required). Usually the head of rentals or the principal.',
+             'affects' => 'Who can reverse an approval or decline, and who can approve their own applications. Administrators can always override.'],
             // Johan, 2026-10-07 — QA1 rentals test: a tenant approved for R10,000 was leased at R11,400 unnoticed.
             ['key' => 'rent_above_approved_mode', 'source' => 'rental_application', 'type' => 'select', 'default' => 'warn',
              'options' => ['warn' => 'Warn and confirm — the agent confirms with a reason, which is logged', 'block' => 'Block — the lease cannot be above the approved amount'],

@@ -256,12 +256,21 @@ class Lease extends Model
         return $query->where('leases.status', self::STATUS_DRAFT)->whereNot(fn ($q) => $q->signedRenewalAwaitingStart());
     }
 
-    /** The status as a person reads it: a signed renewal waiting for its start date says so instead of "Draft". */
+    /**
+     * The status as a person reads it: a signed renewal waiting for its start date says so instead of "Draft", and a term that ended
+     * because it was renewed says "Renewed" instead of "Expired" (rental-renewals.md §7, audit fix A19 - display only: the stored status
+     * stays `expired` with `renewed_lease_id` set, so every query, filter and report keeps reading one status vocabulary).
+     */
     public function displayStatus(): string
     {
-        return $this->isSignedRenewalAwaitingStart()
-            ? 'Signed - starts ' . $this->start_date->format('j M Y')
-            : ucfirst((string) $this->status);
+        if ($this->isSignedRenewalAwaitingStart()) {
+            return 'Signed - starts ' . $this->start_date->format('j M Y');
+        }
+        if ($this->status === self::STATUS_EXPIRED && $this->renewed_lease_id) {
+            return 'Renewed';
+        }
+
+        return ucfirst((string) $this->status);
     }
 
     public function hasPendingRenewalDraft(): bool

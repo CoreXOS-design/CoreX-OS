@@ -82,6 +82,8 @@ class RentalInspectionComparisonController extends Controller
         $validated = $request->validate([
             'disposition' => ['required', 'in:' . implode(',', array_keys(\App\Models\RentalInspectionItemFinding::DISPOSITION_LABELS))],
             'note' => ['required', 'string', 'max:2000'],
+            // Audit A24 - optional: the amount (rand) the agent has in mind for this item. Recorded only; CoreX does no money here.
+            'amount' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
         ]);
 
         try {
@@ -91,6 +93,7 @@ class RentalInspectionComparisonController extends Controller
                 $validated['disposition'],
                 $validated['note'],
                 $request->user(),
+                isset($validated['amount']) && $validated['amount'] !== '' ? (float) $validated['amount'] : null,
             );
         } catch (\LogicException $e) {
             return back()->withErrors(['finding' => $e->getMessage()]);

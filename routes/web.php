@@ -3783,6 +3783,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_applications.archive')->name('corex.rental-applications.restore');
         Route::post('/{rentalApplication}/status', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'updateStatus'])
             ->middleware('permission:rental_applications.create')->name('corex.rental-applications.update-status');
+        // Audit fixes A2 / A3 (2026-10-19): the agent's way back for a locked-out applicant, and the exit from "reopened".
+        Route::post('/{rentalApplication}/reissue-link', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'reissueLink'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.reissue-link');
+        Route::post('/{rentalApplication}/cancel-reopen', [\App\Http\Controllers\CoreX\RentalApplicationController::class, 'cancelReopen'])
+            ->middleware('permission:rental_applications.create')->name('corex.rental-applications.cancel-reopen');
         // Johan — "on approval then we have a way for the agent to link the
         // application to a property... rental - when an approved tenant is
         // linked the property changes to let out status." See
@@ -3845,6 +3850,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::get('/party-check', [\App\Http\Controllers\CoreX\LeaseController::class, 'partyCheck'])
             ->middleware('permission:leases.view')->name('corex.leases.party-check');
         // LEASE-CAPTURE END
+        // Audit A16 (2026-10-19) - the partner named on an approved application becomes a contact + tenant in one click (static path, before /{lease}).
+        Route::post('/application-co-applicant', [\App\Http\Controllers\CoreX\LeaseController::class, 'coApplicantContact'])
+            ->middleware('permission:leases.create')->name('corex.leases.application-co-applicant');
         Route::get('/{lease}',[\App\Http\Controllers\CoreX\LeaseController::class, 'show'])->name('corex.leases.show');
         // AT-440 — Lease Hub "Print tenancy report" action.
         Route::get('/{lease}/tenancy-report', [\App\Http\Controllers\CoreX\LeaseController::class, 'tenancyReportPdf'])->name('corex.leases.tenancy-report');
@@ -3863,6 +3871,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // rental-renewals.md §22.1 - "Run today's lease date checks now" (system owner / agency admin; the controller checks the role).
         Route::post('/{lease}/run-date-checks', [\App\Http\Controllers\CoreX\LeaseController::class, 'runDateChecks'])
             ->middleware('permission:leases.view')->name('corex.leases.run-date-checks');
+        // Audit A1 (2026-10-19): a "Create lease only" draft is prepared for signing / given its signed paper copy later.
+        Route::post('/{lease}/signing/prepare', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareForSigning'])
+            ->middleware('permission:leases.create')->name('corex.leases.signing.prepare');
+        Route::post('/{lease}/signing/signed-copy', [\App\Http\Controllers\CoreX\LeaseController::class, 'attachSignedCopy'])
+            ->middleware('permission:leases.create')->name('corex.leases.signing.signed-copy');
         // LEASE-CAPTURE BEGIN (leases.md §15.13 — Build L3a): "Prepare again" after a declined / voided / expired agreement.
         Route::post('/{lease}/signing/prepare-again', [\App\Http\Controllers\CoreX\LeaseController::class, 'prepareAgain'])
             ->middleware('permission:leases.view')->name('corex.leases.signing.prepare-again');
@@ -3901,8 +3914,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/upload', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'uploadRenewal'])->name('corex.leases.renewal.upload');
             Route::post('/month-to-month', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'monthToMonth'])->name('corex.leases.renewal.month-to-month');
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseMonthToMonth'])->name('corex.leases.renewal.month-to-month.reverse');
-            Route::post('/tenant-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'tenantNotice'])->name('corex.leases.renewal.tenant-notice');
-            Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->name('corex.leases.renewal.landlord-notice');
+            Route::post('/tenant-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'tenantNotice'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
             Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->name('corex.leases.renewal.notice.change-outcome');
             // Renewal-draft cancellation — {lease} here is the DRAFT itself.
@@ -3935,7 +3948,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // AT-466 - the "Notices" menu item: lands on the first notices tab the user may open (?tab=breaches|received|sent|templates). The tabs are the four screens below.
     Route::get('notices', [\App\Http\Controllers\CoreX\NoticesHubController::class, 'index'])
-        ->middleware('permission:rental_breaches.view,rental_notices.review,rental_notices.create,rental_notice_templates.manage_settings')->name('corex.notices.index');
+        ->middleware('permission:rental_breaches.view,rental_notices.review,rental_notices.view,rental_notices.create,rental_notice_templates.manage_settings')->name('corex.notices.index');
 
     // .ai/specs/lease-notices.md — a notice given by the tenant / landlord: list, review, decide, send to the other party.
     Route::prefix('lease-notices')->middleware('permission:rental_notices.review')->group(function () {
@@ -3969,7 +3982,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     });
 
     // AT-445 — .ai/specs/rental-portal-access.md §10. Notices sent — list/show only.
-    Route::prefix('rental-notices')->middleware('permission:rental_notices.create')->group(function () {
+    // audit 2026-10-19 (A28): reading the history of notices sent needs rental_notices.view, not the right to draft and send.
+    Route::prefix('rental-notices')->middleware('permission:rental_notices.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'index'])->name('corex.rental-notices.index');
         Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->name('corex.rental-notices.show');
         Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->name('corex.rental-notices.download-document');

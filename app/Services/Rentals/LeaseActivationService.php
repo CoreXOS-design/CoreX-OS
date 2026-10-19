@@ -3,9 +3,11 @@
 namespace App\Services\Rentals;
 
 use App\Models\Lease;
+use App\Models\LeaseEvent;
 use App\Models\Property;
 use App\Services\Audit\PropertyAuditService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -106,17 +108,13 @@ class LeaseActivationService
      * lease-ended reversion/month-to-month rows are Stage 6/7, out of this
      * ticket's scope).
      *
-     * `let_out` is used directly, not a new per-agency setting — it is
-     * ALREADY a system-wide status slug hardcoded into Property's own
-     * OFF_MARKET_STATUSES/CONCLUDED_STATUSES constants (Property.php:68,
-     * 1726), not an HFC-specific concept, so this does not introduce a
-     * new multi-agency assumption. Prevent-or-absorb (BUILD_STANDARD §3):
-     * if an agency's own property_status vocabulary doesn't include
-     * `let_out` (Property::isAllowedStatus() check), the automatic status
-     * write is skipped entirely rather than writing a status the agency
-     * never configured — the Lease Hub's own next-step card is unaffected
-     * either way, since it reasons about the LEASE's state, not the
-     * property's.
+     * Audit A26 (2026-10-19): the status written is whatever
+     * PropertyStatusFollowsLeaseService::leasedOutStatusFor() resolves for
+     * THIS agency's status vocabulary - no literal here. When the vocabulary
+     * accepts none, the property is left alone (BUILD_STANDARD §3
+     * prevent-or-absorb) but NOT silently: a lease event and a log line
+     * record it, and propertyStatusWarning() puts the plain sentence on the
+     * lease screen and in the activation message.
      *
      * Goes through the property's normal save() — never a direct
      * DB::table('properties')->update() — so PropertyObserver's status
@@ -124,13 +122,21 @@ class LeaseActivationService
      * fire exactly as they would for a manual agent status change. This
      * is also what makes the portal consequence automatic with no new
      * portal-sync code: Property::isOnMarket() already reads
-     * OFF_MARKET_STATUSES, which already contains `let_out`.
+     * OFF_MARKET_STATUSES, which already contains the let statuses.
      */
     public function flipPropertyToLeasedOut(Property $property, Lease $lease): void
     {
-        $leasedOutStatus = 'let_out';
+        $statusService = app(PropertyStatusFollowsLeaseService::class);
+        $leasedOutStatus = $statusService->leasedOutStatusFor($property->agency_id);
 
-        if (!Property::isAllowedStatus($leasedOutStatus, $property->agency_id)) {
+        if ($leasedOutStatus === null) {
+            $message = $this->noLeasedOutStatusMessage();
+            Log::warning('Lease activated but the property status could not be set to a let status', ['lease_id' => $lease->id, 'property_id' => $property->id, 'agency_id' => $property->agency_id]);
+            LeaseEvent::create([
+                'lease_id' => $lease->id, 'event_type' => LeaseEvent::TYPE_PROPERTY_STATUS_NOT_UPDATED,
+                'description' => $message, 'occurred_at' => now(), 'created_at' => now(),
+            ]);
+
             return;
         }
 
@@ -142,7 +148,7 @@ class LeaseActivationService
         // property was BEFORE being let, so rows 6/7 can restore it once
         // the tenancy truly ends. Must happen before $oldStatus below
         // overwrites $property->status in memory.
-        app(PropertyStatusFollowsLeaseService::class)->captureStatusBeforeLetting($property);
+        $statusService->captureStatusBeforeLetting($property);
 
         $oldStatus = $property->status;
         $property->status = $leasedOutStatus;
@@ -156,7 +162,29 @@ class LeaseActivationService
             ['status' => $oldStatus],
             ['status' => $leasedOutStatus],
             metadata: ['cause' => "Lease #{$lease->id} activated"],
-            humanSummary: 'Status changed from ' . ucfirst($oldStatus ?: 'none') . ' to Let Out — Lease #' . $lease->id . ' activated',
+            humanSummary: 'Status changed from ' . ucfirst($oldStatus ?: 'none') . ' to ' . $statusService->statusLabel($leasedOutStatus) . ' — Lease #' . $lease->id . ' activated',
         );
+    }
+
+    /**
+     * Audit A26 - the plain sentence shown on the lease screen (and appended to "Lease activated.") while this lease's property cannot be
+     * given a let status in this agency's vocabulary. Null when all is well or the lease is not active.
+     */
+    public function propertyStatusWarning(Lease $lease): ?string
+    {
+        if ($lease->status !== Lease::STATUS_ACTIVE) {
+            return null;
+        }
+        $agencyId = Property::withoutGlobalScopes()->whereKey($lease->property_id)->value('agency_id') ?? $lease->agency_id;
+
+        return app(PropertyStatusFollowsLeaseService::class)->leasedOutStatusFor($agencyId ? (int) $agencyId : null) === null
+            ? $this->noLeasedOutStatusMessage()
+            : null;
+    }
+
+    private function noLeasedOutStatusMessage(): string
+    {
+        return 'The lease is active, but this agency has no property status for a let property, so the property\'s status was not changed. '
+            . 'Set the property\'s status by hand under Settings → Property Statuses.';
     }
 }

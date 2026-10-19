@@ -194,6 +194,17 @@
             @if($rentalApplication)
                 <input type="hidden" name="rental_application_id" value="{{ $rentalApplication->id }}">
                 <p class="text-xs" style="color: var(--text-muted);">Linked to rental application #{{ $rentalApplication->id }}.</p>
+                @if(!empty($coApplicantOffer))
+                    {{-- Audit A16 (2026-10-19): the application names a partner who is not a contact yet - one click, no retyping. --}}
+                    <div class="rounded-md p-2 text-xs flex flex-wrap items-center justify-between gap-2" style="background: var(--surface-2); border: 1px solid var(--border);" data-qa="co-applicant-offer"
+                         x-show="!coApplicantAdded">
+                        <span>The application also names <strong>{{ $coApplicantOffer['name'] }}</strong>@if($coApplicantOffer['id_number'] !== '') (ID {{ $coApplicantOffer['id_number'] }})@endif. Add them as a joint tenant?</span>
+                        <button type="button" class="corex-btn-outline text-xs" :disabled="coApplicantBusy"
+                                data-url="{{ route('corex.leases.application-co-applicant') }}" data-application="{{ $rentalApplication->id }}"
+                                @click="addCoApplicant($el.dataset.url, $el.dataset.application)">Add as a tenant</button>
+                        <span class="w-full" style="color: var(--ds-crimson);" x-show="coApplicantError" x-text="coApplicantError" x-cloak></span>
+                    </div>
+                @endif
             @endif
 
             <div>
@@ -385,6 +396,29 @@ function leaseCaptureForm(searchUrl, seed, propertyCfg, cfg) {
         query: '',
         results: [],
         selected: seed || [],
+        coApplicantAdded: false,
+        coApplicantBusy: false,
+        coApplicantError: '',
+        // Audit A16: create (or find) the contact for the partner named on the application and add them as a joint tenant.
+        async addCoApplicant(url, applicationId) {
+            this.coApplicantBusy = true;
+            this.coApplicantError = '';
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]')?.content || '' },
+                    body: JSON.stringify({ rental_application_id: applicationId }),
+                });
+                if (!res.ok) { throw new Error('HTTP ' + res.status); }
+                const person = await res.json();
+                this.add({ id: person.id, name: person.name, email: person.email });
+                this.coApplicantAdded = true;
+            } catch (e) {
+                this.coApplicantError = 'Could not add them just now - search for the contact below instead.';
+            } finally {
+                this.coApplicantBusy = false;
+            }
+        },
         submitAttempted: false,
         submitting: false,
         init() {

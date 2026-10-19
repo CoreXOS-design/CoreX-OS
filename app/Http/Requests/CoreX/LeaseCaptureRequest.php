@@ -192,19 +192,20 @@ class LeaseCaptureRequest extends FormRequest
             }
 
             // A fixed-term lease has an end date, a month-to-month one has none — never both (§15.3).
-            if (filter_var($data['is_month_to_month'] ?? false, FILTER_VALIDATE_BOOLEAN) && ! empty($data['end_date'])) {
-                $validator->errors()->add('end_date', 'A month-to-month lease has no end date — clear one or the other.');
+            if ($conflict = LeaseCaptureService::monthToMonthConflict(filter_var($data['is_month_to_month'] ?? false, FILTER_VALIDATE_BOOLEAN), $data['end_date'] ?? null)) {
+                $validator->errors()->add('end_date', $conflict);
             }
 
-            // The linked application must be for THIS property (audit M6/L2).
+            // The linked application must be approved (audit A7); its property is re-pointed to the chosen one (audit M6/L2).
             if (! $this->previousLease() && ! empty($data['rental_application_id']) && is_scalar($data['property_id'] ?? null)
                 && ! $validator->errors()->has('rental_application_id') && ! $validator->errors()->has('property_id')) {
                 $application = RentalApplication::query()->find($data['rental_application_id']);
-                // An APPROVED application's property is chosen on the lease screen itself (it is re-pointed when
-                // the lease is created), so only an application still in progress is held to its own property.
-                if ($application && $application->status !== 'approved' && $application->property_id !== null && (int) $application->property_id !== (int) $data['property_id']) {
-                    $validator->errors()->add('rental_application_id', 'That rental application is for a different property.');
+                // Audit A7 (2026-10-19) - leases.md §15.25: only an APPROVED application becomes a lease.
+                if ($application && $application->status !== 'approved') {
+                    $validator->errors()->add('rental_application_id', LeaseCaptureService::applicationNotApprovedMessage($application->status));
                 }
+                // An APPROVED application's property is chosen on the lease screen itself (it is re-pointed when the lease is created);
+                // an application that is not approved never gets this far (refused above - audit A7).
 
                 // Johan, QA1, 2026-10-07 — a lease rent above what the tenant was approved for: the agency's
                 // policy decides (block, or warn-and-confirm with a reason). Never silent.

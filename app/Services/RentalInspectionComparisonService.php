@@ -805,13 +805,13 @@ class RentalInspectionComparisonService
      * an item that was never a candidate (unchanged/improved/N-A) has
      * nothing to judge.
      */
-    public function recordFinding(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy): RentalInspectionItemFinding
+    public function recordFinding(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy, ?float $amount = null): RentalInspectionItemFinding
     {
         $row = $this->compareItems($outInspection)->firstWhere(fn (array $r) => $r['item']?->id === $item->id);
         if (! $row || ! in_array($row['classification'], self::REVIEWABLE_CLASSIFICATIONS, true)) {
             throw new \LogicException('This item is not a declined finding on this out-inspection — nothing to record a judgement against.');
         }
 
-        return RentalInspectionItemFinding::record($outInspection, $item, $disposition, $note, $recordedBy);
+        return RentalInspectionItemFinding::record($outInspection, $item, $disposition, $note, $recordedBy, $amount);
     }
 }

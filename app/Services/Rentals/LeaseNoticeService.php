@@ -17,6 +17,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -34,6 +35,52 @@ class LeaseNoticeService
 
     public function __construct(private readonly LeaseNoticeReviewService $review)
     {
+    }
+
+    // ── The ONE date rule (audit 2026-10-19, A28) ───────────────────────────
+
+    /**
+     * The one set of date rules for a notice, used by EVERY way a notice gets in: the portal, the agent's dialogs, the mobile API and the
+     * agent correcting a case. The move-out date must be after the day notice was given; the 2-year ceiling is a fixed sanity limit against
+     * a mistyped year, not a configurable rule.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function dateRules(): array
+    {
+        return [
+            'notice_date' => ['required', 'date', 'before_or_equal:today'],
+            'intended_end_date' => ['required', 'date', 'after:notice_date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
+        ];
+    }
+
+    /** @return array<string, string> */
+    public static function dateMessages(): array
+    {
+        return [
+            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
+            'intended_end_date.after' => 'The move-out date must be after the date notice was given.',
+            'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
+        ];
+    }
+
+    /**
+     * Everything an agent types when they record a notice on someone's behalf - the same fields and rules on every entry point
+     * (the lease screen's dialogs, the notice-cases route, the mobile API). Throws the ordinary 422 ValidationException.
+     *
+     * @param array<string, mixed> $input
+     * @return array{notice_date:string,intended_end_date:string,reason:?string}
+     */
+    public function validateAgentEntry(array $input, ?UploadedFile $file = null): array
+    {
+        $validated = Validator::make($input + ['attachment' => $file], self::dateRules() + [
+            'reason' => ['nullable', 'string', 'max:2000'],
+            'attachment' => ['nullable', 'file', 'max:' . self::ATTACHMENT_MAX_KB, 'mimes:' . self::ATTACHMENT_MIMES],
+        ], self::dateMessages())->validate();
+
+        return [
+            'notice_date' => $validated['notice_date'], 'intended_end_date' => $validated['intended_end_date'], 'reason' => $validated['reason'] ?? null,
+        ];
     }
 
     // ── Give a notice ───────────────────────────────────────────────────────
@@ -54,7 +101,7 @@ class LeaseNoticeService
         if ($lease->hasActiveNotice()) {
             throw ValidationException::withMessages(['lease' => 'This lease already has an accepted notice. It has to be reversed before another can be recorded.']);
         }
-        if (LeaseNotice::withoutGlobalScopes()->where('lease_id', $lease->id)->where('given_by', $givenBy)->where('status', LeaseNotice::STATUS_RECEIVED)->exists()) {
+        if ($this->hasWaitingNotice($lease, $givenBy)) {
             throw ValidationException::withMessages(['lease' => ($givenBy === Lease::NOTICE_BY_LANDLORD ? 'A notice from the landlord' : 'A notice from the tenant') . ' is already waiting for review on this lease.']);
         }
 
@@ -193,12 +240,22 @@ class LeaseNoticeService
 
     public function archive(LeaseNotice $notice, User $agent): void
     {
+        if ($notice->trashed()) {
+            return; // already archived - nothing to do, nothing to log twice
+        }
         $notice->delete();
         $this->logEvent($notice->lease, LeaseEvent::TYPE_NOTICE_EDITED, 'Notice case archived', $agent, ['lease_notice_id' => $notice->id]);
     }
 
     public function restore(LeaseNotice $notice, User $agent): void
     {
+        if (! $notice->trashed()) {
+            return;
+        }
+        // an archived case that was waiting for review comes back waiting - it must not collide with a newer one for the same lease and side
+        if ($notice->isReceived() && $this->hasWaitingNotice($notice->lease, $notice->given_by)) {
+            throw ValidationException::withMessages(['notice' => 'A newer ' . $notice->given_by . ' notice is already waiting for review on this lease, so this archived one cannot be restored as well.']);
+        }
         $notice->restore();
         $this->logEvent($notice->lease, LeaseEvent::TYPE_NOTICE_EDITED, 'Notice case restored', $agent, ['lease_notice_id' => $notice->id]);
     }
@@ -248,21 +305,41 @@ class LeaseNoticeService
         }
     }
 
-    /** Accepted: the other party hears about it (an email from the accepting agent; they also see it in their portal's Notices tab). */
+    /**
+     * Accepted: the other party hears about it (an email from the accepting agent; they also see it in their portal's Notices tab).
+     * "Told" is written ONLY for people an email actually went to (audit 2026-10-19, A9): a contact with no email address, or an email that
+     * failed, is logged as NOT told - never as told - and other_party_told_at stays empty when nobody was reached.
+     */
     private function tellOtherParty(LeaseNotice $notice, User $agent): void
     {
+        $party = $notice->otherParty();
+        $told = [];
+        $notTold = [];
         try {
             $lease = $notice->lease;
-            $recipients = $notice->otherParty() === Lease::NOTICE_BY_TENANT ? $lease->tenantContacts() : $lease->landlordContacts();
-            $told = [];
+            $recipients = $party === Lease::NOTICE_BY_TENANT ? $lease->tenantContacts() : $lease->landlordContacts();
             foreach ($recipients as $contact) {
-                if ($contact->email) {
-                    app(RentalMailDispatcher::class)->send($contact->email, new LeaseNoticeAcceptedMail($notice, $contact, $agent));
+                $name = trim((string) $contact->full_name) ?: ucfirst($party);
+                if (! $contact->email) {
+                    $notTold[] = $name . ' (no email address on file)';
+                    continue;
                 }
-                $told[] = trim((string) $contact->full_name) ?: ucfirst($notice->otherParty());
+                try {
+                    app(RentalMailDispatcher::class)->send($contact->email, new LeaseNoticeAcceptedMail($notice, $contact, $agent));
+                    $told[] = $name;
+                } catch (\Throwable $e) {
+                    $notTold[] = $name . ' (the email could not be sent)';
+                    Log::warning('Lease notice: could not tell a contact of the other party', ['notice' => $notice->id, 'contact' => $contact->id, 'error' => $e->getMessage()]);
+                }
             }
-            $notice->forceFill(['other_party_told_at' => now()])->save();
-            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_SENT, 'The ' . $notice->otherParty() . ' was told the notice was accepted - ' . ($told ? implode(', ', array_unique($told)) : 'no one linked'), $agent, ['lease_notice_id' => $notice->id]);
+            if ($told !== []) {
+                $notice->forceFill(['other_party_told_at' => now()])->save();
+            }
+            $this->logEvent($lease, LeaseEvent::TYPE_NOTICE_SENT,
+                $told !== []
+                    ? 'The ' . $party . ' was told the notice was accepted - ' . implode(', ', array_unique($told)) . ($notTold ? '. Not reached: ' . implode(', ', $notTold) : '')
+                    : 'The ' . $party . ' could NOT be told the notice was accepted - ' . ($notTold ? implode(', ', $notTold) : 'no one is linked to the lease on that side') . '. They still see it in their portal.',
+                $agent, ['lease_notice_id' => $notice->id, 'told' => count($told), 'not_told' => count($notTold)]);
         } catch (\Throwable $e) {
             Log::warning('Lease notice: could not tell the other party', ['notice' => $notice->id, 'error' => $e->getMessage()]);
         }
@@ -282,8 +359,18 @@ class LeaseNoticeService
 
     // ── helpers ─────────────────────────────────────────────────────────────
 
+    /** A notice another notice must wait for: received, same side, NOT archived (an archived case is out of the way). */
+    private function hasWaitingNotice(Lease $lease, string $givenBy): bool
+    {
+        return LeaseNotice::withoutGlobalScopes()->whereNull('deleted_at')
+            ->where('lease_id', $lease->id)->where('given_by', $givenBy)->where('status', LeaseNotice::STATUS_RECEIVED)->exists();
+    }
+
     private function mustBeReceived(LeaseNotice $notice): void
     {
+        if ($notice->trashed()) {
+            throw ValidationException::withMessages(['notice' => 'This notice is archived. Restore it before doing anything else with it.']);
+        }
         if (! $notice->isReceived()) {
             throw ValidationException::withMessages(['notice' => 'This notice has already been dealt with.']);
         }

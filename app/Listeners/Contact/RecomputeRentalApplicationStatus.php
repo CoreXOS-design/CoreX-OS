@@ -8,6 +8,7 @@ use App\Events\AbstractDomainEvent;
 use App\Events\RentalApplication\RentalApplicationApproved;
 use App\Events\RentalApplication\RentalApplicationDeclined;
 use App\Events\RentalApplication\RentalApplicationReopened;
+use App\Events\RentalApplication\RentalApplicationReopenCancelled;
 use App\Events\RentalApplication\RentalApplicationSubmitted;
 use App\Events\RentalApplication\RentalApplicationWithdrawn;
 use App\Models\Contact;
@@ -33,6 +34,7 @@ final class RecomputeRentalApplicationStatus
             && ! $event instanceof RentalApplicationApproved
             && ! $event instanceof RentalApplicationDeclined
             && ! $event instanceof RentalApplicationReopened
+            && ! $event instanceof RentalApplicationReopenCancelled
             && ! $event instanceof RentalApplicationWithdrawn
         ) {
             return;

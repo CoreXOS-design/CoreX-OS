@@ -153,8 +153,10 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-change-notice-outcome')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Change notice outcome&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-reverse-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice&hellip;</button>
                                 @else
+                                    @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-tenant-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-landlord-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Landlord not renewing&hellip;</button>
+                                    @endpermission
                                 @endif
                             @endif
                             {{-- A draft chained to a previous (renewing) lease is a renewal
@@ -305,7 +307,7 @@
                 </x-modal>
             @endif
 
-            @if(!$lease->hasActiveNotice())
+            @if(!$lease->hasActiveNotice() && auth()->user()?->hasPermission('rental_notices.review'))
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
                     <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
@@ -510,15 +512,21 @@
                             <button type="submit" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</button>
                         </form>
                     @else
-                        <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
+                        <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}{{ !empty($nextStep['fragment']) ? '#' . $nextStep['fragment'] : '' }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
                     @endif
                 </div>
+            @endif
+
+            @if(!empty($propertyStatusWarning))
+                {{-- Audit A26 (2026-10-19): the lease is active but the property could not be given a let status in this agency's vocabulary. --}}
+                <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="property-status-warning">{{ $propertyStatusWarning }}</div>
             @endif
 
             {{-- LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L3a) --}}
             @include('corex.leases._notice-panel')
             @include('corex.leases._breach-panel')
             @include('corex.leases._agreement-card')
+            @include('corex.leases._draft-follow-up')
             {{-- LEASE-AGREEMENT END --}}
 
             @feature('rental-job-cards')
@@ -861,6 +869,7 @@
                         <label class="prop-label">End date</label>
                         <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" @disabled($leaseLocked) class="prop-input" style="color-scheme: light dark;">
                     </div>
+                    <input type="hidden" name="is_month_to_month" value="0" @disabled($leaseLocked)>
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month)) @disabled($leaseLocked)>
                         Month-to-month (no fixed end date)
@@ -894,10 +903,12 @@
                                 // before — activation itself never blocks on it
                                 // server-side.
                                 $propertyWithdrawn = strtolower(trim((string) ($lease->property?->status ?? ''))) === 'withdrawn';
+                                // Audit A1 (2026-10-19): a draft with no agreement behind it is activated as an explicit, labelled choice.
+                                $noAgreementYet = ! $lease->previous_lease_id && in_array((string) ($lease->signing_status ?: 'not_sent'), ['not_sent', 'declined', 'voided', 'expired'], true);
                             @endphp
                             <button type="submit" form="lease-activate-form"
-                                @if($propertyWithdrawn) data-confirm="This property is withdrawn. Are you sure you want to use it for this lease?" @endif
-                                class="corex-btn-primary text-xs">Activate</button>
+                                @if($propertyWithdrawn) data-confirm="This property is withdrawn. Are you sure you want to use it for this lease?" @elseif($noAgreementYet) data-confirm="Activate this lease without a signed agreement? This is recorded in the lease history." @endif
+                                class="corex-btn-primary text-xs">{{ $noAgreementYet ? 'Activate without a signed agreement' : 'Activate' }}</button>
                         @endif
                     </div>
                 </form>

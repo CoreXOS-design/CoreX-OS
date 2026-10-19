@@ -16,10 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * cached field: it can never drift out of sync with the observations it
  * describes.
  *
- * No amount, no currency, no deduction field anywhere on this model. That
- * half of the feature is explicitly not built until Johan rules on it
- * (§7.2/§10 of the spec) — this table only ever records "is this wear and
- * tear or a genuine flagged difference," never "how much."
+ * Audit A24 (2026-10-19) - Johan's ruling: money stays with reOS. A finding may RECORD an optional `amount` (rand) the agent has in mind
+ * for the item, and that is all: no currency column, no deduction, nothing here turns it into an invoice or a payout.
  */
 class RentalInspectionItemFinding extends Model
 {
@@ -54,6 +52,7 @@ class RentalInspectionItemFinding extends Model
         'rental_inspection_item_id',
         'disposition',
         'note',
+        'amount',
         'recorded_by_user_id',
         'recorded_at',
         'superseded_at',
@@ -61,6 +60,7 @@ class RentalInspectionItemFinding extends Model
     ];
 
     protected $casts = [
+        'amount' => 'decimal:2',
         'recorded_at' => 'datetime',
         'superseded_at' => 'datetime',
     ];
@@ -93,7 +93,7 @@ class RentalInspectionItemFinding extends Model
      * in place, matching RentalInspectionSignature::supersedeWetInk()'s own
      * transaction shape.
      */
-    public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy): self
+    public static function record(RentalInspection $outInspection, RentalInspectionItem $item, string $disposition, string $note, \App\Models\User $recordedBy, ?float $amount = null): self
     {
         if (! array_key_exists($disposition, self::DISPOSITION_LABELS)) {
             throw new \InvalidArgumentException("Unknown disposition: {$disposition}");
@@ -101,8 +101,11 @@ class RentalInspectionItemFinding extends Model
         if (trim($note) === '') {
             throw new \InvalidArgumentException('A finding requires a note — the agent\'s reasoning is the record.');
         }
+        if ($amount !== null && ($amount < 0 || $amount > 99999999.99)) {
+            throw new \InvalidArgumentException('The amount must be between 0 and 99,999,999.99.');
+        }
 
-        return \Illuminate\Support\Facades\DB::transaction(function () use ($outInspection, $item, $disposition, $note, $recordedBy) {
+        return \Illuminate\Support\Facades\DB::transaction(function () use ($outInspection, $item, $disposition, $note, $recordedBy, $amount) {
             $existing = self::where('rental_inspection_id', $outInspection->id)
                 ->where('rental_inspection_item_id', $item->id)
                 ->whereNull('superseded_at')
@@ -114,6 +117,7 @@ class RentalInspectionItemFinding extends Model
                 'rental_inspection_item_id' => $item->id,
                 'disposition' => $disposition,
                 'note' => $note,
+                'amount' => $amount !== null ? round($amount, 2) : null,
                 'recorded_by_user_id' => $recordedBy->id,
                 'recorded_at' => now(),
             ]);
@@ -128,9 +132,23 @@ class RentalInspectionItemFinding extends Model
                 RentalInspectionAuditLog::record(
                     $outInspection,
                     RentalInspectionAuditLog::EVENT_FINDING_SUPERSEDED,
-                    'Finding on "' . ($item->label ?? 'item') . '" changed from ' . str_replace('_', ' ', (string) $existing->disposition) . ' to ' . str_replace('_', ' ', $disposition) . '.',
-                    ['finding_id' => $existing->id, 'disposition' => $existing->disposition],
-                    ['finding_id' => $replacement->id, 'disposition' => $disposition],
+                    'Finding on "' . ($item->label ?? 'item') . '" changed from ' . str_replace('_', ' ', (string) $existing->disposition) . ' to ' . str_replace('_', ' ', $disposition)
+                        . ($existing->amount !== null || $replacement->amount !== null
+                            ? ' (amount ' . ($existing->amount !== null ? 'R' . number_format((float) $existing->amount, 2) : 'none') . ' to ' . ($replacement->amount !== null ? 'R' . number_format((float) $replacement->amount, 2) : 'none') . ')'
+                            : '') . '.',
+                    ['finding_id' => $existing->id, 'disposition' => $existing->disposition, 'amount' => $existing->amount],
+                    ['finding_id' => $replacement->id, 'disposition' => $disposition, 'amount' => $replacement->amount],
+                    $recordedBy,
+                );
+            } else {
+                // Audit A24 - the first judgement on an item is on the record too (it can now carry an amount).
+                RentalInspectionAuditLog::record(
+                    $outInspection,
+                    RentalInspectionAuditLog::EVENT_FINDING_RECORDED,
+                    'Finding on "' . ($item->label ?? 'item') . '" recorded as ' . str_replace('_', ' ', $disposition)
+                        . ($replacement->amount !== null ? ' (amount R' . number_format((float) $replacement->amount, 2) . ')' : '') . '.',
+                    null,
+                    ['finding_id' => $replacement->id, 'disposition' => $disposition, 'amount' => $replacement->amount],
                     $recordedBy,
                 );
             }

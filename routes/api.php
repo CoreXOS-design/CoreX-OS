@@ -542,8 +542,8 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
             Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
-            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
-            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
+            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
             Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
         });

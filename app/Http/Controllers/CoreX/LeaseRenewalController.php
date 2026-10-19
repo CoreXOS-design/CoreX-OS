@@ -213,16 +213,8 @@ class LeaseRenewalController extends Controller
     private function recordNotice(Request $request, Lease $lease, string $givenBy): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
-        $validated = $request->validate([
-            'notice_date' => ['required', 'date', 'before_or_equal:today'],
-            // a bare 'date' rule accepts a mistyped 6-digit year; the 2-year bound is a fixed sanity limit, not a configurable rule
-            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
-            'reason' => ['nullable', 'string', 'max:2000'],
-            'attachment' => ['nullable', 'file', 'max:' . \App\Services\Rentals\LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . \App\Services\Rentals\LeaseNoticeService::ATTACHMENT_MIMES],
-        ], [
-            'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
-            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
-        ]);
+        // audit 2026-10-19 (A17/A28): the same entry rules as the notice-cases route and the mobile API (LeaseNoticeService::validateAgentEntry)
+        $validated = app(\App\Services\Rentals\LeaseNoticeService::class)->validateAgentEntry($request->all(), $request->file('attachment'));
 
         try {
             $notice = app(\App\Services\Rentals\LeaseNoticeService::class)->give($lease, $givenBy, $validated, \App\Models\LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));
@@ -231,11 +223,8 @@ class LeaseRenewalController extends Controller
             return back()->withInput()->withErrors($e->errors());
         }
 
-        if ($request->user()->hasPermission('rental_notices.review')) {
-            return redirect()->route('corex.lease-notices.show', $notice->id)->with('success', 'Notice recorded. Review it below - nothing has gone to the other party.');
-        }
-
-        return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice recorded and waiting for review.');
+        // the route needs rental_notices.review (as the notice-cases route does), so whoever records a case can always open it
+        return redirect()->route('corex.lease-notices.show', $notice->id)->with('success', 'Notice recorded. Review it below - nothing has gone to the other party.');
     }
 
     /**

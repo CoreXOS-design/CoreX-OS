@@ -163,10 +163,18 @@ other filed document uses.
 
 ## Permissions
 
-- `rental_applications.view` / `rental_applications.create` /
-  `rental_applications.send` — the intake page and list.
-- `rental_applications.view_returned` — the Returned Applications inbox
-  (rental team).
+- `rental_applications.view` / `rental_applications.create` — the intake page and
+  list; **sending the invite is part of `.create`** (there never was a separate
+  `rental_applications.send` key: it was named in this Phase 1 draft but was not
+  built, and no route or config key ever carried it - checked in git history,
+  audit fix A20, 2026-10-19).
+- `rental_applications.view_returned` — gates the **returned-and-later statuses**
+  (returned, under assessment, approved, declined, reopened) inside the Control
+  Centre. The separate "Returned Applications inbox" screen was folded into the
+  Control Centre on purpose (AT-402, Johan 2026-09-11, "three menus become one"):
+  `corex.rental-applications.returned` is now a redirect into the Control Centre's
+  tiles, keeping the old URL and its query params working. Deliberately NOT
+  restored.
 - `rental_applications.manage_settings` — the document-checklist settings
   screen.
 
@@ -14988,3 +14996,20 @@ On `/corex/rental-applications/{id}/review` (tests `SherryWalkRound2Test`):
 - **Button heights:** the filled buttons had no border and the outline ones 1px, so "Approve & continue" read 28px beside 30px "Send back / Decline", and "Continue to the lease" the same. The action zone (review) and the lease-choice form (read-only view) are in a scope (`rr-equal-btns`) where both kinds are one box-sized 30px.
 
 - **14 Oct 2026 (cc5 re-walk): ONE submit button on the review screen** - the header "Submit to authoriser" (30px); the side-column "Submit for approval" twin was removed. With one-step approval the Approve / Decline pair replaces it. See `rentals-faults-work-orders.md` 22.20.
+
+
+## Audit fixes 2026-10-19 - the application half (rental end-to-end audit, `/root/rental-e2e-2026-10-19.md` section 2A; Johan approved fixing them all)
+
+What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Rentals/RentalApplicationAuditFixesTest.php`.
+
+- **A2 - a locked-out applicant always has a way in.** The return gate's method is now the *effective* one (`RentalApplicationSigningController::effectiveGateMethod`): the agency's choice (ID number / emailed code) when the applicant has that identifier on file, else the other factor, else the agent's one-time code. The agent has "Re-issue link / reset return gate" on the application (`corex.rental-applications.reissue-link`, perm `rental_applications.create`, audited `applicant_link / link_reissued`): a FRESH link (the old one stops working - this also clears a wrong-tries lockout, which is keyed to the link), life = `reopen_link_expiry_days`, mailed to the applicant if an email is on file, and - once submitted - a one-time code (`ApplicantAccessCode`, on the canonical OTP store, hashed, single use, dies with the link) shown once to the agent to read to the applicant by phone/WhatsApp (CoreX has no SMS channel). The gate page offers "Got a one-time code from your agent?" under every method. No new setting: the code lives exactly as long as the link.
+- **A3 - exits for sent / in-progress / reopened.** The agent can *withdraw* a sent, in-progress or reopened application (note required, same audited withdrawal; the link dies; `RentalApplication::WITHDRAWABLE_BEFORE_SUBMIT_STATUSES`). A reopened application the applicant never resubmits can be *taken back* as Returned (`corex.rental-applications.cancel-reopen`; history + audit + new domain event `RentalApplicationReopenCancelled`, which keeps the contact's cached status in step). An expired link on any of them is renewed by Re-issue (or the existing Resend).
+- **A4 + A27 - approvers.** The Reviewer / Override pickers are in the Setup Wizard (see `agency-onboarding-setup.md` section 5.1). With NO active approver configured the mode in force is ONE STEP whatever is saved (`RentalApplicationQualifyingSetting::effectiveApprovalModeFor`), whoever reviews the file may approve / decline it (`User::mayDecideRentalApplications`), including their own (`mayDecideOwnRentalApplication`), and both the settings page and the review screen show a plain warning that no approver is set. The hand-off to an authoriser is refused with a clear message in that state (it used to succeed and notify nobody). The saved choice (`approvalModeFor`) is untouched, so ticking an approver brings the two-step rule straight back.
+- **A8 - a failed email is not "notified".** Approval and decline sends stamp `applicant_notified_at` only when the mail actually left; a failure says so, writes an audit row (`approval_send_failed` / `decline_send_failed`), keeps the agent's decline wording as the draft, and the same button works again.
+- **A10 - archive guard.** An application waiting in the approver's queue, or with a (non-archived) lease made from it, cannot be archived (`RentalApplication::archiveBlockedReason`); plain-language refusal.
+- **A11 - administrators may decide.** `guardCanDecide` accepts the override tier (configured CO or admin / super_admin), and re-deciding a decided file needs that tier; the audit row records the tier. Admins see the queue (sidebar link + tile count).
+- **A13 - dead duplicate branch** in `submitForApproval` removed (the second check already covers the first).
+- **A14 - transactions.** Approve and decline write status + history + audit in one `DB::transaction`; the notice, the domain event and the filing job fire after the commit.
+- **A15 - FICA stays not-prefilled (Johan's ruling).** Only the duplicated find-or-create was merged: `ApplicantFicaLink::submissionFor/urlFor` is the one copy (the applicant's submit hand-off and the approval email both use it; the mail copy used to write a null `requested_by`).
+- **A25 - FICA link life.** The four hard-coded `addDays(14)` are gone; the life is the agency's existing FICA setting `FicaWindows::linkExpiryDays` (Settings -> FICA time windows and the Setup Wizard's Compliance step, default 14), in the one helper above.
+

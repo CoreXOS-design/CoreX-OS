@@ -89,6 +89,16 @@
                         @csrf
                         <button type="submit" class="text-xs text-slate-500 hover:text-slate-700 underline">Resend code</button>
                     </form>
+                @elseif(($method ?? 'id_number') === 'agent_code')
+                    {{-- Audit fix A2 (2026-10-19): nothing on file to check against (no ID number, no email) - the agent gives the applicant a one-time code. --}}
+                    <p class="text-sm text-slate-500 mb-4">
+                        We have no ID number or email on file for this application.
+                        @if($agentName ?? null)
+                            Ask <strong>{{ $agentName }}</strong> for a one-time code and enter it below.
+                        @else
+                            Ask your agent for a one-time code and enter it below.
+                        @endif
+                    </p>
                 @else
                     <p class="text-sm text-slate-500 mb-4">Enter your ID number to continue.</p>
                     <form method="POST" action="{{ route($verifyRouteName ?? 'rental-applications.public.verify-gate', $token) }}">
@@ -100,6 +110,20 @@
                                 style="background: var(--brand-default, #0b2a4a);">Continue</button>
                     </form>
                 @endif
+
+                @unless(isset($verifyRouteName))
+                    {{-- Audit fix A2: the agent's one-time code, offered under every method so nobody is ever locked out. --}}
+                    <details class="mt-4 text-left" @if(($method ?? '') === 'agent_code') open @endif data-qa="agent-code-box">
+                        <summary class="text-xs text-slate-500 cursor-pointer text-center">Got a one-time code from your agent?</summary>
+                        <form method="POST" action="{{ route('rental-applications.public.verify-gate', $token) }}" class="mt-2">
+                            @csrf
+                            <input type="text" name="agent_code" inputmode="numeric" autocomplete="one-time-code" placeholder="One-time code"
+                                   class="w-full text-center text-lg tracking-widest rounded-lg border border-slate-300 px-3 py-3 mb-3">
+                            <button type="submit" class="w-full rounded-lg text-white font-semibold py-3 text-sm"
+                                    style="background: var(--brand-default, #0b2a4a);">Continue</button>
+                        </form>
+                    </details>
+                @endunless
 
                 <p class="text-xs text-slate-400 mt-4">
                     Trouble accessing your application?

@@ -181,6 +181,8 @@ class AgencySetupWizardController extends Controller
             // /corex/settings/rental-applications (the exact incident class
             // named in agency-onboarding-setup.md §6.1).
             'leases' => [
+                // Audit fix A4/A27 (2026-10-19): the live list of this agency's own people for the approver pickers (`user_multiselect`).
+                'agencyUsers' => \App\Models\User::where('agency_id', $agency->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
                 // The "Tenant Profile Network Consent" SECTION LABEL (from the
                 // SUBMISSION_FIELD_SECTIONS constant, unchanged) is renamed here
                 // to the agency's own configured bureau — same technique
@@ -721,6 +723,7 @@ class AgencySetupWizardController extends Controller
                     'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
                     'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
                     'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agency->id),
                     'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
