@@ -167,7 +167,7 @@ class RentalInspectionSettingsController extends Controller
             'signatures_required_out' => ['nullable', 'boolean'],
             'signatures_required_interim' => ['nullable', 'boolean'],
             'signatures_required_routine' => ['nullable', 'boolean'],
-            'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
+            'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.01', 'max:0.5'],
             // AT-463 / §60 — has()-guarded below: a wizard step that does not render the select must not reset it.
             'form_paper_size' => ['nullable', 'string', 'in:' . implode(',', array_keys(RentalInspectionSetting::FORM_PAPER_SIZES))],
             // §52 — the walk's rules, each has()-guarded below; the reminder lead saves only when filled.

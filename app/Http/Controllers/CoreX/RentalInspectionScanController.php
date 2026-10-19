@@ -111,8 +111,8 @@ class RentalInspectionScanController extends Controller
             'scan' => $scan,
             'conditionStates' => $conditionStates,
             'onScreen' => $onScreen,
-            // A mark that only just cleared the agency's tick-box sensitivity is a doubtful one: flagged, never pre-selected.
-            'lowConfidenceBelow' => RentalInspectionSetting::omrMarkThresholdFor($rentalInspection->agency_id) * 1.5,
+            // Confidence runs 0-1 (1 = a clear tick); a tick that only just cleared the sensitivity is doubtful: flagged, never pre-selected.
+            'lowConfidenceBelow' => 0.5,
         ]);
     }
 
