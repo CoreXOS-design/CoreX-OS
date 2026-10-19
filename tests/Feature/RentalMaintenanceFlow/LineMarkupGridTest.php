@@ -148,7 +148,7 @@ final class LineMarkupGridTest extends TestCase
 
             foreach ($labels as $i => $label) {
                 if (RentalJobCardLineGrid::isNumericLabel($label)) {
-                    $this->assertGreaterThanOrEqual(64, (int) $cols[$i], "{$label} track too narrow");
+                    $this->assertGreaterThanOrEqual(56, (int) $cols[$i], "{$label} track too narrow");
                 }
             }
             // Description is the widest: the only flexible track
@@ -156,11 +156,11 @@ final class LineMarkupGridTest extends TestCase
             $this->assertStringContainsString('1fr', $cols[0], 'the description is the flexible column');
         }
 
-        // the money columns are at least 92px wide where a cost is shown: R99,999.99 at 12px is ~66px of text + 18px padding
+        // the money columns are at least 88px wide where a cost is shown: R99,999.99 at 12px is ~66px of text + 18px padding
         $cols = RentalJobCardLineGrid::columns(true, true, true);
         $labels = RentalJobCardLineGrid::labels(true, true, true);
         foreach (['Cost', 'Selling', 'Total'] as $money) {
-            $this->assertGreaterThanOrEqual(92, (int) $cols[array_search($money, $labels, true)]);
+            $this->assertGreaterThanOrEqual(88, (int) $cols[array_search($money, $labels, true)]);
         }
     }
 
@@ -177,7 +177,7 @@ final class LineMarkupGridTest extends TestCase
         $this->assertStringNotContainsString('min-width: 980px', $html, '19 Oct 2026: the lines fit a laptop - no 980px floor that scrolls the table sideways');
         $this->assertSame(1, count(array_filter(RentalJobCardLineGrid::columns(true, true, true), fn ($c) => str_contains($c, '1fr'))));
         $totalWidth = array_sum(array_map(fn ($c) => (int) preg_replace('/^minmax\((\d+)px.*$/', '$1', $c), RentalJobCardLineGrid::columns(true, true, true)));
-        $this->assertLessThan(600, $totalWidth + 6 * 6, 'every column of the costed grid, with its gaps, fits the ~604px a laptop leaves the left panel');
+        $this->assertLessThan(540, $totalWidth + 5 * 6, 'every column of the costed grid, with its gaps, fits the ~550px inside a task at 1366 (panel 572px less border and padding)');
 
         // the same grid-template-columns on the header, every saved line and the add rows (General and task buckets)
         $grid = RentalJobCardLineGrid::gridStyle(true, false, true);

@@ -30,14 +30,14 @@ class RentalJobCardLineGrid
      */
     public static function columns(bool $pricesOn, bool $vatRegistered, bool $showCost = false): array
     {
-        $cols = ['minmax(150px,1fr)'];
+        $cols = ['minmax(120px,1fr)'];
         if ($pricesOn) {
-            $cols[] = '64px';  // Qty
+            $cols[] = '56px';  // Qty
             if ($showCost) {
-                $cols[] = '94px'; // Cost
+                $cols[] = '88px'; // Cost
             }
-            $cols[] = '94px';  // Selling
-            $cols[] = '98px';  // Total
+            $cols[] = '88px';  // Selling
+            $cols[] = '92px';  // Total
         }
         $cols[] = '40px';      // end-of-row controls (edit, archive)
 

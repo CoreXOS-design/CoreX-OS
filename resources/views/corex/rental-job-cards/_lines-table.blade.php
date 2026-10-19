@@ -67,7 +67,7 @@
                         @endphp
                         <span style="min-width:0; {{ $cell }}">
                             <span class="truncate" title="{{ $line->description }}" style="display:block;">{{ $line->description }}@if(($receipts ?? collect())->has($line->id) && $line->type === 'part') @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$line->id], 'label' => $line->description])@endif</span>
-                            <span class="truncate" style="display:block; font-size:10px; color: var(--text-muted);" data-line-sub>
+                            <span style="display:block; font-size:10px; line-height:1.35; color: var(--text-muted); overflow-wrap:anywhere;" data-line-sub>
                                 @if($line->code)<span title="{{ $line->code }}" style="font-family: monospace;">{{ $line->code }}</span> · @endif{{ ucfirst($line->type) }}@if($pricesOn && $line->unit) · {{ $line->unit }}@endif
                                 @if($pricesOn && $vat['registered'])
                                     {{-- §14.25 - the line's EFFECTIVE VAT type (resolved through the VAT service, keyed by line id; a line with no VAT type of its own is not "—"). The rate is in the tooltip. --}}
