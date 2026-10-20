@@ -16,6 +16,8 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                <a href="{{ route('market-intelligence.reports.recogniser.queue') }}" class="corex-btn-primary text-xs">Unrecognised &amp; AI-read reports</a>
+                <a href="{{ route('market-intelligence.reports.recogniser.layouts') }}" class="corex-btn-outline text-xs">Learned layouts</a>
                 <a href="{{ route('market-intelligence.reports.index') }}" class="corex-btn-outline text-xs">← Reports</a>
             </div>
         </div>

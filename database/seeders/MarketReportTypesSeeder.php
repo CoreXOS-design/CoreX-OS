@@ -197,6 +197,14 @@ class MarketReportTypesSeeder extends Seeder
                 'auto_approve'    => false,
                 'expected_fields' => ['raw_text_only'],
             ],
+            // Report recogniser (mic-complete-spec §8.9): layouts CoreX learned from an AI read.
+            [
+                'key'             => 'learned_layout',
+                'display_name'    => 'Learned layout',
+                'parser_class'    => 'App\\Services\\MarketReports\\Parsers\\LearnedLayoutParser',
+                'auto_approve'    => false,
+                'expected_fields' => ['comps[]', 'suburb_stats[]', 'valuation'],
+            ],
         ];
     }
 }

@@ -104,6 +104,9 @@
                                 @if($r->trashed())
                                     <span class="ds-badge ds-badge-pill ds-badge-warning" style="margin-left: 6px; vertical-align: middle;">Archived</span>
                                 @endif
+                                @if($r->readBadge())
+                                    <span class="ds-badge ds-badge-pill {{ $r->read_method === 'unread' ? 'ds-badge-danger' : 'ds-badge-warning' }}" style="margin-left: 6px; vertical-align: middle;">{{ $r->readBadge() }}</span>
+                                @endif
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $r->reportType?->display_name ?? '—' }}</td>
                             <td style="padding: 8px 12px; color: {{ $parseColor }}; font-weight: 600;">{{ ucfirst((string) $r->parse_status) }}</td>
@@ -131,6 +134,12 @@
                style="font-size: 0.75rem; color: var(--text-secondary); text-decoration: none;">
                 View parser accuracy dashboard →
             </a>
+            @if(auth()->user()?->isOwnerRole())
+                <a href="{{ route('market-intelligence.reports.recogniser.queue') }}"
+                   style="font-size: 0.75rem; color: var(--text-secondary); text-decoration: none; margin-left: 16px;">
+                    Unrecognised &amp; AI-read reports →
+                </a>
+            @endif
         </div>
     @endpermission
 

@@ -7949,6 +7949,23 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
                 Route::get('/bulk-import',            [\App\Http\Controllers\CoreX\MarketReportController::class, 'bulkImportShow'])->name('bulk-import');
                 Route::post('/bulk-import',           [\App\Http\Controllers\CoreX\MarketReportController::class, 'bulkImportStore'])->name('bulk-import.store');
                 Route::get('/parsers',                [\App\Http\Controllers\CoreX\MarketReportController::class, 'parserDashboard'])->name('parser-dashboard');
+                // Report recogniser (mic-complete-spec §8.9) — CoreX owner roles only (route permission +
+                // isOwnerRole() in the controller, same gate as the parser dashboard). Plain {id} params on
+                // purpose: cross-agency, so they must not go through the agency-scoped {report} binding.
+                Route::prefix('recogniser')->name('recogniser.')->group(function () {
+                    $c = \App\Http\Controllers\CoreX\MarketReportRecogniserController::class;
+                    Route::get('/',                         [$c, 'queue'])->name('queue');
+                    Route::get('/layouts',                  [$c, 'layouts'])->name('layouts');
+                    Route::post('/settings',                [$c, 'settingsUpdate'])->name('settings');
+                    Route::get('/reports/{id}/download',    [$c, 'download'])->whereNumber('id')->name('download');
+                    Route::post('/reports/{id}/rerun',      [$c, 'rerun'])->whereNumber('id')->name('rerun');
+                    Route::post('/reports/{id}/resolve',    [$c, 'resolve'])->whereNumber('id')->name('resolve');
+                    Route::post('/reports/{id}/reopen',     [$c, 'reopen'])->whereNumber('id')->name('reopen');
+                    Route::post('/layouts/{id}/approve',    [$c, 'layoutApprove'])->whereNumber('id')->name('layouts.approve');
+                    Route::post('/layouts/{id}/rename',     [$c, 'layoutRename'])->whereNumber('id')->name('layouts.rename');
+                    Route::post('/layouts/{id}/retire',     [$c, 'layoutRetire'])->whereNumber('id')->name('layouts.retire');
+                    Route::post('/layouts/{id}/restore',    [$c, 'layoutRestore'])->whereNumber('id')->name('layouts.restore');
+                });
                 Route::get('/{report}',               [\App\Http\Controllers\CoreX\MarketReportController::class, 'show'])->name('show');
                 Route::delete('/{report}',            [\App\Http\Controllers\CoreX\MarketReportController::class, 'destroy'])->name('destroy');
                 Route::post('/{report}/spot-check',   [\App\Http\Controllers\CoreX\MarketReportController::class, 'runSpotCheck'])->name('spot-check');

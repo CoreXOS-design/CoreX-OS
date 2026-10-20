@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Settings\Prospecting;
 
 use App\Http\Controllers\Controller;
+use App\Models\PerformanceSetting;
+use App\Services\MarketReports\ReportReadSettings;
 use App\Services\Prospecting\ProspectingConfigurationService;
 use Illuminate\Http\Request;
 
@@ -34,6 +36,8 @@ class StaleRulesController extends Controller
             'countsStale'  => (int) $thresholds->mic_counts_cache_stale_seconds,
             // Johan 2026-10-07 — how long a portal listing may go unseen before it is presumed off-market.
             'offMarketDays' => (int) $thresholds->listing_off_market_days,
+            // Report recogniser (mic-complete-spec §8.9) — read reports no known format recognised with AI?
+            'reportAiRead'  => app(ReportReadSettings::class)->aiEnabledForAgency($agencyId),
         ]);
     }
 
@@ -67,7 +71,31 @@ class StaleRulesController extends Controller
         }
         $config->updateSuggestedActionThresholds($agencyId, $values);
 
+        // §6.1 — written only when the form posted it (the page posts a hidden "0" companion).
+        if ($request->has(ReportReadSettings::KEY_AI_ENABLED)) {
+            PerformanceSetting::set(ReportReadSettings::KEY_AI_ENABLED, $request->boolean(ReportReadSettings::KEY_AI_ENABLED) ? 1 : 0, $agencyId);
+        }
+
         return back()->with('status', 'Stale-claim rules saved.');
+    }
+
+    /**
+     * Wizard saver (Market Intelligence step) — "read reports no known format recognised with
+     * AI". The SAME stored value as the toggle on the Stale-claim rules page. Written only when
+     * the step posted it (§6.1: absent means leave alone, never off).
+     */
+    public function updateReportAiRead(Request $request)
+    {
+        abort_unless($request->user()?->hasPermission('prospecting_setup.manage'), 403);
+        $agencyId = (int) ($request->user()->effectiveAgencyId() ?: 0);
+        if ($agencyId === 0) {
+            abort(403);
+        }
+        if ($request->has(ReportReadSettings::KEY_AI_ENABLED)) {
+            PerformanceSetting::set(ReportReadSettings::KEY_AI_ENABLED, $request->boolean(ReportReadSettings::KEY_AI_ENABLED) ? 1 : 0, $agencyId);
+        }
+
+        return back();
     }
 
     /**
