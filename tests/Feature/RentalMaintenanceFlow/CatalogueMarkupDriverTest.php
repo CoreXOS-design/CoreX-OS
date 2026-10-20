@@ -378,6 +378,30 @@ final class CatalogueMarkupDriverTest extends TestCase
         $this->assertStringContainsString('120', $history->first()->note);
     }
 
+    /** Audit 2026-10-20 (L8): the pricing-driver migration's rollback gives the derived R0.00 back; it never touches an item that has a real price or cost. */
+    public function test_the_pricing_driver_rollback_restores_the_derived_zero_and_touches_nothing_else(): void
+    {
+        $this->world();
+        $derived = $this->catalogueItem('DERIVED', 'labour');
+        $priced = $this->catalogueItem('PRICED', 'part', 50.0, 20.0);
+        $costed = $this->catalogueItem('COSTED', 'part');
+        \Illuminate\Support\Facades\DB::table('rental_catalogue_items')->where('id', $derived->id)->update([
+            'pricing_driver' => 'markup', 'markup_type' => 'percent', 'markup_value' => 20, 'cost_excl' => null, 'selling_excl' => null, 'selling_incl' => null, 'default_price' => null,
+        ]);
+        \Illuminate\Support\Facades\DB::table('rental_catalogue_items')->where('id', $priced->id)->update(['pricing_driver' => 'selling', 'selling_excl' => 50, 'selling_incl' => 57.5]);
+        \Illuminate\Support\Facades\DB::table('rental_catalogue_items')->where('id', $costed->id)->update([
+            'pricing_driver' => 'markup', 'markup_type' => 'percent', 'markup_value' => 20, 'cost_excl' => 100, 'selling_excl' => null, 'selling_incl' => null, 'default_price' => null,
+        ]);
+
+        $migration = require database_path('migrations/2026_11_07_100000_add_pricing_driver_to_rental_catalogue_items.php');
+        $this->assertSame(1, $migration->restoreDerivedZeros());
+
+        $row = fn ($i) => \Illuminate\Support\Facades\DB::table('rental_catalogue_items')->where('id', $i->id)->first();
+        $this->assertSame(['0.00', '0.00', '0.00'], [(string) $row($derived)->selling_excl, (string) $row($derived)->selling_incl, (string) $row($derived)->default_price], 'the derived zero is back');
+        $this->assertSame('50.00', (string) $row($priced)->selling_excl, 'a real selling price is untouched');
+        $this->assertNull($row($costed)->selling_excl, 'an item with a real cost is untouched');
+    }
+
     // ── the legacy writers ──────────────────────────────────────────────────────────────
 
     public function test_a_writer_that_hands_over_a_price_makes_the_item_a_fixed_price_item(): void

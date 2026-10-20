@@ -39,8 +39,31 @@ return new class extends Migration
             ->update(['pricing_driver' => 'selling']);
     }
 
+    /**
+     * Audit 2026-10-20 (L8) - a rollback that does not give back what up() took away is not a rollback. up() cleared the derived R0.00 selling (and default price) of
+     * a markup item with no real cost; this puts the zero back on exactly the rows that shape identifies (driver `markup`, selling cleared, a markup set, no real cost).
+     * It is the best the data allows: up() kept no list of the rows it changed, so a markup item that never had a selling price AND has no cost looks the same and gets the
+     * same R0.00 - which is what the code before this migration always derived for it. up() itself is unchanged (it is already applied on Staging and live).
+     * Public so a test can prove it without dropping the column.
+     */
+    public function restoreDerivedZeros(): int
+    {
+        if (! Schema::hasColumn('rental_catalogue_items', 'pricing_driver')) {
+            return 0;
+        }
+
+        return DB::table('rental_catalogue_items')
+            ->where('pricing_driver', 'markup')
+            ->whereNotNull('markup_value')
+            ->whereNull('selling_excl')
+            ->where(fn ($q) => $q->whereNull('cost_excl')->orWhere('cost_excl', 0))
+            ->update(['selling_excl' => 0, 'selling_incl' => 0, 'default_price' => 0]);
+    }
+
     public function down(): void
     {
+        $this->restoreDerivedZeros();
+
         Schema::table('rental_catalogue_items', function (Blueprint $table) {
             if (Schema::hasColumn('rental_catalogue_items', 'pricing_driver')) {
                 $table->dropColumn('pricing_driver');
