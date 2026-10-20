@@ -105,6 +105,12 @@ final class PortalCommissionTotalsSettingTest extends TestCase
         $this->line($colleague, $this->branch, '2026-10-08', 'D', 99999, 99999);      // declined
         $this->line($colleague, $this->branch, '2026-09-30', 'R', 11111, 11111);      // another month
         $this->line($stranger, $ob, '2026-10-09', 'R', 777777, 777777, $other);       // another agency
+        // a rebuilt-over (trashed) copy of the agent's own line: must not be counted
+        $deal = Deal::query()->where('deal_no', '7001')->firstOrFail();
+        DB::table('deal_money_lines')->insert([
+            'deal_id' => $deal->id, 'agency_id' => $this->agency->id, 'user_id' => $this->agent->id, 'branch_id' => $this->branch->id, 'period' => '2026-10',
+            'side' => 'listing', 'agent_gross_ex_vat' => 60000, 'agent_net_ex_vat' => 45000, 'created_at' => now(), 'updated_at' => now(), 'deleted_at' => now(),
+        ]);
     }
 
     public function test_the_setting_is_off_by_default_and_then_nobody_gets_totals(): void
