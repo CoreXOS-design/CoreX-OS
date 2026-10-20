@@ -95,21 +95,6 @@ class PrivateImageStore
     }
 
     /**
-     * A real PUBLIC copy of a private image - for the one place the picture genuinely has to leave (evidence handed to a repair job / fault
-     * report that the portals show). Returns the public /storage URL. The private original is untouched.
-     */
-    public function copyToPublic(string $reference, int $propertyId): ?string
-    {
-        if (! $this->exists($reference)) {
-            return null;
-        }
-        $path = "properties/{$propertyId}/" . Str::uuid() . '.' . (pathinfo(self::pathOf($reference), PATHINFO_EXTENSION) ?: 'jpg');
-        Storage::disk('public')->put($path, Storage::disk(self::DISK)->get(self::pathOf($reference)));
-
-        return Storage::url($path);
-    }
-
-    /**
      * The upright, size-capped, metadata-free JPEG bytes for an upload - or null when no decoder here can read it.
      */
     private function cleanJpegBytes(UploadedFile $file): ?string

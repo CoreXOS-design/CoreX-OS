@@ -240,10 +240,11 @@ class RentalFaultReportService
         }
 
         // files first, rows after: a photo that fails to store leaves nothing behind
-        $storer = app(\App\Services\Images\PropertyImageStorer::class);
+        // D14 (audit 2026-10-20 H1): a tenant's picture of their home is PRIVATE exactly like the first upload - a `private:` reference, never a /storage address
+        $images = app(\App\Services\Images\PrivateImageService::class);
         $paths = [];
         foreach ($photos as $photo) {
-            $paths[] = ['path' => $storer->store($photo, (int) $fault->property_id), 'size' => $photo->getSize()];
+            $paths[] = ['path' => $images->storeUpload($photo, (int) $fault->property_id), 'size' => $photo->getSize()];
         }
         \Illuminate\Support\Facades\DB::transaction(function () use ($fault, $contact, $note, $paths) {
             foreach ($paths as $p) {

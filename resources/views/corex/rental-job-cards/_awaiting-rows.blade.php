@@ -43,7 +43,7 @@
             <span>{{ $l->crew_added_by_label }}{{ $l->crew_added_at ? ' · ' . $l->crew_added_at->format('Y-m-d H:i') : '' }}</span>
             @if(($receipts ?? collect())->has($l->id) && $l->type === 'part')<span class="flex items-center gap-2" data-awaiting-receipt>Receipt: @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$l->id], 'label' => $l->description])</span>@endif
             @if(($awaitingPhotos[$l->id] ?? collect())->isNotEmpty())
-                <span class="flex gap-1 flex-wrap">@foreach($awaitingPhotos[$l->id] as $ph)<a href="{{ $ph->storage_path }}" target="_blank"><img src="{{ $ph->storage_path }}" class="rounded" style="width:40px; height:40px; object-fit:cover;" alt=""></a>@endforeach</span>
+                <span class="flex gap-1 flex-wrap">@foreach($awaitingPhotos[$l->id] as $ph)<a href="{{ $ph->displayUrl() }}" target="_blank"><img src="{{ $ph->displayUrl() }}" class="rounded" style="width:40px; height:40px; object-fit:cover;" alt=""></a>@endforeach</span>
             @endif
         </div>
         @if($canPrice && $isOpen)

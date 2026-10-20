@@ -177,4 +177,29 @@ final class CrewAccessContactAndSiteInfoTest extends TestCase
         $this->assertStringContainsString('Open in Maps', $html);
         $this->assertStringContainsString('Key is under the pot plant', $html);
     }
+
+    /** Audit 2026-10-20 M3: the mobile app's note edit goes to the work order (where every surface reads it), keeps the contact, and is length-limited. */
+    public function test_a_note_changed_in_the_mobile_app_reaches_the_work_order_and_every_surface(): void
+    {
+        $card = $this->makeJobCard();
+        $wo = $card->workOrder()->firstOrFail();
+        $this->actingAs($this->admin)->post(route('corex.rental-work-orders.access-contact.update', $wo), $this->accessFields())->assertRedirect();
+
+        \Laravel\Sanctum\Sanctum::actingAs($this->admin, ['*']);
+        $res = $this->putJson("/api/v1/mobile/rental-job-cards/{$card->id}", ['access_notes' => 'Gate code is now 9876'])->assertOk();
+
+        $wo->refresh();
+        $this->assertSame('Gate code is now 9876', $wo->access_note);
+        $this->assertSame(['Caretaker Carl', '082 555 0101'], [$wo->access_contact_name, $wo->access_contact_phone], 'who lets the worker in is untouched');
+        $this->assertNull($card->fresh()->access_notes, 'the card keeps no stale copy that could reappear');
+        $this->assertSame('Gate code is now 9876', JobSiteInfo::accessContact($wo, $card->fresh())['note'], 'the crew link, emails and web card read this');
+        $this->assertSame('Gate code is now 9876', $res->json('access_notes'), 'and the app reads back what it saved');
+
+        $this->putJson("/api/v1/mobile/rental-job-cards/{$card->id}", ['access_notes' => str_repeat('x', 2001)])->assertStatus(422);
+        $this->assertSame('Gate code is now 9876', $wo->fresh()->access_note);
+
+        // blanking it blanks it
+        $this->putJson("/api/v1/mobile/rental-job-cards/{$card->id}", ['access_notes' => null])->assertOk();
+        $this->assertNull($wo->fresh()->access_note);
+    }
 }

@@ -136,9 +136,9 @@ final class CrewPricingBlock
             'state_label' => $label,
             'reason' => $l->office_status === RentalJobCardLine::OFFICE_REJECTED ? $l->reject_reason : null,
             'editable' => $l->office_status === RentalJobCardLine::OFFICE_CREW_DRAFT,
-            'photos' => $own->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->map(fn ($p) => ['url' => $p->storage_path])->values()->all(),
+            'photos' => $own->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->map(fn ($p) => ['url' => $p->displayUrl()])->values()->all(),
             // AT-459 — the receipt for a part line (the newest one if it was replaced); labour has none.
-            'receipt_url' => ! $labour && $receipt ? $receipt->storage_path : null,
+            'receipt_url' => ! $labour && $receipt ? $receipt->displayUrl() : null,
         ];
     }
 }

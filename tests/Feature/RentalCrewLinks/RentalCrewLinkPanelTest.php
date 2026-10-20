@@ -422,7 +422,7 @@ final class RentalCrewLinkPanelTest extends TestCase
         $this->assertSame('Never linked', $none->name);
     }
 
-    public function test_resend_by_email_goes_through_the_dispatcher_and_mints_a_further_link_leaving_the_old_one_working(): void
+    public function test_resend_by_email_goes_through_the_dispatcher_and_retires_the_earlier_link(): void
     {
         $oldUrl = $this->urlFrom($this->generate());
 
@@ -433,9 +433,48 @@ final class RentalCrewLinkPanelTest extends TestCase
         $this->assertSame('team1@example.invalid', $to);
         $this->assertInstanceOf(RentalCrewStandingLinkMail::class, $mail);
         Mail::assertNothingSent();
-        $this->assertSame(2, $this->liveTokenCount(), 'Resend adds a link, it does not replace the one the crew holds');
-        $this->get($oldUrl)->assertOk();
+        // audit 2026-10-20 (L6): the new link replaces the earlier one - a trail of Resends must never leave several live links
+        $this->assertSame(1, $this->liveTokenCount(), 'Resend replaces the link the crew held');
+        $this->get($oldUrl)->assertStatus(404);
         $this->assertSame(1, $this->eventCount('emailed'));
+        $this->assertSame(1, $this->eventCount('revoked'), 'the retired link is logged');
+    }
+
+    public function test_repeated_resends_never_leave_more_than_one_live_link_and_a_failed_email_retires_nothing(): void
+    {
+        $url = $this->urlFrom($this->generate());
+        $first = $this->tokenOf($url);
+
+        // two Resends in a row: still exactly one live link, and it is not the first
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasNoErrors();
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasNoErrors();
+        $this->assertSame(1, $this->liveTokenCount());
+        $this->get('/secure/crews/' . $first)->assertStatus(404);
+
+        // the mail is down: the link the crew holds keeps working and no stray link is left behind
+        $live = RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->whereNull('revoked_at')->firstOrFail();
+        $this->fake->failWith = new \RuntimeException('smtp down');
+        $this->actingAs($this->admin)->post($this->route('link.resend'), ['channel' => 'email'])->assertSessionHasErrors('crew_link');
+        $this->assertSame(1, $this->liveTokenCount());
+        $this->assertSame($live->id, RentalSecureAccessToken::withoutGlobalScopes()->where('rental_crew_id', $this->crew->id)->whereNull('revoked_at')->value('id'), 'the crew\'s own link is untouched');
+    }
+
+    public function test_revoke_kills_every_live_link_of_the_crew_not_just_the_latest(): void
+    {
+        $this->generate();
+        // links minted the old way (Resend used to add one each time) or any other path: several live at once
+        $tokens = app(RentalSecureAccessTokenService::class);
+        $extra1 = $tokens->issueExtra($this->crew, RentalSecureAccessToken::PURPOSE_CREW_STANDING, $this->admin, 30);
+        $extra2 = $tokens->issueExtra($this->crew, RentalSecureAccessToken::PURPOSE_CREW_STANDING, $this->admin, 30);
+        $this->assertSame(3, $this->liveTokenCount());
+        $this->get('/secure/crews/' . $extra1['raw_token'])->assertOk();
+
+        $this->actingAs($this->admin)->delete($this->route('link.revoke'))->assertRedirect()->assertSessionHas('success');
+
+        $this->assertSame(0, $this->liveTokenCount());
+        $this->get('/secure/crews/' . $extra1['raw_token'])->assertStatus(404);
+        $this->get('/secure/crews/' . $extra2['raw_token'])->assertStatus(404);
+        $this->assertSame(3, $this->eventCount('revoked'), 'each link that died is logged');
     }
 
     public function test_resend_on_whatsapp_opens_a_deep_link_with_a_working_link_and_logs_it_without_sending_anything(): void

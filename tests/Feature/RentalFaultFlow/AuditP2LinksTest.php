@@ -122,6 +122,38 @@ final class AuditP2LinksTest extends TestCase
         $this->assertStringContainsString('Phone Bob Builder', (string) $wo->updates()->where('update_type', 'note')->orderByDesc('id')->value('note'));
     }
 
+    /** Audit 2026-10-20 (L3): one failed address does not leave the rest untold, and the history names who was NOT told. */
+    public function test_a_cancel_email_that_fails_does_not_stop_the_next_person_being_told_and_the_history_names_both(): void
+    {
+        $wo = $this->workOrder();
+        foreach (['Acme Plumbing' => 'acme@example.invalid', 'Beta Electrical' => 'beta@example.invalid'] as $name => $email) {
+            RentalJobDispatch::withoutGlobalScopes()->create([
+                'agency_id' => $this->agency->id, 'rental_work_order_id' => $wo->id, 'recipient_kind' => 'contractor', 'recipient_name' => $name,
+                'channel' => 'email', 'destination' => $email, 'status' => 'sent', 'reason' => 'appointed', 'idempotency_key' => 'k-' . uniqid(), 'sent_at' => now(),
+            ]);
+        }
+        $fake = new class(\Mockery::mock(\Illuminate\Mail\MailManager::class)->shouldReceive('getDefaultDriver')->andReturn('array')->getMock()) extends \Illuminate\Support\Testing\Fakes\MailFake {
+            public function to($users)
+            {
+                if ($users === 'acme@example.invalid') {
+                    throw new \RuntimeException('Connection timed out');
+                }
+
+                return parent::to($users);
+            }
+        };
+        Mail::swap($fake);
+
+        $wo->cancel($this->agent, 'x');
+
+        Mail::assertQueued(RentalJobCancelledMail::class, fn ($m) => $m->hasTo('beta@example.invalid'));
+        Mail::assertQueuedCount(1);
+        $note = (string) $wo->updates()->where('update_type', 'note')->orderByDesc('id')->value('note');
+        $this->assertStringContainsString('Emailed "Job cancelled - do not attend" to Beta Electrical', $note);
+        $this->assertStringContainsString('Could NOT be emailed (a technical problem): Acme Plumbing - phone them', $note);
+        $this->assertSame(RentalWorkOrder::STATUS_CANCELLED, $wo->fresh()->status, 'the cancel itself stands');
+    }
+
     public function test_a_unknown_or_expired_link_is_still_the_generic_page_not_cancelled(): void
     {
         $this->get('/secure/work-orders/not-a-token')->assertSee('no longer available')->assertDontSee('This job was cancelled');
