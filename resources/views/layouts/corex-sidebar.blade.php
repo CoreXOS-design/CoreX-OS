@@ -113,7 +113,7 @@
     if (request()->routeIs(
         'worksheet.*',
         'agent.dashboard', 'agent.daily*', 'agent.deals.*',
-        'bm.performance*', 'bm.daily*', 'bm.listings*',
+        'bm.performance*', 'bm.daily*', 'bm.listings*', 'bm.my.dashboard',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
@@ -1767,6 +1767,9 @@
                 @endpermission
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
+                @endpermission
+                @permission('view_performance')
+                <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
                 @permission('create_deals')

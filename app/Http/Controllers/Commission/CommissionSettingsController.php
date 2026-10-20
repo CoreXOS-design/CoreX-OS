@@ -76,14 +76,6 @@ class CommissionSettingsController extends Controller
             throw new \App\Exceptions\MissingAgencyContextException('commission settings');
         }
 
-        // My Portal: may agents see their branch's / the agency's commission totals? An AGENCY setting (default off),
-        // saved here because it lives beside the commission rules on both the settings page and the wizard step.
-        // Written only when the form actually carried it (§6.1) - a caller that never rendered it must not switch it off.
-        if ($request->has('portal_show_agency_commission_totals')) {
-            \App\Models\Agency::query()->whereKey($agencyId)
-                ->update(['portal_show_agency_commission_totals' => $request->boolean('portal_show_agency_commission_totals')]);
-        }
-
         $settings = CommissionSetting::forAgency((int) $agencyId);
         $before = $settings->getOriginal();
         $settings->update($validated);
