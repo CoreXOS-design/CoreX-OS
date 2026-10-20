@@ -244,6 +244,30 @@ final class AgencyNoticeDocumentsTest extends TestCase
         $this->assertStringContainsString('data-qa="breach-pdf-link"', $panel);
     }
 
+    public function test_a_typed_vacate_date_line_cannot_make_the_notice_say_something_different_from_the_breach_record(): void
+    {
+        // audit 2026-10-20 finding 7: the form's date and time are the ONE value - printed on the notice and stored on the breach
+        $this->breachTemplate();
+        $vacate = $this->vacateTemplate();
+        $this->oneOff();
+        $breach = LeaseBreach::withoutGlobalScopes()->firstOrFail();
+        $this->pastDeadline($breach);
+
+        $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $breach->id), [
+            'rental_notice_template_id' => $vacate->id, 'intent' => 'send', 'vacate_date' => '2026-11-30', 'vacate_time' => '12:00',
+            'figures_raw' => "vacate_date=1 January 2031\nvacate_time=03h00",
+        ])->assertSessionHasNoErrors();
+
+        $fresh = $breach->fresh();
+        $this->assertSame('2026-11-30', $fresh->vacate_date->toDateString());
+        $figures = (array) $fresh->vacateNotice->figures;
+        $this->assertSame('30 November 2026', $figures['vacate_date'], 'the printed date is the stored date');
+        $this->assertSame('12h00', $figures['vacate_time']);
+        $html = $this->actingAs($this->agent)->get(route('corex.breaches.show', $breach->id))->getContent();
+        $this->assertStringContainsString('12h00 on 30 November 2026', $html);
+        $this->assertStringNotContainsString('1 January 2031', $html);
+    }
+
     public function test_notice_to_vacate_is_not_offered_where_no_breach_notice_has_been_issued(): void
     {
         $this->vacateTemplate();
