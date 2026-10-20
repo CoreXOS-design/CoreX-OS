@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Listeners\MarketReports;
 
+use App\Events\AbstractDomainEvent;
+use App\Events\MarketReports\MarketReportReadByAi;
 use App\Events\MarketReports\MarketReportSpotCheckFlagged;
+use App\Events\MarketReports\MarketReportUnreadable;
 use App\Models\MarketReports\MarketReport;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
@@ -39,6 +42,15 @@ use Throwable;
  * had never actually run). Only the three structural GUARD flags route here;
  * AI-detected spot-check discrepancies flag through their own existing path.
  *
+ * 2026-10-20 — report recogniser (mic-complete-spec §8.9). Two more named events
+ * route here: MarketReportReadByAi ("we couldn't read this layout with a known
+ * format, so CoreX read it with AI — please check the figures") and
+ * MarketReportUnreadable ("couldn't read it — it's saved and in the CoreX admin
+ * queue"). The old "please flag it so it can be added" wording is gone: there is
+ * nothing for the agent to flag, the report is already in the admin queue. The
+ * action link now uses the real route names (market-intelligence.reports.*) — the
+ * old `reports.show` / `reports.index` do not exist, so the email had no link.
+ *
  * Synchronous + failure-isolated: a mail hiccup or a departed user must never
  * break the parse job. The report is already flagged before this runs.
  */
@@ -50,20 +62,36 @@ class NotifyOnMarketReportParseFailure
         'recognized_zero_data_points',
     ];
 
-    public function handle(MarketReportSpotCheckFlagged $event): void
+    /**
+     * Set by the one-off reprocess command: a bulk re-run of old reports must never
+     * send mail (or fill anyone's bell) about reports they uploaded weeks ago.
+     */
+    public static bool $suppressed = false;
+
+    /** @param MarketReportSpotCheckFlagged|MarketReportReadByAi|MarketReportUnreadable $event */
+    public function handle(AbstractDomainEvent $event): void
     {
         try {
-            $report = $event->report;
+            if (self::$suppressed) {
+                return;
+            }
+            $report = $event->report ?? null;
             if (!$report instanceof MarketReport) {
                 return;
             }
 
-            // Only the structural zero-yield guards route here. AI spot-check
-            // discrepancies carry no such flag and are handled elsewhere.
-            $results = is_array($report->spot_check_results) ? $report->spot_check_results : [];
-            $flaggedBy = $results['flagged_by'] ?? null;
-            if (!in_array($flaggedBy, self::GUARD_FLAGS, true)) {
-                return;
+            if ($event instanceof MarketReportReadByAi) {
+                $flaggedBy = 'ai_read';
+            } elseif ($event instanceof MarketReportUnreadable) {
+                $flaggedBy = 'unrecognized_document';
+            } else {
+                // Only the structural zero-yield guards route here. AI spot-check
+                // discrepancies carry no such flag and are handled elsewhere.
+                $results = is_array($report->spot_check_results) ? $report->spot_check_results : [];
+                $flaggedBy = $results['flagged_by'] ?? null;
+                if (!in_array($flaggedBy, self::GUARD_FLAGS, true)) {
+                    return;
+                }
             }
 
             $recipients = collect();
@@ -103,22 +131,25 @@ class NotifyOnMarketReportParseFailure
 
             $actionUrl = null;
             try {
-                if (Route::has('reports.show')) {
-                    $actionUrl = route('reports.show', $report->id, false);
-                } elseif (Route::has('reports.index')) {
-                    $actionUrl = route('reports.index', [], false);
+                if (Route::has('market-intelligence.reports.show')) {
+                    $actionUrl = route('market-intelligence.reports.show', $report->id, false);
+                } elseif (Route::has('market-intelligence.reports.index')) {
+                    $actionUrl = route('market-intelligence.reports.index', [], false);
                 }
             } catch (Throwable) {
                 $actionUrl = null;
             }
 
             [$eventKey, $title, $body] = match ($flaggedBy) {
+                'ai_read' => [
+                    'market_report.read_by_ai',
+                    "Report read by AI: {$fileName}",
+                    "We couldn't read this layout with a known format, so CoreX read it with AI. Please check the figures.",
+                ],
                 'unrecognized_document' => [
                     'market_report.parse_unrecognized',
-                    'CMA import was not recognised',
-                    "The report “{$fileName}” did not match any known CMA report format, so nothing was extracted "
-                        . "from it. If this is meant to be a CMA/market report, its layout is not yet supported by "
-                        . "CoreX — please flag it so it can be added. If it isn't a CMA report, no action is needed.",
+                    "Report could not be read: {$fileName}",
+                    "Couldn't read it. It's saved and in the CoreX admin queue.",
                 ],
                 'recognized_zero_data_points' => [
                     'market_report.parse_zero_data',
@@ -146,7 +177,7 @@ class NotifyOnMarketReportParseFailure
                 subjectId:    (int) $report->id,
                 subjectLabel: $fileName,
                 actionUrl:    $actionUrl,
-                severity:     'warning',
+                severity:     $flaggedBy === 'ai_read' ? 'info' : 'warning',
                 payload:      [
                     'report_id'   => (int) $report->id,
                     'report_type' => $report->reportType?->key,

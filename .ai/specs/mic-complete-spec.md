@@ -997,6 +997,67 @@ In Settings → Report Types:
 | CmaInfoMedianSalesAnalysisParser | v1.0 | 12 | 9 | 91.7% | Active |
 | GenericFallbackParser | v1.0 | 6 | 0 | N/A | Fallback |
 
+### 8.9 Report recogniser — AI read + learned layouts (AT "Report recogniser – AI read + learned layouts", 2026-10-20, Johan approved)
+
+**Why (business).** Johan uploaded "Suburb report - Southport.pdf" and got "did not match any known CMA report format… please flag it". The file was kept, but nothing was read, and the only remedy was a developer writing a new parser. A report from a publisher CoreX has not seen before must still be READ, and the second time that publisher's layout turns up it must be read for free.
+
+**What happens, in order, on every upload** (single upload, bulk import and the generate-modal upload all go through `ParseMarketReportJob`):
+
+1. **Known format** — one of the six CMA Info parsers wins detection. Unchanged.
+2. **Learned layout** — `LearnedLayoutParser` (registered before the generic fallback) compares the PDF's text with the saved layouts. If the layout fingerprint matches, the report is read by the saved field mapping. Deterministic, no AI call, no cost. `read_method = 'learned'`.
+3. **AI read** — only when nothing above matched (the generic fallback won). `AiReportReadService` sends the stored PDF through `AnthropicGateway` (PDF document block, `quality` model, source `market_report_read`), behind `AiSpendGuard`, `AiUsageRecorder` and `ANTHROPIC_ENABLED`. The answer is one JSON document in the *canonical read* shape (below), converted by `CanonicalReadMapper` into the SAME `MarketReportParseResult` the CMA Info parsers return (data points, comp rows, subject meta, addresses). `read_method = 'ai'`, badge **"Read by AI – check figures"**, and the existing `SpotCheckMarketReportJob` is dispatched on it.
+4. **Could not read** — AI off for the agency, switched off platform-wide, spend-guard paused, too many pages, API failure, AI not confident enough, or nothing extractable. The file stays stored, `read_method = 'unread'`, the reason is written to `ai_read_note`, and the report sits in the admin queue.
+
+**The AI is never paid for the same file twice.** `market_report_ai_reads` caches the AI's raw answer by `(file_hash, prompt_version)`. A re-run, a re-upload by another agency, or the one-off command reuses it. The cache holds the model output only (the file's own contents); it is not agency data, so it is deliberately global (no `agency_id`). A *new paid read* only happens when a super-admin ticks "force a new AI read" on Re-run, or when `prompt_version` is bumped.
+
+**Canonical read** (what the AI returns and what a learned layout reproduces): `publisher`, `report_title`, `suburb`, `town`, `subject{address, scheme_name, section_number, extent_m2, latitude, longitude, radius_metres}`, `valuation{lower, middle, upper, average, average_r_per_m2}`, `comps[]{kind(comp|listing), address, scheme_name, section_number, property_type, suburb, extent_m2, sale_date, sale_price, list_price, r_per_m2, municipal_valuation, distance_to_subject_m, days_on_market}`, `suburb_stats[]{metric, year, value, suburb, town}` with `metric` limited to `median_price|average_price|sales_count|annual_change_pct|median_price_12m|total_sales_12m` (mapped onto the existing `suburb_median_price_year`, `suburb_average_price_year`, `suburb_sales_count_year`, `suburb_annual_change_pct`, `suburb_median_price_12m`, `suburb_total_sales_12m`), `layout{publisher_signature, header_phrases[], column_headings[]}`, `confidence` 0–1, `notes`. Every value is sanity-checked before it is stored (price 50 000 – 50 000 000, sale date not in the future and after 1990, extent 1 – 1 000 000 m²); a bad value is dropped and counted in `raw_extracted_json.dropped`, never stored.
+
+**Auto-learn.** After an AI read that passed the confidence cut-off, `LayoutLearner` looks for each AI value in the PDF's own text (`pdftotext -layout`), works out which column each field sits in (comp table, suburb-statistics table) and which label sits in front of each single figure (e.g. "Lower Range"), and builds a layout: **fingerprint** (a hash of the publisher signature + column headings + fixed header phrases, digits blanked) plus **field mapping**. It then runs the deterministic reader on the same text and compares with what the AI returned; only if at least `report_layout_selftest_min` (default 0.9) of the AI's comparable rows and figures are reproduced is the layout saved (`status = 'learned'`). A layout that cannot reproduce the AI is NOT saved — that publisher keeps going to the AI (still cached per file). Saved layouts are used straight away; a super-admin can **approve** (marks it checked), **rename**, or **retire** (archive only, `deleted_at`; a retired layout is never used; restore is available).
+
+**Super-admin queue — "Unrecognised & AI-read reports"** (`/corex/market-intelligence/reports/recogniser`, owner roles only, same gate as the parser dashboard: route permission `mic.upload_reports` + `isOwnerRole()` in the controller, 403 otherwise). Cross-agency by design (`withoutGlobalScopes()`), never shown to agency users.
+- Rows: reports with `read_method` in (`ai`, `unread`). Columns: file, agency, publisher, how read, confidence, figures found, uploaded (by, when), status.
+- **Search**: file name, agency name, publisher, uploader name/email. **Sort**: uploaded (default, newest first), file, agency, publisher, confidence, figures found. **Filter**: status (open / resolved / all, default open), how read (AI-read / could not read / all), agency, publisher, uploaded from / to. Pagination 25. Real empty state.
+- Row actions: **Download** (streams the stored PDF from the private disk, owner-gated); **Re-run** (re-parse; optional "force a new AI read" tick = new paid read); **Mark resolved** / **Reopen** (sets `resolved_at` / `resolved_by_user_id`; archive-style, nothing deleted).
+- **Learned layouts** screen (`…/reports/recogniser/layouts`): list with search (name, publisher), sort (name, publisher, times used, last used, learned; default last used), filter (status learned/approved/retired), pagination; actions Approve, Rename, Retire, Restore. Plus the **System settings** card (below).
+- Navigation: two buttons at the top of the existing Parser accuracy dashboard (`reports/parsers`) — "Unrecognised & AI-read reports" and "Learned layouts" — and a link from the report-list header for owner roles.
+
+**Notification / email.** Fixed: the link in `NotifyOnMarketReportParseFailure` used route names `reports.show` / `reports.index`, which do not exist; the real names are `market-intelligence.reports.show` / `.index` (`routes/web.php` prefix `market-intelligence.` + `reports.`). Wording — AI read it: *"We couldn't read this layout with a known format, so CoreX read it with AI. Please check the figures."* Could not read: *"Couldn't read it. It's saved and in the CoreX admin queue."* No "please flag it". Recipients unchanged (the uploading agent + owner-role users), channels database + mail. Two new domain events carry it (catalogue §14.4): `MarketReportReadByAi` (wording 1) and `MarketReportUnreadable` (wording 2: AI off for the agency, switched off platform-wide, spend-guard paused, over the page limit, API failure, below the confidence cut-off, or nothing extractable); the old `MarketReportSpotCheckFlagged` still carries the two other zero-yield guards (`zero_comp_with_summary_guard`, `recognized_zero_data_points`) with their own wording. The report row is flagged `spot_check_status = flagged`, `flagged_by = unrecognized_document` when unreadable, and `flagged_by = ai_read` (status pending, then the spot-check's own verdict) when read by AI.
+
+**Settings (nothing hardcoded; every value has a default).**
+
+| Setting | Level | Where | Default |
+|---|---|---|---|
+| Read unrecognised reports with AI (`report_ai_read_enabled`) | Agency (`performance_settings`) | Settings → Prospecting → Report reading; **Setup Wizard → Market Intelligence step** (source `perf`, toggle) | On |
+| AI platform master switch (`ANTHROPIC_ENABLED`) | System (env) | existing | On |
+| Max pages sent to AI (`report_ai_max_pages`) | System (`dev_settings`) | Learned layouts → System settings card | 40 |
+| AI confidence cut-off (`report_ai_min_confidence`) | System | same | 0.50 |
+| Layout match cut-off (`report_layout_min_match`) — share of a layout's fingerprint phrases that must be present | System | same | 0.85 |
+| Layout self-test cut-off (`report_layout_selftest_min`) | System | same | 0.90 |
+
+The three system values protect the platform's AI bill and the trustworthiness of deterministic reads, so — like `ai_template_max_failed_per_day` — they are NOT agency settings and NOT in the Setup Wizard (recorded in `agency-onboarding-setup.md` §5.1; Johan to confirm per Non-negotiable #10a). The agency on/off switch IS in the wizard. Spend itself is already bounded per agency by `AiSpendGuard` (alert/cut-out).
+
+**Multi-agency.** No HFC wording or ids anywhere. The AI prompt, badge text, notification text and layouts are neutral. A learned layout is a publisher's format (no agency figures are stored in it, only phrases and column positions) and is shared by every agency; the report rows, comp rows and files stay per-agency (`market_reports` / `market_report_comp_rows` use `BelongsToAgency`).
+
+**Data model** (migration `2026_11_24_100000_report_recogniser.php`).
+- `market_reports` + `read_method` (`parser|learned|ai|unread`, default `parser`), `read_publisher`, `ai_read_note`, `ai_read_confidence`, `learned_layout_id`, `resolved_at`, `resolved_by_user_id`; existing rows flagged `unrecognized_document` are back-filled to `unread`.
+- `market_report_ai_reads` (cache, unique `file_hash + prompt_version`).
+- `market_report_learned_layouts` (name, publisher, status, fingerprint, anchors JSON, mapping JSON, report_kind, selftest_score, times_used, last_used_at, learned_from_report_id, learned_from_agency_id (audit only), approved_at/by, `deleted_at`, `archived_by`).
+- `market_report_types` + row `learned_layout` (idempotent, backfilled in the migration).
+- `AiUsageEvent::SOURCE_MARKET_REPORT_READ = 'market_report_read'`.
+
+**One-off command** `php artisan market-reports:reprocess-unread` — dry-run by default (prints the count and per-agency breakdown, touches nothing, costs nothing); `--apply` re-runs the pipeline for reports with `read_method = 'unread'` (including the back-filled ones flagged `unrecognized_document` before this feature) (`--agency=`, `--limit=`). It never sends notifications (suppressed for the run), and honours the cache and spend guard.
+
+**Acceptance criteria.**
+1. A non-CMA-Info suburb report reaches `read_method = 'ai'` with comp rows/data points written, badge shown, spot-check dispatched, one "read with AI" notification with a working link.
+2. Uploading the identical file again makes zero gateway calls (cache), and a second report from the same publisher/layout is read with `read_method = 'learned'` and zero gateway calls.
+3. AI off for the agency / `ANTHROPIC_ENABLED=false` / spend-guard paused / over max pages / below confidence cut-off → `read_method = 'unread'`, file kept, "Couldn't read it" notification, row in the queue, no gateway call (or none beyond the paid one).
+4. The queue and layouts screens enforce owner-only access (403 for an agency admin), search/sort/filter/pagination work, Download streams the PDF, Re-run and Mark resolved work, Retire stops a layout being used, and nothing is hard-deleted.
+5. The dry-run command reports a count and changes nothing.
+
+**Files.** New: `app/Services/MarketReports/{AiReportReadService,CanonicalReadMapper,LayoutLearner,LayoutFingerprint,LearnedLayoutReader,MarketReportReprocessor,ReportReadSettings}.php`, `DTOs/AiReadOutcome.php`, `Parsers/LearnedLayoutParser.php`, `app/Models/MarketReports/{MarketReportLearnedLayout,MarketReportAiRead}.php`, `app/Events/MarketReports/{MarketReportReadByAi,MarketReportUnreadable}.php`, `app/Http/Controllers/CoreX/MarketReportRecogniserController.php`, `app/Console/Commands/ReprocessUnreadMarketReports.php`, `resources/views/corex/market-intelligence/reports/recogniser/{queue,layouts}.blade.php`, migration `2026_11_24_100000_report_recogniser.php`, fixtures + generator under `tests/Fixtures/market_reports/`, tests `tests/Feature/MarketReports/{ReportRecogniserTest,ReportRecogniserAdminTest}.php`, `tests/Unit/MarketReports/ReportRecogniserUnitTest.php`. Changed: `ParseMarketReportJob`, `MarketReportParserRegistry`, `NotifyOnMarketReportParseFailure`, `MarketReport`, `AiUsageEvent`, `AppServiceProvider` (listener registration), `MarketReportTypesSeeder`, `routes/web.php`, `parser-dashboard.blade.php`, `reports/show.blade.php` + `index.blade.php` (badge + link), `config/agency-onboarding-copy.php` (Market Intelligence step control + saver), `Settings\Prospecting\StaleRulesController` (+ its page: the agency switch lives with the other Market Intelligence settings).
+
+**Decisions made by the build (recorded for Johan).** (1) The agency switch defaults to ON: an unrecognised report is read rather than just filed; the platform master switch and the spend guard still bound the bill. (2) AI reading uses the `quality` model (Sonnet): reading tables correctly matters more than the few rand per new publisher, and it happens at most once per publisher layout. (3) The platform thresholds are on the Learned layouts screen, not Dev Settings, so the whole recogniser is managed in one place. (4) A learned layout is used straight away and "Approve" only records that a person checked it; Retire is how a bad one is switched off. (5) Row wrapping is not supported by learned layouts (a table whose rows wrap onto two lines will not reproduce the AI's reading, so no layout is saved and that publisher keeps going to the AI, once per file).
+
 ---
 
 ## 9. WhatsApp Action Flow
@@ -1369,6 +1430,8 @@ Every event below is fired by code in this build. Today, only `agent_activity_ev
 - `MarketReportUploaded` (NEW)
 - `MarketReportParsed` (NEW)
 - `MarketReportSpotCheckFlagged` (NEW)
+- `MarketReportReadByAi` (NEW 2026-10-20, §8.9) — a report no known format or learned layout recognised was read by AI; the uploader and platform owners are asked to check the figures.
+- `MarketReportUnreadable` (NEW 2026-10-20, §8.9) — a report could not be read at all; it is saved and in the CoreX admin queue.
 - `MarketDataPointSuperseded` (NEW)
 
 ### 14.5 AI events

@@ -1634,12 +1634,18 @@ return [
         ],
         'savers' => [
             ['controller' => StaleRulesController::class, 'method' => 'updateListingWindow'],
+            // Report recogniser (mic-complete-spec §8.9) — same stored value as Settings -> Prospecting -> Stale-claim rules.
+            ['controller' => StaleRulesController::class, 'method' => 'updateReportAiRead'],
         ],
         'controls' => [
             ['key' => 'listing_off_market_days', 'source' => 'prospecting_thresholds', 'type' => 'number', 'default' => 90, 'min' => 1, 'max' => 365,
              'label' => 'Presume a portal listing off the market after (days unseen)',
              'explain' => 'CoreX only knows a portal listing is still for sale when the CoreX Chrome extension sees it again. A listing that has not been seen for this many days is presumed off the market. A mandate normally runs 90 days, so 90 is the standard.',
              'affects' => 'Which portal listings stay in Market Intelligence and in a presentation\'s Active Competition section. A shorter number drops listings an agent simply has not re-searched lately; a longer one keeps genuinely sold or withdrawn listings around for longer.'],
+            ['key' => 'report_ai_read_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Read unrecognised market reports with AI',
+             'explain' => 'When an agent uploads a market or CMA report in a layout CoreX does not know, CoreX can read it with AI instead of just filing it, and then remembers that layout so the next one is read instantly. Reports read this way are clearly marked "Read by AI – check figures".',
+             'affects' => 'Whether the figures in an unfamiliar report reach your comparables and presentations. Off means such a report is saved but nothing is read from it, and CoreX is told so it can add the format; nothing already imported changes.'],
         ],
         'aux_partial' => 'agency-setup.steps.market-intelligence',
     ],

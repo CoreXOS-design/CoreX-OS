@@ -617,6 +617,14 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\MarketReports\MarketReportSpotCheckFlagged::class,
             \App\Listeners\MarketReports\NotifyOnMarketReportParseFailure::class,
         );
+        // Report recogniser (mic-complete-spec §8.9): the same listener tells the uploader
+        // when a report was read by AI (check the figures) or could not be read at all.
+        foreach ([
+            \App\Events\MarketReports\MarketReportReadByAi::class,
+            \App\Events\MarketReports\MarketReportUnreadable::class,
+        ] as $recogniserEvent) {
+            Event::listen($recogniserEvent, \App\Listeners\MarketReports\NotifyOnMarketReportParseFailure::class);
+        }
 
         // ─────────────────────────────────────────────────────────────────
         // SPINE-2 — Activity Points instant-credit listener. Wires the
