@@ -367,93 +367,43 @@ final class MyPortalBlocksTest extends TestCase
         $this->assertSame(60000.0, $m['gross'], 'only the live line');
         $this->assertSame(45000.0, $m['net']);
         $this->assertSame(45000.0, $m['pipeline']);
+        // own average is the live 45,000; the agency average is (45,000 + 30,000) / 2 - neither inflated by the trashed copies
+        $this->assertSame(45000.0, $this->svc()->netPerDeal($this->agent)['perDeal']);
+        $this->assertSame(37500.0, $this->svc()->netPerDeal($this->user("agent"))["perDeal"]);
     }
 
     // ── what the budget needs ────────────────────────────────────────────────────────────
 
-    // ── what the budget needs: TODAY's Worksheet formula (Johan, 20 Oct 2026: "same as what we have there for now") ──
-
-    /** @return array<string, array{0: array<string, mixed>}> */
-    public static function worksheetRows(): array
+    public function test_requirement_uses_the_agents_own_average_then_the_agencys_then_says_not_enough_deals(): void
     {
-        return [
-            'the stored defaults'                       => [[]],
-            'custom planning figures'                   => [['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50]],
-            'an admin average sale price override'      => [['avg_sale_price' => 1000000, 'avg_sale_price_admin' => 1750000, 'commission_percent' => 5.5]],
-            'a business budget only'                    => [['personal_net_target' => 0, 'business_net_target' => 35000]],
-        ];
+        $budget = ['total' => 90000.0];
+
+        $this->assertSame('not_enough_deals', $this->svc()->requirement($this->agent, $budget, 4)['state'], 'no deals anywhere');
+
+        $this->deal($this->colleague, '2026-09-05', 'R', 2000000, 115000, 60000, 30000);
+        $viaAgency = $this->svc()->requirement($this->agent, $budget, 4);
+        $this->assertSame('ok', $viaAgency['state']);
+        $this->assertSame('agency', $viaAgency['source']);
+        $this->assertSame(3, $viaAgency['dealsNeeded']);          // 90,000 / 30,000
+        $this->assertSame(15, $viaAgency['listingsNeeded']);      // x 5 listings a sale (the existing agency setting default)
+        $this->assertSame(11, $viaAgency['gap']);                 // 15 - 4 in stock
+
+        $this->deal($this->agent, '2026-09-06', 'R', 2000000, 115000, 90000, 45000);
+        $own = $this->svc()->requirement($this->agent, $budget, 4);
+        $this->assertSame('own', $own['source']);
+        $this->assertSame(2, $own['dealsNeeded']);                // 90,000 / 45,000
+
+        $this->assertSame('no_budget', $this->svc()->requirement($this->agent, ['total' => 0.0], 4)['state']);
     }
 
-    #[\PHPUnit\Framework\Attributes\DataProvider('worksheetRows')]
-    public function test_my_portal_equals_the_old_worksheet_figures_for_the_same_agent(array $override): void
+    public function test_another_agencys_deals_never_feed_the_average(): void
     {
-        $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill($override)->save();
-        $this->property($this->agent);
-        $this->property($this->agent);
+        $other = Agency::create(['name' => 'Other', 'slug' => 'other-' . Str::random(5)]);
+        $ob = Branch::create(['agency_id' => $other->id, 'name' => 'B']);
+        $stranger = $this->user('agent', $other, $ob);
+        $this->deal($stranger, '2026-09-05', 'R', 2000000, 115000, 60000, 30000, 'Pending', $other, $ob);
 
-        $old = \App\Http\Controllers\WorksheetController::calculate($row->fresh()->replicate()->forceFill(['want_net_target' => 0, 'user_id' => null]));
-        $req = $this->svc()->requirement(app(BudgetService::class)->worksheetFor($this->agent, '2026-10'), 2);
-
-        $this->assertSame('ok', $req['state']);
-        $this->assertEqualsWithDelta($old['net_need'], $req['netNeed'], 0.001);
-        $this->assertEqualsWithDelta($old['sales_needed_per_month'], $req['salesNeeded'], 0.0001);
-        $this->assertEqualsWithDelta($old['total_listings_needed'], $req['listingsNeeded'], 0.0001);
-        $this->assertEqualsWithDelta($old['total_listings_needed'] - 2, $req['gap'], 0.0001, 'gap is against the 2 active sales listings in CoreX');
-    }
-
-    public function test_my_portal_shows_the_same_numbers_as_the_old_worksheet_page(): void
-    {
-        $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50])->save();
-        $this->actingAs($this->agent);
-
-        $worksheet = html_entity_decode($this->get(route('worksheet.index'))->assertOk()->getContent());
-        $portal = $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->getContent();
-
-        preg_match('/Sales Needed \/ Month:<\/span>\s*<span class="ds-value">([\d,\.]+)</', $worksheet, $wSales);
-        preg_match('/Total Listings Needed:<\/span>\s*<span class="ds-value">([\d,\.]+)</', $worksheet, $wList);
-        $this->assertNotEmpty($wSales, 'the old Worksheet page shows Sales Needed / Month');
-        $this->assertStringContainsString('data-testid="req-deals">' . $wSales[1] . '<', $portal);
-        $this->assertStringContainsString('data-testid="req-listings">' . $wList[1] . '<', $portal);
-    }
-
-    public function test_the_want_figure_stays_out_of_the_portal_calculation(): void
-    {
-        $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['want_net_target' => 90000])->save();
-
-        $req = $this->svc()->requirement(app(BudgetService::class)->worksheetFor($this->agent, '2026-10'), 0);
-
-        $this->assertSame(60000.0, $req['netNeed'], 'personal + business only');
-    }
-
-    public function test_the_block_shows_the_planning_figures_it_works_from(): void
-    {
-        $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50])->save();
-
-        $html = $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->getContent();
-
-        $this->assertStringContainsString('average sale price R 2,400,000, commission 6%, PAYE 25%, your split 70%, correctly priced 50%', $html);
-    }
-
-    public function test_no_budget_and_an_unworkable_row_are_told_plainly(): void
-    {
-        $this->assertSame('no_budget', $this->svc()->requirement(null, 3)['state']);
-
-        $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 0])->save();
-        $this->assertSame('incomplete', $this->svc()->requirement($row->fresh(), 3)['state']);
-        $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->assertSee('data-testid="requirement-incomplete"', false);
-    }
-
-    public function test_a_month_with_no_budget_row_has_no_requirement_block_figures(): void
-    {
-        $html = $this->get(route('agent.portal', ['sub' => 'targets', 'period' => '2026-08']))->assertOk()->getContent();
-
-        $this->assertStringNotContainsString('data-testid="req-deals"', $html);
-        $this->assertStringContainsString('Once a budget is set for August 2026', $html);
+        $this->assertSame('not_enough_deals', $this->svc()->requirement($this->agent, ['total' => 60000.0], 0)['state']);
     }
 
     // ── points ───────────────────────────────────────────────────────────────────────────
@@ -507,8 +457,7 @@ final class MyPortalBlocksTest extends TestCase
         $this->assertStringContainsString('data-testid="budget-personal">R 40,000<', $html);
         $this->assertStringContainsString('data-testid="budget-business">R 20,000<', $html);
         $this->assertStringContainsString('data-testid="budget-total">R 60,000<', $html);
-        $expected = \App\Http\Controllers\WorksheetController::calculate(Worksheet::query()->where('user_id', $this->agent->id)->firstOrFail()->replicate()->forceFill(['want_net_target' => 0, 'user_id' => null]));
-        $this->assertStringContainsString('data-testid="req-deals">' . number_format($expected['sales_needed_per_month'], 2) . '<', $html);
+        $this->assertStringContainsString('data-testid="req-deals">2<', $html);      // 60,000 / 45,000 -> 2
         $this->assertStringContainsString('data-testid="money-gross">R 60,000<', $html);
         $this->assertStringContainsString('data-testid="count-R-0">1<', $html);
         $this->assertStringContainsString('Where I Am', $html);
@@ -535,6 +484,15 @@ final class MyPortalBlocksTest extends TestCase
             $this->assertStringContainsString('October 2026', $html, "bad period [$bad] falls back to this month");
             $this->assertStringNotContainsString('<script>"', $html);
         }
+    }
+
+    public function test_an_agent_with_a_budget_and_no_deals_is_told_there_is_not_enough_to_calculate(): void
+    {
+        $this->worksheet($this->agent, '2026-10', 40000, 20000);
+
+        $this->actingAs($this->agent)->get(route('agent.portal', ['sub' => 'targets']))->assertOk()
+            ->assertSee('data-testid="not-enough-deals"', false)
+            ->assertSee('Not enough deals yet to calculate');
     }
 
     public function test_where_am_i_shows_targets_against_actuals_and_an_honest_empty_state(): void

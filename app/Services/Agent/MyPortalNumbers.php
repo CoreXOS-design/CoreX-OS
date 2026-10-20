@@ -6,9 +6,7 @@ namespace App\Services\Agent;
 
 use App\Models\Deal;
 use App\Models\PerformanceSetting;
-use App\Http\Controllers\WorksheetController;
 use App\Models\Property;
-use App\Models\Worksheet;
 use App\Models\User;
 use App\Services\Activity\ActivityPointsService;
 use App\Services\Admin\CompanyPerformanceService;
@@ -260,48 +258,59 @@ final class MyPortalNumbers
     }
 
     /**
-     * What the budget needs: TODAY'S Worksheet calculation, unchanged, shown read-only (Johan, 20 Oct 2026:
-     * "same as what we have there for now"). It is WorksheetController::calculate() itself, run on the agent's
-     * stored budget row, so the planning figures on that row - average sale price (or the admin's override),
-     * commission %, PAYE %, agent split % and correctly-priced % - drive it exactly as they do on the Worksheet,
-     * and the two can never drift apart.
+     * What one deal typically earns this agent (net, after splits and deductions): their own average, else
+     * the agency's, else null - the block then says there is not enough to calculate yet.
      *
-     * Two things differ on purpose, both from the earlier rulings: the "want" figure is left out (ruling A drops it),
-     * and the gap is taken against the agent's active sales stock from CoreX properties instead of the frozen
-     * Propcon import (ruling A, current active listings). Everything else - net need, sales needed, listings
-     * needed - is the Worksheet's own figure.
-     *
-     * @return array{state: string, netNeed?: float, salesNeeded?: float, listingsNeeded?: float, gap?: float,
-     *               basis?: array{avgSalePrice: float, commissionPercent: float, payePercent: float, agentSplitPercent: float, correctlyPricedPercent: float}}
+     * @return array{perDeal: float, source: string}|null
      */
-    public function requirement(?Worksheet $row, int $salesStock): array
+    public function netPerDeal(User $u): ?array
     {
-        if (! $row || ((float) $row->personal_net_target + (float) $row->business_net_target) <= 0) {
+        $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0) {
+            return null;
+        }
+        $perDeal = fn (?array $ids) => DB::table('deal_money_lines as l')->join('deals', 'deals.id', '=', 'l.deal_id')
+            ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'")
+            ->when($ids !== null, fn ($q) => $q->whereIn('l.user_id', $ids))
+            ->groupBy('l.deal_id')->selectRaw('SUM(l.agent_net_ex_vat) as net');
+
+        foreach ([['own', $u->dataIdentityIds()], ['agency', null]] as [$source, $ids]) {
+            $avg = DB::query()->fromSub($perDeal($ids), 'x')->where('net', '>', 0)->avg('net');
+            if ($avg !== null && (float) $avg > 0) {
+                return ['perDeal' => (float) $avg, 'source' => $source];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Budget -> deals needed -> listings needed -> gap against the agent's active sales stock.
+     * Planning constants are gone: the per-deal figure is the agent's own (or the agency's) actual average,
+     * and listings-per-sale is the agency setting that already exists.
+     *
+     * @param  array{total: float} $budget
+     * @return array{state: string, dealsNeeded?: int, listingsNeeded?: int, gap?: int, perDeal?: float, source?: string}
+     */
+    public function requirement(User $u, array $budget, int $salesStock): array
+    {
+        if (($budget['total'] ?? 0) <= 0) {
             return ['state' => 'no_budget'];
         }
-
-        $copy = $row->replicate();
-        $copy->want_net_target = 0;     // not part of the budget any more (ruling A)
-        $copy->user_id = null;          // calculate() then uses the row's own stock figure and never reads the frozen import
-        $calc = WorksheetController::calculate($copy);
-
-        if (($calc['sales_needed_per_month'] ?? 0) <= 0) {
-            return ['state' => 'incomplete'];   // the row has no sale price / commission to work from
+        $per = $this->netPerDeal($u);
+        if (! $per) {
+            return ['state' => 'not_enough_deals'];
         }
+        $deals = $budget['total'] / $per['perDeal'];
+        $listings = $deals * max(0.0, (float) PerformanceSetting::get('listings_per_sale', 5));
 
         return [
             'state'          => 'ok',
-            'netNeed'        => (float) $calc['net_need'],
-            'salesNeeded'    => (float) $calc['sales_needed_per_month'],
-            'listingsNeeded' => (float) $calc['total_listings_needed'],
-            'gap'            => (float) $calc['total_listings_needed'] - $salesStock,
-            'basis'          => [
-                'avgSalePrice'           => (float) ($row->avg_sale_price_admin ?? $row->avg_sale_price),
-                'commissionPercent'      => (float) $row->commission_percent,
-                'payePercent'            => (float) $row->paye_percent,
-                'agentSplitPercent'      => (float) $row->agent_split_percent,
-                'correctlyPricedPercent' => (float) $row->correctly_priced_percent,
-            ],
+            'dealsNeeded'    => (int) ceil($deals),
+            'listingsNeeded' => (int) ceil($listings),
+            'gap'            => (int) ceil($listings) - $salesStock,
+            'perDeal'        => $per['perDeal'],
+            'source'         => $per['source'],
         ];
     }
 

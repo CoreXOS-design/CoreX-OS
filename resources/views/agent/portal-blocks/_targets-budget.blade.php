@@ -46,24 +46,24 @@
         @endif
     </div>
 
-    {{-- What the budget needs: today's Worksheet calculation, unchanged, shown read-only (Johan, 20 Oct 2026). --}}
+    {{-- What the budget needs: deals, listings, gap against stock --}}
     <div class="ds-status-card mb-4" data-testid="requirement-block">
         <h4 class="ds-section-header" style="margin-bottom:0.5rem;">What your budget needs</h4>
         @if($req['state'] === 'no_budget')
-            <p class="text-sm" style="color:var(--text-muted);">Once a budget is set for {{ $monthLabel }}, this shows how many sales and listings it takes.</p>
-        @elseif($req['state'] === 'incomplete')
-            <p class="text-sm" style="color:var(--text-muted);" data-testid="requirement-incomplete">This cannot be worked out yet: the budget has no sale price or commission to work from.</p>
+            <p class="text-sm" style="color:var(--text-muted);">Once a budget is set for {{ $monthLabel }}, this shows how many deals and listings it takes.</p>
+        @elseif($req['state'] === 'not_enough_deals')
+            <p class="text-sm" style="color:var(--text-muted);" data-testid="not-enough-deals">Not enough deals yet to calculate. This is worked out from what your deals actually earn you, and there are none to go on yet.</p>
         @else
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div><div class="ds-label">Net need</div><div class="ds-value" data-testid="req-net">{{ $rand($req['netNeed']) }}</div></div>
-                <div><div class="ds-label">Sales needed / month</div><div class="ds-value" data-testid="req-deals">{{ number_format($req['salesNeeded'], 2) }}</div></div>
-                <div><div class="ds-label">Total listings needed</div><div class="ds-value" data-testid="req-listings">{{ number_format($req['listingsNeeded'], 2) }}</div></div>
+                <div><div class="ds-label">Deals needed</div><div class="ds-value" data-testid="req-deals">{{ $req['dealsNeeded'] }}</div><div class="text-xs" style="color:var(--text-muted);">a month</div></div>
+                <div><div class="ds-label">Listings needed</div><div class="ds-value" data-testid="req-listings">{{ $req['listingsNeeded'] }}</div></div>
+                <div><div class="ds-label">Active sales stock</div><div class="ds-value">{{ $p['stock']['sales'] }}</div></div>
                 <div>
-                    <div class="ds-label">Gap (needed &minus; active sales stock {{ $p['stock']['sales'] }})</div>
-                    <div class="ds-value" style="color: {{ $req['gap'] > 0 ? 'var(--ds-amber)' : 'var(--ds-green)' }};" data-testid="req-gap">{{ number_format($req['gap'], 2) }}</div>
+                    <div class="ds-label">{{ $req['gap'] > 0 ? 'Listings short' : 'Listings ahead' }}</div>
+                    <div class="ds-value" style="color: {{ $req['gap'] > 0 ? 'var(--ds-amber)' : 'var(--ds-green)' }};" data-testid="req-gap">{{ abs($req['gap']) }}</div>
                 </div>
             </div>
-            <p class="text-xs mt-2" style="color:var(--text-muted);" data-testid="req-basis">Worked out from the figures on your budget: average sale price {{ $rand($req['basis']['avgSalePrice']) }}, commission {{ rtrim(rtrim(number_format($req['basis']['commissionPercent'], 2), '0'), '.') }}%, PAYE {{ rtrim(rtrim(number_format($req['basis']['payePercent'], 2), '0'), '.') }}%, your split {{ rtrim(rtrim(number_format($req['basis']['agentSplitPercent'], 2), '0'), '.') }}%, correctly priced {{ rtrim(rtrim(number_format($req['basis']['correctlyPricedPercent'], 2), '0'), '.') }}%.</p>
+            <p class="text-xs mt-2" style="color:var(--text-muted);">Based on {{ $req['source'] === 'own' ? 'what your own deals earn you' : 'what deals earn agents across the agency (you have no deals of your own yet)' }}: about {{ $rand($req['perDeal']) }} a deal after splits, excluding VAT.</p>
         @endif
     </div>
 

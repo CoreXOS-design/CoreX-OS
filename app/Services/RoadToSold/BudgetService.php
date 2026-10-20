@@ -35,37 +35,10 @@ final class BudgetService
      */
     public function forUser(User $u, string $period): array
     {
-        $none = ['personalBudget' => 0.0, 'businessBudget' => 0.0, 'total' => 0.0, 'source' => self::SOURCE_NONE, 'setForPeriod' => null];
-        [$row, $source] = $this->resolve($u, $period);
-        if (! $row) {
-            return $none;
-        }
-
-        return [
-            'personalBudget' => (float) $row->personal_net_target,
-            'businessBudget' => (float) $row->business_net_target,
-            'total'          => (float) $row->personal_net_target + (float) $row->business_net_target,
-            'source'         => $source,
-            'setForPeriod'   => (string) $row->period,
-        ];
-    }
-
-    /**
-     * The stored budget row itself (it also carries the planning figures - average sale price, commission %, PAYE,
-     * agent split, correctly-priced % - that today's requirement calculation works from), under the same rules as
-     * forUser(): the month's own row, the current month carrying the latest earlier row forward, otherwise null.
-     */
-    public function worksheetFor(User $u, string $period): ?Worksheet
-    {
-        return $this->resolve($u, $period)[0];
-    }
-
-    /** @return array{0: ?Worksheet, 1: string} */
-    private function resolve(User $u, string $period): array
-    {
         $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+        $none = ['personalBudget' => 0.0, 'businessBudget' => 0.0, 'total' => 0.0, 'source' => self::SOURCE_NONE, 'setForPeriod' => null];
         if ($agencyId <= 0) {
-            return [null, self::SOURCE_NONE];
+            return $none;
         }
 
         $q = Worksheet::query()->where('agency_id', $agencyId)->where('user_id', $u->id);
@@ -76,11 +49,23 @@ final class BudgetService
             $row = (clone $q)->where('period', '<', $period)->orderByDesc('period')->first();
             $source = self::SOURCE_CARRIED;
         }
-        if (! $row || ((float) $row->personal_net_target <= 0 && (float) $row->business_net_target <= 0)) {
-            return [null, self::SOURCE_NONE];
+        if (! $row) {
+            return $none;
         }
 
-        return [$row, $source];
+        $personal = (float) $row->personal_net_target;
+        $business = (float) $row->business_net_target;
+        if ($personal <= 0 && $business <= 0) {
+            return $none;
+        }
+
+        return [
+            'personalBudget' => $personal,
+            'businessBudget' => $business,
+            'total'          => $personal + $business,
+            'source'         => $source,
+            'setForPeriod'   => (string) $row->period,
+        ];
     }
 
     /**
