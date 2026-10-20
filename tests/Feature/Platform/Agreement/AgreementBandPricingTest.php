@@ -88,7 +88,12 @@ class AgreementBandPricingTest extends TestCase
         $this->assertTrue(AgreementPricing::isBands((array) $cur->rates_json));
         $this->assertSame('1.1', $cur->version);
         $this->assertSame('1.0', $cur->parent->version);
-        $this->assertSame([], app(AgreementVersions::class)->problems($cur), 'the published band version passes every publish rule');
+        // The band version itself swaps the plan fields for band fields - a developer change, which is exactly what the
+        // "fields can be moved, not added or removed" rule leaves to developers. What must hold: a person's wording edit
+        // made from it passes every publish rule, so the wording can still be changed later without a developer.
+        $draft = app(AgreementVersions::class)->createDraft($this->owner()->id);
+        $this->assertSame($cur->id, (int) $draft->parent_version_id);
+        $this->assertSame([], app(AgreementVersions::class)->problems($draft), 'a draft of the band version passes every publish rule');
     }
 
     public function test_an_environment_on_tier_pricing_gets_a_new_version_and_the_old_one_is_untouched(): void
@@ -214,7 +219,11 @@ class AgreementBandPricingTest extends TestCase
     private function onlyTierPricing(): void
     {
         app(AgreementContent::class)->ensureSeeded();
-        WordingVersion::withTrashed()->get()->filter(fn ($v) => AgreementPricing::isBands((array) $v->rates_json))->each(fn ($v) => $v->forceDelete());
+        // An environment that has never had the band version. A published version can never be deleted through the app (the
+        // model refuses), so the test removes the row underneath it.
+        $ids = WordingVersion::withTrashed()->get()->filter(fn ($v) => AgreementPricing::isBands((array) $v->rates_json))->pluck('id');
+        \App\Models\PlatformEsign\WordingAudit::whereIn('version_id', $ids)->delete();
+        \Illuminate\Support\Facades\DB::table((new WordingVersion())->getTable())->whereIn('id', $ids)->orderByDesc('id')->delete();
     }
 
     private function text(WordingVersion $v, string $part, string $mode): string

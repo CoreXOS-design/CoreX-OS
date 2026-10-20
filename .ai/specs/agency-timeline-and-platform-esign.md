@@ -410,6 +410,7 @@ the band). VAT wording unchanged (inclusive once RR Technologies registers, no i
 - **ONE calculation** as in §11.5: `AgreementPricing::derive()`; the page JS `calcBands()` mirrors `computeBands()` (proved figure-for-figure, 0–40 agents × 1/2/4
   branches × with/without a quoted fee).
 Tests: `AgreementBandPricingTest`. The tier-shaped tests use `Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing` (the environment before the band version).
+  **Run against a database 2026-10-20 (QA2):** `AgreementBandPricingTest` + `BandPricingTest` 48/48; the 21 tier-pinned billing/agreement files 379/381. Fixed in the tests only: the tier pin (and two copies of it) removed the band version with `forceDelete()`, which the model correctly refuses for a published version - it now removes the rows underneath; the band version itself is not checked against the "fields may not be added or removed" rule (it IS the developer change that rule leaves to developers) - instead a draft made from it must pass every publish rule. The 2 remaining failures (`AgreementFidelityTest` PDF match, `WordingSafetyTest` logo `<img src="http://` on the public page) fail identically on QA2 without this change - not caused by it, not touched.
 
 ### 11.6 Pagination — the screen and the PDF are the same pages
 `AgreementLayout` renders the document in canonical mode, splits it into top-level blocks, estimates each block's height and packs

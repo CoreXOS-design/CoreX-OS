@@ -157,11 +157,11 @@ class AgreementFidelityTest extends TestCase
     private function pinTierPricing(): void
     {
         app(AgreementContent::class)->ensureSeeded();
-        WordingVersion::withTrashed()->get()
+        // A published version can never be deleted through the app (WordingVersion refuses), so the rows are removed underneath it.
+        $ids = WordingVersion::withTrashed()->get()
             ->filter(fn (WordingVersion $w) => \App\Services\PlatformEsign\Agreement\AgreementPricing::isBands((array) $w->rates_json))
-            ->each(function (WordingVersion $w) {
-                \App\Models\PlatformEsign\WordingAudit::where('version_id', $w->id)->delete();
-                $w->forceDelete();
-            });
+            ->pluck('id');
+        \App\Models\PlatformEsign\WordingAudit::whereIn('version_id', $ids)->delete();
+        \Illuminate\Support\Facades\DB::table((new WordingVersion())->getTable())->whereIn('id', $ids)->orderByDesc('id')->delete();
     }
 }
