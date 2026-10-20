@@ -298,8 +298,8 @@ Decisions made while building Part 1. Where these refine an earlier section, thi
    Commission Management and Proforma Invoices now depend on Deals. Every cross-screen link to a deal page
    is wrapped (`FeatureNavGuardCoverageTest`).
 9. **One write path:** `AgencyFeatureWriter` (extracted from `AgencyTypeFeatureSeeder`) is used by the type seeder and the rollout.
-10. **Schema snapshot** not yet regenerated for `2026_11_18_100000_create_feature_rollout_tables` — the migration
-    runs on top of the snapshot. Run `scripts/schema-dump.sh` with the next batch.
+10. **Schema snapshot** regenerated 2026-10-20 with `scripts/schema-dump.sh` after Part 5 — covers all five AT-478
+    migrations (`2026_11_18_100000` … `100400`); a lane test schema rebuilt from it (`lane-test.sh --fresh`) passes.
 
 ## 14. Build notes — Part 2 (wizard choice + agency panel) — 2026-10-20
 
