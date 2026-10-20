@@ -326,7 +326,7 @@ class ClientTenantRentalsController extends Controller
         if ($contact instanceof JsonResponse) {
             return $contact;
         }
-        $fault = $this->scope->tenantFaultReport($contact, $faultReport);
+        $fault = $this->scope->tenantActionableFaultReport($contact, $faultReport);
         if (! $fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }
@@ -354,7 +354,7 @@ class ClientTenantRentalsController extends Controller
         if ($contact instanceof JsonResponse) {
             return $contact;
         }
-        $fault = $this->scope->tenantFaultReport($contact, $faultReport);
+        $fault = $this->scope->tenantActionableFaultReport($contact, $faultReport);
         if (! $fault) {
             return response()->json(['message' => 'Fault report not found.'], 404);
         }

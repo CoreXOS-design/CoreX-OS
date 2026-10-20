@@ -138,6 +138,25 @@ final class AuditP3PortalTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $f->fresh()->status);
     }
 
+    public function test_a_tenant_whose_lease_has_ended_can_still_read_their_fault_but_cannot_add_to_or_withdraw_it(): void
+    {
+        $f = $this->openFault();
+        $before = \App\Models\RentalFaultReportUpdate::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count();
+        $this->lease->forceFill(['status' => Lease::STATUS_EXPIRED])->saveQuietly();
+        $this->as($this->tenant);
+
+        // audit 2026-10-20 finding 6 (D17): the write lookup needs a lease still in force, exactly as work orders do; the history stays readable
+        $this->getJson(self::BASE . "/fault-reports/{$f->id}")->assertOk();
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/notes", ['note' => 'months after move-out'])->assertStatus(404);
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/withdraw", ['reason' => 'moved out long ago'])->assertStatus(404);
+        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $f->fresh()->status);
+        $this->assertSame($before, \App\Models\RentalFaultReportUpdate::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count(), 'nothing was added to the fault');
+
+        // the same lease back in force: the same calls work
+        $this->lease->forceFill(['status' => Lease::STATUS_ACTIVE])->saveQuietly();
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/notes", ['note' => 'still dripping'])->assertStatus(201);
+    }
+
     public function test_withdrawing_cancels_in_the_tenants_name_keeps_the_record_and_needs_a_reason(): void
     {
         $f = $this->openFault();
