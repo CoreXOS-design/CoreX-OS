@@ -10,6 +10,7 @@ use App\Models\PlatformEsign\Signer;
 use App\Models\Role;
 use App\Models\User;
 use App\Services\Billing\SubscriptionPricingService;
+use App\Services\PlatformEsign\Agreement\AgreementPricing;
 use App\Services\PlatformEsign\Agreement\AgreementSample;
 use App\Services\PlatformEsign\Agreement\AgreementService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -74,6 +75,60 @@ class AgreementQuotedFeeBillingTest extends TestCase
         $this->assertNull($sub->custom_amount_zar);
         $this->assertEquals(10, (float) $sub->discount_percent, 'an existing discount is untouched');
         $this->assertSame(0, $doc->events()->where('event', 'like', 'billing_%')->count());
+    }
+
+    public function test_a_quoted_fee_is_not_applied_when_the_agency_signs_in_a_band(): void
+    {
+        $owner  = $this->owner();
+        $agency = $this->agency();
+        AgencySubscription::forAgency((int) $agency->id)->forceFill(['discount_percent' => 10, 'discount_months' => 3, 'discount_starts_on' => now()->toDateString()])->save();
+
+        $doc = $this->send($owner, ['agency_id' => $agency->id, 'quoted_fee' => '6200']);
+        $this->agencySigns($doc, ['agents' => '12', 'branches' => '1']);
+        $this->countersign($owner, $doc)->assertOk();
+
+        $sub = AgencySubscription::forAgency((int) $agency->id);
+        $this->assertNull($sub->custom_amount_zar, 'signed in a band: billing follows the bands, not the quote');
+        $this->assertEquals(10, (float) $sub->discount_percent, 'an existing discount is untouched');
+        $this->assertSame(0, $doc->events()->where('event', 'billing_quoted_fee_applied')->count());
+        $this->assertSame(1, $doc->events()->where('event', 'billing_quoted_fee_not_applied')->count());
+    }
+
+    public function test_the_monthly_amount_includes_additional_branches(): void
+    {
+        $owner  = $this->owner();
+        $agency = $this->agency();
+        $doc = $this->send($owner, ['agency_id' => $agency->id, 'quoted_fee' => '6200']);
+        $this->agencySigns($doc, ['agents' => '40', 'branches' => '3']);
+        $this->countersign($owner, $doc)->assertOk();
+
+        $branch = (float) array_merge(AgreementPricing::BAND_RATES, (array) $doc->fresh()->wording->rates_json)['branch'];
+        $this->assertGreaterThan(0, $branch);
+        $this->assertEquals(6200 + 2 * $branch, (float) AgencySubscription::forAgency((int) $agency->id)->custom_amount_zar);
+    }
+
+    public function test_a_whole_term_discount_is_carried_into_the_monthly_amount(): void
+    {
+        $owner  = $this->owner();
+        $agency = $this->agency();
+        $doc = $this->send($owner, ['agency_id' => $agency->id, 'quoted_fee' => '6200', 'variation_type' => 'percent', 'variation_value' => '10']);
+        $this->agencySigns($doc, ['agents' => '40', 'branches' => '1']);
+        $this->countersign($owner, $doc)->assertOk();
+
+        $this->assertEquals(5580.0, (float) AgencySubscription::forAgency((int) $agency->id)->custom_amount_zar);
+        $this->assertSame(0, $doc->events()->where('event', 'billing_quoted_fee_discount_not_applied')->count());
+    }
+
+    public function test_a_discount_for_the_first_months_bills_the_normal_fee_and_says_so_on_the_document(): void
+    {
+        $owner  = $this->owner();
+        $agency = $this->agency();
+        $doc = $this->send($owner, ['agency_id' => $agency->id, 'quoted_fee' => '6200', 'variation_type' => 'percent', 'variation_value' => '10', 'variation_months' => '3']);
+        $this->agencySigns($doc, ['agents' => '40', 'branches' => '1']);
+        $this->countersign($owner, $doc)->assertOk();
+
+        $this->assertEquals(6200.0, (float) AgencySubscription::forAgency((int) $agency->id)->custom_amount_zar);
+        $this->assertSame(1, $doc->events()->where('event', 'billing_quoted_fee_discount_not_applied')->count());
     }
 
     public function test_completion_announces_the_agreement_once_with_the_agency_and_the_document(): void
