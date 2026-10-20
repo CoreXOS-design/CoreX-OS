@@ -151,6 +151,42 @@ class BandPricingTest extends TestCase
         $this->assertSame(AgencySubscription::PRICE_LIST_BANDS, AgencySubscription::forAgency((int) $this->makeAgency('Brand New')->id)->price_list);
     }
 
+    /** Johan 2026-10-20 (decision 1): every existing agency moves to the bands; decision 3: nobody is emailed for it. */
+    public function test_the_follow_up_migration_moves_every_agency_to_the_bands_silently_and_keeps_custom_terms(): void
+    {
+        Mail::fake();
+        $small  = $this->makeAgency('Small Existing');
+        $big    = $this->makeAgency('Big Existing');
+        $custom = $this->makeAgency('Custom Deal');
+        $this->hire($small, 4);
+        $this->hire($big, 31);
+        $this->hire($custom, 12);
+        // The state the first migration leaves: everyone on the old tiers, on a tier plan.
+        DB::table('agency_subscriptions')->update(['price_list' => AgencySubscription::PRICE_LIST_TIERS, 'plan' => AgencySubscription::PLAN_TEAM]);
+        DB::table('agency_subscriptions')->whereIn('agency_id', [$big->id, $custom->id])->update(['plan' => AgencySubscription::PLAN_AGENCY]);
+        DB::table('agency_subscriptions')->where('agency_id', $custom->id)->update(['custom_amount_zar' => 4000, 'custom_amount_note' => 'negotiated']);
+
+        Mail::fake(); // only what the migration sends counts (hiring 31 on today's default list already told CoreX)
+        (require database_path('migrations/2026_11_16_100900_move_all_agencies_to_band_pricing.php'))->up();
+
+        $row = fn (Agency $a) => DB::table('agency_subscriptions')->where('agency_id', $a->id)->first();
+        foreach ([$small, $big, $custom] as $a) {
+            $this->assertSame(AgencySubscription::PRICE_LIST_BANDS, $row($a)->price_list, $a->name);
+        }
+        $this->assertSame('band3', $row($small)->plan);
+        $this->assertSame(AgencySubscription::PLAN_QUOTE, $row($big)->plan);
+        $this->assertSame('band5', $row($custom)->plan);
+        Mail::assertNothingSent();
+
+        $this->assertSame(1495.0, $this->pricing->quoteFor($small->fresh())->payableZar);
+        $this->assertTrue($this->pricing->quoteFor($big->fresh())->onQuotation, 'above the last band waits for a quoted fee');
+        $this->assertSame(4000.0, $this->pricing->quoteFor($custom->fresh())->payableZar, 'an agreed custom amount still wins');
+
+        (require database_path('migrations/2026_11_16_100900_move_all_agencies_to_band_pricing.php'))->up();
+        $this->assertSame('band3', $row($small)->plan, 'running it again changes nothing');
+        Mail::assertNothingSent();
+    }
+
     public function test_the_billing_pages_show_the_band_and_the_quotation(): void
     {
         Mail::fake();

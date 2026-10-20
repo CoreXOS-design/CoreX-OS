@@ -722,6 +722,7 @@ class AgreementService
         }
 
         $this->esign->complete($doc->fresh());
+        $this->announceCompleted($doc, $user->id);
 
         return [];
     }
@@ -911,8 +912,26 @@ class AgreementService
             return $errors;
         }
         $this->esign->complete($doc->fresh());
+        $this->announceCompleted($doc, $user->id);
 
         return [];
+    }
+
+    /**
+     * Tell the rest of CoreX the agreement is fully signed (SubscriptionAgreementCompleted - billing takes the quoted fee from it).
+     * Only for an agreement linked to an agency; one sent without an agency has nobody to bill, so the document says so.
+     */
+    private function announceCompleted(Document $doc, int $userId): void
+    {
+        $fresh = $doc->fresh();
+        if (! $fresh?->agency_id) {
+            if (trim((string) (((array) $fresh?->rr_data)['quoted_fee'] ?? '')) !== '') {
+                $this->esign->log($doc, 'billing_quoted_fee_not_applied', 'Billing: no agency is linked to this agreement, so the quoted monthly fee was not applied - set it by hand under Admin > Billing', null, $userId);
+            }
+
+            return;
+        }
+        event(new \App\Events\Platform\SubscriptionAgreementCompleted((int) $fresh->agency_id, (int) $fresh->id, $userId));
     }
 
     private function wetInkAttestation(Document $doc): string
