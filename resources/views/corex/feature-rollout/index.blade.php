@@ -130,6 +130,11 @@
                                     <span class="ds-badge {{ $sc }}">{{ $sl }}</span>
                                     @if (! empty($tours[$item->feature_key]))<span class="ds-badge ds-badge-muted" title="{{ collect($tours[$item->feature_key])->pluck('title')->implode(', ') }}">Guided tour</span>@endif
                                 </div>
+                                @if ($item->state === 'held' && ! empty($early[$item->feature_key]))
+                                    <div class="w-full text-xs" style="color: var(--text-secondary);" data-early="{{ $item->feature_key }}">
+                                        Asked for early by {{ implode(', ', $early[$item->feature_key]) }}.
+                                    </div>
+                                @endif
                                 @if (isset($usage[$item->feature_key]))
                                     @include('corex.feature-rollout._usage', ['s' => $usage[$item->feature_key]])
                                 @endif

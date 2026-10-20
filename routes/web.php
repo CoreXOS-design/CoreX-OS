@@ -3696,6 +3696,12 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
     Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
+    // AT-478 §12.5 / §12.9 — "New and coming": what is still to switch on (ask for it early) and everything
+    // that already did. Every signed-in person in an agency on gradual rollout; own agency only, 404 otherwise.
+    Route::middleware('agency.required')->group(function () {
+        Route::get('/new-and-coming', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'index'])->name('corex.new-and-coming.index');
+        Route::post('/new-and-coming/{item}/early', [\App\Http\Controllers\CoreX\NewAndComingController::class, 'requestEarly'])->whereNumber('item')->name('corex.new-and-coming.early');
+    });
     // AT-478 — the agency's own gradual feature rollout (spec agency-feature-rollout.md §5.2). Own agency only:
     // no agency/plan id in any URL; item ids are resolved inside the agency's plan.
     Route::middleware(['permission:manage_feature_rollout', 'agency.required'])->prefix('feature-rollout')->name('corex.feature-rollout.')->group(function () {

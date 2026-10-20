@@ -50,6 +50,8 @@ final class SidebarFeatureCoverage
         'corex.role-manager*'               => 'role-manager',
         // Release notes for the CoreX platform itself — shown to everyone, not a module an agency runs.
         'corex.whats-new.index'              => 'dashboard',
+        // AT-478 — the guide to what a gradual rollout is switching on; shown only to agencies on one.
+        'corex.new-and-coming.index'         => 'dashboard',
     ];
 
     /**

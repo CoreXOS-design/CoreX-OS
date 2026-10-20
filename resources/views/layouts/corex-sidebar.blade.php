@@ -2732,6 +2732,19 @@
             <span>What's New</span>
         </a>
 
+        {{-- AT-478 §12.5/§12.9 — New and coming: only for an agency on gradual rollout (cached check). Like
+             What's New it carries no feature/permission gate of its own: it is the guide to what is switching
+             on, for everyone; the page shows each person only what they can open. --}}
+        @if (app(\App\Services\FeatureRollout\FeatureRolloutService::class)->isOnRollout(auth()->user()?->effectiveAgencyId()))
+        <a href="{{ route('corex.new-and-coming.index') }}"
+           class="corex-nav-item {{ request()->routeIs('corex.new-and-coming.*') ? 'active' : '' }}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z" />
+            </svg>
+            <span>New and coming</span>
+        </a>
+        @endif
+
         @endpermission {{-- /sidebar.section.tools --}}
 
         {{-- ═══════════════════════════════════════════

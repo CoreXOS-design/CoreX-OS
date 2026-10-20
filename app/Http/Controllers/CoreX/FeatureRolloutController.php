@@ -115,6 +115,7 @@ class FeatureRolloutController extends Controller
             'preview'    => self::canStart($agency) ? $this->rollout->holdPreview($agency) : [],
             'readiness'  => $plan ? $this->readinessFor($agency, $waves) : [],
             'usage'      => $plan ? $this->usageFor($agency, $waves) : [],
+            'early'      => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUpdates::class)->earlyRequests($plan) : [],
             'lowUse'     => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($plan) : null,
         ]);
     }

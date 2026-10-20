@@ -176,7 +176,8 @@
             @endforeach
         </div>
 
-        <div class="flex items-center justify-end px-5 py-3" style="border-top:1px solid var(--border); background:var(--surface-2);">
+        <div class="flex items-center justify-between gap-3 px-5 py-3" style="border-top:1px solid var(--border); background:var(--surface-2);">
+            <a href="{{ route('corex.new-and-coming.index') }}" data-rollout-link class="text-xs" style="color:var(--brand-icon);">See everything new and coming</a>
             <button type="button" @click="close()" class="corex-btn-primary text-sm">Got it</button>
         </div>
     </div>

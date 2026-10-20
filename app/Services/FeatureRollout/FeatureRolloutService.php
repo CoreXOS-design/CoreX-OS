@@ -113,6 +113,20 @@ class FeatureRolloutService
 
     // ── Reading a plan ─────────────────────────────────────────────────────────
 
+    /**
+     * Is this agency on a gradual rollout (not stopped)? Cached — it decides whether the "New and coming"
+     * menu link shows, on every page. Cleared by start().
+     */
+    public function isOnRollout(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return false;
+        }
+
+        return \Illuminate\Support\Facades\Cache::remember('feature-rollout:on:' . $agencyId, 600, fn () => AgencyFeatureRollout::queryWithoutAgencyScope()
+            ->where('agency_id', $agencyId)->where('status', '!=', AgencyFeatureRollout::STATUS_CANCELLED)->exists());
+    }
+
     public function forAgency(int $agencyId): ?AgencyFeatureRollout
     {
         return AgencyFeatureRollout::queryWithoutAgencyScope()->where('agency_id', $agencyId)->first();
@@ -216,6 +230,7 @@ class FeatureRolloutService
             if ($held === []) {
                 $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_COMPLETED, 'completed_at' => now()])->save();
             }
+            \Illuminate\Support\Facades\Cache::forget('feature-rollout:on:' . $agency->id);
             $this->record((int) $agency->id, 'started', [
                 'held' => array_keys($held), 'interval_days' => (int) $plan->interval_days,
                 'weekdays_only' => (bool) $plan->weekdays_only, 'side_by_side' => (bool) $plan->side_by_side,

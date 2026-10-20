@@ -440,3 +440,27 @@ Already built earlier: #2 public holidays and #3 release time (Part 1), #11 tour
    date, and what needs attention (paused 7+ days, features waiting on setup, low use), needing-attention first;
    filter needs attention / all, search by agency name, 25 a page; each agency links to its page (§5.5).
 6. Thresholds are platform-wide product tuning in `config/feature-rollout.php` `follow_up` (same for every agency).
+
+### 17c. Day-before notice (#4), New and coming (#5 + #9), Ellie (#6)
+1. **Day-before notice:** `rollout:release` runs `FeatureRolloutUpdates::notifyDayBefore()`. From the release
+   time on the release day before a group switches on, the agency's rollout admins (active users holding
+   `manage_feature_rollout`, never the System Owner) get ONE `RolloutDayBeforeNotification` per group — in-app
+   always, email too when the person has email notifications on (same rule as `EventDueReminderNotification`).
+   Not sent for a group already reviewed or with nothing held. Stamped `agency_rollout_waves.admin_notified_at`
+   (migration `2026_11_18_100400`).
+2. **New and coming** (`corex.new-and-coming.index`, `/corex/new-and-coming`, `NewAndComingController`): every
+   signed-in person in an agency on gradual rollout; 404 for any other agency. "Coming next" = held features of
+   groups still to come with their date ("When your admin resumes" while paused) and **Ask for this early**;
+   "Already switched on" = every released group, newest first, ALL history (this is the place a dismissed release
+   pop-up is found again), showing only features the person can open (plus "Waiting for your admin" for
+   awaiting-admin / awaiting-setup ones), with Take the tour. Search, show (coming / switched on / both), date
+   range, 10 groups a page, empty states. Menu link next to What's New, shown only when the agency is on a
+   rollout (`FeatureRolloutService::isOnRollout`, cached); coverage exemption like What's New. The release pop-up
+   links to it ("See everything new and coming").
+3. **Ask for this early:** once per person per feature (`rollout_feature_users.early_requested_at`), only for a
+   held feature of the person's own agency's plan. The rollout admins get an in-app
+   `RolloutEarlyRequestNotification`; the agency panel shows "Asked for early by …" under the feature; the
+   history records it. Nothing is switched on — the admin decides.
+4. **Ellie:** read-only tool `whats_new_for_me` (`EllieToolkit`, spec ellie-v2.md §3.2): status, what switched on
+   for this user in the last 30 days (only what they can open, with tour links), the next 5 groups coming, and the
+   page link. The system prompt routes "what's new / what changed / what is coming" questions to it.

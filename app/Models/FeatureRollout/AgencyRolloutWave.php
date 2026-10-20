@@ -18,7 +18,7 @@ class AgencyRolloutWave extends Model
 
     protected $fillable = [
         'agency_id', 'rollout_id', 'source_wave_id', 'lane', 'track', 'position', 'title', 'intro_text',
-        'scheduled_for', 'access_reviewed_at', 'access_reviewed_by', 'released_at', 'customised_at',
+        'scheduled_for', 'access_reviewed_at', 'access_reviewed_by', 'admin_notified_at', 'released_at', 'customised_at',
     ];
 
     protected $casts = [
@@ -28,6 +28,7 @@ class AgencyRolloutWave extends Model
         'access_reviewed_at' => 'datetime',
         'released_at'        => 'datetime',
         'customised_at'      => 'datetime',
+        'admin_notified_at'  => 'datetime',
     ];
 
     public function rollout(): BelongsTo
