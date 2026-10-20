@@ -1,3 +1,813 @@
+# Road to Sold v2 (and Road to Rented) — the recipe for a successful agent
+
+**Jira: AT-454** (one ticket for the whole build; commits prefixed `AT-454:`).
+Status: **APPROVED (20 Oct 2026) — approved by the conductor on Johan's delegation, 20 Oct 2026.** Spec v2.2, 20 Oct 2026 — Johan's answers 1–7 and the conductor's ruling on question 8 are recorded in section 15 (nothing open). Spec only — no code, no data, no menu changes were made writing this.**
+Governing rulings: Johan, 20 Oct 2026 (section 1, verbatim — lanes do not edit it).
+Verified against `QA1` at `8ee4fb502` (read-only), 20 Oct 2026. Every `path:line` was read from that tree. Anything not read is marked **UNVERIFIED**.
+Supersedes: v1 of this file (13 Oct 2026). **v1 is kept whole, unedited, in Appendix A** (including Johan's original business rules of 13 Oct 2026 07:19). Section 2 says which v1 rulings still stand.
+Companion spec: `agency-tracker-rehome.md` (taking Agency Tracker apart). Where the two touch (budgets, targets, daily activity, Worksheet), section 3.5 and section 9 say who owns what.
+
+Words: always **evaluation**, never "valuation" (v1 §12, Johan's standing rule). The legacy column `rts_contact_outcomes.valuation_booked` keeps its name; nothing user-visible says it.
+Abbreviations: `RW` = `routes/web.php`; `SB` = `resources/views/layouts/corex-sidebar.blade.php`; `ASP` = `app/Providers/AppServiceProvider.php`; `CIAL` = `app/Listeners/Activity/CreditInstantActionListener.php`.
+Roles: Ag agent, BM branch manager, Ad admin, Ow owner.
+
+---
+
+## 0. Read this first — what the code says that shapes the build
+
+1. **Road to Sold v1 is built and live on QA1, and v2 reuses it — it does not start a parallel engine.** Page `GET /road-to-sold` (`RW:6402-6430`), list builder, nine selections, outcomes, holds, summary bar, report, settings hub, areas, weekday targets, wizard step. Detailed inventory in section 3.6. QA1 rows are test data only (166 open list items, 1 outcome).
+2. **The six-step summary bar is real, not event-driven.** Every actual is a query run on page load (`DrilldownService.php:71-87`, `SummaryBarService.php:26-33`). v2's recipe needs the 13 steps measured the same way *and* auto-completed from events. Both mechanisms are specced (section 5): the query is the **truth for the funnel**, the event is the **trigger for the task tick and the celebration**.
+3. **Seven of the 13 steps have no usable auto-detect event today** (section 6 is the gap register). The biggest: nothing fires when a **Road to Sold outcome is recorded**, when an **evaluation is booked or done** (only a calendar observer and a calendar-class mapping), when an **owner is linked on the deeds path**, when a **listing goes live on P24/Private Property**, when a **presentation is presented**, when a **seller live link or viewing pack is sent**, when a **paper OTP/mandate is signed**, and when a **payslip is generated**. Aftercare/referrals does not exist at all.
+4. **Two dead events are registered but never raised:** `MandateSigned` and `DocumentSigned` (zero raise sites; `ASP:802, :822` register listeners to nothing). Mandates are credited by a direct call (`SignatureService.php:4003-4004`). The real e-sign completion hook is `SignatureEnvelopeFinalized` (`SignatureService.php:4141`), whose only listener today is lease-only (`ASP:338-345`).
+5. **The points engine v2 replaces is double-weighted for calendar credit — verified.** `value_per_event` was seeded *from the weight* (`database/migrations/2026_06_20_120000_seed_hfc_activity_calendar_mappings.php:76`) and every reader multiplies `value × weight` (e.g. QA1: "Presentation" 5 confirmed rows score 200,000 instead of 1,000). v2 stores a **snapshotted `points_awarded`** per completion and never joins a live weight (section 7.4). Existing confirmed points are not rewritten without Johan's go. **Decided (Johan, 20 Oct 2026, answer 6): past months keep their old totals; the corrected rule applies from the cut-over date, with a before/after report (section 7.4).**
+6. **There is no level, rank or sign-off concept for agents anywhere** (`users.agent_tier` is an unused column; "tier" in commission code means revenue-share depth). Levels are new. The best reusable BM sign-off shape is the syndication approval service (section 8.3).
+7. **No funnel ratio is computed anywhere today.** All numerators/denominators exist as counts through `DrilldownService::count()` (`:71`). Caution: mandates and evaluations are keyed by *document owner / calendar user*, outcomes by `rts_contact_outcomes.user_id` — a ratio across them is not on the same population (section 9.2 states the fix).
+8. **Celebration infrastructure is thin.** No confetti/badge/achievement concept; `window.showToast` (`resources/views/components/toast-notifications.blade.php:120`) is the only success-styled toast; persistent alert toasts style only `warning`/`critical` (`resources/views/components/alert-popups.blade.php:177`). A 360-minute per-type-per-subject alert cooldown drops repeats (memory note `alert-cooldown-swallows-same-type-alerts.md`; **figure not re-verified in code**). The only existing "congratulations" precedent is `WonMandateNotification` (`app/Notifications/Presentations/WonMandateNotification.php:14-17`, dispatched `PresentationOutcomeService.php:251`).
+9. **Road to Rented does not exist** — no route, feature key, permission, sidebar link or catalogue. Only the `track` column everywhere, `Support/Routing.php:17-20`, and a remountable settings file. Section 12.
+10. **Listing Stock is frozen data** (`listing_stocks`, 213 Propcon rows, last updated 2026-08-14) — v2 must read CoreX `properties` for stock, never `listing_stocks` (see `agency-tracker-rehome.md` finding 7).
+11. **Multi-agency:** the activity catalogue (41 manual definitions, calendar mappings) is HFC's — seeded for slug `hfc-coastal` only (`ActivityCalendarMappingSeeder.php:49`; the migration likewise). A second agency gets none. v2 ships a **neutral default recipe** (section 5.5) and migrates HFC's list as HFC's *own custom tasks*.
+
+---
+
+## 1. Johan's rulings — 20 Oct 2026, verbatim as relayed
+
+Pasted to this lane by Johan's side. Copied exactly; do not edit.
+
+```
+JOHAN'S RULINGS (20 Oct 2026):
+1. Purpose: Road to Sold is the recipe for an agent to become successful (get stock, sell stock). CoreX shows "do this now / do this next". Agent, BM and agency measure progress AND where the agent needs training.
+2. Steps (map each to its CoreX screen and its auto-detect event):
+   GET STOCK: 1 find (MIC lists: new on market, long on market, price drops, expired, my buyers / agency buyers sourcing; drive your area) → 2 find owner (deeds/CMA Info capture, link contact) → 3 contact + outcome → 4 evaluation booked (calendar; never "valuation") → 5 presentation created / presented / feedback → 6 mandate signed (e-sign) → 7 listing loaded, compliant, live on P24/PP.
+   SELL STOCK: 8 marketing (social shares, seller live link, viewing pack) → 9 buyers (leads, response time, Core Matches, buyer pipeline) → 10 viewings + feedback → 11 OTP signed → 12 DR2 deal pending → granted → registered → payslip → 13 aftercare / referrals.
+3. Two task types: (a) CoreX tasks, auto-completed from the event in CoreX (today's auto points); (b) agency custom tasks, recurring per hour / day / week / month (e.g. "drive your area once a week"). Custom tasks are NOT a tickbox: they capture what was found (stock and contacts made, as real CoreX records, e.g. properties and contacts created from the drive), and those leads then flow into the next steps. Each task has a target per period, points, and feedback/evidence. This REPLACES today's daily activity setup and capture (migrate existing activity types and points; keep the history).
+4. Levels: a new agent starts at level 1 (small tasks). The BM checks, coaches and signs off, which unlocks the next level. The agency builds its recipe per level. Targets and budgets per user are Road to Sold settings (from the agency-tracker spec: company requirement, per-user budgets, targets).
+5. Intelligence: from the data, CoreX predicts, advises and auto-fills (e.g. suggested next targets), and shows training flags from the funnel ratios (e.g. many calls, no evaluations → "needs training: evaluation pitch"). The Road to Sold stats are what the BM and admin use to set the next targets. The more it's used, the better the data.
+6. Motivation: congratulate on each target hit, celebrate a DR2 deal, show progress so the agent is pulled to the next task. Johan wants to play with colours. Spec the states (behind / on track / ahead / achieved / celebration) with the CoreX components, and leave the colours to a later mockup round with Johan.
+7. Views: agent (today's list, next action first, progress vs target); BM (team funnel, training flags, sign-offs); agency (recipe/level builder, targets, reports). Full CRUD, search, sort, filter and own/branch/agency scoping on every list.
+8. Road to Rented: same engine and process, with the sales steps swapped for rental steps (to-let stock, applications, leases, inspections, renewals). Spec it as a section that reuses everything.
+9. Settings live under Road to Sold settings, and every threshold is an agency setting with a default.
+```
+
+---
+
+## 2. v1 rulings that still stand (nothing here is re-litigated)
+
+v1 §1 (Johan, 13 Oct 2026 07:19) and the conductor decisions of 13–14 Oct stay in force unless the right-hand column says otherwise. The text is in Appendix A; do not duplicate it.
+
+| v1 ruling (Appendix A ref) | v2 status |
+|---|---|
+| One new page "Road to Sold" with its own sidebar link; does not replace the Today page (§1) | **Stands.** The page grows the recipe/next-action layer (section 10.1); same route `road-to-sold.index` |
+| Everything built with a `track` dimension (sales now, rentals later), no sales-only hardcoding (§1) | **Stands, and is now enforced** — section 12 lists the sales-only spots that must be made track-aware |
+| Every threshold/window/rule is an agency setting with a default; multi-agency safe; `agency_id` on every table; soft delete only; own/branch/agency at the query layer (`PermissionService::getDataScope` + `scopeVisibleTo` + `EnforcesRecordVisibility`; "own" uses `User::dataIdentityIds()`) (§1) | **Stands** and is Johan's ruling 9 above |
+| Areas: derived from the agency's own stock + MIC data, not Prospecting Setup (§1 replaced by §13, Johan 13 Oct 16:03) | **Stands** (v1 §13, built) |
+| Areas come first, not a fence; "Lock agents to their areas" default OFF (§1) | **Stands** |
+| Targets per agent per weekday, agency default Mon–Fri 5; public holidays and approved leave carry no target; "Add to my day" over-and-above; missed items show-as-missed or roll over (§1, §3.3, §5.3) | **Stands** — these are the *daily call targets* for step 1/3. The new per-task period targets (section 5.2) sit beside them, not in place of them |
+| The daily list: built overnight, fill order (follow-ups, selections, address-first, never suggest held/do-not-contact/another agent's stock), nine selections switchable and ordered, "an agent NEVER gets another agent's stock" (§1, §9) | **Stands** — this *is* step 1 (FIND) |
+| Other feeds shown as separate blocks (buyer follow-ups, lead follow-ups, expiring mandates), not counted against the call target (§1) | **Stands**; these blocks become the "next action" feeds for steps 9 and 6 (section 10.1) |
+| Working a property: "Contacted client" popup, agency-defined outcome list with attempt/conversation, next action, hold 30 days, N no-answers drop (§1, §10) | **Stands** — this *is* step 3 (CONTACT + OUTCOME) |
+| Summary bar: per step should-be vs actual, green ≥ 90 / amber < 90 / red < 70 (agency setting), click a step to see rows; "Social shares OFF — do not build"; "Financial line later" (§1) | **Stands, widened:** the bar now spans the recipe's steps (section 10.1). **"Social shares OFF" is overturned** by Johan's step 8 (marketing includes social shares); it becomes a recipe step, auto-detected from `MarketingPostPublished` (section 6) |
+| One interactive report reusing PeriodResolver/Period/PeriodComparison/`x-performance-delta`, drill-down on every figure, print/PDF/XLSX (§1, §10.6) | **Stands** and is extended with the funnel (section 9) |
+| Settings: one Road to Sold settings page + wizard step; role-manager keys + corex-features row + sidebar link + sync-permissions (§1, §4) | **Stands**; v2 adds tabs and keys (section 13) |
+| Assistants: work the list owner's list; outcomes/holds/targets/report figures belong to the agent; an assistant is never a report row (§11.1) | **Stands.** Levels, sign-off and training flags attach to the **agent (list owner)** only; assistant activity already counts under the agent, so funnel ratios include assistant calls — **decided (Johan, 20 Oct 2026, answer 4): yes, an assistant's work counts under the agent, but every action records who did it (assistant or agent) and the reports can split them** (sections 5.4, 9.2, 10.4) |
+| Properties the agent parked with their own outcome are not offered back as new (§11.2) | **Stands** |
+| The word is "evaluation", never "valuation" (§12) | **Stands** |
+| Screen-text rule: data and controls only, no intro paragraphs, every button same height (§5.0, 13 Oct) | **Stands** for every v2 screen |
+| Wizard: main settings in the wizard step; advanced thresholds on the settings page only, recorded in the "Deliberately NOT in the wizard" list (§8) | **Stands as the method**; v2's new settings are classified in section 13.3 |
+| Only cc1 writes to `origin/QA1` (STANDARDS −1l) vs conductor's 13 Oct "each lane lands its own work" (§8) | v1's note stands as recorded; **this spec makes no change to it** — the conductor decides which applies to the v2 build |
+| v1 §2.1 summary-step catalogue (six steps), selection keys, `SettingsService` getters, `WorkdayService`, `AreaService` | **Stand as built.** v2 adds a task/step layer on top (section 5); nothing renamed (the keys are stored) |
+
+What v2 **replaces from the old system** (not from v1 Road to Sold): the daily-activity setup and capture screens and the points engine behind them (Johan's ruling 3). Section 7.
+
+---
+
+## 3. The model in one page
+
+### 3.1 The recipe
+
+The recipe is an **ordered list of 13 steps** (Get Stock 1–7, Sell Stock 8–13). A *step* is a milestone in an agent's work with a stock lead or a buyer. A *task* is something an agent does inside a step. The agency builds its recipe **per level** (section 8): level 1 uses only small tasks; higher levels add tasks, raise targets, and add whole steps.
+
+| Concept | Meaning | Where it lives (new) |
+|---|---|---|
+| Step | One of the 13 recipe steps (fixed catalogue, labels agency-editable). Per track (sales/rentals) | `rts_steps` (seeded neutral; agency may switch off, rename, reorder within its group) |
+| Task | A thing to do in a step. **Type A — CoreX task:** completed automatically from a CoreX event. **Type B — agency custom task:** recurring, captures real records, needs evidence | `rts_tasks` |
+| Task in a level | Which tasks an agent sees at level N, the target per period, the points | `rts_level_tasks` |
+| Completion | One occurrence of a task (auto or captured), points snapshotted | `rts_task_completions` |
+| Level | An agency-named stage; a new agent starts at level 1 | `rts_levels`, `rts_agent_levels`, `rts_level_signoffs` |
+
+### 3.2 How the current Road to Sold maps onto this
+
+- Step 1 (FIND) = today's daily call list with its nine selections (v1 §9).
+- Step 3 (CONTACT + OUTCOME) = today's outcome capture (v1 §10).
+- The six summary-bar steps (`calls_made`, `conversations`, `evaluations_booked`, `evaluations_done`, `mandates_signed`, `listings_live`, `RtsSetting.php:173-182`) are the **funnel measures for steps 3–7**. They stay as the always-on funnel. The recipe adds steps 2 and 5, and the whole Sell Stock half (8–13).
+- The existing per-weekday call target (v1 `rts_weekday_targets`) remains the daily target for step 1/3 work. Per-task period targets (section 5.2) cover everything else.
+
+### 3.3 The two truths — never confuse them
+
+1. **Funnel truth (the numbers):** counts computed by query from the source records (outcomes, calendar feedback, signed documents, properties, deals). These drive ratios, training flags, reports and the summary bar. No tickbox can move them.
+2. **Task truth (the tick):** a `rts_task_completions` row — written by an event listener (Type A) or by a captured form (Type B). It drives the agent's "done today", points, celebration and level progress.
+The two should agree. A reconciliation report (section 14.2) flags drift (e.g. a task ticked "evaluation booked" with no calendar event).
+
+### 3.4 Points
+
+`points_awarded` is a **snapshot** written at completion (agency task points × quantity). Readers sum `points_awarded`; they never join a live weight. Editing a task's points changes the future only. This removes the weight² defect (section 7.4) and the retroactive re-scoring the old engine does (`daily_activity_entries` readers join live `activity_definitions.weight` — verified, e.g. `CompanyPerformanceService.php:134-148`).
+
+### 3.5 Budgets and targets (the interface owned by the agency-tracker spec)
+
+`agency-tracker-rehome.md` §4.3 defines the interface My Portal reads: `RoadToSold\BudgetService::forUser / requirementFor` and `RoadToSold\TargetService::monthlyFor` (monthly deals/value/listings/points), plus two settings tabs "Budgets & requirements" and "Targets". **v2 adopts that interface unchanged and does not redefine it.** v2 adds one thing to it: the *per-task period targets* and *level* belong to the same Targets area (section 5.2). Who builds what:
+
+| Item | Spec | Built by |
+|---|---|---|
+| Company requirement, per-user personal/business budget, monthly points/deals/value/listings targets, the Targets-zeroing fix | `agency-tracker-rehome.md` §4.3, §5.7 | the rehome lane (step 4 there) |
+| Task catalogue, per-task period targets, levels, sign-off, funnel, flags, celebration | this spec | the v2 lanes |
+| Daily activity screens/menu merge | `agency-tracker-rehome.md` §5 (interim) | rehome step 3, then **absorbed** by v2 phase 3 (section 7.6) |
+
+### 3.6 What exists today (reuse, do not rebuild)
+
+**Routes** — page group `RW:6402-6430` (`permission:access_road_to_sold`, `agency.required`, `feature:road-to-sold`): `GET /road-to-sold` `index` (`RoadToSoldController@index` :36), `POST /outcomes` (`@recordOutcome` :131), `POST /add-to-day` (`@addToDay` :176), `GET /drilldown`, `GET /report` + `print/pdf/xlsx` (`ReportController` :41, :73, :79, :89, :243), outcome settings `settings/outcomes*` (`OutcomeSettingsController`, `manage_settings`; mounted inside the sales group, **not** in the remountable file). Settings group `RW:8153-8158` loads `routes/road-to-sold-settings.php` (closure, remountable): hub `/`, `general`, `areas.*`, `targets.*`. Nightly build `rts:build-lists` 04:30 (`routes/console.php:470`, `Console/Commands/RoadToSold/BuildLists.php`). Sidebar `SB:1069-1072`, settings link `SB:1101-1106`; group opener `SB:292`.
+**Services** (`app/Services/RoadToSold/`): `SettingsService` (typed getters; `forAgency` :36, `forUser` :58, `statusForPct` :329), `WorkdayService` (:51-99), `TargetService` (`weekFor` :29, `saveWeek` :99, `clear` :149, `restore` :160), `AreaService` (:49-477), `ListBuilderService` (`buildFor` :109, `addToDay` :349, `markWorked` :467), `CallListService` (`viewableAgents` :41), `OutcomeService` (`record` :44), `OutcomeDefinitionService`, `HoldService`, `SummaryBarService` (`forAgent` :44), `ReportService` (`build` :49), `DrilldownService` (`supports` :34, `count` :71), `FeedService`, `HotPocketService`, `Scope`, `VisibleAgents`, `Track`. Selections in `Selections/` (registry `SelectionRegistry.php:24-34`).
+**Models** (`app/Models/RoadToSold/`): `RtsSetting`, `RtsSettingAuditEntry`, `RtsAgentArea`, `RtsHiddenArea`, `RtsWeekdayTarget`, `RtsListItem`, `RtsOutcomeDefinition`, `RtsContactOutcome`, `RtsHold`, `RtsPropertyFlag`. Views `resources/views/road-to-sold/*` (index 399 lines, report, settings tabs).
+**Permissions** `config/corex-permissions.php:617-623` (`access_road_to_sold`, `road_to_sold.view`, `.manage_settings`, `.manage_areas`, `.manage_targets`). **Feature row** `config/corex-features.php:214-224` (`road-to-sold`, `depends_on ['prospecting']`). **Wizard step** `road_to_sold` (`config/agency-onboarding-copy.php:1656-~1740`; saver `SettingsController@saveFromWizard` :110).
+
+---
+
+## 4. The 13 steps — screen, model, and auto-detect event (verified)
+
+Legend for "Auto-detect": **EXISTS** = a domain event/observer fires today; **PARTIAL** = something fires but not at the right moment or not as an event; **GAP** = nothing, with the nearest hook. "Points slug" = an existing instant-action key (`database/seeders/ActivityInstantActionsSeeder.php`, credited via `CIAL` and the map at `ASP:646-679`). The listing of every raised event is in section 6.3.
+
+### GET STOCK
+
+**Step 1 — FIND**
+- Screens: Road to Sold index (`road-to-sold.index`, `RoadToSoldController@index`, view `road-to-sold/index.blade.php`); MIC Work tab (`market-intelligence.work`, `GET /corex/market-intelligence`, `CoreX\MarketIntelligenceController@work` :60, `RW:7830/7834`, `access_prospecting` + `feature:prospecting`). Selections (registry `SelectionRegistry.php:24-34`): 1 `my_buyers_sourcing` / 2 `agency_buyers_sourcing` (`BuyerSourcingSelection.php:16`, reads `prospecting_buyer_matches`⨝`contacts`), 3 `hot_pockets` (`HotPocketSelection.php:13`, `HotPocketService::rank`), 4 `price_drops` (`PriceDropSelection.php:12`, `prospecting_price_history`), 5 `new_on_market` (`NewOnMarketSelection.php:16`, `listed_date` else `first_seen_at`), 6 `long_on_market` (`LongOnMarketSelection.php:14`), 7 `owner_known` (`OwnerKnownSelection.php:17`), 8 `my_expired_stock` (`MyExpiredStockSelection.php:13`), 9 `my_stock_not_selling` (`MyStockNotSellingSelection.php:24`). Shared MIC query `MicPoolSelection.php:150-203`; own-stock base `OwnStockSelection.php:21`.
+- **Note vs the ruling:** Johan's list says "expired". The only expired selection is the agent's **own** expired mandates (#8). There is **no "expired competitor listing" selection**. MIC Work presets are `pitch_now_high, pitch_now, log_outcomes, my_claims, expiring (claim expiry), new_today` (`ProspectingActionPresetService.php:56-135`) — the new/long/price-drop lists exist only as Road to Sold selections. **Decided (Johan, 20 Oct 2026, answer 1): yes — add other agencies' expired listings, wherever we have dates to track them on.** Spec: a tenth selection, stable key `expired_competitor` (appended after the nine in the default order, so no stored key changes; `ExpiredCompetitorSelection` in `app/Services/RoadToSold/Selections/`, extending the shared MIC query `MicPoolSelection.php:150-203`, which already excludes the agency's own on-market stock, other agents' linked properties and claimed/pitched listings). A competitor listing qualifies **only when CoreX holds a dated signal that it expired** — a captured mandate/listing end date, or a dated removal/expiry status from the portal capture; a listing with no such date never appears under this selection (nothing is guessed). The lane first verifies, per portal (P24, Private Property), which captured fields carry a date (`prospecting_listings`, `prospecting_price_history`; **UNVERIFIED today**) and reports the coverage. Agency settings: selection on/off and order (as the other nine), `expired_competitor_lookback_days` (default 30: how recently it expired). Selection #8 (`my_expired_stock`) stays for the agent's own mandates.
+- Models: `tracked_properties` (canonical key, v1 ruling), `prospecting_listings`, `prospecting_claims`, `rts_list_items`.
+- **Drive your area: GAP (no concept in code).** Closest capture points: Map module (`corex.map.*`, `RW:6221-6237`; `MapActivityController.php:362-370` `matchOrCreate` source `map_prospect_launch`), Chrome extension import (`POST /api/v1/prospecting/import`, `routes/api.php:646`, `ProspectingApiController@import`; `ProspectingListing::create` :241; `linkToTrackedProperty` :544-560), manual add (`EntryPointController@storeFromProspecting` / `storeFromTrackedProperty`, `RW:5102, :5169`; source `manual_prospect_entry` `:499-516`). **A "drive your area" custom task (type B) is the answer:** it creates real tracked properties (via `TrackedPropertyMatchOrCreateService::matchOrCreate`, `:145`, with a new source type `area_drive`) and contacts (section 5.3).
+- Auto-detect (existing):
+  - List item worked → `ListBuilderService::markWorked` :467 sets `rts_list_items.status='worked'` (no domain event).
+  - MIC claim taken → `ClaimCreated` (`ProspectingClaimObserver.php:58`) → `CIAL::handleClaimCreated` :261 → slug `mic.claim_taken`.
+  - Tracked property created → `TrackedPropertyCreated` (`TrackedPropertyMatchOrCreateService.php:1659-1664`); only listener `LogAgentActivity` (`ASP:541`); **no points slug**.
+  - Matched existing → `TrackedPropertyEnriched` (`:1777`).
+- Verdict: **EXISTS for claim; GAP for "drive an area" and for "tracked property captured" (event fires, no task/points binding).**
+
+**Step 2 — FIND OWNER**
+- Screens: Deeds Capture (`corex.deeds-capture.*`, `GET /corex/deeds-capture`, `CoreX\DeedsCaptureController@index` :28, `RW:7765-7799`, `deeds_capture.access`); browser-extension ingress `POST /api/v1/deeds-capture` (`routes/api.php:653`, `Api\DeedsCaptureController@store`; `matchOrCreate` :668; `capture_kind='deeds_capture'` :691); `promote` (`DeedsCaptureController.php:694`, links current owners via `ContactPropertyLinker::link($contactId,$property->id,'owner')` :1133). Other owner paths: TVA capture (`TvaCompanyDirectorsController.php:154`), Map scheme owner (`MapController.php:682-697`), seller outreach link (`EntryPointController@linkSellerToProspecting` :1477, `RW:5121`, sets `owner_contact_id` :809), CMA Info capture (`PropagateCmaToProperty.php:129`, `ParseMarketReportJob.php:266`, source `cmainfo`). Owner persistence: `OwnerContactResolver::persist` (`Services/Prospecting/OwnerContactResolver.php:67`) → `tracked_property_owners` + `Contact`; `tracked_properties.owner_contact_id` written at `Api/DeedsCaptureController.php:750`.
+- Auto-detect: `TrackedPropertyEnriched` (sourceType `deeds_capture`/`cmainfo`; log only); `ContactCreated` → slug `contact.captured` (cap 50/day, `CIAL::handleContactCreated` :99); `TrackedPropertyPromotedToStock` → `tracked_property.promoted_to_stock` (`CIAL` :200).
+- **GAP — the moment the owner is linked on the deeds path.** `ContactPropertyLinker::link` fires no event; `ContactLinkedToProperty` is raised from 8 other sites only (`PropertyContactController.php:237,307,376`, `ContactPropertyController.php:91`, `PropertyWizardController.php:348`, `PropertyController.php:1626`, `DealRegisterController.php:1523`, `LeaseCaptureService.php:976`), not from `DeedsCaptureController.php:1133` nor `linkSellerToProspecting`. Nearest hooks: the single writer of `tracked_property_owners` (`OwnerContactResolver.php:83-91`, model has no observer) or `tracked_properties.owner_contact_id` null→set (3 write sites: `Api/DeedsCaptureController.php:750`, `EntryPointController.php:809`, `MapController.php:697`). `OwnerContactResolver::linkCurrentOwners` (:106) has no callers (dead).
+
+**Step 3 — CONTACT + OUTCOME**
+- Screen: `road-to-sold.outcomes.record` (`POST …/road-to-sold/outcomes`, `RW:6407`, `RoadToSoldController@recordOutcome` :131) → `OutcomeService::record` (`OutcomeService.php:44`), one DB transaction: holds check, next-action, no-answer streak/drop, resolves `tp.owner_contact_id`, optional calendar event for "evaluation booked" (`CalendarEventCreator::create` :121-129, category `property_evaluation`), flips earlier outcomes `is_current=false`, inserts `rts_contact_outcomes` (`:138-162`), hold (`:165-169`), `writeContactSide` (`:252-271`: `ContactNote`, `markContacted` for conversations, consent for do-not-contact), then `markListItemWorked` (:274). Seeded outcomes `OutcomeDefinitionService.php:27-41` (no_answer, spoke_evaluation_booked, spoke_call_back, spoke_not_interested, listed_other_agency_open, mandated_other_agency_sole, wrong_number, do_not_contact). Tables `rts_outcome_definitions`, `rts_contact_outcomes`, `rts_holds`, `rts_property_flags`.
+- Auto-detect: **GAP.** `record()` dispatches **no event** and `RtsContactOutcome` has no observer. Hook: after the transaction at `OutcomeService.php:171`, or the create at :138. Indirect only: for conversation outcomes with an owner contact, `Contact::markContacted` (`Contact.php:2002`) fires `ContactContactedByAgent` (channel `contacted_action`, `Contact.php:2015`); its listener `RecordLeadFirstResponse` handles lead-response time and awards no points. It does not fire for attempts or when the property has no owner contact.
+- v2 adds `RoadToSoldOutcomeRecorded` (a real domain event, `AbstractDomainEvent`), carrying outcome key, kind, track, tracked property id, actor.
+
+**Step 4 — EVALUATION BOOKED (calendar; never "valuation")**
+- Screens: Command Center calendar (`command-center.calendar`, `RW:2318`, `CalendarController@index`); create `command-center.calendar.store` (`RW:2417`, `CalendarController@store` :1853, `CalendarEventService::createManual` :34); complete `…calendar.complete` (`RW:2420`, `@complete` :2250); feedback `…feedback.show/store` (`RW:2429-2430`, `@storeFeedback` :1499). Model `CommandCenter\CalendarEvent`; related `calendar_event_feedback`. Class `property_evaluation` is manual-creatable (`CalendarEventService.php:26-28`; seed `CalendarEventClassSeeder.php:118`, `completion_behaviour require_feedback`). Links to the property/contact via `calendar_events.property_id`/`contact_id`.
+- Auto-detect (PARTIAL, observer-based, **no domain event**):
+  - Booked: `CalendarEventObserver::created` (`ASP:267`) → `ProvisionalPointService::credit` (`Services/Activity/ProvisionalPointService.php:47`) resolving `activity_definition_calendar_classes` by `event_class`. QA1 agency 1: `property_evaluation` → "Appointments" (weight 200), `listing_presentation` → "Presentation" (weight 200); provisional with back-date window, daily cap, duplicate-in-week gate; cancel/dismiss revokes it.
+  - Done: `CalendarEventFeedbackObserver::saved` (`ASP:266`, `app/Observers/CalendarEventFeedbackObserver.php:17`) confirms the provisional points (`PointStateService::confirm` :32) and fires `ContactContactedByAgent('appointment_feedback')`; feedback capture sets `calendar_events.status='completed'` (`CalendarController.php:1395, :1745`).
+  - A skipped feedback leaves a missed-feedback task (`source_type='calendar:missed_feedback'`, `CalendarController.php:1735`).
+- **GAP:** no calendar domain event class exists (`ls app/Events | grep -i calend` empty). v2 adds `EvaluationBooked` and `EvaluationCompleted`, raised from the two observers above (filtered to `category='property_evaluation'`, completed only when feedback `captured_at != null`).
+- **Double-credit risk (inferred, UNVERIFIED by execution):** `OutcomeService` creates the evaluation calendar event; the calendar observer then credits the "Appointments" mapping. If a v2 task also awards for the same booking, one side must be off. Rule in section 7.5: the calendar mapping is retired in favour of the task; a single completion per (agent, evaluation event).
+
+**Step 5 — PRESENTATION created / presented / feedback**
+- Screens: `presentations.index` (`/presentations`, `RW:6639`, `Presentation\PresentationController@index` :78); create/store (:140/:162, status `draft` :212); `show` :295, `analysis` :382, `confirmAndGenerate` :496; delivery `presentations.deliveries.send` (`RW:6746`, `PresentationDeliveryController@send`, `PresentationDeliveryService.php:257`, statuses `queued, sent, failed, delivered, opened, bounced` `PresentationDelivery.php:32-37`); public view `GET /p/{token}` (`PublicPresentationController@show`, writes `PresentationSnapshotView` :116 and `snapshot_link.first_viewed_at`); outcome `presentations.outcome.record` (`RW:6732`, `PresentationOutcomeController@record`, outcomes `won_mandate, won_sale, lost_to_competitor, lost_to_no_decision, lost_to_price_dispute, lost_to_no_response, still_pending, other`). Gate `access_presentations` + `feature:presentations`. Tables `presentations` (has `property_id`, `tracked_property_id`, `seller_contact_id`, `deal_id`), `presentation_versions`, `presentation_deliveries`, `presentation_snapshot_links`, `presentation_snapshot_views`, `presentation_outcomes`.
+- Auto-detect:
+  - **Created: EXISTS.** `PresentationGenerated` (`PresentationGeneratorService.php:366`) → `CIAL::handlePresentationGenerated` :161 → `presentation.generated`.
+  - **Feedback / outcome: EXISTS.** `PresentationOutcomeRecorded` (`PresentationOutcomeService.php:233`) → `CIAL` :171 credits `presentation.won` for won outcomes only. `presentation.lost` is seeded and active but never credited (`CIAL.php:66-70, :172-176`). Also `PresentationOutcomePrompted` (`Jobs/PromptOutcomeCaptureJob.php:101`), `PresentationOutcomeLocked` (`Jobs/LockOldOutcomesJob.php:46`, after 90 days).
+  - **Presented: GAP.** `presentations.status` documents `draft|presented|locked` (`Presentation.php:14`) but only `draft` is ever written. Hooks: `PresentationDelivery` created/sent (`PresentationDeliveryService.php:257`), `PresentationSnapshotLink.first_viewed_at` null→set (`PublicPresentationController.php:~130`, "the seller opened it"), or a booked `listing_presentation` calendar event (mapped, weight 200).
+
+**Step 6 — MANDATE SIGNED (e-sign)**
+- Screens: DocuPerfect e-sign wizard (`docuperfect.esign.create`, `GET /docuperfect/esign/create`, `Docuperfect\ESignWizardController@create`; steps `docuperfect.esign.step`; `myDocuments`; group `RW:6895`, `access_docuperfect` + `feature:docuperfect`; view `docuperfect.esign.wizard`). Engine `Services/Docuperfect/SignatureService.php`; models `Docuperfect\SignatureTemplate` (`STATUS_COMPLETED` :92), `SignatureRequest`, `Document`. **There is no `Mandate` model** — a mandate is the property (`expiry_date`, status) plus a document whose template/document-type slug is `mandate`.
+- Auto-detect:
+  - **E-signed: PARTIAL.** `SignatureService::completeDocument` (:3866, from `approveAndAdvance` :1680 → :1658, :1825, and :2120) credits `mandate.signed` **directly** (`:3994-4005`, only when doc type is `mandate`, `DB::afterCommit`), not through a listener. The right hook for tasks is `SignatureEnvelopeFinalized` (`recordFinalizationSucceeded` :4130-4141 via `announceEnvelope` :5015; payload `signatureTemplateId, documentId, agencyId`, **no document type**; only listener is lease-only `Rentals\UpdateLeaseSigningState`, `ASP:338-345`).
+  - `MandateSigned` / `DocumentSigned` (`app/Events/Mandate/MandateSigned.php`): registered (`ASP:802, :822`), **never dispatched**.
+  - **Paper / wet-ink mandate: DECIDED (Johan, 20 Oct 2026, answer 2).** The step ticks EITHER when a document of the mandate type is **uploaded onto the property** OR when an e-sign document of that type is **completed and filed** (`SignatureEnvelopeFinalized`, which fires only after signed, approved AND filed). Both tick the step; one real mandate never ticks it twice (idempotent on property + document type + period). Today `DocumentUploaded` is raised only from `ContactDocumentController.php:63` and `LeaseCaptureService.php:923` — **not when a document is filed to a property**. The hook is the moment a `Document` is linked to a property (the `document_properties` pivot, `Document.php:~58`) with a document type in the agency's "counts as a signed mandate" list — one new event, `DocumentFiledToProperty`, raised at the link point so it catches every upload path (the exact upload paths — Filing Register `DocumentFilingController@store` `RW:2134`, the PDF splitter `PdfSplitterController.php:1581/:2276`, deal documents `Dr2\DealDocumentController@store` `RW:1200` — and the pivot write site are **UNVERIFIED**; the lane lists every path that links a document to a property).
+  - Manual "mandate won" button `corex.properties.convert-from-prospecting` (`RW:5957`, `PropertyController@convertFromProspecting` :2405) sets prospecting→draft with no event; also `MandateConverted` (`TrackedPropertyMatchOrCreateService.php:2354`) on promotion.
+- The "open pending cc6 hook: all parties signed" in memory is **rental inspections**, not mandates (`RentalPortalDocumentService::inspectionIsShareable()`); the mandate equivalent is `SignatureTemplate` status `completed`.
+
+**Step 7 — LISTING LOADED, COMPLIANT, LIVE on P24/PP**
+- Screens: Properties (`corex.properties.*`, group `RW:5761`, `access_properties`, `agency.required`, `deny_assistant_property_write`): create `RW:5900` → `PropertyController@create` :1091 / store :1326; wizard `PropertyWizardController` (`createDraft` :167, `finalize` :489); show `PropertyController@show` :841; go-live `corex.properties.go-live` (`POST …/{property}/go-live`, `RW:5763`, `PropertyController@goLive` :3708). P24: `corex.properties.p24-syndication.{toggle,submit,deactivate,reactivate,status,readiness}` (`RW:6085-6091`, `P24SyndicationController` submit :75); PP: `PrivateProperty\SyndicationController` submit :83. Table `properties`.
+- Auto-detect:
+  - **Loaded: EXISTS.** `PropertyCaptured` (`PropertyObserver.php:394/:416`) → `CIAL` :296 → `property.captured`. **Caveat:** the wizard `createDraft` also creates a property row, so the credit fires at *draft creation*, not at finalize.
+  - **Compliant: EXISTS.** `go-live` → `MarketingReadinessService::snapshotCompliance` (:160) sets `compliance_snapshot_at`; `PropertyObserver` sees null→set → `PropertyCompliancePassed` (:605) → `CIAL` :306 → `property.compliance_passed`.
+  - **Live on the website: EXISTS but is not the portal.** `PropertyPublished` (:620, `published_at` null→set) → `property.published`. `published_at` is the website publish flag (`Property.php:2441-2450` says syndication does not touch it).
+  - **Live on P24/PP: GAP.** "Live" is derived (`isLiveOnAnyPortal` `Property.php:2441`; `scopeLiveOnAnyPortal` :2476): P24 = `p24_syndication_enabled` + `p24_ref` + `p24_syndication_status='active'`; PP = `pp_syndication_enabled` + `pp_ref` + status. First-go-live writers raise no event: `Property24SyndicationService.php:441-449` (`p24_activated_at`, plus `listed_date` via `listedDateStampOnGoLive` `Property.php:586`), `syncActivationStatus` :839/:869, `P24ListingNumberReconciler.php:170`, `PrivatePropertySyndicationService.php:253-258` (`pp_activated_at`). Hook: observer rule on `p24_activated_at`/`pp_activated_at` null→set, or a new `PropertyWentLiveOnPortal` at those lines. `listed_date` is already the "real listed date" (v1 §9.3) and is what `listings_live` counts today.
+  - Syndication approval events do exist (`SyndicationApprovalRequested/Approved/Rejected/Revoked`, `SyndicationApprovalService.php:330/:419/:446/:487`).
+
+### SELL STOCK
+
+**Step 8 — MARKETING**
+- 8a **Social shares (Ad Manager).** Screens: bulk `tools.ad-manager` (`GET /tools/ad-manager`, `AdManagerController@index`, `RW:1633`); scheduled list `tools.ad-manager.scheduled` (`RW:1665`, `.update/.cancel/.reschedule` `RW:1666-1668`, `ScheduledPostsController`); create schedule JSON `ad-manager.scheduled.store` (`RW:557`, `@store` :171; modes `at|daily|now`); single-listing publish `marketing.publish` (`RW:6064`, `PropertyMarketingController@publish`). Model `PropertyMarketingPost` / `property_marketing_posts` (statuses draft, scheduled, publishing, published, failed, cancelled, `:15-21`) — there is **no** `ScheduledPost` model. Publisher `ScheduledPostPublisher` (`claim()` :106-111, `recordPublished()` :175-198). **Listing "Post now" (AT-456 §D.10, commit e34caa9bb) is on Staging, not on QA1**; on QA1 `ScheduledPostService::schedule` refuses `mode='now'` unless every item is a company ad (:235-240).
+  - Auto-detect: **EXISTS.** `MarketingPostPublished` (`PropertyMarketingPostObserver.php:39`, registered `ASP:710`) → `CIAL::handleMarketingPostPublished` :320-324 → slug `marketing.published` (`ActivityInstantActionsSeeder.php:178`). Failure: `MarketingPostScheduleFailed` (`ScheduledPostPublisher.php:295`). Caveats: it is per platform post (an ad on two platforms = two events); the raw `DB::table()->update` fallbacks (`:192, :282`) bypass the observer.
+- 8b **Seller live link.** Screens: generate `corex.properties.seller-links.generate` (`POST /corex/properties/seller-links/generate`, `SellerLinkController@generate` :372-403, `RW:5797`), revoke (`RW:5798`), public `seller-link.show` (`GET /property/live/{token}`, `RW:44`, view `seller-link/live.blade.php`, seller-safe buyer feedback `buildSellerSafeFeedback` :202-205). Model `PropertySellerLink` (`generated_at, last_accessed_at, access_count, revoked_at`).
+  - Auto-detect: **GAP.** No event; "sent" is never recorded. Hooks: created `SellerLinkController.php:385`; seller opened `:83-84` (the only proof the seller saw it).
+- 8c **Viewing pack.** Screens: `corex.viewing-packs.index/store/show` (`RW:2580-2586`, `ViewingPackController`), buyer PDF `.buyer-pack` (`RW:2597`, `@downloadBuyerPack` :355), agent sheet (`RW:2599`), launch from a calendar viewing `command-center.calendar.viewing-pack.launch` (`RW:2423`, `launchFromEvent` :540). Model `ViewingPack` (status only `draft|ready`, `ViewingPack.php:46-48`, `calendar_event_id`).
+  - Auto-detect: **GAP.** No "sent" state, no event, no observer. Hooks: created `launchFromEvent` :540 / `store` :414; buyer pack downloaded `downloadBuyerPack` :355 (a download is not proof of sending).
+
+**Step 9 — BUYERS (leads, response time, Core Matches, buyer pipeline)**
+- Leads: inbox `corex.portal-leads.index` (`RW:6359-6363`, `PortalLeadController@index` :14); model `PortalLead` (`received_at, contact_id, first_response_at, first_response_by_user_id, first_response_channel, response_tracked`). **EXISTS (arrival):** `NewPortalLeadReceived` raised at `P24LeadService.php:212`, `PpLeadService.php:222`, `WebsiteLeadService.php:117`, `SharedLinkReengagementService.php:72`, `CommandTaskPortalLeadObserver.php:120`; listeners `LogPortalLeadReceived`, `EmailPortalLeadToAgent` (`ASP:302, :318`); **no points slug**. Each arrival also seeds the buyer pipeline (`BuyerLeadCascadeService::seedFromListing`, `app/Services/Buyers/BuyerLeadCascadeService.php:47`).
+- Response time: report `lead-response-report.index` (`GET /corex/lead-response-report`, `RW:1848`, `LeadResponseReportController@index` :27, `view_buyers_report`, feature `lead-response-report`). **EXISTS:** `ContactContactedByAgent` (`app/Events/Contact/ContactContactedByAgent.php`; channels `contacted_action, message, shared_link, appointment_feedback`) → `RecordLeadFirstResponse` (`ASP:441`) → `LeadResponseRecorder::record` (`Services/LeadResponse/LeadResponseRecorder.php:22-37`). Counted minutes = business-hours minutes between `received_at` and `first_response_at` (`LeadResponseService::results` `:87`, `:117-122`; target and hours are agency settings, `command-center.settings.lead-response.update` `RW:2564`). Raised via `Contact::recordAgentContact` (`Contact.php:2013-2016`) from `markContacted`, `ContactMatchShare::confirmSent` (:123), `CalendarEventFeedbackObserver`, `EmailArchiveIngestor.php:168`, `WaArchiveIngestor.php:312`, `ProvisionalReconciler.php:130`, `PendingAttachmentService.php:65`. Caveat: the `message` channel fires when an outbound email/WhatsApp is *ingested*, not at the click of send; timing may lag (**UNVERIFIED how much**).
+- Core Matches: `corex.core-matches.index` (`RW:6256`, `ContactMatchController@index` :73, feature `core-matches`), `.all` (`RW:6261`, `core_matches.all_view`), share confirm `corex.core-matches.shares.confirm` (`RW:6319`, `ContactMatchShareController@confirm`), convert to deal `matches.convertToDeal` (`RW:6526`, `@convertToDeal` :789). Models `ContactMatch` (table `contact_matches`; there is **no** `CoreMatch` model), `ContactMatchShare`, `ContactMatchShareProperty`. **"Sent a property": EXISTS** — `ContactMatchShare::confirmSent` (`ContactMatchShare.php:~95-125`) writes `ContactMatchShareProperty` rows and fires `ContactContactedByAgent('shared_link')`. **"Match created": GAP** — `ContactMatchObserver` (`ASP:275`, `landOnPipeline` `ContactMatchObserver.php:101`) only; no domain event.
+- Buyer pipeline: `command-center.buyers.pipeline` (`RW:2516`, `BuyerPipelineController@index` :18; deliberately no permission key, comment `RW:6209-6215`); `buyer_pipeline.view` gates only the rentals pipeline (`RW:6216-6218`). Fields on `contacts`: `buyer_state` (`new|warm|cold|lost|won`, `BuyerStateService.php:19`), `buyer_pipeline_entered_at`, `last_activity_at`; rows `BuyerStateTransition`, `BuyerActivityLog`. **EXISTS:** `ContactMarkedLostInBuyerPipeline` / `…RestoredFromLost…` (`BuyerStateService.php:94, :96`); won via `MarkBuyerWonOnPropertyLink` on `ContactLinkedToProperty` (buyer/purchaser roles) → `BuyerStateService::markWon` (:286).
+
+**Step 10 — VIEWINGS + FEEDBACK**
+- Scheduling: `command-center.calendar.store` (class `viewing`; `PropertyViewings.php:49` categories `viewing, viewings, buyer_viewing`). **PARTIAL:** `CalendarEventObserver::created` → `ProvisionalPointService::credit`; mapping `viewing`→"Take out Buyers" (`ActivityCalendarMappingSeeder.php:67`); gates: back-date limit, daily cap, no duplicate buyer+property in a week (`ProvisionalPointService.php:63-150`).
+- Feedback: read `command-center.calendar.feedback.show` (`RW:2429`, `CalendarController@showFeedback` :1102); write `…feedback.store` (`RW:2430`, `@storeFeedback` :1499 → `storeViewingFeedback` :1331); `ViewingFeedbackService` (`app/Services/Properties/ViewingFeedbackService.php`; visibility `public_to_seller` :109, :148 → shown on the seller live link via `PropertyViewings::sellerNotes`). Model `CalendarEventFeedback` (`viewing_status viewed|did_not_happen|declined_on_arrival`, `captured_at`, `seller_visible_notes`, `internal_notes`, `next_action_notes`).
+- Auto-detect: **PARTIAL.** `CalendarEventFeedbackObserver::saved` (`ASP:266`) confirms the provisional points, fires `ContactContactedByAgent('appointment_feedback')`, and for buyer-facing classes calls `BuyerStateService::markActivity('viewing_completed')`. **No domain event class** for viewing held / feedback captured. A step tick must count only `viewing_status='viewed'` with `captured_at != null` (blank rows exist). v2 adds `ViewingHeld`. "Feedback shared with seller" has no event either (same observer, `visibility='public_to_seller'`).
+
+**Step 11 — OTP SIGNED**
+- There is **no OTP/offer model.** The "offer" is a `Deal` (`deals.accepted_status='P'`) created by `deals-dr2.store` (`DealRegisterController@store` :374, `RW:1075`) or from a Core Match (`convertToDeal`). Document type `otp` (id 23, `esign_warning_required=1`); old `offer_to_purchase` (id 10) inactive. QA1 OTP templates (ids 11–14, 25, 26, 43) all `is_esign=0`. Classifier `DocumentTypeClassifier.php:41-45, :82`. `Document` carries `deal_id` (`Document.php:24`), `document_properties`, `document_contacts`. The e-sign floor is an acknowledgement gate (`Template::booted()` `Docuperfect/Template.php:~543-575`); `Template::isEsignBlocked()` no longer exists (the memory note is stale).
+- Auto-detect:
+  - **E-signed OTP: PARTIAL (signal exists, nobody listens).** `SignatureEnvelopeFinalized` fires for every completed envelope (`SignatureService.php:4141`); for an OTP nothing reacts. `completeDocument` explicitly excludes OTP from the mandate credit (`:3991-4010`, `$docType === 'mandate'`). Hook: a listener on `SignatureEnvelopeFinalized` that resolves `document_type='otp'`, then the document's property and deal.
+  - **Paper OTP: DECIDED (Johan, 20 Oct 2026, answer 2) — same rule as the mandate:** the step ticks when a document of the OTP type is uploaded onto the property (same `DocumentFiledToProperty` event, document type `otp`, with the deal resolved from the document's `deal_id` or the property's open deal) OR when the e-sign OTP is completed and filed (`SignatureEnvelopeFinalized` filtered to document type `otp`). The DR2 pipeline's first step is `otp` "Deal Signed" with `completion='date_input'` (`Dr2ConditionCatalog.php:489`) — typed in by hand; it stays the date anchor for every other step and the lane does not change it.
+  - `SignatureEnvelopeSent` (`SignatureService.php:1137`) exists.
+
+**Step 12 — DR2 DEAL: pending → granted → registered → payslip**
+- Screens (`/deals-dr2`, `RW:1072-1220`): `deals-dr2.index` :1073, `create/store` :1074-1075, `quickUpdate` (`DealRegisterController@quickUpdate` :202, `RW:1124`), `pipeline` (`Dr2\PipelineController@show`, `RW:~1146`), `settle`/`settle.save` (`DealSettlementController` :43/:76, `RW:1138-1139`, `settle_deals`), payslip `deals-dr2.settle.print.agent` (`@printAgentPayslip` :401, `RW:1141`, view `dr2.print.payslip`). Model `Deal`/`deals`: `accepted_status` P/G/D/R (`Services/Deal/DealPipelineLockService.php:20-26`), `commission_status` Not Paid/Paid/Loss, `granted_at`, `registration_date`. (Reality check: the DR2 screens run on the same `deals` table as the old register — `agency-tracker-rehome.md` finding 1.)
+- Auto-detect: **EXISTS for pending/granted/registered**, all from `DealObserver` (`app/Observers/DealObserver.php`): `DealCreated` :19, `DealStatusChanged` :32, `DealClosed` :41 (R=won, D=lost), `DealStageAdvanced` :50 (forward-only P→G→R), `DealCommissionFinalised` :64. Pipeline steps drive status through `Dr1PipelineService::completeStep` :293 → `applyStatusTrigger` :417 (forward-only), which saves the deal and so raises the observer events; step completion itself raises no event (only `logActivity`). Points listeners: `CIAL` credits `deal.created`, `deal.stage_advanced`, `deal.registered` (won only), and per-side slugs (`ActivityInstantActionsSeeder.php:201-213`); reversal when R→not-R (`CIAL` :145-158). Property-status listeners `ASP:504-516`.
+- **Payslip: GAP (confirmed) — DECIDED for now (Johan, 20 Oct 2026, answer 3): "commission paid" is the pipeline exit.** The deal leaves the pipeline, and the step ticks, when `DealCommissionFinalised` fires (`mark_paid`). Payslips exist but have bugs; **a separate payslip clean-up day will get payslips done for all deals, and only then does the signal switch to "payslip generated"** — until then no lane builds a generated-payslip event. `printAgentPayslip` (:401-461) renders a view and writes nothing — no event, no stamp. The only proof of "paid" is `mark_paid` in `saveSettlement` (`DealSettlementController.php:240-268`, sets `commission_status='Paid'`, `deal_settlements.paid_at`, `deal_user.paid_at`, raising `DealCommissionFinalised`). Use `DealCommissionFinalised` as the "payslip" signal until a real generated-payslip event exists (this is what Johan's "once a payslip is generated from DR2, that deal leaves the pipeline" will need). The slug `deal.commission_finalised` is seeded (`ActivityInstantActionsSeeder.php:147`) but **not wired** in `$spineCredits` (`ASP:646-679`), so it credits nothing today.
+- Caution: `DealCreated` and `DealStageAdvanced` are raised both by `DealObserver` and again by `DealRegisterController.php:621-624, :1777-1780` (the second `DealStageAdvanced` passes the same status as from/to). Points are idempotent per deal/day/user but anything that counts *events* sees duplicates (**not confirmed whether `handleDealStageAdvanced` filters same-status — UNVERIFIED**). The task listener must be idempotent on (agent, deal, stage).
+- Money rule (rehome spec §4.2): deal money for My Portal and any "commission earned" celebration comes from `DealMoney`/`deal_money_lines` — never `commission_ledger` (flagged wrong; separate money spec, needs Johan).
+
+**Step 13 — AFTERCARE / REFERRALS**
+- **Nothing step-specific exists.** What exists: contact birthdays (`contacts.birthday` + `birthday_reminder`; computed calendar class `contact_birthday`, `PeopleCalendarSource.php:67-86`, off by default `CalendarLayers.php:34`); referral source data (`contact_sources` per agency; `contacts.contact_source_id` `Contact.php:42`, `source()` :164; QA1 agency 1 has "Referral" id 13, "Old Client" id 11) — not a referral-tracking model; manual counters `DailyActivity.referrals_asked`/`referral_leads` (`DailyActivity.php:30, :39`) on the dead v1 table; `ContactTestimonialSubmitted` (`ClientPortalController.php:448`, listener `NotifyAgentOfClientTestimonial`); `TitleDeedCollected` (`TitleDeedHandoverService.php:105`, deed handover).
+- **GAP, whole step:** no post-sale tasks (`AutoEventService` has only `onPropertyCreated/Updated`, `onDealCreated`, `app/Services/CommandCenter/AutoEventService.php:17, :93, :101`), no referral model/routes, no client-for-life or anniversary concept (grep of `aftercare|client.for.life|anniversar|post.sale` finds employment anniversaries only). Hook to start from: `DealClosed(won)` (`DealObserver.php:41`) or `DealStageAdvanced→R` (`:50`). v2 builds step 13 as a type-B custom-task family plus a small referral record (section 5.6).
+
+---
+
+## 5. The task engine
+
+### 5.1 Task types
+
+**Type A — CoreX task (auto).** Completed by a domain event. The task row stores `event_key` (the event class) and an optional filter (e.g. `document_type = otp`, `category = property_evaluation`, `outcome = won`). A **single generic listener on the `DomainEvent` interface** (the mechanism already used by the audit logger: `Event::listen(DomainEvent::class, RecordDomainEvent::class)`, `ASP:483`) looks up which active tasks of the actor's agency that event completes, then calls one `TaskCompletionService::complete($task, $user, $subject, $context)`. This keeps task definitions per-agency **data**, not code (the per-agency pattern of `activity_definition_calendar_classes`). Registration is mandatory because listener auto-discovery is **off** (`ASP:62-86`; `EventServiceProvider::disableEventDiscovery()`; a deploy that adds a listener must run `composer dump-autoload` and `php artisan event:clear`). Copy the safety rules of `CIAL`: never throw to the caller; skip when `environment('testing')`; skip a null actor; swallow-and-log (`CIAL.php:354-382`); reverse only on genuine reversals (`PointStateService::revoke`).
+Idempotency key: (user, period window, task, subject_type, subject_id) — the same shape as `InstantPointService.php:119-126`. One real record never credits the same task twice in a period.
+
+**Type B — agency custom task (recurring, captures records).**
+- Defined by the agency: label, step, recurrence unit (**hour / day / week / month**), target per period, points per unit, evidence rule, and a **capture kind**.
+- Not a tickbox. Completing it opens a short capture form that creates real CoreX records:
+  - `capture_kind = property` → one or more tracked properties through `matchOrCreate` (source type from the task: e.g. `area_drive`; the call appends to `source_chain`, universal Match-or-Create Rule, `CLAUDE.md` non-negotiable 10) — never a bare insert;
+  - `capture_kind = contact` → contact(s) through the normal contact creation path (fires `ContactCreated` → `contact.captured` as today);
+  - `capture_kind = both` → property + owner/contact linked to it (linking via the same path that fires `ContactLinkedToProperty`, so downstream step 2 detection works);
+  - `capture_kind = none` → feedback/notes only (for tasks that are genuinely an activity, e.g. "attend sales meeting"); still requires a text note or a photo if the agency sets evidence required.
+- Every record created carries a back-reference: `rts_task_completions.subject_type/subject_id` points at the first record created and `rts_task_completion_records` lists all (section 5.4), so "what did the drive produce?" is a list of real properties and contacts. Those records **flow into the next steps**: new tracked properties enter the agent's step-1/2/3 funnel (they appear as "found by you" in the daily list source and in the owner-known/owner-needed pools); new contacts land with the correct owner link for step 3.
+- Evidence: free-text feedback (what was found), optional photos, optional GPS/area label, and the linked records. Evidence-required is a per-task setting.
+- Review: BM can open a completion, accept or send it back with a comment (reuse of the provisional→confirmed/revoked lifecycle, section 8.3).
+
+### 5.2 Targets, periods, points
+
+Every task has, **per level**: `target` (a whole number ≥ 0) per `period_unit` (`hour|day|week|month`), and `points` (decimal ≥ 0). Periods are calendar-aligned in the agency's timezone and respect `WorkdayService` (public holidays and approved leave carry no target; a weekly target is not pro-rated for leave unless the existing half-day setting says so — reuse, do not reinvent). A per-user override of a task target is allowed (BM/Admin, within scope), the way `rts_weekday_targets` overrides the agency default. Progress for a period = confirmed completions in the period vs target. "Hourly" tasks (e.g. "10 calls in the next hour") are timeboxed counters that the page shows as a live challenge; their completions are timestamped.
+Existing weekday call targets (`rts_weekday_targets`, v1 §3.3) remain; they are the daily target for step 1/3 and feed the existing summary bar.
+
+### 5.3 What "captures what was found" means in practice
+
+- "Drive your area once a week" → opens a map/area capture form: choose area, add found properties (address/erf, optional photo, optional owner name/phone). Each submitted property becomes a tracked property via `matchOrCreate` (matched ones enrich instead — `TrackedPropertyEnriched`), each owner/contact a contact. The completion records counts: `properties_found`, `contacts_made`. Points can be per task or per record (setting).
+- The same pattern serves "knock doors", "network event", "FSBO sweep".
+
+### 5.4 Data model (proposed, all `agency_id` NOT NULL + `BelongsToAgency`; `track` varchar(20) default `'sales'`; soft deletes; no hard deletes; prefix `rts_`)
+
+| Table | Key columns |
+|---|---|
+| `rts_steps` | agency_id, track, key (stable: `find, find_owner, contact_outcome, evaluation_booked, presentation, mandate, listing_live, marketing, buyers, viewings, otp, deal, aftercare` for sales; rental keys in §12), group (`get_stock`\|`sell_stock`), position, label, is_enabled |
+| `rts_tasks` | agency_id, track, step_id, key, label, type (`core`\|`custom`), `event_key` (nullable; core only), `event_filter` json (nullable), recurrence_unit (`hour\|day\|week\|month`), capture_kind (`none\|property\|contact\|both`), evidence_required (`none\|note\|note_or_photo`), is_system (seeded neutral default), is_active, sort_order, legacy_activity_definition_id (nullable; section 7) |
+| `rts_levels` | agency_id, track, number, name, description, is_active |
+| `rts_level_tasks` | level_id, task_id, target (int), points (decimal), required_for_signoff (bool) |
+| `rts_user_task_overrides` | user_id, task_id, level_id nullable, target nullable, points nullable, set_by_user_id |
+| `rts_task_completions` | agency_id, branch_id, user_id (the list owner), `recorded_by_user_id` (**who actually did it — always set**, equal to `user_id` when the agent did it), `recorded_by_kind` (`agent\|assistant\|system`, snapshotted so a later role change does not rewrite history), track, task_id, step_id, level_id, occurred_at, period_unit, period_start, quantity, `points_awarded` (snapshot), `points_legacy` (migration only), state (`provisional\|confirmed\|revoked\|overridden`), source (`auto_event\|captured\|manual\|migrated`), subject_type, subject_id, evidence_note, evidence json (photo paths, area label, gps), confirmed_by_user_id, confirmed_at, revoked_at, revoke_reason, override audit json (reuse `PointStateService` shape) |
+| `rts_task_completion_records` | completion_id, record_type (`TrackedProperty\|Contact\|Property\|Deal…`), record_id — the real CoreX records the completion produced |
+| `rts_agent_levels` | agency_id, track, user_id, level_id, status (`active\|awaiting_signoff\|signed_off`), started_at, requested_signoff_at |
+| `rts_level_signoffs` | **append-only** (same rule as `rts_settings_audit`): agency_id, user_id, from_level_id, to_level_id, decided_by_user_id, decision (`requested\|approved\|returned`), comment, decided_at |
+| `rts_funnel_settings` | (or columns on `rts_settings`) ratio floors, sample sizes, windows, training links — section 9.3 |
+| `rts_referrals` | agency_id, user_id, source_contact_id, referred_contact_id nullable, property_id nullable, deal_id nullable, status, created_at — step 13 |
+
+All unique indexes follow BUILD_STANDARD §5a (`withTrashed()->firstOrNew` + `restore()`; never a bare create). `points_awarded` and all money are decimal(12,2). `rts_settings` keeps existing columns; new settings go in section 13.
+
+### 5.5 The neutral default recipe (multi-agency rule — non-negotiable 9)
+
+A new agency gets a seeded **neutral** recipe: the 13 steps with generic labels, the Type-A tasks bound to the events that exist (section 4), **level 1** containing a small set (e.g. "Work N properties from your list" (step 1/3), "Record a result for each call" (step 3), "Complete your profile" (neutral)), levels 2–3 empty shells the agency fills. **No HFC wording, weights, or areas.** The seeding is per-agency at first use (read-time defaults, never writing on read — STANDARDS Rule 17 pattern from `SettingsService::forAgency`), not a global catalogue. Today's calendar mappings and the 41 manual definitions are HFC data and migrate as HFC's own custom tasks (section 7).
+
+### 5.6 Step 13 aftercare — a small build, honestly scoped
+
+Because nothing exists, step 13 ships as: (1) a Type-A task bound to `DealClosed(won)` that creates a **follow-up task for the agent N days after registration** (`N` an agency setting, default a conservative neutral value) using the existing Command Center task system (`command_tasks`); (2) a **referral record** (`rts_referrals`) the agent can log from the contact page ("asked for referral" / "received referral"); referrals created become contacts that enter step 9. No client-for-life programme, anniversaries or testimonial automation unless Johan asks (section 15).
+
+---
+
+## 6. Gap register — steps with no matching CoreX event
+
+### 6.1 Steps (or sub-steps) with **no usable event today**
+
+| Step | Moment | Status | Nearest hook (file:line) |
+|---|---|---|---|
+| 1 | Expired competitor listings | new selection `expired_competitor` (answer 1) — only where CoreX holds a dated expiry signal | `prospecting_listings` / `prospecting_price_history` fields (**UNVERIFIED which carry dates**) |
+| 1 | Drive your area | **GAP — no concept** | Type-B custom task + `matchOrCreate` source `area_drive`; no existing hook |
+| 1 | Tracked property captured | event fires, **no points/task binding** | `TrackedPropertyCreated` `TrackedPropertyMatchOrCreateService.php:1659-1664` |
+| 2 | Owner linked (deeds/CMA/seller-link paths) | **GAP** | `OwnerContactResolver.php:83-91`; `owner_contact_id` writes `Api/DeedsCaptureController.php:750`, `EntryPointController.php:809`, `MapController.php:697`; `DeedsCaptureController.php:1133` |
+| 3 | Outcome recorded | **GAP** | `OutcomeService.php:138` / after-transaction :171 |
+| 4 | Evaluation booked / done | **PARTIAL — observers + calendar mapping, no domain event** | `CalendarEventObserver::created` (`ASP:267`); `CalendarEventFeedbackObserver::saved` (`ASP:266`) |
+| 5 | Presentation **presented** | **GAP** (status never written) | `PresentationDeliveryService.php:257`; `PublicPresentationController.php:~130` |
+| 6 | Mandate signed **on paper** (document uploaded onto the property) | **DECIDED — counts (answer 2); event to build** | `document_properties` link point; new `DocumentFiledToProperty`; `DocumentUploaded` is not raised for property docs |
+| 6 | Mandate signed (e-sign) | **PARTIAL** — direct credit, dead `MandateSigned` | `SignatureService.php:4003-4004`; `SignatureEnvelopeFinalized` :4141 |
+| 7 | Listing **live on P24/PP** | **GAP** | `Property24SyndicationService.php:441-449` (`p24_activated_at`), `PrivatePropertySyndicationService.php:253-258` (`pp_activated_at`) |
+| 8 | Seller live link created / opened | **GAP** | `SellerLinkController.php:385`; `:83-84` |
+| 8 | Viewing pack created / sent | **GAP** | `ViewingPackController.php:540`, `:414`; `:355` |
+| 9 | Core Match **created** | **GAP** | `ContactMatchObserver` (`ASP:275`) |
+| 9 | Lead arrived | event exists, **no points/task binding** | `NewPortalLeadReceived` raise sites listed in step 9 |
+| 10 | Viewing **held** | **PARTIAL** — observer, no domain event | `CalendarEventFeedbackObserver::saved` (`viewing_status='viewed'`) |
+| 11 | OTP signed — e-sign | **PARTIAL** — signal exists, no OTP listener | `SignatureEnvelopeFinalized` `SignatureService.php:4141` |
+| 11 | OTP signed — paper (document uploaded onto the property) | **DECIDED — counts (answer 2); event to build** | same `DocumentFiledToProperty`, type `otp`; Dr2 step `date_input` (`Dr2ConditionCatalog.php:489`) stays manual |
+| 12 | **Payslip generated** | **GAP (confirmed) — "commission paid" is the exit for now (answer 3); "payslip generated" after the payslip clean-up day** | proxy: `DealCommissionFinalised` (`DealObserver.php:64`, from `mark_paid` `DealSettlementController.php:257-268`) |
+| 12 | `deal.commission_finalised` points | seeded, **not wired** | `ASP:646-679` |
+| 13 | **Whole step** (aftercare, referrals) | **GAP** | `DealClosed(won)` `DealObserver.php:41` |
+
+### 6.2 New events v2 introduces (all `AbstractDomainEvent`, raised after commit, never throwing to the caller)
+
+`RoadToSoldOutcomeRecorded`, `EvaluationBooked`, `EvaluationCompleted`, `OwnerLinkedToTrackedProperty`, `PresentationPresented`, `DocumentFiledToProperty` (a mandate- or OTP-type document linked to a property — Johan's answer 2; replaces the earlier `MandateSignedOnPaper` idea), `PropertyWentLiveOnPortal`, `SellerLinkCreated`, `SellerLinkOpened`, `ViewingPackCreated`, `ContactMatchCreated`, `ViewingHeld`, `OtpSigned` (fan-out from `SignatureEnvelopeFinalized` filtered on document type `otp`), `DealPayslipGenerated` (blocked on the money spec; until then use `DealCommissionFinalised`), `AreaDriveCompleted` (Type B completion). Each is added to `.ai/specs/corex-domain-events-spec.md` §5 in the same change (catalogue = contract; `CLAUDE.md` non-negotiable 9). Fix on the way: wire `MandateSigned` to its real raise site (inside the `completeDocument` afterCommit, `SignatureService.php:3994`) or delete the dead registrations; wire `deal.commission_finalised`; add `presentation.lost` handling or retire the slug.
+
+### 6.3 Domain events actually raised today (so lanes know what exists)
+
+Property: `PropertyCaptured` (`PropertyObserver.php:416`), `PropertyCompliancePassed` (:605), `PropertyPublished` (:620), `PropertySuburbLinked` (6 sites), `SyndicationApprovalRequested/Approved/Rejected/Revoked` (`SyndicationApprovalService.php:330/:419/:446/:487`), `ListingSyndicationChanged` (`WebsiteSyndicationService.php:69/:104/:189`, `PropertyObserver.php:695`), `PropertySoldByThirdParty`. Prospecting: `TrackedPropertyCreated` (:1659), `TrackedPropertyEnriched` (:1777), `TrackedPropertyPromotedToStock` (:2345), `TrackedPropertyAddress*`, `ClaimCreated`/`ClaimReleased` (`ProspectingClaimObserver.php:58/:83`), `ClaimFeedbackRecorded` (`MarketIntelligenceController.php:3846`). Contact: `ContactCreated` (`ContactObserver.php:48`), `ContactContactedByAgent` (`Contact.php:2015`), `ContactLinkedToProperty` (8 sites), `ContactMarkedLostInBuyerPipeline`, `ContactTestimonialSubmitted`. Lead: `NewPortalLeadReceived` (5 sites), seller outreach `PitchSent`/`PitchClicked`/`OptOutRecorded`/`OutreachOutcomeUpdated`. Mandate: `MandateExpired` (`ExpireMandates.php:67`, `PropertyObserver.php:556`), `MandateConverted`. E-sign: `SignatureEnvelopeSent/Finalized/Declined/Cancelled/Expired` (via `announceEnvelope` `SignatureService.php:5022`). Deal: `DealCreated`, `DealStatusChanged`, `DealClosed`, `DealStageAdvanced`, `DealCommissionFinalised`, `DealMoneyLineChanged`, `DealStepCompleted` (DealV2 only, `DealPipelineService.php:329/:372`). Marketing: `MarketingPostPublished` (`PropertyMarketingPostObserver.php:39`), `MarketingPostScheduleFailed`. FICA: `FicaSubmitted/Approved/Rejected`. Presentations: `PresentationGenerated`, `PresentationOutcomeRecorded/Prompted/Locked`. **Defined, never raised:** `MandateSigned`, `DocumentSigned`, `FicaExpired`, `ContactMergedInto`, `ClaimAutoReleased`, `ClaimConvertedFromLock`, `TrackedPropertyMerged`, `CallLogged`, `EmailMessageSent`, `WhatsAppMessageSent`, `EmailDraftOpened`, `WhatsAppDraftOpened` (static `new X(`/`::dispatch` search only; dynamic dispatch not ruled out). **No calendar/viewing domain events exist** — calendar runs through observers `CalendarEventObserver`, `CalendarEventFeedbackObserver`, `CalendarEventInvitationObserver`. Catalogue-specified events with **no class**: `PropertyCreated`, `PropertyUpdated`, `PropertyStatusChanged`, `PropertyArchived`, `ContactUpdated`, `ContactMerged`, `MandateWithdrawn`, `DealRegistered`, `ProspectingListing*`, Wishlist events (`.ai/specs/corex-domain-events-spec.md` §5, :297-372).
+
+---
+
+## 7. Replacing today's daily activity (setup + capture) — and migrating the history
+
+### 7.1 What is being replaced
+
+Screens: capture `agent.daily` (`RW:1926`, `Agent/DailyActivityController` `index` :61, `store` :340-479, view `agent/daily-v2.blade.php`), summaries `agent.daily.summary` / `bm.daily.summary` / `admin.daily.summary` (`RW:1927-1938`), setup `admin.daily-activities.setup` (`RW:1970-1978`, `Admin/DailyActivitySetupController`, tabs manual/auto), the legacy mapping screen `admin.activity-mappings.index` (redirects to setup, `RW:5736-5740`). Menu consequences are in `agency-tracker-rehome.md` §5 and §13.
+Engine: `activity_definitions`, `daily_activity_entries`, `activity_definition_calendar_classes`; writers `InstantPointService`, `ProvisionalPointService`, `PointStateService`, `AutoRevokeStaleProvisionalPoints` (hourly, `routes/console.php:166`), `CIAL`, `SignatureService.php:4003`, `DealObserver.php:106-107`; readers (nine sites that each compute `SUM(value × weight)`): `Agent/DailyActivityController.php:120-129`, `AgentPerformanceService.php:165-207`, `CompanyPerformanceService.php:134-148, :633-649, :678-695, :817-833, :911-922`, `Admin/PerformanceController.php:99-107`, the three summary controllers, `CoreX/DashboardController.php:31-41`, `CommandCenter/DashboardController.php:104-114, :287-297`, `Api/CommandCenterApiController.php:112-117`, `AgentScorecardCalculator.php:75-86`, `CommandCenterService.php:737-738`.
+
+### 7.2 QA1 baseline to migrate (read-only counts, 20 Oct 2026; **production counts UNVERIFIED — read Prod before any promotion**)
+
+| Item | Count |
+|---|---|
+| `activity_definitions` | 204 rows = 3 copies of the same 68 (system NULL agency 68; agency 20 68; agency 205 68). 41 manual + 27 "[Auto]" each. 60 definitions have history; 144 rows have none |
+| `daily_activity_entries` | 19,205 — all agency 1, 42 users, 60 distinct definitions, 2026-02-01 → 2026-10-19; **every entry points at a `scope='system'` definition** |
+| …by source/state | manual/confirmed 8,340 (Σvalue 14,662); auto_instant/confirmed 10,613; auto_instant/revoked 19; auto_calendar/confirmed 21 (Σvalue 1,800); auto_calendar/provisional 2; auto_calendar/revoked 210 (Σvalue 22,050) |
+| Entries with a subject | 10,632 over 9 types: Property 5,829; SellerOutreachSend 1,478; Contact 2,025; TrackedProperty 537; FicaSubmission 311; Deal 194; ProspectingClaim 152; Presentation 104; PropertyMarketingPost 2. 8,573 have none (the manual 8,340 + calendar 233) |
+| `activity_definition_calendar_classes` | 31, all agency 1 (4 calendar, 27 instant) |
+| Counted points today (confirmed+overridden; sources manual/auto_calendar/auto_instant; Σ value × live weight) | **1,961,094** = manual 954,814 + auto_instant 766,280 + auto_calendar 240,000 |
+| Legacy v1 tables | `daily_activities`, `activity_targets`, `activity_point_goals`, `branch_activity_columns`, `activity_columns` — **0 rows** |
+| `targets` | 173 rows (134 with `points_target > 0`), all agency 1, 2026-02 → 2026-10 |
+
+### 7.3 Mapping
+
+| Old | New |
+|---|---|
+| each of the 41 manual definitions (HFC's wording) | an agency **custom task** (`rts_tasks.type='custom'`, `legacy_activity_definition_id` set); points = the definition's weight at migration; recurrence `day`; target from the agency's existing monthly points goal where one exists |
+| each of the 27 "[Auto]" definitions / instant slugs | a **core task** bound to the event that already credits it (section 4 and 6.3); the slug → `event_key` map is data; slugs with no firing path stay inactive and are listed in the report |
+| calendar mappings (viewing, property_evaluation, listing_presentation, meeting) | core tasks bound to `EvaluationBooked`/`EvaluationCompleted`/`ViewingHeld`; the calendar mapping is retired (no double credit, section 7.5) |
+| each `daily_activity_entries` row | one `rts_task_completions` row: `source='migrated'`, same timestamps/user/branch/subject; `points_legacy = value × weight` (what the old engine counted); `points_awarded` as in 7.4 (equal to `points_legacy` for every migrated row) |
+| `point_state` | copied 1:1 (provisional/confirmed/revoked/overridden) |
+| `targets.points_target` | the user's monthly points target in the Targets area (`agency-tracker-rehome.md` §5.7) — not a completion |
+| the three copies of the 68 definitions | only HFC's in-use set migrates as HFC's tasks; agency 20 and 205's unused copies are **not** migrated (they had zero entries); they get the neutral default recipe (5.5) |
+
+### 7.4 The points rule at migration (and the defect)
+
+Verified defect (do not fix by editing history silently): confirmed calendar rows count weight² — QA1 "Take out Buyers" 16 rows × 50 × 50 = 40,000 and "Presentation" 5 rows × 200 × 200 = 200,000 (total 240,000, versus 16×50 + 5×200 = **1,800** if each were one event). Migration:
+- `points_legacy` always stores what the old engine counted.
+- `points_awarded` for manual and instant rows = `value × weight` at migration (unchanged: manual 954,814, instant 766,280).
+- **Decided (Johan, 20 Oct 2026, answer 6): the fix applies from the cut-over date.** `points_awarded` for **every migrated row (including confirmed calendar rows) equals `points_legacy`**, so past months keep their old totals exactly (QA1: 1,961,094). The corrected rule (one event × the task's points; no weight²) applies to every completion **on or after the cut-over date**. The cut-over timestamp is recorded once per agency and track (`rts_cutover_at`, set by the migration run, never edited) so every screen and report knows which side of the line a row is on.
+- **Before/after report (delivered with the migration, per agent and per month):** what each agent's history would have been under the corrected rule (QA1: 1,722,894 against 1,961,094 — calendar rows 240,000 → 1,800) beside what is shown. The report is for Johan's information; it changes no number on any screen. No confirmed points are deleted or rewritten.
+- A screen total that spans the cut-over date simply adds the two; nothing is re-based.
+- Going forward `points_awarded` is a snapshot at completion: edits to a task's points change the future only.
+
+### 7.5 One completion per real-world event
+
+The old engine can credit one real event through several paths (e.g. an evaluation booked from Road to Sold creates a calendar event, which the calendar observer credits as "Appointments", while an event-bound task also fires). Rule: **exactly one completion per (agent, task, subject)** — enforced by the idempotency key (5.1) and by retiring the calendar-class mapping for any class a core task now covers. The reconciliation report (14.2) lists any duplicates.
+
+### 7.6 Sequencing with the agency-tracker spec
+
+`agency-tracker-rehome.md` step 3 relocates the daily-activity screens and fixes the points rule on the **old** tables. v2 phase 3 replaces the engine. **Decided (Johan, 20 Oct 2026, answer 5): the interim points fix goes first.** `agency-tracker-rehome.md` step 3 is now only (a) the menu merge #13→#2 and (b) the shared points service with the defect fixes (corrected rule from the cut-over date, answer 6); the summaries move and the Setup screen are **not** re-homed separately — v2's recipe builder replaces them. Until v2 phase 3 lands the old screens keep working under their current URLs, which then 301 to the new homes (rule J of the rehome spec).
+
+### 7.7 Keeping the history
+
+Old tables are **never dropped or altered destructively**: they become read-only, marked deprecated, and remain readable for audit and for reports that span the migration date. Historic reports read `rts_task_completions` (migrated rows) and, for cross-checks, the old table. The old routes `agent.daily*`, `bm.daily.summary*`, `admin.daily.summary*`, `admin.daily-activities.setup*` keep their names as redirects (the `prospecting.index` pattern, `RW:8069-8078`), so no internal link breaks.
+
+### 7.8 Permissions/features carried over
+
+`access_daily_activity`, `view_daily_activity`, `manage_targets`, `manage_activity_mappings` (`config/corex-permissions.php:45, :97, :90, :397`) map to the new keys in section 13.2; Role Manager grants are reconciled by `corex:sync-permissions` and listed in the lane's report. Pitfall to avoid: the old manual catalogue is global and edited by `isOwnerRole` (`DailyActivitySetupController.php:161-183, :213-221`) — v2 definitions are agency-owned.
+
+---
+
+## 8. Levels and sign-off
+
+### 8.1 Model
+
+- The agency defines **levels** (default names: Level 1, Level 2, … — agency renames). A new agent starts at Level 1 automatically when first given Road to Sold access (`rts_agent_levels` row created lazily, never on read).
+- A level = a set of tasks with targets and points (`rts_level_tasks`) plus the steps enabled at that level. Level 1 uses small tasks (the neutral default: work your list, record every result, load your first stock lead). Higher levels add steps/tasks and raise targets.
+- An agent **progresses** by meeting the level's required tasks (`required_for_signoff`) for the agency's required number of periods (settings: e.g. consecutive weeks on target; defaults conservative and editable). When met, the agent's status becomes `awaiting_signoff` and the BM is notified. **Completion of tasks never auto-promotes.** Only a BM sign-off unlocks the next level.
+- BM sign-off: the BM reviews the agent's evidence and funnel, may **coach** (add a comment, return to the agent with focus areas) or **approve**. Approval writes a `rts_level_signoffs` row (append-only), moves the agent to the next level, and fires the celebration (section 11).
+- An agency can set a level to "no sign-off required" (auto-advance) as an agency setting, default **off**.
+
+### 8.2 Scoping (query layer)
+
+Sign-off screens and APIs use `CallListService::viewableAgents($viewer)` (`CallListService.php:41-60`) for the cohort and `VisibleAgents::canSee` (`VisibleAgents.php:46`) for direct-URL blocking (404, not 403, outside scope). **Known inconsistency to fix in the lane:** `VisibleAgents::for()` returns empty when the scope is null (:24-26) whereas `Scope::level()` falls back to `own` (`Scope.php:17-20`) — pick one rule for the new screens and add a test. A BM can only sign off agents in their branch; admin can sign off any agent in the agency; **nobody can sign off themselves** (hard rule, tested).
+
+### 8.3 Reusable pattern (copy, do not reinvent)
+
+`PropertySyndicationApproval` + `SyndicationApprovalService` (`app/Models/PropertySyndicationApproval.php`; `app/Services/Syndication/SyndicationApprovalService.php`): `request` :303, `cancel` :351, `approve` :374, `reject` :424 (reason mandatory), `revoke` :458; each in a `DB::transaction` with a `lockForUpdate` re-read (:376-382); append-only rows, a cancel/revoke writes its own `withdrawn` row; approver roster from `PerformanceSetting::get(SETTING_APPROVERS, [], $agencyId)` (:39, :155) with owner/admin fallback (:177-181); `canApprove` (:199-232) is the single rule shared by list filters, buttons and write endpoints, branch-narrowed (direct-URL by id blocked). Events `SyndicationApprovalRequested/Revoked/Approved/Rejected` (`app/Events/Property/`), listener `NotifySyndicationApprovalDecision`. The audit-trail model for task points is `PointStateService::override` (`:97-132`: `overridden_by_user_id`, `override_reason`, append-only `override_audit_json`) — **it has no caller anywhere in `app/` today** (no manager-override UI exists), and `PointStateService::confirm` records no approver. v2 adds the approver and a "returned with comment" state.
+
+### 8.4 Training flags and sign-off
+
+The BM sign-off screen shows the agent's funnel and training flags (section 9.3) side by side, so the sign-off decision and the coaching are one screen.
+
+---
+
+## 9. Intelligence — predict, advise, auto-fill, train
+
+### 9.1 Principle
+
+AI/analytics **suggest; a person confirms** (CoreX operating principle 5). Everything below is deterministic first. Optional narrative text may use the AI gateway under the existing spend guard; deterministic output is always the fallback.
+
+### 9.2 The funnel (ratios)
+
+Counts come from `DrilldownService::count($metric, $agentIds, $period, $agencyId, $track)` (`:71`), supported metrics: `calls_made, attempts, conversations, evaluations_booked, dropped, outcome:<key>, worked, added_worked, missed, target, evaluations_done, mandates_signed, listings_live` (`supports()` :34-42, `LOG_METRICS` :32). Sources: calls/conversations/evaluations booked → `rts_contact_outcomes` (`ReportService.php:155-170`); evaluations done → `calendar_events.category='property_evaluation'` with captured `calendar_event_feedback` (`DrilldownService.php:248-258`); mandates signed → `signature_templates.status='completed'` for a mandate template/type by `docuperfect_documents.owner_id` (:279-290); listings live → `properties.listed_date` in window by `agent_id` and `listing_type` by track (:311-319). Sell-side counts: viewings held (feedback `viewing_status='viewed'`), leads (`portal_leads`), OTP signed (`SignatureEnvelopeFinalized` for type `otp`), deals by `accepted_status` (`deals`/`deal_user`), registered (`DealsRegisteredProvider.php:13`).
+
+Ratios v2 defines (all computed by one `FunnelService`, none exist today):
+`calls→conversations`, `conversations→evaluations booked`, `evaluations booked→done`, `evaluations done→presentation`, `presentation→mandate`, `mandate→listing live`, `listing live→viewings`, `viewings→OTP`, `OTP→registered`, plus buyer-side `leads→first response within target` (reuse `LeadResponseService::results` `:87`, in-target share), `matches sent→viewings`.
+**Population fix (required, not optional):** mandates and evaluations are keyed by document owner / calendar user, outcomes by `rts_contact_outcomes.user_id`. The funnel service attributes every count to **one agent identity (the list owner, `User::ownershipUserId()`, `User.php:1630`)** with a documented rule, and each ratio states its denominator population. A ratio whose numerator and denominator come from different populations is not shown.
+Assistant work counts under the agent (v1 §11.1) — **decided (Johan, 20 Oct 2026, answer 4)** — **but every action records who did it** (`recorded_by_user_id` and `recorded_by_kind` on every v2 completion; the existing `rts_contact_outcomes.recorded_by_user_id` already does this for calls, v1 §11.1), and **every funnel figure, ratio, flag and report can be split by "done by agent / done by assistant"** (a filter and a column on the funnel grid, the team completions list and the report; drill-down rows show who did each). Training flags and level progress use the agent total by default; the BM can switch to "agent only" to see the agent's own work. Event-derived completions take the actor from the event (`actorUserId()`); where an event has no actor, `recorded_by_kind='system'`. Migrated history: where `created_by`/`on_behalf_of_user_id` are set they are kept (none are set on QA1), otherwise `recorded_by_user_id = user_id` and kind `agent` — recorded as a legacy assumption in the migration report.
+
+### 9.3 Training flags
+
+- A flag = "this agent's ratio at step X is well below the benchmark, with enough data". Example from Johan's ruling: many calls, no evaluations → `needs training: evaluation pitch`.
+- **Rule (agency setting, neutral default):** flag when (a) the numerator+denominator sample ≥ `flag_min_sample` (default 20 denominator events in the window), and (b) the agent's ratio < `flag_below_pct` of the **agency median ratio** (default 60%) for the same window and track, or below an absolute floor if the agency sets one. Window `flag_window_days` default 30. Using the agency's own median as the default avoids shipping HFC's absolute conversion expectations to another agency (non-negotiable 9). Flags never show for an agent with no data.
+- Each flag maps to a **training pointer** the agency chooses per step/ratio: a `TrainingCourse` (`route('training.show', $course)`, `routes/web.php:2808-2823`, `feature:training`, category `sales`), a `TrainingDoc` (`route('training-help.show', $slug)`, `RW:2827-2836`), a document-library item (`documents.library.*`, `RW:7626-7633`) or a guided tour. **There is no skill/ratio→course mapping anywhere today** — it is a new agency setting; per non-negotiable 10a it reaches the Setup Wizard or Johan records the omission.
+- The BM sees: agent × ratio grid with flags, drill to the underlying rows (existing drill-down JSON envelope), and one-click "assign training" (creates a task for the agent and a notification) and "add coaching note".
+- No competency or skills-matrix model exists (grep empty); v2 does not build one — flags are derived views, not stored scores (a stored "flag history" is an append-only audit only if the BM acts on it).
+- Agency admin sees the same grid rolled up by branch.
+
+### 9.4 Prediction, advice, auto-fill
+
+- **Suggested next targets:** deterministic. For each task/step, from the trailing `suggest_window_weeks` (default 8) of completions and funnel: `suggested = max(current target, round(trailing average × (1 + growth)))` with `growth` an agency setting (default 10%), capped by working-day capacity (`WorkdayService`) and by the next level's required target when one exists. The BM/Admin sees the suggestion with the data behind it and **accepts, edits or ignores**; accepting writes through `TargetService::saveWeek` (audited, `$setByUserId`, `TargetService.php:99`) or the new task-target writer. Nothing auto-writes a target.
+- **Advice** ("do this next"): the agent's next-action ranking = (1) things due today (follow-ups, booked evaluations needing feedback, expiring mandates — existing `FeedService`: `buyerFollowUps` :44, `leadFollowUps` :96, `expiringMandates` :125), (2) the unfinished required task nearest to its period deadline, (3) the step with the largest gap to target. Pure rules (like `SuggestedActionResolver`, `app/Services/Prospecting/SuggestedActionResolver.php`, rules R1–R10).
+- **Income/forecast context:** the existing projection (`BM/PerformanceController.php:40-48`) is a target roll-up, not a forecast, and uses HFC constants (`config('performance.commission_rate', 0.075)`, `company_share 0.50`, neither key defined in `config/performance.php`). v2 does **not** reuse it; any projection reads agency settings and `DealMoney`.
+- **Optional narrative:** a short sentence per agent/BM may be generated with `AnthropicGateway::generate(NarrativeRequest)` (`app/Services/AI/AnthropicGateway.php:62`) following the `ThisWeekTileBuilder`/`StrategicBriefService` pattern (deterministic facts, model writes the sentence, templated fallback `buildTemplatedFallback` `StrategicBriefService.php:229`, 12h cache). Every call is guarded by `AiSpendGuard::assertAllowed($agencyId)` (`app/Services/AI/AiSpendGuard.php`) and recorded by `AiUsageRecorder::record` (`AiUsageRecorder.php:50`), marked with `resources/views/components/ai-badge.blade.php`. Spec `.ai/specs/at456-ai-tools-scheduler-and-spend-safety.md` §A, `.ai/specs/ai-cost-ledger.md`. Ellie's `my_performance` tool (`EllieToolkit.php:192`, impl :559) does not read Road to Sold data; extending it is optional and out of scope here.
+- **The more it's used, the better the data:** every number above is computed on the agency's own history; with little data the screens say "not enough data yet" rather than guess.
+
+### 9.5 BM/admin target-setting loop
+
+Road to Sold stats → suggested targets → BM/Admin edits → targets saved (Targets area, `agency-tracker-rehome.md` §5.7) → agent sees new targets next period. The Targets screen's "save only the columns submitted" fix (rehome §5.7) is a prerequisite for this loop.
+
+---
+
+## 10. Views, screens and states
+
+### 10.1 Agent view — "do this now / do this next"
+
+Home: `GET /road-to-sold` (same route `road-to-sold.index`). Layout (top to bottom): (1) **Next action** (one card: the single most important thing now, with the button that does it); (2) **Today's list** (existing daily call list, `RoadToSoldController@index`, unchanged behaviour); (3) **Recipe progress**: the agent's current level, each step with its tasks, progress vs target for the current period, and the state colour (section 11); (4) the existing **summary bar** widened to the funnel steps; (5) feeds (buyer follow-ups, lead follow-ups, expiring mandates — existing `FeedService`); (6) level status ("2 of 3 weeks on target — your BM signs off at level end"). Capture entry points: type-B task buttons open the capture form (section 5.3). The personal activity/points history lives on My Portal (`agency-tracker-rehome.md` §5.2) and links here.
+
+### 10.2 BM view
+
+Team funnel (agent × step, with counts and ratios), training flags, sign-off queue, "tasks needing review" (returned/with evidence), target suggestions (9.4). Scope: branch (own agents) via `viewableAgents`; admin sees the agency. Drill-down on every figure (existing envelope).
+
+### 10.3 Agency view
+
+Recipe/level builder (steps, tasks, levels, targets, points, training pointers), targets and budgets (rehome Targets area), the interactive report (existing, extended with the funnel), agency funnel and flags by branch. Settings under Road to Sold settings (section 13).
+
+### 10.4 Standard for every list (CLAUDE.md non-negotiable 8; BUILD_STANDARD §1a)
+
+Each list ships with search (named fields), sort (stated default), filters (status + date range minimum), pagination, a real empty state, Create/Read/Update/**Archive/Restore** (soft only), and own/branch/agency scoping **enforced in the query** (direct URL by id blocked). v1's screen-text rule applies (data and controls only, one short line per setting). State per list:
+
+| List | Search | Sort (default) | Filters | Scope |
+|---|---|---|---|---|
+| Recipe steps (settings) | label | position asc | track, enabled | agency |
+| Tasks (settings) | label, step | step, sort order | type core/custom, step, active/archived, recurrence | agency |
+| Levels & level tasks (settings) | name, task | number asc | active/archived | agency |
+| Task targets per user (settings) | agent, task | agent A→Z | branch, level, overridden-only | branch/agency by `manage_targets` breadth |
+| My task completions (agent) | task, note | occurred desc | task, step, state, date range | own |
+| Team completions / review queue (BM) | agent, task, note | occurred desc | agent, step, state (provisional/returned), **done by (agent / assistant)**, date range | branch (BM) / agency (admin) |
+| Sign-off queue (BM) | agent | requested oldest first | status, level, branch | branch / agency |
+| Funnel grid (BM/agency) | agent | worst flag first | branch, step, window | branch / agency |
+| Training flags | agent, step | severity | step, acknowledged/open | branch / agency |
+| Referrals (step 13) | contact, deal | created desc | status, date range | own/branch/agency |
+
+Archive and restore are available on every settings entity (tasks, levels, steps, level-tasks, overrides); completions are not editable by the agent after confirmation except through the BM override path.
+
+### 10.5 Input space (prevent or absorb — BUILD_STANDARD §2/§3)
+
+| Input | Rule |
+|---|---|
+| Task target blank | Absorb: use the level default; `0` is valid ("nothing required this period") |
+| Target/points negative, non-numeric, absurdly large | Prevent with a plain message (range stated per field) |
+| Recurrence unit missing/unknown | Prevent: pick from `hour/day/week/month` |
+| Type-A task with unknown `event_key` | Prevent: pick from the catalogue of firing events (section 6.3 + 6.2); an event with no raise site is not selectable |
+| Capture form: zero records submitted but quantity > 0 | Prevent when `capture_kind ≠ none` |
+| Duplicate property/contact in a drive | Absorb: `matchOrCreate` matches and enriches; the completion lists it once |
+| Same real event completes a task twice | Absorb: idempotent (5.1) |
+| Backdated completion | Prevent beyond the agency's back-date limit (setting; reuse the calendar `back_date_limit_hours` concept) |
+| Assistant records on the agent's behalf | Absorb: completion belongs to the list owner; `recorded_by_user_id` = the assistant and `recorded_by_kind='assistant'` (v1 §11.1; Johan's answer 4); reports can split by who did it |
+| Level with no tasks / agent with no level | Absorb: show "no tasks set for this level yet" / create Level 1 lazily on first open (never on read) |
+| BM signs off self / out-of-scope agent | Prevent / 404 |
+| Task points edited after completions exist | Absorb: past `points_awarded` untouched |
+| Agent has no working days | Valid; `WorkdayService::nextWorkday` returns null — screens handle it (v1 §6) |
+| Second-agency test | A second agency sees none of the first agency's tasks, levels, recipes, definitions or wording |
+
+Test matrix per piece: happy path with all fields; each optional field omitted; the lazy shortcut (open, tick one thing, save); one malformed value per validated field; create → archive → recreate (§5a); deleted-related-record (agent or property soft-deleted); idempotent re-save; cross-agency 404 and out-of-branch 404 by direct URL; the second-agency test.
+
+---
+
+## 11. Motivation — states and components (colours deferred)
+
+### 11.1 The five states
+
+| State | Meaning (per task / step / level, vs period target) | Trigger |
+|---|---|---|
+| **Behind** | below the agency's red line for time elapsed | `statusForPct` red (< `summary_red_below_pct`, default 70) |
+| **Amber / needs a push** | between red and green lines | `statusForPct` amber |
+| **On track** | at or above the green line (default 90%) but below target | `statusForPct` green (`SettingsService.php:329`) |
+| **Ahead** | at or above 105% of the expected-by-now figure | new; mirrors the existing company-pace rule (Achieved/Ahead ≥ 105%/On pace ≥ 95%/Behind, `CompanyPerformanceService.php:327-340`; repeated :673, :805, :906) |
+| **Achieved** | period target met | completions ≥ target |
+| **Celebration** | a moment worth marking | below |
+
+(The spec lists the ruling's "behind / on track / ahead / achieved / celebration"; amber is the existing in-between of v1's three-band bar. The lane may fold amber into "behind" or "on track" visually — a colour-round decision with Johan.)
+
+### 11.2 Celebration moments (events that trigger them)
+
+1. A **period target hit** (task, step or the whole recipe for the day/week/month).
+2. A **level signed off** (`rts_level_signoffs` approved).
+3. A **mandate won** (precedent: `WonMandateNotification`, `PresentationOutcomeService.php:251`; or `mandate.signed`).
+4. A **DR2 deal registered** — `DealClosed` with outcome won (`DealObserver.php:41`; "registered" detector `DealRegisteredForOutcomeObserver.php:24`). The money shown, if any, comes from `DealMoney`/`deal_money_lines`, never `commission_ledger`.
+5. A **streak** milestone (days/weeks on target). A 30-day consecutive-points-day streak is computed inline in Blade today (`resources/views/agent/dashboard.blade.php:407-413`) — v2 moves it to a service.
+Celebration is for the agent (in-page and notification) and also reaches the BM for items 2–4 (precedent: `WonMandateNotification` recipients are the BM and principal).
+
+### 11.3 Components to use (existing) and gaps
+
+| Need | Existing | Gap / note |
+|---|---|---|
+| Progress bar | `.ds-progress-track` + `.ds-bar-navy\|amber\|crimson\|green` (`resources/css/nexus.css:730-733`; UI_DESIGN_SYSTEM §3.13) | no progress **ring**; add one component (SVG/conic) |
+| Status badge | `.ds-badge` + `-success/-warning/-danger/-info/-default` (`nexus.css:785-789`, §3.4); `x-pill` (`resources/views/components/pill.blade.php`) | |
+| Summary bar tile | `resources/views/road-to-sold/_summary-bar.blade.php:6-13` (left-border colour from `--ds-green/--ds-amber/--ds-red`; wording On track / Slightly behind / Behind) | uses `--ds-red`, defined at `resources/css/corex.css:1375`, while the design spec lists `--ds-crimson` as the danger token — **reconcile in the colour round** |
+| Delta text | `x-performance-delta` (`resources/views/components/performance-delta.blade.php`; classes `report-delta-good\|bad\|neutral`, defined for RTS at `road-to-sold/report/index.blade.php:147`) | colour follows the metric's own direction of good, never the raw sign |
+| KPI tile | `x-corex-kpi-card` | |
+| Short success toast | `window.showToast(message, type, duration, url)` (`toast-notifications.blade.php:120`) — the only success style that exists | use for in-page "target hit" |
+| Persistent alert toast + bell | `components/alert-popups.blade.php`, `components/alert-bell.blade.php`, feed `Api/V1/AlertFeedController.php`, inbox `AlertInboxController` | **`success` severity is not styled** (only `warning`/`critical`, `alert-popups.blade.php:177`) — add it or use the short toast |
+| Notification pipe | `NotificationDispatcher::send/fire` (`app/Services/CommandCenter/NotificationDispatcher.php:61, :76`); `eventKey` must exist in `notification_event_types` (registration migration precedent: `2026_10_23_000600_register_owner_query_notification.php`); preferences `NotificationPreferenceService` | **register one event key per celebration kind**, and use a distinct subject per achievement so the 360-minute per-type-per-subject cooldown does not swallow repeats (memory note; figure unverified in code) |
+| Confetti/badge/achievement | none | new, small; honour a user preference to switch celebration animation off |
+| Streak | inline Blade only | move to a service |
+
+### 11.4 Colours
+
+Colours are **not** specced here. The lane builds the five states against the design-system **semantic tokens** (`UI_DESIGN_SYSTEM.md` §1.5: `--ds-green` #059669, `--ds-amber` #f59e0b, `--ds-orange` #ea580c, `--ds-crimson` #c41e3a, `--ds-navy` #0b2a4a; "never use red for neutral scores"), with every colour behind a CSS variable so the later mockup round with Johan changes values, not markup. Acceptance for that round is a clickable mockup with 2–3 palette options, not code.
+
+---
+
+## 12. Road to Rented — same engine, rental steps
+
+### 12.1 What exists
+
+- The `track` dimension is on every table (`rts_settings`, `rts_outcome_definitions`, `rts_list_items`, `rts_contact_outcomes`, `rts_agent_areas`, `rts_weekday_targets`; migrations `2026_10_29_*`) and every service takes `$track`. `Track::fromRequest` (`Track.php:18-22`), `Support/Routing.php:17-20` (route-name root `road-to-rented` → rentals), remountable `routes/road-to-sold-settings.php`.
+- Property side: `Property::isRental()` (`Property.php:2642`, accepts `rental/to_let/to-let/lease`, case-insensitive), write-normalised by `normaliseListingType` (`:2606-2615`, `:2624`); `listing_type` canon `LISTING_TYPES = ['sale','rental']` (:2587). Existing selection/listing queries filter `listing_type = 'rental'` by **exact match** (`DrilldownService.php:316`, `OwnStockSelection.php:26`, `MicPoolSelection.php:26`) — legacy rows with other spellings are **UNVERIFIED**; the lane must use the normalised rule.
+
+### 12.2 What is missing (sales-only today — each is a line item)
+
+No `road-to-rented` route group, feature key, permission key, sidebar entry or wizard copy exists. `RtsSetting::selectionCatalogue($track)` (:152) and `summaryStepCatalogue($track)` (:173) ignore `$track` (sales labels only; docblock :145-146 defers rentals). `HotPocketService::rank` returns `[]` for non-sales (`:39`). The three feed blocks are sales-only (`RoadToSoldController.php:63-64`). `evaluationsDoneQuery` (`DrilldownService.php:248`) and `mandatesQuery` (:279) carry no track filter, so a rentals bar would show sales evaluations/mandates. `listings_live` should-be reads `targets.listings_target` (a sales target; `SummaryBarService.php:79-91`). Seeded outcomes are sales wording ("Mandated with another agency - sole mandate", `OutcomeDefinitionService.php:24-45`). The outcome-settings routes are mounted inside the sales group, not in the remountable file (`RW:6415-6428`). The page group has no `{track}` parameter (rentals today would be `?track=rentals` on the sales URL, `RW:6402-6428`).
+
+### 12.3 The rental recipe (rental steps swapped in)
+
+| # | Rental step | Screen | Auto-detect event | Status |
+|---|---|---|---|---|
+| R1 | Find landlords / to-let stock leads | Road to Rented list (same builder, track `rentals`); selections need rental catalogues (to-let on market, long on market, price drops for rentals, my expired to-let mandates, agency tenants/applicants sourcing) | list item worked (no event); claim taken (`ClaimCreated`) | needs rental selection catalogue (catalogue `RtsSetting::selectionCatalogue` must honour track) |
+| R2 | Find owner / landlord | same as step 2 | same GAP as step 2 | GAP (shared) |
+| R3 | Contact + outcome | `OutcomeService::record` with track rentals and rental outcome set | same GAP as step 3 | GAP (shared); seed rental outcomes |
+| R4 | Rental appraisal booked (calendar; never "valuation") | calendar | same partial as step 4 (needs a rental appraisal event class; `property_evaluation` is the sales class) | PARTIAL — verify whether a rental class exists (**UNVERIFIED**) |
+| R5 | Rental mandate signed (e-sign) | DocuPerfect, document type for a rental mandate (**UNVERIFIED which slug**) | `SignatureEnvelopeFinalized` filtered by type | PARTIAL (shared with step 6) |
+| R6 | **To-let listing live** | Properties, rental syndication | **GAP** — `listed_date` stamp only (`Property.php:~592-595`); `PropertyPublished` is website-only (`PropertyObserver.php:620`) | GAP (same hook as step 7: `p24_activated_at`/`pp_activated_at`) |
+| R7 | Marketing the to-let | Ad Manager / seller (landlord) link / viewing pack | `MarketingPostPublished`; link/pack GAPs as steps 8b/8c | shared |
+| R8 | Applicants / leads | portal leads, tenant applicants | `NewPortalLeadReceived`; response time | shared (buyer pipeline is the *sales* pipeline; rentals pipeline `corex.rentals.pipeline.index`, `buyer_pipeline.view`, `RW:6216-6218`) |
+| R9 | Viewings + feedback | calendar viewing | same PARTIAL as step 10 | shared |
+| R10 | **Application received** | Rental applications (`RentalApplication`, statuses `draft, sent, in_progress, returned, reopened, under_assessment, approved, declined, withdrawn`, `RentalApplication.php:27`) | **EXISTS:** `RentalApplicationSubmitted` (`RentalApplicationSigningController.php:527`) | EXISTS |
+| R11 | **Application approved** | `RentalApplicationAuthorisationController` | **EXISTS:** `RentalApplicationApproved` (`:560`); also Declined/Withdrawn/Reopened/ReopenCancelled in `app/Events/RentalApplication/`; status trail `RentalApplicationStatusHistory` | EXISTS |
+| R12 | **Lease signed** | Leases (`Lease`, `signing_status` not_sent…signed_on_paper, `Lease.php:63-72`; `rental_application_id` link :103) | **EXISTS:** `LeaseAgreementSigned` (`LeaseSigningStateService.php:451`, agent's final approval); `LeaseAgreementFailed` | EXISTS |
+| R13 | **Inspections** (in / routine / out) | `RentalInspection` (types in, out, ad_hoc Routine, interim; statuses draft, in_progress, awaiting_signature, completed, cancelled, `RentalInspection.php:32-38, :91-95`) | **GAP** — `RentalInspectionCompletionObserver` fires for Out inspections only; no `InspectionCompleted` domain event; a completed In inspection has no hook (`ASP:285`) | GAP |
+| R14 | **Renewals** | `LeaseRenewalService` (`createRenewalTerm` :40, `activateRenewalTerm` :105, `recordMonthToMonth` :179, `recordNotice` :259; chain via `previous_lease_id` `Lease.php:105`; specs `rental-renewals.md`, `rental-notices.md`) | **GAP** — audit rows only (`LeaseEvent` `TYPE_RENEWAL_DRAFT_CREATED`/`…ACTIVATED`, `LeaseTermAdvanceService.php:66-67, :168-169`); no domain event for "renewal agreed" | GAP |
+| R15 | Aftercare / referrals | as step 13 | GAP | GAP |
+
+Rental deals/fees (a rental equivalent of step 12): **UNVERIFIED** — no separate rental-deal or fee model was located on this path.
+
+### 12.4 How it reuses the engine
+
+Same tables (`track='rentals'`), same task engine, levels, sign-off, funnel service (ratio set swapped: calls→conversations→appraisals→mandates→to-let live→applications→approved→leases→renewals), same celebration, same views (the page is mounted as `road-to-rented.*`). New: a `road-to-rented` feature key (`depends_on` the rentals feature and `road-to-sold`'s engine — a standalone feature row), permission keys (`access_road_to_rented`, mirror of sales), sidebar link inside the Rentals group, wizard step, seeded rental catalogues (selections, outcomes, steps). The lane makes every sales-only spot in 12.2 track-aware **before** the rentals page is switched on, with a test that a rentals bar never counts sales evaluations/mandates.
+
+---
+
+## 13. Settings, permissions, features, wizard
+
+### 13.1 Settings (all agency settings with a default, under Road to Sold settings; v1 settings unchanged)
+
+New tabs in the settings hub (`road-to-sold.settings.index?tab=…`, closure file `routes/road-to-sold-settings.php`, so Road to Rented mounts the same screens): **Recipe** (steps, tasks, levels), **Targets & Budgets** (adopted from the rehome spec §4.3, §5.7, plus per-task targets), **Training & Flags**, **Celebration**. Existing tabs (General, Areas, Targets/weekday, Outcomes) stay.
+
+| Setting | Default | Notes |
+|---|---|---|
+| Step on/off, label, order (13 + 15 rental) | all on, neutral labels | per track |
+| Level names and count | 3 empty-shell levels, Level 1 seeded | agency edits |
+| Task catalogue (type A seeded neutral, type B empty) | neutral | per agency |
+| Task target / points / period per level | seeded small for level 1 | |
+| `levels_signoff_required` | on | off = auto-advance |
+| `level_periods_required` | agency-neutral conservative value | consecutive periods on target to request sign-off |
+| `flag_min_sample` / `flag_below_pct` / `flag_window_days` | 20 / 60% of agency median / 30 | 9.3 |
+| Training pointer per step/ratio | none | course / doc / library / tour |
+| `suggest_window_weeks` / `suggest_growth_pct` | 8 / 10% | 9.4 |
+| `celebrate_*` toggles and which moments notify the BM | all on | 11.2 |
+| `drive_default_area_label` and capture form options | neutral | |
+| `back_date_limit_hours` for task capture | neutral | reuse concept |
+| `aftercare_followup_days` | neutral conservative | 5.6 |
+| `portal_show_agency_commission_totals` | off | rehome spec §4.2 |
+| Red/green lines | 90 / 70 | existing |
+| `expired_competitor` selection: on/off, order, `expired_competitor_lookback_days` | on, last of the ten, 30 | step 1 (answer 1) |
+| Document types that count as a signed mandate / OTP | the CoreX `mandate` and `otp` types | agencies may add their own template types (answer 2) |
+| `rts_cutover_at` (per agency and track) | set once by the migration | read-only; marks the points-rule cut-over (answer 6) |
+| Funnel "done by" split default | agent total | BM can switch to agent-only (answer 4) |
+
+Every threshold lives in the settings row (`rts_settings` or a sibling `rts_recipe_settings`), is read through `SettingsService`-style typed getters with a 15-second memo (v1 §2.1), is audited in `rts_settings_audit`-style append-only history, and returns defaults without writing when `agency_id <= 0` (STANDARDS Rule 17).
+
+### 13.2 Permissions (`config/corex-permissions.php`, section `road-to-sold`, module `road_to_sold`)
+
+Existing: `access_road_to_sold`, `road_to_sold.view` (data breadth: agent=own, BM=branch, admin=all), `.manage_settings`, `.manage_areas`, `.manage_targets`. New (proposed): `road_to_sold.manage_recipe` (tasks, steps, levels), `road_to_sold.review_completions` (BM reviews/returns captured tasks), `road_to_sold.signoff_levels` (BM sign-off; branch/agency by breadth), `road_to_sold.view_funnel` (team funnel and flags; breadth by `road_to_sold.view`), `access_road_to_rented` (+ mirror keys). Retired (replaced): `access_daily_activity`, `view_daily_activity`, `manage_activity_mappings` map to `access_road_to_sold`/`manage_recipe`; `manage_targets` stays (it already gates the Targets area). Defaults: BM gets review/signoff/view_funnel, admin gets all, agent gets view own. Reconciled by `corex:sync-permissions` (the lane reports which roles got which keys). Role-default seeding only affects fresh installs (config header).
+
+### 13.3 Features
+
+Existing `road-to-sold` (`config/corex-features.php:214-224`). New: `road-to-rented` (own key), plus an optional `rts-recipe` sub-feature if Johan wants recipe/levels switchable independently of the call list. Sidebar links are wrapped in `@feature(...)` per the rule at `config/corex-features.php:44-48`; guards `SidebarNavAuditor`, `FeatureNavGuardCoverageTest`, `CrossLinkFeatureWrapTest`.
+
+### 13.4 Setup Wizard (non-negotiable 10a)
+
+Every new setting above reaches `config/agency-onboarding-copy.php` (step `road_to_sold`, :1656) with `explain` + `affects` and its canonical saver in the step's `savers` (guard every boolean write with `$request->has()` — `agency-onboarding-setup.md` §6.1). Johan's call per setting on what stays out of the wizard; the default proposal, following v1 §8: **in the wizard** — level count/names, sign-off on/off, flag on/off and the minimum sample; **out of the wizard (settings page only; recorded in `agency-onboarding-setup.md` §5.1)** — ratio percentages, suggestion window/growth, training pointers, celebration toggles, per-task points. Per-person data (levels per agent, per-user overrides) are records, not settings.
+
+---
+
+## 14. Build order, acceptance, reconciliation
+
+Rule for every phase: QA1 only, nothing to Staging (CLAUDE.md #5); one lane at a time; route names kept and old URLs 301'd; sidebar mapping tests and the nav fixture updated in the same change; tests via `scripts/lane-test.sh`, one file at a time; migrations applied by the deploy (STANDARDS −1g); schema snapshot regenerated and DEFINER-stripped per CLAUDE.md 12a. Branch/landing rules per STANDARDS −1l/−1m (the conductor decides which landing rule applies — see Appendix A §8 note).
+
+| Phase | Content | Acceptance |
+|---|---|---|
+| 0 | **Missing events & defect fixes** (section 6.2): raise the new events at the hooks listed; wire or retire dead registrations; wire `deal.commission_finalised`; fix the wizard-draft `property.captured` credit placement (or document it); fix the `VisibleAgents`/`Scope::level` disagreement; add events to the catalogue | each event fires exactly once per real occurrence (tinker proof per event in a rolled-back transaction); `domain_event_log` shows it; catalogue updated |
+| 1 | **Engine:** tables (5.4), `TaskCompletionService`, generic `DomainEvent` listener, idempotency, neutral default recipe, permissions/features, settings tabs Recipe | Type-A task completes from a real event once; duplicate event does not double-complete; second agency sees only its own recipe; lazily created, never on read |
+| 2 | **Agent view** (10.1): next action, recipe progress, capture form (Type B) with real `matchOrCreate`/contact creation; states (11.1) with placeholder colours | a drive capture creates tracked properties + contacts that appear in the agent's step 1–3 funnel next build; assistant records under the list owner |
+| 3 | **Daily-activity replacement + migration** (7): migrate with `points_legacy`/`points_awarded` (equal for migrated rows), set `rts_cutover_at`, retire old screens (redirects), keep old tables read-only. Runs **after** the interim points fix (answer 5) | counts reconcile exactly: 19,205 entries → 19,205 completions (QA1); screens show 1,961,094 for the migrated history (every migrated row's `points_awarded` = `points_legacy`); the corrected 1,722,894 appears **only** in the before/after report, never on a screen; per-agent before/after table delivered; 0 rows lost; every migrated row has `recorded_by_user_id` and kind; old URLs 301 |
+| 4 | **Levels & sign-off** (8): rts_levels etc., BM sign-off screen, notifications | nobody signs off themselves; BM only in branch; append-only history; level 2 unlocks only after sign-off |
+| 5 | **Funnel, flags, suggestions** (9) | ratios match `DrilldownService::count` for the same window; populations documented; sample-size gate respected; suggestion accept writes via audited saver; nothing auto-writes |
+| 6 | **BM and agency views + reports** (10.2, 10.3); report extended with funnel | scoping proven for agent/BM/admin/second-agency admin; drill-down on every figure; print/PDF/XLSX; every figure splits by who did it (agent vs assistant) and the split adds up to the total |
+| 7 | **Motivation:** celebration events + notifications + in-page; colour mockup round with Johan | cooldown trap tested (two achievements in one day both notify); animation can be switched off |
+| 8 | **Road to Rented** (12): track-aware fixes first, rental catalogues, mount, feature/permission/sidebar/wizard | a rentals bar never counts sales rows (test); R10–R12 tick from their existing events |
+| 9 | **Step 13 aftercare + referrals** (5.6) | follow-up task created N days after a won deal; referral record creates a contact entering step 9 |
+
+### 14.1 Dependencies on the agency-tracker spec
+
+Phase 3 follows `agency-tracker-rehome.md` step 3 (now the interim only: menu merge + shared points service, Johan's answer 5) and replaces the Setup screen and summaries (7.6). Phase 4–5 targets writes follow rehome step 4 (Targets save fix). The My Portal Targets & Budget block (rehome §4) and the Overview "where am I vs where I should be" (rehome §6) read the targets/levels defined here.
+
+### 14.2 Reconciliation report (ships with phase 1)
+
+A scheduled and on-demand report listing: completions with no matching source record, source events with no completion (Type-A mapping broken), duplicate completions per (agent, task, subject), and tasks whose `event_key` has no raise site. This is how "the more it's used, the better the data" stays honest.
+
+---
+
+## 15. Johan's answers (20 Oct 2026) and the conductor's ruling on question 8
+
+Numbering follows the list Johan was given. Answers 1–7 are Johan's. **Question 8 is settled** by the conductor on Johan's delegation, 20 Oct 2026 (below). No question is open in this section.
+
+| # | Question | Johan's answer | Where it lands |
+|---|---|---|---|
+| 1 | A list of other agencies' expired listings to pitch? | **Yes — wherever we have dates to track them on.** | step 1 (new selection `expired_competitor`, only where a dated expiry signal exists), 6.1, 13.1 |
+| 2 | Signed paper mandate/OTP: upload, or e-sign only? | **A mandate (or OTP) counts as done EITHER when a document of that type is uploaded onto the property OR when an e-sign document of that type is completed and filed. Both tick the step.** | steps 6 and 11, 6.1, 6.2 (`DocumentFiledToProperty`), 13.1 |
+| 3 | Payslip step: is "commission paid" the exit? | **For now, "commission paid" is the pipeline exit. Payslips exist but have bugs; a separate payslip clean-up day will get payslips done for all deals, then the signal switches to "payslip generated".** | step 12, 6.1 |
+| 4 | Do assistants' calls count under the agent? | **Yes — an assistant's work counts under the agent, BUT every action records who did it (assistant vs agent) and the reports can split them.** | 5.4, 9.2, 10.4, 10.5, 13.1 |
+| 5 | Interim daily-activity move first? | **Yes (interim points fix first).** | 7.6, 14, 14.1; `agency-tracker-rehome.md` step 3 |
+| 6 | Correcting old points: change history, or fix from cut-over? | **Yes — fix from the cut-over date, plus a before/after report.** Past months keep their old totals. | 7.3, 7.4, phase 3 |
+| 7 | Aftercare (step 13): follow-up reminder + referral log now? | **Yes.** | 5.6 (stays as specced: follow-up task N days after registration + referral record; a fuller client-for-life programme is a later spec) |
+| 8 | Level sign-off: only agents/candidates, or owners/principals too? | **Levels and level sign-off apply to agents and candidates only, not to owners or principals.** *(conductor on Johan's delegation, 20 Oct 2026)* | 8.1: no level, no sign-off request and no sign-off screen row exists for an owner or principal; the setting for owners/principals is not built |
+
+---
+
+## 16. Not verified in code (be honest about it)
+
+- **Production** row counts, grants and settings — all counts here are QA1 (a test copy). Re-read Prod before any promotion.
+- Which `document_types` slug a **rental mandate** uses; whether a **rental appraisal** calendar class exists; whether a rental-deal/fee model exists (section 12.3).
+- Whether `handleDealStageAdvanced` filters the same-status double-raise (step 12); whether the 360-minute alert cooldown figure still holds.
+- Whether the `message` channel of `ContactContactedByAgent` fires at send time or only on archive ingestion (step 9).
+- Legacy `properties.listing_type` spellings beyond the normalised set (12.1).
+- Which paths link a document to a property (the `document_properties` write site, the Filing Register, the PDF splitter, deal documents) — needed to place `DocumentFiledToProperty` (steps 6, 11; Johan's answer 2).
+- Which captured portal fields (P24, Private Property) carry a dated expiry or removal signal for competitor listings (step 1; Johan's answer 1).
+- Why all 27 "[Auto]" definitions are `is_enabled=1` on QA1 though the seeder creates them disabled (7.2) — not rendered.
+- Whether `ListBuilderService`'s overnight build and the summary bar behave identically for assistants after v2's changes (v1 §11.1 is the rule; not re-proved).
+- Domain events dispatched dynamically (static `new X(`/`::dispatch` search only).
+- `BuyersWonProvider` registration in `MetricProviderRegistry` (`MetricProviderRegistry.php:28-43` lists 13 providers without it).
+- Whether `resources/views/layouts/navigation.blade.php` and `dashboard.blade.php` (legacy) are still rendered (from the rehome spec).
+
+---
+
+## 17. Parked (record only)
+
+An AI scout that watches South African property and law changes and notifies agencies (Johan's idea K in the Agency Tracker rulings of 20 Oct 2026). Not part of Road to Sold; own spec when picked up.
+
+---
+
+## 18. Future: client engagement (not for now)
+
+**Status: recorded only. Nothing here is specced for build, scheduled, or part of the Road to Sold phases in section 14.** These are Johan's ideas of 20 Oct 2026, written down so they are not lost. Each needs its own spec (with the spec checklist: search/sort/filter/scope for any list, agency settings + Setup Wizard step, multi-agency neutral defaults) before any code. The wording below is a record of the ideas, not a design.
+
+### 18.1 Seller-facing links — "did you know" statistics
+
+Johan's idea: on the seller-facing links (the seller live link), show extra statistics taken from CoreX data that help move a seller towards a market-related price. Examples he gave:
+- "Properties listed at market value sold within X days."
+- "N buyers in our system are looking for properties like yours."
+- "Reducing the price by RX brings N more potential buyers."
+
+Where it would sit today (verified in step 8b): the seller live link — generated by `SellerLinkController@generate` (`SellerLinkController.php:372-403`, `RW:5797`), shown at `seller-link.show` (`GET /property/live/{token}`, `RW:44`, view `seller-link/live.blade.php`), which already carries seller-safe buyer feedback (`buildSellerSafeFeedback`, `SellerLinkController.php:202-205`). Data that already exists for the statistics: buyer wish lists and matches (`contact_matches`, `ContactMatch`), Market Intelligence demand/supply and velocity services (`app/Services/MarketIntelligence/OpportunityPocketService.php`, `DemandSupplyMatrixService`, `MarketVelocityService`), `DaysOnMarket`, sold records (`property_sold_records`). Whether the "reduce the price by RX" figure can be computed from existing buyer price bands is **not verified**.
+Things any future spec must settle (not decided here): minimum sample size before a figure is shown (a statistic from 3 sales must not be presented as a fact); each figure labelled with its basis and date; no statement that could read as a guarantee or as a formal evaluation (the word is "evaluation", never "valuation"); buyers counted without exposing any buyer's identity (POPIA); the agency decides which statistics show (agency setting).
+
+### 18.2 Buyer wish lists and viewing packs — why the buyer is buying
+
+Johan's idea: capture the buyer's purpose — **investor / permanent living / holiday** — on the wish list, and show different supporting information per purpose in viewing packs (and the buyer-facing views):
+- **Investor:** return on investment.
+- **Permanent living:** points of interest.
+- **Vacant land:** an AI-generated house image on the land; surveyor and planning cost estimates.
+- **Renovation estimates:** from contractor rates the agency captures (his example: tiling R250 material + R150 labour per m²).
+- **Agency-added places of interest.**
+- **A suburb "who's who"** (for example the community policing forum, the ward councillor).
+- **An agency settings screen** chooses what shows, per property type, sale type and buyer purpose.
+
+Where it would sit today: wish lists are `ContactMatch` (`contact_matches`; routes `matches.*`, `RW:6518-6527`); viewing packs are `ViewingPack` (`corex.viewing-packs.*`, `RW:2580-2599`, `ViewingPackController`; `status` only `draft|ready`, `ViewingPack.php:46-48`) with a buyer PDF (`@downloadBuyerPack`, `ViewingPackController.php:355`). No buyer-purpose field exists today (**UNVERIFIED — not searched**). Note the existing steps 8c and 9 in section 4 are where viewing packs and Core Matches meet the recipe; this idea would enrich them, not replace them.
+Things any future spec must settle: the AI image on vacant land is AI-generated content and must follow the AI rules already in the codebase (spend guard `AiSpendGuard::assertAllowed`, usage recorded by `AiUsageRecorder`, content marked with `resources/views/components/ai-badge.blade.php`, a person confirms before a buyer sees it; see section 9.1); renovation and survey/planning figures are **estimates** from agency-captured rates and must say so; ROI shown to an investor must state its inputs and assumptions (rental income source, costs); places of interest and the "who's who" are **agency-owned data** (second-agency rule: nothing HFC-specific or Southern KZN-specific is seeded); contractor rate cards are agency settings with soft delete.
+
+### 18.3 Think outside the box — more engagement with what the client sees
+
+Johan's prompt, recorded as he gave it: find more ways to engage with what the client sees. No design exists. Questions for a later discussion (these are prompts for that conversation, not decisions and not Johan's words): which moments does a seller or buyer already look at something from CoreX (the seller live link opens are counted — `access_count`, `last_accessed_at`, `PropertySellerLink.php:13-18`; presentation views are counted — `PresentationSnapshotView`, `presentation_snapshot_links.first_viewed_at`); can the agent be told when a client looks, and what the client does next; can a client leave a reaction that flows back into CoreX records (feedback on a viewing already flows to the seller link — step 10).
+
+### 18.4 Presentations — a simplified report and an advanced report
+
+Johan's idea: consider offering a simplified presentation report and an advanced presentation report. Today there is one presentation flow (`presentations.*`, `RW:6639+`, `Presentation\PresentationController`; delivery `PresentationDeliveryService.php:257`; public view `GET /p/{token}`, `PublicPresentationController@show`). Whether the content can simply be filtered into two depths or needs two layouts is not investigated. Relates to step 5 (presentation created / presented / feedback) and to the "presented" gap in section 6.1.
+
+### 18.5 How this connects to Road to Sold (so it is not lost)
+
+These ideas feed steps 5 (presentation), 8 (marketing: seller live link, viewing pack), 9 (buyers) and 10 (viewings + feedback) of the recipe, and the funnel in section 9 — better client-facing material should show up as better ratios at those steps. They are deliberately **not** tasks or phases in section 14 and have no events, tables or settings in sections 5, 6 or 13 until a spec exists.
+
+---
+
+## 19. Evaluation data — shared property facts (prospecting): freehold building size
+
+**Status: Johan's ruling of 20 Oct 2026, recorded. Spec text only — nothing built, no data fetched, no source chosen.** Note for the reader: this file had no "evaluation-data / shared property facts" section before this one, so this section creates it; and the "pooled across agencies" ruling of 20 Oct that the instruction refers to is **not written anywhere in this tree** (searched `.ai/specs/`, `.ai/CHAT_STARTER.md`) — it is taken here as relayed by Johan's side and must be read together with that ruling's own text when it is written down. The word is **evaluation**, never "valuation".
+
+Why it sits under Road to Sold: steps 4 (evaluation booked) and 5 (presentation) need a building size the agent can quote before and during an evaluation; today the agent has no map-derived figure to start from.
+
+### 19.1 Johan's ruling (20 Oct 2026), as relayed
+
+- CoreX **auto-picks up the roof footprint size** of a **freehold** property from map / building-footprint data. Candidate sources to evaluate (nothing chosen): **Google Open Buildings** and **Microsoft Global ML Building Footprints** (free datasets with polygons and area), and the **Google Solar API** (coverage to be confirmed). **Match by the stand's location.**
+- It **applies a reduction for roof overhang**, based on averages — an **agency/platform setting, default 10–15%**.
+- The **agent is asked how many storeys**. For **multi-storey** it asks **what percentage the upper floor covers (10–100%, in steps of 10)**. The result is the **estimated under-roof size**.
+- **Every display carries a clear disclaimer:** "Estimated figures from map data. Not a measured size."
+- The result is a **shared property fact** (pooled across agencies per the 20 Oct ruling), **with the agent's override kept**.
+- **"Display if available" only (Johan, 20 Oct 2026, added):** if no footprint is found for the stand, the report and the screens **simply leave the estimate out** — no blank row, no empty label, no error, no "not available" message — and **nothing waits on it**: no step, task, report, evaluation, presentation, export or sync depends on the estimate existing, and no screen is blocked or delayed while it is looked up.
+- **OPEN:** footprint data quality in HFC's areas (**Margate / Shelly Beach / Uvongo**) must be **sampled before building**.
+
+### 19.2 How the figure is worked out (proposed from the ruling; the arithmetic is to be confirmed with Johan)
+
+1. **Roof footprint area** `F` (m²) = the area of the building polygon whose location matches the stand.
+2. **Ground-floor under-roof area** `G = F × (1 − overhang%)`, with `overhang%` the agency/platform setting (default in the 10–15% band; the exact default is chosen after the sampling in 19.6, not before).
+3. **Storeys** `s` asked of the agent (whole number ≥ 1). If `s = 1`: estimated size `= G`.
+4. If `s ≥ 2`: the agent gives the **upper-floor coverage** `u` — one of 10%, 20%, … 100%. Proposed: each upper floor is taken to cover `u` of `G`, so **estimated size `= G × (1 + (s − 1) × u)`**. (Johan said "the upper floor" in the singular; whether one percentage applies to every upper floor of a 3+ storey house is **to confirm**.)
+5. The figure is rounded for display to a whole m² (the rounding rule is a setting, not hardcoded) and never shown without the disclaimer.
+
+Inputs are validated and absorbed per BUILD_STANDARD §2/§3: storeys 1–10 (out of range → plain message); coverage only offered when `s ≥ 2` and restricted to the ten steps; no footprint found → **no estimate and nothing shown in its place** (the row, label and disclaimer are all omitted; no error, no placeholder). The agent can still capture a size by hand in the existing size fields, with no disclaimer implied for a hand-captured figure.
+
+### 19.3 What exists today (verified where cited)
+
+- The property record already has building and land size fields: `size_m2` (building/floor size) and `erf_size_m2` (stand size) — both are in the fillable list (`app/Models/Property.php:997-998`), with unit fields such as `floor_area_unit` (:1075); the map layer copies them as `floor_size_m2` and `land_size_m2` (:3909-3910). Whether `tracked_properties` carries size fields, and how a stand's location (GPS point or erf polygon) is held, was **not read** for this spec — **UNVERIFIED**; the lane confirms both before designing the match.
+- Tracked properties are the shared intelligence tier (CLAUDE.md non-negotiable 10; `TrackedPropertyMatchOrCreateService::matchOrCreate`, `app/Services/Prospecting/TrackedPropertyMatchOrCreateService.php:145`, which already resolves by GPS proximity as one of its five strategies and appends every contribution to `source_chain`). A footprint-derived size is exactly the kind of fact that belongs in that chain with a source label.
+- No footprint, building-polygon or roof-size code exists anywhere in `app/`, `config/` or `database/` (searched `app/`, `config/`, `database/migrations/`, `routes/` for `footprint`, `building_polygon`, `open buildings`, `roof` — the only hits are unrelated uses of the word "proof").
+
+### 19.4 Where it is stored — a shared property fact with provenance and an override
+
+- A **shared property fact** attached to the tracked property (the pooled tier), not to one agency's `properties` row. Per the 20 Oct pooling ruling as relayed, it is visible across agencies; each agency still sees only its own override and its own properties' agent data (the existing agency-isolation rules, `BelongsToAgency`, do not change for agency-owned records).
+- Each stored estimate keeps its **provenance**, so it can be audited and recomputed: source dataset and version, building/footprint identifier or polygon reference, footprint area `F`, the overhang % used, storeys `s`, coverage `u`, the computed estimate, who supplied storeys/coverage, and when. A change of dataset or setting creates a **new** estimate; it never rewrites the old one (append-only history, soft delete only).
+- **The agent's override is kept.** An agent may replace the estimate with their own figure (for example from a measured plan). The override is stored beside the estimate with who and when and an optional reason; a refreshed estimate **never overwrites an override**; the screen shows which figure is in use and that the other exists. Whether an override also feeds the pooled fact for other agencies is **not decided** — default: the override is visible to the agent's own agency only, until Johan rules otherwise.
+- Soft delete only; archive/restore on the override and on the estimate.
+
+### 19.5 The disclaimer — every display
+
+The exact wording is **"Estimated figures from map data. Not a measured size."** It appears on **every** screen, document and export that shows the estimated figure (property page, tracked-property page, evaluation certificate screen and PDF, presentation and its public link, seller live link, viewing pack, any API response that carries the figure). It is part of the displayed value, not a tooltip. A hand-captured or overridden measured figure does not carry it; an estimate that an agent has simply accepted still does. Where there is no estimate, the disclaimer is not shown either (it belongs to the figure, not to the page). **Portal syndication (P24 / Private Property) must not send the estimated figure as a measured building size** — whether it may be sent at all, with the disclaimer in the description, is **not decided** and is an open question for Johan (a wrong size on a portal is a listing-accuracy issue under the Consumer Protection Act and PPRA rules, so the safe default is: not sent).
+
+### 19.6 Open — data quality must be sampled before anything is built
+
+**Johan: footprint data quality in HFC's areas (Margate, Shelly Beach, Uvongo) must be sampled before building.** Spec for the sampling (analysis only, no product code): choose a set of freehold stands in those three areas with a known measured building size (from plans, evaluations or deeds-office records the agency holds), run each candidate source (Google Open Buildings, Microsoft Global ML Building Footprints; Google Solar API where coverage exists) against the stand's location, and record per stand: whether a polygon was found, whether it is the right building, footprint area, and the error against the measured size after the overhang and storey rules. The result decides which source (or combination) is used, whether the approach is accurate enough to show at all, and the overhang default. Sampled coverage gaps (rural stands, dense multi-building stands, outbuildings counted as the house) are listed. Licence and attribution terms of each dataset, and the cost and terms of the Solar API, are checked at the same time (**not checked**). Nothing is built until Johan has the sampling result.
+
+### 19.7 Multi-agency and settings
+
+No HFC area names, HFC defaults or HFC wording in shipped code: the sampling areas above are for quality evidence only. Every tunable is an agency/platform setting with a default and reaches the Setup Wizard (non-negotiable 10a) or is recorded in the "Deliberately NOT in the wizard" list by Johan's call: `overhang%` (default 10–15% band, chosen after 19.6), the display rounding, which source(s) are enabled, and whether the figure is offered at all for the agency (some countries or areas have no coverage — there the estimate is simply left out, never replaced by a guess). Freehold only: sectional-title units are outside this ruling.
+
+### 19.8 What this section does not do
+
+**Display if available — non-blocking by rule.** The lookup is optional and best-effort: it must never delay, block or fail a save, a page load, a report, a presentation, an evaluation certificate or any Road to Sold step; if the source is slow, down, out of coverage or returns nothing, the page renders exactly as it does today. Acceptance for any later build: with the lookup switched off, with no footprint for the stand, and with the source erroring, every screen and report listed in 19.5 renders without the estimate, without a blank row, and without an error; a test proves each of the three cases.
+
+It chooses no data source, fetches no data, adds no table or field, and changes no screen. It records the ruling so a later spec can be written once the sampling in 19.6 is done.
+
+---
+
+---
+
+# APPENDIX A — Superseded v1 (AT-454), kept unedited
+
+> Everything below is the previous `road-to-sold.md` (spec v1, 13–14 Oct 2026), copied verbatim from `origin/QA1` at `8ee4fb502`. Where it conflicts with the sections above, the sections above win (see section 2 for exactly what still stands). Its Section 1 is Johan's original business rules (approved 13 Oct 2026 07:19) and its section numbering (§1–§13) is the numbering cited throughout this v2 as "v1 §n". Do not renumber or edit it.
+
+---
+
 # Road to Sold (and, later, Road to Rented)
 
 **Jira: AT-454** — one ticket for the whole build (BUILD_STANDARD §8). Commits are prefixed `AT-454:`.
