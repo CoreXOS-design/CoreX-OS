@@ -716,9 +716,9 @@ final class RentalInspectionSiteFormTest extends TestCase
         $html = $this->actingAs($this->agent)->get(route('corex.rental-inspections.scans.review', [$inspection, $scan]))->assertOk()->getContent();
         $this->assertStringContainsString('Apply proposed marks', $html);
         $this->assertStringContainsString('data-qa="row-low-confidence"', $html);
-        $this->assertStringContainsString('data-qa="row-unclear"', $html); // the third row was left blank
+        $this->assertStringContainsString('data-qa="row-state-missed"', $html); // the third row was left blank: not picked up at all
         $this->assertStringContainsString('Open original', $html);
-        $this->assertStringContainsString('Only conditions wait for', $html);
+        $this->assertStringContainsString('1 read, 1 to check, 1 not picked up', $html); // the one-line count (§13.15)
     }
 
     // ── AT-463 / §62: what an office scanner and a hand actually produce ──────────────────────────

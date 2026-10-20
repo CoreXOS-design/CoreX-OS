@@ -1184,3 +1184,35 @@ Files: `RentalInspectionNoteReadService.php`, `RentalInspectionScanReaderService
 `RentalInspectionScanController.php` (`review()`, `apply()`), `scan-review.blade.php`, `public/js/corex-scan-review.js`,
 `RentalInspectionScanMark.php`, `config/services.php`, migration `2026_11_24_120000`, `RentalInspectionScanReviewNotesPhotosTest.php` (16).
 
+### 13.15 Review of scan #25 (inspection #173): three tick states, the note always visible, the unreadable note (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan counted 7 notes on the review screen where the page held 9. Cause: a note on a row with no condition picked (Floors, two boxes ticked) sat inside the
+row's closed controls, so the AI-read note was hidden. On scan #25's data exactly one noted row was hidden that way (Floors); the second row he could not
+see could not be identified from the data. Rulings and what was built:
+
+- **A detected note is ALWAYS visible**, whatever the row's condition. Only SAVING waits for a condition: the photo controls still open when a condition is
+  picked (nothing is recorded without one), and a note the agent typed while no condition was picked is saved the moment one is. An untouched AI note
+  waits for Apply, as before. The note box starts on the note already recorded when there is one (never overwritten), else on the AI-read note.
+- **"Read from scan (95%)"** (existing `ds-badge-info`) marks an AI-read note sitting on the box; the agent's first edit removes it, and a note
+  already recorded is never marked. This replaces the small "Note read (87%)" text.
+- **Unreadable note.** A note area that had handwriting in it (`note_ink`, set by the reader while the AI read is on, dark share >= 0.015) but has no
+  usable reading - an empty AI answer, or a confidence under `note_read_min_confidence` - says **"Couldn't read the handwritten note. Type it in."** at
+  the note box (amber), and a reading under the line is not filled in.
+- **Three tick states per row** (`RentalInspectionScanMark::tickState()`), each an existing CoreX badge: **Read** with confidence (`ds-badge-success`,
+  "Read: Fair (100%)"), **Check** - picked up but unsure: two boxes, a faint tick, or confidence under `omr_unsure_below` (`ds-badge-warning`, "Check: two
+  boxes ticked" / "Check: read Fair (35%)" / "Check: unclear"), and **Not picked up** - nothing over the sensitivity on the row (`ds-badge-danger`). Check and Not
+  picked up start with the condition select blank: the agent must confirm or set it. `scan_marks.tick_boxes` (how many boxes read as marked) tells "two
+  boxes" from "nothing"; a mark read before the column existed is told apart by its confidence (under 0.4 = nothing picked up, because confidence =
+  strongest box / (2.5 x sensitivity)).
+- **One count line** on top replaces the old summary paragraph and the "Only conditions wait for Apply" sentence: "X read, Y to check, Z not picked up"
+  (rows still to apply). No other helper text.
+- **Two new agency settings** (read-time defaults, on Settings -> Rental Inspections AND in the Setup Wizard Rentals step, §10a): `omr_unsure_below` (default
+  0.50 - the constant the reader and the screen used to hard-code) and `note_read_min_confidence` (default 0.50). Migration
+  `2026_11_24_130000` (those two columns, `tick_boxes`, `note_ink`).
+- A scan read before this change has no `note_ink`: its rows show no "couldn't read" message until it is re-read.
+
+Files: `RentalInspectionScanMark.php`, `RentalInspectionSetting.php`, `RentalInspectionScanReaderService.php`, `RentalInspectionScanController.php`,
+`scan-review.blade.php`, `corex-scan-review.js`, `RentalInspectionSettingsController.php`, `settings/rental-inspections.blade.php`,
+`AgencySetupWizardController.php`, `config/agency-onboarding-copy.php`, migration `2026_11_24_130000`; tests in `RentalInspectionScanReviewNotesPhotosTest`
+(24), `RentalInspectionSiteFormTest`, `RentalsStepRuledInSettingsTest`.
+

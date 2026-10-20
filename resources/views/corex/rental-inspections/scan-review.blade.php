@@ -16,6 +16,10 @@
     are captured - through the capture screen's own /observations and /photos endpoints (public/js/corex-scan-review.js on top of
     public/js/corex-photo-batch-uploader.js), not tied to Apply. The note box starts with the AI-read handwriting when there is one.
     A signed or completed inspection makes the whole screen read-only.
+
+    §13.15 (Johan, 20 Oct 2026, scan #25): every row's tick is in one of THREE states - read with confidence / picked up but unsure (agent
+    must confirm) / not picked up at all (agent must set it) - with one count line on top; a detected note is ALWAYS visible (only saving waits
+    for a condition), marked "Read from scan" until the agent edits it; a note area with ink the AI could not read says so at the note box.
 --}}
 
 @section('content')
@@ -105,18 +109,14 @@
             @php
                 $groupedMarks = $scan->marks->groupBy(fn ($m) => $m->item?->room?->label ?? 'General');
                 $stateLabel = collect($conditionStates)->pluck('label', 'key');
-                $isLow = fn ($m) => ! $m->ambiguous && $m->detected_confidence !== null && (float) $m->detected_confidence < $lowConfidenceBelow;
                 $open = $scan->marks->whereNull('applied_observation_id');
-                $needAttention = $open->filter(fn ($m) => $m->ambiguous || $isLow($m))->count();
+                $tickCounts = ['read' => 0, 'unsure' => 0, 'missed' => 0];
+                foreach ($open as $m) { $tickCounts[$m->tickState($unsureBelow)]++; }
             @endphp
             @if($readOnly)
                 <span class="ds-badge" data-qa="scan-read-only">Read-only</span>
             @elseif($open->isNotEmpty())
-                <p class="text-xs" style="color: var(--text-secondary);" data-qa="scan-summary">
-                    {{ $open->count() }} {{ $open->count() === 1 ? 'row' : 'rows' }} proposed from the ticked columns.
-                    @if($needAttention > 0) <strong>{{ $needAttention }} {{ $needAttention === 1 ? 'needs' : 'need' }} your attention</strong> (left blank below).@endif
-                    Only conditions wait for "Apply proposed marks".
-                </p>
+                <p class="text-xs font-semibold" style="color: var(--text-secondary);" data-qa="scan-summary">{{ $tickCounts['read'] }} read, {{ $tickCounts['unsure'] }} to check, {{ $tickCounts['missed'] }} not picked up</p>
             @endif
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @forelse($groupedMarks as $roomLabel => $marksInRoom)
@@ -128,14 +128,20 @@
                                 $recordedCondition = $onScreen[$itemId] ?? '';
                                 $recordedNote = $onScreenNotes[$itemId] ?? null;
                                 $applied = $mark->applied_observation_id !== null;
-                                // The condition the select starts on: what an applied row was confirmed as, else the reader's clear tick (never a guess).
+                                $tick = $mark->tickState($unsureBelow);
+                                // The condition the select starts on: what an applied row was confirmed as; else the reader's CLEAR tick only - a
+                                // row that is to check or not picked up starts blank (the agent must confirm / set it).
                                 $startKey = $applied
                                     ? ($recordedCondition !== '' ? $recordedCondition : (string) $mark->confirmed_condition_key)
-                                    : ((! $mark->ambiguous && ! $isLow($mark)) ? (string) $mark->detected_condition_key : '');
-                                // The note box starts on the AI-read handwriting on a row still to apply, else on the note already recorded.
-                                $detectedNote = (! $applied && filled($mark->detected_note)) ? $mark->detected_note : null;
-                                $startNote = $detectedNote ?? $recordedNote ?? '';
+                                    : ($tick === 'read' ? (string) $mark->detected_condition_key : '');
+                                // The note box: the note already recorded wins (never overwritten); else the AI-read handwriting, when it is good
+                                // enough; a note area with ink that could not be read says so instead.
+                                $usableNote = (! $applied && $recordedNote === null) ? $mark->usableDetectedNote($noteMinConfidence) : null;
+                                $noteUnreadable = (! $applied && $recordedNote === null && $usableNote === null) && $mark->noteUnreadable($noteMinConfidence);
+                                $startNote = $recordedNote ?? $usableNote ?? '';
                                 $rowPhotos = $photos[$itemId] ?? [];
+                                $pct = fn ($v) => (int) round($v * 100);
+                                $detectedLabel = $mark->detected_condition_key ? ($stateLabel[$mark->detected_condition_key] ?? ucfirst(str_replace('_', ' ', $mark->detected_condition_key))) : null;
                             @endphp
                             <div class="text-sm py-1 space-y-2" style="border-bottom: 1px solid var(--border);"
                                  data-scan-row data-mark-id="{{ $mark->id }}" data-item-id="{{ $itemId }}"
@@ -149,15 +155,17 @@
                                             <span class="ds-badge ds-badge-success">Applied — {{ ucfirst(str_replace('_', ' ', $mark->confirmed_condition_key)) }}</span>
                                             <span class="text-xs" style="color: var(--text-muted);">by {{ $mark->confirmedBy?->name }}</span>
                                         @else
-                                            <span class="text-xs" style="color: var(--text-muted);">
+                                            @if($tick === 'read')
+                                                <span class="ds-badge ds-badge-success" data-qa="row-state-read">Read: {{ $detectedLabel }} ({{ $pct($mark->detected_confidence) }}%)</span>
+                                            @elseif($tick === 'unsure')
                                                 @if($mark->ambiguous)
-                                                    <span data-qa="row-unclear">No clear mark</span>
-                                                @elseif($isLow($mark))
-                                                    <span data-qa="row-low-confidence" style="color: var(--ds-amber); font-weight: 600;">Check this one: read {{ $stateLabel[$mark->detected_condition_key] ?? ucfirst(str_replace('_', ' ', $mark->detected_condition_key)) }} ({{ (int) round($mark->detected_confidence * 100) }}%)</span>
+                                                    <span class="ds-badge ds-badge-warning" data-qa="row-state-unsure"><span data-qa="row-unclear">Check: {{ ($mark->tick_boxes ?? 0) >= 2 ? 'two boxes ticked' : 'unclear' }}</span></span>
                                                 @else
-                                                    Read: {{ $stateLabel[$mark->detected_condition_key] ?? ucfirst(str_replace('_', ' ', $mark->detected_condition_key)) }} ({{ (int) round($mark->detected_confidence * 100) }}%)
+                                                    <span class="ds-badge ds-badge-warning" data-qa="row-state-unsure"><span data-qa="row-low-confidence">Check: read {{ $detectedLabel }} ({{ $pct($mark->detected_confidence) }}%)</span></span>
                                                 @endif
-                                            </span>
+                                            @else
+                                                <span class="ds-badge ds-badge-danger" data-qa="row-state-missed">Not picked up</span>
+                                            @endif
                                         @endif
                                         @unless($readOnly)
                                             <select name="condition_keys[{{ $mark->id }}]" class="text-xs rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-scan-condition>
@@ -176,19 +184,21 @@
                                         </div>
                                     @endif
                                 @else
-                                    <div class="space-y-1" data-scan-controls @if($startKey === '') style="display: none;" @endif>
+                                    <div class="space-y-1" data-scan-note-area>
+                                        @if($usableNote !== null)
+                                            <span class="ds-badge ds-badge-info" data-scan-read-badge data-qa="row-note-read">Read from scan ({{ $pct($mark->detected_note_confidence) }}%)</span>
+                                        @elseif($noteUnreadable)
+                                            <p class="text-xs font-semibold" style="color: var(--ds-amber);" data-scan-unreadable data-qa="row-note-unreadable">Couldn't read the handwritten note. Type it in.</p>
+                                        @endif
                                         <textarea name="notes[{{ $mark->id }}]" rows="2" maxlength="4000" class="text-xs rounded-md px-2 py-1 w-full" style="border: 1px solid var(--border);" data-scan-note data-qa="row-note">{{ $startNote }}</textarea>
-                                        <div class="flex flex-wrap items-center gap-1">
-                                            <span class="flex flex-wrap gap-1" data-scan-photos>
-                                                @foreach($rowPhotos as $url)<img src="{{ $url }}" alt="" loading="lazy" class="rounded-md" style="width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--border);">@endforeach
-                                            </span>
-                                            <button type="button" class="corex-btn-outline text-xs" data-scan-add-photo data-qa="row-add-photo">Add photo</button>
-                                            <input type="file" accept="image/*" multiple class="hidden" data-scan-photo-input>
-                                            @if($detectedNote && $mark->detected_note_confidence !== null)
-                                                <span class="text-xs" style="color: var(--text-muted);" data-qa="row-note-read">Note read ({{ (int) round($mark->detected_note_confidence * 100) }}%)</span>
-                                            @endif
-                                            <span class="text-xs" style="color: var(--text-muted);" data-scan-status aria-live="polite"></span>
-                                        </div>
+                                    </div>
+                                    <div class="flex flex-wrap items-center gap-1" data-scan-controls @if($startKey === '') style="display: none;" @endif>
+                                        <span class="flex flex-wrap gap-1" data-scan-photos>
+                                            @foreach($rowPhotos as $url)<img src="{{ $url }}" alt="" loading="lazy" class="rounded-md" style="width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--border);">@endforeach
+                                        </span>
+                                        <button type="button" class="corex-btn-outline text-xs" data-scan-add-photo data-qa="row-add-photo">Add photo</button>
+                                        <input type="file" accept="image/*" multiple class="hidden" data-scan-photo-input>
+                                        <span class="text-xs" style="color: var(--text-muted);" data-scan-status aria-live="polite"></span>
                                     </div>
                                 @endif
                             </div>

@@ -222,8 +222,10 @@ class RentalInspectionScanController extends Controller
             'source' => $rentalInspection->type === RentalInspection::TYPE_OUT
                 ? \App\Models\RentalInspectionObservation::SOURCE_OUT_INSPECTION
                 : \App\Models\RentalInspectionObservation::SOURCE_IN_INSPECTION,
-            // Confidence runs 0-1 (1 = a clear tick); a tick that only just cleared the sensitivity is doubtful: flagged, never pre-selected.
-            'lowConfidenceBelow' => 0.5,
+            // Confidence runs 0-1 (1 = a clear tick). Under the agency's line a tick is "picked up but unsure": shown as to check, never
+            // pre-selected (form spec §13.15). A read note under its own line is not filled in.
+            'unsureBelow' => RentalInspectionSetting::omrUnsureBelowFor($rentalInspection->agency_id),
+            'noteMinConfidence' => RentalInspectionSetting::noteReadMinConfidenceFor($rentalInspection->agency_id),
         ]);
     }
 

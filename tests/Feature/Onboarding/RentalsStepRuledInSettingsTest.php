@@ -46,7 +46,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
     /** The ruled-in controls (and their list markers): the keys a post "that never rendered the new controls" does not carry. */
     private const RULED_IN_KEYS = [
-        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'form_paper_size', 'form_safe_margin_mm',
+        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'omr_unsure_below', 'note_read_min_confidence', 'form_paper_size', 'form_safe_margin_mm',
         'refusal_reason_presets', 'condition_states_submitted', 'condition_states', 'baseline_condition_key',
         'photo_note_classifications_submitted', 'photo_note_classifications',
         'inventory_condition_states_submitted', 'inventory_condition_states',
