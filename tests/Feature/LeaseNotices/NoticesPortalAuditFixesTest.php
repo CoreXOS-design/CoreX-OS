@@ -18,7 +18,7 @@ use Tests\TestCase;
 /**
  * Audit fixes 2026-10-20 (rental notices / portal / navigation audit) - the parts that live with the lease notices:
  *  finding 5  reverse / change-outcome of a recorded notice need rental_notices.review on every entry
- *  finding 4  the A17/A28 grant migration never restores a deliberately revoked grant, and a forward migration re-revokes the ones it had restored
+ *  finding 4  the A17/A28 grant migration never restores a deliberately revoked grant
  *  finding 2  the new rental_applications.authorise grant never restores a revoked row either
  *  the note   notice template HTML is cleaned of anything active, on save and on render
  */
@@ -28,7 +28,6 @@ final class NoticesPortalAuditFixesTest extends TestCase
     use RefreshDatabase;
 
     private const MIG_GRANT = 'database/migrations/2026_11_19_100000_grant_rental_notices_view_and_review_audit_a17_a28.php';
-    private const MIG_REVOKE = 'database/migrations/2026_11_26_110000_re_revoke_rental_notices_grants_restored_by_audit_a17_a28.php';
     private const MIG_AUTHORISE = 'database/migrations/2026_11_26_100000_grant_rental_applications_authorise_audit_2026_10_20.php';
 
     protected function setUp(): void
@@ -139,56 +138,6 @@ final class NoticesPortalAuditFixesTest extends TestCase
         $this->assertSame(0, RolePermission::where('role', 'agent')->where('permission_key', 'rental_notices.review')->count());
         // the grant that never existed is still created
         $this->assertSame(1, RolePermission::where('role', 'agent')->where('permission_key', 'rental_notices.view')->count());
-    }
-
-    public function test_the_forward_migration_revokes_what_the_first_version_restored_and_nothing_else(): void
-    {
-        $this->seedGrants();
-        $long = Carbon::now()->subMonths(2);
-        $runAt = Carbon::now()->subHours(3);
-        $make = function (string $role, string $key, Carbon $created, Carbon $updated, ?string $agency = null) {
-            $row = new RolePermission(['agency_id' => $this->agency->id, 'role' => $role, 'permission_key' => $key, 'scope' => 'all']);
-            $row->created_at = $created;
-            $row->updated_at = $updated;
-            $row->saveQuietly();
-            DB::table('role_permissions')->where('id', $row->id)->update(['created_at' => $created, 'updated_at' => $updated]);
-
-            return $row->id;
-        };
-        // restored by the first version at one moment: created long before, updated together within seconds
-        $restoredA = $make('agent', 'rental_notices.review', $long, $runAt);
-        $restoredB = $make('agent', 'rental_notices.view', $long, $runAt->copy()->addSeconds(1));
-        $restoredC = $make('branch_manager', 'rental_notices.review', $long, $runAt->copy()->addSeconds(2));
-        // created by the first version's own run (never revoked before): created = updated
-        $created = $make('office_admin', 'rental_notices.view', $runAt, $runAt);
-        // an administrator's own later re-grant, days afterwards, on its own
-        $later = $make('viewer', 'rental_notices.review', $long, Carbon::now()->subDay());
-        // a grant that was never touched
-        $plain = $make('admin', 'rental_notices.review', $long, $long);
-
-        $migration = require base_path(self::MIG_REVOKE);
-        $migration->up();
-        PermissionService::clearCache();
-
-        foreach ([$restoredA, $restoredB, $restoredC] as $id) {
-            $this->assertTrue(RolePermission::withTrashed()->findOrFail($id)->trashed(), "restored grant {$id} is revoked again (soft delete)");
-        }
-        foreach ([$created, $later, $plain] as $id) {
-            $this->assertFalse(RolePermission::withTrashed()->findOrFail($id)->trashed(), "grant {$id} is left alone");
-        }
-        $this->assertTrue(RolePermission::where('permission_key', 'rental_notices.review')->where('role', 'agent')->doesntExist());
-    }
-
-    public function test_the_forward_migration_does_nothing_on_a_database_the_first_version_never_ran_on(): void
-    {
-        $this->seedGrants();
-        $this->grant($this->agent, ['rental_notices.review', 'rental_notices.view']);
-        $before = RolePermission::count();
-
-        (require base_path(self::MIG_REVOKE))->up();
-
-        $this->assertSame($before, RolePermission::count());
-        $this->assertSame(0, RolePermission::onlyTrashed()->count());
     }
 
     // ── finding 2: the new key's grant ────────────────────────────────────

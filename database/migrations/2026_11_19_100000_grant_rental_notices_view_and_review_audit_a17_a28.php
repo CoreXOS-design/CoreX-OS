@@ -20,8 +20,8 @@ use Illuminate\Database\Migrations\Migration;
  * AUDIT FIX 2026-10-20 (finding 4): a row that is SOFT-DELETED is a grant an administrator deliberately took away. The first version of
  * this migration restored such rows, which handed the right straight back (e.g. an Agent role that had `rental_notices.review` removed
  * but still held `leases.renew` got it back, silently). A trashed row is now left exactly as it is - only grants that never existed are
- * created. Where the first version already ran (QA1 / Staging), 2026_11_26_110000_re_revoke_rental_notices_grants_restored_by_audit_a17_a28
- * takes the resurrected grants away again. Idempotent.
+ * created. Checked 2026-10-20 on QA1, QA2, Staging and live: the first version restored no row anywhere (no active view/review row has an
+ * updated_at later than its created_at), so no clean-up migration is needed. Idempotent.
  */
 return new class extends Migration
 {
