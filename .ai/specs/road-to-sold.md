@@ -741,6 +741,62 @@ These ideas feed steps 5 (presentation), 8 (marketing: seller live link, viewing
 
 ---
 
+## 19. Evaluation data — shared property facts (prospecting): freehold building size
+
+**Status: Johan's ruling of 20 Oct 2026, recorded. Spec text only — nothing built, no data fetched, no source chosen.** Note for the reader: this file had no "evaluation-data / shared property facts" section before this one, so this section creates it; and the "pooled across agencies" ruling of 20 Oct that the instruction refers to is **not written anywhere in this tree** (searched `.ai/specs/`, `.ai/CHAT_STARTER.md`) — it is taken here as relayed by Johan's side and must be read together with that ruling's own text when it is written down. The word is **evaluation**, never "valuation".
+
+Why it sits under Road to Sold: steps 4 (evaluation booked) and 5 (presentation) need a building size the agent can quote before and during an evaluation; today the agent has no map-derived figure to start from.
+
+### 19.1 Johan's ruling (20 Oct 2026), as relayed
+
+- CoreX **auto-picks up the roof footprint size** of a **freehold** property from map / building-footprint data. Candidate sources to evaluate (nothing chosen): **Google Open Buildings** and **Microsoft Global ML Building Footprints** (free datasets with polygons and area), and the **Google Solar API** (coverage to be confirmed). **Match by the stand's location.**
+- It **applies a reduction for roof overhang**, based on averages — an **agency/platform setting, default 10–15%**.
+- The **agent is asked how many storeys**. For **multi-storey** it asks **what percentage the upper floor covers (10–100%, in steps of 10)**. The result is the **estimated under-roof size**.
+- **Every display carries a clear disclaimer:** "Estimated figures from map data. Not a measured size."
+- The result is a **shared property fact** (pooled across agencies per the 20 Oct ruling), **with the agent's override kept**.
+- **OPEN:** footprint data quality in HFC's areas (**Margate / Shelly Beach / Uvongo**) must be **sampled before building**.
+
+### 19.2 How the figure is worked out (proposed from the ruling; the arithmetic is to be confirmed with Johan)
+
+1. **Roof footprint area** `F` (m²) = the area of the building polygon whose location matches the stand.
+2. **Ground-floor under-roof area** `G = F × (1 − overhang%)`, with `overhang%` the agency/platform setting (default in the 10–15% band; the exact default is chosen after the sampling in 19.6, not before).
+3. **Storeys** `s` asked of the agent (whole number ≥ 1). If `s = 1`: estimated size `= G`.
+4. If `s ≥ 2`: the agent gives the **upper-floor coverage** `u` — one of 10%, 20%, … 100%. Proposed: each upper floor is taken to cover `u` of `G`, so **estimated size `= G × (1 + (s − 1) × u)`**. (Johan said "the upper floor" in the singular; whether one percentage applies to every upper floor of a 3+ storey house is **to confirm**.)
+5. The figure is rounded for display to a whole m² (the rounding rule is a setting, not hardcoded) and never shown without the disclaimer.
+
+Inputs are validated and absorbed per BUILD_STANDARD §2/§3: storeys 1–10 (out of range → plain message); coverage only offered when `s ≥ 2` and restricted to the ten steps; no footprint found → no figure, the agent can still capture a size by hand (the existing size fields), with no disclaimer implied for a hand-captured figure.
+
+### 19.3 What exists today (verified where cited)
+
+- The property record already has building and land size fields: `size_m2` (building/floor size) and `erf_size_m2` (stand size) — both are in the fillable list (`app/Models/Property.php:997-998`), with unit fields such as `floor_area_unit` (:1075); the map layer copies them as `floor_size_m2` and `land_size_m2` (:3909-3910). Whether `tracked_properties` carries size fields, and how a stand's location (GPS point or erf polygon) is held, was **not read** for this spec — **UNVERIFIED**; the lane confirms both before designing the match.
+- Tracked properties are the shared intelligence tier (CLAUDE.md non-negotiable 10; `TrackedPropertyMatchOrCreateService::matchOrCreate`, `app/Services/Prospecting/TrackedPropertyMatchOrCreateService.php:145`, which already resolves by GPS proximity as one of its five strategies and appends every contribution to `source_chain`). A footprint-derived size is exactly the kind of fact that belongs in that chain with a source label.
+- No footprint, building-polygon or roof-size code exists anywhere in `app/`, `config/` or `database/` (searched `app/`, `config/`, `database/migrations/`, `routes/` for `footprint`, `building_polygon`, `open buildings`, `roof` — the only hits are unrelated uses of the word "proof").
+
+### 19.4 Where it is stored — a shared property fact with provenance and an override
+
+- A **shared property fact** attached to the tracked property (the pooled tier), not to one agency's `properties` row. Per the 20 Oct pooling ruling as relayed, it is visible across agencies; each agency still sees only its own override and its own properties' agent data (the existing agency-isolation rules, `BelongsToAgency`, do not change for agency-owned records).
+- Each stored estimate keeps its **provenance**, so it can be audited and recomputed: source dataset and version, building/footprint identifier or polygon reference, footprint area `F`, the overhang % used, storeys `s`, coverage `u`, the computed estimate, who supplied storeys/coverage, and when. A change of dataset or setting creates a **new** estimate; it never rewrites the old one (append-only history, soft delete only).
+- **The agent's override is kept.** An agent may replace the estimate with their own figure (for example from a measured plan). The override is stored beside the estimate with who and when and an optional reason; a refreshed estimate **never overwrites an override**; the screen shows which figure is in use and that the other exists. Whether an override also feeds the pooled fact for other agencies is **not decided** — default: the override is visible to the agent's own agency only, until Johan rules otherwise.
+- Soft delete only; archive/restore on the override and on the estimate.
+
+### 19.5 The disclaimer — every display
+
+The exact wording is **"Estimated figures from map data. Not a measured size."** It appears on **every** screen, document and export that shows the estimated figure (property page, tracked-property page, evaluation certificate screen and PDF, presentation and its public link, seller live link, viewing pack, any API response that carries the figure). It is part of the displayed value, not a tooltip. A hand-captured or overridden measured figure does not carry it; an estimate that an agent has simply accepted still does. **Portal syndication (P24 / Private Property) must not send the estimated figure as a measured building size** — whether it may be sent at all, with the disclaimer in the description, is **not decided** and is an open question for Johan (a wrong size on a portal is a listing-accuracy issue under the Consumer Protection Act and PPRA rules, so the safe default is: not sent).
+
+### 19.6 Open — data quality must be sampled before anything is built
+
+**Johan: footprint data quality in HFC's areas (Margate, Shelly Beach, Uvongo) must be sampled before building.** Spec for the sampling (analysis only, no product code): choose a set of freehold stands in those three areas with a known measured building size (from plans, evaluations or deeds-office records the agency holds), run each candidate source (Google Open Buildings, Microsoft Global ML Building Footprints; Google Solar API where coverage exists) against the stand's location, and record per stand: whether a polygon was found, whether it is the right building, footprint area, and the error against the measured size after the overhang and storey rules. The result decides which source (or combination) is used, whether the approach is accurate enough to show at all, and the overhang default. Sampled coverage gaps (rural stands, dense multi-building stands, outbuildings counted as the house) are listed. Licence and attribution terms of each dataset, and the cost and terms of the Solar API, are checked at the same time (**not checked**). Nothing is built until Johan has the sampling result.
+
+### 19.7 Multi-agency and settings
+
+No HFC area names, HFC defaults or HFC wording in shipped code: the sampling areas above are for quality evidence only. Every tunable is an agency/platform setting with a default and reaches the Setup Wizard (non-negotiable 10a) or is recorded in the "Deliberately NOT in the wizard" list by Johan's call: `overhang%` (default 10–15% band, chosen after 19.6), the display rounding, which source(s) are enabled, and whether the figure is offered at all for the agency (some countries have no coverage — a second agency must get a clear "no data for this area", never a wrong number). Freehold only: sectional-title units are outside this ruling.
+
+### 19.8 What this section does not do
+
+It chooses no data source, fetches no data, adds no table or field, and changes no screen. It records the ruling so a later spec can be written once the sampling in 19.6 is done.
+
+---
+
 ---
 
 # APPENDIX A — Superseded v1 (AT-454), kept unedited
