@@ -973,6 +973,7 @@ class FeatureRolloutService
         } finally {
             self::$applying = false;
         }
+        FeatureRolloutUsage::forget((int) $agency->id); // what is tracked for usage just changed
     }
 
     private function completeIfDone(int $rolloutId): void

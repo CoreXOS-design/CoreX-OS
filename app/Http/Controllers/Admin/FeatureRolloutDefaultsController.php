@@ -76,6 +76,18 @@ class FeatureRolloutDefaultsController extends Controller
         $waves = $query->orderBy($sort, $dir)->orderBy('id')->paginate(25)->withQueryString();
         $tourCoverage = $this->tours->toursByFeature();
 
+        // §12.7 — every agency on gradual rollout, needing-attention first. Own query names (o_*, opage).
+        $o = $request->validate(['o_show' => 'nullable|in:attention,all', 'o_q' => 'nullable|string|max:100']);
+        $o['o_show'] ??= 'attention';
+        $overview = app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->overview()
+            ->when($o['o_show'] === 'attention', fn ($c) => $c->filter(fn ($r) => $r['flags'] !== []))
+            ->when(! empty($o['o_q']), fn ($c) => $c->filter(fn ($r) => stripos($r['agency']->name, $o['o_q']) !== false))
+            ->sortBy([fn ($a, $b) => [$a['flags'] === [] ? 1 : 0, $a['next']?->timestamp ?? PHP_INT_MAX] <=> [$b['flags'] === [] ? 1 : 0, $b['next']?->timestamp ?? PHP_INT_MAX]])
+            ->values();
+        $opage = max(1, (int) $request->query('opage', 1));
+        $overviewPage = new \Illuminate\Pagination\LengthAwarePaginator($overview->forPage($opage, 25)->values(), $overview->count(), 25, $opage,
+            ['path' => $request->url(), 'pageName' => 'opage', 'query' => $request->query()]);
+
         return view('admin.dev-settings.feature-rollout', [
             'waves'      => $waves,
             'filters'    => $filters + ['sort' => $sort, 'dir' => $dir],
@@ -89,6 +101,8 @@ class FeatureRolloutDefaultsController extends Controller
             'tourGap'    => $this->tourGap($waveable, $tourCoverage),
             'tourCoverage' => $tourCoverage,
             'archivedCount' => FeatureRolloutWave::onlyTrashed()->count(),
+            'overview'      => $overviewPage,
+            'overviewFilters' => $o,
         ]);
     }
 

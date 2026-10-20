@@ -114,6 +114,8 @@ class FeatureRolloutController extends Controller
             'defaults'   => $this->rollout->defaults(),
             'preview'    => self::canStart($agency) ? $this->rollout->holdPreview($agency) : [],
             'readiness'  => $plan ? $this->readinessFor($agency, $waves) : [],
+            'usage'      => $plan ? $this->usageFor($agency, $waves) : [],
+            'lowUse'     => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($plan) : null,
         ]);
     }
 
@@ -221,6 +223,14 @@ class FeatureRolloutController extends Controller
         $this->rollout->switchOnAwaiting($this->itemOf($plan, $item), Auth::id());
 
         return back()->with('success', 'Switched on.');
+    }
+
+    /** §12.6 — opened / tour taken, for the switched-on features on this page of the list. */
+    public static function usageFor(Agency $agency, $waves): array
+    {
+        $keys = collect($waves)->flatMap(fn ($w) => $w->items->whereIn('state', [AgencyRolloutItem::STATE_RELEASED, AgencyRolloutItem::STATE_RELEASED_EARLY])->pluck('feature_key'))->unique()->values()->all();
+
+        return app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->stats($agency, $keys);
     }
 
     /** §12.1 — what each "Set up first" feature still needs, keyed by feature. */

@@ -36,6 +36,19 @@ return [
     ],
     'interval_max' => 10,
 
+    // Follow-up after a feature switches on (spec §12.6–12.8). Platform-wide product tuning, the same for
+    // every agency: how long before someone who has not taken a feature's guided tour is reminded (once);
+    // when the CoreX team / the admin is told a group is hardly being used (suggestion only, never automatic);
+    // and when a paused plan is flagged on the CoreX team's overview.
+    'follow_up' => [
+        'tour_nudge_after_days' => 3,
+        'tour_nudge_window_days' => 30,   // never remind about something that switched on longer ago than this
+        'low_use_after_days'    => 2,     // give a group this long before judging how much it is used
+        'low_use_min_people'    => 3,     // too few people with access to judge
+        'low_use_max_share'     => 0.25,  // under a quarter of the people with access have opened it
+        'paused_flag_days'      => 7,
+    ],
+
     // Readiness (spec §12.1): what an agency must have filled in before a feature is worth switching on.
     // A feature whose basics are missing waits as "Set up first" when its wave is released, and switches
     // on by itself once they are filled in (the admin can also switch it on anyway). Each requirement is

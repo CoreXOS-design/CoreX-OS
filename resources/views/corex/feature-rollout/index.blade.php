@@ -67,6 +67,12 @@
         </div>
     @endif
 
+        @if (! empty($lowUse))
+            <div class="rounded-md px-4 py-3 text-sm" data-low-use style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+                Only {{ $lowUse['opened'] }} of {{ $lowUse['people'] }} people with access have opened what switched on in "{{ $lowUse['group'] }}". You could pause before the next group so the team can catch up — this is only a suggestion; nothing is paused for you.
+            </div>
+        @endif
+
     {{-- Choice + pace (same block as the onboarding wizard) --}}
     <form method="POST" action="{{ route('corex.feature-rollout.settings') }}" class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
@@ -124,6 +130,9 @@
                                     <span class="ds-badge {{ $sc }}">{{ $sl }}</span>
                                     @if (! empty($tours[$item->feature_key]))<span class="ds-badge ds-badge-muted" title="{{ collect($tours[$item->feature_key])->pluck('title')->implode(', ') }}">Guided tour</span>@endif
                                 </div>
+                                @if (isset($usage[$item->feature_key]))
+                                    @include('corex.feature-rollout._usage', ['s' => $usage[$item->feature_key]])
+                                @endif
                                 @if ($item->state === 'awaiting_setup' && ! empty($readiness[$item->feature_key]))
                                     <div class="w-full text-xs" style="color: var(--text-secondary);" data-readiness="{{ $item->feature_key }}">
                                         This switches on by itself once you add

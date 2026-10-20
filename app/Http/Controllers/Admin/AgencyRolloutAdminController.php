@@ -152,6 +152,8 @@ class AgencyRolloutAdminController extends Controller
             'intervalMax' => $this->rollout->intervalMax(),
             'defaults'  => $this->rollout->defaults(),
             'preview'   => $plan ? [] : $this->rollout->holdPreview($agency),
+            'usage'     => $plan ? \App\Http\Controllers\CoreX\FeatureRolloutController::usageFor($agency, $paged->getCollection()) : [],
+            'lowUse'    => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($plan) : null,
         ]);
     }
 

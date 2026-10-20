@@ -207,6 +207,58 @@
         @endif
     </div>
 
+    {{-- §12.7 — agencies on gradual rollout (CoreX team overview) --}}
+    <div id="rollout-overview" class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+            <div class="ds-section-header">Agencies on gradual rollout <span class="ds-badge ds-badge-muted ml-1">{{ $overview->total() }}</span></div>
+            <div class="ds-section-sub">Who to call: paused for a long time, waiting on setup, or hardly using what switched on last. Open an agency to see and change its plan.</div>
+        </div>
+        <form method="GET" action="#rollout-overview" class="px-5 py-3 flex flex-wrap items-end gap-3" style="border-bottom: 1px solid var(--border); background: var(--surface-2);">
+            @foreach (request()->except(['o_show', 'o_q', 'opage']) as $k => $v)
+                @if (is_scalar($v))<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endif
+            @endforeach
+            <label class="block"><span class="text-[11px] font-semibold" style="color:var(--text-muted);">Agency name</span>
+                <input type="text" name="o_q" value="{{ $overviewFilters['o_q'] ?? '' }}" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}"></label>
+            <label class="block"><span class="text-[11px] font-semibold" style="color:var(--text-muted);">Show</span>
+                <select name="o_show" class="block mt-1 {{ $input }}" style="{{ $inputStyle }}">
+                    <option value="attention" @selected($overviewFilters['o_show'] === 'attention')>Needs attention</option>
+                    <option value="all" @selected($overviewFilters['o_show'] === 'all')>All agencies on gradual rollout</option>
+                </select></label>
+            <button type="submit" class="corex-btn-outline">Apply</button>
+        </form>
+        @if ($overview->count())
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-sm">
+                    <thead><tr style="background: var(--surface-2);">
+                        <th class="{{ $th }}" style="color: var(--text-muted);">Agency</th>
+                        <th class="{{ $th }}" style="color: var(--text-muted);">Status</th>
+                        <th class="{{ $th }}" style="color: var(--text-muted);">Groups on</th>
+                        <th class="{{ $th }}" style="color: var(--text-muted);">Next</th>
+                        <th class="{{ $th }}" style="color: var(--text-muted);">Needs attention</th>
+                    </tr></thead>
+                    <tbody>
+                        @foreach ($overview as $row)
+                            <tr style="border-top: 1px solid var(--border);" data-overview-row>
+                                <td class="px-5 py-2.5"><a href="{{ route('admin.agency-setup-progress.show', $row['agency']->id) }}" style="color: var(--brand-icon);">{{ $row['agency']->name }}</a></td>
+                                <td class="px-5 py-2.5" style="color: var(--text-secondary);">{{ ['active' => 'Running', 'paused' => 'Paused', 'completed' => 'Finished'][$row['plan']->status] ?? $row['plan']->status }}</td>
+                                <td class="px-5 py-2.5 tabular-nums" style="color: var(--text-secondary);">{{ $row['on'] }} of {{ $row['groups'] }}</td>
+                                <td class="px-5 py-2.5" style="color: var(--text-secondary);">{{ $row['next']?->format('D j M') ?? '—' }}</td>
+                                <td class="px-5 py-2.5" style="color: var(--text-primary);">{{ $row['flags'] ? implode(' · ', $row['flags']) : '—' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+            @if ($overview->hasPages())
+                <div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $overview->fragment('rollout-overview')->links() }}</div>
+            @endif
+        @else
+            <div class="px-5 py-8 text-center text-sm" style="color: var(--text-muted);">
+                {{ $overviewFilters['o_show'] === 'attention' ? 'No agency on gradual rollout needs attention right now.' : 'No agency is on gradual rollout yet.' }}
+            </div>
+        @endif
+    </div>
+
     {{-- Tour gap report --}}
     <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
         <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">

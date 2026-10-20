@@ -418,3 +418,25 @@ Already built earlier: #2 public holidays and #3 release time (Part 1), #11 tour
    added / edited / moved / archived / restored, reset to default, access reviewed (keep or each role change).
    Section "History" on Settings → Feature rollout and on the owner's agency page; filter (switched on /
    changes / who gets access), date range, newest/oldest, 25 a page; own query names (h_*, hpage).
+
+### 17b. Usage, tour follow-up (#6), the CoreX team's overview (#7), low use (#8)
+1. **Usage:** `rollout_feature_users` (agency, user, feature: `first_opened_at`, `tour_nudged_at`,
+   `early_requested_at`; migration `2026_11_18_100300`). Global web middleware `RecordRolloutFeatureUse`
+   (after `EnforceFeatureRoutes`) records the first time a person opens a feature their agency's rollout
+   switched on — matched by the registry's `route_names` globs or `route_prefixes` (whole segments, with or
+   without `corex/`). GET page loads only, never for a System Owner; one cached lookup for an agency with no
+   rollout (cleared whenever the rollout switches something); at most one write per person per feature,
+   memoised in the session; never breaks a page.
+2. **Who opened it / who took its tour:** under each switched-on feature on Settings → Feature rollout and
+   the owner's agency page — "Opened by X of Y · Tour taken by A of Y", expandable to the names who have not.
+   "Took the tour" = `user_tour_progress.completed_at` for any of the feature's tours.
+3. **Tour reminders:** `rollout:release` also runs `FeatureRolloutUsage::nudgeTours()`: 3 days after a feature
+   switched on (and not more than 30), each person with access who has not completed one of its tours gets ONE
+   in-app notification ("Take the tour: …", linking to the tour). Not sent where no tour can be opened.
+4. **Low use (suggestion only):** when under a quarter of the people with access (at least 3 people) have
+   opened anything from the most recent group, 2+ days after it switched on, the panel, the owner page and the
+   admin's day-before prompt say so and point at Pause / Hold this group. Nothing is ever paused automatically.
+5. **Overview:** Dev Settings → Feature rollout gains "Agencies on gradual rollout": status, groups on, next
+   date, and what needs attention (paused 7+ days, features waiting on setup, low use), needing-attention first;
+   filter needs attention / all, search by agency name, 25 a page; each agency links to its page (§5.5).
+6. Thresholds are platform-wide product tuning in `config/feature-rollout.php` `follow_up` (same for every agency).

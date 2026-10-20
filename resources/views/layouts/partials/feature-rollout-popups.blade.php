@@ -62,6 +62,12 @@
         </div>
 
         <div class="px-5 py-4 overflow-y-auto space-y-5" style="max-height:62vh;">
+            @php $__frLow = $__frReleased ? null : app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($__fr['plan']); @endphp
+            @if($__frLow)
+                <div class="rounded-md px-4 py-3 text-sm" data-low-use style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+                    Only {{ $__frLow['opened'] }} of {{ $__frLow['people'] }} people with access have opened what switched on in "{{ $__frLow['group'] }}". If your team needs more time, <strong>Hold this group</strong> pauses the introduction until you resume it.
+                </div>
+            @endif
             @foreach($__fr['waves'] as $__frWave)
                 <div>
                     <div class="text-xs font-semibold uppercase tracking-wider" style="color:var(--text-muted);">{{ $__frWave->title }}</div>

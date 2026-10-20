@@ -165,6 +165,12 @@
 
     {{-- Groups --}}
     @if ($plan)
+        @if (! empty($lowUse))
+            <div class="rounded-md px-4 py-3 text-sm" data-low-use style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-amber) 30%, transparent); color: var(--text-primary);">
+                Only {{ $lowUse['opened'] }} of {{ $lowUse['people'] }} people with access have opened what switched on in "{{ $lowUse['group'] }}". The agency could pause before the next group so the team can catch up — this is only a suggestion; nothing is paused for you.
+            </div>
+        @endif
+
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
                 <div class="ds-section-header">{{ $agency->name }}'s groups of features <span class="ds-badge ds-badge-muted ml-1">{{ $waves->total() }}</span></div>
@@ -269,6 +275,9 @@
                                     <span class="ds-badge {{ $sc }}">{{ $sl }}</span>
                                     @if (empty($tours[$item->feature_key]))<span class="ds-badge ds-badge-muted">No tour yet</span>@endif
                                 </div>
+                                @if (isset($usage[$item->feature_key]))
+                                    @include('corex.feature-rollout._usage', ['s' => $usage[$item->feature_key]])
+                                @endif
                                 @if ($item->state === 'awaiting_setup')
                                     @php $missing = app(\App\Services\FeatureRollout\FeatureReadiness::class)->missing($agency, $item->feature_key); @endphp
                                     <div class="w-full flex flex-wrap items-center justify-between gap-2 text-xs" style="color: var(--text-secondary);">
