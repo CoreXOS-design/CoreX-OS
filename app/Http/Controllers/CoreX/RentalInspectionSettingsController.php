@@ -118,6 +118,8 @@ class RentalInspectionSettingsController extends Controller
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
             'allItemsRequiredToComplete' => RentalInspectionSetting::allItemsRequiredToCompleteFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
+            'omrUnsureBelow' => RentalInspectionSetting::omrUnsureBelowFor($agencyId),
+            'noteReadMinConfidence' => RentalInspectionSetting::noteReadMinConfidenceFor($agencyId),
             // AT-463 / §60 — the paper the printed site form is laid out for.
             'formPaperSize' => RentalInspectionSetting::formPaperSizeFor($agencyId),
             'formPaperSizeOptions' => RentalInspectionSetting::formPaperSizeOptions(),
@@ -179,6 +181,9 @@ class RentalInspectionSettingsController extends Controller
             'signatures_required_interim' => ['nullable', 'boolean'],
             'signatures_required_routine' => ['nullable', 'boolean'],
             'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.01', 'max:0.5'],
+            // AT-472 - filled()-guarded below, like the threshold: a wizard step that does not render them must not reset them.
+            'omr_unsure_below' => ['nullable', 'numeric', 'min:0.1', 'max:0.95'],
+            'note_read_min_confidence' => ['nullable', 'numeric', 'min:0.1', 'max:0.95'],
             // AT-463 / §60 — has()-guarded below: a wizard step that does not render the select must not reset it.
             'form_paper_size' => ['nullable', 'string', 'in:' . implode(',', array_keys(RentalInspectionSetting::FORM_PAPER_SIZES))],
             // AT-463 / §63 - filled()-guarded below, like the paper: a wizard step that does not render it must not reset it.
@@ -236,6 +241,11 @@ class RentalInspectionSettingsController extends Controller
         // default) alone; a number saves.
         if ($request->filled('omr_mark_threshold')) {
             $attributes['omr_mark_threshold'] = round((float) $validated['omr_mark_threshold'], 2);
+        }
+        foreach (['omr_unsure_below', 'note_read_min_confidence'] as $column) {
+            if ($request->filled($column)) {
+                $attributes[$column] = round((float) $validated[$column], 2);
+            }
         }
         if ($request->filled('form_paper_size')) {
             $attributes['form_paper_size'] = $validated['form_paper_size'];

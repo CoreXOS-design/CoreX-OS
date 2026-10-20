@@ -354,6 +354,7 @@ by oversight — do not reinstate them without asking:
     savers `RentalApplicationSettingsController::updateCreditBureau` / `updateTenantedLabel`, now
     `has()`-guarded so a post that never rendered them leaves the value alone).
   - `lease_settings.show_lease_type_field` (toggle; `LeaseSettingsController::update`, already guarded).
+  - `rental_inspection_settings.omr_unsure_below` and `note_read_min_confidence` (numbers, 0.1-0.95, default 0.50 each; AT-472, 20 Oct 2026, form spec §13.15 - the scanned-form confidence lines for "ticks to check" and "handwritten notes to type in"; filled()-guarded in `RentalInspectionSettingsController::update`),
   - `rental_inspection_settings.form_paper_size` (select; AT-463, 15 Oct 2026 - the paper the printed site form is laid out for; has()-guarded), `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
     guarded fields), and also added to the Rental Inspection Settings page so the two never drift.

@@ -591,6 +591,7 @@ class RentalInspectionScanReaderService
         $offsets = $this->geometry->alignRows($canvas, $byItem);
         $rowHeight = $this->rowHeightOf($byItem);
         $readNotes = $geo !== null && $this->noteReader->enabled();
+        $unsureBelow = RentalInspectionSetting::omrUnsureBelowFor($scan->agency_id);
         $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0, 'untrusted' => false];
 
         // A page on which fewer than half the rows could be found from their own printed boxes was not placed reliably (marks
@@ -644,25 +645,28 @@ class RentalInspectionScanReaderService
             if ($mark->exists && $mark->trashed()) {
                 $mark->restore();
             }
+            // AT-472 - the row's handwritten note, when there is any ink in its note area (never sent anywhere otherwise).
+            $noteCrop = null;
+            if ($readNotes) {
+                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
+                $noteCrop = $crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN ? $crop : null;
+            }
             $mark->fill([
                 'agency_id' => $scan->agency_id,
                 'page_number' => $pageNumber,
                 'detected_condition_key' => $detectedKey,
                 'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
                 'ambiguous' => $ambiguous,
-            ])->save();
-            $counts[$ambiguous || ($confidence !== null && $confidence < 0.5) ? 'flagged' : 'proposed']++;
+                'tick_boxes' => count($marked),
+            ] + ($readNotes ? ['note_ink' => $noteCrop !== null, 'detected_note' => null, 'detected_note_confidence' => null] : []))->save();
+            $counts[$ambiguous || ($confidence !== null && $confidence < $unsureBelow) ? 'flagged' : 'proposed']++;
 
-            // AT-472 - the row's handwritten note, when there is any ink in its note area (never sent anywhere otherwise).
-            if ($readNotes) {
-                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
-                if ($crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN) {
-                    $noteCrops[$mark->id] = [
-                        'png' => $crop['png'],
-                        'label' => trim(($itemBoxes[0]['room_label'] ?? '') . ' - ' . ($itemBoxes[0]['item_label'] ?? ''), ' -'),
-                        'agency_id' => (int) $scan->agency_id,
-                    ];
-                }
+            if ($noteCrop !== null) {
+                $noteCrops[$mark->id] = [
+                    'png' => $noteCrop['png'],
+                    'label' => trim(($itemBoxes[0]['room_label'] ?? '') . ' - ' . ($itemBoxes[0]['item_label'] ?? ''), ' -'),
+                    'agency_id' => (int) $scan->agency_id,
+                ];
             }
         }
 

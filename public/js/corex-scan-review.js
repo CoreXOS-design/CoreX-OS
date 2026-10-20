@@ -7,7 +7,8 @@
  *     (client_idempotency_key) per save so a retried request is answered from the row that is already there;
  *   - photos: POST /photos (storePhotos) through public/js/corex-photo-batch-uploader.js (one key per file), tagged to the item.
  * Plain DOM, no Alpine. Rules this file keeps:
- *   - a row with no condition picked has its note and photo controls closed (the Blade starts them hidden; picking a condition opens them);
+ *   - the note box is ALWAYS there (a detected note is never hidden); only SAVING waits for a condition: the photo controls start closed
+ *     and open when a condition is picked, and a note typed before a condition is picked is saved the moment one is (§13.15);
  *   - nothing is ever recorded without a condition - no placeholder observations: a photo on a row whose picked condition is not what is
  *     recorded yet first records that condition (with the note typed so far), and a condition that needs a note refuses to record without
  *     one (the server's own 422, shown in the row) so the photo waits for the note;
@@ -48,15 +49,23 @@
         var busy = false;
         var again = false;
         var timer = null;
+        var edited = false;      // the agent has changed the note box: it is theirs now, no longer "read from scan"
+        var readBadge = row.querySelector('[data-scan-read-badge]');
+        var unreadable = row.querySelector('[data-scan-unreadable]');
 
         function say(text) { if (status) status.textContent = text || ''; }
 
         select.addEventListener('change', function () {
             controls.style.display = select.value ? '' : 'none';
             say('');
+            // A note the agent typed while no condition was picked saves as soon as one is (an untouched AI note waits for Apply).
+            if (select.value && edited) { clearTimeout(timer); timer = setTimeout(saveNote, DEBOUNCE_MS); }
         });
 
         note.addEventListener('input', function () {
+            edited = true;
+            if (readBadge) { readBadge.remove(); readBadge = null; }
+            if (unreadable && note.value.trim() !== '') { unreadable.remove(); unreadable = null; }
             clearTimeout(timer);
             timer = setTimeout(saveNote, DEBOUNCE_MS);
         });

@@ -331,6 +331,12 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_OMR_MARK_THRESHOLD = 0.04;
 
+    /** AT-472 / form spec §13.15 - a tick under this confidence (0-1) is 'picked up but unsure' and the agent must confirm it. */
+    public const DEFAULT_OMR_UNSURE_BELOW = 0.50;
+
+    /** AT-472 / form spec §13.15 - an AI-read note under this confidence (0-1) is not filled in; the agent is told to type it. */
+    public const DEFAULT_NOTE_READ_MIN_CONFIDENCE = 0.50;
+
     /**
      * AT-463 / rental-inspections.md §60 — the paper the printed site form is laid out for.
      * Width x height in PDF points (1/72 in), portrait. A4 is the default.
@@ -479,6 +485,8 @@ class RentalInspectionSetting extends Model
         'attended_as_labels',
         'move_out_classification_labels',
         'omr_mark_threshold',
+        'omr_unsure_below',
+        'note_read_min_confidence',
         'form_paper_size',
         'form_safe_margin_mm',
         'public_link_expiry_days',
@@ -533,6 +541,8 @@ class RentalInspectionSetting extends Model
         'attended_as_labels' => 'array',
         'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
+        'omr_unsure_below' => 'float',
+        'note_read_min_confidence' => 'float',
         'public_link_expiry_days' => 'integer',
         'photo_link_minutes' => 'integer',
         'signing_link_enabled' => 'boolean',
@@ -1792,6 +1802,22 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_mark_threshold');
 
         return $value !== null ? (float) $value : self::DEFAULT_OMR_MARK_THRESHOLD;
+    }
+
+    /** AT-472 / form spec §13.15 - read-time default, same pattern as omrMarkThresholdFor(). */
+    public static function omrUnsureBelowFor(?int $agencyId): float
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_unsure_below') : null;
+
+        return $value !== null ? (float) $value : self::DEFAULT_OMR_UNSURE_BELOW;
+    }
+
+    /** AT-472 / form spec §13.15 - read-time default, same pattern as omrMarkThresholdFor(). */
+    public static function noteReadMinConfidenceFor(?int $agencyId): float
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('note_read_min_confidence') : null;
+
+        return $value !== null ? (float) $value : self::DEFAULT_NOTE_READ_MIN_CONFIDENCE;
     }
 
     /**
