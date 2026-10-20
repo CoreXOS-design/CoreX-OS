@@ -239,13 +239,13 @@
                                 Confirm password to change demo mode
                             </label>
                             <p class="text-sm mt-1" style="color: var(--text-secondary);">
-                                Turning demo mode on or off requires the demo control password.
+                                Turning demo mode on or off requires your own CoreX login password.
                             </p>
                             <input type="password"
                                    id="demo_toggle_password"
                                    name="demo_toggle_password"
-                                   autocomplete="off"
-                                   placeholder="Demo control password"
+                                   autocomplete="current-password"
+                                   placeholder="Your password"
                                    class="mt-2 w-full max-w-sm rounded-md px-3 py-2 text-sm"
                                    style="background: var(--surface); border: 1px solid {{ $errors->has('demo_toggle_password') ? 'var(--ds-crimson, #c41e3a)' : 'var(--border)' }}; color: var(--text-primary);">
                             @error('demo_toggle_password')

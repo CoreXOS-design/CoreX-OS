@@ -121,17 +121,19 @@ mode) and never touches real users or owners.
 
 The "Enable demo mode (bypass login)" toggle on `/admin/dev-settings` is an
 authentication bypass, so **changing it in either direction** (on→off or
-off→on) requires the demo control password `Demo@on&off@$`.
+off→on) requires the signed-in owner to re-enter their own CoreX login password.
+(Changed 2026-10-20, AT-478: the former shared password was hardcoded in source and
+is retired — treat it as compromised.)
 
 - `DevSettingsController::update()` compares the current vs requested
   `demo_mode_enabled`; only when it changes does it require
-  `demo_toggle_password` to match (constant-time `hash_equals`). Wrong/blank →
+  `demo_toggle_password` to match the user's own password (`Hash::check`). Wrong/blank →
   redirect back with a validation error, demo mode left unchanged (other
   settings still save). Unchanged demo mode needs no password.
 - The view reveals a password field (Alpine `x-show`) only when the toggle
   differs from its initial state, and shows the error inline.
-- The password is a hardcoded controller constant (`DEMO_TOGGLE_PASSWORD`) —
-  it's a confirmation gate, not a per-user secret.
+- No secret lives in code: the gate is a re-authentication of the signed-in owner
+  (dev settings is `owner_only`), so each owner confirms with their own password.
 
 ## Files
 
