@@ -869,3 +869,9 @@ Real-world data (real SA agency name/address, real commission %) per BUILD_STAND
 ---
 
 **End of spec.**
+
+---
+
+### Addendum 20 Oct 2026 (AT-475 P3) - Commission step also carries one agency setting
+
+Step 5 (`commission`) now has a `controls` entry besides its inline partial: `portal_show_agency_commission_totals` (`agencies` column, toggle, default OFF) - "Show agents their branch and agency commission totals" (My Portal). It is saved by the same `CommissionSettingsController@update` saver, which writes it only when the field was posted (section 6.1), so a form that never rendered it cannot switch it off. The same toggle is on both commission settings screens (`corex/settings/_portal-commission-totals`).

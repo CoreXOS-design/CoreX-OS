@@ -40,6 +40,7 @@ class PeriodSelector extends Component
 
     /**
      * @param array<int, string>|null $months  months that have figures (YYYY-MM)
+     * @param array<string, string>   $keep    extra query values to send with the month (e.g. which panel of the page is open)
      */
     public function __construct(
         public string $name = 'period',
@@ -47,6 +48,7 @@ class PeriodSelector extends Component
         public string $label = 'Month',
         ?string $selected = null,
         ?array $months = null,
+        public array $keep = [],
     ) {
         $this->current = CarbonImmutable::now()->format('Y-m');
         $this->value = self::monthFrom($selected ?? Request::query($name));
@@ -62,7 +64,7 @@ class PeriodSelector extends Component
         }
 
         $this->carry = self::flatten(
-            collect(Request::query())->except([$name, 'page'])->all()
+            array_merge(collect(Request::query())->except([$name, 'page'])->all(), $keep)
         );
 
         $month = CarbonImmutable::createFromFormat('!Y-m', $this->value);
@@ -92,6 +94,7 @@ class PeriodSelector extends Component
     {
         $query = array_merge(
             collect(Request::query())->except(['page'])->all(),
+            $this->keep,
             [$this->name => $month]
         );
         $base = $this->action ?? Request::url();

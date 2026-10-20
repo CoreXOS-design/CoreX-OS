@@ -1619,5 +1619,11 @@
       "NO_ITEM"
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
+  },
+  "bm.my.dashboard": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Retired as a menu item on purpose (agency-tracker-rehome.md section 6, AT-475 P3): 'My Agent Dashboard' now lives in My Portal > Overview > Where I Am. The route is kept as a 301 redirect to it so every old link and bookmark still lands there; it has no sidebar item by design."
   }
 }
