@@ -104,6 +104,9 @@ return [
         'timeout'     => (int) env('ANTHROPIC_TIMEOUT', 30),
         'max_retries' => (int) env('ANTHROPIC_MAX_RETRIES', 3),
         'enabled'     => filter_var(env('ANTHROPIC_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        // AT-472 (Johan, 20 Oct 2026): the AI read of handwritten notes on a scanned site form. OFF until Johan says the Anthropic key is
+        // good - while off, no scan upload ever makes an AI call (RentalInspectionNoteReadService::enabled()).
+        'inspection_note_reading' => filter_var(env('RENTAL_INSPECTION_NOTE_READING', false), FILTER_VALIDATE_BOOLEAN),
         // ZAR conversion — current as of May 2026. Refresh quarterly or when
         // the rate moves > 5%. NB: this is a forward-looking rate only —
         // historical ai_narrative_cache rows are NOT retroactively repriced.

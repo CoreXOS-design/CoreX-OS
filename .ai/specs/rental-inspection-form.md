@@ -631,7 +631,8 @@ see §12 for what was built 2026-09-22.
 Johan's requirement, verbatim in substance: an agent downloads a physical form, takes it to the
 property, marks it in wet ink, gets it signed, scans it back in. **"We read the form back by OMR —
 COLUMN MARKING ONLY. We do NOT read handwriting, ever. Free written text can be retyped, or the scanned
-copy stays on file."** Every item gets a row; condition ratings sit in tick-box COLUMNS on the right.
+copy stays on file."** **[REVERSED for the notes column - Johan, 20 Oct 2026, §13.14: the handwritten note on each row is now read by AI and
+pre-fills the note box on the review screen; the agent confirms or edits it. The tick columns stay OMR.]** Every item gets a row; condition ratings sit in tick-box COLUMNS on the right.
 A separate lane builds the scan reader against exactly what this section specifies — this build's output
 contract matters as much as the form itself, so it is stated here in full, not left implicit in code.
 
@@ -872,9 +873,10 @@ plus the download route and its cross-agency 404.
 
 Built against §12's manifest exactly as specified — no geometry re-derived from
 `RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —
-COLUMN MARKING ONLY. We do NOT read handwriting, ever."** This service never runs OCR and never samples
-outside a rectangle the manifest names — it is structurally incapable of reading the notes columns,
-because it only ever looks at `boxes[]` and `page_identifiers[].bits[]` positions.
+COLUMN MARKING ONLY. We do NOT read handwriting, ever."** **[REVERSED for the notes column - Johan, 20 Oct 2026, §13.14. The tick
+read below is unchanged: it never runs OCR and never samples outside a rectangle the manifest names - it only ever looks at `boxes[]` and
+`page_identifiers[].bits[]` positions. The handwriting is read by a SEPARATE step, `RentalInspectionNoteReadService`, which crops the note area
+of each row and sends it to the AI gateway; it never touches the tick columns.]**
 
 ### 13.1 One additive change to cc5's own file
 
@@ -1041,8 +1043,8 @@ No browser harness, no dev server (Standard −1s) — a file-level PHPUnit test
 
 ### 13.10 Found, not built here
 
-- OCR/handwriting reading of the free-text notes column — explicitly and permanently out of scope, per
-  Johan's own instruction, not a deferred item.
+- ~~OCR/handwriting reading of the free-text notes column — explicitly and permanently out of scope, per
+  Johan's own instruction, not a deferred item.~~ **Reversed - Johan, 20 Oct 2026; built as §13.14.**
 - A UI to reconcile two independent scans of the same physical page (§13.8).
 - Queued/background processing, should QA ever gain a queue worker.
 
@@ -1135,3 +1137,50 @@ expensive place to discover a missing extension; checking first is not.
 - `app/Models/RentalInspectionSetting.php` (`omr_mark_threshold` column support added)
 - `app/Services/Rentals/RentalInspectionFormPdfService.php` (`pageIdentifierGridLayout()` added — §13.1)
 - `tests/Feature/RentalInspections/RentalInspectionScanReaderServiceTest.php`
+
+### 13.14 The review screen takes notes and photos; the AI reads the handwritten note (AT-472, 20 Oct 2026; Johan's rulings R1-R3; QA1 only)
+
+**R1 - the handwriting ruling is reversed (Johan, 20 Oct 2026).** The AI reads the handwritten note on each row and pre-fills the note box on the
+review screen; the agent confirms or edits it. This supersedes the "we do NOT read handwriting, ever" lines in §12/§13 (marked above) and the
+"permanently out of scope" line in §13.10.
+
+- **Data.** `rental_inspection_scan_marks.detected_note` (text, null = nothing legible / not read) and `detected_note_confidence` (0-1, like
+  `detected_confidence`). Migration `2026_11_24_120000`. A detected note is never a recorded note: only what the agent confirms reaches the
+  inspection, as an ordinary observation's `notes`.
+- **The read step** (`RentalInspectionNoteReadService`, called from `RentalInspectionScanReaderService::process()` after the tick read):
+  it crops each row's note area - from the end of the row's last tick box to the right edge of the page (the writing overflows the printed box),
+  with the corner marks, the QR and the page-identifier grid whited out - and only a crop with ink in it (dark share >= 0.015, measured on a real
+  Ricoh scan: writing 0.047-0.10, empty rows <= 0.015) is sent anywhere. Sent through `AnthropicGateway::generateMany()`: Haiku first, then Sonnet
+  for any answer below 0.80 confidence. Every call is on the AI usage ledger (`AiUsageRecorder`) as `image_analysis`. Only rows with a proposed
+  mark are read (a row that matches what is already recorded has no mark). An AI that is off, paused, failing or unreadable never fails the scan:
+  the marks simply carry no detected note.
+- **Release switch.** `services.anthropic.inspection_note_reading` (env `RENTAL_INSPECTION_NOTE_READING`), default OFF. While off no scan upload makes
+  an AI call. Johan turns it on when the Anthropic key is good. (A platform release switch, not an agency setting - no wizard entry, §10a.)
+- **Tested with a canned answer.** The test binds a fake `RentalInspectionNoteReadService`; the gateway path is tested against `Http::fake`.
+
+**R2 - the agent can change the condition on every row.** The condition dropdown is on every row, including rows the reader flagged "no clear
+mark" (two boxes ticked) and rows already applied (the import got it wrong). An applied row is corrected by a NEW observation (observations stay
+append-only); the same condition and note again records nothing.
+
+**R3 - notes and photos save as they are captured, not on Apply.** Per row, on the review screen (`corex-scan-review.js`, plain DOM):
+- the **note** posts to the capture screen's own `POST /observations` (`storeObservation`) 800 ms after the last keystroke, with one
+  `client_idempotency_key` per save; the **photos** post to `storePhotos` through `corex-photo-batch-uploader.js` (one key per file), tagged to the item.
+  No new route, no new endpoint: the existing `rental_inspections.create` gate and `guardRentalRecordScope` apply unchanged.
+- the row shows what is already there: the recorded condition and note, and the item's photos (private, signed links).
+- **No placeholder observations.** A row with no condition has its note and photo controls closed; picking a condition opens them. A photo on a row
+  whose picked condition is not the recorded one first records that condition (with the note typed so far); a condition that needs a note refuses
+  to record without one, exactly as the capture endpoint does.
+- The note box starts on the AI-read note when the row has one (else the recorded note). Apply posts `notes[markId]` with `condition_keys[markId]`,
+  so an AI pre-filled note the agent never touched is saved on Apply - the agent saw it and pressed Apply.
+- **"Damaged needs a note" on Apply** (the gap closed): `apply()` refuses a row whose condition needs a note (`conditionRequiresNotesFor`, the
+  agency's own vocabulary) when its note is blank, with the same rule `storeObservation` uses; the other rows of the page still apply.
+- **Safe repeats.** `apply()` carries an `apply_key`; each mark's observation gets a key derived from it, so the same press sent twice replays instead
+  of recording twice. `applyMark($mark, $key, $user, $source, $notes, $replayKey)` records nothing new when the item's latest recorded observation
+  already holds the same condition and note (the note box has been saving as it is typed) - the mark is just linked to it.
+- **Signed or completed = read-only.** `assertContentEditable()` (the guard `apply()` and the capture endpoints use) decides: the screen then shows
+  every row's condition, note and photos with no controls, no script and no Apply button.
+
+Files: `RentalInspectionNoteReadService.php`, `RentalInspectionScanReaderService.php` (read hook, `readHandwrittenNotes()`, `applyMark()`),
+`RentalInspectionScanController.php` (`review()`, `apply()`), `scan-review.blade.php`, `public/js/corex-scan-review.js`,
+`RentalInspectionScanMark.php`, `config/services.php`, migration `2026_11_24_120000`, `RentalInspectionScanReviewNotesPhotosTest.php` (16).
+
