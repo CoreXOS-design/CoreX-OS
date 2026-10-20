@@ -8,6 +8,7 @@ use App\Models\Agency;
 use App\Models\RentalJobCard;
 use App\Events\Rentals\RentalCrewLinesSubmitted;
 use App\Models\RentalCatalogueItem;
+use App\Models\RentalJobCardCrewReport;
 use App\Models\RentalJobCardLine;
 use App\Models\RentalJobCardPriceRequest;
 use App\Models\RentalJobCardTask;
@@ -36,6 +37,10 @@ class CrewJobService
     public const PHOTO_TYPES = [RentalWorkOrder::PHOTO_IN_PROGRESS, RentalWorkOrder::PHOTO_COMPLETED];
     /** §17.5.1 — up to three photos explain one crew line (an extra); they are stored against the LINE, not the job gallery. */
     public const MAX_LINE_PHOTOS = 3;
+    /** AT-465 - the crew's "what did you find / what is needed" on a send. */
+    public const MAX_FINDINGS_LENGTH = 2000;
+    /** AT-465 - a second "Send to office" this soon after a send is a double-tap, not a new batch. */
+    public const DOUBLE_SEND_WINDOW_SECONDS = 120;
 
     /**
      * The crew's view of a card (§14.27.5). Deliberately a flat array of
@@ -84,7 +89,7 @@ class CrewJobService
             // §17.24 item 4 — a tenant's DISPUTE photo is shown only inside the dispute block (CrewDisputeBlock), never in the general gallery.
             ->whereNotIn('photo_type', [RentalWorkOrder::PHOTO_REPORTED, RentalWorkOrder::PHOTO_DISPUTE])
             // §17.5.1 — a photo that explains one crew line shows against that line (Parts & labour panel), not in the job gallery.
-            ->where('photo_type', '!=', RentalJobCardLine::PHOTO_TYPE)
+            ->whereNotIn('photo_type', [RentalJobCardLine::PHOTO_TYPE, RentalJobCardLine::RECEIPT_PHOTO_TYPE])
             ->orderByDesc('created_at')->orderByDesc('id')
             ->get()
             ->map(fn (RentalWorkOrderPhoto $p) => [
@@ -96,7 +101,7 @@ class CrewJobService
 
         $branding = Agency::publicBrandingFor($ctx->agencyId);
 
-        return [
+        $payload = [
             'agency' => ['name' => $branding['name'], 'logo_url' => $branding['logoUrl'] ? (\App\Support\PortalLogo::urlFor($ctx->agencyId) ?? $branding['logoUrl']) : null, 'color' => $branding['colors']['default']],
             'title' => $card->title,
             'work_order_id' => $card->rental_work_order_id,
@@ -110,8 +115,10 @@ class CrewJobService
             // section 22.7 - the owner stopped the job: a plain yes/no (never the owner's reason)
             'on_hold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($card) !== null,
             'address' => $address,
-            'map_url' => $this->mapUrl($property, $address),
-            'access_notes' => $card->access_notes,
+            'map_url' => JobSiteInfo::mapUrl($property, $address),
+            // AT-459 — who lets the worker in, their number and the note; read from the work order (the card's own copy when it has none).
+            'access' => $access = JobSiteInfo::accessContact($card->workOrder()->withoutGlobalScopes()->first(), $card),
+            'access_notes' => $access['note'],
             'scheduled_at' => $card->scheduled_at?->copy()->setTimezone($tz)->format('D j M Y, H:i'),
             'due_at' => $card->due_at?->copy()->setTimezone($tz)->format('D j M Y, H:i'),
             'crew_name' => $card->crew?->name,
@@ -125,7 +132,7 @@ class CrewJobService
             'labour' => $allLines->where('type', 'labour')->values()->map($lineRow)->all(),
             'show_costs' => $ctx->showCosts,
             'cost_total' => $ctx->showCosts && $costedLines->isNotEmpty() ? number_format((float) $costedLines->sum('cost_total'), 2) : null,
-            'tenant' => $ctx->showTenantContact ? $this->tenantContact($card) : null,
+            'tenant' => $ctx->showTenantContact ? JobSiteInfo::tenants($card->lease_id) : null,
             'photos' => $photos,
             // AT-452 - the photos of the fault behind this job, with the office's marks and notes (they help the repair); [] when the job has no fault.
             'reported_photos' => app(RentalFaultPhotoAnnotationService::class)->forJobCard($card),
@@ -143,16 +150,29 @@ class CrewJobService
                 'dispute' => CrewDisputeBlock::for($card, $ctx),
             ],
         ];
+
+        // AT-465 - the NEXT bar at the top of the crew page: one sentence, at most one button (read from the payload above).
+        $payload['next'] = CrewNextBar::for($payload);
+
+        return $payload;
     }
 
-    /** Tick or untick a task. */
-    public function tick(RentalJobCard $card, RentalJobCardTask $task, CrewViewContext $ctx): void
+    /**
+     * Tick or untick a task. §17.43 (audit C-E5): with $done given the task is SET to that state - a retried or queued tick that arrives twice
+     * (or after the office already ticked it) changes nothing the second time. Without it (an older client) the task flips, as it always did.
+     */
+    public function tick(RentalJobCard $card, RentalJobCardTask $task, CrewViewContext $ctx, ?bool $done = null): void
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
         abort_unless((int) $task->rental_job_card_id === (int) $card->id && $task->trashed() === false, 404);
 
-        $isDone = ! $task->is_done;
+        $isDone = $done ?? ! $task->is_done;
+        if ((bool) $task->is_done === $isDone) {
+            $this->touchToken($ctx);
+
+            return; // already in that state: nothing to change, nothing to log twice
+        }
         $task->forceFill([
             'is_done' => $isDone,
             'done_by_user_id' => null,
@@ -237,7 +257,9 @@ class CrewJobService
         $workOrder = $card->rental_work_order_id ? RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $card->agency_id)->find($card->rental_work_order_id) : null;
         $who = app(RentalWhoPaysService::class);
         if ($workOrder && $who->isFaultJob($workOrder)) {
-            $who->recordFindings($workOrder, $report['found_text'] ?? null, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
+            // audit fix C-E1: what the crew already told the office at "Send to office" is carried - a blank box here never loses it
+            $found = trim((string) ($report['found_text'] ?? '')) !== '' ? $report['found_text'] : $who->carriedFindings($workOrder);
+            $who->recordFindings($workOrder, $found, ! empty($report['cause_id']) ? (int) $report['cause_id'] : null, $report['cause_note'] ?? null, $fullName . ' (crew)');
         }
 
         DB::transaction(function () use ($card, $fullName, $ctx) {
@@ -259,8 +281,9 @@ class CrewJobService
      *
      * @param array{type?: ?string, description?: ?string, rental_catalogue_item_id?: mixed, quantity?: mixed, unit?: ?string, unit_cost?: mixed, note?: ?string, is_extra?: mixed} $data
      * @param array<int, UploadedFile> $photos up to MAX_LINE_PHOTOS
+     * @param UploadedFile|null $receipt AT-459 — the receipt for a PART line (what the crew paid); ignored for labour
      */
-    public function addLine(RentalJobCard $card, array $data, array $photos, CrewViewContext $ctx): RentalJobCardLine
+    public function addLine(RentalJobCard $card, array $data, array $photos, CrewViewContext $ctx, ?UploadedFile $receipt = null): RentalJobCardLine
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
@@ -271,31 +294,34 @@ class CrewJobService
         $request = $card->priceRequests()->withoutGlobalScopes()->where('status', RentalJobCardPriceRequest::STATUS_OPEN)->latest('id')->first();
         $isExtra = ! empty($data['is_extra']) || ! $request;
 
-        $line = DB::transaction(function () use ($card, $clean, $request, $isExtra, $ctx) {
+        $clientKey = ! empty($data['client_key']) ? (string) $data['client_key'] : null; // §17.43 - the retry key is stored on the line
+        $line = DB::transaction(function () use ($card, $clean, $request, $isExtra, $ctx, $clientKey) {
             return app(RentalJobCardService::class)->addLine($card, $clean + [
                 'origin' => $isExtra ? RentalJobCardLine::ORIGIN_CREW_EXTRA : RentalJobCardLine::ORIGIN_CREW_PRICING,
                 'office_status' => RentalJobCardLine::OFFICE_CREW_DRAFT,
                 'crew_added_by_label' => mb_substr($ctx->actorLabel, 0, 191),
                 'crew_added_at' => now(),
                 'rental_job_card_price_request_id' => $isExtra ? null : $request?->id,
+                'client_key' => $clientKey,
             ], null, null, false);
         });
 
         $this->storeLinePhotos($card, $line, $photos, $ctx);
+        $this->storeReceipt($card, $line, $receipt, $ctx);
         $this->touchToken($ctx);
 
         return $line;
     }
 
     /** Change one of the crew's OWN drafts. Once sent to the office a line is no longer the crew's to change. */
-    public function editDraft(RentalJobCard $card, RentalJobCardLine $line, array $data, array $photos, CrewViewContext $ctx): RentalJobCardLine
+    public function editDraft(RentalJobCard $card, RentalJobCardLine $line, array $data, array $photos, CrewViewContext $ctx, ?UploadedFile $receipt = null): RentalJobCardLine
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
         $this->assertOwnDraft($card, $line);
 
         $clean = $this->cleanLineData($card, $data, $ctx);
-        $existingPhotos = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->count();
+        $existingPhotos = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->count();
         $this->assertPhotoCount(count($photos), $existingPhotos);
 
         $pricing = app(RentalPricingService::class);
@@ -313,6 +339,7 @@ class CrewJobService
         $line->save();
 
         $this->storeLinePhotos($card, $line, $photos, $ctx);
+        $this->storeReceipt($card, $line, $receipt, $ctx);
         $this->touchToken($ctx);
 
         return $line->refresh();
@@ -330,29 +357,87 @@ class CrewJobService
     }
 
     /**
-     * "Send to office": every one of this card's crew drafts becomes `awaiting_office`; an open price request that the crew
-     * answered becomes `submitted` (with who/when/IP/device). ONE audit line, ONE domain event (→ one in-app note to the
-     * property's agent) per send, never per line. Returns how many lines were sent.
+     * Undo a Remove: bring back a draft the crew archived (spec §17.43). Only the crew's own, still-draft line of THIS card; a line
+     * that is not archived is returned as it is, so a double tap on Undo is harmless.
      */
-    public function sendToOffice(RentalJobCard $card, CrewViewContext $ctx): int
+    public function restoreDraft(RentalJobCard $card, int $lineId, CrewViewContext $ctx): RentalJobCardLine
     {
         $this->assertReachable($card, $ctx);
         $card->assertContentEditable();
 
+        $line = RentalJobCardLine::withoutGlobalScopes()->withTrashed()->where('rental_job_card_id', $card->id)->whereKey($lineId)->firstOrFail();
+        abort_unless(in_array($line->origin, [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA], true), 404);
+        if ($line->office_status !== RentalJobCardLine::OFFICE_CREW_DRAFT) {
+            throw new \LogicException('This line has already been sent to the office, so it can no longer be changed here.');
+        }
+        if ($line->trashed()) {
+            $line->restore();
+        }
+        $this->touchToken($ctx);
+
+        return $line->refresh();
+    }
+
+    /**
+     * "Send to office": every one of this card's crew drafts becomes `awaiting_office`; an open price request that the crew
+     * answered becomes `submitted` (with who/when/IP/device). ONE audit line, ONE domain event (→ one in-app note to the
+     * property's agent) per send, never per line. Returns how many lines were sent.
+     */
+    public function sendToOffice(RentalJobCard $card, CrewViewContext $ctx, ?string $findings = null): int
+    {
+        $this->assertReachable($card, $ctx);
+        $card->assertContentEditable();
+
+        $findings = trim((string) $findings);
+        if (mb_strlen($findings) > self::MAX_FINDINGS_LENGTH) {
+            throw new \InvalidArgumentException('Keep what you found to ' . self::MAX_FINDINGS_LENGTH . ' characters or fewer.');
+        }
+
         $sent = 0;
         $requestId = null;
-        DB::transaction(function () use ($card, $ctx, &$sent, &$requestId) {
+        $duplicate = false;
+        $reportId = null;
+        DB::transaction(function () use ($card, $ctx, $findings, &$sent, &$requestId, &$duplicate, &$reportId) {
+            // The card row is the lock: two taps of "Send to office" (or the same send from two tabs) queue here, so the second
+            // one finds no drafts left rather than sending the batch twice.
+            RentalJobCard::withoutGlobalScopes()->whereKey($card->id)->lockForUpdate()->first();
+
             $drafts = RentalJobCardLine::withoutGlobalScopes()
                 ->where('rental_job_card_id', $card->id)->whereNull('deleted_at')
                 ->whereIn('origin', [RentalJobCardLine::ORIGIN_CREW_PRICING, RentalJobCardLine::ORIGIN_CREW_EXTRA])
                 ->where('office_status', RentalJobCardLine::OFFICE_CREW_DRAFT)
                 ->lockForUpdate()->get();
             if ($drafts->isEmpty()) {
-                throw new \InvalidArgumentException('Add at least one part or labour line before you send to the office.');
+                // a double-tap: the batch the crew just sent is already with the office - say so instead of an error
+                $recent = RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)
+                    ->where('created_at', '>=', now()->subSeconds(self::DOUBLE_SEND_WINDOW_SECONDS))->exists();
+                if ($recent) {
+                    $duplicate = true;
+
+                    return;
+                }
+                throw new \InvalidArgumentException('Add at least one part or labour line to your list before you send to the office.');
             }
 
+            // What did you find / what is needed: required on the crew's FIRST send for this card, optional after.
+            $firstSend = ! RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)->exists();
+            if ($firstSend && $findings === '') {
+                throw new \InvalidArgumentException('Tell the office what you found and what is needed before you send.');
+            }
+
+            $report = RentalJobCardCrewReport::withoutGlobalScopes()->create([
+                'agency_id' => $card->agency_id,
+                'rental_job_card_id' => $card->id,
+                'findings' => $findings !== '' ? $findings : null,
+                'line_count' => $drafts->count(),
+                'sent_label' => mb_substr($ctx->actorLabel, 0, 191),
+                'sent_via' => mb_substr($ctx->via, 0, 20),
+                'sent_ip' => $ctx->ip,
+            ]);
+
+            $reportId = $report->id;
             RentalJobCardLine::withoutGlobalScopes()->whereIn('id', $drafts->pluck('id'))
-                ->update(['office_status' => RentalJobCardLine::OFFICE_AWAITING]);
+                ->update(['office_status' => RentalJobCardLine::OFFICE_AWAITING, 'rental_job_card_crew_report_id' => $report->id]);
             $sent = $drafts->count();
 
             $pricingRequestIds = $drafts->where('origin', RentalJobCardLine::ORIGIN_CREW_PRICING)->pluck('rental_job_card_price_request_id')->filter()->unique();
@@ -369,14 +454,19 @@ class CrewJobService
                     ]);
             }
 
-            $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')';
+            $note = "{$sent} line" . ($sent === 1 ? '' : 's') . " ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')'
+                . ($findings !== '' ? ' - ' . \Illuminate\Support\Str::limit(preg_replace('/\s+/u', ' ', $findings), 200) : '');
             $card->logUpdate('crew_lines_sent', null, $note);
             if ($requestId) {
                 $card->logUpdate('pricing_submitted', null, "Crew sent their prices ({$ctx->actorLabel}" . ($ctx->ip ? ", IP {$ctx->ip}" : '') . ')');
             }
         });
 
-        RentalCrewLinesSubmitted::dispatch($card, $sent, $ctx->via, $requestId);
+        if ($duplicate) {
+            return 0;
+        }
+
+        RentalCrewLinesSubmitted::dispatch($card, $sent, $ctx->via, $requestId, null, $reportId);
         $this->touchToken($ctx);
 
         return $sent;
@@ -407,37 +497,63 @@ class CrewJobService
             throw new \InvalidArgumentException('The description is too long (255 characters at most).');
         }
 
-        $type = (string) ($data['type'] ?? ($item?->kind() ?? RentalCatalogueItem::TYPE_PART));
+        // AT-459 — a picked catalogue item decides Part or Labour for the crew (the office may override an item's kind on its own
+        // lines; a crew must not, or "Labour" could be turned into a "Part" just to type a price against it).
+        $type = $item?->kind() ?? (string) ($data['type'] ?? RentalCatalogueItem::TYPE_PART);
         if (! in_array($type, [RentalCatalogueItem::TYPE_PART, RentalCatalogueItem::TYPE_LABOUR], true)) {
             throw new \InvalidArgumentException('Choose Part or Labour.');
         }
+        $isLabour = $type === RentalCatalogueItem::TYPE_LABOUR;
 
-        $quantityRaw = $data['quantity'] ?? 1;
+        // Parts: how many (default 1). Labour: HOURS — there is no sensible default, so it must be typed.
+        $quantityRaw = $data['quantity'] ?? null;
         if ($quantityRaw === '' || $quantityRaw === null) {
+            if ($isLabour) {
+                throw new \InvalidArgumentException('Enter the hours worked (a number above 0).');
+            }
             $quantityRaw = 1;
         }
         if (! is_numeric($quantityRaw) || (float) $quantityRaw <= 0 || (float) $quantityRaw > 100000) {
-            throw new \InvalidArgumentException('Enter how many (a number above 0).');
+            throw new \InvalidArgumentException($isLabour ? 'Enter the hours worked (a number above 0).' : 'Enter how many (a number above 0).');
         }
 
-        $unit = trim((string) ($data['unit'] ?? ''));
+        // Labour is counted in the catalogue item's own unit (Hour / Day / Call-out); typed from scratch it is hours.
+        $unit = $isLabour ? '' : trim((string) ($data['unit'] ?? ''));
         if ($unit === '' && $item) {
             $unit = (string) ($item->catalogueUnit?->name ?? '');
+        }
+        if ($unit === '' && $isLabour) {
+            $unit = 'Hour';
         }
         if (mb_strlen($unit) > 30) {
             throw new \InvalidArgumentException('The unit is too long (30 characters at most).');
         }
 
         $unitCost = null;
+        $costRaw = $data['unit_cost'] ?? null;
+        $costTyped = $costRaw !== null && $costRaw !== '';
         if ($pricesOn) {
-            $costRaw = $data['unit_cost'] ?? null;
-            if ($costRaw === null || $costRaw === '') {
+            if ($isLabour) {
+                // The crew never prices labour. Cost = hours x the catalogue item's cost rate, worked out here (CrewJobService /
+                // RentalPricingService::syncCostTotal) and never read from the request. No item, or an item with no cost on file:
+                // the line arrives with a blank cost for the office to price.
+                if ($costTyped) {
+                    throw new \InvalidArgumentException('Labour is priced by the office — enter the hours only.');
+                }
+                // AT-459 NOTE for the catalogue pricing change (cc5): the labour rate AND the part prefill both read the catalogue cost
+                // through RentalJobCardVatService::catalogueDefaultCostForLine() — when the new cost column lands, change it THERE.
+                $unitCost = $item ? app(RentalJobCardVatService::class)->catalogueDefaultCostForLine($item, $card->agency ?? Agency::withoutGlobalScopes()->find($card->agency_id)) : null;
+            } elseif ($costTyped) {
+                if (! is_numeric($costRaw) || (float) $costRaw < 0 || (float) $costRaw > 99999999) {
+                    throw new \InvalidArgumentException('Enter the cost as a number, 0 or more.');
+                }
+                $unitCost = round((float) $costRaw, 2);
+            } elseif ($item) {
+                // A part picked from the list: the cost on file stands unless the crew typed what they actually paid.
+                $unitCost = app(RentalJobCardVatService::class)->catalogueDefaultCostForLine($item, $card->agency ?? Agency::withoutGlobalScopes()->find($card->agency_id));
+            } else {
                 throw new \InvalidArgumentException('Enter what it cost you (the actual cost).');
             }
-            if (! is_numeric($costRaw) || (float) $costRaw < 0 || (float) $costRaw > 99999999) {
-                throw new \InvalidArgumentException('Enter the cost as a number, 0 or more.');
-            }
-            $unitCost = round((float) $costRaw, 2);
         }
 
         $note = trim((string) ($data['note'] ?? ''));
@@ -473,6 +589,16 @@ class CrewJobService
         }
     }
 
+    /**
+     * AT-459 — the receipt for a PART line: what the crew paid, proved. Stored like a line photo (against the line, not in the job gallery)
+     * but with its own photo_type so it never appears in the up-to-3 "Photos" count, the job gallery, or anything the owner or tenant sees.
+     * A newer receipt supersedes an older one on screen (photo rows are immutable); labour has no receipt.
+     */
+    private function storeReceipt(RentalJobCard $card, RentalJobCardLine $line, ?UploadedFile $receipt, CrewViewContext $ctx): void
+    {
+        app(RentalJobCardService::class)->attachLineReceipt($card, $line, $receipt, null, $ctx->photoVia());
+    }
+
     /** Only the crew's own, still-draft, live line of THIS card — anything else is the same 404/refusal a stranger would get. */
     private function assertOwnDraft(RentalJobCard $card, RentalJobCardLine $line): void
     {
@@ -501,31 +627,6 @@ class CrewJobService
 
     private function timezone(RentalJobCard $card): string
     {
-        return $card->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
-    }
-
-    private function mapUrl(?\App\Models\Property $property, string $address): ?string
-    {
-        if ($property && $property->latitude && $property->longitude) {
-            return 'https://www.google.com/maps/search/?api=1&query=' . urlencode($property->latitude . ',' . $property->longitude);
-        }
-
-        return $address !== '' ? 'https://www.google.com/maps/search/?api=1&query=' . urlencode($address) : null;
-    }
-
-    /** @return array<int, array{name: string, phone: ?string}> primary tenant first */
-    private function tenantContact(RentalJobCard $card): array
-    {
-        if (! $card->lease_id) {
-            return [];
-        }
-
-        return \App\Models\LeaseTenant::query()
-            ->where('lease_id', $card->lease_id)
-            ->with('contact')
-            ->orderByDesc('is_primary')->orderBy('id')
-            ->get()
-            ->map(fn ($t) => $t->contact ? ['name' => (string) $t->contact->full_name, 'phone' => $t->contact->phone] : null)
-            ->filter()->values()->all();
+        return \App\Support\AppDate::agencyTimezone($card->agency);
     }
 }

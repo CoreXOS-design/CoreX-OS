@@ -286,7 +286,7 @@ final class RentalInspectionI3AttendanceTest extends TestCase
     public function test_attendance_cannot_be_recorded_on_a_completed_or_cancelled_inspection(): void
     {
         $completed = $this->inspection(RentalInspection::TYPE_AD_HOC);
-        $this->postJson(route('corex.rental-inspections.complete', $completed))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $completed), ['acknowledge_warnings' => 1])->assertOk();
         $this->record($completed, ['party_role' => 'tenant', 'party_contact_id' => $this->tenantOne->id, 'outcome' => 'attended'])->assertStatus(409);
 
         $cancelled = $this->inspection();
@@ -436,7 +436,7 @@ final class RentalInspectionI3AttendanceTest extends TestCase
         RentalInspectionSignature::capture($inspection, 'landlord', 'signed', ['party_contact_id' => $this->landlord->id, 'party_signature_path' => 'private:sig.png', 'recorded_by_user_id' => $this->agent->id]);
         RentalInspectionSignature::capture($inspection, 'agent', 'signed', ['party_signature_path' => 'private:sig.png', 'recorded_by_user_id' => $this->agent->id]);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
     }
 
@@ -444,7 +444,7 @@ final class RentalInspectionI3AttendanceTest extends TestCase
     {
         $inspection = $this->inspection(RentalInspection::TYPE_AD_HOC);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
     }
 
     public function test_a_party_who_did_not_attend_is_recorded_as_no_signature_not_a_refusal(): void

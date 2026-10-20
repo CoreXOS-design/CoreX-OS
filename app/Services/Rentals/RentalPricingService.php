@@ -71,11 +71,26 @@ class RentalPricingService
             }
         }
 
-        // 5 — the catalogue item has a default selling price, in the agency's capture mode.
+        // 5 — the catalogue item prices the line: by MARKUP (cost + the item's markup, on THIS line's cost) when that is what the
+        // item is set to, else by its fixed selling price. Never the stored selling of a markup item — that was only a derived figure.
         $item = $line->rental_catalogue_item_id ? ($line->catalogueItem ?? RentalCatalogueItem::find($line->rental_catalogue_item_id)) : null;
-        if ($item && $item->default_price !== null) {
+        if ($item && $item->pricedByMarkup()) {
             $agency = $this->agencyFor($card);
-            $unit = $agency ? $this->vat->catalogueDefaultPriceForLine($item, $agency) : (float) $item->default_price;
+            // The line's own cost (office-typed, or the crew's actual once accepted); the catalogue cost only when the line has none.
+            $base = $cost ?? ($agency ? $this->vat->catalogueDefaultCostForLine($item, $agency) : ($item->cost_excl !== null ? (float) $item->cost_excl : null));
+            if ($base !== null) {
+                if ($item->markup_type === 'rand') {
+                    $amount = $agency ? $this->vat->catalogueMarkupAmountForLine($item, $agency) : (float) $item->markup_value;
+                    $unit = round($base + (float) $amount, 2);
+
+                    return new SellingResolution($unit, round($qty * $unit, 2), RentalJobCardLine::BASIS_CATALOGUE_MARKUP);
+                }
+
+                return $this->percent($base, $qty, (float) $item->markup_value, RentalJobCardLine::BASIS_CATALOGUE_MARKUP);
+            }
+        } elseif ($item && $item->selling_excl !== null) {
+            $agency = $this->agencyFor($card);
+            $unit = $agency ? $this->vat->catalogueDefaultPriceForLine($item, $agency) : (float) $item->selling_excl;
             if ($unit !== null) {
                 return new SellingResolution($unit, round($qty * $unit, 2), RentalJobCardLine::BASIS_CATALOGUE_PRICE);
             }
@@ -270,6 +285,7 @@ class RentalPricingService
                     ? 'labour ' . $pct($card->markup_labour_percent)
                     : 'job ' . $pct($card->markup_all_percent)),
             RentalJobCardLine::BASIS_CATALOGUE_PRICE => 'catalogue',
+            RentalJobCardLine::BASIS_CATALOGUE_MARKUP => self::catalogueMarkupLabel($line, $pct),
             RentalJobCardLine::BASIS_AGENCY_DEFAULT => ($isPart
                 ? RentalWorkOrderSetting::defaultPartsMarkupPercentFor($card->agency_id)
                 : RentalWorkOrderSetting::defaultLabourMarkupPercentFor($card->agency_id)) < 0.005
@@ -277,6 +293,17 @@ class RentalPricingService
                     : 'agency default',
             default => $line->unit_price !== null ? 'set by hand' : '',
         };
+    }
+
+    /** "markup 20 %" or "+ R5.00" — the catalogue item's markup, as the office reads it under the selling price. */
+    private static function catalogueMarkupLabel(RentalJobCardLine $line, \Closure $pct): string
+    {
+        $item = $line->rental_catalogue_item_id ? ($line->catalogueItem ?? RentalCatalogueItem::find($line->rental_catalogue_item_id)) : null;
+        if ($item && $item->markup_value !== null) {
+            return $item->markup_type === 'rand' ? '+ R' . number_format((float) $item->markup_value, 2) : 'markup ' . $pct($item->markup_value);
+        }
+
+        return 'catalogue markup';
     }
 
     private function agencyFor(RentalJobCard $card): ?Agency

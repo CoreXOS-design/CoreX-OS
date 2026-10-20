@@ -60,7 +60,7 @@
 --}}
 {{-- Rentals front-half decision D15: also offered on an APPROVED application that has no lease yet (agency setting
      `allow_withdraw_after_approval`, default on) - RentalApplication::canBeWithdrawnAfterApproval(). --}}
-@if(in_array($application->status, ['returned', 'under_assessment'], true) || $application->canBeWithdrawnAfterApproval())
+@if(in_array($application->status, array_merge(['returned', 'under_assessment'], \App\Models\RentalApplication::WITHDRAWABLE_BEFORE_SUBMIT_STATUSES), true) || $application->canBeWithdrawnAfterApproval())
 <div x-data="{ open: false }" class="inline-block align-top">
     <button type="button" @click="open = !open" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);"
             title="Records that the applicant told you they're withdrawing — this doesn't notify them or do anything else">Withdraw application</button>

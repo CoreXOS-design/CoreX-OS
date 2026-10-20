@@ -167,7 +167,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertStringContainsString('1 photo', $html);
         $this->assertStringContainsString('/secure/work-orders/', $html, 'the link');
         $this->assertStringNotContainsString($this->landlord->email, $html, 'no owner details');
-        $this->assertStringNotContainsString('Tina', $html, 'no tenant details unless the agency switched them on for crews');
+        $this->assertStringContainsString('Tina Tenant', $html, 'tenant details are on by default (AT-459); the agency can switch them off');
         $this->assertStringNotContainsString('R ', strip_tags($html), 'no prices');
 
         $row = $this->rows($wo)->first();
@@ -181,6 +181,62 @@ final class ContractorJobDispatchTest extends TestCase
         $line = $wo->updates()->where('update_type', 'job_sent_to_contractor')->value('note');
         $this->assertStringContainsString('Drip Plumbing by email to drip@example.invalid', $line);
         $this->assertStringContainsString('Agnes Agent', $line);
+    }
+
+    /**
+     * AT-459: the contractor's email and link page carry the tenant's name + tap-to-call number (when the agency lets crews/contractors see them),
+     * who lets them in (the access contact the office keeps on the work order) and an Open in Maps link. Nothing more: no hours, parts or quote-building.
+     */
+    public function test_the_job_email_and_link_page_carry_tenant_access_contact_and_open_in_maps(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => true]);
+        $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid', 'phone' => null], 'Plumbing');
+        $wo = $this->appointViaFault($this->fault(), $p);
+        $wo->forceFill(['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101', 'access_note' => 'Gate code 4321'])->save();
+
+        app(Jobs::class)->resend($wo->fresh(), $this->agent, 'press-1');
+
+        $html = end($this->sent)[1]->render();
+        $this->assertStringContainsString('Open in Maps', $html);
+        $this->assertStringContainsString('https://www.google.com/maps/search/?api=1&amp;query=', $html);
+        $this->assertStringContainsString('Tina Tenant', $html);
+        $this->assertStringContainsString('href="tel:0821112222"', $html);
+        $this->assertStringContainsString('Caretaker Carl', $html);
+        $this->assertStringContainsString('href="tel:0825550101"', $html);
+        $this->assertStringContainsString('Gate code 4321', $html, 'the work order\'s note wins over the property\'s');
+        $this->assertStringNotContainsString('caretaker, gate code 1234', $html);
+
+        $page = $this->get(route('rentals.secure-link.show', $this->linkFor('drip@example.invalid')))->assertOk()->getContent();
+        $this->assertStringContainsString('data-open-in-maps', $page);
+        $this->assertStringContainsString('https://www.google.com/maps/search/?api=1&amp;query=', $page);
+        $this->assertStringContainsString('data-tenant', $page);
+        $this->assertStringContainsString('href="tel:0821112222"', $page);
+        $this->assertStringContainsString('data-access-contact', $page);
+        $this->assertStringContainsString('Caretaker Carl', $page);
+        $this->assertStringContainsString('href="tel:0825550101"', $page);
+        $this->assertStringContainsString('Gate code 4321', $page);
+        // crew-only: the contractor link gets no parts / labour / hours capture
+        $this->assertStringNotContainsString('Parts &amp; labour', $page);
+        $this->assertStringNotContainsString('name="unit_cost"', $page);
+        $this->assertStringNotContainsString('Take photo', $page);
+    }
+
+    public function test_the_tenant_stays_hidden_from_the_contractor_when_the_agency_switched_it_off_but_access_and_maps_still_show(): void
+    {
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
+        $p = $this->provider('Drip Plumbing', ['email' => 'drip@example.invalid', 'phone' => null], 'Plumbing');
+        $wo = $this->appointViaFault($this->fault(), $p);
+        $wo->forceFill(['access_contact_name' => 'Caretaker Carl', 'access_contact_phone' => '082 555 0101'])->save();
+        app(Jobs::class)->resend($wo->fresh(), $this->agent, 'press-2');
+
+        $html = end($this->sent)[1]->render();
+        $page = $this->get(route('rentals.secure-link.show', $this->linkFor('drip@example.invalid')))->getContent();
+        foreach ([$html, $page] as $body) {
+            $this->assertStringNotContainsString('Tina', $body);
+            $this->assertStringNotContainsString('0821112222', $body);
+            $this->assertStringContainsString('Caretaker Carl', $body);
+            $this->assertStringContainsString('Open in Maps', $body);
+        }
     }
 
     public function test_the_job_is_never_sent_twice_for_one_appointment_and_each_resend_press_is_one_send(): void
@@ -328,12 +384,19 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertSame('declined', $wo->fresh()->contractor_response);
         $this->assertSame('Fully booked this week', $wo->fresh()->contractor_decline_reason);
 
+        // audit fix C-C6: a contractor who declined cannot quote - the server refuses, and the answer is not flipped back
+        $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertSessionHasErrors('quote');
+        $this->assertSame('declined', $wo->fresh()->contractor_response);
+        $this->assertSame(0, $wo->quotes()->count());
+
+        // they change their mind: accept first, then quote
+        $this->post(route('rentals.secure-link.respond', $token), ['answer' => 'accept'])->assertRedirect();
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '850', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and tap'])->assertRedirect();
         $this->assertSame('quote_uploaded', $wo->fresh()->contractor_response);
         $this->assertSame(1, $wo->quotes()->count());
 
         $types = $wo->updates()->pluck('update_type')->all();
-        $this->assertSame(3, count(array_keys($types, 'contractor_response')), 'accepted, declined, quote - each written to the history');
+        $this->assertSame(4, count(array_keys($types, 'contractor_response')), 'accepted, declined, accepted again, quote - each written to the history');
 
         // and the supplier card shows it, not just a data row
         $card = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $wo))->getContent();
@@ -359,7 +422,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->post(route('rentals.secure-link.quote', $token), ['amount' => '1250.5', 'quote_date' => now()->toDateString(), 'detail_text' => 'Replace washer and cartridge'])->assertRedirect();
 
         $alerts = collect($this->agentAlerts());
-        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_responded' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts');
+        $this->assertTrue($alerts->contains(fn ($a) => $a[0] === 'rental_work_order.contractor_accepted' && str_starts_with($a[1], 'Cape Peninsula Plumbing accepted the job')), 'accepted still alerts (its own type since the audit split, C-B1)');
         $quote = $alerts->first(fn ($a) => $a[0] === 'rental_work_order.quote_received');
         $this->assertNotNull($quote, 'the quote alerts the agent');
         $this->assertSame('Quote received - Cape Peninsula Plumbing R1,250.50 - ' . $wo->property->buildDisplayAddress(), $quote[1]);
@@ -556,8 +619,8 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertCount(1, $this->mailsTo('crew@example.invalid'));
         $html = $this->actingAs($this->agent)->get(route('corex.rental-job-cards.show', $card))->assertOk()->getContent();
         $this->assertStringContainsString('data-crew-sent', $html);
-        $this->assertStringContainsString('Send the crew link again', $html);
-        $this->assertStringContainsString('data-crew-send-standalone', $html, 'visible from the first moment (the card is still in its draft stage here)');
+        $this->assertStringContainsString('Resend link', $html);   // AT-460: the Crew card's button
+        $this->assertStringContainsString('data-crew-card', $html, 'visible from the first moment (the card is still in its draft stage here)');
         $this->assertStringContainsString('data-crew-send', $html);   // the existing "Email a link" form (the Resend) lives in the full crew panel once the card is booked
     }
 
@@ -805,7 +868,7 @@ final class ContractorJobDispatchTest extends TestCase
         $this->assertContains('rental_work_order.contractor_job_not_sent', $events);
 
         app(Jobs::class)->recordResponse($wo->fresh(), 'accepted');
-        $this->assertContains('rental_work_order.contractor_responded', $events);
+        $this->assertContains('rental_work_order.contractor_accepted', $events);
         app(Jobs::class)->recordResponse($wo->fresh(), 'quote_uploaded');
         $this->assertContains('rental_work_order.quote_received', $events, 'a quote has its own alert type');
         $this->assertSame(4, \Illuminate\Support\Facades\DB::table('notification_event_types')->whereIn('key', [

@@ -161,7 +161,7 @@ final class BackHalfWalkTest extends TestCase
 
         // 4 - the owner approves the quote in the portal.
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
 
         // 5 - the cost is authorised, so the job is cleared to go ahead. The contractor was told once, when appointed, and is not mailed again.
@@ -311,7 +311,7 @@ final class BackHalfWalkTest extends TestCase
         $this->asOwner();
         $row = collect($this->getJson('/api/v1/client/rentals/landlord/work-orders')->json('work_orders'))->firstWhere('id', $wo->id);
         $this->assertSame('pending', $row['client']['owner_approval_status']);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
 
         // Schedule (the booking mirrors to the work order's appointment: the tenant's line shows it and who is coming).
@@ -417,13 +417,13 @@ final class BackHalfWalkTest extends TestCase
         $this->quoteAndSelect($wo, $supplier, 1500);
 
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too expensive'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'decline', 'note' => 'Too expensive'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame(RentalWorkOrder::APPROVAL_DECLINED, $wo->fresh()->owner_approval_status);
 
         // Nothing can be sent to the contractor on a declined quote, and the owner cannot decide a second time.
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.assign-supplier', $wo), ['agency_service_provider_id' => $supplier->id])->assertSessionHasErrors('rental_work_order');
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertStatus(422);
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertStatus(422);
 
         // The tenant is never told about the owner's decline (no reason, no word "declined").
         $this->asTenant();
@@ -522,7 +522,7 @@ final class BackHalfWalkTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.lines.store', $card), ['type' => 'part', 'description' => 'Element', 'quantity' => 1, 'unit_price' => 1000, 'unit_cost' => 600])->assertSessionHasNoErrors();
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors();
         $this->asOwner();
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
 
         // The agent adds a line beyond what the owner approved: a variation is raised for the owner.
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.lines.store', $card), ['type' => 'part', 'description' => 'Thermostat', 'quantity' => 1, 'unit_price' => 800, 'unit_cost' => 400])->assertSessionHasNoErrors();

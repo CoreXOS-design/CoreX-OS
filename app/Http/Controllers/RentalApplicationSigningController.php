@@ -172,6 +172,26 @@ class RentalApplicationSigningController extends Controller
     }
 
     /**
+     * Audit fix A2 (2026-10-19): the method that can actually be PASSED. The agency's choice (ID number or emailed code)
+     * assumes the applicant has that identifier on file; an agency that does not make the ID number compulsory, or an
+     * applicant with no email, used to be locked out of their own link for ever (the ID check cannot match an empty ID, and
+     * the emailed code has nowhere to go). Falls back to the other factor, and when neither exists to the agent's one-time
+     * code (ApplicantAccessCode) - there is always a way in. The code box is offered on every gate page as well.
+     */
+    private function effectiveGateMethod(RentalApplication $application): string
+    {
+        $configured = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+        $hasEmail = (bool) $application->recipientEmail();
+        $hasId = preg_replace('/[^0-9]/', '', (string) $application->id_number) !== '';
+
+        if ($configured === 'email_otp') {
+            return $hasEmail ? 'email_otp' : ($hasId ? 'id_number' : 'agent_code');
+        }
+
+        return $hasId ? 'id_number' : ($hasEmail ? 'email_otp' : 'agent_code');
+    }
+
+    /**
      * Renders the gate itself. For email_otp, sends the code automatically
      * on first render of a session (never resent on every reload — a
      * session flag tracks "already sent", the applicant's own "Resend
@@ -180,7 +200,7 @@ class RentalApplicationSigningController extends Controller
      */
     private function renderReturnGate(RentalApplication $application): View
     {
-        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+        $method = $this->effectiveGateMethod($application);
 
         if ($method === 'email_otp') {
             $email = $application->recipientEmail();
@@ -202,7 +222,7 @@ class RentalApplicationSigningController extends Controller
         }
 
         return view('rental-applications.public.gate', [
-            'method' => 'id_number',
+            'method' => $method,
             'lockedOut' => false,
             'token' => $application->token,
             'agentName' => $application->createdBy?->name,
@@ -229,12 +249,17 @@ class RentalApplicationSigningController extends Controller
             return redirect()->route('rental-applications.public.show', $token);
         }
 
-        $method = RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id);
+        $method = $this->effectiveGateMethod($application);
 
-        if ($method === 'email_otp') {
+        if ($request->filled('agent_code')) {
+            // The code the agent gave the applicant (A2) works whichever method the agency uses.
+            $passed = app(\App\Services\RentalApplications\ApplicantAccessCode::class)->verify($application, (string) $request->input('agent_code'));
+        } elseif ($method === 'email_otp') {
             $email = $application->recipientEmail();
             $code = (string) $request->input('otp_code', '');
             $passed = $email !== null && app(OtpService::class)->verify('rental_application_return_gate', $email, $code) !== null;
+        } elseif ($method === 'agent_code') {
+            $passed = false;   // nothing on file to check - only the agent's code (above) gets in
         } else {
             $passed = $this->idNumberMatches($application, (string) $request->input('id_number', ''));
         }
@@ -508,7 +533,7 @@ class RentalApplicationSigningController extends Controller
         // didn't intercept it) notified above — this hand-off can never
         // lose it, whatever happens next.
         try {
-            $ficaSubmission = $this->findOrCreateFicaSubmission($application);
+            $ficaSubmission = app(\App\Services\RentalApplications\ApplicantFicaLink::class)->submissionFor($application);
         } catch (\Throwable $e) {
             \Illuminate\Support\Facades\Log::error('AT-392 FICA hand-off failed after a successful submission', [
                 'rental_application_id' => $application->id,
@@ -536,7 +561,7 @@ class RentalApplicationSigningController extends Controller
     {
         $application = $this->findByToken($token);
 
-        if (! $application->isSubmitted() || RentalApplicationQualifyingSetting::returnGateMethodFor($application->agency_id) !== 'email_otp') {
+        if (! $application->isSubmitted() || $this->effectiveGateMethod($application) !== 'email_otp') {
             return redirect()->route('rental-applications.public.show', $token);
         }
 
@@ -1214,93 +1239,6 @@ class RentalApplicationSigningController extends Controller
             ->with('success', $filed === 1
                 ? 'Your document was uploaded.'
                 : "Your {$filed} documents were uploaded.");
-    }
-
-    /**
-     * FICA-mandatory, AT-392 round 3, 2026-09-13 — same find-or-reuse shape
-     * SigningController's own FICA gate already uses for e-sign (checked,
-     * not assumed — see SigningController::show(), the FICA gate block),
-     * with ONE deliberate difference: this one auto-CREATES a submission
-     * when none exists at all, because e-sign's gate assumes an agent has
-     * already sent a FICA request via the compliance screen first, but
-     * Johan's "one continuous flow" instruction means the applicant must
-     * never hit a dead "no FICA link exists yet" state straight off their
-     * own submit button.
-     *
-     * A repeat contact with any submission from ANY prior transaction
-     * (approved, or still in progress) is found and reused as-is — this
-     * table has never been scoped to a single deal, so "have they FICA'd
-     * before" is genuinely a yes/no per contact, not per rental
-     * application (confirmed against the actual query shape, not assumed).
-     */
-    private function findOrCreateFicaSubmission(RentalApplication $application): FicaSubmission
-    {
-        $existing = FicaSubmission::where('contact_id', $application->contact_id)
-            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'approved'])
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if ($existing) {
-            // fica_submissions.token is nullable — a tokenless reused draft
-            // would otherwise throw UrlGenerationException the moment
-            // route('fica.form', ...) is called. Same defensive mint
-            // SigningController's own FICA gate already does.
-            // 2026-10-11 hotfix — a lapsed link is renewed too, not only a
-            // missing one, so a reused draft never hands out a dead link.
-            $existing->keepLinkAliveUntil(now()->addDays(14));
-            if ($existing->isDirty()) {
-                $existing->save();
-            }
-
-            return $existing;
-        }
-
-        return FicaSubmission::create([
-            'contact_id' => $application->contact_id,
-            'agency_id' => $application->agency_id,
-            'branch_id' => $application->branch_id,
-            'requested_by' => $this->resolveFicaRequestedBy($application),
-            'token' => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
-            'status' => 'draft',
-        ]);
-    }
-
-    /**
-     * Conductor, live on QA1, 2026-09-13 — a real 500: fica_submissions.
-     * requested_by is NOT NULL because every prior FICA request was
-     * staff-initiated; an applicant submitting online has no authenticated
-     * user at all. Checked every real consumer of this column before
-     * choosing (not a bare nullable — conductor's explicit instruction):
-     *
-     *   - FicaController's own permission checks
-     *     (`$submission->requested_by === auth()->id() || isOwnerRole() ||
-     *     hasPermission('manage_compliance')`, e.g. FicaController.php:946)
-     *     degrade safely on null — it just never matches a real user, so
-     *     only an owner/compliance-manager could act on it. Fine.
-     *   - FicaSubmission::scopeVisibleTo()'s 'own' scope
-     *     (`where('requested_by', $user->id)`) does NOT degrade safely —
-     *     a null value never matches, so a plain agent scoped to 'own'
-     *     would NEVER see this submission in their own compliance queue.
-     *     That directly breaks Johan's own requirement: "agent can then
-     *     push them to complete fica" — he can't push what he can't see.
-     *     This is why null was rejected in favour of a resolvable user.
-     *
-     * Fallback chain: the agent who owns the application
-     * (created_by_user_id) — but that column is ALSO nullable and, in the
-     * live incident that surfaced this, WAS null (application 334). Falls
-     * back to the agency's own admin (role='admin', scoped by agency_id) —
-     * always resolvable per LastAdminException's own guarantee that no
-     * agency can ever be left without one. If even that somehow returns
-     * null, FicaSubmission::create() throws and the caller's try/catch
-     * (submit()) degrades this to "FICA outstanding, logged" rather than
-     * a 500 — never fatal to the applicant either way.
-     */
-    private function resolveFicaRequestedBy(RentalApplication $application): ?int
-    {
-        return $application->created_by_user_id
-            ?? \App\Models\User::where('agency_id', $application->agency_id)->where('role', 'admin')->value('id');
     }
 
     public function pdf(Request $request, string $token)

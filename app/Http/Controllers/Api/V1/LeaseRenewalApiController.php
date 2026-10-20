@@ -47,7 +47,7 @@ class LeaseRenewalApiController extends Controller
     public function draftFromTemplate(Request $request, Lease $lease): JsonResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
-        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', 'exists:rental_lease_templates,id']]);
+        $validated = $request->validate(['rental_lease_template_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_lease_templates')]]);
         $terms = $this->validateTerms($request);
         $rentalLeaseTemplate = RentalLeaseTemplate::findOrFail($validated['rental_lease_template_id']);
 
@@ -129,20 +129,12 @@ class LeaseRenewalApiController extends Controller
             'notice_date' => $request->input('notice_date', now()->toDateString()),
         ], fn ($v) => $v !== null));
 
-        $validated = $request->validate([
+        $request->validate([
             'notice_outcome' => ['nullable', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
             'show_available_from_on_portals' => ['nullable', 'boolean'],
-            'notice_date' => ['required', 'date', 'before_or_equal:today'],
-            // a bare 'date' rule accepts a mistyped 6-digit year; the 2-year bound is a fixed sanity limit, not a configurable rule
-            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
-            'reason' => ['nullable', 'string', 'max:2000'],
-            'attachment' => ['nullable', 'file', 'max:' . LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . LeaseNoticeService::ATTACHMENT_MIMES],
-        ], [
-            'intended_end_date.before_or_equal' => 'The end date is too far in the future.',
-            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
         ]);
-
-        unset($validated['notice_outcome'], $validated['show_available_from_on_portals']);
+        // audit 2026-10-19 (A17/A28): the same entry rules as the web dialogs and the notice-cases route
+        $validated = app(LeaseNoticeService::class)->validateAgentEntry($request->all(), $request->file('attachment'));
 
         try {
             $notice = app(LeaseNoticeService::class)->give($lease, $givenBy, $validated, LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));

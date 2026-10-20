@@ -133,6 +133,8 @@ final class RentalInspectionSigningLinkTest extends TestCase
             'rental_inspection_item_id' => $item->id, 'observed_by_user_id' => $this->admin->id,
             'condition' => 'good', 'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
+        // audit B12: who was present is asked before anyone signs, so every fixture has it on record
+        $this->recordAttendanceForEveryParty($inspection);
         if ($readyToSign && $type !== RentalInspection::TYPE_AD_HOC) {
             $inspection->startAwaitingSignature();
             $this->recordAttendanceForEveryParty($inspection);
@@ -827,7 +829,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $inspection = $this->inspection();
 
         $this->get(route('corex.rental-inspections.show', $inspection))->assertOk()
-            ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR')->assertSee('Sign on this device')->assertSee('Email everyone their link');
+            ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR')->assertSee('Sign now on this device')->assertSee('Email everyone their link');
         $this->get(route('corex.properties.show', ['property' => $this->property->id, 'tab' => 'inspections']))->assertOk()
             ->assertSee('data-qa="signing-links-panel"', false)->assertSee('Show QR');
     }
@@ -996,9 +998,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
             RentalInspectionSignature::capture($inspection, 'landlord', 'signed', ['party_contact_id' => $this->landlord->id, 'party_signature_path' => '/fake/l.png', 'recorded_by_user_id' => $this->admin->id]);
         }
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
     }
 
     public function test_link_signatures_alone_do_not_complete_the_inspection_the_agent_still_signs_and_completes(): void
@@ -1022,9 +1024,9 @@ final class RentalInspectionSigningLinkTest extends TestCase
         Mail::assertNotSent(SignedDocumentDistributionMail::class);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
         // The completion copies go out exactly as they do for any inspection: tenants, landlord, inspector, creator.
@@ -1299,6 +1301,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->get($link->url())->assertSee('data-qa="sign-unavailable"', false);
 
         $this->actingAs($this->admin);
+        $this->recordAttendanceForEveryParty($inspection->fresh());
         $inspection->fresh()->startAwaitingSignature();
         $this->guest();
 
@@ -1317,10 +1320,16 @@ final class RentalInspectionSigningLinkTest extends TestCase
 
         // Alpine calls init() itself: a second x-init="init()" bound two pads to one canvas
         $this->assertStringNotContainsString('x-init="init()"', $html);
-        // the pad is sized on load, resize, rotation and whenever the canvas changes size, and waits for the library
+        // AT-463 - the pad is the ONE shared pad (resources/js/corex-signature-pad-mixin.js), also used by the agent's in-place
+        // "Sign now": the page builds its component from it and starts it exactly once...
+        $this->assertStringContainsString('window.corexSignaturePadMixin()', $html);
+        $this->assertStringContainsString('this.watchPad()', $html);
+        // ...and the shared pad is sized on load, resize, rotation and whenever the canvas changes size, and waits for the library
+        $mixin = (string) file_get_contents(resource_path('js/corex-signature-pad-mixin.js'));
         foreach (['syncPad', "'load'", "'resize'", "'orientationchange'", 'ResizeObserver', 'libTimer'] as $needle) {
-            $this->assertStringContainsString($needle, $html);
+            $this->assertStringContainsString($needle, $mixin);
         }
+        $this->assertStringContainsString("import './corex-signature-pad-mixin';", (string) file_get_contents(resource_path('js/app.js')));
         // the checkbox gates the button, never the pad
         $this->assertStringContainsString(":disabled=\"busy || (action === 'sign' && !readConfirmed)\"", $html);
     }

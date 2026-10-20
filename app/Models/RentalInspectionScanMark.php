@@ -29,6 +29,10 @@ class RentalInspectionScanMark extends Model
         'detected_condition_key',
         'detected_confidence',
         'ambiguous',
+        'tick_boxes',
+        'detected_note',
+        'detected_note_confidence',
+        'note_ink',
         'confirmed_condition_key',
         'confirmed_by_user_id',
         'confirmed_at',
@@ -39,6 +43,9 @@ class RentalInspectionScanMark extends Model
         'page_number' => 'integer',
         'detected_confidence' => 'float',
         'ambiguous' => 'boolean',
+        'tick_boxes' => 'integer',
+        'note_ink' => 'boolean',
+        'detected_note_confidence' => 'float',
         'confirmed_at' => 'datetime',
     ];
 
@@ -60,6 +67,49 @@ class RentalInspectionScanMark extends Model
     public function appliedObservation(): BelongsTo
     {
         return $this->belongsTo(RentalInspectionObservation::class, 'applied_observation_id');
+    }
+
+    /** AT-472 / form spec §13.15 - the three states a row's tick can be in on the review screen. */
+    public const TICK_READ = 'read';       // read with confidence
+    public const TICK_UNSURE = 'unsure';   // picked up but unsure: two boxes, faint, or low confidence - the agent must confirm
+    public const TICK_MISSED = 'missed';   // not picked up at all - the agent must set it
+
+    /** A tick whose strongest box is under the sensitivity has confidence under 0.4 (confidence = strongest / (2.5 x sensitivity)). */
+    private const LEGACY_NOTHING_PICKED_UP_BELOW = 0.4;
+
+    /**
+     * @param float $unsureBelow the agency's "ticks to check below this confidence" (RentalInspectionSetting::omrUnsureBelowFor())
+     */
+    public function tickState(float $unsureBelow): string
+    {
+        // How many boxes read as marked: stored since AT-472; a mark read before that is told apart by its confidence.
+        $boxes = $this->tick_boxes ?? ($this->ambiguous && $this->detected_confidence !== null && (float) $this->detected_confidence < self::LEGACY_NOTHING_PICKED_UP_BELOW ? 0 : null);
+        if ($boxes === 0 || ($this->detected_condition_key === null && ! $this->ambiguous)) {
+            return self::TICK_MISSED;
+        }
+        if ($this->ambiguous || $this->detected_condition_key === null) {
+            return self::TICK_UNSURE;   // two boxes, or a page that could not be placed reliably
+        }
+
+        return $this->detected_confidence !== null && (float) $this->detected_confidence < $unsureBelow ? self::TICK_UNSURE : self::TICK_READ;
+    }
+
+    /** The AI-read note, when it is good enough to fill the note box (text present and at or above the agency's confidence line). */
+    public function usableDetectedNote(float $minConfidence): ?string
+    {
+        $text = $this->detected_note !== null ? trim($this->detected_note) : '';
+
+        return $text !== '' && $this->detected_note_confidence !== null && (float) $this->detected_note_confidence >= $minConfidence ? $text : null;
+    }
+
+    /** The note area had handwriting in it but there is no usable AI reading of it: the agent is told to type the note in. */
+    public function noteUnreadable(float $minConfidence): bool
+    {
+        if ($this->usableDetectedNote($minConfidence) !== null) {
+            return false;
+        }
+
+        return $this->note_ink || ($this->detected_note !== null && trim($this->detected_note) !== '');
     }
 
     /** Never guessed — a row with no detected key or that's flagged ambiguous needs an explicit human choice before it can be applied. */

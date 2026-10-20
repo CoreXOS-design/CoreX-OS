@@ -445,7 +445,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => [],
         // Any one of these puts an item in the Rentals panel — the SAME list the sidebar's Rentals toggle checks
         // (corex-sidebar.blade.php). 'view_rentals' was retired with AT-439; naming it here pointed at nothing.
-        'nav_permission' => ['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view'], 'sidebar_section' => 'rental-applications',
+        'nav_permission' => ['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view'], 'sidebar_section' => 'rental-applications',
         'settings_section' => 'feature-rentals', 'route_prefixes' => ['rental', 'rentals'], 'global_flag' => null,
         // Settings-page configuration routes (rental.settings.*) are deliberately NOT owned here: an agency can still
         // configure Rentals while it is switched off, and the Settings screens stay reachable.
@@ -661,7 +661,7 @@ return [
         'explain' => 'Formal notices to tenants and landlords — generated from templates, sent and filed against the lease.',
         'affects' => 'Whether Rental Notices appears in the Rentals menu. Off hides it; notices already sent stay filed on their leases.',
         'default' => true, 'core' => false, 'depends_on' => ['rentals', 'rental-leases'],
-        'nav_permission' => ['rental_notices.create', 'rental_notices.review', 'rental_breaches.view'], 'sidebar_section' => 'rental-applications',
+        'nav_permission' => ['rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view'], 'sidebar_section' => 'rental-applications',
         'settings_section' => null, 'route_prefixes' => ['corex/rental-notices', 'corex/lease-notices', 'corex/breaches'], 'global_flag' => null,
         'route_names' => ['corex.rental-notices.*', 'corex.lease-notices.*', 'corex.leases.notice-cases.store', 'corex.breaches.*', 'corex.leases.breaches.*'],
         'view_dirs' => ['corex/rental-notices/', 'corex/lease-notices/', 'corex/breaches/'],

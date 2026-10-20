@@ -32,8 +32,13 @@ class RentalInspectionSettingsController extends Controller
             // 2026-09-23 — the public inspection-report link's expiry window.
             'publicLinkExpiryDays' => RentalInspectionSetting::publicLinkExpiryDaysFor($agencyId),
             'defaultPublicLinkExpiryDays' => RentalInspectionSetting::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS,
+            // Audit B21 - how long a signed inspection-photo link keeps working.
+            'photoLinkMinutes' => RentalInspectionSetting::photoLinkMinutesFor($agencyId),
+            'defaultPhotoLinkMinutes' => RentalInspectionSetting::DEFAULT_PHOTO_LINK_MINUTES,
             // §46 — signing by personal link.
             'signingLinkEnabled' => RentalInspectionSetting::signingLinkEnabledFor($agencyId),
+            // Johan's ruling 20 Oct 2026 - record amounts against move-out charges (default off).
+            'recordDeductionAmounts' => RentalInspectionSetting::recordDeductionAmountsFor($agencyId),
             'signingLinkExpiryDays' => RentalInspectionSetting::signingLinkExpiryDaysFor($agencyId),
             'defaultSigningLinkExpiryDays' => RentalInspectionSetting::DEFAULT_SIGNING_LINK_EXPIRY_DAYS,
             // §49 — are the three signatures required to complete an inspection of each type? (keyed by stored type)
@@ -113,6 +118,13 @@ class RentalInspectionSettingsController extends Controller
             'requireNotesBlocksProgression' => RentalInspectionSetting::requireNotesBlocksProgressionFor($agencyId),
             'allItemsRequiredToComplete' => RentalInspectionSetting::allItemsRequiredToCompleteFor($agencyId),
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
+            'omrUnsureBelow' => RentalInspectionSetting::omrUnsureBelowFor($agencyId),
+            'noteReadMinConfidence' => RentalInspectionSetting::noteReadMinConfidenceFor($agencyId),
+            // AT-463 / §60 — the paper the printed site form is laid out for.
+            'formPaperSize' => RentalInspectionSetting::formPaperSizeFor($agencyId),
+            'formPaperSizeOptions' => RentalInspectionSetting::formPaperSizeOptions(),
+            // AT-463 / §63 - how far in from every paper edge the printed form keeps its content.
+            'formSafeMarginMm' => RentalInspectionSetting::formSafeMarginMmFor($agencyId),
             // §43 — schedule/reschedule/cancel notifications.
             'notifyTenantEnabled' => RentalInspectionSetting::notifyTenantFor($agencyId),
             'notifyLandlordEnabled' => RentalInspectionSetting::notifyLandlordFor($agencyId),
@@ -152,19 +164,30 @@ class RentalInspectionSettingsController extends Controller
             // omit refusal_reason_presets (this method is also registered
             // as a wizard saver — see the onboarding config's own comment).
             'public_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:3650'],
+            // Audit B21 - has()-guarded below like the other optional controls (a wizard step that omits it must not reset it).
+            'photo_link_minutes' => ['nullable', 'integer', 'min:5', 'max:10080'],
             // Both has()-guarded below (agency-onboarding-setup.md §6.1) —
             // nullable so a caller that never renders them still saves.
             'require_notes_blocks_progression' => ['nullable', 'boolean'],
             'all_items_required_to_complete' => ['nullable', 'boolean'],
             // §46 — signing by personal link; both has()-guarded below so a wizard step that renders only one is safe.
             'signing_link_enabled' => ['nullable', 'boolean'],
+            // has()-guarded below: a wizard step that does not render it must not reset it.
+            'record_deduction_amounts' => ['nullable', 'boolean'],
             'signing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             // §49 — signatures required to complete, per type; each has()-guarded below (a wizard step renders only some).
             'signatures_required_in' => ['nullable', 'boolean'],
             'signatures_required_out' => ['nullable', 'boolean'],
             'signatures_required_interim' => ['nullable', 'boolean'],
             'signatures_required_routine' => ['nullable', 'boolean'],
-            'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.05', 'max:0.95'],
+            'omr_mark_threshold' => ['nullable', 'numeric', 'min:0.01', 'max:0.5'],
+            // AT-472 - filled()-guarded below, like the threshold: a wizard step that does not render them must not reset them.
+            'omr_unsure_below' => ['nullable', 'numeric', 'min:0.1', 'max:0.95'],
+            'note_read_min_confidence' => ['nullable', 'numeric', 'min:0.1', 'max:0.95'],
+            // AT-463 / §60 — has()-guarded below: a wizard step that does not render the select must not reset it.
+            'form_paper_size' => ['nullable', 'string', 'in:' . implode(',', array_keys(RentalInspectionSetting::FORM_PAPER_SIZES))],
+            // AT-463 / §63 - filled()-guarded below, like the paper: a wizard step that does not render it must not reset it.
+            'form_safe_margin_mm' => ['nullable', 'integer', 'min:' . RentalInspectionSetting::MIN_FORM_SAFE_MARGIN_MM, 'max:' . RentalInspectionSetting::MAX_FORM_SAFE_MARGIN_MM],
             // §52 — the walk's rules, each has()-guarded below; the reminder lead saves only when filled.
             'signing_reminder_lead_days' => ['nullable', 'integer', 'min:0', 'max:30'],
         ] + array_fill_keys(array_keys(RentalInspectionSetting::INSPECTION_RULES), ['nullable', 'boolean']));
@@ -175,6 +198,9 @@ class RentalInspectionSettingsController extends Controller
         ];
         if ($request->has('public_link_expiry_days')) {
             $attributes['public_link_expiry_days'] = $validated['public_link_expiry_days'];
+        }
+        if ($request->filled('photo_link_minutes')) {
+            $attributes['photo_link_minutes'] = (int) $validated['photo_link_minutes'];
         }
         // A toggle always posts a hidden 0 ahead of its checkbox (settings
         // page and wizard alike), so has() distinguishes "off" from "not rendered".
@@ -188,6 +214,9 @@ class RentalInspectionSettingsController extends Controller
         // §46 — same hidden-0-then-checkbox control and the same has() guard; the expiry saves only when filled.
         if ($request->has('signing_link_enabled')) {
             $attributes['signing_link_enabled'] = $request->boolean('signing_link_enabled');
+        }
+        if ($request->has('record_deduction_amounts')) {
+            $attributes['record_deduction_amounts'] = $request->boolean('record_deduction_amounts');
         }
         // §49 — same hidden-0-then-checkbox control and the same has() guard, one per inspection type.
         foreach (RentalInspectionSetting::SIGNATURE_REQUIREMENT_COLUMNS as $column) {
@@ -212,6 +241,17 @@ class RentalInspectionSettingsController extends Controller
         // default) alone; a number saves.
         if ($request->filled('omr_mark_threshold')) {
             $attributes['omr_mark_threshold'] = round((float) $validated['omr_mark_threshold'], 2);
+        }
+        foreach (['omr_unsure_below', 'note_read_min_confidence'] as $column) {
+            if ($request->filled($column)) {
+                $attributes[$column] = round((float) $validated[$column], 2);
+            }
+        }
+        if ($request->filled('form_paper_size')) {
+            $attributes['form_paper_size'] = $validated['form_paper_size'];
+        }
+        if ($request->filled('form_safe_margin_mm')) {
+            $attributes['form_safe_margin_mm'] = (int) $validated['form_safe_margin_mm'];
         }
 
         // Guarded on has(), not just validated() — the wizard step (§4/§8's

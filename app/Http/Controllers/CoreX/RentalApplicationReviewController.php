@@ -490,18 +490,26 @@ class RentalApplicationReviewController extends Controller
             && ! $user->mayDecideOwnRentalApplication($agencyId);
         $showSubmitOrApprove = ! in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true)
             && ! $rentalApplication->isPendingAuthorisation();
+        // Audit fix A4/A27 (2026-10-19): the mode that counts is the EFFECTIVE one - with no approver configured for the
+        // agency the answer is always one step, so a new agency is never stuck handing files to an empty queue.
+        $effectiveMode = RentalApplicationQualifyingSetting::effectiveApprovalModeFor($agencyId);
+        $noAuthoriser = ! RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId);
         $canApproveDirectly = $showSubmitOrApprove
-            && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
-            && $user->isRentalApplicationAuthoriser($agencyId)
+            && $effectiveMode === 'one_step'
+            && $user->mayDecideRentalApplications($agencyId)
             && ! $selfCreatedBlocked;
         // One step is on but this user still gets "Submit for approval": say why, in one line, instead of silently handing the
         // application to somebody else.
         $oneStepNote = null;
-        if ($showSubmitOrApprove && ! $canApproveDirectly && RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step') {
-            $oneStepNote = ! $user->isRentalApplicationAuthoriser($agencyId)
+        if ($showSubmitOrApprove && ! $canApproveDirectly && $effectiveMode === 'one_step') {
+            $oneStepNote = ! $user->mayDecideRentalApplications($agencyId)
                 ? 'One step is on, but you are not ticked as a Reviewer or Override approver in Settings - so this goes to an approver.'
                 : 'You created this application and your agency has other approvers - another approver must approve it.';
         }
+        // Shown to everyone who can decide while the agency has nobody ticked as an approver (A4/A27).
+        $noAuthoriserWarning = $noAuthoriser && $user->mayDecideRentalApplications($agencyId)
+            ? 'Your agency has no approver set up, so applications are approved directly by whoever reviews them (no second person checks the decision). Ask an administrator to choose approvers in Settings → Rental applications.'
+            : null;
         // Only needed to populate the Decline modal's reason picker when the
         // one-step buttons can actually render — same source the authoriser
         // screen's own Decline modal already reads from.
@@ -557,7 +565,7 @@ class RentalApplicationReviewController extends Controller
             'rentalApplication', 'assessment', 'documents', 'moreInfoRequestedNote', 'declineInfo', 'highlighters',
             'viewerRole', 'propertyLinkLocked', 'auditLog', 'auditLogTotal', 'existingWishlist', 'matchCategories', 'matchTypes', 'featureOptions',
             'rentalPropertyTypeNames', 'wishlistPrefill', 'pickableContactDocuments', 'pickableStaleness', 'documentChecklist', 'captureEntries',
-            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'oneStepNote', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
+            'documentTypeOptions', 'fieldConfig', 'canApproveDirectly', 'oneStepNote', 'noAuthoriserWarning', 'declineReasonTemplates', 'checklistSections', 'panelPreferences'
         ))->with('isPendingAuthorisation', $rentalApplication->isPendingAuthorisation());
     }
 
@@ -684,6 +692,23 @@ class RentalApplicationReviewController extends Controller
 
         $sent = $mailer->sendApproved($rentalApplication, $properties);
 
+        // Audit fix A8 (2026-10-19): a failed email is NOT "notified". It used to stamp applicant_notified_at and flash
+        // "Approval sent" anyway, after which the guard above refused every retry ("already been sent") with no way
+        // out short of the database. Now: nothing is marked, the agent is told plainly, and the same button works again.
+        if (! $sent) {
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'agent',
+                eventType: 'approval_send_failed',
+                user: $request->user(),
+                metadata: ['mail_sent' => false],
+                humanSummary: 'The approval email could not be sent to the applicant - nothing was marked as sent.',
+            );
+
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'The approval email could not be sent, so the applicant has NOT been told. Check the email address on the application and press Send again.');
+        }
+
         $rentalApplication->applicant_notified_at = now();
         $rentalApplication->save();
 
@@ -777,6 +802,24 @@ class RentalApplicationReviewController extends Controller
 
         $rentalApplication->decline_email_subject = $validated['subject'];
         $rentalApplication->decline_email_body = $validated['body'];
+
+        // Audit fix A8 (2026-10-19): a failed email is NOT "notified" (see send()). The agent's edited wording is kept as the
+        // draft, so a retry starts from what she wrote, but applicant_notified_at stays empty and the button works again.
+        if (! $sent) {
+            $rentalApplication->save();
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'agent',
+                eventType: 'decline_send_failed',
+                user: $request->user(),
+                metadata: ['mail_sent' => false, 'subject' => $validated['subject']],
+                humanSummary: 'The decline email could not be sent to the applicant - nothing was marked as sent.',
+            );
+
+            return redirect()->route('corex.rental-applications.review', $rentalApplication)
+                ->with('error', 'The decline email could not be sent, so the applicant has NOT been told. Your wording is saved - check the email address on the application and press Send again.');
+        }
+
         $rentalApplication->applicant_notified_at = now();
         $rentalApplication->save();
 
@@ -919,6 +962,15 @@ class RentalApplicationReviewController extends Controller
         // cannot be dragged back into the authoriser's queue by a crafted POST (the way back is Reopen).
         abort_unless(in_array($rentalApplication->status, RentalApplication::HAND_OFF_STATUSES, true), 422);
 
+        // Audit fix A4/A27 (2026-10-19): with no approver configured the hand-off used to succeed and notify nobody, leaving the
+        // file in a queue no one could open. Say so, and point at the direct Approve / Decline that takes its place.
+        if (! RentalApplicationQualifyingSetting::hasAuthoriserFor((int) $rentalApplication->agency_id)) {
+            return response()->json([
+                'error' => 'Your agency has no approver set up, so there is nobody to hand this to. Approve or decline it directly instead, and ask an administrator to choose approvers in Settings → Rental applications.',
+                'reason' => 'no_authoriser',
+            ], 422);
+        }
+
         // Idempotency guard (2026-09-13, QA1 item 3 investigation, fixed on
         // Johan's go) — proven live: two raw concurrent POSTs at an
         // already-pending application both succeeded, each re-stamping
@@ -965,9 +1017,6 @@ class RentalApplicationReviewController extends Controller
         // the one point that refuses to hand off an untyped PDF. Same test
         // as the review screen's "Split & File" trigger visibility.
         $handOffRefusal = \App\Services\RentalApplications\AuthorisationHandOffGate::refusal($rentalApplication);
-        if ($handOffRefusal !== null && $handOffRefusal['reason'] === 'unsplit_documents') {
-            return response()->json(['error' => $handOffRefusal['error'], 'reason' => $handOffRefusal['reason']] + $handOffRefusal['extra'], 422);
-        }
 
         // FICA-mandatory, AT-392 round 3, 2026-09-13 — Johan, a legal
         // position: "technically we not allowed to work with anyone if did

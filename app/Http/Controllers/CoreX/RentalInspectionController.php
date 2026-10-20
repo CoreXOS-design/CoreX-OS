@@ -197,8 +197,10 @@ class RentalInspectionController extends Controller
             $warning = "This is less than the agency's usual {$minimumNoticeDays}-day notice — scheduled anyway, parties are still notified.";
         }
 
-        $redirect = redirect()->route('corex.rental-inspections.show', $inspection)
-            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}.");
+        // Audit B33 - a scheduled inspection lands on its NEXT ACTION: the property's Inspections tab, where it waits with its Start control and
+        // where the agent records on the day (the same place Start-now lands) - not the read-only agency-level page, a dead end with no way to act.
+        $redirect = redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
+            ->with('success', \App\Models\RentalInspection::typeName($type) . " scheduled for {$inspection->scheduled_for->format('d M Y')}. Start it here when you arrive.");
 
         return $warning ? $redirect->with('warning', $warning) : $redirect;
     }
@@ -665,7 +667,7 @@ class RentalInspectionController extends Controller
 
         $validated = $request->validate([
             'observation_ids' => ['required', 'array', 'min:1'],
-            'observation_ids.*' => ['integer', 'exists:rental_inspection_observations,id'],
+            'observation_ids.*' => ['integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
         ]);
 
         $result = app(RentalInspectionFollowUpService::class)->createFaultReports(
@@ -764,7 +766,16 @@ class RentalInspectionController extends Controller
 
         abort_unless(Storage::disk('local')->exists($form->pdf_storage_path), 404);
 
-        return Storage::disk('local')->download($form->pdf_storage_path, $service->filenameFor($form));
+        // AT-463 — "Print site form": the same version's layout with what is already recorded on screen shown greyed and
+        // the header values typed in (spec §60). Opens in the browser's own viewer so it can be printed straight away.
+        $bytes = $service->render($form, $rentalInspection);
+        $name = str_replace(['"', "\r", "\n"], '', $service->filenameFor($form));
+
+        return response($bytes, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . $name . '"',
+            'Cache-Control' => 'private, no-store',
+        ]);
     }
 
     /**
@@ -806,6 +817,24 @@ class RentalInspectionController extends Controller
      */
     public function printForSignature(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
     {
+        return $this->printForSignatureResponse($rentalInspection, $service, mintLink: false);
+    }
+
+    /**
+     * POST /corex/rental-inspections/{inspection}/print-for-signature — audit 2026-10-19 B20. The same printout, but ensuring a live public
+     * link first so the page carries its QR. Minting a link is a state change that exposes the whole report (photos, signatures) to anyone
+     * holding it, so it is a POST behind `rental_inspections.public_link` (the route's middleware) - the plain GET above never creates one
+     * and simply omits the QR when no live link exists (exactly like report()).
+     */
+    public function printForSignatureWithLink(Request $request, RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service)
+    {
+        abort_unless($request->user()->hasPermission('rental_inspections.public_link'), 403);
+
+        return $this->printForSignatureResponse($rentalInspection, $service, mintLink: true);
+    }
+
+    private function printForSignatureResponse(RentalInspection $rentalInspection, \App\Services\Rentals\RentalInspectionReportPdfService $service, bool $mintLink)
+    {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $rentalInspection->loadMissing([
@@ -813,7 +842,8 @@ class RentalInspectionController extends Controller
             'observations.item.room', 'observations.item', 'signatures.partyContact',
         ]);
 
-        if (! $rentalInspection->publicLinkIsValid()) {
+        if ($mintLink && ! $rentalInspection->publicLinkIsValid()
+            && $rentalInspection->status !== RentalInspection::STATUS_CANCELLED && ! $rentalInspection->trashed()) {
             $rentalInspection->generatePublicLink();
         }
 

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * .ai/specs/rental-inventory.md §12 — an agent's explicit "I checked this
@@ -17,6 +18,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class RentalInventoryRoomMark extends Model
 {
     use BelongsToAgency;
+    // Audit B28 - "Undo" archives the mark, never deletes it.
+    use SoftDeletes;
 
     protected $fillable = [
         'agency_id',
@@ -24,6 +27,7 @@ class RentalInventoryRoomMark extends Model
         'property_room_id',
         'marked_empty_by_user_id',
         'marked_empty_at',
+        'unmarked_by_user_id',
     ];
 
     protected $casts = [

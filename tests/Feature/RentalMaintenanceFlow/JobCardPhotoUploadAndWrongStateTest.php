@@ -143,7 +143,8 @@ final class JobCardPhotoUploadAndWrongStateTest extends TestCase
         $this->assertSame(RentalWorkOrder::APPROVAL_PENDING, $wo->fresh()->owner_approval_status);
         foreach ([route('corex.rental-work-orders.show', $wo), route('corex.rental-job-cards.show', $card)] as $url) {
             $text = $this->visibleText($this->actingAs($this->admin)->get($url)->assertOk()->getContent());
-            $this->assertStringContainsString('Approve the cost', $text, $url);
+            // AT-460: the job card's card is called "Money & approval" (the work order keeps "Approve the cost")
+            $this->assertStringContainsString(str_contains($url, 'job-cards') ? 'Money & approval' : 'Approve the cost', $text, $url);
             $this->assertStringContainsString('Waiting for the owner', $text, $url);
             $this->assertStringNotContainsString('Cost authorised', $text, $url);
             $this->assertStringNotContainsString('Why was this approved?', $text, $url);
@@ -152,7 +153,7 @@ final class JobCardPhotoUploadAndWrongStateTest extends TestCase
         $wo->recordApproval($this->admin, ['decision' => 'approved', 'evidence_type' => 'email', 'evidence_text' => 'ok by email']);
         foreach ([route('corex.rental-work-orders.show', $wo), route('corex.rental-job-cards.show', $card)] as $url) {
             $text = $this->visibleText($this->actingAs($this->admin)->get($url)->assertOk()->getContent());
-            $this->assertStringContainsString('Cost authorised', $text, $url);
+            $this->assertStringContainsString(str_contains($url, 'job-cards') ? 'Authorised by agent' : 'Cost authorised', $text, $url);
             $this->assertStringContainsString('on the instruction of', $text, $url, 'the record says who, on what basis');
             $this->assertStringNotContainsString('Waiting for the owner', $text, $url);
         }

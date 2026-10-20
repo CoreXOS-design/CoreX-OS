@@ -201,7 +201,8 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $this->assertSame(RentalCatalogueItem::TYPE_PART, $line->type);
     }
 
-    public function test_free_text_line_with_no_type_posted_still_defaults_to_labour(): void
+    /** §17.43 (Johan, 19 Oct 2026): reversed from the AT-442 original - a free-typed line with no type and no item is a PART, not Labour. */
+    public function test_free_text_line_with_no_type_posted_defaults_to_part(): void
     {
         $jobCard = app(RentalJobCardService::class)->createForProperty($this->property, ['title' => 'Job'], $this->admin);
 
@@ -209,7 +210,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
             'description' => 'Call-out', 'quantity' => 1,
         ], $this->admin);
 
-        $this->assertSame(RentalCatalogueItem::TYPE_LABOUR, $line->type);
+        $this->assertSame(RentalCatalogueItem::TYPE_PART, $line->type);
     }
 
     public function test_picking_a_catalogue_item_pre_fills_its_own_type_when_none_is_explicitly_posted(): void
@@ -364,7 +365,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
 
         $response->assertOk();
         $response->assertSee('2,000.00', false);
-        $response->assertSee("Inside the owner's repair limit", false);
+        $response->assertSee("Inside the owner's repair limit");
     }
 
     public function test_show_screen_flags_a_total_over_the_threshold(): void
@@ -379,7 +380,7 @@ final class RentalJobCardAt442FollowUpTest extends TestCase
         $response = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $jobCard));
 
         $response->assertOk();
-        $response->assertSee("Above the owner's repair limit", false);
+        $response->assertSee("Above the owner's repair limit");
     }
 
     // ── #8 — an owner quote must never be addressed to a tenant ──────────

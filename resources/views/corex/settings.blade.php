@@ -113,7 +113,7 @@
                         ? ['key'=>'rental-applications-settings', 'label'=>'Rental Applications', 'type'=>'link', 'href'=>route('corex.settings.rental-applications.edit'), 'keywords'=>'tenant application qualifying formula affordability ro co reviewer override authoriser decline email reopen link expiry highlighter matched properties approval email max maximum send limit']
                         : null,
                     $can('leases.manage_settings')
-                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out']
+                        ? ['key'=>'leases-settings', 'label'=>'Leases', 'type'=>'link', 'href'=>route('corex.settings.leases.edit'), 'keywords'=>'lease tenancy expiry expiring notice window warn days deposit early cancellation month-to-month renewal notice period earliest notice date rental status active stock back on the market let out re-advertise readvertise cancelled lease ended move-out breach remedy days calendar business days vacate time days for notice to vacate rental payment proof email proof of payment']
                         : null,
                     $can('rental_lease_templates.manage_settings')
                         ? ['key'=>'rental-lease-templates-settings', 'label'=>'Rental Lease Templates', 'type'=>'link', 'href'=>route('corex.rental-lease-templates.index'), 'keywords'=>'lease renewal addendum template residential commercial docuperfect e-sign']
@@ -131,14 +131,14 @@
                         ? ['key'=>'title-deeds-settings', 'label'=>'Title Deeds', 'type'=>'link', 'href'=>route('corex.settings.title-deeds.edit'), 'keywords'=>'title deed register pin collection representative consent phone authority letter id photo signature reminder lock attempts contact changed']
                         : null,
                     $can('rental_work_orders.manage_settings')
-                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs']
+                        ? ['key'=>'rental-work-orders-settings', 'label'=>'Rental Work Orders', 'type'=>'link', 'href'=>route('corex.settings.rental-work-orders.edit'), 'keywords'=>'work order spend threshold no approval owner authorisation fault job card markup variation dispute crew link price capture printed costs catalogue parts labour default markup rand percent cost selling price']
                         : null,
                     // AT-445 — .ai/specs/rental-portal-access.md §7.
                     $can('rental_portal.manage_settings')
-                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help']
+                        ? ['key'=>'rental-portal-settings', 'label'=>'Rental Portal', 'type'=>'link', 'href'=>route('corex.settings.rental-portal.edit'), 'keywords'=>'tenant landlord contractor portal secure link access notification crew faq fault photo help tenant name phone contact crew contractor link']
                         : null,
                     $can('rental_notice_templates.manage_settings')
-                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template']
+                        ? ['key'=>'rental-notice-templates', 'label'=>'Rental Notice Templates', 'type'=>'link', 'href'=>route('corex.rental-notice-templates.index'), 'keywords'=>'breach notice vacate template notice templates payment breach ad hoc breach remedy days clause letter merge fields rentals']
                         : null,
                     // AT-442 — the agency's own parts & labour catalogue consumed
                     // by internal job cards.

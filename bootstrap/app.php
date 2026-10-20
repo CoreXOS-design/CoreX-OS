@@ -50,6 +50,8 @@ return Application::configure(basePath: dirname(__DIR__))
             // AT-267 — records which records an assistant opens/edits. No-op for
             // everyone who is not an assistant (a single bool check).
             \App\Http\Middleware\LogAssistantActivity::class,
+            // AT-464 — after an action on the fault report / work order / job card screen, land on its Next bar (no controller changes needed).
+            \App\Http\Middleware\LandOnNextBar::class,
             // AT-267 / AUDIT 2026-07-26 (F1) — layer 2 of the agent's "can edit & delete my
             // records" toggle. GLOBAL on purpose: only a fraction of CoreX's mutating routes
             // pass through a per-record guard, and a hand-picked list of the rest is the thing
@@ -101,6 +103,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'auth.nocache' => \App\Http\Middleware\PreventAuthPageCaching::class,
+            'rental.link.hold' => \App\Http\Middleware\RentalLinkHoldGuard::class,
             'tv' => \App\Http\Middleware\TvTokenMiddleware::class,
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'branch_manager' => \App\Http\Middleware\BranchManagerMiddleware::class,
@@ -249,6 +252,21 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (\Symfony\Component\HttpKernel\Exception\HttpException $e, $request) {
             if ($e->getStatusCode() !== 419) {
                 return null; // not a CSRF/session 419 — let the default handling run
+            }
+            // Audit fix C-D1 (19 Oct 2026): a public rental link (contractor / crew / completion / owner notice) whose page stayed open longer than the session
+            // must NEVER bounce a contractor or crew member to the STAFF login and lose what they typed. Send them back to the same page with what they typed kept
+            // (files cannot be kept - the page says so) and a plain "please press again".
+            if ($request->is('secure/*', 'owner/*')) {
+                $again = 'Your page was open for a while, so nothing was saved. Please press the button again.';
+                if ($request->expectsJson()) {
+                    return response()->json(['ok' => false, 'message' => $again, 'retry' => true], 419);
+                }
+                // back to the page the form was on (the Referer, only when it is this site's own link page), else the link's own front page
+                $prev = (string) url()->previous();
+                $own = parse_url($prev, PHP_URL_HOST) === $request->getHost() && (str_contains($prev, '/secure/') || str_contains($prev, '/owner/'));
+                $url = $own ? $prev : ($request->is('secure/*') ? url('/' . implode('/', array_slice($request->segments(), 0, 3))) : $request->fullUrl());
+
+                return redirect()->to($url)->withInput($request->except(['_token', '_method', 'photo', 'photos', 'document', 'receipt', 'proof', 'evidence']))->withErrors(['session' => $again]);
             }
             if ($request->expectsJson()) {
                 return response()->json([

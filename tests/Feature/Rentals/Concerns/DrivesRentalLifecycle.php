@@ -467,12 +467,12 @@ trait DrivesRentalLifecycle
             $this->postJson(route('rental-inspections.sign.submit', $token), ['action' => 'sign', 'typed_name' => 'Thandi Nkosi', 'signature_image' => self::PNG, 'read_confirmed' => true, 'comment' => null])->assertStatus(201);
             $this->asStaff();
             $this->postJson(route('corex.rental-inspections.signatures.store', $this->inspection), ['party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG])->assertStatus(201);
-            $this->postJson(route('corex.rental-inspections.signatures.store', $this->inspection), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG])->assertStatus(201);
+            $this->postJson(route('corex.rental-inspections.signatures.store', $this->inspection), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn'])->assertStatus(201);
         }, ['6.4']);
 
         $this->step('6.6', 'the inspection is completed', 'cc4', function () {
             $this->asStaff();
-            $this->postJson(route('corex.rental-inspections.complete', $this->inspection))->assertOk();
+            $this->postJson(route('corex.rental-inspections.complete', $this->inspection), ['acknowledge_warnings' => 1])->assertOk();
             $this->assertSame('completed', $this->inspection->fresh()->status);
         }, ['6.5']);
 

@@ -217,7 +217,7 @@ final class TenantCompletionResponseTest extends TestCase
     {
         $this->workOrder->forceFill(['status' => RentalWorkOrder::STATUS_CANCELLED, 'cancelled_at' => now()])->save();
 
-        $this->get($this->url())->assertOk()->assertSee('no longer available');
+        $this->get($this->url())->assertOk()->assertSee('This job was cancelled');   // audit fix C-A4: a cancelled job's link says so
     }
 
     public function test_the_link_is_rate_limited(): void

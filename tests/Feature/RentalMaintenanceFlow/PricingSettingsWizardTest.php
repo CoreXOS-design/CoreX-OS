@@ -41,7 +41,7 @@ final class PricingSettingsWizardTest extends TestCase
 
     public function test_every_pricing_control_is_declared_with_an_explain_and_a_concrete_affects(): void
     {
-        foreach (['default_parts_markup_percent', 'default_labour_markup_percent', 'quote_estimate_term'] as $key) {
+        foreach (['default_parts_markup_percent', 'default_labour_markup_percent', 'quote_estimate_term', 'catalogue_default_markup_type', 'catalogue_default_markup_value'] as $key) {
             $c = $this->control($key);
             $this->assertNotNull($c, "{$key} must be a wizard control (non-negotiable #10a)");
             $this->assertSame('rental_work_orders', $c['source']);
@@ -49,7 +49,7 @@ final class PricingSettingsWizardTest extends TestCase
             $this->assertGreaterThan(60, strlen($c['affects']), 'a concrete, observable consequence — never a tautology');
         }
         $savers = collect(config('agency-onboarding-copy.leases.savers'))->where('controller', \App\Http\Controllers\CoreX\RentalWorkOrderPricingSettingsController::class)->pluck('method')->all();
-        $this->assertEqualsCanonicalizing(['updateDefaultMarkups', 'updateQuoteEstimateTerm'], $savers);
+        $this->assertEqualsCanonicalizing(['updateDefaultMarkups', 'updateQuoteEstimateTerm', 'updateCatalogueMarkup'], $savers);
     }
 
     public function test_the_wizard_page_shows_the_saved_values_not_a_stale_default(): void
@@ -94,6 +94,28 @@ final class PricingSettingsWizardTest extends TestCase
         $this->actingAs($this->admin)->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $fields)->assertRedirect()->assertSessionHasNoErrors();
 
         $this->assertSame('Wizard-written estimate wording.', RentalWorkOrderSetting::quoteEstimateTermFor($this->agency->id));
+    }
+
+    public function test_the_catalogue_default_markup_reaches_the_wizard_shows_its_saved_value_and_saves_from_the_real_step_form(): void
+    {
+        // AT-458 / §17.38 — a fresh agency sees the neutral default (percent, 0)...
+        $fields = $this->browserFormFields($this->admin, 'leases');
+        $this->assertSame('percent', $fields['catalogue_default_markup_type']);
+        $this->assertEquals(0.0, (float) $fields['catalogue_default_markup_value']);
+
+        // ...saving the untouched step leaves the markup alone, and a changed one is saved
+        $fields = $fields + $this->alpineListRows($this->agency);
+        $fields['catalogue_default_markup_type'] = 'rand';
+        $fields['catalogue_default_markup_value'] = '25';
+        $this->actingAs($this->admin)->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $fields)->assertRedirect()->assertSessionHasNoErrors();
+
+        $this->assertSame('rand', RentalWorkOrderSetting::catalogueMarkupTypeFor($this->agency->id));
+        $this->assertEquals(25.0, RentalWorkOrderSetting::catalogueMarkupValueFor($this->agency->id));
+
+        // and the page now shows what was saved, not the stale default
+        $again = $this->browserFormFields($this->admin, 'leases');
+        $this->assertSame('rand', $again['catalogue_default_markup_type']);
+        $this->assertEquals(25.0, (float) $again['catalogue_default_markup_value']);
     }
 
     public function test_a_saver_given_only_one_key_never_touches_the_others(): void

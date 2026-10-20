@@ -50,7 +50,9 @@ class CompletionResponseController extends Controller
 
     private function unavailable(?string $message = null): View
     {
-        return view('rentals.completion.unavailable', ['message' => $message]);
+        $state = app(RentalSecureAccessTokenService::class)->closedStateFor((string) request()->route('token'));
+
+        return view('rentals.completion.unavailable', ['message' => $message, 'cancelled' => $state === 'cancelled']);
     }
 
     public function show(Request $request, string $token): View
@@ -84,11 +86,11 @@ class CompletionResponseController extends Controller
             'answer' => ['required', 'in:fixed,not_fixed'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ], [
             'answer.required' => 'Please choose one of the two answers.',
             'photos.max' => 'You can attach up to ' . RentalCompletionService::MAX_DISPUTE_PHOTOS . ' photos.',
-            'photos.*.image' => 'Photos must be image files (JPG, PNG, WEBP or HEIC).',
+            'photos.*.mimes' => 'Photos must be image files (JPG, PNG, WEBP or HEIC).',
             'photos.*.max' => 'Each photo can be up to 15 MB.',
         ]);
 
@@ -115,7 +117,7 @@ class CompletionResponseController extends Controller
         $branding = Agency::publicBrandingFor((int) $record->agency_id);
         $property = Property::withoutGlobalScopes()->withTrashed()->find($workOrder->property_id);
         $agency = Agency::withoutGlobalScopes()->find($record->agency_id);
-        $tz = $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($agency);
         $view = app(RentalJobCardClientViewService::class);
 
         return [
@@ -126,7 +128,8 @@ class CompletionResponseController extends Controller
             'reportedBy' => app(\App\Services\Rentals\RentalWorkOrderClientViewService::class)->reportedBy($round, $workOrder) ?: 'the maintenance crew',
             'reportedOn' => $round->opened_at?->copy()->setTimezone($tz)->format('j M Y'),
             'answerBy' => $round->window_ends_at?->copy()->setTimezone($tz)->format('j M Y'),
-            'photos' => $view->photosForWorkOrder($workOrder)->map(fn (RentalWorkOrderPhoto $p) => ['url' => $p->storage_path])->all(),
+            // D14 - a signed, expiring address (dies if the photo or the work order is archived), never the permanent public file
+            'photos' => $view->photosForWorkOrder($workOrder)->map(fn (RentalWorkOrderPhoto $p) => ['url' => app(\App\Services\Images\PortalImageService::class)->urls($p->storage_path, $p->imageGuards(), (int) $p->agency_id)['url']])->all(),
             'answered' => $round->responded_at ? [
                 'fixed' => $round->outcome === RentalWorkCompletionRound::OUTCOME_CONFIRMED,
                 'on' => $round->responded_at->copy()->setTimezone($tz)->format('j M Y'),

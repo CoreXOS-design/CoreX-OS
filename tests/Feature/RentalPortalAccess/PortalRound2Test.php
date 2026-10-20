@@ -175,7 +175,13 @@ final class PortalRound2Test extends TestCase
         $this->login($this->tenant);
         \Illuminate\Support\Facades\Auth::forgetGuards();
 
-        $html = $this->get('/portal?email=' . urlencode($this->tenant->email))->assertOk()->getContent();
+        // audit 2026-10-19 D3: a hand-typed ?email= is never looked up for the agency header - only a link this system sealed (`r`) earns it
+        $bare = $this->get('/portal?email=' . urlencode($this->tenant->email))->assertOk()->getContent();
+        $this->assertStringContainsString('branding: null', $bare);
+        $this->assertStringNotContainsString('Cape Rentals', $bare);
+
+        \Illuminate\Support\Facades\Auth::forgetGuards();
+        $html = $this->get(\App\Support\PortalLink::personal($this->tenant->email, \App\Support\PortalLink::VIEW_TENANT, [], (int) $this->tenant->id))->assertOk()->getContent();
 
         $this->assertStringContainsString('data-portal-brand', $html);
         $this->assertStringContainsString('data-portal-logo', $html);
@@ -385,7 +391,8 @@ final class PortalRound2Test extends TestCase
         $this->assertSame('Main water valve', $type['photos'][0]['label']);
         $this->assertCount(3, $type['documents'], 'the unsafe javascript: link is never handed to a phone');
         $this->assertSame('image', $type['documents'][0]['type']);
-        $this->assertStringContainsString('storage/rental-fault-type-images/1/diagram.png', $type['documents'][0]['url']);
+        $this->assertStringContainsString('/private-image/', $type['documents'][0]['url'], 'D14: the agency image is a signed, expiring address, never the permanent /storage one');
+        $this->assertStringNotContainsString('/storage/', $type['documents'][0]['url']);
         $this->assertSame('https://youtu.be/abc', $type['documents'][1]['url']);
         $this->assertStringContainsString('/fault-type-documents/' . $pdf->id . '/file', $type['documents'][2]['url']);
         $this->assertSame(['max_photos' => 6, 'max_photo_mb' => 8], $res->json('limits'));

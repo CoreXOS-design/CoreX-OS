@@ -103,7 +103,7 @@ final class JobCardNightFixesTest extends TestCase
 
         $html = $this->page($card);
         $this->assertStringContainsString('Confirm the price', $html);
-        $this->assertStringContainsString('Nothing goes to the owner', $html);
+        $this->assertStringContainsString('nothing is sent to the owner', $html, 'AT-460: said in the confirm dialog, not in a helper paragraph');
         $this->assertStringNotContainsString('Send to owner as quote', $html);
         $this->assertStringNotContainsString('approved automatically', strtolower($html), 'section 22.6: nothing is approved by itself');
         $this->assertStringContainsString('data-cost-decision', $html, 'the cost is approved in "Approve the cost", on this page too');
@@ -126,13 +126,13 @@ final class JobCardNightFixesTest extends TestCase
 
     public function test_above_the_limit_the_action_reads_send_quote_to_owner_for_approval_and_the_owner_is_mailed(): void
     {
-        $this->property->forceFill(['rental_no_approval_spend_threshold' => 500])->save();
+        $this->ownerLimits(500.0);
         [$card, $wo] = $this->internalJob(1200);
 
         $html = $this->page($card);
         $this->assertStringContainsString('Send quote to owner for approval', $html);
         $this->assertStringNotContainsString('Confirm price - within', $html);
-        $this->assertStringContainsString('must approve it before the work is booked', $html);
+        $this->assertStringContainsString("Above the owner's repair limit - the owner must approve it.", $this->visibleText($html));
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.send-quote', $card))->assertSessionHasNoErrors()
             ->assertSessionHas('success', 'Quote sent to the owner.');
@@ -150,15 +150,13 @@ final class JobCardNightFixesTest extends TestCase
         [$card] = $this->internalJob(1200);   // draft, above the limit: nothing approved
         $html = $this->page($card);
 
-        // after the collapsed "later steps" list, none of the later actions is a live control
-        $rest = substr($html, (int) strpos($html, '</details>', (int) strpos($html, 'data-later-steps')));
+        // none of the later actions is a live control (AT-460: the "Later steps" expander is gone - they are simply not on the page)
         foreach (['Worker sign-off', 'Agent sign-off', 'Record tenant confirmation', 'Upload signed copy', 'Complete job card', 'Share a crew link', 'name="signed_copy"'] as $later) {
-            $this->assertStringNotContainsString($later, $rest, "'{$later}' must not be a live control on a draft");
+            $this->assertStringNotContainsString($later, $html, "'{$later}' must not be a live control on a draft");
         }
         $this->assertStringContainsString('data-next-step', $html);
         $this->assertStringContainsString('data-stage="draft"', $html);
-        $this->assertStringContainsString('data-later-steps', $html);
-        $this->assertStringContainsString('Worker sign-off', $html, 'listed in the collapsed later steps, with the reason');
+        $this->assertStringNotContainsString('data-later-steps', $html);
         $this->assertStringNotContainsString('action="' . route('corex.rental-job-cards.worker-sign-off', $card) . '"', $html);
         $this->assertStringNotContainsString('action="' . route('corex.rental-job-cards.agent-sign-off', $card) . '"', $html);
         $this->assertStringNotContainsString('action="' . route('corex.rental-job-cards.tenant-confirm', $card) . '"', $html);
@@ -175,10 +173,11 @@ final class JobCardNightFixesTest extends TestCase
         $this->assertStringNotContainsString('lg:overflow-y-auto', $html);
         $this->assertStringNotContainsString('sizeColumns', $html);
         $this->assertStringNotContainsString('jc-left-col" class="w-full lg:flex-1 min-w-0 space-y-4 lg:overflow-y-auto', $html);
-        // below 1536px the side panels stack under the job (so the lines table keeps >= 600px at 1280); from 1536px they are one 380px column beside it
-        $this->assertStringContainsString('2xl:flex-row', $html);
-        $this->assertStringContainsString('2xl:basis-[380px]', $html);
-        $this->assertStringNotContainsString('lg:basis-[400px]', $html);
+        // AT-460: below 1280px the right column stacks FIRST above the work; from 1280px it is a sticky 360px column beside it - still one page scroll
+        $this->assertStringContainsString('@media (min-width: 1280px)', $html);
+        $this->assertMatchesRegularExpression('/\.jc-right \{[^}]*position: sticky/', $html);
+        $this->assertStringContainsString('class="jc-layout"', $html);
+        $this->assertStringNotContainsString('2xl:flex-row', $html);
     }
 
     public function test_the_card_screen_follows_the_stage_through_the_whole_job(): void
@@ -252,11 +251,13 @@ final class JobCardNightFixesTest extends TestCase
             $kids = $xp->query("//*[@id='jc-layout']/*");
             $this->assertSame(2, $kids->length, "{$label}: #jc-layout holds exactly the main and the side column");
             $this->assertSame(['jc-left-col', 'jc-right-col'], [$kids->item(0)->getAttribute('id'), $kids->item(1)->getAttribute('id')], $label);
-            foreach (['jc-approval-panel', 'jc-signed-copy-box', 'jc-quote-box'] as $id) {
+            foreach (['jc-approval-panel', 'jc-quote-box'] as $id) {
                 $all = $xp->query("//*[@id='{$id}']")->length;
                 $inSide = $xp->query("//*[@id='jc-right-col']//*[@id='{$id}']")->length;
                 $this->assertSame($all, $inSide, "{$label}: #{$id} sits inside the side column");
             }
+            // AT-460: the signed copy belongs with the sign-off, in the work column
+            $this->assertSame($xp->query("//*[@id='jc-signed-copy-box']")->length, $xp->query("//*[@id='jc-left-col']//*[@id='jc-signed-copy-box']")->length, "{$label}: #jc-signed-copy-box sits inside the main column");
         };
 
         $check('draft');

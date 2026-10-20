@@ -41,6 +41,8 @@ class RentalInspectionScan extends Model
         'mime_type',
         'status',
         'failure_reason',
+        'read_notes',
+        'page_results',
         'decoded_inspection_id',
         'decoded_form_version',
         'page_count',
@@ -54,6 +56,8 @@ class RentalInspectionScan extends Model
         'decoded_inspection_id' => 'integer',
         'decoded_form_version' => 'integer',
         'page_count' => 'integer',
+        'read_notes' => 'array',
+        'page_results' => 'array',
         'applied_at' => 'datetime',
     ];
 

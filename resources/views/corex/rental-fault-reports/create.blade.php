@@ -140,11 +140,14 @@
         <div x-data="faultTypePicker({{ $property->id }})">
             <label class="prop-label">Fault type (optional)</label>
             <select name="rental_fault_type_id" x-model="selectedId" @change="loadFirstAid()" class="prop-input mt-1">
-                <option value="">— Not in the list / skip —</option>
+                <option value="">— No type chosen —</option>
                 @foreach(\App\Models\RentalFaultType::where('is_active', true)->orderBy('sort_order')->get() as $ft)
                     <option value="{{ $ft->id }}">{{ $ft->name }}{{ $ft->category ? ' ('.$ft->category.')' : '' }}</option>
                 @endforeach
+                {{-- AT-452 - always the last choice, on top of the agency's own list --}}
+                <option value="other" data-fault-type-other>{{ \App\Models\RentalFaultReport::OTHER_TYPE_OPTION }}</option>
             </select>
+            <p x-show="selectedId === 'other'" x-cloak class="text-xs mt-1" style="color: var(--text-muted);" data-other-hint>Say what needs attention in the description below. You can give it a proper type later, from the fault's page.</p>
             <div x-show="firstAid" x-cloak class="mt-2 rounded-md p-3 text-sm space-y-2" style="background: color-mix(in srgb, var(--ds-amber) 10%, transparent); border: 1px solid var(--ds-amber);">
                 <p class="font-semibold" x-text="firstAid?.name"></p>
                 {{-- Text is rendered via x-text (auto-escaped, never raw HTML) —
@@ -261,7 +264,7 @@ function faultTypePicker(propertyId) {
         selectedId: '',
         firstAid: null,
         async loadFirstAid() {
-            if (!this.selectedId) { this.firstAid = null; return; }
+            if (!this.selectedId || this.selectedId === 'other') { this.firstAid = null; return; }
             const url = `/corex/rental-fault-types/${this.selectedId}/first-aid?property_id=${propertyId}`;
             const res = await fetch(url, { headers: { Accept: 'application/json' } });
             this.firstAid = res.ok ? await res.json() : null;

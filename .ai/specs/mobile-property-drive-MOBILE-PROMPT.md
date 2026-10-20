@@ -14,7 +14,9 @@ is **read-only** for now — no upload/delete/tag from mobile in this pass.
 
 ### Endpoints (Sanctum bearer token, same auth as every other mobile property endpoint)
 
-Base: `https://corex.hfcoastal.co.za/api/v1/mobile/properties/{propertyId}`
+Base: `https://corexos.co.za/api/v1/mobile/properties/{propertyId}`
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 | Method | Path | Returns |
 |---|---|---|
@@ -53,7 +55,7 @@ re-fetch `/documents` and drop the stale row.
       "uploaded_by": { "id": 5, "name": "Jane Agent" },
       "created_at": "2026-08-01T10:22:00+02:00",
       "can_download": true,
-      "download_url": "https://corex.hfcoastal.co.za/api/v1/mobile/properties/42/documents/101/download"
+      "download_url": "https://corexos.co.za/api/v1/mobile/properties/42/documents/101/download"
     }
   ]
 }

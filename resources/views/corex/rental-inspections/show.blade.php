@@ -42,7 +42,7 @@
         <div class="flex items-center gap-2">
             {{-- The printable tick-box form — takes it to the property in wet
                  ink, scans it back in (OMR reader lane builds on this). --}}
-            <a href="{{ route('corex.rental-inspections.form', $inspection) }}" class="corex-btn-outline text-xs">Download printable form</a>
+            <a href="{{ route('corex.rental-inspections.form', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="print-site-form">Print site form</a>
             {{-- Johan, 2026-09-23, approved — the COMPLETED report: no photos,
                  a QR/link to the public page instead. A different document
                  from the printable form above (that one is blank, for
@@ -53,6 +53,13 @@
                  party, to print and send/hand for a wet-ink signature. --}}
             @if(!in_array($inspection->status, ['completed', 'cancelled']))
                 <a href="{{ route('corex.rental-inspections.print-for-signature', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs">Print for signature</a>
+                {{-- Audit B20 - the QR on the printout needs a live public link; creating one is a POST behind its own permission. --}}
+                @if(!$inspection->publicLinkIsValid() && auth()->user()->hasPermission('rental_inspections.public_link'))
+                    <form method="POST" action="{{ route('corex.rental-inspections.print-for-signature.with-link', $inspection) }}" target="_blank" class="inline">
+                        @csrf
+                        <button type="submit" class="corex-btn-outline text-xs">Print for signature with link QR</button>
+                    </form>
+                @endif
             @endif
             @if($inspection->type === 'out')
                 {{-- rental-inspection-form.md §7 — the in-vs-out deposit comparison. --}}
@@ -672,7 +679,7 @@
             <form method="POST" action="{{ route('corex.rental-inspections.scans.store', $inspection) }}" enctype="multipart/form-data" class="flex flex-wrap items-center gap-2">
                 @csrf
                 <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" required class="text-xs min-w-0 max-w-full">
-                <button type="submit" class="corex-btn-outline text-xs">Upload scan</button>
+                <button type="submit" class="corex-btn-outline text-xs" data-qa="upload-site-form">Upload completed form</button>
             </form>
         @endpermission
         @forelse($inspection->scans as $scan)
@@ -795,7 +802,7 @@
                     </div>
                     <div class="text-xs mt-0.5">
                         {{ $signature->disposition === 'signed' ? 'Signed' : ucfirst(str_replace('_', ' ', (string) $signature->disposition)) }}
-                        {{ $signature->disposition_recorded_at?->format('d M Y H:i') }}{{ $signature->signed_via === 'link' ? ', from their own link' : ($signature->signed_via === 'agent_device' ? ", on the agent's device" : '') }}.
+                        {{ $signature->disposition_recorded_at?->format('d M Y H:i') }}{{ $signature->signedViaPhrase() ? ', ' . $signature->signedViaPhrase() : '' }}.
                         Voided {{ $reopenRow?->reopened_at?->format('d M Y H:i') }} when {{ $reopenRow?->reopenedBy?->name ?? 'the agent' }} reopened the report: “{{ $reopenRow?->reason }}”.
                     </div>
                 </div>

@@ -60,6 +60,25 @@ class LeaseCaptureService
     ) {
     }
 
+    /**
+     * Audit A12 (2026-10-19) - the ONE month-to-month rule, used by the capture request and the lease edit: a fixed-term lease has an end
+     * date, a month-to-month one has none - never both (leases.md §15.3). Returns the sentence to show, or null when the pair is fine.
+     */
+    public static function monthToMonthConflict(bool $monthToMonth, mixed $endDate): ?string
+    {
+        return $monthToMonth && ! empty($endDate)
+            ? 'A month-to-month lease has no end date — clear one or the other.'
+            : null;
+    }
+
+    /** Audit A7 - the one sentence for "this application cannot become a lease yet". */
+    public static function applicationNotApprovedMessage(?string $status): string
+    {
+        $status = str_replace('_', ' ', (string) $status);
+
+        return 'A lease can only be created from an approved rental application. This application is "' . ($status !== '' ? $status : 'not approved') . '" - approve it first, or create the lease without linking an application.';
+    }
+
     // ── What the screen needs to know about the agency's lease agreement ──────────────────────
 
     /**
@@ -243,6 +262,15 @@ class LeaseCaptureService
             throw ValidationException::withMessages(['intent' => 'Choose what to do with this lease.']);
         }
 
+        // Audit A7 (2026-10-19) - leases.md §15.25: a lease is only captured from an APPROVED application. The request refuses it too; this is
+        // the same rule at the writer, so no other caller (the API, a future screen) can create a lease against a declined / returned one.
+        if ($previous === null && ! empty($input['rental_application_id'])) {
+            $linked = \App\Models\RentalApplication::withoutGlobalScopes()->find((int) $input['rental_application_id']);
+            if ($linked && $linked->status !== 'approved') {
+                throw ValidationException::withMessages(['rental_application_id' => self::applicationNotApprovedMessage($linked->status)]);
+            }
+        }
+
         $property = $previous
             ? $previous->property
             : Property::query()->rentalVisibleTo($user)->findOrFail((int) ($input['property_id'] ?? 0));
@@ -374,22 +402,8 @@ class LeaseCaptureService
                 return $lease->fresh();
             });
 
-            // rental-portal-access.md §16 — a lease signed on paper is a signed lease: its tenant(s) and landlord(s) get
-            // portal access now (agency setting, default ON). After the commit and best effort — never undoes the capture.
             if ($intent === self::INTENT_PAPER_COPY) {
-                try {
-                    app(RentalPortalAccessService::class)->provisionForSignedLease($captured);
-                } catch (\Throwable $e) {
-                    Log::warning('Portal access on a signed paper copy failed', ['lease_id' => $captured->id, 'error' => $e->getMessage()]);
-                }
-
-                // rental-portal-access.md §18 — and they get the signed copy by email with their portal link, as for an
-                // e-signed lease (once per lease; see LeaseSignedCopyMailer). Same best-effort rule.
-                try {
-                    app(LeaseSignedCopyMailer::class)->sendOnPaperAttach($captured, $user);
-                } catch (\Throwable $e) {
-                    Log::warning('Signed paper copy email failed', ['lease_id' => $captured->id, 'error' => $e->getMessage()]);
-                }
+                $this->afterPaperCopyCommitted($captured, $user);
             }
 
             return $captured;
@@ -407,6 +421,194 @@ class LeaseCaptureService
             $this->discardStored($storedPath);
             throw $e;
         }
+    }
+
+    /**
+     * rental-portal-access.md §16 / §18 - once a signed paper copy has been committed: the lease's tenant(s) and landlord(s) get portal
+     * access (agency setting, default ON) and the signed copy by email with their portal link (once per lease). After the commit and best
+     * effort - neither ever undoes the capture. Shared by "Create lease with the signed copy" and a signed copy attached later (audit A1).
+     */
+    private function afterPaperCopyCommitted(Lease $lease, User $user): void
+    {
+        try {
+            app(RentalPortalAccessService::class)->provisionForSignedLease($lease);
+        } catch (\Throwable $e) {
+            Log::warning('Portal access on a signed paper copy failed', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
+        }
+
+        try {
+            app(LeaseSignedCopyMailer::class)->sendOnPaperAttach($lease, $user);
+        } catch (\Throwable $e) {
+            Log::warning('Signed paper copy email failed', ['lease_id' => $lease->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    // ── Audit A1 (2026-10-19): a "Create lease only" draft can still be got signed ─────────────────────────────────────────────────
+
+    /**
+     * What the Lease Hub offers on a draft lease that has no agreement in flight: prepare the agency's lease agreement for e-sign, or
+     * attach the signed paper copy. Null when neither applies (not a draft, a renewal draft - those have their own screens - an agreement
+     * already in flight, signed, or the user may not create leases).
+     *
+     * @return array{state:string,reason:?string,can_prepare:bool,can_paper:bool,agreements:array<int,array<string,mixed>>,selected_agreement_id:?int}|null
+     */
+    public function draftFollowUpFor(Lease $lease, User $user): ?array
+    {
+        if (! $this->mayFollowUp($lease) || ! $user->hasPermission('leases.create')) {
+            return null;
+        }
+
+        $state = $this->agreementStateFor((int) $lease->agency_id);
+        $canPrepare = $state['state'] === 'ready'
+            && $this->followUpStatusAllows($lease, 'prepare')
+            && $user->hasPermission('access_docuperfect') && $user->hasPermission('create_docuperfect_docs');
+
+        $agreements = [];
+        if ($canPrepare) {
+            foreach ($state['agreements'] as $row) {
+                $fields = $this->agreementFields($row);
+                $saved = $this->savedAgreementValues($lease, $fields);
+                $agreements[] = [
+                    'id' => (int) $row->id, 'name' => (string) $row->name,
+                    'fields' => array_map(fn (array $f) => $f + ['value' => $saved[$f['key']] ?? null], $fields),
+                ];
+            }
+        }
+
+        return [
+            'state' => $state['state'],
+            'reason' => $state['reason'],
+            'can_prepare' => $canPrepare,
+            'can_paper' => $this->followUpStatusAllows($lease, 'paper'),
+            'agreements' => $agreements,
+            'selected_agreement_id' => $agreements[0]['id'] ?? null,
+        ];
+    }
+
+    /** A live draft term of its own (a renewal draft keeps its renewal screens) - the only lease a follow-up applies to. */
+    private function mayFollowUp(Lease $lease): bool
+    {
+        return $lease->status === Lease::STATUS_DRAFT && $lease->previous_lease_id === null && $lease->deleted_at === null;
+    }
+
+    /**
+     * 'prepare' : no agreement yet (or one prepared but not sent - preparing is idempotent and hands back the same flow).
+     * 'paper'   : no agreement yet, or the last one failed (declined / voided / expired) and the parties signed on paper instead.
+     */
+    private function followUpStatusAllows(Lease $lease, string $what): bool
+    {
+        $status = (string) ($lease->signing_status ?: Lease::SIGNING_NOT_SENT);
+
+        return $what === 'prepare'
+            ? in_array($status, [Lease::SIGNING_NOT_SENT, Lease::SIGNING_PREPARED], true)
+            : in_array($status, [Lease::SIGNING_NOT_SENT, Lease::SIGNING_DECLINED, Lease::SIGNING_VOIDED, Lease::SIGNING_EXPIRED], true);
+    }
+
+    /** @param array<int, array<string,mixed>> $fields from agreementFields() @return array<string,mixed> the lease's saved agreement details, key => value */
+    public function savedAgreementValues(Lease $lease, array $fields): array
+    {
+        $terms = LeaseAgreementTerms::query()->where('lease_id', $lease->id)->first();
+        $out = [];
+        foreach ($fields as $field) {
+            $value = $terms ? $this->termValue($terms, $field) : null;
+            $out[$field['key']] = $value instanceof \DateTimeInterface ? $value->format('Y-m-d') : $value;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Prepare the agency's lease agreement for e-sign for a lease that already exists as a "Create lease only" draft - the same gate, guard
+     * and flow as the capture screen's second button (LeaseSigningLauncher::launch), with the agreement details typed here saved first.
+     * Idempotent: a lease whose agreement is already prepared gets that same flow back.
+     *
+     * @param array<string,mixed> $agreementValues key => value for the agreement details (may be empty: what the lease already holds is used)
+     *
+     * @throws ValidationException                the lease is not in a state that can be prepared, or the user may not prepare agreements
+     * @throws NoLeaseAgreementLinkedException    the agency has no usable lease agreement
+     * @throws LeaseCaptureIncompleteException    something is still missing - nothing was changed
+     */
+    public function prepareDraftForSigning(Lease $lease, ?int $agreementId, array $agreementValues, User $user): \App\Models\Docuperfect\Flow
+    {
+        if (! $this->mayFollowUp($lease) || ! $this->followUpStatusAllows($lease, 'prepare')) {
+            throw ValidationException::withMessages(['lease' => 'This lease cannot be prepared for signing now.']);
+        }
+        if (! $user->hasPermission('access_docuperfect') || ! $user->hasPermission('create_docuperfect_docs')) {
+            throw ValidationException::withMessages(['lease' => 'You do not have access to prepare agreements.']);
+        }
+
+        $agencyId = (int) $lease->agency_id;
+        $agreement = $this->resolveAgreement($agencyId, $agreementId, self::INTENT_LEASE_AND_SIGN);
+        if (! $agreement) {
+            throw new NoLeaseAgreementLinkedException();
+        }
+
+        return DB::transaction(function () use ($lease, $agreement, $agreementValues, $user, $agencyId) {
+            if ($agreementValues !== []) {
+                $this->writeTerms($lease, $agreement, $agreementValues);
+            }
+
+            // The notice terms the agency's own lease marks "required for signing", read from what THIS lease holds (leases.md §18).
+            $notice = app(LeaseNoticeTermsService::class)->forLease($lease);
+            $mapped = $this->reader->normaliseMap((array) ($agreement->field_map ?? []));
+            $noticeGaps = [];
+            foreach (LeaseNoticeTermsService::EDIT_KEYS as $key) {
+                if (($mapped[$key]['required'] ?? false) && $key !== 'earliest_termination_date' && ($notice[$key] ?? null) === null) {
+                    $noticeGaps[] = ['key' => $key, 'label' => (string) ($mapped[$key]['label'] ?: (LeaseNoticeTermsService::LABELS[$key] ?? $key)), 'fix_url' => null];
+                }
+            }
+
+            try {
+                $flow = $this->launcher->launch($lease, $agreement, $user, $agreementValues);
+            } catch (LeaseCaptureIncompleteException $e) {
+                if ($noticeGaps === []) {
+                    throw $e;
+                }
+                throw LeaseCaptureIncompleteException::forMissing(array_merge($e->missing, $noticeGaps));
+            }
+            if ($noticeGaps !== []) {
+                throw LeaseCaptureIncompleteException::forMissing($noticeGaps);
+            }
+
+            return $flow;
+        });
+    }
+
+    /**
+     * Attach the signed paper copy to a lease that already exists as a "Create lease only" draft: the copy is filed against the lease and the
+     * property exactly as at capture, the lease is activated (the one-active-lease guard applies - a refusal rolls everything back and the
+     * file is removed) and marked signed on paper; the parties get portal access and their copy as for a paper copy at capture.
+     *
+     * @throws ValidationException
+     */
+    public function attachSignedCopyToDraft(Lease $lease, ?UploadedFile $file, User $user): Lease
+    {
+        if (! $this->mayFollowUp($lease) || ! $this->followUpStatusAllows($lease, 'paper')) {
+            throw ValidationException::withMessages(['signed_document' => 'A signed copy cannot be attached to this lease now.']);
+        }
+        if (! $file instanceof UploadedFile) {
+            throw ValidationException::withMessages(['signed_document' => 'Attach the signed copy.']);
+        }
+
+        $storedPath = null;
+        try {
+            $captured = DB::transaction(function () use ($lease, $file, $user, &$storedPath) {
+                $this->attachSignedCopy($lease, $file, $user, false, $storedPath);
+                $lease = $this->activate($lease, false, $user);
+                $lease->update(['signing_status' => Lease::SIGNING_SIGNED_ON_PAPER, 'source' => Lease::SOURCE_UPLOADED_SIGNED_COPY]);
+                $this->logEvent($lease, LeaseEvent::TYPE_LEASE_SIGNED_ON_PAPER, 'Signed paper copy attached — lease active', $user);
+                $this->logEvent($lease, LeaseEvent::TYPE_SIGNED_COPY_ATTACHED_LATER, 'Signed paper copy attached to a lease created earlier without an agreement', $user);
+
+                return $lease->fresh();
+            });
+        } catch (\Throwable $e) {
+            $this->discardStored($storedPath);
+            throw $e;
+        }
+
+        $this->afterPaperCopyCommitted($captured, $user);
+
+        return $captured;
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────────────────────

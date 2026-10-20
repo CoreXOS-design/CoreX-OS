@@ -216,7 +216,7 @@
                 @forelse($faultReports as $faultReport)
                 <tr style="border-bottom: 1px solid var(--border); color: var(--text-secondary);" data-qa="fault-report-row-{{ $faultReport->id }}">
                     <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $faultReport->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $faultReport->property?->trashed() ? ' (archived)' : '' }}</td>
-                    <td class="px-4 py-3">{{ $faultReport->title }}</td>
+                    <td class="px-4 py-3">@if($faultReport->isOpenEmergency())<span class="ds-badge ds-badge-danger" data-emergency-flag>Emergency</span> @endif{{ $faultReport->title }}</td>
                     <td class="px-4 py-3">
                         @if($showArchived)
                             <span class="ds-badge {{ $badge('--text-muted') }}">Archived {{ $faultReport->deleted_at?->format('Y-m-d') }}</span>

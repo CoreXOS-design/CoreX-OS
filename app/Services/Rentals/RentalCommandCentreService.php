@@ -792,15 +792,67 @@ class RentalCommandCentreService
             $scope,
             'property_id'
         )->get()->each(function (RentalFaultReport $fault) use (&$items, $today) {
+            // audit C-A1: the owner was reminded twice and still has not answered - a task for a person, not another email
+            $silent = $fault->owner_queue_flagged_at !== null;
             $items->push([
-                'type' => 'fault_awaiting_approval',
-                'urgency' => 2,
+                'type' => $silent ? 'fault_owner_silent' : 'fault_awaiting_approval',
+                'urgency' => $silent ? 1 : 2,
                 'age_days' => $fault->reported_at ? (int) abs($today->diffInDays($fault->reported_at)) : 0,
-                'item_date' => $fault->reported_at,
+                'item_date' => $silent ? $fault->owner_queue_flagged_at : $fault->reported_at,
                 'property' => $fault->property,
                 'lease' => null,
-                'label' => 'Open',
-                'detail' => $fault->title,
+                'label' => $silent ? 'Owner has not answered' : 'Open',
+                'detail' => $fault->title . ($silent ? ' - reminded twice, no answer: phone the owner and record what they say' : ''),
+                'route' => 'corex.rental-fault-reports.show',
+                'route_params' => ['rentalFaultReport' => $fault->id],
+            ]);
+        });
+
+        // C1b - audit C-A3: the owner copy is saved but the fault was never sent (status under_review). An abandoned draft must not leave the queue.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_UNDER_REVIEW),
+                'updated_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalFaultReport $fault) use (&$items, $today) {
+            $items->push([
+                'type' => 'fault_under_review',
+                'urgency' => 2,
+                'age_days' => $fault->updated_at ? (int) abs($today->diffInDays($fault->updated_at)) : 0,
+                'item_date' => $fault->updated_at,
+                'property' => $fault->property,
+                'lease' => null,
+                'label' => 'Send to owner',
+                'detail' => $fault->title . ' - the owner copy is saved but nothing has been sent: send it to the owner, or send someone to look',
+                'route' => 'corex.rental-fault-reports.show',
+                'route_params' => ['rentalFaultReport' => $fault->id],
+            ]);
+        });
+
+        // C1c - audit C-A2: the owner DECLINED. Nothing else happens by itself; the agent phones them / changes the decision if they ring back / sets the outcome by hand.
+        // The row leaves when the agent sets the outcome themselves (the automatic "owner declined" outcome is the only thing that keeps it here) or archives the fault.
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                RentalFaultReport::query()->where('status', RentalFaultReport::STATUS_DECLINED)->where('outcome_set_automatically', true),
+                'updated_at'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->get()->each(function (RentalFaultReport $fault) use (&$items, $today) {
+            $at = $fault->decision()?->decided_at ?? $fault->updated_at;
+            $items->push([
+                'type' => 'fault_owner_declined',
+                'urgency' => 2,
+                'age_days' => $at ? (int) abs($today->diffInDays($at)) : 0,
+                'item_date' => $at,
+                'property' => $fault->property,
+                'lease' => null,
+                'label' => 'Owner declined',
+                'detail' => $fault->title . ' - the owner said no: tell the tenant, or change the decision if the owner rings back',
                 'route' => 'corex.rental-fault-reports.show',
                 'route_params' => ['rentalFaultReport' => $fault->id],
             ]);
@@ -1175,6 +1227,35 @@ class RentalCommandCentreService
                 return;
             }
 
+            // audit C-A3: the contractor DECLINED the job. The work order stays "ordered", so the old rule said "Set appointment" - the next action is another contractor.
+            if ($wo->contractor_response === RentalContractorJobService::RESPONSE_DECLINED) {
+                $push($base + ['type' => 'wo_contractor_declined', 'urgency' => 1, 'age_days' => $age($wo->contractor_responded_at ?? $wo->updated_at), 'item_date' => $wo->contractor_responded_at ?? $wo->updated_at,
+                    'label' => 'Pick another contractor', 'detail' => $wo->title . ' - ' . ($wo->supplier?->name ?: 'the contractor') . ' declined the job' . ($wo->contractor_decline_reason ? ': ' . $wo->contractor_decline_reason : '') . ': pick another contractor']);
+
+                return;
+            }
+
+            // audit C-A3: quote-first - the job email makes the work order "ordered", and a quote the contractor uploads is NOT selected by itself, so the REPORTED-only quote rules never saw it.
+            $liveQuotes = $wo->quotes->whereNull('declined_at');
+            $chosen = $wo->quotes->firstWhere('is_selected', true);
+            if ($liveQuotes->isNotEmpty() && ! $chosen) {
+                $push($base + ['type' => 'wo_choose_quote', 'urgency' => 1, 'age_days' => $age($liveQuotes->max('created_at')), 'item_date' => $liveQuotes->max('created_at'),
+                    'label' => 'Choose a quote', 'detail' => $wo->title . ' - ' . $liveQuotes->count() . ($liveQuotes->count() === 1 ? ' quote' : ' quotes') . ' received from the contractor, none chosen: the owner has not been asked']);
+
+                return;
+            }
+            if ($chosen && ! app(RentalAuthorisationService::class)->hasCostAuthority($wo)) {
+                if ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
+                    $push($base + ['type' => 'wo_with_owner', 'urgency' => 5, 'informational' => true, 'age_days' => $age($chosen->updated_at), 'item_date' => $chosen->updated_at,
+                        'label' => 'With owner', 'detail' => $wo->title . ' - quote R' . number_format($chosen->ownerFacingAmount(), 2) . ' (with owner ' . $age($chosen->updated_at) . 'd)']);
+                } else {
+                    $push($base + ['type' => 'wo_authorise_cost', 'urgency' => 1, 'age_days' => $age($chosen->updated_at), 'item_date' => $chosen->updated_at,
+                        'label' => 'Authorise the cost', 'detail' => $wo->title . ' - quote R' . number_format($chosen->ownerFacingAmount(), 2) . ' is waiting for its cost to be authorised: authorise it, or the owner decides']);
+                }
+
+                return;
+            }
+
             // sent to the contractor (ordered / in progress) with no appointment yet
             if (! $wo->appointment_at) {
                 $push($base + ['type' => 'wo_set_appointment', 'urgency' => 2, 'age_days' => $age($wo->ordered_at ?? $wo->updated_at), 'item_date' => $wo->ordered_at ?? $wo->updated_at,
@@ -1194,6 +1275,14 @@ class RentalCommandCentreService
         )->get()->each(function (\App\Models\RentalJobCard $card) use ($push, $age) {
             $base = ['property' => $card->property, 'route' => 'corex.rental-job-cards.show', 'route_params' => ['rentalJobCard' => $card->id]];
             $title = $card->title ?: 'Job card';
+            // audit C-A3: the crew marked the work complete - the agent checks it and signs it off (nothing else would put it on the queue: it is no longer "no crew" or "no date").
+            if ($card->worker_signed_off_at) {
+                $push($base + ['type' => $card->agent_signed_off_at ? 'jc_complete' : 'jc_agent_signoff', 'urgency' => 1, 'age_days' => $age($card->worker_signed_off_at), 'item_date' => $card->worker_signed_off_at,
+                    'label' => $card->agent_signed_off_at ? 'Complete the job card' : 'Crew finished - sign off',
+                    'detail' => $title . ' - the crew says the work is done' . ($card->agent_signed_off_at ? ': both sign-offs are in, choose who pays and complete it' : ': check it and sign it off')]);
+
+                return;
+            }
             if (! $card->rental_crew_id) {
                 $push($base + ['type' => 'jc_assign_crew', 'urgency' => 2, 'age_days' => $age($card->created_at), 'item_date' => $card->created_at,
                     'label' => 'Assign a crew', 'detail' => $title . ' - no crew assigned' . ($card->scheduled_at ? '' : ' and no date set')]);

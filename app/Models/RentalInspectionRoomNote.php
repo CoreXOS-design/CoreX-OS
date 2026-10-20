@@ -30,6 +30,7 @@ class RentalInspectionRoomNote extends Model
         'property_room_id',
         'note',
         'created_by_user_id',
+        'client_idempotency_key',
         'created_at',
     ];
 

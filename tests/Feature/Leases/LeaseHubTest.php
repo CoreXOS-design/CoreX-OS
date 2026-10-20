@@ -646,9 +646,10 @@ final class LeaseHubTest extends TestCase
             self::assertTrue($step['post']);
         }
 
-        // No agreement at all: exactly what it always was.
+        // No agreement at all (audit A1, 2026-10-19): the draft can be got signed after all - the card on the lease offers prepare / signed copy / activate.
         $lease->update(['signing_status' => Lease::SIGNING_NOT_SENT]);
-        self::assertSame('Activate lease', $hub->nextStep($lease->fresh(), $agent)['label']);
+        self::assertSame('Get the lease signed', $hub->nextStep($lease->fresh(), $agent)['label']);
+        self::assertSame('draft-follow-up', $hub->nextStep($lease->fresh(), $agent)['fragment']);
     }
 
     public function test_awaiting_the_agents_approval_points_at_the_review_screen_of_the_document(): void

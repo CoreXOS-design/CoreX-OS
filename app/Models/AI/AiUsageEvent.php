@@ -58,6 +58,8 @@ final class AiUsageEvent extends Model
     public const SOURCE_AD_TEMPLATE           = 'ad_template';
     /** AT-456 Part C — the Article Library pipeline (always the system bucket, agency NULL). */
     public const SOURCE_ARTICLE_LIBRARY       = 'article_library';
+    /** Report recogniser — the AI reads a market/CMA report no built-in parser or learned layout recognised (mic-complete-spec §8.9). */
+    public const SOURCE_MARKET_REPORT_READ    = 'market_report_read';
 
     protected $fillable = [
         'agency_id',

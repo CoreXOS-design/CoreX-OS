@@ -51,6 +51,17 @@
         .crew-job .cj-photos img { width: 100%; height: 100%; object-fit: cover; display: block; }
         .crew-job .cj-confirm { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; font-size: 14px; line-height: 1.4; }
         .crew-job .cj-confirm input { flex: 0 0 26px; width: 26px; height: 26px; margin: 0; }
+        .crew-job .cj-next { border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; border: 1px solid #cfe9f2; background: #e6f7fb; }
+        .crew-job .cj-next .lbl { font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #076e84; margin-bottom: 4px; }
+        .crew-job .cj-next .txt { font-size: 16px; font-weight: 700; line-height: 1.35; }
+        .crew-job .cj-next.warn { background: #fff8e6; border-color: #f1dfa6; }
+        .crew-job .cj-next.warn .lbl { color: #8a6100; }
+        .crew-job .cj-next.ok { background: #eafaf0; border-color: #bfe6cd; }
+        .crew-job .cj-next.ok .lbl { color: var(--cj-ok); }
+        .crew-job .cj-next.danger { background: #fdecea; border-color: #f0c2bc; }
+        .crew-job .cj-next.danger .lbl { color: #c0392b; }
+        .crew-job .cj-next a.cj-btn { text-decoration: none; margin-top: 10px; }
+        html { scroll-behavior: smooth; }
         .crew-job .cj-banner { background: #eafaf0; border: 1px solid #bfe6cd; color: var(--cj-ok); border-radius: 12px; padding: 14px; font-weight: 700; font-size: 15px; }
     </style>
 
@@ -78,8 +89,14 @@
             </div>
         @endif
         @if($job['crew_name'])<div class="cj-muted" style="margin-top:6px;">Crew: {{ $job['crew_name'] }}</div>@endif
-        @if($job['access_notes'])
-            <div style="margin-top:12px; padding:10px 12px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:10px; font-size:14px;"><strong>Access:</strong> {{ $job['access_notes'] }}</div>
+        @if($job['access']['any'])
+            <div style="margin-top:12px; padding:10px 12px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:10px; font-size:14px;" data-access-contact>
+                <strong>Access:</strong>
+                @if($job['access']['name'] || $job['access']['phone'])
+                    {{ $job['access']['name'] }}@if($job['access']['phone'])@if($job['access']['name']) &middot; @endif<a href="tel:{{ $job['access']['tel'] }}">{{ $job['access']['phone'] }}</a>@endif
+                @endif
+                @if($job['access']['note'])<div style="margin-top:4px;">{{ $job['access']['note'] }}</div>@endif
+            </div>
         @endif
         @if($job['tenant'])
             <div style="margin-top:12px; font-size:14px;">
@@ -89,6 +106,17 @@
             </div>
         @endif
     </div>
+
+    {{-- AT-465 - NEXT: what the office needs from the crew right now, one sentence and at most one button (CrewNextBar). --}}
+    @if(! empty($job['next']))
+        <div class="cj-next {{ $job['next']['tone'] }}" data-crew-next>
+            <div class="lbl">Next</div>
+            <div class="txt">{{ $job['next']['text'] }}</div>
+            @if(! empty($job['next']['button']))
+                <a class="cj-btn primary" href="{{ $job['next']['button']['target'] }}" data-next-target="{{ $job['next']['button']['target'] }}">{{ $job['next']['button']['label'] }}</a>
+            @endif
+        </div>
+    @endif
 
     {{-- §17.21.1 plug-in slots — each is empty until its build lands (see CrewApprovalBlock / CrewDisputeBlock). --}}
     @include('rentals.crew-link._block-dispute', ['block' => $job['blocks']['dispute'] ?? []])
@@ -100,6 +128,8 @@
             @foreach($job['tasks'] as $task)
                 <form method="POST" action="{{ str_replace('__TASK__', $task['id'], $actions['tick']) }}" class="cj-tick-form">
                     @csrf
+                    {{-- §17.43 (audit C-E5): the state this tap asks for - a retry or a second tap sets it again instead of flipping it back --}}
+                    <input type="hidden" name="done" value="{{ $task['is_done'] ? 0 : 1 }}">
                     <button type="submit" class="cj-task {{ $task['is_done'] ? 'done' : '' }}" @disabled(! $job['is_open'])>
                         <span class="box">{{ $task['is_done'] ? '✓' : '' }}</span>
                         <span class="txt">{{ $task['number'] }}. {{ $task['description'] }}</span>
@@ -202,7 +232,7 @@
     @elseif($job['is_open'])
         {{-- BUILD 3 — while the tenant has disputed the finished work, the same form reads "Report fixed" (§17.10.6). --}}
         @php $disputed = !empty($job['blocks']['dispute'] ?? []); @endphp
-        <div class="cj-card">
+        <div class="cj-card" id="cj-complete">
             <h2>{{ $disputed ? 'Report fixed' : 'Mark work completed' }}</h2>
             <form method="POST" action="{{ $actions['complete'] }}" class="cj-complete-form">
                 @csrf
@@ -257,6 +287,16 @@
                     var b = upload.querySelector('button[type=submit]'); b.disabled = true; b.textContent = 'Uploading…';
                 });
             }
+            // The NEXT button scrolls to its target; when that is the Parts & labour card the blank row is already open (spec 17.43), so it only focuses it.
+            root.querySelectorAll('[data-next-target="#cj-pricing"]').forEach(function (a) {
+                a.addEventListener('click', function () {
+                    setTimeout(function () {
+                        var blank = root.querySelectorAll('#cj-pricing .cj-entry.is-new');
+                        var f = blank.length ? (blank[blank.length - 1].querySelector('.cj-cat-pick') || blank[blank.length - 1].querySelector('.cj-desc')) : null;
+                        if (f) { f.focus({ preventScroll: true }); }
+                    }, 350);
+                });
+            });
             var complete = root.querySelector('.cj-complete-form');
             if (complete) {
                 complete.addEventListener('submit', function () { var b = complete.querySelector('button[type=submit]'); b.disabled = true; });

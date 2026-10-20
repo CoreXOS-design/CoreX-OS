@@ -15,9 +15,9 @@ use Illuminate\Support\Collection;
 
 /**
  * .ai/specs/rental-work-orders.md §14.27.5 / §14.29 — the ONE place that knows
- * "which job cards are this crew's open work", how the crew page groups them
- * (Today / Upcoming / Unscheduled / Recently completed) and what to load for
- * them. The crew page, its tests and any future API all read through here, so
+ * "which job cards are this crew's open work", how the crew home page groups
+ * them (Today / Scheduled / Waiting for you / In progress / Done this month —
+ * spec §17.42) and what to load for them. The crew page, its tests and any future API all read through here, so
  * there is exactly one query that decides what a crew link may reach.
  *
  * Everything is pinned to ONE agency AND ONE crew and strips global scopes
@@ -34,7 +34,7 @@ class RentalCrewScheduleService
 {
     /** Most rows we ever render in one list (a crew with hundreds of open cards is a data problem, not a page). */
     private const MAX_ROWS = 200;
-    private const MAX_RECENT = 25;
+    private const MAX_DONE = 50;
 
     /**
      * THE query: this crew's booked, open job cards in this agency. Not
@@ -76,23 +76,29 @@ class RentalCrewScheduleService
     }
 
     /**
-     * Everything the crew page renders.
+     * Everything the crew home page renders. Every open card lands in exactly ONE group (§17.42):
+     *   in_progress — the crew has started it;
+     *   waiting     — the ball is in the crew's court: the office asked for a price, the tenant sent the work back,
+     *                 or it is approved/booked but has no date yet;
+     *   today       — dated today, or earlier and still open (flagged overdue — an open job is never silently dropped);
+     *   upcoming    — dated inside the "Scheduled" window (agency setting);
+     * plus done (completed this calendar month, read-only). A card booked beyond the window is not listed yet.
      *
      * @return array{
-     *   to_price: array<int, array>, today: array<int, array>, upcoming: array<int, array>, unscheduled: array<int, array>,
-     *   recent: array<int, array>, materials: array<int, array>, show_costs: bool,
-     *   upcoming_days: int, recent_days: int, now: Carbon, agency: array
+     *   waiting: array<int, array>, today: array<int, array>, upcoming: array<int, array>, in_progress: array<int, array>,
+     *   done: array<int, array>, materials: array<int, array>, show_costs: bool,
+     *   upcoming_days: int, now: Carbon, agency: array
      * }
      */
     public function schedule(int $agencyId, int $crewId, ?CarbonInterface $now = null): array
     {
         $agency = Agency::withoutGlobalScopes()->find($agencyId);
-        $tz = $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($agency);
         $now = ($now ? Carbon::instance($now) : Carbon::now())->setTimezone($tz);
 
         $upcomingDays = RentalPortalSetting::crewPageUpcomingDaysFor($agencyId);
-        $recentDays = RentalPortalSetting::crewPageRecentCompletedDaysFor($agencyId);
         $showCosts = RentalPortalSetting::crewLinkShowCostsFor($agencyId);
+        $showTenant = RentalPortalSetting::crewLinkShowTenantContactFor($agencyId);
 
         $todayStart = $now->copy()->startOfDay();
         $todayEnd = $now->copy()->endOfDay();
@@ -100,7 +106,7 @@ class RentalCrewScheduleService
 
         $cards = $this->openCardsQuery($agencyId, $crewId)
             ->orderBy('scheduled_at')->orderBy('id')
-            ->limit(self::MAX_ROWS * 3)
+            ->limit(self::MAX_ROWS * 4)
             ->get();
         $properties = $this->propertiesFor($cards->pluck('property_id')->all(), $agencyId);
 
@@ -108,41 +114,52 @@ class RentalCrewScheduleService
             ->where('agency_id', $agencyId)->where('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN)
             ->whereIn('rental_job_card_id', $cards->pluck('id')->all())->pluck('rental_job_card_id')->all();
 
-        $today = $upcoming = $unscheduled = $toPrice = [];
+        $tenantsByLease = [];
+        $today = $upcoming = $waiting = $inProgress = [];
+        $loadCards = collect();   // the cards whose parts count towards "What to load": Today + Scheduled
         foreach ($cards as $card) {
-            $row = $this->row($card, $properties[$card->property_id] ?? null, $tz, $now);
+            $property = $properties[$card->property_id] ?? null;
+            $row = $this->row($card, $property, $tz);
             $row['to_price'] = in_array($card->id, $toPriceIds, true);
-            if (! in_array($card->status, RentalJobCard::CREW_VISIBLE_STATUSES, true)) {
-                // §17.5.4 — a Draft/Quoted card reachable only because the office asked for a price.
-                $toPrice[] = $row;
-                continue;
+            if ($showTenant && $card->lease_id) {
+                $tenantsByLease[$card->lease_id] ??= JobSiteInfo::tenants((int) $card->lease_id);
             }
-            if (! $card->scheduled_at) {
-                $unscheduled[] = $row;
+            $row['tenants'] = $showTenant && $card->lease_id ? $tenantsByLease[$card->lease_id] : [];
+
+            if ($card->status === RentalJobCard::STATUS_IN_PROGRESS) {
+                $inProgress[] = $row;
+            } elseif ($card->status === RentalJobCard::STATUS_DISPUTED) {
+                $row['why_waiting'] = 'The tenant says it is not fixed yet';
+                $waiting[] = $row;
+            } elseif ($row['to_price'] || ! in_array($card->status, RentalJobCard::CREW_VISIBLE_STATUSES, true)) {
+                // §17.5.4 — a Draft/Quoted card is reachable only while the office's price request is open.
+                $row['why_waiting'] = 'The office asked you to price this job';
+                $waiting[] = $row;
+            } elseif (! $card->scheduled_at) {
+                $row['why_waiting'] = $card->status === RentalJobCard::STATUS_APPROVED ? 'Approved — waiting for a date' : 'No date yet';
+                $waiting[] = $row;
             } elseif ($card->scheduled_at->lte($todayEnd)) {
-                // Booked for today — or for an earlier day and still open (overdue). An open booked job
-                // is never silently dropped: it sits at the top of Today, flagged.
+                // Booked for today — or for an earlier day and still open (overdue).
                 $row['overdue'] = $card->scheduled_at->lt($todayStart);
                 $today[] = $row;
+                $loadCards->push($card);
             } elseif ($card->scheduled_at->lte($upcomingEnd)) {
                 $upcoming[] = $row;
+                $loadCards->push($card);
             }
-            // Booked beyond the upcoming window: not shown until it is inside it.
+            // Booked beyond the Scheduled window: not shown until it is inside it.
         }
-        usort($unscheduled, fn ($a, $b) => [$a['due_sort'] ?? PHP_INT_MAX, $a['id']] <=> [$b['due_sort'] ?? PHP_INT_MAX, $b['id']]);
-
-        $listedForMaterials = $cards->filter(fn (RentalJobCard $c) => in_array($c->status, RentalJobCard::CREW_VISIBLE_STATUSES, true) && $c->scheduled_at && $c->scheduled_at->lte($upcomingEnd))->values();
+        usort($waiting, fn ($a, $b) => [(int) empty($a['to_price']), $a['due_sort'] ?? PHP_INT_MAX, $a['id']] <=> [(int) empty($b['to_price']), $b['due_sort'] ?? PHP_INT_MAX, $b['id']]);
 
         return [
-            'to_price' => array_slice($toPrice, 0, self::MAX_ROWS),
+            'waiting' => array_slice($waiting, 0, self::MAX_ROWS),
             'today' => array_slice($today, 0, self::MAX_ROWS),
             'upcoming' => array_slice($upcoming, 0, self::MAX_ROWS),
-            'unscheduled' => array_slice($unscheduled, 0, self::MAX_ROWS),
-            'recent' => $recentDays > 0 ? $this->recentlyCompleted($agencyId, $crewId, $now, $recentDays, $tz) : [],
-            'materials' => $this->materials($listedForMaterials, $tz, $showCosts),
+            'in_progress' => array_slice($inProgress, 0, self::MAX_ROWS),
+            'done' => $this->doneThisMonth($agencyId, $crewId, $now, $tz),
+            'materials' => $this->materials($loadCards->values(), $tz, $showCosts),
             'show_costs' => $showCosts,
             'upcoming_days' => $upcomingDays,
-            'recent_days' => $recentDays,
             'now' => $now,
             'agency' => $agency ? Agency::publicBrandingFor($agencyId) : ['name' => 'our agency', 'logoUrl' => null, 'colors' => ['default' => '#0b2a4a', 'button' => '#00b4d8']],
         ];
@@ -232,8 +249,8 @@ class RentalCrewScheduleService
         return $rows;
     }
 
-    /** Completed cards of this crew inside the window — read-only display, never a link into a card. */
-    private function recentlyCompleted(int $agencyId, int $crewId, Carbon $now, int $days, string $tz): array
+    /** Completed cards of this crew since the 1st of this month (agency time) — read-only display, never a link into a card. */
+    private function doneThisMonth(int $agencyId, int $crewId, Carbon $now, string $tz): array
     {
         $cards = RentalJobCard::withoutGlobalScopes()
             ->where('agency_id', $agencyId)
@@ -241,12 +258,12 @@ class RentalCrewScheduleService
             ->whereNull('deleted_at')
             ->where('status', RentalJobCard::STATUS_COMPLETED)
             ->whereNotNull('completed_at')
-            ->where('completed_at', '>=', $now->copy()->subDays($days)->startOfDay()->setTimezone(config('app.timezone'))->toDateTimeString())
+            ->where('completed_at', '>=', $now->copy()->startOfMonth()->setTimezone(config('app.timezone'))->toDateTimeString())
             ->whereIn('property_id', function ($q) use ($agencyId) {
                 $q->select('id')->from('properties')->where('agency_id', $agencyId)->whereNull('deleted_at');
             })
             ->orderByDesc('completed_at')
-            ->limit(self::MAX_RECENT)
+            ->limit(self::MAX_DONE)
             ->get();
         $properties = $this->propertiesFor($cards->pluck('property_id')->all(), $agencyId);
 
@@ -259,12 +276,14 @@ class RentalCrewScheduleService
     }
 
     /**
-     * Link status per crew for the Rental Crews list: never issued / live /
-     * revoked / expired / unavailable (e.g. the crew is inactive, or crew links
-     * are switched off for the agency). One query for the latest token per crew.
+     * Link status per crew for the Rental Crews list and the edit page's panel: never issued / live / revoked /
+     * expired / unavailable (e.g. the crew is inactive, or crew links are switched off for the agency), plus the
+     * home-link line the office reads — when it was last sent and how many times it was opened. "Sent" and "opened"
+     * look at the crew's CURRENT links (every one not revoked), so a Resend keeps the history and a Regenerate
+     * starts a clean one.
      *
      * @param int[] $crewIds
-     * @return array<int, array{state: string, label: string, expires_at: ?Carbon, last_used_at: ?Carbon}>
+     * @return array<int, array{state: string, label: string, expires_at: ?Carbon, last_used_at: ?Carbon, issued_at: ?Carbon, open_count: int, sent_at: ?Carbon, sent_via: ?string}>
      */
     public function linkStatusesFor(array $crewIds): array
     {
@@ -272,27 +291,54 @@ class RentalCrewScheduleService
             return [];
         }
 
-        $latest = RentalSecureAccessToken::withoutGlobalScopes()
+        $tokens = RentalSecureAccessToken::withoutGlobalScopes()
             ->where('purpose', RentalSecureAccessToken::PURPOSE_CREW_STANDING)
             ->whereIn('rental_crew_id', $crewIds)
             ->orderByDesc('id')
-            ->get()
-            ->unique('rental_crew_id');
+            ->get();
+        $latest = $tokens->unique('rental_crew_id');
+        $currentIds = $tokens->whereNull('revoked_at')->pluck('id')->all();
+
+        // Per crew and event over the current links only — aggregated in SQL (a busy crew can log hundreds of opens).
+        $stats = $currentIds
+            ? \App\Models\RentalCrewLinkEvent::withoutGlobalScopes()
+                ->whereIn('token_id', $currentIds)
+                ->whereIn('event', [\App\Models\RentalCrewLinkEvent::EVENT_OPENED, \App\Models\RentalCrewLinkEvent::EVENT_EMAILED, \App\Models\RentalCrewLinkEvent::EVENT_WHATSAPP])
+                ->selectRaw('rental_crew_id, event, count(*) as n, max(created_at) as last_at')
+                ->groupBy('rental_crew_id', 'event')
+                ->get()
+                ->groupBy('rental_crew_id')
+            : collect();
 
         $out = [];
         foreach ($crewIds as $id) {
             $t = $latest->firstWhere('rental_crew_id', $id);
             if (! $t) {
-                $out[$id] = ['state' => 'never', 'label' => 'No link', 'expires_at' => null, 'last_used_at' => null];
-            } elseif ($t->revoked_at) {
-                $out[$id] = ['state' => 'revoked', 'label' => 'Revoked', 'expires_at' => $t->expires_at, 'last_used_at' => $t->last_used_at];
-            } elseif ($t->expires_at && $t->expires_at->isPast()) {
-                $out[$id] = ['state' => 'expired', 'label' => 'Expired', 'expires_at' => $t->expires_at, 'last_used_at' => $t->last_used_at];
-            } elseif ($t->isLive()) {
-                $out[$id] = ['state' => 'live', 'label' => 'Live', 'expires_at' => $t->expires_at, 'last_used_at' => $t->last_used_at];
-            } else {
-                $out[$id] = ['state' => 'unavailable', 'label' => 'Unavailable', 'expires_at' => $t->expires_at, 'last_used_at' => $t->last_used_at];
+                $out[$id] = ['state' => 'never', 'label' => 'No link', 'expires_at' => null, 'last_used_at' => null, 'issued_at' => null, 'open_count' => 0, 'sent_at' => null, 'sent_via' => null];
+                continue;
             }
+            if ($t->revoked_at) {
+                $state = ['revoked', 'Revoked'];
+            } elseif ($t->expires_at && $t->expires_at->isPast()) {
+                $state = ['expired', 'Expired'];
+            } elseif ($t->isLive()) {
+                $state = ['live', 'Live'];
+            } else {
+                $state = ['unavailable', 'Unavailable'];
+            }
+
+            $byEvent = ($stats[$id] ?? collect())->keyBy('event');
+            $emailedAt = $byEvent[\App\Models\RentalCrewLinkEvent::EVENT_EMAILED]->last_at ?? null;
+            $whatsappAt = $byEvent[\App\Models\RentalCrewLinkEvent::EVENT_WHATSAPP]->last_at ?? null;
+            $sentAt = $emailedAt && $whatsappAt ? max($emailedAt, $whatsappAt) : ($emailedAt ?: $whatsappAt);
+
+            $out[$id] = [
+                'state' => $state[0], 'label' => $state[1],
+                'expires_at' => $t->expires_at, 'last_used_at' => $t->last_used_at, 'issued_at' => $t->created_at,
+                'open_count' => (int) ($byEvent[\App\Models\RentalCrewLinkEvent::EVENT_OPENED]->n ?? 0),
+                'sent_at' => $sentAt ? Carbon::parse($sentAt) : null,
+                'sent_via' => $sentAt ? ($sentAt === $emailedAt ? 'email' : 'whatsapp') : null,
+            ];
         }
 
         return $out;
@@ -301,10 +347,10 @@ class RentalCrewScheduleService
     /**
      * Everything the Rental Crews edit page's "Crew link" panel shows: the
      * current link's state (issued by / when, expiry or "stands until revoked",
-     * last opened, how many times opened) and the newest log rows. The raw
-     * link is never available here — only its hash is stored.
+     * last opened, how many times opened, when it was last sent) and the newest
+     * log rows. The raw link is never available here — only its hash is stored.
      *
-     * @return array{state: string, label: string, issued_by: ?string, issued_at: ?Carbon, expires_at: ?Carbon, last_used_at: ?Carbon, open_count: int, events: Collection}
+     * @return array{state: string, label: string, issued_by: ?string, issued_at: ?Carbon, expires_at: ?Carbon, last_used_at: ?Carbon, open_count: int, sent_at: ?Carbon, sent_via: ?string, events: Collection}
      */
     public function linkPanelFor(\App\Models\RentalCrew $crew, int $eventLimit = 15): array
     {
@@ -316,10 +362,6 @@ class RentalCrewScheduleService
 
         return $status + [
             'issued_by' => $token?->createdByUser?->name,
-            'issued_at' => $token?->created_at,
-            'open_count' => $token
-                ? \App\Models\RentalCrewLinkEvent::withoutGlobalScopes()->where('token_id', $token->id)->where('event', \App\Models\RentalCrewLinkEvent::EVENT_OPENED)->count()
-                : 0,
             'events' => \App\Models\RentalCrewLinkEvent::withoutGlobalScopes()
                 ->where('rental_crew_id', $crew->id)
                 ->with(['actor', 'jobCard'])
@@ -342,16 +384,22 @@ class RentalCrewScheduleService
         return $property?->buildDisplayAddress() ?: '';
     }
 
-    private function row(RentalJobCard $card, ?Property $property, string $tz, Carbon $now): array
+    private function row(RentalJobCard $card, ?Property $property, string $tz): array
     {
         $scheduled = $card->scheduled_at?->copy()->setTimezone($tz);
         $due = $card->due_at?->copy()->setTimezone($tz);
+        $address = $this->address($property);
+        // AT-459 — the access contact + note as the work order holds it (the card's own, then the property's, when the work order has none)
+        $access = JobSiteInfo::accessContact($card->workOrder()->withoutGlobalScopes()->first(), $card);
 
         return [
             'id' => $card->id,
             'title' => $card->title,
-            'address' => $this->address($property),
-            'access_notes' => $card->access_notes,
+            'address' => $address,
+            'map_url' => JobSiteInfo::mapUrl($property, $address),
+            'access' => $access,
+            'access_notes' => $access['note'],
+            'tenants' => [],
             'status' => $card->status,
             'status_label' => ucfirst(str_replace('_', ' ', $card->status)),
             'time' => $scheduled?->format('H:i'),
@@ -359,6 +407,8 @@ class RentalCrewScheduleService
             'due' => $due?->format('D j M'),
             'due_sort' => $due?->getTimestamp(),
             'overdue' => false,
+            'to_price' => false,
+            'why_waiting' => null,
             'crew_completed' => $card->worker_signed_off_at !== null,
         ];
     }

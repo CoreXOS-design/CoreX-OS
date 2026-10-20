@@ -99,11 +99,11 @@ class RentalInventoryComparisonService
                 // §11.8 — the move-in photos this line was tagged to during
                 // capture. Never null/omitted (an empty array renders as no
                 // thumbnails, exactly right for a line nobody photographed).
-                'photos' => $line->moveInPhotos->map(fn ($p) => ['id' => $p->id, 'storage_path' => $p->storage_path])->values()->all(),
+                'photos' => $line->moveInPhotos->map(fn ($p) => ['id' => $p->id, 'storage_path' => $p->storage_path, 'from_inspection' => $p->isReference()])->values()->all(),
                 // §14 — the CURRENT side's own evidence. Deliberately never
                 // omitted even when empty: the comparison view must SHOW
                 // "no photo taken" rather than silently rendering nothing.
-                'move_out_photos' => $line->moveOutPhotos->map(fn ($p) => ['id' => $p->id, 'storage_path' => $p->storage_path])->values()->all(),
+                'move_out_photos' => $line->moveOutPhotos->map(fn ($p) => ['id' => $p->id, 'storage_path' => $p->storage_path, 'from_inspection' => $p->isReference()])->values()->all(),
             ];
         })->all();
     }

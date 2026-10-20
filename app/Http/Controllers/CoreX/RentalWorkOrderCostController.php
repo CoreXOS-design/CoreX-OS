@@ -68,4 +68,17 @@ class RentalWorkOrderCostController extends Controller
 
         return back()->with('success', "The owner's decision is recorded. The owner has been emailed what you wrote down.");
     }
+
+    /** Section 28.3 - "Use it": the owner approved the cost on the same call as the go-ahead; a quote at or below that figure is in. One press, the same words. */
+    public function useSameCall(Request $request, RentalAuthorisationService $service, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+        try {
+            $row = $service->useSameCallApproval($request->user(), $rentalWorkOrder);
+        } catch (\LogicException|\InvalidArgumentException $e) {
+            return back()->withErrors(['cost_decision' => $e->getMessage()]);
+        }
+
+        return back()->with('success', 'Cost authorised up to R' . number_format((float) $row->amount_up_to, 2) . ' on what the owner said on the call. The owner has been emailed.');
+    }
 }

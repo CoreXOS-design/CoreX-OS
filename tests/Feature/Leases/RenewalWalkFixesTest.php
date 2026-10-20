@@ -390,8 +390,22 @@ final class RenewalWalkFixesTest extends TestCase
         $this->assertSame('active', $this->property->fresh()->status);
     }
 
-    public function test_without_an_out_inspection_the_move_out_date_alone_ends_nothing(): void
+    /** Audit A5 (2026-10-19) - replaces "the move-out date alone ends nothing": an accepted notice ends the tenancy on its date (agency setting, default on). */
+    public function test_without_an_out_inspection_the_accepted_notices_move_out_date_ends_the_lease_by_default(): void
     {
+        $lease = $this->runningLeaseWithNotice('2028-01-31');
+
+        Artisan::call('leases:advance-terms', ['--date' => '2028-01-30']);
+        $this->assertSame(Lease::STATUS_ACTIVE, $lease->fresh()->status, 'the day before: still running');
+
+        Artisan::call('leases:advance-terms', ['--date' => '2028-02-15']);
+
+        $this->assertSame(Lease::STATUS_EXPIRED, $lease->fresh()->status);
+    }
+
+    public function test_with_the_agency_setting_off_the_move_out_date_alone_ends_nothing(): void
+    {
+        \App\Models\LeaseSetting::updateOrCreate(['agency_id' => $this->agency->id], ['end_tenancy_on_move_out_date' => false]);
         $lease = $this->runningLeaseWithNotice('2028-01-31');
 
         Artisan::call('leases:advance-terms', ['--date' => '2028-02-15']);

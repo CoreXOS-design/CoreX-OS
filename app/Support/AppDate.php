@@ -22,6 +22,15 @@ final class AppDate
         return (string) (config('app.timezone') ?: 'UTC');
     }
 
+    /**
+     * The timezone a person at this agency reads times in: the agency's own (Agency::outreachTimezone()), else the application's - never a place name written into code
+     * (section 29, C-H1). Pass null when there is no agency in hand.
+     */
+    public static function agencyTimezone(?\App\Models\Agency $agency = null): string
+    {
+        return $agency ? $agency->outreachTimezone() : self::appTimezone();
+    }
+
     /** A moment, ready to assign to a `datetime` column (the column is read back in the app timezone). */
     public static function store(CarbonInterface $at): Carbon
     {

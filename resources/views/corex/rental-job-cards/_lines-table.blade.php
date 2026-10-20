@@ -34,7 +34,7 @@
     parts 20 % / job 15 % / catalogue / agency default / no markup applied"). Cost and margin
     exist in the markup ONLY when $showCost (the viewer holds rental_job_cards.view_costs) —
     absent, not hidden. Only ACCEPTED lines arrive here: a crew's pending lines have their own
-    block (_pricing-panel).
+    block (_awaiting-rows).
 
     Expects: $lines (Collection<RentalJobCardLine>), $pricesOn (bool),
     $vat (array, RentalJobCardVatService::breakdown() shape), $jobCard,
@@ -50,6 +50,7 @@
         $canPrice = ($canPrice ?? false) && $pricesOn;
         $rowGridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vat['registered'], $showCost);
         $cell = \App\Support\RentalJobCardLineGrid::cellStyle();
+        $cellNum = $cell . ' text-align:right; padding-right:9px; font-variant-numeric: tabular-nums;'; // AT-466 - money / count cells line up under their right-aligned header
         $money = fn ($v) => 'R' . number_format((float) $v, 2);
     @endphp
     <div class="space-y-1">
@@ -59,17 +60,43 @@
                  style="{{ $loop->first ? '' : 'border-top: 1px solid var(--border);' }}">
                 <div x-show="!editing">
                     <div style="{{ $rowGridStyle }}" class="py-1 text-xs">
-                        <span class="truncate" title="{{ $line->code }}" style="color: var(--text-muted); font-family: monospace; {{ $cell }}">{{ $line->code ?? '—' }}</span>
-                        <span class="truncate" title="{{ $line->description }}" style="{{ $cell }}">{{ $line->description }}</span>
-                        <span class="truncate" style="{{ $cell }}">{{ ucfirst($line->type) }}</span>
+                        {{-- 19 Oct 2026: Description (with the small line under it carrying the item code, type, unit, VAT and margin), Qty, [Cost], Selling, Total. --}}
+                        @php
+                            $qtyText = rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.');
+                            $subBits = array_values(array_filter([$line->code, ucfirst($line->type), $pricesOn ? $line->unit : null], fn ($v) => $v !== null && $v !== ''));
+                        @endphp
+                        <span style="min-width:0; {{ $cell }}">
+                            <span class="truncate" title="{{ $line->description }}" style="display:block;">{{ $line->description }}@if(($receipts ?? collect())->has($line->id) && $line->type === 'part') @include('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipts[$line->id], 'label' => $line->description])@endif</span>
+                            <span style="display:block; font-size:10px; line-height:1.35; color: var(--text-muted); overflow-wrap:anywhere;" data-line-sub>
+                                @if($line->code)<span title="{{ $line->code }}" style="font-family: monospace;">{{ $line->code }}</span> · @endif{{ ucfirst($line->type) }}@if($pricesOn && $line->unit) · {{ $line->unit }}@endif
+                                @if($pricesOn && $vat['registered'])
+                                    {{-- §14.25 - the line's EFFECTIVE VAT type (resolved through the VAT service, keyed by line id; a line with no VAT type of its own is not "—"). The rate is in the tooltip. --}}
+                                    @php
+                                        $fig = $vat['lineFigures'][$line->id] ?? null;
+                                        $vatTypeLabel = $fig['type_label'] ?? app(\App\Services\Rentals\RentalJobCardVatService::class)->effectiveTypeLabel($line);
+                                        $vatRate = $fig['rate'] ?? null;
+                                    @endphp
+                                    · <span title="{{ $vatTypeLabel }}{{ $vatRate ? ' (' . rtrim(rtrim(number_format((float) $vatRate, 2), '0'), '.') . '%)' : '' }}" data-line-vat>VAT {{ $vatTypeLabel }}</span>
+                                @endif
+                                @if($pricesOn && $showCost)
+                                    {{-- Margin on the EXCL-VAT figures (§17.2). A legacy line with no cost shows "—" - no cost is ever invented. --}}
+                                    @php
+                                        $costFig = $costVat['lineFigures'][$line->id] ?? null;
+                                        $sellExcl = $line->line_total === null ? null : ($vat['registered'] ? ($vat['lineFigures'][$line->id]['excl'] ?? null) : (float) $line->line_total);
+                                        $marginR = ($costFig && $sellExcl !== null) ? round($sellExcl - (float) $costFig['excl'], 2) : null;
+                                        $marginPct = ($marginR !== null && $sellExcl > 0) ? round($marginR / $sellExcl * 100, 1) : null;
+                                    @endphp
+                                    · <span data-line-margin title="{{ $marginR === null ? ($line->cost_total === null ? 'No cost recorded' : 'No price yet') : 'Margin ' . $money($marginR) . ($marginPct !== null ? ' (' . $marginPct . ' % of selling), excl VAT' : ', excl VAT') }}">Margin {{ $marginR !== null ? $money($marginR) : '—' }}</span>
+                                @endif
+                            </span>
+                        </span>
                         @if($pricesOn)
-                            <span class="truncate" style="{{ $cell }}">{{ $line->unit }}</span>
-                            <span class="truncate" style="{{ $cell }}">{{ rtrim(rtrim(number_format((float) $line->quantity, 2), '0'), '.') }}</span>
+                            <span class="truncate" style="{{ $cellNum }}">{{ $qtyText }}</span>
                             @if($showCost)
-                                <span class="truncate" style="{{ $cell }}" title="{{ $line->cost_total !== null ? 'Cost total ' . $money($line->cost_total) : 'No cost recorded' }}">{{ $line->unit_cost !== null ? $money($line->unit_cost) : '—' }}</span>
+                                <span class="truncate" style="{{ $cellNum }}" title="{{ $line->cost_total !== null ? 'Cost total ' . $money($line->cost_total) : 'No cost recorded' }}">{{ $line->unit_cost !== null ? $money($line->unit_cost) : '—' }}</span>
                             @endif
                             {{-- SELLING + how it was arrived at (§17.4.5). A line with no price yet shows a dash and blocks "Send to owner as quote". --}}
-                            <span style="display:block; min-width:0; overflow:hidden; {{ $cell }}">
+                            <span style="display:block; min-width:0; overflow:hidden; {{ $cellNum }}">
                                 <span style="display:block; white-space:nowrap; text-overflow:ellipsis; overflow:hidden;">{{ $line->unit_price !== null ? $money($line->unit_price) : '—' }}</span>
                                 @php $basisLabel = \App\Services\Rentals\RentalPricingService::basisLabel($line, $jobCard); @endphp
                                 @if($basisLabel !== '')
@@ -78,38 +105,14 @@
                                     <span style="display:block; font-size:10px; color: var(--ds-crimson);" data-selling-basis>needs a price</span>
                                 @endif
                             </span>
-                            @if($vat['registered'])
-                                {{-- §14.25 — the line's EFFECTIVE VAT type, resolved through the VAT service and keyed by line id
-                                     (breakdown() writes its vat_display_* attributes onto $jobCard->lines, which are NOT the instances
-                                     this partial iterates, so those were always empty and a line with no VAT type of its own showed "—").
-                                     Wording = the add-line select's: Standard / None / Custom. --}}
-                                @php
-                                    $fig = $vat['lineFigures'][$line->id] ?? null;
-                                    $vatTypeLabel = $fig['type_label'] ?? app(\App\Services\Rentals\RentalJobCardVatService::class)->effectiveTypeLabel($line);
-                                    $vatRate = $fig['rate'] ?? null;
-                                @endphp
-                                <span class="truncate" title="{{ $vatTypeLabel }}{{ $vatRate ? ' (' . rtrim(rtrim(number_format((float) $vatRate, 2), '0'), '.') . '%)' : '' }}" style="{{ $cell }}">
-                                    {{-- label only in the cell (the 84px column cannot hold "Standard (15%)" at 1366 wide); the rate is in the tooltip --}}
-                                    {{ $vatTypeLabel }}
-                                </span>
-                            @endif
-                            @if($showCost)
-                                {{-- Margin on the EXCL-VAT figures (§17.2). A legacy line with no cost shows "—" — no cost is ever invented. --}}
-                                @php
-                                    $costFig = $costVat['lineFigures'][$line->id] ?? null;
-                                    $sellExcl = $line->line_total === null ? null : ($vat['registered'] ? ($vat['lineFigures'][$line->id]['excl'] ?? null) : (float) $line->line_total);
-                                    $marginR = ($costFig && $sellExcl !== null) ? round($sellExcl - (float) $costFig['excl'], 2) : null;
-                                    $marginPct = ($marginR !== null && $sellExcl > 0) ? round($marginR / $sellExcl * 100, 1) : null;
-                                @endphp
-                                <span class="truncate" style="{{ $cell }}" data-line-margin
-                                      title="{{ $marginR === null ? ($line->cost_total === null ? 'No cost recorded' : 'No price yet') : 'Margin ' . $money($marginR) . ($marginPct !== null ? ' (' . $marginPct . ' % of selling), excl VAT' : ', excl VAT') }}">{{ $marginR !== null ? $money($marginR) : '—' }}</span>
-                            @endif
+                            <span class="truncate" style="{{ $cellNum }} font-weight:600;" data-line-total title="Line total (quantity x selling price)">{{ $line->line_total !== null ? $money($line->line_total) : '—' }}</span>
                         @endif
                         <span class="whitespace-nowrap" style="display:inline-flex; justify-content:flex-end; align-items:center; gap:0;">
                             @permission('rental_job_cards.create')
                             @if($canEditLines)
                                 <button type="button" @click="editing = true" title="Edit line" aria-label="Edit line" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)') }}">&#9998;</button>
-                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" data-confirm="Archive this line?" data-confirm-danger data-confirm-label="Archive" class="inline" style="display:inline-flex;" data-keep-scroll>
+                            {{-- §17.43: no confirm dialog - the line is archived (soft delete) and an "Undo" is offered in its place --}}
+                            <form method="POST" action="{{ route('corex.rental-job-cards.lines.destroy', [$jobCard, $line]) }}" class="inline" style="display:inline-flex;" data-keep-scroll data-line-ajax="remove" data-restore-url="{{ route('corex.rental-job-cards.lines.restore', [$jobCard, $line->id]) }}">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" title="Archive" aria-label="Archive" style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--ds-red, #dc2626)') }}">&times;</button>

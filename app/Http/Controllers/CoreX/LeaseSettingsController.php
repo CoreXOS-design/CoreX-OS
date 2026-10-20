@@ -36,6 +36,13 @@ class LeaseSettingsController extends Controller
             'cpaEarlyCancelBusinessDaysDefault' => LeaseSetting::DEFAULT_CPA_EARLY_CANCEL_BUSINESS_DAYS,
             'breachRemedyBusinessDays' => LeaseSetting::breachRemedyBusinessDaysFor($agencyId),
             'breachRemedyBusinessDaysDefault' => LeaseSetting::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS,
+            'breachRemedyDayBasis' => LeaseSetting::breachRemedyDayBasisFor($agencyId),
+            'vacateTime' => LeaseSetting::vacateTimeFor($agencyId),
+            'vacateTimeDefault' => LeaseSetting::DEFAULT_VACATE_TIME,
+            'vacateNoticeDays' => LeaseSetting::vacateNoticeDaysFor($agencyId),
+            'vacateNoticeDaysDefault' => LeaseSetting::DEFAULT_VACATE_NOTICE_DAYS,
+            'paymentProofEmail' => LeaseSetting::paymentProofEmailSettingFor($agencyId) ?? '',
+            'agencyEmail' => (string) \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email'),
             // leases.md §18.2 — the agency's default notice / early-cancellation terms.
             'tenantNoticePeriodUnit' => LeaseSetting::tenantNoticePeriodUnitFor($agencyId),
             'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
@@ -54,7 +61,7 @@ class LeaseSettingsController extends Controller
             'showAdvanceAsOfSetting' => ! app(\App\Services\Rentals\LeaseTermAdvanceService::class)->isProductionInstall(),
             'allowAdvanceAsOfDate' => LeaseSetting::allowAdvanceAsOfDateFor($agencyId),
             'recentFrontHalfChanges' => \App\Models\RentalSettingAuditEntry::where('agency_id', $agencyId)
-                ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note'])
+                ->whereIn('setting_key', ['require_end_or_month_to_month_for_signing', 'restore_end_date_on_leaving_month_to_month', 'signed_copy_not_live_note', 'end_tenancy_on_move_out_date'])
                 ->with('user')->latest('id')->limit(5)->get(),
             // Round 7 (2026-10-05) — Command Centre "Unoccupied"/"Inactive"
             // tiles. Options = this agency's full write-side status
@@ -65,6 +72,7 @@ class LeaseSettingsController extends Controller
             // Property status follows the lease (rental-renewals.md "status follows the lease", rows 2/6/7).
             'autoReadvertiseOnNotice' => LeaseSetting::autoReadvertiseOnNoticeFor($agencyId),
             'autoRestoreStatusOnLeaseEnded' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agencyId),
+            'endTenancyOnMoveOutDate' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
             'autoRestoreStatusOnLeaseCancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agencyId),
             'defaultPreLetStatus' => LeaseSetting::defaultPreLetStatusFor($agencyId),
             'defaultPreLetStatusDefault' => LeaseSetting::DEFAULT_PRE_LET_STATUS,
@@ -101,6 +109,12 @@ class LeaseSettingsController extends Controller
             'cpa_early_cancel_business_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             // rental-notices.md §5 - business days a breach notice gives to put the breach right before a notice to vacate is allowed; same §6.1 has()-guard.
             'breach_remedy_business_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            // rental-notices.md §5 (AT-462) - business or calendar days, and the time of day a notice to vacate asks the tenant out by; same §6.1 has()-guard.
+            'breach_remedy_day_basis' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::REMEDY_BASES)],
+            'vacate_time' => ['nullable', 'date_format:H:i'],
+            // rental-notices.md §7b (AT-462) - days from sending a notice to vacate to the date the tenant must be out, and where a tenant sends proof of payment; same §6.1 has()-guard.
+            'vacate_notice_days' => ['nullable', 'integer', 'min:1', 'max:365'],
+            'payment_proof_email' => ['nullable', 'email', 'max:191'],
             // leases.md §18.2 — the same §6.1 has()-guard reasoning for every notice default below.
             'tenant_notice_period_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
             'default_earliest_notice_months' => ['nullable', 'integer', 'min:0', 'max:60'],
@@ -124,6 +138,7 @@ class LeaseSettingsController extends Controller
             // Property status follows the lease — same §6.1 has()-guard: absent = "not shown", never "off".
             'auto_readvertise_on_notice' => ['nullable', 'boolean'],
             'auto_restore_status_on_lease_ended' => ['nullable', 'boolean'],
+            'end_tenancy_on_move_out_date' => ['nullable', 'boolean'],
             'auto_restore_status_on_lease_cancelled' => ['nullable', 'boolean'],
             'default_pre_let_status' => ['nullable', 'string', 'max:40', \Illuminate\Validation\Rule::in(Property::allowedStatuses($agencyId))],
         ]);
@@ -149,6 +164,18 @@ class LeaseSettingsController extends Controller
             $v = $validated['breach_remedy_business_days'] ?? null;
             $data['breach_remedy_business_days'] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
         }
+        foreach (['breach_remedy_day_basis', 'vacate_time'] as $field) {
+            if ($request->has($field)) {
+                $data[$field] = $validated[$field] ?? null ?: null; // blank = back to the default
+            }
+        }
+        if ($request->has('vacate_notice_days')) {
+            $v = $validated['vacate_notice_days'] ?? null;
+            $data['vacate_notice_days'] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
+        }
+        if ($request->has('payment_proof_email')) {
+            $data['payment_proof_email'] = trim((string) ($validated['payment_proof_email'] ?? '')) ?: null; // blank = the agency's own email
+        }
         if ($request->has('cpa_early_cancel_business_days')) {
             $v = $validated['cpa_early_cancel_business_days'] ?? null;
             $data['cpa_early_cancel_business_days'] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
@@ -171,7 +198,7 @@ class LeaseSettingsController extends Controller
         if ($request->has('month_to_month_after_end_days')) {
             $data['month_to_month_after_end_days'] = $validated['month_to_month_after_end_days'];
         }
-        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'auto_restore_status_on_lease_cancelled'] as $field) {
+        foreach (['auto_readvertise_on_notice', 'auto_restore_status_on_lease_ended', 'end_tenancy_on_move_out_date', 'auto_restore_status_on_lease_cancelled'] as $field) {
             if ($request->has($field)) {
                 $data[$field] = $request->boolean($field);
             }
@@ -207,6 +234,7 @@ class LeaseSettingsController extends Controller
             'require_end_or_month_to_month_for_signing' => LeaseSetting::requireEndOrMonthToMonthForSigningFor($agencyId),
             'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
             'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
+            'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
         ];
 
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);

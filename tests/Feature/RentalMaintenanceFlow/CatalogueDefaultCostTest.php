@@ -41,7 +41,7 @@ final class CatalogueDefaultCostTest extends TestCase
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
             'code' => 'COST-1', 'description' => 'Costed item',
             'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
-            'default_price' => 200, 'default_cost' => 150, 'is_active' => 1,
+            'selling_excl' => 200, 'cost_excl' => 150, 'pricing_driver' => 'selling_excl', 'is_active' => 1,
         ];
     }
 
@@ -57,8 +57,8 @@ final class CatalogueDefaultCostTest extends TestCase
         $with = $this->userWith(['rental_job_cards.view_costs']);
         $without = $this->userWith([]);
 
-        $this->actingAs($with)->get(route('corex.rental-catalogue-items.create'))->assertOk()->assertSee('data-catalogue-cost', false)->assertSee('Default cost');
-        $this->actingAs($without)->get(route('corex.rental-catalogue-items.create'))->assertOk()->assertDontSee('data-catalogue-cost', false);
+        $this->actingAs($with)->get(route('corex.rental-catalogue-items.create'))->assertOk()->assertSee('name="cost_excl"', false)->assertSee('name="markup_value"', false);
+        $this->actingAs($without)->get(route('corex.rental-catalogue-items.create'))->assertOk()->assertDontSee('name="cost_excl"', false)->assertDontSee('name="markup_value"', false);
     }
 
     public function test_a_cost_is_saved_with_the_item_and_shown_on_edit(): void
@@ -69,17 +69,17 @@ final class CatalogueDefaultCostTest extends TestCase
 
         $item = RentalCatalogueItem::where('code', 'COST-1')->firstOrFail();
         $this->assertEquals(150.00, (float) $item->default_cost);
-        $this->actingAs($with)->get(route('corex.rental-catalogue-items.edit', $item))->assertOk()->assertSee('value="150.00"', false);
+        $this->actingAs($with)->get(route('corex.rental-catalogue-items.edit', $item))->assertOk()->assertViewHas('pricingInit', fn ($i) => $i['cost_excl'] === 150.0);
     }
 
     public function test_the_cost_is_optional_and_never_negative(): void
     {
         $with = $this->userWith(['rental_job_cards.view_costs']);
 
-        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'NO-COST', 'default_cost' => '']))->assertRedirect();
+        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'NO-COST', 'cost_excl' => '']))->assertRedirect();
         $this->assertNull(RentalCatalogueItem::where('code', 'NO-COST')->firstOrFail()->default_cost);
 
-        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'NEG', 'default_cost' => -1]))->assertSessionHasErrors('default_cost');
+        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'NEG', 'cost_excl' => -1]))->assertSessionHasErrors('cost_excl');
         $this->assertNull(RentalCatalogueItem::where('code', 'NEG')->first());
     }
 
@@ -91,8 +91,8 @@ final class CatalogueDefaultCostTest extends TestCase
         $item = RentalCatalogueItem::where('code', 'COST-1')->firstOrFail();
 
         // a hand-made POST carrying a cost, and an edit that simply omits the field
-        $this->actingAs($without)->put(route('corex.rental-catalogue-items.update', $item), $this->formPayload(['default_cost' => 1, 'description' => 'Renamed']))->assertRedirect();
-        $this->actingAs($without)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'SNEAK', 'default_cost' => 999]))->assertRedirect();
+        $this->actingAs($without)->put(route('corex.rental-catalogue-items.update', $item), $this->formPayload(['cost_excl' => 1, 'description' => 'Renamed']))->assertRedirect();
+        $this->actingAs($without)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'SNEAK', 'cost_excl' => 999]))->assertRedirect();
 
         $this->assertEquals(150.00, (float) $item->fresh()->default_cost);
         $this->assertSame('Renamed', $item->fresh()->description);
@@ -104,7 +104,7 @@ final class CatalogueDefaultCostTest extends TestCase
         $this->pricingWorld('Catalogue Cost Incl', [], true, Agency::VAT_CAPTURE_INCL);
         $with = $this->userWith(['rental_job_cards.view_costs']);
 
-        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'INCL', 'default_price' => 230, 'default_cost' => 115, 'default_rental_vat_type_id' => $this->standardVat()->id]))->assertRedirect();
+        $this->actingAs($with)->post(route('corex.rental-catalogue-items.store'), $this->formPayload(['code' => 'INCL', 'selling_incl' => 230, 'cost_incl' => 115, 'pricing_driver' => 'selling_incl', 'cost_basis' => 'incl', 'default_rental_vat_type_id' => $this->standardVat()->id]))->assertRedirect();
 
         $item = RentalCatalogueItem::where('code', 'INCL')->firstOrFail();
         $this->assertEquals(200.00, (float) $item->default_price);

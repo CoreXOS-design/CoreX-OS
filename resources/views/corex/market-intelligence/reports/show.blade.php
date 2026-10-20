@@ -67,6 +67,25 @@
         </div>
     </div>
 
+    @if($report->readBadge())
+        <div style="margin-bottom: 12px; padding: 10px 14px; font-size: 0.8125rem;
+                    background: color-mix(in srgb, {{ $report->read_method === 'unread' ? 'var(--ds-crimson, #dc2626)' : 'var(--ds-amber, #d97706)' }} 12%, transparent);
+                    color: var(--text-primary);
+                    border: 1px solid {{ $report->read_method === 'unread' ? 'var(--ds-crimson, #dc2626)' : 'var(--ds-amber, #d97706)' }}; border-radius: 4px;">
+            <strong>{{ $report->readBadge() }}.</strong>
+            @if($report->read_method === 'ai')
+                We couldn't read this layout with a known format, so CoreX read it with AI. Please check the figures against the PDF before relying on them.
+            @elseif($report->read_method === 'learned')
+                CoreX recognised this publisher's layout from an earlier report and read it with the saved mapping.
+            @else
+                Your report could not be recognised. It has been sent to CoreX to fix. CoreX will report back to you as soon as possible.
+            @endif
+            @if($report->ai_read_note && $report->read_method !== 'ai' && auth()->user()?->isOwnerRole())
+                <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">{{ $report->ai_read_note }}</div>
+            @endif
+        </div>
+    @endif
+
     @php
         $parseColor = match ($report->parse_status) {
             'parsed'  => '#10b981',

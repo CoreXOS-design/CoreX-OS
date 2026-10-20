@@ -244,6 +244,7 @@ agency, so the visible count is ≤ 13.
 | 4 | `branches` | Branches / offices | `branches` (the `split_branches_enabled` master moved to step 2) |
 | 5 | `commission` | Commission & revenue share | `commission_settings` |
 | 6 | `properties` | Properties & listings | `performance_settings` (per-page; marketing + syndication masters moved to step 2); `agency_deal_sync_settings` (`flag_property_under_offer_on_deal`, `sold_milestone`, `revert_property_on_deal_declined` — DR2 Wave 2, added 2026-08-04); `agencies.other_agency_stock_visible_roles` + `other_agency_stock_consent_wording` (Other Agency Stock — 2026-10-07, new `role_multiselect` control type, `other_agency_stock` source, saver `SettingsController@updateOtherAgencyStock`); `title_deed_settings` (all 17 Title Deed Register settings (round 4 adds the "Reference prefix" text control under the heading "Reference numbers") — AT-450, 2026-10-13, round 3 2026-10-14: the four "required" ticks became Required / Optional / Not used selects and the booleans Yes / No selects with the SAME wording as Settings -> Title Deeds, `spec title-deed-register.md` §15; source `title_deeds` resolved by `TitleDeedSetting::{camelKey}For`, saver `TitleDeedSettingsController@save`, every field `has()`-guarded; spec `title-deed-register.md` §9) |
+| 6c | `market_intelligence` | Market Intelligence | `suggested_action_thresholds.listing_off_market_days` (saver `StaleRulesController@updateListingWindow`) and `performance_settings.report_ai_read_enabled` (2026-10-20, report recogniser, spec `mic-complete-spec.md` §8.9: "Read unrecognised market reports with AI", toggle, default On, source `perf`, saver `StaleRulesController@updateReportAiRead`, `has()`-guarded; same stored value as the toggle on Settings -> Prospecting -> Stale-claim rules) |
 | 7 | `presentations` | Presentations / CMA | `agencies` (`presentations_*`,`comp_*`,`cma_*`) |
 | 8 | `matches` | Matches | `performance_settings` (`matches_show_on_properties`, `matches_visibility_scope`, `matches_wa_message`) and `agency_contact_settings.core_matches_excluded_buyer_states` (Won/Lost buyers — 2026-10-07, new `multiselect` control type + `_present` marker, `core_matches` source) — **gated on `matches_enabled`** (step 2); the `matches_enabled` master moved to step 2 |
 | 8b | `road_to_sold` | Road to Sold | `rts_settings` (AT-454, 2026-10-13, spec `road-to-sold.md` §4): the agency default weekday targets (`default_target_1`..`7` -> `default_weekday_targets`), `half_day_leave_halves_target`, `lock_agents_to_areas`, `area_refresh_warn_days`, `missed_items_mode`, `no_answer_drop_after`, `hold_days`; source `road_to_sold` (explicit per-key arm in `currentValues`, read through `SettingsService`); saver `RoadToSold\SettingsController@saveFromWizard` (maps `default_target_N` onto the settings saver, every field `has()`-guarded, 403 before any write) — **gated on the `road-to-sold` feature** (which depends on `prospecting`) | **13 Oct 2026 16:03 (Johan):** the agency’s suburbs are no longer chosen anywhere - they are derived from its stock and Market Intelligence data (road-to-sold.md section 13); the step now carries `min_area_properties` (a suburb counts as a working area from N properties, default 1) beside Lock agents to their areas.
@@ -258,6 +259,7 @@ agency, so the visible count is ≤ 13.
 These were built and then removed on Johan's call. They are out of scope by decision, not
 by oversight — do not reinstate them without asking:
 
+- **Report recogniser platform thresholds - `report_ai_max_pages`, `report_ai_min_confidence`, `report_layout_min_match`, `report_layout_selftest_min`** (2026-10-20, report recogniser, spec `mic-complete-spec.md` §8.9; **recorded for Johan - pending his confirmation, §10a makes the call his**). PLATFORM settings (`dev_settings`, edited by CoreX owner roles on the Learned layouts screen), not agency ones: they cap how much of the platform's AI bill one report can cost and how trustworthy a free deterministic read must be, so an agency never configures them. Defaults 40 pages / 0.50 / 0.85 / 0.90. **Also `report_ai_monthly_cap`** (AI reads per agency per month, default 5) **and `report_ai_platform_daily_cap`** (AI reads per day across all agencies, default 10) - Johan's 20 Oct ruling: same reasoning, and they are the cost controls an agency must not be able to raise itself. The one agency-level setting of the recogniser (`report_ai_read_enabled`) IS in the wizard (Market Intelligence step).
 - **`ai_template_max_failed_per_day` - how many paid-but-failed AI design attempts an agency may have per day** (2026-10-18, audit-fix-ai-spend, Johan's decision D-M2). A PLATFORM setting (Dev Settings -> AI Spend Safety, beside the alert / switch-off thresholds), not an agency one: it protects the platform's AI bill, so an agency never configures it and it has no place in onboarding. Default 5.
 
 - **Notice templates (breach notice - payment, breach notice - other, notice to vacate, and any other the agency adds)** (2026-10-14, qa1, `rental-notices.md` §3; **recorded for Johan**). They are the agency's OWN uploaded documents (Word, with placeholders), managed on their own screen (Settings -> Rental Notice Templates) like every other template - CoreX seeds none and they are not a switch to set once. The settings that came with notices ARE in the wizard (Leases step): `lease_settings.cpa_early_cancel_business_days` and `lease_settings.breach_remedy_business_days`.
@@ -352,7 +354,8 @@ by oversight — do not reinstate them without asking:
     savers `RentalApplicationSettingsController::updateCreditBureau` / `updateTenantedLabel`, now
     `has()`-guarded so a post that never rendered them leaves the value alone).
   - `lease_settings.show_lease_type_field` (toggle; `LeaseSettingsController::update`, already guarded).
-  - `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
+  - `rental_inspection_settings.omr_unsure_below` and `note_read_min_confidence` (numbers, 0.1-0.95, default 0.50 each; AT-472, 20 Oct 2026, form spec §13.15 - the scanned-form confidence lines for "ticks to check" and "handwritten notes to type in"; filled()-guarded in `RentalInspectionSettingsController::update`),
+  - `rental_inspection_settings.form_paper_size` (select; AT-463, 15 Oct 2026 - the paper the printed site form is laid out for; has()-guarded), `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
     guarded fields), and also added to the Rental Inspection Settings page so the two never drift.
   - The repeater lists — refusal reasons, inspection condition states (+ "All Good" baseline),
@@ -366,6 +369,17 @@ by oversight — do not reinstate them without asking:
     wipe nor fail it (§6.1). Inventory uses its own field name (`inventory_condition_states`) because
     the wizard is one combined form. Photo-note classifications also gained a settings-page form (they
     previously had a route but no screen).
+
+- **Application approvers (RO / CO) - IN the wizard (19 Oct 2026, rental audit fix A4/A27).** The Rentals (`leases`)
+  step now has two `user_multiselect` controls, `rental_application_ro_user_ids` (Reviewers) and
+  `rental_application_co_user_ids` (Override approvers), source `rental_application` (resolved by
+  `RentalApplicationQualifyingSetting::rentalApplicationRoUserIdsFor` / `...CoUserIdsFor`), saved by the ONE narrow
+  saver `RentalApplicationSettingsController::updateAuthorisersFromWizard` - each list written only when it was
+  posted (`has()`-guarded; the control posts `key[]` plus an empty companion so "everyone un-ticked" still arrives),
+  the empty companion dropped, every id resolved inside the agency (a foreign id is a 403), audited in
+  `rental_setting_audit`. The step's `stepData` supplies `agencyUsers`. Before this a new agency finished setup with
+  nobody able to approve an application. With nobody ticked, approval falls back to one step and CoreX warns (settings
+  page + review screen) - see `rental-applications.md` "Audit fixes 2026-10-19".
 
 - **Rental application "Property Link Lock"** (`rental_application_qualifying_settings.
   lock_property_after_submission`, added 2026-09-10). A fine-tuning toggle on an already-
@@ -856,3 +870,9 @@ Real-world data (real SA agency name/address, real commission %) per BUILD_STAND
 ---
 
 **End of spec.**
+
+---
+
+### Addendum 20 Oct 2026 (AT-475 P3) - Commission step also carries one agency setting
+
+Step 5 (`commission`) now has a `controls` entry besides its inline partial: `portal_show_agency_commission_totals` (`agencies` column, toggle, default OFF) - "Show agents their branch and agency commission totals" (My Portal). It is saved by the same `CommissionSettingsController@update` saver, which writes it only when the field was posted (section 6.1), so a form that never rendered it cannot switch it off. The same toggle is on both commission settings screens (`corex/settings/_portal-commission-totals`).

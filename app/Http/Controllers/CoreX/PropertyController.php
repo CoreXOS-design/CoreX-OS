@@ -2888,24 +2888,23 @@ class PropertyController extends Controller
         $structure = $property->rentalImagesStructure();
         $index     = (int) $data['index'];
 
-        $removeAt = function (array $images, int $idx): array {
-            if (isset($images[$idx])) {
-                $path = str_replace('/storage/', '', parse_url($images[$idx], PHP_URL_PATH));
-                Storage::disk('public')->delete($path);
-                array_splice($images, $idx, 1);
-            }
-            return array_values($images);
-        };
-
-        if ($data['section'] === 'custom') {
-            foreach ($structure['custom'] as $i => $sec) {
+        // Audit B27 (non-negotiable #1) - the image is ARCHIVED, never deleted: its reference moves to the property's `archived` list and the
+        // file stays on disk.
+        $sectionKey = $data['section'];
+        $url = null;
+        if ($sectionKey === 'custom') {
+            foreach ($structure['custom'] as $sec) {
                 if ($sec['id'] === $data['custom_id']) {
-                    $structure['custom'][$i]['images'] = $removeAt($sec['images'], $index);
+                    $sectionKey = $sec['id'];
+                    $url = $sec['images'][$index] ?? null;
                     break;
                 }
             }
         } else {
-            $structure[$data['section']]['images'] = $removeAt($structure[$data['section']]['images'], $index);
+            $url = $structure[$sectionKey]['images'][$index] ?? null;
+        }
+        if ($url !== null) {
+            Property::archiveRentalImage($structure, $sectionKey, $url, $request->user()?->id);
         }
 
         $property->update(['rental_images_json' => $structure]);
@@ -2915,9 +2914,9 @@ class PropertyController extends Controller
 
     /**
      * Bulk-delete rental inspection images — "Delete selected" and "Delete all".
-     * Mirrors the single deleteRentalImage() semantics (HARD delete: the JSON ref is
-     * removed AND the file is unlinked via the same parse_url/'/storage/' path guard),
-     * but does the whole set across ALL sections (in/out/custom) in ONE transaction.
+     * Mirrors the single deleteRentalImage() semantics (audit B27: the JSON ref is
+     * ARCHIVED, the file is kept), but does the whole set across ALL sections
+     * (in/out/custom) in ONE transaction.
      * Same permission gate (authorizeProperty). Returns the fresh structure.
      *
      * Body: { urls: [ ...image urls... ] }  OR  { all: true } to clear every section.
@@ -2956,38 +2955,31 @@ class PropertyController extends Controller
             return response()->json(['ok' => true, 'rental_images' => $structure, 'deleted' => 0]);
         }
 
-        $filesToUnlink = [];
-        $removeFrom = function (array $images) use ($targets, &$filesToUnlink): array {
-            $kept = [];
-            foreach ($images as $u) {
-                if (isset($targets[$u])) { $filesToUnlink[] = $u; }
-                else { $kept[] = $u; }
+        // Audit B27 (non-negotiable #1) - archived, never deleted: each reference moves to the property's `archived` list, the file stays.
+        $archived = [];
+        $userId = $request->user()?->id;
+        DB::transaction(function () use ($property, &$structure, $targets, &$archived, $userId) {
+            $sections = ['in_inspection' => 'in_inspection', 'out_inspection' => 'out_inspection'];
+            foreach ($structure['custom'] as $sec) {
+                $sections['custom:' . $sec['id']] = $sec['id'];
             }
-            return array_values($kept);
-        };
-
-        DB::transaction(function () use ($property, &$structure, $removeFrom) {
-            $structure['in_inspection']['images']  = $removeFrom($structure['in_inspection']['images']);
-            $structure['out_inspection']['images'] = $removeFrom($structure['out_inspection']['images']);
-            foreach ($structure['custom'] as $i => $sec) {
-                $structure['custom'][$i]['images'] = $removeFrom($sec['images']);
+            foreach ($sections as $sectionKey) {
+                $images = in_array($sectionKey, ['in_inspection', 'out_inspection'], true)
+                    ? $structure[$sectionKey]['images']
+                    : (collect($structure['custom'])->firstWhere('id', $sectionKey)['images'] ?? []);
+                foreach ($images as $u) {
+                    if (isset($targets[$u]) && Property::archiveRentalImage($structure, $sectionKey, $u, $userId)) {
+                        $archived[$u] = true;
+                    }
+                }
             }
             $property->update(['rental_images_json' => $structure]);
         });
 
-        // Unlink files only AFTER the references are gone — same path handling as the
-        // single deleteRentalImage (parse the /storage/ path off the public URL).
-        foreach (array_unique($filesToUnlink) as $url) {
-            $path = str_replace('/storage/', '', (string) parse_url($url, PHP_URL_PATH));
-            if ($path !== '') {
-                Storage::disk('public')->delete($path);
-            }
-        }
-
         return response()->json([
             'ok'            => true,
             'rental_images' => $property->rentalImagesStructure(),
-            'deleted'       => count(array_unique($filesToUnlink)),
+            'deleted'       => count($archived),
         ]);
     }
 

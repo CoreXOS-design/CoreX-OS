@@ -23,6 +23,10 @@ class RentalContractorJobMail extends RentalMaintenanceMail
         public ?string $tenantLine,
         public ?string $agentLine,
         ?User $agent = null,
+        // AT-459 — structured copies of the same facts, so the email can offer a tap-to-call number and an Open in Maps link
+        public ?array $tenants = null,
+        public ?array $access = null,
+        public ?string $mapUrl = null,
     ) {
         if ($agent) {
             $this->fromAgent($agent);
@@ -63,6 +67,9 @@ class RentalContractorJobMail extends RentalMaintenanceMail
             'photoCount' => $this->photoCount,
             'accessNotes' => $this->accessNotes,
             'tenantLine' => $this->tenantLine,
+            'tenants' => $this->tenants ?? [],
+            'access' => $this->access,
+            'mapUrl' => $this->mapUrl,
             'agentLine' => $this->agentLine,
         ];
     }

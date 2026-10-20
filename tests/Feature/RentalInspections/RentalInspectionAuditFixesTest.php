@@ -173,6 +173,7 @@ final class RentalInspectionAuditFixesTest extends TestCase
                 'party_role' => RentalInspectionSignature::PARTY_AGENT,
                 'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
                 'signature_image' => $bad,
+                'signing_method' => 'drawn',
             ])->assertStatus(422);
         }
         $this->assertSame(0, RentalInspectionSignature::where('rental_inspection_id', $inspection->id)->count());
@@ -187,6 +188,7 @@ final class RentalInspectionAuditFixesTest extends TestCase
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::PNG,
+            'signing_method' => 'drawn',
         ])->assertStatus(201);
 
         $signature = RentalInspectionSignature::where('rental_inspection_id', $inspection->id)->firstOrFail();

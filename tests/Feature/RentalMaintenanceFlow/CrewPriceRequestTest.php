@@ -105,7 +105,7 @@ final class CrewPriceRequestTest extends TestCase
 
     // ── the crew's side ──────────────────────────────────────────────────────────────────
 
-    public function test_the_crew_sees_the_banner_and_the_draft_card_is_listed_under_to_price_then_drops_off_when_closed(): void
+    public function test_the_crew_sees_the_banner_and_the_draft_card_is_listed_under_waiting_for_you_then_drops_off_when_closed(): void
     {
         $page = app(RentalSecureAccessTokenService::class)->issueForCrew($this->crew, $this->admin)['raw_token'];
         $link = app(RentalSecureAccessTokenService::class)->issueForJobCard($this->card, $this->admin)['raw_token'];
@@ -113,16 +113,16 @@ final class CrewPriceRequestTest extends TestCase
 
         // a Draft card with NO request is not booked work: not reachable, not listed
         $this->assertNull($service->findOpenCard($this->agency->id, $this->crew->id, $this->card->id));
-        $this->assertSame([], $service->schedule($this->agency->id, $this->crew->id)['to_price']);
+        $this->assertSame([], $service->schedule($this->agency->id, $this->crew->id)['waiting']);
 
         $this->ask();
 
         $this->assertNotNull($service->findOpenCard($this->agency->id, $this->crew->id, $this->card->id));
         $schedule = $service->schedule($this->agency->id, $this->crew->id);
-        $this->assertCount(1, $schedule['to_price']);
-        $this->assertTrue($schedule['to_price'][0]['to_price']);
+        $this->assertCount(1, $schedule['waiting']);
+        $this->assertTrue($schedule['waiting'][0]['to_price']);
 
-        $this->get(url('/secure/crews/' . $page))->assertOk()->assertSee('To price')->assertSee('The office asked you to price this job');
+        $this->get(url('/secure/crews/' . $page))->assertOk()->assertSee('Waiting for you')->assertSee('The office asked you to price this job');
         $job = $this->get(url('/secure/crews/' . $page . '/job-cards/' . $this->card->id))->assertOk()->getContent();
         $this->assertStringContainsString('data-price-request', $job);
         $this->assertStringContainsString('Please price the whole bathroom', $job);
@@ -142,7 +142,7 @@ final class CrewPriceRequestTest extends TestCase
         $line = $this->crewDraft($this->card, ['description' => 'Tap', 'unit_cost' => 80], $ctx);
         $this->assertSame(RentalJobCardLine::ORIGIN_CREW_PRICING, $line->origin);
 
-        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
+        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx, 'Found a fault; needs parts.');
 
         $request = $this->card->priceRequests()->firstOrFail();
         $this->assertSame(RentalJobCardPriceRequest::STATUS_SUBMITTED, $request->status);
@@ -152,12 +152,17 @@ final class CrewPriceRequestTest extends TestCase
         $this->assertSame('TestPhone/1.0', $request->submitted_device);
         $this->assertTrue($this->card->updates()->where('update_type', 'pricing_submitted')->exists());
 
-        // sending again with nothing new changes nothing and says so
+        // sending again straight away is a double-tap: nothing new goes, and it says "already sent" (0 lines), not an error
+        $this->assertSame(0, app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx));
+        // ... and later, with still nothing new, it is refused
+        \Illuminate\Support\Carbon::setTestNow(now()->addMinutes(10));
         try {
             app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
-            $this->fail('a second send with nothing new must be refused');
+            $this->fail('a send with nothing new must be refused');
         } catch (\InvalidArgumentException $e) {
             $this->assertStringContainsString('Add at least one', $e->getMessage());
+        } finally {
+            \Illuminate\Support\Carbon::setTestNow();
         }
         $this->assertSame(1, $this->card->priceRequests()->count());
 
@@ -176,7 +181,7 @@ final class CrewPriceRequestTest extends TestCase
         $this->ask();
         $ctx = $this->crewCtx($this->card);
         $line = $this->crewDraft($this->card, ['description' => 'Tap', 'unit_cost' => 100, 'quantity' => 2], $ctx);
-        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx);
+        app(\App\Services\Rentals\CrewJobService::class)->sendToOffice($this->card, $ctx, 'Found a fault; needs parts.');
         $this->assertEquals(0.0, (float) $this->card->fresh()->total_amount, 'not counted while it awaits the office');
 
         $this->actingAs($this->admin)->post(route('corex.rental-job-cards.crew-lines.accept', [$this->card, $line->id]), [])
@@ -326,7 +331,7 @@ final class CrewPriceRequestTest extends TestCase
         $seen = $this->actingAs($withCosts)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();
         $this->assertStringContainsString('data-crew-awaiting', $seen);
         $this->assertStringContainsString('Distinctive washer', $seen);
-        $this->assertStringContainsString('R61.31', $seen);
+        $this->assertStringContainsString('value="61.31"', $seen, 'AT-460: the crew cost sits in the Cost column of the row, ready to confirm');
         $this->assertStringContainsString('Priced by crew — awaiting you', $seen);
 
         $blind = $this->actingAs($withoutCosts)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();

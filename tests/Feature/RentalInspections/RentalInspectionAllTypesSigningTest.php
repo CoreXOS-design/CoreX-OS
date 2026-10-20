@@ -132,7 +132,7 @@ final class RentalInspectionAllTypesSigningTest extends TestCase
         // Signing is now ALLOWED for every type; completion is not newly tied to it for Routine (reported to Johan).
         $inspection = $this->recording(RentalInspection::TYPE_AD_HOC);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
     }
 
@@ -141,7 +141,7 @@ final class RentalInspectionAllTypesSigningTest extends TestCase
         $inspection = $this->ready(RentalInspection::TYPE_AD_HOC);
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(422);
     }
 

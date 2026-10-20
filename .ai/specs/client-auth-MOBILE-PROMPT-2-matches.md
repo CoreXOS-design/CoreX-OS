@@ -8,9 +8,11 @@
 
 ## ▼▼▼ COPY-PASTE INTO MOBILE APP CLAUDE SESSION ▼▼▼
 
-The Client side login is done — clients can sign in and you have a valid sanctum token in secure storage. Now build the **Client Home** experience: viewing their Core Matches, reacting to result properties (Interested / Not for me / Saved), opening a property's full detail, editing the search filters, and creating a new match if they don't have one. This must mirror the web shared-match link (e.g. `https://corex.hfcoastal.co.za/shared/match/andre-roets-zk6ee`) — same buttons, same fields, same data — but native and authenticated.
+The Client side login is done — clients can sign in and you have a valid sanctum token in secure storage. Now build the **Client Home** experience: viewing their Core Matches, reacting to result properties (Interested / Not for me / Saved), opening a property's full detail, editing the search filters, and creating a new match if they don't have one. This must mirror the web shared-match link (e.g. `https://corexos.co.za/shared/match/andre-roets-zk6ee`) — same buttons, same fields, same data — but native and authenticated.
 
-Backend base URL: `https://corex.hfcoastal.co.za`. All endpoints below require `Authorization: Bearer <client_token>` and `Accept: application/json`.
+Backend base URL: `https://corexos.co.za`. All endpoints below require `Authorization: Bearer <client_token>` and `Accept: application/json`.
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ### Endpoints (all under `/api/v1/client/`)
 
@@ -69,7 +71,7 @@ List response:
       "suburb": "Shelly Beach",
       "beds": 3, "baths": 2, "garages": 1,
       "price": 1850000, "price_display": "R 1,850,000",
-      "thumbnail": "https://corex.hfcoastal.co.za/storage/...",
+      "thumbnail": "https://corexos.co.za/storage/...",
       "match_score": 92,
       "hidden": false,
       "reaction": "interested",         // 'interested' | 'not_interested' | 'saved' | null
@@ -98,7 +100,7 @@ List response:
     "thumbnail": "https://.../1.jpg",
     "agent": { "name":"Jane Agent", "phone":"+27...", "email":"jane@..." },
     "branch": "Shelly Beach Office",
-    "web_preview_url": "https://corex.hfcoastal.co.za/corex/properties/501/preview"
+    "web_preview_url": "https://corexos.co.za/corex/properties/501/preview"
   }
 }
 ```

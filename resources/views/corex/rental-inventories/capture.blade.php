@@ -603,6 +603,7 @@
                                         <template x-for="photo in (roomPhotosExpanded[room.id] ? photoUploader().roomPhotos(room.id) : photoUploader().roomPhotos(room.id).slice(0, 3))" :key="photo.id">
                                             <div class="relative rounded-md overflow-hidden" style="aspect-ratio:1/1; background:var(--surface-3);">
                                                 <img :src="photo.storage_path" class="w-full h-full object-cover cursor-pointer" @click="openTaggerForPhoto(room, photo)" alt="Room photo">
+                                                <span x-show="photo.from_inspection" x-cloak class="absolute bottom-0.5 left-0.5 text-[9px] font-semibold text-white rounded px-1" style="background:rgba(0,0,0,0.55);" title="This photo is shared with the inspection">Inspection</span>
                                                 <span x-show="photo.lines && photo.lines.length" class="absolute top-0.5 left-0.5 text-[10px] font-bold text-white rounded-full flex items-center justify-center" style="width:16px; height:16px; background:var(--brand-button,#0ea5e9);" x-text="photo.lines.length"></span>
                                                 <button type="button" tabindex="-1" @click.stop="window.corexConfirm({ message: 'Archive this photo?', confirmLabel: 'Archive', danger: true }).then((yes) => { if (yes) photoUploader().archivePhoto(photo.id) })"
                                                         class="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold"
@@ -621,6 +622,14 @@
                                         <span>Add photo(s)</span>
                                         <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="photoUploader().uploadFiles($event.target.files, { property_room_id: room.id }); $event.target.value = ''">
                                     </label>
+                                    {{-- Audit 2026-10-19 B32 - one photo set per room: the move-in inspection already photographed this room, so use
+                                         those photos here instead of taking them again. --}}
+                                    @permission('rental_inspections.view')
+                                    <button type="button" tabindex="-1" @click="openInspectionPicker(room)"
+                                            class="text-xs font-semibold px-3 py-1.5 rounded-md inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
+                                        <span>Use inspection photos</span>
+                                    </button>
+                                    @endpermission
                                 </div>
                                 {{-- Same batch progress/retry rows as the inspections
                                      recording surface — real upload-progress percent,
@@ -637,6 +646,27 @@
                             </div>
                         </div>
                     </template>
+                </div>
+
+                {{-- Audit B32 - the move-in inspection's photos of one room; tapping one shares it with this inventory (no second copy, no
+                     second upload) and it then joins the room's photos, ready to tag to a line like any other. --}}
+                <div x-show="inspectionPicker.open" x-cloak class="fixed inset-0 z-50 flex items-end sm:items-center justify-center" style="background: rgba(0,0,0,0.5);" @click.self="inspectionPicker.open = false">
+                    <div class="w-full sm:max-w-md rounded-t-lg sm:rounded-lg p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border); max-height: 80vh; overflow-y: auto;">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold" x-text="'Inspection photos' + (inspectionPicker.roomLabel ? ' — ' + inspectionPicker.roomLabel : '')"></h3>
+                            <button type="button" @click="inspectionPicker.open = false" class="text-xs" style="color: var(--text-muted);">Close</button>
+                        </div>
+                        <p x-show="inspectionPicker.loading" x-cloak class="text-xs" style="color: var(--text-muted);">Loading…</p>
+                        <div class="flex flex-wrap gap-2">
+                            <template x-for="p in inspectionPicker.photos" :key="p.id">
+                                <button type="button" @click="shareInspectionPhoto(p)" class="relative shrink-0" style="width:72px; height:72px;" :title="p.taken_caption_short">
+                                    <img :src="p.storage_path" class="w-full h-full object-cover rounded-md" style="border:1px solid var(--border);" alt="Inspection photo">
+                                </button>
+                            </template>
+                        </div>
+                        <p x-show="!inspectionPicker.loading && !inspectionPicker.photos.length" x-cloak class="text-xs" style="color: var(--text-muted);">The move-in inspection has no photo of this room that is not already used here.</p>
+                        <p x-show="inspectionPicker.error" x-cloak class="text-xs" style="color:var(--ds-crimson,#c41e3a);" x-text="inspectionPicker.error"></p>
+                    </div>
                 </div>
 
                 {{-- Tag-to-photo picker — opened per line or per photo; toggling a
@@ -874,6 +904,7 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
         // tiles in half on the deployed box the first time this shipped.
         roomPhotosExpanded: {},
         tagger: { open: false, mode: null, line: null, photo: null, photos: [], lines: [] },
+        inspectionPicker: { open: false, roomId: null, roomLabel: '', photos: [], loading: false, error: '' },
 
         init() {
             this.rooms.forEach(r => this._initRoomState(r));
@@ -1491,6 +1522,29 @@ function rentalInventoryCapture(inventoryId, propertyId, spaceStoreUrl, seedSpac
             this.lines = this.lines.filter(l => l.id !== line.id);
         },
 
+        async openInspectionPicker(room) {
+            this.inspectionPicker = { open: true, roomId: room.id, roomLabel: room.label, photos: [], loading: true, error: '' };
+            try {
+                const res = await fetch(`${this.baseUrl}/inspection-photos?property_room_id=${room.id}`, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Could not load the inspection photos (${res.status}).`); }
+                this.inspectionPicker.photos = (await res.json()).photos || [];
+            } catch (e) { this.inspectionPicker.error = e.message; }
+            this.inspectionPicker.loading = false;
+        },
+        async shareInspectionPhoto(photo) {
+            this.inspectionPicker.error = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/inspection-photos/${photo.id}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                const shared = (await res.json()).photo;
+                const uploader = this.photoUploader();
+                if (shared && !uploader.photos.some(p => p.id === shared.id)) uploader.photos.push(shared);
+                this.inspectionPicker.photos = this.inspectionPicker.photos.filter(p => p.id !== photo.id);
+            } catch (e) { this.inspectionPicker.error = e.message; }
+        },
         openTagger(line) {
             this.tagger = { open: true, mode: 'line', line, photo: null, photos: this.photoUploader().roomPhotos(line.property_room_id), lines: [] };
         },

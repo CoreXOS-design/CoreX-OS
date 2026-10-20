@@ -76,7 +76,9 @@
     $canPrice = ($canPrice ?? false) && $pricesOn;
     $canEditCost = $showCost && $canPrice;
     $gridStyle = \App\Support\RentalJobCardLineGrid::gridStyle($pricesOn, $vatRegistered, $showCost);
+    $pickStyle = \App\Support\RentalJobCardLineGrid::pickGridStyle($pricesOn, $vatRegistered);
     $fieldStyle = \App\Support\RentalJobCardLineGrid::fieldStyle();
+    $amountStyle = \App\Support\RentalJobCardLineGrid::amountFieldStyle(); // AT-466 - right-aligned, room for R99,999.99
     $rowId = $refPrefix ?? ('t' . ($taskId ?? 'gen'));
     $isEdit = $mode === 'edit';
     $named = $mode !== 'draft'; // form + edit post real named fields; draft uses x-ref.
@@ -101,12 +103,14 @@
     }
 @endphp
 @if($mode === 'form')
-<form method="POST" action="{{ $action }}" class="pt-2" data-keep-scroll
+<form method="POST" action="{{ $action }}" enctype="multipart/form-data" class="pt-2" data-keep-scroll data-line-ajax="add"
       x-data="catalogueLinePicker({{ \Illuminate\Support\Js::from($catalogueItemsForJs) }})">
     @csrf
+    {{-- §17.43 (audit C-E4): this form's retry key - the same tap sent twice (a double tap, a retry) makes ONE line. A fresh key arrives with the fresh row after every save. --}}
+    <input type="hidden" name="client_key" value="{{ \Illuminate\Support\Str::uuid() }}" data-client-key>
     @if($taskId)<input type="hidden" name="rental_job_card_task_id" value="{{ $taskId }}">@endif
 @elseif($isEdit)
-<form method="POST" action="{{ route('corex.rental-job-cards.lines.update', [$jobCard, $line]) }}" class="py-2 px-1 rounded-md" data-keep-scroll
+<form method="POST" action="{{ route('corex.rental-job-cards.lines.update', [$jobCard, $line]) }}" enctype="multipart/form-data" class="py-2 px-1 -mx-1 rounded-md" data-keep-scroll data-line-ajax="edit"
       id="jc-edit-line-{{ $line->id }}" style="background: var(--surface-2, rgba(0,0,0,.03));"
       x-data="catalogueLinePicker(window.jcCatalogueItems || [], {{ \Illuminate\Support\Js::from($pickerInit) }})">
     @csrf
@@ -115,7 +119,8 @@
 @else
 <div class="pt-2" x-data="catalogueLinePicker({{ \Illuminate\Support\Js::from($catalogueItemsForJs) }})">
 @endif
-    <div style="{{ $gridStyle }}" class="relative">
+    {{-- 19 Oct 2026: two lines, so the row fits a laptop - first the fields that do not earn a column (Item, Type, Unit, VAT type), then the main row (Description, Qty, Cost, Selling, Total, action) on the SAME tracks as the header and the saved lines. --}}
+    <div style="{{ $pickStyle }}" class="relative" data-line-pick>
         <div class="relative" style="min-width:0;">
             <input type="text" x-model="query" x-ref="itemInput"
                    @focus="show()" @click="show()" @input="onType()"
@@ -148,20 +153,17 @@
                 </div>
             </template>
         </div>
-        <input type="text" {{ $named ? 'name=description' : 'x-ref=' . $refPrefix . 'Desc' }}
-               maxlength="255" placeholder="Description" aria-label="Description"
-               @if($isEdit) value="{{ $val('description', $line->description) }}" required @endif
-               class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
         <select {{ $named ? 'name=type' : 'x-ref=' . $refPrefix . 'Type' }}
                 aria-label="Type" title="Type"
                 class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
             @php $typeMatched = false; @endphp
             @forelse($catalogueItemTypes as $catType)
-                @php $typeSel = $isEdit && !$typeMatched && $catType->kind === $selectedType; $typeMatched = $typeMatched || $typeSel; @endphp
+                {{-- §17.43: a free-typed line is a PART unless the agent says otherwise (a picked item sets its own kind) --}}
+                @php $typeSel = !$typeMatched && $catType->kind === ($isEdit ? $selectedType : 'part'); $typeMatched = $typeMatched || $typeSel; @endphp
                 <option value="{{ $catType->kind }}" @selected($typeSel)>{{ $catType->name }}</option>
             @empty
                 <option value="labour" @selected($isEdit && $selectedType === 'labour')>Labour</option>
-                <option value="part" @selected($isEdit && $selectedType === 'part')>Part</option>
+                <option value="part" @selected(!$isEdit || $selectedType === 'part')>Part</option>
             @endforelse
         </select>
         @if($pricesOn)
@@ -177,26 +179,6 @@
                     <option value="{{ $selectedUnit }}" selected>{{ $selectedUnit }}</option>
                 @endif
             </select>
-            <input type="number" {{ $named ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
-                   step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty"
-                   @if($isEdit) required @endif
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-            @if($canEditCost)
-            <input type="number" {{ $named ? 'name=unit_cost' : 'x-ref=' . $refPrefix . 'UnitCost' }}
-                   step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency"
-                   @if($isEdit) value="{{ $costValue }}" @endif placeholder="cost"
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-            @elseif($showCost)
-            <span></span>
-            @endif
-            @if($canPrice)
-            <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
-                   step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost."
-                   @if($isEdit) value="{{ $priceValue }}" @endif placeholder="auto"
-                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
-            @else
-            <span></span>
-            @endif
             @if($vatRegistered)
             <select {{ $named ? 'name=rental_vat_type_id' : 'x-ref=' . $refPrefix . 'VatType' }}
                     aria-label="VAT type" title="VAT type"
@@ -221,45 +203,103 @@
                    class="w-full rounded-md px-2 py-1.5 text-xs mt-1 {{ $customVisible ? '' : 'hidden' }}" style="border: 1px solid var(--border); grid-column: 1 / -1;">
             @endif
             @endif
-            @if($showCost)
+        @endif
+    </div>
+    <div style="{{ $gridStyle }}" class="relative" data-line-main>
+        <input type="text" {{ $named ? 'name=description' : 'x-ref=' . $refPrefix . 'Desc' }}
+               maxlength="255" placeholder="{{ $isEdit ? ($line->catalogueItem?->description ?? 'Description') : 'Description (blank = the item\'s name)' }}" aria-label="Description"
+               title="What prints on the quote. Free text - the catalogue name is only the default."
+               @if($isEdit) value="{{ $val('description', $line->description) }}" @endif
+               class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $fieldStyle }}">
+        @if($pricesOn)
+            <input type="number" {{ $named ? 'name=quantity' : 'x-ref=' . $refPrefix . 'Qty' }}
+                   step="0.01" min="0.01" value="{{ $isEdit ? $qtyValue : 1 }}" aria-label="Qty" title="Qty" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
+                   @if($isEdit) required @endif
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
+            @if($canEditCost)
+            <input type="number" {{ $named ? 'name=unit_cost' : 'x-ref=' . $refPrefix . 'UnitCost' }}
+                   step="0.01" min="0" aria-label="Cost" title="Cost (R) — what this line cost the agency" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
+                   @if($isEdit) value="{{ $costValue }}" @endif placeholder="cost"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
+            @elseif($showCost)
             <span></span>
             @endif
+            @if($canPrice)
+            <input type="number" {{ $named ? 'name=unit_price' : 'x-ref=' . $refPrefix . 'UnitPrice' }}
+                   step="0.01" min="0" aria-label="Selling price" title="Selling price (R) — what the owner is charged. Leave blank to price it automatically from the cost." onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}"
+                   @if($isEdit) value="{{ $priceValue }}" @endif placeholder="auto"
+                   class="w-full rounded-md px-2 py-1.5 text-xs" style="{{ $amountStyle }}">
+            @else
+            <span></span>
+            @endif
+            <span></span>{{-- Total: shown on a saved line, nothing to type here --}}
         @endif
-        @if($isEdit)
+        @if($mode !== 'draft')
+            {{-- §17.43: the show screen's add / edit rows end in a footer row of text buttons (below), not an icon in the narrow last track --}}
             <span></span>
         @else
-            <button type="{{ $mode === 'form' ? 'submit' : 'button' }}"
-                    @if($mode === 'draft') @click="{{ $addLineCall }}" @endif
+            <button type="button"
+                    @click="{{ $addLineCall }}"
                     aria-label="Add line" title="Add line"
                     style="{{ \App\Support\RentalJobCardLineGrid::iconButtonStyle('var(--brand-icon, #0ea5e9)', true) }} justify-self:end;">+</button>
         @endif
     </div>
 @if($isEdit)
-    @if($canPrice)
-    {{-- §17.4.4 — markup on THIS line (a % or a set amount on top of the cost) and "Back to automatic"
-         (drops the typed price and this line's markup so the card / agency rules apply again). --}}
-    <div class="flex items-center gap-2 pt-2 flex-wrap text-xs" style="color: var(--text-muted);" data-line-markup>
-        <span>Markup on this line</span>
-        <select name="markup_type" aria-label="Markup type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-            <option value="">— none —</option>
-            <option value="percent" @selected($markupTypeValue === 'percent')>% of cost</option>
-            <option value="amount" @selected($markupTypeValue === 'amount')>R on the line</option>
-        </select>
-        <input type="number" name="markup_value" step="0.01" min="0" value="{{ $markupAmountValue }}" aria-label="Markup value" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 80px;">
-        <label class="inline-flex items-center gap-1"><input type="checkbox" name="back_to_auto" value="1"> Back to automatic</label>
-    </div>
-    @endif
-    <div class="flex items-center justify-end gap-2 pt-2 flex-wrap">
-        @if($oldTarget)
-            <span class="text-xs mr-auto" style="color: var(--ds-crimson);">
-                @foreach($errors->all() as $error){{ $loop->first ? '' : ' · ' }}{{ $error }}@endforeach
-            </span>
-        @endif
-        <button type="button" @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
-        <button type="submit" class="corex-btn-primary text-xs">Save</button>
+    @php $editLabour = $selectedType === 'labour'; @endphp
+    <div class="jc-line-foot cx-equal-btns" data-line-foot>
+        <span class="jc-foot-tools">
+            @include('corex.rental-job-cards._line-receipt-control', ['labour' => $editLabour])
+            @if($canPrice)
+            {{-- §17.4.4 / §17.43 - markup on THIS line (a % or a set amount on top of the cost) and "Back to automatic" (drops the typed price and this
+                 line's markup so the card / agency rules apply again) - one "Markup" link instead of a row under every line. Open when the line has one. --}}
+            <details class="jc-markup" data-line-markup @if($markupTypeValue !== '' || $errors->has('markup_value')) open @endif>
+                <summary>Markup</summary>
+                <span class="jc-markup-body">
+                    <select name="markup_type" aria-label="Markup type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                        <option value="">— none —</option>
+                        <option value="percent" @selected($markupTypeValue === 'percent')>% of cost</option>
+                        <option value="amount" @selected($markupTypeValue === 'amount')>R on the line</option>
+                    </select>
+                    <input type="number" name="markup_value" step="0.01" min="0" value="{{ $markupAmountValue }}" aria-label="Markup value" onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 80px;">
+                    <label class="inline-flex items-center gap-1"><input type="checkbox" name="back_to_auto" value="1"> Back to automatic</label>
+                </span>
+            </details>
+            @endif
+        </span>
+        <span class="jc-line-error" data-line-error role="alert" @if(!$oldTarget) hidden @endif>@if($oldTarget)@foreach($errors->all() as $error){{ $loop->first ? '' : ' · ' }}{{ $error }}@endforeach @endif</span>
+        <span class="jc-foot-buttons">
+            <button type="button" @click="editing = false" class="corex-btn-outline text-xs">Cancel</button>
+            <button type="submit" class="corex-btn-primary text-xs">Save</button>
+        </span>
     </div>
 </form>
 @elseif($mode === 'form')
+    <div class="jc-line-foot cx-equal-btns" data-line-foot>
+        <span class="jc-foot-tools">
+            @include('corex.rental-job-cards._line-receipt-control', ['labour' => false])
+            @if($canPrice)
+            {{-- AT-466 / §17.43 - markup on the NEW line (a % or a set amount on top of the cost): it works the selling out from the cost and does NOT
+                 make the selling "set by hand" (only a figure typed in the Selling box does). Left empty, the item's own catalogue markup (if any) applies.
+                 One "Markup" link instead of a row under every add row. --}}
+            <details class="jc-markup" data-line-markup>
+                <summary>Markup</summary>
+                <span class="jc-markup-body">
+                    <select name="markup_type" aria-label="Markup type" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                        <option value="">— item default —</option>
+                        <option value="percent">% of cost</option>
+                        <option value="amount">R on the line</option>
+                    </select>
+                    <input type="number" name="markup_value" step="0.01" min="0" aria-label="Markup value" data-markup-hint onfocus="this.dataset.fresh=1;this.select()" onmouseup="if(this.dataset.fresh){event.preventDefault();delete this.dataset.fresh}" placeholder="0" class="rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border); width: 110px; text-align:right;">
+                    <span>(leave the Selling box empty to price from cost)</span>
+                </span>
+            </details>
+            @endif
+        </span>
+        <span class="jc-line-error" data-line-error role="alert" hidden></span>
+        <span class="jc-foot-buttons">
+            <button type="submit" class="corex-btn-primary text-xs" data-add-line>Add new line</button>
+        </span>
+    </div>
 </form>
 @else
 </div>

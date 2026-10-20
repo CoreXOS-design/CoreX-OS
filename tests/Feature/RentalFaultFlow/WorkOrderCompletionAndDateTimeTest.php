@@ -89,7 +89,7 @@ final class WorkOrderCompletionAndDateTimeTest extends TestCase
 
     private function nextKey(string $html): string
     {
-        preg_match('/data-next-step data-next="([a-z_]+)"/', $html, $m);
+        preg_match('/data-next-step(?: data-land-on-next)? data-next="([a-z_]+)"/', $html, $m);
 
         return $m[1] ?? '';
     }

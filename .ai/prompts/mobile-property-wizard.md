@@ -5,7 +5,9 @@
 
 ---
 
-You are working on the **CoreX OS mobile app** (iOS/Android). The web team just shipped a new **Property Upload Wizard** on the Laravel server at `corex.hfcoastal.co.za` (dev server: `91.99.130.85:8084`). Your job is to mirror that wizard inside the mobile app so agents can list properties from their phone in the field. The server-side API is ready and live — do not rebuild it. You wire the mobile UI to it.
+You are working on the **CoreX OS mobile app** (iOS/Android). The web team just shipped a new **Property Upload Wizard** on the Laravel server at `corexos.co.za` (dev server: `91.99.130.85:8084`). Your job is to mirror that wizard inside the mobile app so agents can list properties from their phone in the field. The server-side API is ready and live — do not rebuild it. You wire the mobile UI to it.
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ## Context — who uses this
 

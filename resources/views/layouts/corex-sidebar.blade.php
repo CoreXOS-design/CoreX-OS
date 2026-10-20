@@ -249,7 +249,7 @@
         // list OR detail pages even though their nav links live in this same panel.
         // 'corex.rental-notices.*' had the identical gap (sidebar-active-item
         // audit, 2026-10-05) — its own link already lives in this panel too.
-        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.rentals.take-on-import.*')
+        || request()->routeIs('corex.leases.*', 'corex.rental-inspections.*', 'corex.rental-fault-types.*', 'corex.rental-fault-reports.*', 'corex.rental-work-orders.*', 'corex.rental-notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.notices.*', 'corex.rental-notice-templates.*', 'corex.rentals.take-on-import.*')
         // rentals-faults-work-orders.md section 20.8 - the Rentals menu's "Suppliers & contractors" link opens the SAME Supplier Directory screen
         // with ?nav=rentals so the Rentals panel stays open; the Deal Register Settings link (no ?nav) still opens its own panel below.
         || (request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals')
@@ -1270,7 +1270,7 @@
         {{-- Gate = ANY permission that puts an item in this panel (cross-cutting audit 2026-10-08): it used to be
              applications-only, so a user with leases / work orders / inspections access but no applications
              access never saw the Rentals menu at all. --}}
-        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
+        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
         @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"
@@ -1282,12 +1282,37 @@
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div class="corex-nav-panel {{ $activeGroup === 'rental-applications' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rental-applications') }">
+            <div class="corex-nav-panel {{ $activeGroup === 'rental-applications' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('rental-applications') }" data-manual-order>
                 <button type="button" @click="pop()" class="corex-nav-back">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Rentals</div>
+
+                {{-- .ai/specs/rental-command-centre.md — AT-441. FIRST item in this
+                     panel per Johan's approved design (2026-10-04): the one screen
+                     that shows every rental property's state across the whole
+                     module at a glance. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-command-centre')
+                @permission('rental_command_centre.view')
+                <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
+                @endpermission
+                @endfeature
+
+                {{-- AT-466 (Johan, 15 Oct 2026): "the rental menu is quite large, we need to group by actions. Command centre at the top." Each group is a .corex-nav-sublabel (the sidebar's own sub-heading, as in Command Center / Settings); its links carry data-nav-group so menu search also matches the group name; the panel is data-manual-order so the order below is kept (not alphabetised). A heading with no visible link under it hides itself (see the script at the end of this file). Routes, permissions, feature flags and favourites are unchanged. --}}
+                <div class="corex-nav-sublabel" data-nav-auto-group>Letting</div>
+                {{-- AT-401 — entry point into the SAME Properties screen as
+                     Real Estate → Properties, listing_type locked to rental
+                     server-side (PropertyController::index(), by route name).
+                     Reuses properties.view — no new permission, same screen.
+                     Stays highlighted on a property's show/edit/wizard screen
+                     opened from this list (session('corex.lens.properties') —
+                     see the Real Estate → Properties item above). --}}
+                @permission('properties.view')
+                @permission('access_properties')
+                <a href="{{ route('corex.rentals.properties.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                @endpermission
+                @endpermission
 
                 {{-- AT-402 — Johan: "3 menus... you have to sit and click
                      through it to find where your application is at."
@@ -1303,177 +1328,16 @@
                      scoping) that was never meant to merge into the shared
                      list — see RentalApplicationController::index()'s own
                      docblock on why. --}}
-                {{-- .ai/specs/rental-command-centre.md — AT-441. FIRST item in this
-                     panel per Johan's approved design (2026-10-04): the one screen
-                     that shows every rental property's state across the whole
-                     module at a glance. Same-day nav entry per non-negotiable #2. --}}
-                @feature('rental-command-centre')
-                @permission('rental_command_centre.view')
-                <a href="{{ route('corex.rentals.command-centre.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.command-centre.*') ? 'active' : '' }}">Command Centre</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rentals-reports.md — AT-443. Same-day nav entry per
-                     non-negotiable #2. --}}
-                @feature('rental-reports')
-                @permission('rental_reports.view')
-                <a href="{{ route('corex.rentals.reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.reports.*') ? 'active' : '' }}">Reports</a>
-                @endpermission
-                @endfeature
-
                 @feature('rental-applications')
                 @permission('rental_applications.view')
-                <a href="{{ route('corex.rental-applications.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Applications</a>
+                <a href="{{ route('corex.rental-applications.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.*') && !request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}" data-nav-alias="Rental Applications">Applications</a>
                 @endpermission
                 @endfeature
-
-                {{-- .ai/specs/leases.md — the spine of rentals: property + tenant(s) +
-                     terms, with in-inspection/out-inspection/work-orders all hanging
-                     off it. Same-day nav entry per non-negotiable #2. --}}
-                @feature('rental-leases')
-                @permission('leases.view')
-                <a href="{{ route('corex.leases.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
-                     migration of an existing rental book. Same-day nav entry per
-                     non-negotiable #2. --}}
-                @feature('rental-take-on-import')
-                @permission('rentals_take_on_import.view')
-                <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.take-on-import.*') ? 'active' : '' }}">Rental Take-On Import</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
-                     every inspection; recording actually happens on the property's
-                     Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
-                @feature('rental-inspections')
-                @permission('rental_inspections.view')
-                <a href="{{ route('corex.rental-inspections.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}">Rental Inspections</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "theres no
-                     seperate inventory left pane menu item. it lives on a property."
-                     Removed intentionally — reached only from a property's own
-                     Inventory link (properties/show.blade.php), never the sidebar. --}}
-
-                {{-- .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's fault
-                     catalogue. Same-day nav entry per non-negotiable #2. --}}
-                @feature('rental-faults')
-                @permission('rental_fault_types.view')
-                <a href="{{ route('corex.rental-fault-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}">Rental Fault Types</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
-                     record (settled 2026-09-24/25), not a tab within work orders. Same-day
-                     nav entry per non-negotiable #2. --}}
-                @feature('rental-faults')
-                @permission('rental_fault_reports.view')
-                <a href="{{ route('corex.rental-fault-reports.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}">Rental Fault Reports</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work
-                     orders themselves. Same-day nav entry per non-negotiable #2. --}}
-                @feature('rental-work-orders')
-                @permission('rental_work_orders.view')
-                <a href="{{ route('corex.rental-work-orders.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
-                @endpermission
-                @endfeature
-
-                {{-- rentals-faults-work-orders.md section 20.8 - the Supplier Directory, reachable from Rentals (Johan, 13 Oct 2026). Same screen and the
-                     same permission as the Deal Register Settings link; ?nav=rentals keeps this panel open. --}}
-                @permission('deals_v2.manage_suppliers')
-                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
-                <a href="{{ route('deals-v2.suppliers.index', ['nav' => 'rentals']) }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals' ? 'active' : '' }}">Suppliers &amp; contractors</a>
-                @endif
-                @endpermission
-
-                {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
-                     nav entry per non-negotiable #2. --}}
-                @feature('rental-notices')
-                @permission('rental_notices.review')
-                <a href="{{ route('corex.lease-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.lease-notices.*') ? 'active' : '' }}">Notices Received</a>
-                @endpermission
-                @permission('rental_breaches.view')
-                <a href="{{ route('corex.breaches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.breaches.*') ? 'active' : '' }}">Breach Register</a>
-                @endpermission
-                @permission('rental_notices.create')
-                <a href="{{ route('corex.rental-notices.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-notices.*') ? 'active' : '' }}">Rental Notices</a>
-                @endpermission
-                @endfeature
-
-                {{-- .ai/specs/rental-work-orders.md §14 (AT-442) — the internal
-                     counterpart to an outside-supplier work order. Same-day nav
-                     entry per non-negotiable #2. --}}
-                @feature('rental-job-cards')
-                @permission('rental_job_cards.view')
-                <a href="{{ route('corex.rental-job-cards.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-job-cards.*') ? 'active' : '' }}">Job Cards</a>
-                @endpermission
-                @endfeature
-
-                {{-- Agency VAT set-up (2026-10-05) — Johan: surface the catalogue
-                     from the Rentals panel too, not just Settings, since it sits
-                     directly under Job Cards in the agent's own workflow. --}}
-                @permission('rental_catalogue.view')
-                @feature('rental-catalogue')
-                <a href="{{ route('corex.rental-catalogue-items.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
-                @endfeature
-                {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so it sits right next to it. --}}
-                @feature('rental-crews')
-                <a href="{{ route('corex.rental-crews.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}">Rental Crews</a>
-                @endfeature
-                @endpermission
 
                 @feature('rental-applications')
-                @if($user->isRentalApplicationAuthoriser())
-                <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}">Rental Application Authorisation</a>
+                @if($user->seesRentalAuthorisationQueue())
+                <a href="{{ route('corex.rental-applications.authorisation.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}" data-nav-alias="Rental Application Authorisation">Application Authorisation</a>
                 @endif
-                @endfeature
-
-                {{-- AT-403 — Johan: "rental menu - wheres my rental contacts?"
-                     Entry point into the SAME Contacts screen as the main
-                     Contacts nav item, locked to contacts holding a rental-
-                     relevant type (tenant/prospective tenant/landlord) server-
-                     side (ContactController::index(), by route name) —
-                     INCLUSIVE, never hides a contact from the sale-side
-                     screen. Reuses access_contacts — no new permission, same
-                     screen. Stays highlighted on a contact's show/edit screen
-                     opened from this list (session('corex.lens.contacts') —
-                     same pattern as Properties/Core Matches/Pipeline above). --}}
-                @permission('access_contacts')
-                <a href="{{ route('corex.rentals.contacts.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.contacts.index') || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false)) ? 'active' : '' }}">Contacts</a>
-                @endpermission
-
-                {{-- AT-401 — entry point into the SAME Properties screen as
-                     Real Estate → Properties, listing_type locked to rental
-                     server-side (PropertyController::index(), by route name).
-                     Reuses properties.view — no new permission, same screen.
-                     Stays highlighted on a property's show/edit/wizard screen
-                     opened from this list (session('corex.lens.properties') —
-                     see the Real Estate → Properties item above). --}}
-                @permission('properties.view')
-                @permission('access_properties')
-                <a href="{{ route('corex.rentals.properties.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.properties.index') || (request()->routeIs('corex.properties.*') && session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
-                @endpermission
-                @endpermission
-
-                {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
-                     Command Center → Buyer Pipeline, lead_type locked to
-                     rental server-side (BuyerPipelineController::index(), by
-                     route name). New permission buyer_pipeline.view gates
-                     ONLY this entry point — the sales-side board keeps its
-                     current (no permission key) access, unchanged. --}}
-                {{-- Stays highlighted on a buyer card opened from this board
-                     (session('corex.lens.pipeline') — see the Buyer Pipeline
-                     item above). --}}
-                @feature('buyer-pipeline')
-                @permission('buyer_pipeline.view')
-                <a href="{{ route('corex.rentals.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Rental Pipeline</a>
-                @endpermission
                 @endfeature
 
                 {{-- AT-401 — entry point into the SAME Core Matches screen as
@@ -1489,8 +1353,151 @@
                 {{-- Stays highlighted on a match's Edit/Results screen opened from
                      this list (session('corex.lens.core_matches') — see the Real
                      Estate → Core Matches item above). --}}
-                <a href="{{ route('corex.rentals.core-matches.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.core-matches.*') || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false)) ? 'active' : '' }}">Core Matches</a>
+                <a href="{{ route('corex.rentals.core-matches.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.core-matches.*') || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false)) ? 'active' : '' }}">Core Matches</a>
                 @endif
+                @endpermission
+                @endfeature
+
+                {{-- AT-403 — Johan: "rental menu - wheres my rental contacts?"
+                     Entry point into the SAME Contacts screen as the main
+                     Contacts nav item, locked to contacts holding a rental-
+                     relevant type (tenant/prospective tenant/landlord) server-
+                     side (ContactController::index(), by route name) —
+                     INCLUSIVE, never hides a contact from the sale-side
+                     screen. Reuses access_contacts — no new permission, same
+                     screen. Stays highlighted on a contact's show/edit screen
+                     opened from this list (session('corex.lens.contacts') —
+                     same pattern as Properties/Core Matches/Pipeline above). --}}
+                @permission('access_contacts')
+                <a href="{{ route('corex.rentals.contacts.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.contacts.index') || (request()->routeIs('corex.contacts.show') && session('corex.lens.contacts', false)) ? 'active' : '' }}">Contacts</a>
+                @endpermission
+
+                {{-- AT-401 — entry point into the SAME Buyer Pipeline board as
+                     Command Center → Buyer Pipeline, lead_type locked to
+                     rental server-side (BuyerPipelineController::index(), by
+                     route name). New permission buyer_pipeline.view gates
+                     ONLY this entry point — the sales-side board keeps its
+                     current (no permission key) access, unchanged. --}}
+                {{-- Stays highlighted on a buyer card opened from this board
+                     (session('corex.lens.pipeline') — see the Buyer Pipeline
+                     item above). --}}
+                @feature('buyer-pipeline')
+                @permission('buyer_pipeline.view')
+                <a href="{{ route('corex.rentals.pipeline.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.pipeline.index') || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Rental Pipeline</a>
+                @endpermission
+                @endfeature
+
+                <div class="corex-nav-sublabel" data-nav-auto-group>Leases</div>
+                {{-- .ai/specs/leases.md — the spine of rentals: property + tenant(s) +
+                     terms, with in-inspection/out-inspection/work-orders all hanging
+                     off it. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-leases')
+                @permission('leases.view')
+                <a href="{{ route('corex.leases.index') }}" data-nav-group="Leases" class="corex-nav-subitem {{ request()->routeIs('corex.leases.*') ? 'active' : '' }}">Leases</a>
+                @endpermission
+                @endfeature
+
+                {{-- .ai/specs/rental-inspections.md §5 — the tracked/searchable list of
+                     every inspection; recording actually happens on the property's
+                     Rental Images tab. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-inspections')
+                @permission('rental_inspections.view')
+                <a href="{{ route('corex.rental-inspections.index') }}" data-nav-group="Leases" class="corex-nav-subitem {{ request()->routeIs('corex.rental-inspections.*') ? 'active' : '' }}" data-nav-alias="Rental Inspections">Inspections</a>
+                @endpermission
+                @endfeature
+
+                {{-- .ai/specs/rental-inventory.md §0b — Johan, 2026-09-22: "theres no
+                     seperate inventory left pane menu item. it lives on a property."
+                     Removed intentionally — reached only from a property's own
+                     Inventory link (properties/show.blade.php), never the sidebar. --}}
+
+                {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
+                     nav entry per non-negotiable #2. --}}
+                {{-- AT-466 (Johan, 16 Oct 2026): Breach Register, Notices Received and Rental Notices (and the notice templates) are ONE menu item, "Notices",
+                     that opens a screen with tabs - Breaches | Notices received | Notices sent | Templates (App\Support\Rentals\NoticesTabs). Each tab keeps its
+                     own route and permission, so the item shows for anyone who may open at least one tab. The old names stay findable: data-nav-extra gives
+                     the menu search one entry per old name, pointing at its tab. --}}
+                @feature('rental-notices')
+                @if($user && $user->hasAnyPermission(['rental_breaches.view', 'rental_notices.review', 'rental_notices.view', 'rental_notices.create', 'rental_notice_templates.manage_settings']))
+                @php
+                    $_noticesExtra = collect(\App\Support\Rentals\NoticesTabs::forUser($user))->map(fn ($t) => ['l' => $t['old'], 'h' => $t['url']])->values()->all();
+                @endphp
+                <a href="{{ route('corex.notices.index') }}" data-nav-group="Leases" data-nav-extra="{{ json_encode($_noticesExtra) }}" class="corex-nav-subitem {{ request()->routeIs('corex.notices.*', 'corex.breaches.*', 'corex.lease-notices.*', 'corex.rental-notices.*', 'corex.rental-notice-templates.*') ? 'active' : '' }}">Notices</a>
+                @endif
+                @endfeature
+
+                <div class="corex-nav-sublabel" data-nav-auto-group>Maintenance</div>
+                {{-- .ai/specs/rental-work-orders.md §3a/§6a — a fault report is its own
+                     record (settled 2026-09-24/25), not a tab within work orders. Same-day
+                     nav entry per non-negotiable #2. --}}
+                @feature('rental-faults')
+                @permission('rental_fault_reports.view')
+                <a href="{{ route('corex.rental-fault-reports.index') }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-reports.*') ? 'active' : '' }}" data-nav-alias="Rental Fault Reports">Fault Reports</a>
+                @endpermission
+                @endfeature
+
+                {{-- .ai/specs/rental-work-orders.md §14 (AT-442) — the internal
+                     counterpart to an outside-supplier work order. Same-day nav
+                     entry per non-negotiable #2. --}}
+                @feature('rental-job-cards')
+                @permission('rental_job_cards.view')
+                <a href="{{ route('corex.rental-job-cards.index') }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('corex.rental-job-cards.*') ? 'active' : '' }}">Job Cards</a>
+                @endpermission
+                @endfeature
+
+                @permission('rental_catalogue.view')
+                {{-- 2026-10-05 — crews are picked on job cards the same way the catalogue is, so they sit together. --}}
+                @feature('rental-crews')
+                <a href="{{ route('corex.rental-crews.index') }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('corex.rental-crews.*') ? 'active' : '' }}" data-nav-alias="Rental Crews">Crews</a>
+                @endfeature
+                {{-- Agency VAT set-up (2026-10-05) — Johan: surface the catalogue
+                     from the Rentals panel too, not just Settings, since it sits
+                     directly under Job Cards in the agent's own workflow. --}}
+                @feature('rental-catalogue')
+                <a href="{{ route('corex.rental-catalogue-items.index') }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('corex.rental-catalogue-items.*') ? 'active' : '' }}">Parts &amp; Labour Catalogue</a>
+                @endfeature
+                @endpermission
+
+                {{-- .ai/specs/rental-work-orders.md §3/§6, Stage 4 — the work
+                     orders themselves. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-work-orders')
+                @permission('rental_work_orders.view')
+                <a href="{{ route('corex.rental-work-orders.index') }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('corex.rental-work-orders.*') ? 'active' : '' }}">Rental Work Orders</a>
+                @endpermission
+                @endfeature
+
+                {{-- rentals-faults-work-orders.md section 20.8 - the Supplier Directory, reachable from Rentals (Johan, 13 Oct 2026). Same screen and the
+                     same permission as the Deal Register Settings link; ?nav=rentals keeps this panel open. --}}
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index', ['nav' => 'rentals']) }}" data-nav-group="Maintenance" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') === 'rentals' ? 'active' : '' }}">Suppliers &amp; contractors</a>
+                @endif
+                @endpermission
+
+                <div class="corex-nav-sublabel" data-nav-auto-group>Set-up</div>
+                {{-- .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's fault
+                     catalogue. Same-day nav entry per non-negotiable #2. --}}
+                @feature('rental-faults')
+                @permission('rental_fault_types.view')
+                <a href="{{ route('corex.rental-fault-types.index') }}" data-nav-group="Set-up" class="corex-nav-subitem {{ request()->routeIs('corex.rental-fault-types.*') ? 'active' : '' }}" data-nav-alias="Rental Fault Types">Fault Types</a>
+                @endpermission
+                @endfeature
+
+                {{-- .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
+                     migration of an existing rental book. Same-day nav entry per
+                     non-negotiable #2. --}}
+                @feature('rental-take-on-import')
+                @permission('rentals_take_on_import.view')
+                <a href="{{ route('corex.rentals.take-on-import.index') }}" data-nav-group="Set-up" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.take-on-import.*') ? 'active' : '' }}">Rental Take-On Import</a>
+                @endpermission
+                @endfeature
+
+                <div class="corex-nav-sublabel" data-nav-auto-group>Reports</div>
+                {{-- .ai/specs/rentals-reports.md — AT-443. Same-day nav entry per
+                     non-negotiable #2. --}}
+                @feature('rental-reports')
+                @permission('rental_reports.view')
+                <a href="{{ route('corex.rentals.reports.index') }}" data-nav-group="Reports" class="corex-nav-subitem {{ request()->routeIs('corex.rentals.reports.*') ? 'active' : '' }}">Reports</a>
                 @endpermission
                 @endfeature
             </div>
@@ -3789,6 +3796,8 @@ window.__demoNavHidden = @json($_demoHiddenNav);
 
         // Drop the stale search cache so search mirrors the curated nav.
         if (window.CorexNavSearch && window.CorexNavSearch.refresh) window.CorexNavSearch.refresh();
+        // AT-466 - a sub-heading whose links were all curated away goes too.
+        if (window.CorexNavHeadings && window.CorexNavHeadings.tidy) window.CorexNavHeadings.tidy();
     }
 
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
@@ -3840,6 +3849,25 @@ window.__demoNavHidden = @json($_demoHiddenNav);
     }
 })();
 
+// AT-466 - a sub-heading (.corex-nav-sublabel[data-nav-auto-group]) with no link under it hides itself: permissions and feature flags
+// remove links server-side and the demo-sidebar curation removes them client-side, so the heading cannot be written unconditionally.
+// Runs after the curation script above (same DOMContentLoaded hook, registered later) and again on demand via window.CorexNavHeadings.
+window.CorexNavHeadings = (function () {
+    function tidy() {
+        document.querySelectorAll('.corex-sidebar .corex-nav-sublabel[data-nav-auto-group]').forEach(function (h) {
+            let n = h.nextElementSibling, has = false;
+            while (n && !(n.classList && n.classList.contains('corex-nav-sublabel'))) {
+                if (n.matches && n.matches('a.corex-nav-subitem')) { has = true; break; }
+                n = n.nextElementSibling;
+            }
+            h.hidden = !has;
+            h.style.display = has ? '' : 'none';
+        });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', tidy); else tidy();
+    return { tidy: tidy };
+})();
+
 // ── Sidebar search index ──────────────────────────────────────────────
 // Builds a searchable index straight from the rendered nav so it always
 // mirrors exactly what THIS user can see (permissions, feature flags, route
@@ -3863,13 +3891,15 @@ window.CorexNavSearch = (function () {
         if (!root) return [];
         const items = [];
         const seen = new Set();
-        const add = (label, href, parent, group) => {
+        const add = (label, href, parent, group, alias, sub) => {
             label = (label || '').trim();
             if (!label) return;
             const key = (group ? 'g:' + group : 'h:' + (href || '')) + '|' + label + '|' + (parent || '');
             if (seen.has(key)) return;
             seen.add(key);
-            items.push({ label: label, href: href || null, parent: parent || '', group: group || null });
+            // alias = the link's data-nav-alias (a former/alternative name, e.g. "Rental Crews" for
+            // "Crews") — search-only, never displayed.
+            items.push({ label: label, href: href || null, parent: parent || '', group: group || null, alias: (alias || '').trim(), sub: (sub || '').trim() });
         };
 
         // Top-level page links (My Portal, My Earnings, Training, …)
@@ -3893,7 +3923,15 @@ window.CorexNavSearch = (function () {
             const parent = titleEl ? firstText(titleEl) : '';
             panel.querySelectorAll('a.corex-nav-subitem').forEach(function (a) {
                 if (a.closest('.corex-nav-panel') !== panel) return;
-                add(firstText(a), a.getAttribute('href'), parent, null);
+                add(firstText(a), a.getAttribute('href'), parent, null, a.getAttribute('data-nav-alias'), a.getAttribute('data-nav-group'));
+                // AT-466 - extra search entries for a merged item (data-nav-extra = [{l: old name, h: its tab's url}]): "breach register" still
+                // finds the Breaches tab of "Notices". Search-only; the Favourites picker lists them as pages too (they are real pages).
+                const extra = a.getAttribute('data-nav-extra');
+                if (extra) {
+                    try {
+                        JSON.parse(extra).forEach(function (e) { if (e && e.l && e.h) { add(e.l, e.h, parent, null, '', (a.getAttribute('data-nav-group') || '') + ' › ' + firstText(a)); } });
+                    } catch (err) { /* a malformed attribute only costs the extra entries */ }
+                }
             });
         });
 
@@ -3908,10 +3946,15 @@ window.CorexNavSearch = (function () {
         for (const it of cache) {
             const label = it.label.toLowerCase();
             const parent = (it.parent || '').toLowerCase();
+            const alias = (it.alias || '').toLowerCase();
+            // AT-466 - the sub-group a link sits under in its panel (data-nav-group, e.g. "Maintenance"): searching it lists its links.
+            const sub = (it.sub || '').toLowerCase();
             let score = -1;
             if (label === q) score = 0;
             else if (label.startsWith(q)) score = 1;
             else if (label.indexOf(q) >= 0) score = 2;
+            else if (alias && alias.indexOf(q) >= 0) score = 2.5;
+            else if (sub && sub.indexOf(q) >= 0) score = 2.7;
             else if (parent.startsWith(q)) score = 3;
             else if (parent.indexOf(q) >= 0) score = 4;
             if (score >= 0) scored.push({ it: it, score: score });
@@ -3921,7 +3964,7 @@ window.CorexNavSearch = (function () {
             return {
                 label: s.it.label,
                 href: s.it.href,
-                parent: s.it.parent,
+                parent: s.it.parent + (s.it.sub ? ' · ' + s.it.sub : ''),
                 group: s.it.group,
                 key: (s.it.href || s.it.group || s.it.label) + '#' + i,
             };

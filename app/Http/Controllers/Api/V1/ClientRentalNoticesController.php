@@ -59,17 +59,12 @@ class ClientRentalNoticesController extends Controller
             return $contact;
         }
 
-        $data = $request->validate([
+        // audit 2026-10-19 (A28): the date rules are the ONE shared set (LeaseNoticeService::dateRules) - portal, agent and mobile API all use it
+        $data = $request->validate(LeaseNoticeService::dateRules() + [
             'lease_id' => ['required', 'integer'],
-            'notice_date' => ['required', 'date', 'before_or_equal:today'],
-            'intended_end_date' => ['required', 'date', 'after:notice_date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
             'reason' => ['nullable', 'string', 'max:2000'],
             'attachment' => ['nullable', 'file', 'max:' . LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . LeaseNoticeService::ATTACHMENT_MIMES],
-        ], [
-            'notice_date.before_or_equal' => 'The date notice was given cannot be in the future.',
-            'intended_end_date.after' => 'The move-out date must be after the date you gave notice.',
-            'intended_end_date.before_or_equal' => 'The move-out date is too far away.',
-        ]);
+        ], LeaseNoticeService::dateMessages());
 
         try {
             $this->notices->give($role, $contact, $data, $request->file('attachment'));

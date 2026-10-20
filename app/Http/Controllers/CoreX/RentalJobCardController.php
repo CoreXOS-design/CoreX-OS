@@ -178,11 +178,13 @@ class RentalJobCardController extends Controller
     {
         $validated = $request->validate([
             'property_id' => ['required_without_all:fault_report_id,rental_work_order_id', 'nullable', 'exists:properties,id'],
-            'lease_id' => ['nullable', 'exists:leases,id'],
-            'rental_work_order_id' => ['nullable', 'exists:rental_work_orders,id'],
-            'fault_report_id' => ['nullable', 'exists:rental_fault_reports,id'],
+            'lease_id' => ['nullable', \App\Rules\FoundInAgency::in('leases')],
+            'rental_work_order_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_work_orders')],
+            'fault_report_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_fault_reports')],
             'title' => ['required', 'string', 'max:191'],
-            'access_notes' => ['nullable', 'string'],
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_notes' => ['nullable', 'string', 'max:2000'],
             'tasks' => ['nullable', 'array'],
             'tasks.*.description' => ['nullable', 'string', 'max:500'],
             'tasks.*.lines' => ['nullable', 'array'],
@@ -260,6 +262,7 @@ class RentalJobCardController extends Controller
             // reached through the linked work order (a job card has no
             // inspection FK of its own — rentals-rebuild.md §15.3).
             'workOrder.photos', 'workOrder.reportedInspectionObservation.inspection',
+            'rentalFaultReport.photos', // AT-460 - the fault's photos now sit in the Photos block, not in a Source box
             'updates.createdByUser', 'createdByUser',
             'workerSignedOffByUser', 'agentSignedOffByUser', 'tenantConfirmedByUser',
         ]);
@@ -289,12 +292,38 @@ class RentalJobCardController extends Controller
         $pricingService = app(\App\Services\Rentals\RentalPricingService::class);
         $awaitingLines = $rentalJobCard->lines->where('office_status', RentalJobCardLine::OFFICE_AWAITING)->values();
         $awaitingPhotos = $awaitingLines->isEmpty() ? collect() : \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
-            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->orderBy('id')->get()->groupBy('rental_job_card_line_id');
+            ->whereIn('rental_job_card_line_id', $awaitingLines->pluck('id'))->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->orderBy('id')->get()->groupBy('rental_job_card_line_id');
+
+        // J3/J5: the ONE answer to "which stage is this card in and what can be pressed now".
+        $stage = app(\App\Services\Rentals\RentalJobCardStageService::class)->forCard($rentalJobCard);
+        $crewStatus = app(\App\Services\Rentals\RentalContractorJobService::class)->crewStatusFor($rentalJobCard);
+        $crewLinksEnabled = \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id);
+        // AT-460 - the stepper, the "Returned" / "Next" bar and the money card's "Authorised" fact: a read of the state above, writes nothing.
+        $screen = app(\App\Services\Rentals\RentalJobCardScreen::class)->build($rentalJobCard, $stage, [
+            'can' => [
+                'send_quote' => $user->hasPermission('rental_job_cards.send_quote'),
+                'share' => $user->hasPermission('rental_job_cards.share'),
+                'create' => $user->hasPermission('rental_job_cards.create'),
+                'sign_off' => $user->hasPermission('rental_job_cards.sign_off'),
+                'record_approval' => $user->hasPermission('rental_work_orders.record_approval'),
+            ],
+            'awaitingLines' => $awaitingLines,
+            'quoteChanged' => $rentalJobCard->quoteChangedSinceSent($currentQuote) && ! $rentalJobCard->workOrder?->hasApprovedBaseline(),
+            'quoteRevisions' => $quoteRevisions,
+            'quoteFormOn' => $user->hasPermission('rental_job_cards.send_quote') && $rentalJobCard->property?->landlordContact() !== null && ! $rentalJobCard->workOrder?->hasApprovedBaseline(),
+            'crewSent' => (bool) $crewStatus['sent'],
+            'crewLinksEnabled' => $crewLinksEnabled,
+        ]);
 
         return view('corex.rental-job-cards.show', [
             'jobCard' => $rentalJobCard,
+            'screen' => $screen,
+            'crewStatus' => $crewStatus,
+            'ownerSettings' => $rentalJobCard->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($rentalJobCard->property) : null,
+            // AT-459 - who lets the worker in, as the work order holds it (the card's own copy, then the property's note, when it has none)
+            'access' => \App\Services\Rentals\JobSiteInfo::accessContact($rentalJobCard->workOrder, $rentalJobCard),
             'crewLink' => $crewLink,
-            'crewLinksEnabled' => \App\Models\RentalPortalSetting::crewLinksEnabledFor($rentalJobCard->agency_id),
+            'crewLinksEnabled' => $crewLinksEnabled,
             'signedCopies' => $rentalJobCard->signedCopies()->with('uploadedBy')->get(),
             'quoteRevisions' => $quoteRevisions,
             'currentQuote' => $currentQuote,
@@ -310,13 +339,16 @@ class RentalJobCardController extends Controller
             'margin' => $canViewCosts ? $pricingService->marginFor($rentalJobCard) : null,
             'awaitingLines' => $awaitingLines,
             'awaitingPhotos' => $awaitingPhotos,
+            // AT-459 - the crew's receipt for each part line (the newest one), office-only: shown on the awaiting block and on the accepted line.
+            'receipts' => \App\Models\RentalWorkOrderPhoto::withoutGlobalScopes()
+                ->where('rental_job_card_id', $rentalJobCard->id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)
+                ->orderBy('id')->get()->keyBy('rental_job_card_line_id'),
             'openPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN),
             'submittedPriceRequest' => $rentalJobCard->priceRequests->firstWhere('status', \App\Models\RentalJobCardPriceRequest::STATUS_SUBMITTED),
             // AT-442 fix #6 — same figure RentalWorkOrderController::show() already surfaces.
             // section 22.6: the owner's repair limit, read ONLY through the owner-settings resolver (null = the owner must approve)
             'noApprovalThreshold' => $rentalJobCard->property ? \App\Services\Rentals\RentalOwnerFaultSettings::for($rentalJobCard->property)->repairLimit() : null,
-            // J3/J5: the ONE answer to "which stage is this card in and what can be pressed now".
-            'stage' => app(\App\Services\Rentals\RentalJobCardStageService::class)->forCard($rentalJobCard),
+            'stage' => $stage,
             'crews' => RentalCrew::query()->active()->orderBy('name')->get(),
             'catalogueItems' => RentalCatalogueItem::query()->active()->with(['catalogueItemType', 'catalogueUnit'])->orderBy('sort_order')->get(),
             'catalogueItemTypes' => RentalCatalogueItemType::active()->where('agency_id', $rentalJobCard->agency_id)->orderBy('sort_order')->get(),
@@ -342,10 +374,14 @@ class RentalJobCardController extends Controller
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:191'],
-            'access_notes' => ['nullable', 'string'],
+            // AT-459 - the access contact lives on the work order (the card reads it from there); JobSiteInfo decides where it is written.
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_notes' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $rentalJobCard->update($validated);
+        $rentalJobCard->update(['title' => $validated['title']]);
+        \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalJobCard->workOrder()->withoutGlobalScopes()->first(), $rentalJobCard, $validated);
 
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Job card updated.');
     }
@@ -408,7 +444,7 @@ class RentalJobCardController extends Controller
     /** The timezone this card's agency works in (same source as the outreach window; one place to change when a per-agency column lands). */
     private function agencyTimezone(?\App\Models\Agency $agency): string
     {
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 
     /**
@@ -512,7 +548,7 @@ class RentalJobCardController extends Controller
         }
 
         try {
-            $service->toggleTask($rentalJobCard, $task, $request->user());
+            $service->toggleTask($rentalJobCard, $task, $request->user(), $request->has('done') ? $request->boolean('done') : null);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_job_card' => $e->getMessage()]);
         }
@@ -568,17 +604,17 @@ class RentalJobCardController extends Controller
         return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Task restored.')->with('jc_focus_task', $task);
     }
 
-    public function storeLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse
+    public function storeLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         $validated = $request->validate([
             'rental_job_card_task_id' => ['nullable', Rule::exists('rental_job_card_tasks', 'id')->where('rental_job_card_id', $rentalJobCard->id)],
-            'rental_catalogue_item_id' => ['nullable', 'exists:rental_catalogue_items,id'],
+            'rental_catalogue_item_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_catalogue_items')],
             'type' => ['nullable', 'in:labour,part'],
             'description' => ['nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
@@ -589,26 +625,42 @@ class RentalJobCardController extends Controller
             'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999', 'required_with:markup_type'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ]);
+            // §17.43 (audit C-E4) - the retry key of this form: a double tap or a retried request finds the line it already made
+            'client_key' => ['nullable', 'string', 'regex:/^[A-Za-z0-9-]{8,64}$/'],
+        ] + $this->receiptRules(), $this->receiptMessages() + ['client_key.regex' => 'That did not save - please try again.']);
+        unset($validated['receipt_camera'], $validated['receipt_file']);
         $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         if (empty($validated['rental_catalogue_item_id']) && empty($validated['description'])) {
-            return back()->withErrors(['rental_job_card' => 'Pick a catalogue item or type a description.']);
+            return $this->lineProblem($request, 'Pick a catalogue item or type a description.');
         }
 
         $task = !empty($validated['rental_job_card_task_id']) ? RentalJobCardTask::find($validated['rental_job_card_task_id']) : null;
-        try {
+        $key = $validated['client_key'] ?? null;
+        $create = function () use ($service, $rentalJobCard, $validated, $request, $task, $key) {
+            // a retried tap: the first try got through and only the answer was lost - answer with that line, add nothing, attach nothing twice
+            if ($existing = $service->lineForClientKey($rentalJobCard, $key)) {
+                return $existing;
+            }
             $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
+            // §17.43 - the same receipt component as the crew's: stored against the new line (a part only)
+            $service->attachLineReceipt($rentalJobCard, $line, $this->receiptFrom($request), $request->user());
+
+            return $line;
+        };
+        try {
+            // two taps at once with the same key queue here, so the second finds the first one's line
+            $line = $key ? \Illuminate\Support\Facades\Cache::lock("office-line-key:{$rentalJobCard->id}:{$key}:lock", 15)->block(10, $create) : $create();
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
         // jc_focus_line — the show screen scrolls the changed line into view
         // after restoring the panel's scroll position (see show.blade.php).
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line added.')->with('jc_focus_line', $line->id);
+        return $this->lineDone($request, $rentalJobCard, 'Line added.', $line->id);
     }
 
-    public function updateLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
+    public function updateLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
@@ -616,8 +668,8 @@ class RentalJobCardController extends Controller
         // cancelled is a dead record). The edit control isn't rendered there
         // either; this is the server-side guard behind the hidden link
         // (RentalJobCardService enforces the same rule a second time).
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         // quantity is `sometimes` — an agency with prices off renders no
@@ -625,7 +677,9 @@ class RentalJobCardController extends Controller
         $validated = $request->validate([
             'rental_catalogue_item_id' => ['nullable', Rule::exists('rental_catalogue_items', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'type' => ['nullable', 'in:labour,part'],
-            'description' => ['required', 'string', 'max:255'],
+            // AT-466 - the agent's own wording. With a catalogue item picked a blank keeps what the line already says (the item's name is only a
+            // default); a free-text line still needs its words.
+            'description' => ['required_without:rental_catalogue_item_id', 'nullable', 'string', 'max:255'],
             'unit' => ['nullable', 'string', 'max:30'],
             'quantity' => ['sometimes', 'required', 'numeric', 'min:0.01'],
             'unit_price' => ['nullable', 'numeric', 'min:0'],
@@ -635,50 +689,107 @@ class RentalJobCardController extends Controller
             'back_to_auto' => ['nullable', 'boolean'],
             'rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $rentalJobCard->agency_id)],
             'custom_vat_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
-        ]);
+        ] + $this->receiptRules(), $this->receiptMessages());
+        unset($validated['receipt_camera'], $validated['receipt_file']);
         $validated = $this->withoutPricingTheUserMayNotSet($validated, $request->user());
 
         try {
             $service->updateLine($rentalJobCard, $line, $validated, $request->user());
+            // a new receipt replaces the one shown (only if the line is, after the edit, a part)
+            $service->attachLineReceipt($rentalJobCard, $line->refresh(), $this->receiptFrom($request), $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line updated.')->with('jc_focus_line', $line->id);
+        return $this->lineDone($request, $rentalJobCard, 'Line updated.', $line->id);
     }
 
-    public function destroyLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse
+    public function destroyLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, RentalJobCardLine $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         try {
             $service->archiveLine($rentalJobCard, $line, $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line archived.');
+        // §17.43 - the no-reload screen offers Undo (restoreLine below); the id and wording are returned for it
+        return $this->lineDone($request, $rentalJobCard, 'Line archived.', null, ['removed_line_id' => $line->id, 'description' => $line->description], false);
     }
 
-    public function restoreLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, int $line): RedirectResponse
+    public function restoreLine(Request $request, RentalJobCardService $service, RentalJobCard $rentalJobCard, int $line): RedirectResponse|JsonResponse
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        if ($refusal = $this->refuseIfClosed($rentalJobCard)) {
-            return $refusal;
+        if ($rentalJobCard->isClosed()) {
+            return $this->lineProblem($request, 'This job card is closed — its lines and tasks can no longer be changed.');
         }
 
         try {
             $service->restoreLine($rentalJobCard, $line, $request->user());
         } catch (\LogicException $e) {
-            return back()->withErrors(['rental_job_card' => $e->getMessage()]);
+            return $this->lineProblem($request, $e->getMessage());
         }
 
-        return redirect()->route('corex.rental-job-cards.show', $rentalJobCard)->with('success', 'Line restored.')->with('jc_focus_line', $line);
+        return $this->lineDone($request, $rentalJobCard, 'Line restored.', $line);
+    }
+
+    // ───────────── §17.43 — the line actions answer a fetch with JSON and a plain form post with the redirect they always did ─────────────
+
+    /** @return array<string, array<int, string>> */
+    private function receiptRules(): array
+    {
+        return [
+            // AT-459 - the receipt for a part: camera or the phone's / computer's files, one or the other
+            'receipt_camera' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+            'receipt_file' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
+        ];
+    }
+
+    /** @return array<string, string> */
+    private function receiptMessages(): array
+    {
+        return [
+            'receipt_camera.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_file.mimes' => 'The receipt must be a JPG, PNG, WEBP or HEIC photo.',
+            'receipt_camera.max' => 'The receipt photo is too large — it can be up to 50 MB.',
+            'receipt_file.max' => 'The receipt photo is too large — it can be up to 50 MB.',
+        ];
+    }
+
+    private function receiptFrom(Request $request): ?\Illuminate\Http\UploadedFile
+    {
+        return $request->file('receipt_camera') ?? $request->file('receipt_file');
+    }
+
+    private function wantsLineJson(Request $request): bool
+    {
+        return $request->expectsJson() || $request->ajax();
+    }
+
+    private function lineProblem(Request $request, string $message): RedirectResponse|JsonResponse
+    {
+        if ($this->wantsLineJson($request)) {
+            return response()->json(['ok' => false, 'message' => $message], 422);
+        }
+
+        return back()->withErrors(['rental_job_card' => $message]);
+    }
+
+    /** @param array<string, mixed> $extra */
+    private function lineDone(Request $request, RentalJobCard $card, string $message, ?int $focusLineId, array $extra = [], bool $focus = true): RedirectResponse|JsonResponse
+    {
+        if ($this->wantsLineJson($request)) {
+            return response()->json(['ok' => true, 'message' => $message, 'line_id' => $focusLineId] + $extra);
+        }
+        $back = redirect()->route('corex.rental-job-cards.show', $card)->with('success', $message);
+
+        return $focus && $focusLineId ? $back->with('jc_focus_line', $focusLineId) : $back;
     }
 
     /** req #5 — "Send to owner as quote." */

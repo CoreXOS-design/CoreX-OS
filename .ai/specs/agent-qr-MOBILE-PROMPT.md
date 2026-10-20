@@ -10,7 +10,9 @@ Add a "Scan agent QR" flow to the Client Login screen. A prospect scans an agent
 
 ## Backend API (already live)
 
-Base URL: same host as the existing client-auth endpoints (e.g. `https://corex.hfcoastal.co.za/api/v1`).
+Base URL: same host as the existing client-auth endpoints (e.g. `https://corexos.co.za/api/v1`).
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ### 1. Preview the agent (after scan)
 ```
@@ -25,7 +27,7 @@ No auth. Returns 404 if slug unknown / agent inactive.
     "first_name": "André",
     "last_name":  "Roets",
     "full_name":  "André Roets",
-    "photo_url":  "https://corex.hfcoastal.co.za/storage/users/photos/12.jpg",
+    "photo_url":  "https://corexos.co.za/storage/users/photos/12.jpg",
     "agency":     { "id": 1, "name": "Home Finders Coastal", "slug": "home-finders-coastal" }
   }
 }

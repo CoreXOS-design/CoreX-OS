@@ -136,8 +136,12 @@
         </div>
 
         <script>
+            // The drawing pad is the ONE shared pad (resources/js/corex-signature-pad-mixin.js): the agent's in-place
+            // "Sign now" on the inspection screens uses exactly the same code. Built once on load, kept in step with the
+            // canvas (load / pageshow / resize / rotation / ResizeObserver), waits for the library if it is late, and never
+            // depends on the tick box or the radio buttons.
             function inspectionLinkSigner(cfg) {
-                return {
+                return Object.assign(window.corexSignaturePadMixin(), {
                     submitUrl: cfg.submitUrl,
                     presets: cfg.presets,
                     action: 'sign',
@@ -150,62 +154,12 @@
                     error: '',
                     done: false,
                     doneOutcome: null,
-                    pad: null,
-                    padW: 0,
-                    padH: 0,
-                    padTries: 0,
-                    libTimer: null,
-                    // The pad is built once, as soon as the page can draw on it, and kept in step with the canvas's real
-                    // size from then on. It never depends on the checkbox, the radio buttons or anything else the party does.
                     init() {
                         if (this.initStarted) return;   // Alpine calls init() itself; never run it twice
                         this.initStarted = true;
-                        const sync = () => this.syncPad();
-                        this.$nextTick(sync);
-                        document.addEventListener('DOMContentLoaded', sync);
-                        window.addEventListener('load', sync);
-                        window.addEventListener('pageshow', sync);
-                        window.addEventListener('resize', sync);
-                        window.addEventListener('orientationchange', sync);
-                        if (window.ResizeObserver && this.$refs.pad) new ResizeObserver(sync).observe(this.$refs.pad);
-                        this.$watch('action', (a) => { if (a === 'sign') this.$nextTick(sync); });
+                        this.watchPad();
+                        this.$watch('action', (a) => { if (a === 'sign') this.$nextTick(() => this.syncPad()); });
                     },
-                    // Create the pad if it is missing, or re-fit its drawing surface when the canvas has changed size
-                    // (phone turned, address bar hidden, photos above finished loading). Strokes already drawn are kept.
-                    syncPad() {
-                        const canvas = this.$refs.pad;
-                        if (!canvas) return;
-                        if (!window.SignaturePad) {
-                            // the signature library has not arrived yet (slow phone): one watcher waits for it
-                            // rather than leaving a dead pad
-                            if (!this.libTimer) {
-                                this.libTimer = setInterval(() => {
-                                    if (window.SignaturePad || ++this.padTries > 300) { clearInterval(this.libTimer); this.libTimer = null; this.syncPad(); }
-                                }, 100);
-                            }
-                            return;
-                        }
-                        const w = canvas.offsetWidth, h = canvas.offsetHeight;
-                        if (!w || !h) return;            // not laid out / hidden: the ResizeObserver calls us again when it is
-                        const ratio = Math.max(window.devicePixelRatio || 1, 1);
-                        if (this.pad && this.padW === w && this.padH === h && canvas.width === Math.round(w * ratio)) return;
-                        const had = this.pad && !this.pad.isEmpty() ? this.pad.toData() : null;
-                        const sx = this.padW ? w / this.padW : 1, sy = this.padH ? h / this.padH : 1;
-                        canvas.width = Math.round(w * ratio);
-                        canvas.height = Math.round(h * ratio);
-                        canvas.getContext('2d').scale(ratio, ratio);
-                        if (!this.pad) {
-                            this.pad = new window.SignaturePad(canvas, { penColor: '#111827', backgroundColor: 'rgba(255,255,255,0)' });
-                        } else {
-                            this.pad.clear();
-                        }
-                        this.padW = w; this.padH = h;
-                        if (had) {
-                            had.forEach(stroke => (stroke.points || []).forEach(pt => { pt.x *= sx; pt.y *= sy; }));
-                            this.pad.fromData(had);
-                        }
-                    },
-                    clearPad() { if (this.pad) this.pad.clear(); },
                     async submit() {
                         this.error = '';
                         const name = this.typedName.trim();
@@ -242,7 +196,7 @@
                             this.busy = false;
                         }
                     },
-                };
+                });
             }
         </script>
     @endif

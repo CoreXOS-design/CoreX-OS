@@ -45,6 +45,8 @@ class RentalFaultReportUpdate extends Model
     public const TYPE_OWNER_REPAIR_REQUEST = 'owner_repair_request';
     public const TYPE_OWNER_COMMENT = 'owner_comment';
     public const TYPE_SENT_WITHOUT_CONTRACTOR = 'sent_without_contractor';
+    // AT-452 - the agent re-classified an "Other" fault to a proper type
+    public const TYPE_TYPE_CHANGED = 'type_changed';
     // section 21.3 - the agent chose a first responder to look at the fault (nothing is sent by this alone)
     public const TYPE_FIRST_RESPONDER_CHOSEN = 'first_responder_chosen';
     // section 22 - the authorisation record (Decision 1: who goes to look), the owner's decision taken by the agent, the tenant's confirmation
@@ -59,6 +61,10 @@ class RentalFaultReportUpdate extends Model
     // section 22.13 - what was found / the cause was recorded, and the agent's "Who pays" ruling
     public const TYPE_FINDINGS_RECORDED = 'findings_recorded';
     public const TYPE_PAYER_RULED = 'payer_ruled';
+    // audit C-A1 - the owner was reminded (1st / 2nd), the fault was put on the agent's queue because the owner is silent, or the owner could not be told at all
+    public const TYPE_OWNER_REMINDED = 'owner_reminded';
+    public const TYPE_OWNER_SILENT_FLAGGED = 'owner_silent_flagged';
+    public const TYPE_OWNER_NOT_TOLD = 'owner_not_told';
 
     protected $fillable = [
         'agency_id',

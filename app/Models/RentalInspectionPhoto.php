@@ -48,8 +48,38 @@ class RentalInspectionPhoto extends Model
         'file_size_bytes',
         'taken_at',
         'taken_at_source',
+        'added_after_signing_at',
         'created_at',
     ];
+
+    /**
+     * Audit 2026-10-19 B21 - a photo kept on the PRIVATE disk stores a reference (`private:private-images/<path>`); every screen, the compare viewer, the
+     * tab payload and the public report read `storage_path` as an image address, so reading it hands back a signed, expiring URL
+     * (the shared PrivateImageService::signedUrl). A legacy row that still holds a public /storage URL reads as it always did. The reference itself:
+     * rawStoragePath().
+     */
+    public function getStoragePathAttribute($value): ?string
+    {
+        $images = app(\App\Services\Images\PrivateImageService::class);
+        if (! $images->isPrivate($value)) {
+            return $value;
+        }
+
+        // Guards: the link dies the moment this photo or its inspection is archived (the shared service checks `deleted_at` on both rows),
+        // and in any case after the agency's own window.
+        return $images->signedUrl(
+            $value,
+            $this->agency_id,
+            [['rental_inspection_photos', (int) $this->id], ['rental_inspections', (int) $this->rental_inspection_id]],
+            RentalInspectionSetting::photoLinkMinutesFor($this->agency_id),
+        );
+    }
+
+    /** The stored value - the private reference or the legacy public URL - never the signed address. */
+    public function rawStoragePath(): ?string
+    {
+        return $this->attributes['storage_path'] ?? null;
+    }
 
     /**
      * §45.3 — the caption travels with the photo everywhere it is serialised (recording tile, tray,
@@ -63,6 +93,7 @@ class RentalInspectionPhoto extends Model
         'created_at' => 'datetime',
         'tagged_at' => 'datetime',
         'taken_at' => 'datetime',
+        'added_after_signing_at' => 'datetime',
         'deleted_at' => 'datetime',
     ];
 
@@ -114,6 +145,15 @@ class RentalInspectionPhoto extends Model
     public function room(): BelongsTo
     {
         return $this->belongsTo(PropertyRoom::class, 'property_room_id');
+    }
+
+    /**
+     * Audit 2026-10-19 B32 - the inventory photos that SHARE this photo (the inventory keeps a reference, not a second file). Archiving this
+     * photo takes it out of the inventory too; the reference rows themselves are left as they are and come back if this photo is restored.
+     */
+    public function inventoryReferences(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(RentalInventoryPhoto::class, 'rental_inspection_photo_id');
     }
 
     public function uploadedBy(): BelongsTo
@@ -180,7 +220,8 @@ class RentalInspectionPhoto extends Model
 
     public function getTakenCaptionAttribute(): string
     {
-        return $this->captionLabel();
+        // Audit B9 - evidence that arrived after the report was signed or completed says so wherever the caption is shown.
+        return $this->captionLabel() . ($this->added_after_signing_at !== null ? ' · added after signing' : '');
     }
 
     /** "12 Aug 14:03" for a real capture time, "Uploaded 14:03" when only the upload time is known. */
@@ -191,9 +232,11 @@ class RentalInspectionPhoto extends Model
             return '';
         }
 
-        return ($this->taken_at_source ?: self::TAKEN_AT_SERVER) === self::TAKEN_AT_SERVER
+        $short = ($this->taken_at_source ?: self::TAKEN_AT_SERVER) === self::TAKEN_AT_SERVER
             ? 'Uploaded ' . $takenAt->format('H:i')
             : $takenAt->format('d M H:i');
+
+        return $this->added_after_signing_at !== null ? $short . ' · late' : $short;
     }
 
     public function isUntagged(): bool

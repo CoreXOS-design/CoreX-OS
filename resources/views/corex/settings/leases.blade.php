@@ -123,12 +123,43 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Business days a tenant has to put a breach right (before a notice to vacate)</label>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days a tenant has to put a breach right (used when a breach notice template does not set its own)</label>
                     <input type="number" name="breach_remedy_business_days" value="{{ old('breach_remedy_business_days', $breachRemedyBusinessDays) }}"
                            min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
                         Default is {{ $breachRemedyBusinessDaysDefault }}. After a breach notice is issued, a notice to vacate is only offered once this many business days have passed
                         and the breach is still not remedied. The lease screen shows the deadline. Leave blank for the default.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">The breach period counts</label>
+                    <select name="breach_remedy_day_basis" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                        <option value="business" @selected(old('breach_remedy_day_basis', $breachRemedyDayBasis) === 'business')>Business days (weekends and public holidays skipped)</option>
+                        <option value="calendar" @selected(old('breach_remedy_day_basis', $breachRemedyDayBasis) === 'calendar')>Calendar days (every day counts)</option>
+                    </select>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Choose calendar days when your lease says "within 7 days of written notice". The deadline in the breach notice and the date a notice to vacate becomes available follow this.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Time of day a notice to vacate asks the tenant to be out by</label>
+                    <input type="time" name="vacate_time" value="{{ old('vacate_time', $vacateTime) }}" class="rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $vacateTimeDefault }}. The agent picks the date when the notice to vacate is made; this is the time it starts with.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Days for notice to vacate</label>
+                    <input type="number" name="vacate_notice_days" value="{{ old('vacate_notice_days', $vacateNoticeDays) }}" min="1" max="365" class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $vacateNoticeDaysDefault }}. A notice to vacate starts with the date this many days after the day it is sent; the agent can change the date on the notice. Leave blank for the default.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Rental payment proof email</label>
+                    <input type="email" name="payment_proof_email" value="{{ old('payment_proof_email', $paymentProofEmail) }}" maxlength="191" placeholder="{{ $agencyEmail }}" class="w-full max-w-sm rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="payment-proof-email">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Where a tenant is asked to send proof of payment in a payment breach notice (the <code>&#123;&#123;payment_proof_email&#125;&#125;</code> in your template). Leave blank to use your agency email{{ $agencyEmail !== '' ? ' (' . $agencyEmail . ')' : '' }}.
                     </p>
                 </div>
                 <div>
@@ -243,6 +274,14 @@
                         Put the property back on the market when the move-out inspection confirms it is empty
                     </label>
                     <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. The property returns to the status it had before it was let, and the agent who owns the listing gets an in-app alert that it is free again. Nothing is sent to Property24 or Private Property - the agent checks the rent and re-lists it on the portals. Off leaves it as "let out" until an agent changes it.</p>
+                </div>
+                <div>
+                    <input type="hidden" name="end_tenancy_on_move_out_date" value="0">
+                    <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                        <input type="checkbox" name="end_tenancy_on_move_out_date" value="1" @checked(old('end_tenancy_on_move_out_date', $endTenancyOnMoveOutDate))>
+                        End the tenancy on the move-out date from an accepted notice
+                    </label>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">On by default. Once a notice is accepted the lease has a move-out date; on that date the lease is marked ended even if no move-out inspection has been completed. Off keeps the lease active until a completed move-out inspection confirms the property is empty.</p>
                 </div>
                 <div>
                     <input type="hidden" name="auto_restore_status_on_lease_cancelled" value="0">

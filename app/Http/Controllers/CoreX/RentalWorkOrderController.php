@@ -482,7 +482,7 @@ class RentalWorkOrderController extends Controller
                 RentalWorkOrder::REPORTED_BY_INSPECTION,
             ])],
             'reported_by_contact_id' => ['nullable', Rule::exists('contacts', 'id')->where('agency_id', $agencyId)],
-            'reported_inspection_observation_id' => ['nullable', 'exists:rental_inspection_observations,id'],
+            'reported_inspection_observation_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'title' => ['required', 'string', 'max:191'],
             'description' => ['required', 'string'],
@@ -581,14 +581,14 @@ class RentalWorkOrderController extends Controller
             // every batch item's inspection item must belong to THIS
             // property, never a same-agency one left over from elsewhere.
             'lease_id' => ['nullable', Rule::exists('leases', 'id')->where('property_id', $propertyId)],
-            'rental_inspection_id' => ['nullable', 'exists:rental_inspections,id'],
+            'rental_inspection_id' => ['nullable', \App\Rules\FoundInAgency::in('rental_inspections')],
             'assignment_type' => ['required', 'in:' . implode(',', [
                 RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER,
                 RentalWorkOrder::ASSIGNMENT_INTERNAL,
             ])],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'batch_items' => ['required', 'array', 'min:1'],
-            'batch_items.*.observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
+            'batch_items.*.observation_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'batch_items.*.title' => ['required', 'string', 'max:191'],
             'batch_items.*.description' => ['nullable', 'string'],
             'batch_items.*.rental_inspection_item_id' => ['nullable', 'integer', Rule::exists('rental_inspection_items', 'id')->where('property_id', $propertyId)],
@@ -742,11 +742,41 @@ class RentalWorkOrderController extends Controller
             'description' => ['required', 'string'],
             'trade_type' => ['nullable', 'string', 'max:60'],
             'priority' => ['nullable', 'in:low,normal,urgent'],
+            // AT-459 - who lets the worker in; present only when the edit dialog carried the three boxes.
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $rentalWorkOrder->update($validated);
+        $access = \Illuminate\Support\Arr::only($validated, ['access_contact_name', 'access_contact_phone', 'access_note']);
+        $rentalWorkOrder->update(\Illuminate\Support\Arr::except($validated, array_keys($access)));
+        if ($request->hasAny(array_keys($access))) {
+            \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalWorkOrder, $rentalWorkOrder->jobCard()->withoutGlobalScopes()->first(), $access);
+        }
 
         return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Work order updated.');
+    }
+
+    /**
+     * AT-459 - change who lets the worker in (name, phone, note) on a work order that is still open: this is the box the booking step shows,
+     * after the "Edit title and description" dialog is gone. The crew link, the contractor link, both emails and the printed job card read it.
+     */
+    public function updateAccessContact(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
+
+        abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true) || $rentalWorkOrder->trashed(),
+            409, 'This work order is closed, so the access details can no longer be changed.');
+
+        $validated = $request->validate([
+            'access_contact_name' => ['nullable', 'string', 'max:191'],
+            'access_contact_phone' => ['nullable', 'string', 'max:50'],
+            'access_note' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        \App\Services\Rentals\JobSiteInfo::saveAccessContact($rentalWorkOrder, $rentalWorkOrder->jobCard()->withoutGlobalScopes()->first(), $validated);
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', 'Access details saved.');
     }
 
     /**
@@ -896,20 +926,29 @@ class RentalWorkOrderController extends Controller
     {
         $this->guardRentalRecordScope($rentalWorkOrder, 'rental_work_orders', $rentalWorkOrder->property?->branch_id);
 
+        // section 28.7: a job from a fault has ONE place for who pays - the "Who pays" panel - so the Complete form no longer posts paid_by for it; it follows the
+        // ruling (owner / tenant) when there is one, else stays "not yet paid". Any other job still asks.
+        $fromFault = $rentalWorkOrder->reported_fault_report_id !== null;
         $validated = $request->validate([
-            'paid_by' => ['required', 'in:' . implode(',', [
+            'paid_by' => [$fromFault ? 'nullable' : 'required', 'in:' . implode(',', [
                 RentalWorkOrder::PAID_BY_OWNER,
                 RentalWorkOrder::PAID_BY_TENANT,
                 RentalWorkOrder::PAID_BY_DEPOSIT_DEDUCTION,
                 RentalWorkOrder::PAID_BY_NOT_YET_PAID,
             ])],
-            'cost_amount' => ['nullable', 'numeric', 'min:0'],
+            // section 28.2: a blank final cost sent the owner a final statement with no amount - an outside contractor's job cannot be completed without one
+            'cost_amount' => [$rentalWorkOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $rentalWorkOrder->hasOpenDispute() ? 'required' : 'nullable', 'numeric', 'min:0'],
             'completion_notes' => ['nullable', 'string'],
             // section 24.5: for a job that came from a fault, "what was found" + the cause are entered in this SAME form (one step, not three)
             'found_text' => ['nullable', 'string', 'max:2000'],
             'cause_id' => ['nullable', 'integer'],
             'cause_note' => ['nullable', 'string', 'max:500'],
+        ], [
+            'cost_amount.required' => 'Say the final cost - the owner is sent a statement with it. It starts with the invoices, the authorised amount or the quote; change it if the final cost is different.',
         ]);
+        if ($fromFault && empty($validated['paid_by'])) {
+            $validated['paid_by'] = in_array($rentalWorkOrder->who_pays, ['owner', 'tenant'], true) ? $rentalWorkOrder->who_pays : RentalWorkOrder::PAID_BY_NOT_YET_PAID;
+        }
 
         // §17.12 — an internal job is closed from its JOB CARD, which closes the card and this work order together (or neither).
         // This Complete form is the outside contractor's close; posting it for an internal job would close the work order and
@@ -958,7 +997,7 @@ class RentalWorkOrderController extends Controller
         ]);
 
         // The box is read in the AGENCY timezone (the same convention as the job card's scheduling box).
-        $tz = $rentalWorkOrder->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($rentalWorkOrder->agency);
         $at = \App\Support\AppDate::parse($validated['appointment_at'], $tz);   // stored in the app timezone (->utc() saved 10:00 as 08:00)
 
         try {

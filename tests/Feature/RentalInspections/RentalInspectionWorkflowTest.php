@@ -171,6 +171,8 @@ final class RentalInspectionWorkflowTest extends TestCase
         // TYPE_AD_HOC (shown to people as "Routine"); that restriction is gone.
         $adHoc = $this->makeInspection(RentalInspection::TYPE_AD_HOC);
 
+        $this->recordAttendanceForEveryParty($adHoc);
+
         $adHoc->startAwaitingSignature();
 
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $adHoc->fresh()->status);
@@ -183,6 +185,8 @@ final class RentalInspectionWorkflowTest extends TestCase
         // just that the old exception is gone.
         $inIns = $this->makeInspection(RentalInspection::TYPE_IN);
 
+        $this->recordAttendanceForEveryParty($inIns);
+
         $inIns->startAwaitingSignature();
 
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inIns->status);
@@ -193,6 +197,8 @@ final class RentalInspectionWorkflowTest extends TestCase
     {
         RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['out_inspection_signing_window_days' => 10]);
         $outIns = $this->makeInspection(RentalInspection::TYPE_OUT);
+
+        $this->recordAttendanceForEveryParty($outIns);
 
         $outIns->startAwaitingSignature();
 
@@ -410,6 +416,7 @@ final class RentalInspectionWorkflowTest extends TestCase
         ]);
 
         $this->expectException(\App\Exceptions\RentalInspectionRequiredNotesMissingException::class);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
     }
 
@@ -449,6 +456,7 @@ final class RentalInspectionWorkflowTest extends TestCase
         ]);
 
         try {
+            $this->recordAttendanceForEveryParty($inspection);
             $inspection->startAwaitingSignature();
             $this->fail('Expected RentalInspectionRequiredNotesMissingException');
         } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
@@ -470,6 +478,8 @@ final class RentalInspectionWorkflowTest extends TestCase
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
+
         $inspection->startAwaitingSignature();
 
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
@@ -489,6 +499,8 @@ final class RentalInspectionWorkflowTest extends TestCase
             ]);
         }
 
+        $this->recordAttendanceForEveryParty($inspection);
+
         $inspection->startAwaitingSignature();
 
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
@@ -506,6 +518,8 @@ final class RentalInspectionWorkflowTest extends TestCase
             'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => null,
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
+
+        $this->recordAttendanceForEveryParty($inspection);
 
         $inspection->startAwaitingSignature();
 
@@ -535,6 +549,8 @@ final class RentalInspectionWorkflowTest extends TestCase
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
 
+        $this->recordAttendanceForEveryParty($inspection);
+
         $inspection->startAwaitingSignature();
 
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->status);
@@ -558,6 +574,8 @@ final class RentalInspectionWorkflowTest extends TestCase
             'condition' => RentalInspectionObservation::CONDITION_MISSING, 'notes' => 'Confirmed missing, tenant admits removal.',
             'source' => RentalInspectionObservation::SOURCE_IN_INSPECTION,
         ]);
+
+        $this->recordAttendanceForEveryParty($inspection);
 
         $inspection->startAwaitingSignature();
 

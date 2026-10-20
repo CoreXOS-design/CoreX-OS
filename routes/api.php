@@ -174,7 +174,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 
     // Client sanctum token only
-    Route::middleware(['client.auth', 'client.ability', 'portal.same-login'])->group(function () {
+    Route::middleware(['client.auth', 'client.ability', 'throttle:client-portal', 'portal.same-login'])->group(function () {
         Route::post('/password/change', [ClientAuthController::class, 'changePassword'])->name('client-auth.password.change');
         Route::post('/agency/select',   [ClientAuthController::class, 'selectAgency'])->name('client-auth.agency.select');
         Route::post('/logout',          [ClientAuthController::class, 'logout'])->name('client-auth.logout');
@@ -182,7 +182,7 @@ Route::prefix('v1/client-auth')->middleware([\Laravel\Sanctum\Http\Middleware\En
     });
 });
 
-Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability'])->group(function () {
+Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class, 'client.auth', 'client.ability', 'throttle:client-portal'])->group(function () {
     Route::get('/me',                 [ClientPortalController::class, 'me'])->name('client.me');
     Route::get('/match-options',      [ClientPortalController::class, 'matchOptions'])->name('client.match-options');
 
@@ -236,8 +236,12 @@ Route::prefix('v1/client')->middleware([\Laravel\Sanctum\Http\Middleware\EnsureF
             Route::post('/properties/{property}/fault-reports', [ClientTenantRentalsController::class, 'faultReportStore'])->middleware('portal.photos')->name('fault-reports.store');
             Route::get('/fault-reports', [ClientTenantRentalsController::class, 'faultReports'])->name('fault-reports.index');
             Route::get('/fault-reports/{faultReport}', [ClientTenantRentalsController::class, 'faultReportShow'])->name('fault-reports.show');
+            // Audit fixes 19 Oct 2026 (C-A5 / D20): add a note / photos to an open fault, or withdraw it (replay-safe: the group carries portal.once)
+            Route::post('/fault-reports/{faultReport}/notes', [ClientTenantRentalsController::class, 'faultReportAddTo'])->whereNumber('faultReport')->middleware('portal.photos')->name('fault-reports.add-to');
+            Route::post('/fault-reports/{faultReport}/withdraw', [ClientTenantRentalsController::class, 'faultReportWithdraw'])->whereNumber('faultReport')->name('fault-reports.withdraw');
             Route::get('/work-orders/{workOrder}', [ClientTenantRentalsController::class, 'workOrderShow'])->name('work-orders.show');
-            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->name('work-orders.confirm');
+            // DEPRECATED (audit fixes D19): delegates to the same rules as /progress and /completion-response; new clients use those two
+            Route::post('/work-orders/{workOrder}/confirm', [ClientTenantRentalsController::class, 'workOrderConfirm'])->middleware('portal.photos')->name('work-orders.confirm');
             // W4 (8 Oct 2026): the job card is INTERNAL - tenants and owners see the work order's progress, never the job card.
             // §17.21.1 — Build 3 only (tenant: work-orders index, completion-response).
             // BUILD 3 BEGIN — tenant maintenance-flow routes (.ai/specs/rental-work-orders.md §17.21.5)
@@ -479,7 +483,7 @@ Route::prefix('v1/webinars')
 // already-issued token immediately once revoked. The one exception is the
 // delete-account route itself, opted out below so it stays reachable and
 // idempotent even after access is already off. Spec: .ai/specs/mobile-app-access.md §4.3
-Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
+Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(function () {
 
     // ─────────────────────────────────────────────────────────────
     // Canonical /api/v1/* surface
@@ -542,8 +546,8 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
             Route::post('/upload', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'uploadRenewal'])->name('v1.leases.renewal.upload');
             Route::post('/month-to-month', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'monthToMonth'])->name('v1.leases.renewal.month-to-month');
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
-            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->name('v1.leases.renewal.tenant-notice');
-            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->name('v1.leases.renewal.landlord-notice');
+            Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.tenant-notice');
+            Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.landlord-notice');
             Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
             Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
         });
@@ -1086,9 +1090,5 @@ Route::middleware(['auth:sanctum', 'app_access'])->group(function () {
 
     Route::post('/device-tokens',           [DeviceTokenController::class, 'store'])->name('legacy.device-tokens.store');
     Route::delete('/device-tokens/{token}', [DeviceTokenController::class, 'destroy'])->name('legacy.device-tokens.destroy');
-
-    // LEGACY: remove after 2026-08-21
-    Route::get('/me/agent-qr', [\App\Http\Controllers\Api\V1\AgentQrController::class, 'mine'])
-        ->name('legacy.me.agent-qr');
 });
 

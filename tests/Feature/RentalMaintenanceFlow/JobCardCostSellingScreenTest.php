@@ -75,7 +75,7 @@ final class JobCardCostSellingScreenTest extends TestCase
         $this->assertStringContainsString('61.31', $html);
         $this->assertStringContainsString('data-line-margin', $html);
         $this->assertStringContainsString('data-cost-margin-totals', $html);
-        $this->assertStringContainsString('Margin (excl VAT)', $html);
+        $this->assertStringContainsString('Markup / margin (excl)', $html);
         $this->assertStringContainsString('+20 % line', $html, 'the small basis label under selling');
         // margin: selling 73.57 - cost 61.31 = 12.26 (16.7 %)
         $this->assertStringContainsString('R12.26', $html);

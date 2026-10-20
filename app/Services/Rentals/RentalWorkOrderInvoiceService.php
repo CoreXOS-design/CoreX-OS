@@ -196,6 +196,55 @@ class RentalWorkOrderInvoiceService
     }
 
     /**
+     * Audit fix C-E2 (19 Oct 2026): the amount an invoice form starts with, so the contractor (or the agent) never retypes a figure the system already holds: what the owner
+     * authorised for the contractor (else the selected quote's own figure) LESS the invoices already filed. Null when there is nothing to base it on or nothing is left.
+     */
+    public function suggestedInvoiceAmount(RentalWorkOrder $workOrder): ?float
+    {
+        $base = app(RentalGoAheadService::class)->contractorCeiling($workOrder);
+        if ($base === null) {
+            $quote = $workOrder->quotes()->where('is_selected', true)->whereNull('declined_at')->first();
+            $base = $quote ? round((float) $quote->amount, 2) : null;
+        }
+        if ($base === null) {
+            return null;
+        }
+        $left = round($base - $this->total($workOrder), 2);
+
+        return $left > 0 ? $left : null;
+    }
+
+    /**
+     * Section 28.2 - what the Complete form's "Final cost" starts with when the job has no recorded cost yet: the live invoices' total, else the amount the owner
+     * authorised, else the selected quote's owner-facing amount. A suggestion only - the agent can change it, and every completion rule (the hard lock: not even
+     * R0.01 over the authorised amount) runs on whatever figure is submitted.
+     *
+     * @return array{amount: float, source: string}|null source = invoices | authorised | quote
+     */
+    public function suggestedFinalCost(RentalWorkOrder $workOrder): ?array
+    {
+        if ($workOrder->cost_amount !== null) {
+            return null;
+        }
+        if ($workOrder->invoices()->exists()) {
+            return ['amount' => $this->total($workOrder), 'source' => 'invoices'];
+        }
+        $authorised = app(RentalAuthorisationService::class)->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_COST);
+        if ($authorised && $authorised->isAuthorised() && $authorised->amount_up_to !== null) {
+            return ['amount' => round((float) $authorised->amount_up_to, 2), 'source' => 'authorised'];
+        }
+        if ($workOrder->approved_amount !== null && (float) $workOrder->approved_amount > 0) {
+            return ['amount' => round((float) $workOrder->approved_amount, 2), 'source' => 'authorised'];
+        }
+        $quote = $workOrder->quotes()->where('is_selected', true)->first();
+        if ($quote) {
+            return ['amount' => round((float) $quote->ownerFacingAmount(), 2), 'source' => 'quote'];
+        }
+
+        return null;
+    }
+
+    /**
      * The ONLY client-facing shape of an invoice: the owner's portal, shared invoices only. No uploader, no internal
      * supplier id, no storage path; the link is an authorised in-portal route, never a file URL.
      *

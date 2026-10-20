@@ -230,7 +230,7 @@ class OwnerFaultScreenTest extends TestCase
         $this->assertSame('Needs your decision', $row['client']['stage_label']);
         // ...and the approve / decline endpoints are unchanged.
         $this->getJson('/api/v1/client/rentals/landlord/decisions')->assertOk()->assertJsonPath('work_orders.0.id', $wo->id);
-        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'])->assertOk();
+        $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo))->assertOk();
         $this->assertSame('approved', $wo->fresh()->owner_approval_status);
     }
 
@@ -359,6 +359,7 @@ class OwnerFaultScreenTest extends TestCase
 
         $this->assertSame('owner_decided', $this->progress($fault->fresh())['current'], 'not sent to the contractor until the office sends it');
         $wo->forceFill(['status' => RentalWorkOrder::STATUS_ORDERED, 'ordered_at' => now()])->save();
+        // (this helper reads the TENANT's line: D1/Q2 - the tenant is never told about quotes, so it stays "scheduling" even while the owner and agent read "Waiting for the contractor's quote")
         $this->assertSame('Sent to contractor for scheduling', $this->progress($fault->fresh())['current_label']);
         // cc5 walk 2 (14 Oct 2026): an appointment waits for the owner's go-ahead - a merely SENT job cannot be booked, so the cost is authorised first
         \App\Models\RentalAuthorisation::withoutGlobalScopes()->forceCreate([

@@ -17,10 +17,11 @@ use Tests\TestCase;
  * absent from the post leaves the stored value alone); the setup wizard
  * declares the control, wires its saver, and reads the SAVED value back (not
  * the hardcoded default); the page renders the control with the saved value
- * selected; the three crew-page savers (ranges 1-365 / 0-30 / 1-60, a blank
- * expiry clears it to "until revoked", a blank window leaves the stored value,
+ * selected; the two crew-page savers (ranges 0-365 / 1-60, expiry 0 = "until revoked"
+ * and blank = back to the 180-day default, a blank window leaves the stored value,
  * out-of-range and non-numeric are refused untouched, absent from the post
- * leaves everything alone) and all four controls are in the setup wizard.
+ * leaves everything alone) and all three controls are in the setup wizard. The old "recently completed" setting is gone
+ * (the crew page lists Done this month instead).
  */
 class CrewPageSettingsTest extends TestCase
 {
@@ -32,29 +33,32 @@ class CrewPageSettingsTest extends TestCase
         $agency = $this->makeAgency();
 
         $this->assertSame('in_progress_and_completed', RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id));
-        $this->assertNull(RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
-        $this->assertSame(7, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id));
+        $this->assertSame(180, RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id), 'a new home link lasts 180 days unless the agency says otherwise');
+        $this->assertSame(180, RentalPortalSetting::crewStandingLinkExpiryDaysSettingFor($agency->id));
         $this->assertSame(14, RentalPortalSetting::crewPageUpcomingDaysFor($agency->id));
         // No agency at all (a link whose agency was removed) never throws.
         $this->assertSame('in_progress_and_completed', RentalPortalSetting::crewPhotosVisibleToClientsFor(null));
         $this->assertSame(14, RentalPortalSetting::crewPageUpcomingDaysFor(null));
+        $this->assertSame(180, RentalPortalSetting::crewStandingLinkExpiryDaysFor(null));
     }
 
-    public function test_saved_values_are_read_back_and_a_zero_recent_window_is_kept_not_defaulted(): void
+    public function test_saved_values_are_read_back_and_a_zero_expiry_is_kept_as_until_revoked_not_defaulted(): void
     {
         $agency = $this->makeAgency();
         RentalPortalSetting::withoutGlobalScopes()->create([
             'agency_id' => $agency->id,
             'crew_photos_visible_to_clients' => 'completed_only',
             'crew_standing_link_expiry_days' => 90,
-            'crew_page_recent_completed_days' => 0,
             'crew_page_upcoming_days' => 30,
         ]);
 
         $this->assertSame('completed_only', RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id));
         $this->assertSame(90, RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
-        $this->assertSame(0, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id), '0 means "hide the list", it must not fall back to 7');
         $this->assertSame(30, RentalPortalSetting::crewPageUpcomingDaysFor($agency->id));
+
+        RentalPortalSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->update(['crew_standing_link_expiry_days' => 0]);
+        $this->assertNull(RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id), '0 = no expiry for the token service');
+        $this->assertSame(0, RentalPortalSetting::crewStandingLinkExpiryDaysSettingFor($agency->id), '0 must not fall back to 180 on the settings page / wizard');
     }
 
     public function test_an_unknown_stored_visibility_value_falls_back_to_the_default(): void
@@ -198,17 +202,23 @@ class CrewPageSettingsTest extends TestCase
         }
     }
 
-    public function test_the_standing_link_expiry_saver_takes_1_to_365_and_blank_means_until_revoked(): void
+    public function test_the_standing_link_expiry_saver_takes_0_to_365_zero_is_until_revoked_and_blank_is_the_default(): void
     {
         $agency = $this->makeAgency();
         $admin = $this->makeAgent($agency);
+        $url = route('corex.settings.rental-portal.crew-standing-link-expiry-days');
 
-        $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-standing-link-expiry-days'), ['crew_standing_link_expiry_days' => '45'])->assertSessionHasNoErrors();
+        $this->actingAs($admin)->post($url, ['crew_standing_link_expiry_days' => '45'])->assertSessionHasNoErrors();
         $this->assertSame(45, RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
 
-        // Present but blank = "no expiry, stands until revoked" — clears it.
-        $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-standing-link-expiry-days'), ['crew_standing_link_expiry_days' => ''])->assertSessionHasNoErrors();
+        // 0 = the agency's explicit "keep it until I revoke it".
+        $this->actingAs($admin)->post($url, ['crew_standing_link_expiry_days' => '0'])->assertSessionHasNoErrors();
         $this->assertNull(RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
+        $this->assertSame(0, RentalPortalSetting::crewStandingLinkExpiryDaysSettingFor($agency->id));
+
+        // Present but blank = back to the standard 180 days.
+        $this->actingAs($admin)->post($url, ['crew_standing_link_expiry_days' => ''])->assertSessionHasNoErrors();
+        $this->assertSame(180, RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
     }
 
     public function test_the_standing_link_expiry_saver_refuses_out_of_range_and_non_numeric_and_keeps_the_old_value(): void
@@ -217,7 +227,7 @@ class CrewPageSettingsTest extends TestCase
         $admin = $this->makeAgent($agency);
         RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_standing_link_expiry_days' => 45]);
 
-        foreach (['0', '366', '-5', 'soon', '12.5'] as $bad) {
+        foreach (['366', '-5', 'soon', '12.5'] as $bad) {
             $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-standing-link-expiry-days'), ['crew_standing_link_expiry_days' => $bad])
                 ->assertSessionHasErrors('crew_standing_link_expiry_days');
         }
@@ -228,22 +238,10 @@ class CrewPageSettingsTest extends TestCase
         $this->assertSame(45, RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id));
     }
 
-    public function test_the_recently_completed_saver_takes_0_to_30_and_zero_is_a_real_value(): void
+    public function test_the_recently_completed_setting_is_retired(): void
     {
-        $agency = $this->makeAgency();
-        $admin = $this->makeAgent($agency);
-
-        $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-page-recent-completed-days'), ['crew_page_recent_completed_days' => '0'])->assertSessionHasNoErrors();
-        $this->assertSame(0, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id), '0 hides the list — saved, not treated as blank');
-
-        $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-page-recent-completed-days'), ['crew_page_recent_completed_days' => '30'])->assertSessionHasNoErrors();
-        $this->assertSame(30, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id));
-
-        foreach (['31', '-1', 'abc', '2.5'] as $bad) {
-            $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-page-recent-completed-days'), ['crew_page_recent_completed_days' => $bad])
-                ->assertSessionHasErrors('crew_page_recent_completed_days');
-        }
-        $this->assertSame(30, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id));
+        $this->assertFalse(\Illuminate\Support\Facades\Route::has('corex.settings.rental-portal.crew-page-recent-completed-days'));
+        $this->assertFalse(method_exists(RentalPortalSetting::class, 'crewPageRecentCompletedDaysFor'));
     }
 
     public function test_the_upcoming_saver_takes_1_to_60(): void
@@ -266,40 +264,41 @@ class CrewPageSettingsTest extends TestCase
     {
         $agency = $this->makeAgency();
         $admin = $this->makeAgent($agency);
-        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_page_upcoming_days' => 21, 'crew_page_recent_completed_days' => 3]);
+        RentalPortalSetting::withoutGlobalScopes()->create(['agency_id' => $agency->id, 'crew_page_upcoming_days' => 21]);
 
         // A wizard step / older form that posts the field empty must not wipe or fail the save.
         $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-page-upcoming-days'), ['crew_page_upcoming_days' => ''])->assertSessionHasNoErrors();
-        $this->actingAs($admin)->post(route('corex.settings.rental-portal.crew-page-recent-completed-days'), [])->assertSessionHasNoErrors();
 
         $this->assertSame(21, RentalPortalSetting::crewPageUpcomingDaysFor($agency->id));
-        $this->assertSame(3, RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id));
     }
 
-    public function test_the_settings_page_shows_all_four_controls_with_their_saved_values(): void
+    public function test_the_settings_page_shows_all_three_controls_with_their_saved_values(): void
     {
         $agency = $this->makeAgency();
         $admin = $this->makeAgent($agency);
         RentalPortalSetting::withoutGlobalScopes()->create([
-            'agency_id' => $agency->id, 'crew_standing_link_expiry_days' => 90, 'crew_page_recent_completed_days' => 0, 'crew_page_upcoming_days' => 21,
+            'agency_id' => $agency->id, 'crew_standing_link_expiry_days' => 90, 'crew_page_upcoming_days' => 21,
         ]);
 
         $html = $this->actingAs($admin)->get(route('corex.settings.rental-portal.edit'))->assertOk()->getContent();
 
         $this->assertMatchesRegularExpression('/name="crew_standing_link_expiry_days" value="90"/', $html);
-        $this->assertMatchesRegularExpression('/name="crew_page_recent_completed_days" value="0"/', $html);
+        $this->assertStringNotContainsString('crew_page_recent_completed_days', $html);
         $this->assertMatchesRegularExpression('/name="crew_page_upcoming_days" value="21"/', $html);
         $this->assertStringContainsString('name="crew_photos_visible_to_clients"', $html);
+
+        // An agency that chose "until revoked" sees 0 — not the 180-day default.
+        RentalPortalSetting::withoutGlobalScopes()->where('agency_id', $agency->id)->update(['crew_standing_link_expiry_days' => 0]);
+        $this->assertMatchesRegularExpression('/name="crew_standing_link_expiry_days" value="0"/', $this->actingAs($admin)->get(route('corex.settings.rental-portal.edit'))->getContent());
     }
 
     public function test_every_build_2_setting_is_in_the_setup_wizard_with_explain_affects_a_saver_and_a_readback(): void
     {
         $config = require config_path('agency-onboarding-copy.php');
-        $keys = ['crew_photos_visible_to_clients', 'crew_standing_link_expiry_days', 'crew_page_recent_completed_days', 'crew_page_upcoming_days'];
+        $keys = ['crew_photos_visible_to_clients', 'crew_standing_link_expiry_days', 'crew_page_upcoming_days'];
         $savers = [
             'crew_photos_visible_to_clients' => 'updateCrewPhotosVisibleToClients',
             'crew_standing_link_expiry_days' => 'updateCrewStandingLinkExpiryDays',
-            'crew_page_recent_completed_days' => 'updateCrewPageRecentCompletedDays',
             'crew_page_upcoming_days' => 'updateCrewPageUpcomingDays',
         ];
 
@@ -313,7 +312,7 @@ class CrewPageSettingsTest extends TestCase
                 }
             }
         }
-        $this->assertCount(4, $controls, 'no Build 2 setting may be withheld from the wizard (non-negotiable #10a)');
+        $this->assertCount(3, $controls, 'no Build 2 setting may be withheld from the wizard (non-negotiable #10a)');
 
         $wired = array_column($stepOf['savers'], 'method');
         foreach ($keys as $key) {
@@ -322,15 +321,16 @@ class CrewPageSettingsTest extends TestCase
             $this->assertNotSame('', trim($controls[$key]['affects']), "{$key} affects");
             $this->assertContains($savers[$key], $wired, "{$key} saver is wired into the step");
         }
-        $this->assertSame(7, $controls['crew_page_recent_completed_days']['default']);
+        $this->assertArrayNotHasKey('crew_page_recent_completed_days', $controls, 'retired with the Done this month list');
         $this->assertSame(14, $controls['crew_page_upcoming_days']['default']);
-        $this->assertNull($controls['crew_standing_link_expiry_days']['default'], 'blank = until revoked');
+        $this->assertSame(180, $controls['crew_standing_link_expiry_days']['default']);
+        $this->assertSame(0, $controls['crew_standing_link_expiry_days']['min'], '0 = until revoked');
 
         // §6.2 — reopening the wizard shows the SAVED values, not the hardcoded defaults.
         $agency = \App\Models\Agency::create(['name' => 'Wizard B2 ' . uniqid(), 'slug' => 'wb2-' . uniqid()]);
         RentalPortalSetting::withoutGlobalScopes()->create([
             'agency_id' => $agency->id, 'crew_photos_visible_to_clients' => 'completed_only',
-            'crew_standing_link_expiry_days' => 120, 'crew_page_recent_completed_days' => 0, 'crew_page_upcoming_days' => 28,
+            'crew_standing_link_expiry_days' => 120, 'crew_page_upcoming_days' => 28,
         ]);
         $controller = new \App\Http\Controllers\CoreX\AgencySetupWizardController();
         $m = new \ReflectionMethod($controller, 'currentValues');
@@ -339,7 +339,6 @@ class CrewPageSettingsTest extends TestCase
 
         $this->assertSame('completed_only', $v['crew_photos_visible_to_clients']);
         $this->assertSame(120, $v['crew_standing_link_expiry_days']);
-        $this->assertSame(0, $v['crew_page_recent_completed_days']);
         $this->assertSame(28, $v['crew_page_upcoming_days']);
     }
 }

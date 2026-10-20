@@ -95,7 +95,7 @@ class LeaseHubService
      * `route_name` is null when the step is a statement with nothing to click (the agreement is with someone else);
      * `post` is true when the click must be a form post ("Prepare again"), not a link.
      *
-     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool}|null
+     * @return array{label:string,route_name:?string,route_param:mixed,post?:bool,fragment?:string}|null
      */
     public function nextStep(Lease $lease, ?\App\Models\User $user = null): ?array
     {
@@ -109,9 +109,29 @@ class LeaseHubService
                 return $step;
             }
 
-            // Rule 1 — no signed lease document, no agreement in flight: a link into the ordinary Edit/Activate
-            // action, which IS what moves a draft lease forward.
+            // Rule 1 — no signed lease document, no agreement in flight. Audit A1 (2026-10-19): a plain draft (not a renewal) can be got
+            // signed after all - prepare the agreement, attach the signed paper copy - or activated without one; the card that offers all
+            // three sits on this screen. A renewal draft keeps its own screens: the old link into the Edit/Activate action.
+            if (! $lease->previous_lease_id && $user && $user->hasPermission('leases.create')) {
+                return ['label' => 'Get the lease signed', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id, 'fragment' => 'draft-follow-up'];
+            }
+
             return ['label' => 'Activate lease', 'route_name' => 'corex.leases.show', 'route_param' => $lease->id];
+        }
+
+        // rental-notices.md §7b (AT-462) - a breach notice's remedy-by date has been reached and nobody has said whether it was fixed: that
+        // question comes first. The Next bar carries the two answers ("Breach remedied" / "Send notice to vacate"); someone who may not act
+        // on breaches just sees the question.
+        if ($lease->status === Lease::STATUS_ACTIVE && ($breach = app(LeaseBreachService::class)->awaitingFollowUp($lease)->first())) {
+            $canAct = (bool) $user?->hasPermission('rental_breaches.manage');
+
+            return [
+                'label' => 'Breach remedy date reached — was it fixed?', 'route_name' => null, 'route_param' => null,
+                'breach_followup' => [
+                    'breach_id' => $breach->id, 'can_act' => $canAct, 'tenant' => $breach->breach_party === Lease::NOTICE_BY_TENANT,
+                    'detail' => 'Breach notice of ' . $breach->issued_on->format('j M Y') . ' - remedy by ' . $breach->remedy_deadline->format('j M Y'),
+                ],
+            ];
         }
 
         // AT-444 follow-up 2 (2026-10-05) — once notice is on file, the
@@ -161,6 +181,15 @@ class LeaseHubService
             // The lease has ended with no outcome on file. The outcomes (renewed / month-to-month / ended) live in the
             // Lease actions menu — land on the hub with that menu open, showing all of them (Johan, 7 Oct 2026).
             return ['label' => 'Record outcome', 'route_name' => 'corex.leases.show', 'route_param' => ['lease' => $lease->id, 'action' => 'outcomes']];
+        }
+
+        // Audit 2026-10-19 B3 - the move-out inspection is done: the next thing is to review what it recorded as charged to the tenant
+        // (the lease's Deposit deductions summary) - until the agent has said they did. CoreX only records; the money is settled elsewhere.
+        if ($hasCompletedOut && ($user === null || $user->hasPermission('rental_inspections.view'))) {
+            $out = app(RentalDepositDeductionsService::class)->outFor($lease);
+            if ($out && $out->status === RentalInspection::STATUS_COMPLETED && $out->deductions_reviewed_at === null) {
+                return ['label' => 'Review the ' . strtolower(RentalDepositDeductionsService::titleForAgency($lease->agency_id)), 'route_name' => 'corex.leases.deposit-deductions', 'route_param' => $lease->id];
+            }
         }
 
         return null;

@@ -31,8 +31,28 @@ class PropertyImageStorer
      */
     public function store(UploadedFile $file, int $propertyId): string
     {
-        $disk = Storage::disk('public');
-        $path = $file->store("properties/{$propertyId}", 'public');
+        $path = $this->storeOnDisk($file, "properties/{$propertyId}", 'public');
+
+        $url = Storage::url($path);
+
+        // Generate the small list-view thumbnail up front so the Properties
+        // grid/table never serves the full-resolution original. Best-effort:
+        // if it fails, list views fall back to the original (nothing breaks).
+        app(PropertyThumbnailService::class)->generateForUrl($url);
+
+        return $url;
+    }
+
+    /**
+     * The store-verify-orient-downscale-verify pipeline on any disk, returning the path RELATIVE to that disk.
+     * {@see self::store()} is this on the public disk (plus its thumbnail); PrivateImageService::storeUpload() is this on the
+     * private disk, so a portal upload and a staff upload can never drift on sizing, orientation or the "file really exists" check.
+     */
+    public function storeOnDisk(UploadedFile $file, string $directory, string $diskName): string
+    {
+        $disk = Storage::disk($diskName);
+        // Section 29 (C-I1 / B19): an iPhone HEIC photo becomes an upright JPEG here, on whichever disk the caller stores to.
+        $path = $this->storeConverted($file, $directory, $diskName) ?? $file->store($directory, $diskName);
         $this->assertStored($disk, $path, 'immediately after the initial write');
 
         // Bake EXIF orientation into the original before downscaling. downscale()
@@ -43,17 +63,33 @@ class PropertyImageStorer
         app(ImageOrientationNormalizer::class)
             ->normalizeInPlace($disk->path($path));
 
-        $this->downscale($path);
+        $this->downscale($path, $diskName);
         $this->assertStored($disk, $path, 'after downscale()');
 
-        $url = Storage::url($path);
+        return $path;
+    }
 
-        // Generate the small list-view thumbnail up front so the Properties
-        // grid/table never serves the full-resolution original. Best-effort:
-        // if it fails, list views fall back to the original (nothing breaks).
-        app(PropertyThumbnailService::class)->generateForUrl($url);
+    /**
+     * Section 29 (C-I1 / B19): an iPhone HEIC / HEIF photo becomes an upright, downscaled JPEG here, in the one place every upload goes through. Returns the stored
+     * relative path, or null when the file is not HEIC or cannot be converted on this host (the caller then stores the original, as before).
+     */
+    private function storeConverted(UploadedFile $file, string $directory, string $diskName): ?string
+    {
+        if (! HeicConverter::isHeic($file)) {
+            return null;
+        }
+        $tmp = tempnam(sys_get_temp_dir(), 'heic') . '.jpg';
+        try {
+            if (! HeicConverter::convert((string) $file->getRealPath(), $tmp, $this->maxEdge, $this->quality)) {
+                return null;
+            }
+            $path = rtrim($directory, '/') . '/' . \Illuminate\Support\Str::random(40) . '.jpg';
+            Storage::disk($diskName)->put($path, (string) file_get_contents($tmp));
 
-        return $url;
+            return $path;
+        } finally {
+            @unlink($tmp);
+        }
     }
 
     /**
@@ -108,13 +144,13 @@ class PropertyImageStorer
      * file path/extension intact, overwriting in place. Failures are swallowed
      * so the upload still succeeds — the source file simply isn't resized.
      */
-    public function downscale(string $relativePath): void
+    public function downscale(string $relativePath, string $diskName = 'public'): void
     {
         if (!function_exists('imagecreatefromstring')) {
             return;
         }
 
-        $disk = Storage::disk('public');
+        $disk = Storage::disk($diskName);
         if (!$disk->exists($relativePath)) {
             return;
         }

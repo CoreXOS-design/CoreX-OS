@@ -213,7 +213,7 @@ final class CreateWorkOrderActionTest extends TestCase
 
         $declined = $this->faultReport(['status' => RentalFaultReport::STATUS_DECLINED, 'title' => 'Declined one']);
         $this->actingAs($this->admin)->get(route('corex.rental-fault-reports.show', $declined))
-            ->assertOk()->assertSee('The owner declined this repair')->assertDontSee('id="raise-work-order-form"', false);
+            ->assertOk()->assertSee('The owner declined, so the fault is closed')->assertDontSee('id="raise-work-order-form"', false);
     }
 
     // ── Scope and permission ─────────────────────────────────────────────

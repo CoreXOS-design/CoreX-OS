@@ -11,6 +11,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
+    @include('corex.notices._tabs', ['active' => 'sent'])
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Notices</h1>

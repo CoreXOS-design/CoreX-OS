@@ -12,6 +12,7 @@ use App\Models\LeaseSetting;
 use App\Models\RentalNotice;
 use App\Models\RentalNoticeTemplate;
 use App\Models\User;
+use App\Services\CommandCenter\NotificationDispatcher;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -29,6 +30,9 @@ use Illuminate\Validation\ValidationException;
  */
 class LeaseBreachService
 {
+    /** The breach's own alert type (registered by migration) - a shared type would be dropped by the per-person cooldown. */
+    public const EVENT_REMEDY_DATE_REACHED = 'lease_breach.remedy_date_reached';
+
     public function __construct(
         private readonly RentalNoticeService $notices,
         private readonly LeaseNoticeReviewService $review,
@@ -43,6 +47,8 @@ class LeaseBreachService
     {
         $types = match ($purpose) {
             'payment' => [RentalNoticeTemplate::TYPE_BREACH_PAYMENT],
+            // the one-off screen offers every breach template the agency has: payment ones ask for an amount, ad hoc ones for clause + reason
+            'breach' => [RentalNoticeTemplate::TYPE_BREACH_PAYMENT, RentalNoticeTemplate::TYPE_BREACH_OTHER, RentalNoticeTemplate::TYPE_BREACH],
             'other' => [RentalNoticeTemplate::TYPE_BREACH_OTHER, RentalNoticeTemplate::TYPE_BREACH],
             default => [RentalNoticeTemplate::TYPE_NOTICE_TO_VACATE],
         };
@@ -56,6 +62,44 @@ class LeaseBreachService
         return LeaseSetting::breachRemedyBusinessDaysFor($agencyId);
     }
 
+    /** 'business' | 'calendar' - the agency's choice of how the remedy window counts (rental-notices.md §5). */
+    public function remedyBasis(int $agencyId): string
+    {
+        return LeaseSetting::breachRemedyDayBasisFor($agencyId);
+    }
+
+    /** The days a notice made from this template gives: the template's own number, else the agency's default setting. */
+    public function remedyDaysFor(RentalNoticeTemplate $template, int $agencyId): int
+    {
+        return $template->remedy_days && (int) $template->remedy_days > 0 ? (int) $template->remedy_days : $this->remedyDays($agencyId);
+    }
+
+    /** "7 calendar days" / "20 business days" for the screens that explain the window before a breach exists. */
+    public function remedyWindowText(int $agencyId, ?int $days = null): string
+    {
+        return ($days ?? $this->remedyDays($agencyId)) . ' ' . $this->remedyBasis($agencyId) . ' days';
+    }
+
+    /** The date a new notice to vacate starts with: the day it is sent plus the agency's "Days for notice to vacate". */
+    public function defaultVacateDate(int $agencyId): Carbon
+    {
+        return Carbon::today()->addDays(LeaseSetting::vacateNoticeDaysFor($agencyId));
+    }
+
+    /** The last day to remedy: $days after $from, counted in business or calendar days. */
+    public function remedyDeadline(Carbon $from, int $days, string $basis): Carbon
+    {
+        return $basis === 'calendar' ? $from->copy()->startOfDay()->addDays($days) : $this->review->addBusinessDays($from, $days);
+    }
+
+    /** The figures a notice to vacate prints for its date and time ("30 November 2026", "12h00"). @return array<string,string> */
+    public function vacateFigures(string $date, ?string $time, int $agencyId): array
+    {
+        $time = $time && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $time) ? $time : LeaseSetting::vacateTimeFor($agencyId);
+
+        return ['vacate_date' => Carbon::parse($date)->format('j F Y'), 'vacate_time' => LeaseBreach::vacateTimeText($time)];
+    }
+
     // ── Issue ───────────────────────────────────────────────────────────────
 
     /**
@@ -63,7 +107,7 @@ class LeaseBreachService
      *
      * @throws ValidationException
      */
-    public function issuePayment(Lease $lease, float $amount, RentalNoticeTemplate $template, User $agent, ?string $batchRef = null, array $figures = []): LeaseBreach
+    public function issuePayment(Lease $lease, float $amount, RentalNoticeTemplate $template, User $agent, ?string $batchRef = null, array $figures = [], ?string $clause = null): LeaseBreach
     {
         if ($amount <= 0) {
             throw ValidationException::withMessages(['amount' => 'Enter the amount outstanding (more than R 0).']);
@@ -72,7 +116,7 @@ class LeaseBreachService
             throw ValidationException::withMessages(['lease' => 'A payment breach notice is already out for this lease and has not been remedied.']);
         }
 
-        return $this->issue($lease, LeaseBreach::KIND_PAYMENT, Lease::NOTICE_BY_TENANT, $amount, null, null, $template, $agent, $batchRef, $figures);
+        return $this->issue($lease, LeaseBreach::KIND_PAYMENT, Lease::NOTICE_BY_TENANT, $amount, trim((string) $clause) !== '' ? trim((string) $clause) : null, null, $template, $agent, $batchRef, $figures);
     }
 
     /**
@@ -95,10 +139,17 @@ class LeaseBreachService
     /** The filled notice text for a one-off breach, before anything is saved (names any placeholder still empty). @return array{html:string,missing:list<string>} */
     public function previewOther(Lease $lease, string $party, string $clause, string $reason, RentalNoticeTemplate $template, User $agent, array $figures = []): array
     {
-        $days = $this->remedyDays((int) $lease->agency_id);
+        return $this->previewBreach($lease, LeaseBreach::KIND_OTHER, $party, null, $clause, $reason, $template, $agent, $figures);
+    }
+
+    /** The filled text of a payment or ad hoc breach notice, before anything is saved. @return array{html:string,missing:list<string>} */
+    public function previewBreach(Lease $lease, string $kind, string $party, ?float $amount, string $clause, string $reason, RentalNoticeTemplate $template, User $agent, array $figures = []): array
+    {
+        $days = $this->remedyDaysFor($template, (int) $lease->agency_id);
+        $basis = $this->remedyBasis((int) $lease->agency_id);
         $transient = new LeaseBreach([
-            'kind' => LeaseBreach::KIND_OTHER, 'breach_party' => $party, 'clause' => $clause, 'reason' => $reason, 'issued_on' => Carbon::today(),
-            'remedy_business_days' => $days, 'remedy_deadline' => $this->review->addBusinessDays(Carbon::today(), $days),
+            'kind' => $kind, 'breach_party' => $party, 'amount' => $amount, 'clause' => $clause, 'reason' => $reason, 'issued_on' => Carbon::today(),
+            'remedy_business_days' => $days, 'remedy_day_basis' => $basis, 'remedy_deadline' => $this->remedyDeadline(Carbon::today(), $days, $basis),
         ]);
         $html = $this->notices->preview($template, $figures, $lease, $transient, $agent);
 
@@ -152,16 +203,92 @@ class LeaseBreachService
 
     // ── Remedy / vacate ─────────────────────────────────────────────────────
 
-    /** The breach has been put right. It can no longer be escalated. */
-    public function remedy(LeaseBreach $breach, User $agent, ?string $note): LeaseBreach
+    /** The breach has been put right (on $on, today when not given). It can no longer be escalated. */
+    public function remedy(LeaseBreach $breach, User $agent, ?string $note, ?string $on = null): LeaseBreach
     {
         if (! $breach->isIssued()) {
             throw ValidationException::withMessages(['breach' => 'This breach is not open.']);
         }
-        $breach->update(['status' => LeaseBreach::STATUS_REMEDIED, 'remedied_at' => now(), 'remedied_by_user_id' => $agent->id, 'remedied_note' => trim((string) $note) ?: null]);
-        $this->logEvent($breach->lease, LeaseEvent::TYPE_BREACH_REMEDIED, 'Breach remedied' . ($note ? ' - ' . trim($note) : ''), $agent, ['lease_breach_id' => $breach->id]);
+        $when = now();
+        if ($on !== null && trim($on) !== '') {
+            try {
+                $when = Carbon::parse($on)->startOfDay();
+            } catch (\Throwable) {
+                throw ValidationException::withMessages(['remedied_on' => 'That is not a date.']);
+            }
+            if ($when->gt(Carbon::today())) {
+                throw ValidationException::withMessages(['remedied_on' => 'The date it was put right cannot be in the future.']);
+            }
+            if ($when->lt($breach->issued_on->copy()->startOfDay())) {
+                throw ValidationException::withMessages(['remedied_on' => 'It cannot have been put right before the breach notice was issued.']);
+            }
+        }
+        $breach->update(['status' => LeaseBreach::STATUS_REMEDIED, 'remedied_at' => $when, 'remedied_by_user_id' => $agent->id, 'remedied_note' => trim((string) $note) ?: null]);
+        $this->logEvent($breach->lease, LeaseEvent::TYPE_BREACH_REMEDIED, 'Breach remedied on ' . $when->format('j M Y') . ($note ? ' - ' . trim($note) : ''), $agent, ['lease_breach_id' => $breach->id]);
 
         return $breach->fresh();
+    }
+
+    // ── Follow-up when the remedy-by date is reached (rental-notices.md §7b) ─────────────────────
+
+    /** The open breaches on this lease whose remedy-by date has been reached: "was it fixed?" is still unanswered. @return Collection<int,LeaseBreach> */
+    public function awaitingFollowUp(Lease $lease): Collection
+    {
+        return LeaseBreach::withoutGlobalScopes()->where('lease_id', $lease->id)->where('status', LeaseBreach::STATUS_ISSUED)->whereNull('deleted_at')
+            ->whereDate('remedy_deadline', '<=', Carbon::today()->toDateString())->orderBy('remedy_deadline')->orderBy('id')->get();
+    }
+
+    /**
+     * Breaches whose remedy-by date has been reached and whose agents have not been told yet (running leases only).
+     *
+     * @return Collection<int,LeaseBreach>
+     */
+    public function dueForAlert(?int $agencyId = null, ?int $leaseId = null): Collection
+    {
+        $q = LeaseBreach::withoutGlobalScopes()->where('status', LeaseBreach::STATUS_ISSUED)->whereNull('deleted_at')->whereNull('remedy_alert_sent_at')
+            ->whereDate('remedy_deadline', '<=', Carbon::today()->toDateString())
+            ->whereIn('lease_id', Lease::withoutGlobalScopes()->where('status', Lease::STATUS_ACTIVE)->whereNull('deleted_at')->select('id'));
+        if ($agencyId) {
+            $q->where('agency_id', $agencyId);
+        }
+        if ($leaseId) {
+            $q->where('lease_id', $leaseId);
+        }
+
+        return $q->orderBy('id')->get();
+    }
+
+    /**
+     * Tell the lease's agents once - an in-app alert (and an email, per each person's own settings) under the breach's OWN alert type.
+     *
+     * @return int how many agents were reached
+     */
+    public function sendRemedyAlert(LeaseBreach $breach): int
+    {
+        $lease = Lease::withoutGlobalScopes()->find($breach->lease_id);
+        $property = $lease?->property()->withoutGlobalScopes()->first();
+        if (! $lease || ! $property) {
+            return 0;
+        }
+        $title = \App\Support\RentalAlertTitle::withProperty('Breach remedy date reached - was it fixed?', $property);
+        $body = 'The remedy-by date on the breach notice of ' . $breach->issued_on->format('j M Y') . ' (' . $breach->remedy_deadline->format('j M Y') . ') has been reached and the breach is not marked remedied. '
+            . 'Open the lease and say whether it was fixed, or send a notice to vacate.';
+        $url = route('corex.leases.show', $lease->id);
+        $reached = 0;
+        foreach (app(LeaseAgentService::class)->recipientsForEvent($lease, $property, (int) $lease->agency_id, null) as $agent) {
+            try {
+                if (app(NotificationDispatcher::class)->fire($agent, self::EVENT_REMEDY_DATE_REACHED, $breach, [
+                    'title' => $title, 'body' => $body, 'action_url' => $url, 'severity' => 'warning', 'threshold_hit_at' => now(),
+                ])) {
+                    $reached++;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Breach remedy alert failed', ['breach' => $breach->id, 'agent' => $agent->id, 'error' => $e->getMessage()]);
+            }
+        }
+        $breach->forceFill(['remedy_alert_sent_at' => now()])->save(); // once - even when nobody could be reached, the NEXT bar still asks
+
+        return $reached;
     }
 
     /**
@@ -169,7 +296,7 @@ class LeaseBreachService
      *
      * @throws ValidationException when it is not allowed yet / any more
      */
-    public function issueVacate(LeaseBreach $breach, RentalNoticeTemplate $template, User $agent, array $figures = []): LeaseBreach
+    public function issueVacate(LeaseBreach $breach, RentalNoticeTemplate $template, User $agent, array $figures = [], ?string $vacateDate = null, ?string $vacateTime = null): LeaseBreach
     {
         if ($breach->breach_party !== Lease::NOTICE_BY_TENANT) {
             throw ValidationException::withMessages(['breach' => 'A notice to vacate is only for a tenant who is in breach.']);
@@ -178,11 +305,25 @@ class LeaseBreachService
             throw ValidationException::withMessages(['breach' => 'A notice to vacate needs an open breach notice that has not been remedied.']);
         }
         if (! $breach->remedyWindowPassed()) {
-            throw ValidationException::withMessages(['breach' => 'The tenant still has until ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available after that date.']);
+            throw ValidationException::withMessages(['breach' => 'The tenant still has until ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available from that date.']);
         }
+        if ($vacateDate === null || trim($vacateDate) === '') {
+            throw ValidationException::withMessages(['vacate_date' => 'Choose the date the tenant must be out by.']);
+        }
+        try {
+            $vacateOn = Carbon::parse($vacateDate)->startOfDay();
+        } catch (\Throwable) {
+            throw ValidationException::withMessages(['vacate_date' => 'That is not a date.']);
+        }
+        if ($vacateOn->lt(Carbon::today())) {
+            throw ValidationException::withMessages(['vacate_date' => 'The date the tenant must be out by cannot be in the past.']);
+        }
+        $time = $vacateTime && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $vacateTime) ? $vacateTime : LeaseSetting::vacateTimeFor((int) $breach->agency_id);
         $lease = $breach->lease;
 
-        [$notice, $pdf, $filename] = DB::transaction(function () use ($breach, $template, $agent, $figures, $lease) {
+        [$notice, $pdf, $filename] = DB::transaction(function () use ($breach, $template, $agent, $figures, $lease, $vacateOn, $time) {
+            // the date and time are filed on the breach first so the notice prints them (typed figures still win)
+            $breach->forceFill(['vacate_date' => $vacateOn->toDateString(), 'vacate_time' => $time])->save();
             $result = $this->notices->generate($lease, $template, $figures, true, true, $agent, $breach);
             $breach->update(['status' => LeaseBreach::STATUS_ESCALATED, 'vacate_issued_at' => now(), 'vacate_issued_by_user_id' => $agent->id, 'vacate_rental_notice_id' => $result[0]->id]);
 
@@ -218,14 +359,15 @@ class LeaseBreachService
             throw ValidationException::withMessages(['rental_notice_template_id' => 'Choose one of your agency\'s notice templates.']);
         }
 
-        $days = $this->remedyDays((int) $lease->agency_id);
+        $days = $this->remedyDaysFor($template, (int) $lease->agency_id);
+        $basis = $this->remedyBasis((int) $lease->agency_id);
         $today = Carbon::today();
 
-        [$breach, $notice, $pdf, $filename] = DB::transaction(function () use ($lease, $kind, $party, $amount, $clause, $reason, $template, $agent, $batch, $figures, $days, $today) {
+        [$breach, $notice, $pdf, $filename] = DB::transaction(function () use ($lease, $kind, $party, $amount, $clause, $reason, $template, $agent, $batch, $figures, $days, $basis, $today) {
             $breach = LeaseBreach::withoutGlobalScopes()->create([
                 'agency_id' => $lease->agency_id, 'branch_id' => $lease->branch_id, 'lease_id' => $lease->id, 'kind' => $kind, 'breach_party' => $party,
                 'amount' => $amount, 'clause' => $clause, 'reason' => $reason, 'status' => LeaseBreach::STATUS_ISSUED, 'issued_on' => $today->toDateString(),
-                'remedy_business_days' => $days, 'remedy_deadline' => $this->review->addBusinessDays($today, $days)->toDateString(),
+                'remedy_business_days' => $days, 'remedy_day_basis' => $basis, 'remedy_deadline' => $this->remedyDeadline($today, $days, $basis)->toDateString(),
                 'issued_by_user_id' => $agent->id, 'batch_ref' => $batch,
             ]);
             // the document: both parties may read it in their portal

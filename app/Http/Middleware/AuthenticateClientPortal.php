@@ -38,9 +38,35 @@ class AuthenticateClientPortal
         config(['sanctum.guard' => $request->bearerToken() ? [] : ['client-web']]);
 
         try {
-            return $this->authenticate->handle($request, $next, 'sanctum');
+            return $this->authenticate->handle($request, function (Request $authed) use ($next) {
+                $this->renewAppToken($authed);
+
+                return $next($authed);
+            }, 'sanctum');
         } finally {
             config(['sanctum.guard' => $default]);
+        }
+    }
+
+    /**
+     * client-auth.md "30 days, sliding": a phone app's long-lived token lasts `portal_app_token_days` (the agency's setting, default 30) from its
+     * LAST use, so an app in regular use never signs out and an abandoned or lost phone does (audit 2026-10-19 D4). Renewed at most once an
+     * hour (one write, not one per request). A web tab's 12-hour token and the 15-minute activation token are never extended.
+     */
+    private function renewAppToken(Request $request): void
+    {
+        $user = $request->user();
+        $token = $user instanceof \App\Models\ClientUser ? $user->currentAccessToken() : null;
+        if (! $token instanceof \Laravel\Sanctum\PersonalAccessToken
+            || ! $token->expires_at instanceof \Carbon\CarbonInterface
+            || $token->name === \App\Services\PortalTabSession::tokenName()
+            || ! $token->can((string) config('clientauth.token.ability', 'client'))) {
+            return;
+        }
+
+        $target = now()->addDays(\App\Models\RentalPortalSetting::portalAppTokenDaysFor($user->activeAgencyId()));
+        if ($token->expires_at->lt($target->copy()->subHour())) {
+            $token->forceFill(['expires_at' => $target])->save();
         }
     }
 }

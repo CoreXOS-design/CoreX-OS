@@ -14,7 +14,8 @@
             <tr><td class="label">Property</td><td>{{ $workOrder->property?->buildDisplayAddress() ?? '—' }}</td></tr>
             <tr><td class="label">Job</td><td>{{ $workOrder->title }}</td></tr>
             <tr><td class="label">Completed</td><td>{{ $workOrder->completed_at?->format('Y-m-d') ?? '—' }}</td></tr>
-            <tr><td class="label">Paid by</td><td>{{ $workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—' }}</td></tr>
+            @php $fsRuling = $workOrder->who_pays_ruling_id ? \App\Models\RentalPayerRuling::withoutGlobalScopes()->find($workOrder->who_pays_ruling_id) : null; @endphp
+            <tr><td class="label">Paid by</td><td data-final-statement-paid-by>{{ $fsRuling ? $fsRuling->summary() : ($workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—') }}</td></tr>
             @if($vatNumber)<tr><td class="label">VAT No</td><td>{{ $vatNumber }}</td></tr>@endif
         </table>
     </div>

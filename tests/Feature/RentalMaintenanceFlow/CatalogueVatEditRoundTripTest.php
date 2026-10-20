@@ -16,11 +16,10 @@ use Tests\Feature\RentalMaintenanceFlow\Concerns\BuildsPricingFixtures;
 use Tests\TestCase;
 
 /**
- * Parts & Labour Catalogue EDIT screen, VAT round trip (2026-10-07). The price box on the edit screen must show the figure in
- * the SAME basis the agency captures in (incl or excl) — the stored default_price/default_cost is always excl — so a plain Save
- * with nothing touched leaves the stored value unchanged to the cent. Before the fix an incl-VAT agency's edit box was seeded with
- * the stored EXCL figure, which the save then treated as incl: 100.00 -> 86.96 -> 75.62 ...
- * Spec: .ai/specs/rental-work-orders.md §14.31.
+ * Parts & Labour Catalogue EDIT screen, save round trip. The stored figures are always excl VAT (selling_excl / cost_excl); since
+ * §17.38 the screen shows and posts BOTH excl and incl, so a plain Save with nothing touched must leave every stored figure
+ * unchanged to the cent, whatever the agency's VAT capture mode and rate (the 2026-10-07 bug: 100.00 -> 86.96 -> 75.62 ...).
+ * Spec: .ai/specs/rental-work-orders.md §14.31, §17.38.
  */
 final class CatalogueVatEditRoundTripTest extends TestCase
 {
@@ -48,17 +47,13 @@ final class CatalogueVatEditRoundTripTest extends TestCase
         ]);
     }
 
-    /** What the edit screen actually offers in the price box and the cost box. */
+    /** What the edit screen seeds its boxes with. */
     private function shown(RentalCatalogueItem $item): array
     {
-        $html = $this->actingAs($this->user)->get(route('corex.rental-catalogue-items.edit', $item))->assertOk()->getContent();
-        $this->assertSame(1, preg_match('/price: ([0-9.]+),/', $html, $price), 'price seed not found');
-        $this->assertSame(1, preg_match('/name="default_cost" value="([0-9.]*)"/', $html, $cost), 'cost box not found');
-
-        return ['price' => $price[1], 'cost' => $cost[1]];
+        return $this->actingAs($this->user)->get(route('corex.rental-catalogue-items.edit', $item))->assertOk()->viewData('pricingInit');
     }
 
-    /** A plain Save: the browser posts back exactly what the form showed. */
+    /** A plain Save: the browser posts back exactly what the form showed, the driver being the selling excl it loaded with. */
     private function saveUnchanged(RentalCatalogueItem $item, ?string $customRate = null): void
     {
         $shown = $this->shown($item);
@@ -66,42 +61,46 @@ final class CatalogueVatEditRoundTripTest extends TestCase
             'rental_catalogue_item_type_id' => $item->rental_catalogue_item_type_id,
             'code' => $item->code, 'description' => $item->description,
             'rental_catalogue_unit_id' => $item->rental_catalogue_unit_id,
-            'default_price' => $shown['price'], 'default_cost' => $shown['cost'],
+            'cost_excl' => $shown['cost_excl'], 'cost_incl' => $shown['cost_incl'],
+            'selling_excl' => $shown['selling_excl'], 'selling_incl' => $shown['selling_incl'],
+            'markup_type' => $shown['markup_type'], 'markup_value' => $shown['markup_value'],
+            'pricing_driver' => $shown['driver'], 'cost_basis' => 'excl',
             'default_rental_vat_type_id' => $item->default_rental_vat_type_id,
             'default_custom_vat_rate' => $customRate ?? $item->default_custom_vat_rate,
             'is_active' => 1,
         ])->assertRedirect(route('corex.rental-catalogue-items.index'));
     }
 
-    public function test_incl_agency_create_then_edit_shows_incl_and_ten_plain_saves_never_move_the_price(): void
+    public function test_typing_incl_figures_stores_excl_and_ten_plain_saves_never_move_them(): void
     {
         $this->world(Agency::VAT_CAPTURE_INCL);
 
-        // Create typing R115.00 incl (and R57.50 cost incl) -> stored excl 100.00 / 50.00.
+        // Create typing R115.00 incl selling (and R57.50 cost incl) -> stored excl 100.00 / 50.00.
         $this->actingAs($this->user)->post(route('corex.rental-catalogue-items.store'), [
             'rental_catalogue_item_type_id' => RentalCatalogueItemType::where('agency_id', $this->agency->id)->where('kind', 'part')->firstOrFail()->id,
             'code' => 'INCL-1', 'description' => 'Incl item',
             'rental_catalogue_unit_id' => RentalCatalogueUnit::where('agency_id', $this->agency->id)->where('name', 'Each')->firstOrFail()->id,
-            'default_price' => '115.00', 'default_cost' => '57.50',
+            'selling_incl' => '115.00', 'cost_incl' => '57.50', 'pricing_driver' => 'selling_incl', 'cost_basis' => 'incl',
             'default_rental_vat_type_id' => $this->standardVat()->id, 'is_active' => 1,
         ])->assertRedirect();
 
         $item = RentalCatalogueItem::where('code', 'INCL-1')->firstOrFail();
-        $this->assertSame('100.00', (string) $item->default_price);
-        $this->assertSame('50.00', (string) $item->default_cost);
+        $this->assertSame('100.00', (string) $item->selling_excl);
+        $this->assertSame('50.00', (string) $item->cost_excl);
+        $this->assertSame('100.00', (string) $item->default_price, 'legacy column kept in step');
 
-        // The edit screen shows the INCL figures, not the stored excl ones.
-        $this->assertSame(['price' => '115', 'cost' => '57.50'], $this->shown($item));
+        $shown = $this->shown($item);
+        $this->assertSame([115.0, 57.5], [$shown['selling_incl'], $shown['cost_incl']]);
 
         for ($i = 1; $i <= 10; $i++) {
             $this->saveUnchanged($item);
             $item->refresh();
-            $this->assertSame('100.00', (string) $item->default_price, "price moved on plain save #{$i}");
-            $this->assertSame('50.00', (string) $item->default_cost, "cost moved on plain save #{$i}");
+            $this->assertSame('100.00', (string) $item->selling_excl, "selling moved on plain save #{$i}");
+            $this->assertSame('50.00', (string) $item->cost_excl, "cost moved on plain save #{$i}");
         }
     }
 
-    public function test_incl_agency_odd_cent_prices_and_a_custom_rate_are_stable_over_ten_saves(): void
+    public function test_odd_cent_prices_and_a_custom_rate_are_stable_over_ten_saves(): void
     {
         $this->world(Agency::VAT_CAPTURE_INCL);
         $custom = RentalVatType::where('agency_id', $this->agency->id)->where('rate_mode', RentalVatType::RATE_MODE_CUSTOM_PER_LINE)->firstOrFail();
@@ -119,8 +118,8 @@ final class CatalogueVatEditRoundTripTest extends TestCase
             for ($i = 1; $i <= 10; $i++) {
                 $this->saveUnchanged($item, $rate !== null ? (string) $rate : null);
                 $item->refresh();
-                $this->assertSame(number_format($excl, 2, '.', ''), (string) $item->default_price, "{$code} price moved on save #{$i}");
-                $this->assertSame(number_format($cost, 2, '.', ''), (string) $item->default_cost, "{$code} cost moved on save #{$i}");
+                $this->assertSame(number_format($excl, 2, '.', ''), (string) $item->selling_excl, "{$code} selling moved on save #{$i}");
+                $this->assertSame(number_format($cost, 2, '.', ''), (string) $item->cost_excl, "{$code} cost moved on save #{$i}");
             }
         }
     }
@@ -142,36 +141,19 @@ final class CatalogueVatEditRoundTripTest extends TestCase
         $this->addToAssertionCount(1);
     }
 
-    public function test_excl_agency_is_unaffected_by_the_fix(): void
-    {
-        $this->world(Agency::VAT_CAPTURE_EXCL);
-        $item = $this->item('EXCL-1', 100.00, 50.00);
-
-        $this->assertSame(['price' => '100', 'cost' => '50.00'], $this->shown($item));
-        for ($i = 1; $i <= 10; $i++) {
-            $this->saveUnchanged($item);
-            $item->refresh();
-            $this->assertSame('100.00', (string) $item->default_price);
-            $this->assertSame('50.00', (string) $item->default_cost);
-        }
-    }
-
-    public function test_switching_the_capture_basis_changes_what_is_shown_but_never_what_is_stored(): void
+    public function test_the_agency_capture_mode_changes_neither_what_is_shown_nor_what_is_stored(): void
     {
         $this->world(Agency::VAT_CAPTURE_EXCL);
         $item = $this->item('SWITCH-1', 100.00, 50.00);
-        $this->assertSame(['price' => '100', 'cost' => '50.00'], $this->shown($item));
+        $before = $this->shown($item);
+        $this->assertSame([100.0, 115.0, 50.0, 57.5], [$before['selling_excl'], $before['selling_incl'], $before['cost_excl'], $before['cost_incl']]);
 
         $this->agency->update(['vat_capture_mode' => Agency::VAT_CAPTURE_INCL]);
-        $this->assertSame(['price' => '115', 'cost' => '57.50'], $this->shown($item));
-        $this->assertSame('100.00', (string) $item->fresh()->default_price);
-        $this->assertSame('50.00', (string) $item->fresh()->default_cost);
+        $this->assertSame($before, $this->shown($item->fresh()));
 
         $this->saveUnchanged($item);
-        $this->assertSame('100.00', (string) $item->fresh()->default_price);
-
-        $this->agency->update(['vat_capture_mode' => Agency::VAT_CAPTURE_EXCL]);
-        $this->assertSame(['price' => '100', 'cost' => '50.00'], $this->shown($item->fresh()));
+        $this->assertSame('100.00', (string) $item->fresh()->selling_excl);
+        $this->assertSame('50.00', (string) $item->fresh()->cost_excl);
     }
 
     public function test_job_card_prefill_from_the_catalogue_does_not_drift_either(): void

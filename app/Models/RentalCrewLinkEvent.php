@@ -21,6 +21,8 @@ class RentalCrewLinkEvent extends Model
     public const EVENT_ISSUED = 'issued';
     public const EVENT_REGENERATED = 'regenerated';
     public const EVENT_EMAILED = 'emailed';
+    /** The office pressed "WhatsApp": WhatsApp was OPENED with the link ready. CoreX cannot know the message went (AT-385), so this is never called "sent". */
+    public const EVENT_WHATSAPP = 'whatsapp';
     public const EVENT_REVOKED = 'revoked';
     public const EVENT_OPENED = 'opened';
     public const EVENT_JOB_OPENED = 'job_opened';
