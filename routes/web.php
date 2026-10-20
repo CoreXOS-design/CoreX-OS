@@ -640,6 +640,17 @@ Route::middleware('auth')->group(function () {
         Route::post('/system-updates/dismiss', \App\Http\Controllers\Api\V1\SystemUpdateDismissController::class)
             ->name('system-updates.dismiss');
 
+        // AT-478 Part 3 — gradual feature rollout pop-ups (server-rendered by
+        // layouts/partials/feature-rollout-popups, so no GET). seen = self-scoped like
+        // system-updates/dismiss; review = the admin's role-access decision.
+        // Spec: .ai/specs/agency-feature-rollout.md §5.3, §5.4
+        Route::post('/feature-rollout/announcements/seen', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'seen'])
+            ->middleware('agency.required')
+            ->name('feature-rollout.announcements.seen');
+        Route::post('/feature-rollout/access-review', [\App\Http\Controllers\Api\V1\FeatureRolloutPopupController::class, 'review'])
+            ->middleware(['permission:manage_feature_rollout', 'agency.required'])
+            ->name('feature-rollout.access-review');
+
         // AT-448 — "Mandates expiring soon" pop-up: per-user "shown" record.
         // Same shape as system-updates/dismiss (self-scoped, idempotent, no GET
         // — the popup is server-rendered by the Properties page).

@@ -258,6 +258,10 @@
              with a registered tour. See App\Support\Tours\TourRegistry. --}}
         @include('layouts.partials.tour-engine')
 
+        {{-- AT-478 — gradual feature rollout pop-ups (admin access review / "New in CoreX").
+             Emits nothing when the agency is not on gradual rollout. Spec: .ai/specs/agency-feature-rollout.md §5.3–5.4 --}}
+        @include('layouts.partials.feature-rollout-popups')
+
         {{-- System Updates — the "what's new in CoreX" pop-up. Emits nothing (and
              issues zero DB queries) when the user has nothing pending.
              Spec: .ai/specs/system-updates.md --}}

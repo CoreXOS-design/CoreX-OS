@@ -324,3 +324,38 @@ Decisions made while building Part 1. Where these refine an earlier section, thi
    list in the default order (off). Waves are created in default order so the merge is exact.
 7. **Permission** `manage_feature_rollout` (settings module): admin / super_admin by the all-minus-exclude
    rule; nobody else by default. Deploys run `corex:sync-permissions --merge-defaults`.
+
+## 15. Build notes — Part 3 (admin access review + release pop-up) — 2026-10-20
+
+1. **One partial, both layouts:** `layouts/partials/feature-rollout-popups` (included just before the System
+   Updates pop-up, rendered above it with z-[75]). At most ONE rollout pop-up per page, chosen by
+   `FeatureRolloutAccess::popupFor()`: released-but-unreviewed review → upcoming review → release pop-up.
+   An agency with no plan costs one indexed lookup and renders nothing.
+2. **When the admin is asked:** users holding `manage_feature_rollout` (not the System Owner). Upcoming = an
+   ACTIVE plan's unreleased wave once today is on or after the release day before its date
+   (`RolloutCalendar::previousReleaseDay`, so a Monday wave is asked on Friday). Released = any released
+   wave with no `access_reviewed_at`. All waiting waves of the same kind are shown together in one pop-up.
+   A wave with nothing to decide (only features that own no permissions, or only skipped features) is not asked.
+3. **Buttons:** Save access (writes the ticks, marks reviewed), Keep as is (marks reviewed), Hold this group
+   (upcoming only — pauses the plan, stays unreviewed so it asks again after Resume), Ask me next time
+   (session only — asked again at next sign-in). Reviewed is per wave, so one admin clears it for all.
+4. **The role grid** lists the Role Manager's own editable roles (agency roles, no owner, no assistant).
+   A role "has" a feature when it holds any of the feature's own nav permissions (else any permission the
+   feature owns). A feature owning no permissions shows "everyone who can open this part of CoreX".
+5. **Write path (§3.1):** `FeatureRolloutAccess::setRoleAccess()` touches only that feature's own permissions
+   for that role. The Role Manager saver is NOT reused because it rebuilds a role's whole list and freezes
+   the permissions of switched-off features — which an upcoming wave's features are. Same rules as the Role
+   Manager: revoke = soft delete (the tombstone `--merge-defaults` respects); grant = restore the role's
+   tombstoned rows for that feature, else its `role_defaults` keys for that feature, else just the nav
+   permission. Only features of the reviewed waves and only posted roles are touched.
+6. **Release pop-up:** once per user per released wave (`rollout_announcement_views`, kind `release`), listing
+   only released / released-early features the user can open (feature on + nav permission). "Take the tour"
+   uses `TourRegistry::canOpen()` + `launchTarget()`; no tour = the feature's explain text only. Not shown for
+   waves released before the user's account existed or more than 30 days ago. Closing or opening a tour
+   records it as seen (keepalive, same as System Updates).
+7. **Endpoints (NN #7):** `POST /api/v1/feature-rollout/access-review` (`api.v1.feature-rollout.access-review`,
+   `permission:manage_feature_rollout`) and `POST /api/v1/feature-rollout/announcements/seen`
+   (`api.v1.feature-rollout.announcements.seen`). The plan always comes from the user's own agency; wave ids
+   outside it are ignored.
+8. **New table:** `rollout_announcement_views` (migration `2026_11_18_100100`). Schema snapshot regen still
+   pending (with §13.10).
