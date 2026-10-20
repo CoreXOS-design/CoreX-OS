@@ -17,7 +17,7 @@
                     <option value="{{ $value }}" @selected(old('track', $item?->track ?? 'general') === $value)>{{ $label }}</option>
                 @endforeach
             </select>
-            <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">Rentals waves go first for rentals agencies, and run alongside the others when an agency chooses "side by side".</span>
+            <span class="text-[11px] mt-1 block" style="color:var(--text-muted);">Rentals waves go first for rentals agencies, and run alongside the others when an agency chooses "side by side". "Admin decides" waves switch on after every other wave, for the agency's admins only — the admin then decides who else gets them, and nobody else is told about them until then.</span>
         </label>
     </div>
     <label class="block">

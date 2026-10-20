@@ -18,6 +18,8 @@ class FeatureRolloutWave extends Model
         'general' => 'General',
         'sales'   => 'Sales',
         'rentals' => 'Rentals',
+        // "Admin decides" (spec §18): switches on after every other group, for the agency's admins only.
+        'admin'   => 'Admin decides (at the end)',
     ];
 
     protected $fillable = ['track', 'position', 'title', 'intro_text', 'feature_keys'];

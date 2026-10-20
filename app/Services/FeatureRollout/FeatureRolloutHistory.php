@@ -33,6 +33,9 @@ class FeatureRolloutHistory
     /** @var array<string,string> role name => the agency's label for it */
     private array $roleLabels = [];
 
+    /** @var array<int,int> ids of "Admin decides" waves (§18) among the rows being described */
+    private array $adminWaves = [];
+
     public function __construct(private readonly AgencyFeatureService $features)
     {
     }
@@ -92,7 +95,9 @@ class FeatureRolloutHistory
         $this->roleLabels = Role::where('agency_id', $agencyId)->pluck('label', 'name')->all();
         $users = User::withoutGlobalScopes()->whereIn('id', $rows->pluck('actor_user_id')->filter()->unique())->get()->keyBy('id');
         $waveIds = $rows->map(fn ($r) => json_decode((string) $r->payload_snapshot, true)['waveId'] ?? null)->filter()->unique();
-        $waves = AgencyRolloutWave::queryWithoutAgencyScope()->withTrashed()->whereIn('id', $waveIds)->pluck('title', 'id');
+        $waveRows = AgencyRolloutWave::queryWithoutAgencyScope()->withTrashed()->whereIn('id', $waveIds)->get(['id', 'title', 'lane']);
+        $waves = $waveRows->pluck('title', 'id');
+        $this->adminWaves = $waveRows->filter(fn ($w) => $w->isAdminDecides())->pluck('id')->flip()->all();
 
         $items = $rows->map(function ($r) use ($users, $waves) {
             $p = (array) json_decode((string) $r->payload_snapshot, true);
@@ -125,6 +130,9 @@ class FeatureRolloutHistory
     {
         $title = $waves[$p['waveId'] ?? 0] ?? 'A group';
         $text = "\"{$title}\" switched on: " . $this->labels((array) ($p['releasedFeatureKeys'] ?? [])) . '.';
+        if (isset($this->adminWaves[$p['waveId'] ?? 0])) {
+            $text .= ' For the admins only until they decide who else gets it.';
+        }
         if (! empty($p['awaitingAdminKeys'])) {
             $text .= ' Waiting for the agency: ' . $this->labels((array) $p['awaitingAdminKeys']) . '.';
         }

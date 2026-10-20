@@ -67,9 +67,14 @@ class FeatureRolloutUpdates
         $coming = [];
         $on = [];
 
+        $managesRollout = $user->isOwnerRole() || $user->hasPermission('manage_feature_rollout');
         foreach ($this->rollout->wavesOf($plan) as $wave) {
             $items = $this->rollout->itemsOf($wave);
             if ($wave->released_at === null) {
+                // §18 — "Admin decides" is not announced to anyone but the admins until they give it out.
+                if ($wave->isAdminDecides() && ! $managesRollout) {
+                    continue;
+                }
                 $f = [];
                 foreach ($items->where('state', AgencyRolloutItem::STATE_HELD) as $item) {
                     $f[] = [
@@ -89,7 +94,7 @@ class FeatureRolloutUpdates
             foreach ($items as $item) {
                 $live = in_array($item->state, self::ON, true);
                 $waiting = in_array($item->state, [AgencyRolloutItem::STATE_AWAITING_ADMIN, AgencyRolloutItem::STATE_AWAITING_SETUP], true);
-                if (! $live && ! $waiting) {
+                if ((! $live && ! $waiting) || ($waiting && $wave->isAdminDecides() && ! $managesRollout)) {
                     continue;
                 }
                 if ($live && ! $this->access->userCanAccess($user, $item->feature_key, $agency)) {
@@ -138,7 +143,8 @@ class FeatureRolloutUpdates
     {
         $plan = $this->planFor($user);
         $item = $plan ? AgencyRolloutItem::queryWithoutAgencyScope()->where('rollout_id', $plan->id)->find($itemId) : null;
-        if (! $item || $item->state !== AgencyRolloutItem::STATE_HELD) {
+        $wave = $item ? AgencyRolloutWave::queryWithoutAgencyScope()->find($item->wave_id) : null;
+        if (! $item || $item->state !== AgencyRolloutItem::STATE_HELD || ($wave?->isAdminDecides() && ! $user->hasPermission('manage_feature_rollout'))) {
             throw new \DomainException('That feature is not waiting to switch on.');
         }
         $label = (string) ($this->features->catalogue()[$item->feature_key]['label'] ?? $item->feature_key);
@@ -149,7 +155,6 @@ class FeatureRolloutUpdates
         }
 
         app(FeatureRolloutUsage::class)->mark((int) $plan->agency_id, (int) $user->id, $item->feature_key, 'early_requested_at');
-        $wave = AgencyRolloutWave::queryWithoutAgencyScope()->find($item->wave_id);
         $date = $plan->status === AgencyFeatureRollout::STATUS_ACTIVE ? $wave?->scheduled_for?->format('l j F') : null;
         foreach ($this->rolloutAdmins((int) $plan->agency_id)->reject(fn ($a) => $a->id === $user->id) as $admin) {
             $admin->notify(new RolloutEarlyRequestNotification($user->name ?: $user->email, $item->feature_key, $label, $date));
@@ -195,7 +200,7 @@ class FeatureRolloutUpdates
                 continue;
             }
             $due = $this->rollout->wavesOf($plan)->filter(fn ($w) => $w->released_at === null && $w->scheduled_for !== null
-                && $w->access_reviewed_at === null && $w->admin_notified_at === null
+                && $w->access_reviewed_at === null && $w->admin_notified_at === null && ! $w->isAdminDecides()
                 && $now->toDateString() >= $this->calendar->previousReleaseDay($w->scheduled_for, $plan)->toDateString());
             $due = $due->filter(fn ($w) => $this->rollout->itemsOf($w)->where('state', AgencyRolloutItem::STATE_HELD)->isNotEmpty())->values();
             if ($due->isEmpty()) {

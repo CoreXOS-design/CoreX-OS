@@ -475,3 +475,42 @@ tours (and the core Contacts / Properties / Command Centre / FICA tours) were no
 After the fix, 26 of the 66 features a group can hold have a tour; the other 40 genuinely have none in
 `TourRegistry` (all 16 Rentals features, Road to Sold, Marketing, Public Website, Title Deeds and others).
 Writing those tours is separate work, not part of this ticket.
+
+## 18. "Admin decides" group — 2026-10-20 (Andre)
+
+**Ask (verbatim):** "Now I need somehting for the end where I can put all the last features that like agent wont see
+that the admin will see in the end and then deicde if anyone should see them but they should not fo out to like the
+flow or watever". **Decisions (Andre, answered in the lane):** the admin gets them **at the end**; when the admin
+later gives a role access, those people get the **"New in CoreX" pop-up with the guided tour**; the agents'
+"New and coming" page does **not** mention them.
+
+**Behaviour.**
+- Dev Settings → Feature rollout: a wave's Track can be **"Admin decides (at the end)"** (`feature_rollout_waves.track = 'admin'`).
+  Every agency type gets those waves, in their own lane (`agency_rollout_waves.lane = 3`, `AgencyRolloutWave::LANE_ADMIN`).
+- Scheduling: an "Admin decides" group is dated after the LAST of the other groups (any lane) and is only ever the
+  next group once every other group has switched on — "Switch the next group on now" cannot reach it early.
+  Side by side never moves it (relane skips lane 3).
+- Switching on (on schedule, Switch everything on, Switch on now, Set up first → ready, outward-facing switch-on):
+  `FeatureRolloutService::switchOn()` first limits the feature to the agency's **admin roles**
+  (`FeatureRolloutAccess::adminRoles()` = editable roles holding `manage_feature_rollout`, else the role named
+  `admin`): every other role's access is soft-revoked the Role Manager's way (a later grant restores exactly what
+  the role had), the admin roles are granted. Then the feature switches on.
+- No day-before review and no day-before notice for it (nobody else is affected). No low-use suggestion for it.
+- Once on, the admin's pop-up asks **"Ready for you — who else should see these?"** (kind `review_admin`) with the
+  role grid, Save access / **Keep for admins only** / Ask me next time. A normal group waiting for review is asked first.
+- Settings → Feature rollout shows the group badged "Admin decides — admins only" and, once on, a
+  **"Who else sees the "Admin decides" features"** grid (POST `corex.feature-rollout.access`, `manage_feature_rollout`,
+  own agency, only those features and the agency's own editable roles; admin roles shown ticked and fixed;
+  hidden "0" companion per box, §6.1). Saves are recorded in the history ("Who gets access").
+- Announcing: an "Admin decides" feature is announced per person per feature, not per group — whoever can open
+  it and has not been told (`rollout_feature_users.announced_at`) gets it in "New in CoreX" with its tour, however
+  the access was given (this pop-up, the Feature rollout page or the Role Manager), and at any time later.
+- Hidden from everyone but the rollout admins until given out: "New and coming" (coming list and its waiting
+  items), Ellie's `whats_new_for_me` (same source), and asking for it early (refused).
+- Agency Setup Progress (CoreX team): "Add a group" offers "Admin decides — at the end, admins only"; features can
+  be moved into it like any group.
+
+**Data.** Migration `2026_11_25_100000_add_announced_at_to_rollout_feature_users_table`. No new permission key, no
+new agency setting (Dev Settings default only — not a wizard setting, #10a not triggered).
+
+**Test.** `tests/Feature/Features/FeatureRolloutAdminDecidesTest.php` (6).

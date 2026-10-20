@@ -8,6 +8,7 @@ use App\Models\FeatureRollout\AgencyFeatureRollout;
 use App\Models\FeatureRollout\AgencyRolloutItem;
 use App\Models\FeatureRollout\AgencyRolloutWave;
 use App\Models\FeatureRollout\RolloutAnnouncementView;
+use App\Models\FeatureRollout\RolloutFeatureUser;
 use App\Models\Role;
 use App\Models\RolePermission;
 use App\Models\User;
@@ -178,6 +179,54 @@ class FeatureRolloutAccess
         return $defaults !== [] ? array_values(array_unique(array_merge($defaults, $this->entryKeys($feature)))) : $this->entryKeys($feature);
     }
 
+    // ── "Admin decides" (§18) ───────────────────────────────────────────────────
+
+    /**
+     * The agency's admin roles: the editable roles that may manage the rollout (the people who get the access
+     * pop-up). An agency with no such grant yet falls back to its role named "admin".
+     *
+     * @return list<string>
+     */
+    public function adminRoles(int $agencyId): array
+    {
+        $roles = $this->editableRoles($agencyId)->pluck('name')->all();
+        $admins = RolePermission::where('agency_id', $agencyId)->whereIn('role', $roles)
+            ->where('permission_key', 'manage_feature_rollout')->pluck('role')->unique()->values()->all();
+
+        return $admins !== [] ? $admins : array_values(array_intersect($roles, ['admin']));
+    }
+
+    /**
+     * Limit features to the agency's admin roles: every other role's access is taken away (soft — a later
+     * grant restores exactly what that role had), and the admin roles are given it.
+     *
+     * @param list<string> $keys
+     */
+    public function keepToAdmins(int $agencyId, array $keys): void
+    {
+        $admins = $this->adminRoles($agencyId);
+        foreach ($this->editableRoles($agencyId)->pluck('name') as $role) {
+            foreach ($keys as $key) {
+                $this->setRoleAccess($agencyId, (string) $role, (string) $key, in_array($role, $admins, true));
+            }
+        }
+    }
+
+    /**
+     * The plan's "Admin decides" features that are on, for the Feature rollout page's "who else sees these".
+     *
+     * @return list<string>
+     */
+    public function adminDecidesFeatures(AgencyFeatureRollout $plan): array
+    {
+        return $this->rollout->wavesOf($plan)
+            ->filter(fn (AgencyRolloutWave $w) => $w->isAdminDecides() && $w->released_at !== null)
+            ->flatMap(fn (AgencyRolloutWave $w) => $this->rollout->itemsOf($w)
+                ->whereIn('state', [AgencyRolloutItem::STATE_RELEASED, AgencyRolloutItem::STATE_RELEASED_EARLY])
+                ->pluck('feature_key'))
+            ->unique()->values()->all();
+    }
+
     /** Can this user open this feature (it must also be switched on for their agency)? */
     public function userCanAccess(User $user, string $feature, ?Agency $agency = null): bool
     {
@@ -212,8 +261,9 @@ class FeatureRolloutAccess
         $today = $this->calendar->today();
 
         $released = $waves->filter(fn ($w) => $w->released_at !== null);
+        // "Admin decides" (§18) has no day-before review: it switches on for the admins only, and they decide after.
         $upcoming = $plan->status !== AgencyFeatureRollout::STATUS_ACTIVE ? collect() : $waves->filter(
-            fn ($w) => $w->released_at === null && $w->scheduled_for !== null
+            fn ($w) => $w->released_at === null && $w->scheduled_for !== null && ! $w->isAdminDecides()
                 && $today->gte($this->calendar->previousReleaseDay($w->scheduled_for, $plan))
         );
 
@@ -260,10 +310,15 @@ class FeatureRolloutAccess
             ->where('user_id', $user->id)->where('kind', RolloutAnnouncementView::KIND_RELEASE)
             ->pluck('wave_id')->flip();
 
+        // §18 — an "Admin decides" feature is announced to each person once, whenever they are given it (the
+        // admins when it switches on, anyone else when an admin later gives their role access), not per group.
+        $announced = RolloutFeatureUser::queryWithoutAgencyScope()->where('agency_id', $plan->agency_id)
+            ->where('user_id', $user->id)->whereNotNull('announced_at')->pluck('feature_key')->flip();
+
         $waves = $this->rollout->wavesOf($plan)
-            ->filter(fn ($w) => $w->released_at !== null && $w->released_at->gte($since)
+            ->filter(fn ($w) => $w->released_at !== null && ($w->isAdminDecides() || ($w->released_at->gte($since)
                 && ($user->created_at === null || $w->released_at->gte($user->created_at))
-                && ! isset($seen[$w->id]))
+                && ! isset($seen[$w->id]))))
             ->sortBy(fn ($w) => $w->released_at->timestamp);
 
         $catalogue = $this->features->catalogue();
@@ -277,6 +332,9 @@ class FeatureRolloutAccess
             foreach ($items as $item) {
                 $key = $item->feature_key;
                 if (! $this->userCanAccess($user, $key, $agency)) {
+                    continue;
+                }
+                if ($wave->isAdminDecides() && isset($announced[$key])) {
                     continue;
                 }
                 $tours ??= $this->tours->toursByFeature();
@@ -323,6 +381,16 @@ class FeatureRolloutAccess
         $valid = AgencyRolloutWave::queryWithoutAgencyScope()
             ->where('rollout_id', $plan->id)->whereIn('id', $waveIds)->whereNotNull('released_at')->pluck('id');
 
+        $agency = Agency::withoutGlobalScopes()->find($plan->agency_id);
+        $adminWaves = AgencyRolloutWave::queryWithoutAgencyScope()->whereIn('id', $valid)->where('lane', AgencyRolloutWave::LANE_ADMIN)->get();
+        foreach ($adminWaves as $wave) {
+            foreach ($this->rollout->itemsOf($wave)->whereIn('state', [AgencyRolloutItem::STATE_RELEASED, AgencyRolloutItem::STATE_RELEASED_EARLY]) as $item) {
+                if ($this->userCanAccess($user, $item->feature_key, $agency)) {
+                    app(FeatureRolloutUsage::class)->mark((int) $plan->agency_id, (int) $user->id, $item->feature_key, 'announced_at');
+                }
+            }
+        }
+
         RolloutAnnouncementView::withoutAgencyStamping(function () use ($valid, $user, $plan) {
             foreach ($valid as $waveId) {
                 RolloutAnnouncementView::queryWithoutAgencyScope()->withTrashed()->updateOrCreate(
@@ -353,8 +421,14 @@ class FeatureRolloutAccess
 
         if (! $user->isOwnerRole() && $user->hasPermission('manage_feature_rollout')) {
             $pending = $this->pendingReviews($plan);
-            foreach (['released', 'upcoming'] as $kind) {
-                $waves = $pending[$kind]->reject(fn ($w) => in_array($w->id, $later, true))->values();
+            // §18 — "Admin decides" groups that switched on ask "who else should see these?" (review_admin).
+            $byKind = [
+                'released' => $pending['released']->reject(fn ($w) => $w->isAdminDecides()),
+                'upcoming' => $pending['upcoming'],
+                'admin'    => $pending['released']->filter(fn ($w) => $w->isAdminDecides()),
+            ];
+            foreach ($byKind as $kind => $kindWaves) {
+                $waves = $kindWaves->reject(fn ($w) => in_array($w->id, $later, true))->values();
                 if ($waves->isNotEmpty()) {
                     $features = $waves->flatMap(fn ($w) => $this->liveFeatures($w))->unique()->values()->all();
 

@@ -10,11 +10,14 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * A wave in ONE agency's rollout plan — its own copy of a default wave.
- * Lane 1 is the main order; lane 2 is the rentals lane when sales and rentals run side by side.
+ * Lane 1 is the main order; lane 2 is the rentals lane when sales and rentals run side by side; lane 3 is
+ * "Admin decides" (spec §18) — after every other group, switched on for the agency's admins only.
  */
 class AgencyRolloutWave extends Model
 {
     use BelongsToAgency, SoftDeletes;
+
+    public const LANE_ADMIN = 3;
 
     protected $fillable = [
         'agency_id', 'rollout_id', 'source_wave_id', 'lane', 'track', 'position', 'title', 'intro_text',
@@ -30,6 +33,12 @@ class AgencyRolloutWave extends Model
         'customised_at'      => 'datetime',
         'admin_notified_at'  => 'datetime',
     ];
+
+    /** Is this the "Admin decides" group (admins only, at the end)? */
+    public function isAdminDecides(): bool
+    {
+        return (int) $this->lane === self::LANE_ADMIN;
+    }
 
     public function rollout(): BelongsTo
     {

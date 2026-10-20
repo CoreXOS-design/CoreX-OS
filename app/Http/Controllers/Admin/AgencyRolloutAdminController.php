@@ -236,7 +236,7 @@ class AgencyRolloutAdminController extends Controller
         $data = $request->validate([
             'title'      => 'required|string|max:120',
             'intro_text' => 'nullable|string|max:1000',
-            'lane'       => 'nullable|in:1,2',
+            'lane'       => 'nullable|in:1,2,3',
         ]);
 
         return $this->attempt($agency, fn () => $this->rollout->addWave($plan, $data['title'], $data['intro_text'] ?? null, (int) ($data['lane'] ?? 1)),

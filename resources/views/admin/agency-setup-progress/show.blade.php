@@ -211,7 +211,8 @@
                             <span class="ds-badge ds-badge-pill {{ $w->released_at ? 'ds-badge-success' : 'ds-badge-info' }} tabular-nums">
                                 {{ $archivedView ? 'Archived' : ($w->released_at ? 'On since ' . $w->released_at->format('j M') : ($w->scheduled_for ? $w->scheduled_for->format('D j M') : 'Not dated')) }}
                             </span>
-                            @if ($plan->side_by_side)<span class="ds-badge ds-badge-muted">{{ $w->lane === 2 ? 'Rentals' : 'Sales & general' }}</span>@endif
+                            @if ($w->isAdminDecides())<span class="ds-badge ds-badge-warning" data-admin-decides="{{ $w->id }}" title="Switches on after every other group, for the agency's admins only. The admin decides who else gets it.">Admin decides — admins only</span>
+                            @elseif ($plan->side_by_side)<span class="ds-badge ds-badge-muted">{{ $w->lane === 2 ? 'Rentals' : 'Sales & general' }}</span>@endif
                             <span class="font-semibold text-sm" style="color: var(--text-primary);">{{ $w->title }}</span>
                             @if (! $w->source_wave_id)
                                 <span class="ds-badge ds-badge-warning">Added for this agency</span>
@@ -347,13 +348,12 @@
                     <input type="text" name="title" maxlength="120" required class="block mt-1 w-full {{ $input }}" style="{{ $inputStyle }}"></label>
                 <label class="block text-xs md:col-span-2" style="color: var(--text-secondary);">Message when it switches on
                     <input type="text" name="intro_text" maxlength="1000" class="block mt-1 w-full {{ $input }}" style="{{ $inputStyle }}"></label>
-                @if ($plan->side_by_side)
-                    <label class="block text-xs" style="color: var(--text-secondary);">Switches on with
-                        <select name="lane" class="block mt-1 w-full {{ $input }}" style="{{ $inputStyle }}">
-                            <option value="1">Sales &amp; general groups</option>
-                            <option value="2">Rentals groups</option>
-                        </select></label>
-                @endif
+                <label class="block text-xs" style="color: var(--text-secondary);">Switches on with
+                    <select name="lane" class="block mt-1 w-full {{ $input }}" style="{{ $inputStyle }}">
+                        <option value="1">{{ $plan->side_by_side ? 'Sales & general groups' : 'The other groups' }}</option>
+                        @if ($plan->side_by_side)<option value="2">Rentals groups</option>@endif
+                        <option value="3">Admin decides — at the end, admins only</option>
+                    </select></label>
                 <div class="md:col-span-4 flex justify-end"><button type="submit" class="corex-btn-primary">Add group at the end</button></div>
             </form>
         @endif

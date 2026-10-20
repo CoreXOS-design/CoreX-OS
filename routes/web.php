@@ -3742,6 +3742,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/finish',             [$c, 'finish'])->name('finish');
         Route::post('/items/{item}/skip',  [$c, 'skipItem'])->whereNumber('item')->name('items.skip');
         Route::post('/items/{item}/on',    [$c, 'switchOn'])->whereNumber('item')->name('items.on');
+        Route::post('/access',             [$c, 'saveAccess'])->name('access'); // §18 "Admin decides": who else sees these
     });
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership

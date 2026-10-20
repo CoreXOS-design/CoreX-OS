@@ -117,7 +117,58 @@ class FeatureRolloutController extends Controller
             'usage'      => $plan ? $this->usageFor($agency, $waves) : [],
             'early'      => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUpdates::class)->earlyRequests($plan) : [],
             'lowUse'     => $plan ? app(\App\Services\FeatureRollout\FeatureRolloutUsage::class)->lowUse($plan) : null,
-        ]);
+        ] + $this->adminDecides($plan));
+    }
+
+    /**
+     * §18 — the "Admin decides" features that are on, with who has them, for the "who else sees these" form.
+     *
+     * @return array{adminFeatures: list<string>, adminGrid: array, adminRoles: \Illuminate\Support\Collection, adminRoleNames: list<string>}
+     */
+    private function adminDecides(?AgencyFeatureRollout $plan): array
+    {
+        $access = app(\App\Services\FeatureRollout\FeatureRolloutAccess::class);
+        $features = $plan ? $access->adminDecidesFeatures($plan) : [];
+
+        return [
+            'adminFeatures'  => $features,
+            'adminGrid'      => $features ? $access->grid((int) $plan->agency_id, $features) : [],
+            'adminRoles'     => $features ? $access->editableRoles((int) $plan->agency_id) : collect(),
+            'adminRoleNames' => $features ? $access->adminRoles((int) $plan->agency_id) : [],
+        ];
+    }
+
+    /**
+     * §18 — the admin gives (or takes back) access to "Admin decides" features that are on. Only those features
+     * and only the agency's own editable roles are touched; each box ships with a hidden "0" companion so only
+     * what was rendered is written (§6.1). Whoever is given a feature gets its "New in CoreX" pop-up.
+     */
+    public function saveAccess(Request $request)
+    {
+        $plan = $this->requirePlan();
+        $access = app(\App\Services\FeatureRollout\FeatureRolloutAccess::class);
+        $data = $request->validate(['access' => 'required|array', 'access.*' => 'array']);
+        $features = $access->adminDecidesFeatures($plan);
+        $roles = $access->editableRoles((int) $plan->agency_id)->pluck('name')->all();
+
+        $changes = [];
+        foreach ($data['access'] as $feature => $byRole) {
+            if (! in_array($feature, $features, true)) {
+                continue;
+            }
+            foreach ((array) $byRole as $role => $on) {
+                $want = filter_var($on, FILTER_VALIDATE_BOOLEAN);
+                if (in_array($role, $roles, true) && $access->setRoleAccess((int) $plan->agency_id, (string) $role, (string) $feature, $want)) {
+                    $changes[] = ['feature' => (string) $feature, 'role' => (string) $role, 'on' => $want];
+                }
+            }
+        }
+        if ($changes !== []) {
+            $waveIds = $this->rollout->wavesOf($plan)->filter(fn ($w) => $w->isAdminDecides() && $w->released_at !== null)->pluck('id')->all();
+            $access->markReviewed($plan, $waveIds, Auth::id(), 'save', $changes);
+        }
+
+        return back()->with('success', $changes === [] ? 'Nothing changed.' : 'Saved. Anyone you gave a feature to will see it — with its guided tour — next time they open CoreX.');
     }
 
     // ── The choice (wizard saver + panel settings form) ────────────────────────

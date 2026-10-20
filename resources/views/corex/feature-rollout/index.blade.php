@@ -117,7 +117,8 @@
                         <span class="ds-badge ds-badge-pill {{ $w->released_at ? 'ds-badge-success' : 'ds-badge-info' }} tabular-nums">
                             {{ $w->released_at ? 'On since ' . $w->released_at->format('j M') : ($w->scheduled_for ? $w->scheduled_for->format('D j M') : 'Not dated') }}
                         </span>
-                        @if ($plan->side_by_side)<span class="ds-badge ds-badge-muted">{{ $w->lane === 2 ? 'Rentals' : 'Sales & general' }}</span>@endif
+                        @if ($w->isAdminDecides())<span class="ds-badge ds-badge-warning" data-admin-decides="{{ $w->id }}" title="Switches on after every other group, for the admins only. You decide who else gets it.">Admin decides — admins only</span>
+                        @elseif ($plan->side_by_side)<span class="ds-badge ds-badge-muted">{{ $w->lane === 2 ? 'Rentals' : 'Sales & general' }}</span>@endif
                         <span class="font-semibold text-sm" style="color: var(--text-primary);">{{ $w->title }}</span>
                     </div>
                     @if ($w->intro_text)<p class="text-xs mt-1" style="color: var(--text-muted);">{{ $w->intro_text }}</p>@endif
@@ -168,6 +169,51 @@
                 <div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $waves->links() }}</div>
             @endif
         </div>
+
+        {{-- §18 "Admin decides": features on for the admins only — who else sees them --}}
+        @if (! empty($adminFeatures))
+            <form method="POST" action="{{ route('corex.feature-rollout.access') }}" class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-admin-access>
+                @csrf
+                <div class="px-5 py-4" style="border-bottom: 1px solid var(--border);">
+                    <div class="ds-section-header">Who else sees the "Admin decides" features</div>
+                    <div class="ds-section-sub">These are on for the admins only. Tick a role to give it to everyone in that role — they get the "New in CoreX" pop-up with its guided tour. Untick to take it away again.</div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm">
+                        <thead>
+                            <tr style="background: var(--surface-2);">
+                                <th class="text-left px-5 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Feature</th>
+                                @foreach ($adminRoles as $role)
+                                    <th class="text-center px-3 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">{{ $role->label ?: $role->name }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($adminFeatures as $key)
+                                <tr style="border-top: 1px solid var(--border);">
+                                    <td class="px-5 py-2.5" style="color: var(--text-primary);">{{ $labels[$key] ?? $key }}</td>
+                                    @foreach ($adminRoles as $role)
+                                        <td class="text-center px-3 py-2.5">
+                                            @if (($adminGrid[$key] ?? null) === null)
+                                                <span class="text-xs" style="color: var(--text-muted);">Everyone</span>
+                                            @elseif (in_array($role->name, $adminRoleNames, true))
+                                                <input type="checkbox" checked disabled title="Admins always have it">
+                                            @else
+                                                <input type="hidden" name="access[{{ $key }}][{{ $role->name }}]" value="0">
+                                                <input type="checkbox" name="access[{{ $key }}][{{ $role->name }}]" value="1" @checked($adminGrid[$key][$role->name] ?? false) data-admin-access-box="{{ $key }}|{{ $role->name }}">
+                                            @endif
+                                        </td>
+                                    @endforeach
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                <div class="px-5 py-3 flex justify-end" style="border-top: 1px solid var(--border); background: var(--surface-2);">
+                    <button type="submit" class="corex-btn-primary">Save who sees these</button>
+                </div>
+            </form>
+        @endif
 
         @include('corex.feature-rollout._history')
     @endif

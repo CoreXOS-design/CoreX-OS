@@ -8,7 +8,8 @@
      At most ONE of these per page (FeatureRolloutAccess::popupFor), in this order:
        1. review_released — the admin checks who has access to groups that went live without a review
        2. review_upcoming — the admin chooses who gets the group switching on next release day
-       3. release         — "New in CoreX", once per user per group, only features they can open
+       3. review_admin    — an "Admin decides" group switched on for the admins only: who else should see it (§18)
+       4. release         — "New in CoreX", once per user per group, only features they can open
      It renders ABOVE the System Updates pop-up (z-index) so the admin's prompt is seen first.
      No plan for the agency = one indexed query and nothing rendered.
      ════════════════════════════════════════════════════════════════════════ --}}
@@ -29,7 +30,8 @@
 
 @if(str_starts_with($__fr['kind'], 'review_'))
 @php
-    $__frReleased = $__fr['kind'] === 'review_released';
+    $__frAdmin    = $__fr['kind'] === 'review_admin';
+    $__frReleased = in_array($__fr['kind'], ['review_released', 'review_admin'], true);
     $__frAwait    = (array) config('feature-rollout.admin_switch_on', []);
     $__frRoles    = $__fr['roles'];
     $__frWhen     = $__frReleased
@@ -46,14 +48,18 @@
          style="background:var(--surface); border:1px solid var(--border);">
         <div class="px-5 py-4" style="border-bottom:1px solid var(--border);">
             <div id="rollout-review-heading" class="text-sm font-bold" style="color:var(--text-primary);">
-                @if($__frReleased)
+                @if($__frAdmin)
+                    Ready for you — who else should see these?
+                @elseif($__frReleased)
                     These went live on {{ $__frWhen?->format('l j F') }} — check who has access
                 @else
                     Switching on {{ $__frWhen?->format('l j F') }} — choose who gets access
                 @endif
             </div>
             <div class="text-xs mt-1" style="color:var(--text-secondary);">
-                @if($__frReleased)
+                @if($__frAdmin)
+                    These features are switched on for you and your fellow admins only. Tick the roles that should also see them — nobody else gets them until you do. You can change this any time in Settings → Feature rollout.
+                @elseif($__frReleased)
                     These features switched on while you were away, with your roles' existing access. Untick a role to take it away, or tick one to give it.
                 @else
                     Tick the roles that should see each feature when it switches on. Untick every role and nobody sees it until you change it in the Role Manager.
@@ -124,7 +130,7 @@
                 @unless($__frReleased)
                     <button type="button" @click="send('hold')" :disabled="busy" class="corex-btn-outline text-sm">Hold this group</button>
                 @endunless
-                <button type="button" @click="send('keep')" :disabled="busy" class="corex-btn-outline text-sm">Keep as is</button>
+                <button type="button" @click="send('keep')" :disabled="busy" class="corex-btn-outline text-sm">{{ $__frAdmin ? 'Keep for admins only' : 'Keep as is' }}</button>
                 <button type="button" @click="send('save')" :disabled="busy" class="corex-btn-primary text-sm">Save access</button>
             </div>
         </div>

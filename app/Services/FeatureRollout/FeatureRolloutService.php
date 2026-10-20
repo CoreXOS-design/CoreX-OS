@@ -297,12 +297,19 @@ class FeatureRolloutService
         $all = FeatureRolloutWave::orderBy('position')->orderBy('id')->get();
         $of = fn (array $tracks) => $all->filter(fn ($w) => in_array($w->track, $tracks, true))->values();
 
-        return match (true) {
+        $lanes = match (true) {
             $type === 'rentals' => [1 => $of(['rentals'])->concat($of(['general']))->values()],
             $type === 'sales'   => [1 => $of(['general', 'sales'])],
             $sideBySide         => [1 => $of(['general', 'sales']), 2 => $of(['rentals'])],
-            default             => [1 => $all->values()],
+            default             => [1 => $of(['general', 'sales', 'rentals'])],
         };
+        // §18 — "Admin decides" groups, for every agency type: after everything else, admins only.
+        $admin = $of(['admin']);
+        if ($admin->isNotEmpty()) {
+            $lanes[AgencyRolloutWave::LANE_ADMIN] = $admin;
+        }
+
+        return $lanes;
     }
 
     // ── Scheduling ─────────────────────────────────────────────────────────────
@@ -310,17 +317,28 @@ class FeatureRolloutService
     /**
      * Date every unreleased wave from $from: in each lane, the k-th unreleased wave is k × interval
      * release days after $from. Used by start, resume, release-now and interval changes alike.
+     * "Admin decides" groups (§18) follow on from the LAST of the other groups, whichever lane it is in.
      */
     public function schedule(AgencyFeatureRollout $plan, Carbon $from): void
     {
-        foreach ($this->wavesOf($plan)->whereNull('released_at')->groupBy('lane') as $waves) {
+        $open = $this->wavesOf($plan)->whereNull('released_at');
+        $last = null;
+        foreach ($open->reject(fn (AgencyRolloutWave $w) => $w->isAdminDecides())->groupBy('lane') as $waves) {
             $k = 0;
             foreach ($waves->sortBy('position') as $wave) {
                 $k++;
-                $wave->forceFill([
-                    'scheduled_for' => $this->calendar->addReleaseDays($from, $k * $plan->interval_days, $plan)->toDateString(),
-                ])->save();
+                $date = $this->calendar->addReleaseDays($from, $k * $plan->interval_days, $plan);
+                $wave->forceFill(['scheduled_for' => $date->toDateString()])->save();
+                $last = $last === null || $date->gt($last) ? $date : $last;
             }
+        }
+
+        $k = 0;
+        foreach ($open->filter(fn (AgencyRolloutWave $w) => $w->isAdminDecides())->sortBy('position') as $wave) {
+            $k++;
+            $wave->forceFill([
+                'scheduled_for' => $this->calendar->addReleaseDays($last ?? $from, $k * $plan->interval_days, $plan)->toDateString(),
+            ])->save();
         }
     }
 
@@ -389,7 +407,7 @@ class FeatureRolloutService
                 if ($agency && $this->readiness->ready($agency, $item->feature_key)) {
                     DB::transaction(function () use ($item, $agency) {
                         $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
-                        $this->apply($agency, [$item->feature_key => true], null);
+                        $this->switchOn($agency, (int) $item->rollout_id, [$item->feature_key], null);
                     });
                     $this->record((int) $agency->id, 'ready_switched_on', ['feature' => $item->feature_key]);
                     $count++;
@@ -400,11 +418,17 @@ class FeatureRolloutService
         return $count;
     }
 
-    /** @return Collection<int,AgencyRolloutWave> the first unreleased wave of each lane */
+    /**
+     * The first unreleased wave of each lane. "Admin decides" (§18) only once every other group is on.
+     *
+     * @return Collection<int,AgencyRolloutWave>
+     */
     public function nextWavePerLane(AgencyFeatureRollout $plan): Collection
     {
-        return $this->wavesOf($plan)
-            ->whereNull('released_at')
+        $open = $this->wavesOf($plan)->whereNull('released_at');
+        $others = $open->reject(fn (AgencyRolloutWave $w) => $w->isAdminDecides());
+
+        return ($others->isNotEmpty() ? $others : $open)
             ->groupBy('lane')
             ->map(fn (Collection $w) => $w->sortBy('position')->first())
             ->values();
@@ -439,7 +463,7 @@ class FeatureRolloutService
                 $on[$item->feature_key] = true;
             }
 
-            $this->apply($agency, $on, $userId);
+            $this->switchOn($agency, (int) $wave->rollout_id, array_keys($on), $userId);
             $wave->forceFill(['released_at' => now()])->save();
             $this->completeIfDone($wave->rollout_id);
         });
@@ -495,7 +519,7 @@ class FeatureRolloutService
                 $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
                 $on[$item->feature_key] = true;
             }
-            $this->apply($agency, $on, $userId);
+            $this->switchOn($agency, (int) $plan->id, array_keys($on), $userId);
 
             AgencyRolloutWave::queryWithoutAgencyScope()
                 ->where('rollout_id', $plan->id)->whereNull('released_at')
@@ -556,7 +580,7 @@ class FeatureRolloutService
     /** Move unreleased Rentals waves to lane 2 (side by side) or back to lane 1, keeping their order. */
     private function relane(AgencyFeatureRollout $plan, bool $sideBySide): void
     {
-        $waves = $this->wavesOf($plan)->whereNull('released_at');
+        $waves = $this->wavesOf($plan)->whereNull('released_at')->reject(fn (AgencyRolloutWave $w) => $w->isAdminDecides());
         foreach ($waves as $wave) {
             $lane = ($sideBySide && $wave->track === 'rentals') ? 2 : 1;
             if ($wave->lane !== $lane) {
@@ -566,7 +590,7 @@ class FeatureRolloutService
         // Side by side only exists for sales-and-rentals agencies, whose waves follow the ONE default order
         // and were copied in that order — so creation order (id) is the default order. Re-number each lane
         // by it, so waves merged back into lane 1 slot in where the default list puts them.
-        foreach ($this->wavesOf($plan)->whereNull('released_at')->groupBy('lane') as $laneWaves) {
+        foreach ($this->wavesOf($plan)->whereNull('released_at')->reject(fn (AgencyRolloutWave $w) => $w->isAdminDecides())->groupBy('lane') as $laneWaves) {
             $n = 0;
             foreach ($laneWaves->sortBy('id') as $wave) {
                 $wave->forceFill(['position' => $n += 10])->save();
@@ -597,7 +621,7 @@ class FeatureRolloutService
         $agency = Agency::withoutGlobalScopes()->findOrFail($item->agency_id);
         DB::transaction(function () use ($item, $agency, $userId) {
             $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
-            $this->apply($agency, [$item->feature_key => true], $userId);
+            $this->switchOn($agency, (int) $item->rollout_id, [$item->feature_key], $userId);
         });
         $this->record((int) $agency->id, 'feature_switched_on', ['feature' => $item->feature_key]);
     }
@@ -722,19 +746,26 @@ class FeatureRolloutService
             ->where('rollout_id', $plan->id)->where('lane', $lane)->max('position') + 10;
     }
 
-    /** A new, empty group at the end of a lane (lane 2 only exists while sales and rentals run side by side). */
+    /**
+     * A new, empty group at the end of a lane (lane 2 only exists while sales and rentals run side by side;
+     * lane 3 is "Admin decides", §18).
+     */
     public function addWave(AgencyFeatureRollout $plan, string $title, ?string $intro, int $lane = 1): AgencyRolloutWave
     {
         if (! $this->isOpen($plan)) {
             throw new \DomainException('This introduction has finished, so no groups can be added.');
         }
-        $lane = ($lane === 2 && $plan->side_by_side) ? 2 : 1;
+        $lane = match (true) {
+            $lane === AgencyRolloutWave::LANE_ADMIN => AgencyRolloutWave::LANE_ADMIN,
+            $lane === 2 && $plan->side_by_side      => 2,
+            default                                 => 1,
+        };
 
         $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
             'agency_id'     => $plan->agency_id,
             'rollout_id'    => $plan->id,
             'lane'          => $lane,
-            'track'         => $lane === 2 ? 'rentals' : 'general',
+            'track'         => [2 => 'rentals', AgencyRolloutWave::LANE_ADMIN => 'admin'][$lane] ?? 'general',
             'position'      => $this->nextPosition($plan, $lane),
             'title'         => $title,
             'intro_text'    => $intro,
@@ -865,7 +896,7 @@ class FeatureRolloutService
         $agency = Agency::withoutGlobalScopes()->findOrFail($item->agency_id);
         DB::transaction(function () use ($item, $wave, $agency, $userId) {
             $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED_EARLY, 'released_at' => now()])->save();
-            $this->apply($agency, [$item->feature_key => true], $userId);
+            $this->switchOn($agency, (int) $item->rollout_id, [$item->feature_key], $userId);
             $this->customised($wave);
         });
         $this->record((int) $agency->id, 'feature_switched_on_early', ['feature' => $item->feature_key]);
@@ -976,6 +1007,31 @@ class FeatureRolloutService
     // ── internals ──────────────────────────────────────────────────────────────
 
     /** @param array<string,bool> $want */
+    /**
+     * Switch features on for the agency. A feature in the plan's "Admin decides" group (§18) is first limited to
+     * the agency's admin roles (every other role's access to it is taken away, the Role Manager's way), so
+     * nobody but the admins sees it until an admin decides who else gets it.
+     *
+     * @param list<string> $keys
+     */
+    private function switchOn(Agency $agency, int $rolloutId, array $keys, ?int $userId): void
+    {
+        $keys = array_values(array_unique($keys));
+        if ($keys === []) {
+            return;
+        }
+        $adminWaves = AgencyRolloutWave::queryWithoutAgencyScope()->withTrashed()
+            ->where('rollout_id', $rolloutId)->where('lane', AgencyRolloutWave::LANE_ADMIN)->pluck('id');
+        $adminOnly = $adminWaves->isEmpty() ? [] : AgencyRolloutItem::queryWithoutAgencyScope()
+            ->where('rollout_id', $rolloutId)->whereIn('wave_id', $adminWaves)->whereIn('feature_key', $keys)
+            ->pluck('feature_key')->all();
+        if ($adminOnly !== []) {
+            // Resolved here, not injected: FeatureRolloutAccess itself depends on this service.
+            app(FeatureRolloutAccess::class)->keepToAdmins((int) $agency->id, $adminOnly);
+        }
+        $this->apply($agency, array_fill_keys($keys, true), $userId);
+    }
+
     private function apply(Agency $agency, array $want, ?int $userId): void
     {
         if ($want === []) {

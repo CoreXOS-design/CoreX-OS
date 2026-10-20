@@ -167,7 +167,8 @@ class FeatureRolloutUsage
         if ($plan->status !== AgencyFeatureRollout::STATUS_ACTIVE) {
             return null;
         }
-        $last = $this->rollout->wavesOf($plan)->whereNotNull('released_at')->sortByDesc('released_at')->first();
+        // "Admin decides" (§18) is for the admins only, so few people opening it says nothing about the pace.
+        $last = $this->rollout->wavesOf($plan)->whereNotNull('released_at')->reject(fn ($w) => $w->isAdminDecides())->sortByDesc('released_at')->first();
         if (! $last || $last->released_at->gt(Carbon::now()->subDays((int) $this->cfg('low_use_after_days')))) {
             return null;
         }

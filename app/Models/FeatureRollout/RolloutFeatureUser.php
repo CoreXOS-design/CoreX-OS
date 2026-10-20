@@ -14,11 +14,12 @@ class RolloutFeatureUser extends Model
 {
     use BelongsToAgency, SoftDeletes;
 
-    protected $fillable = ['agency_id', 'user_id', 'feature_key', 'first_opened_at', 'tour_nudged_at', 'early_requested_at'];
+    protected $fillable = ['agency_id', 'user_id', 'feature_key', 'first_opened_at', 'tour_nudged_at', 'early_requested_at', 'announced_at'];
 
     protected $casts = [
         'first_opened_at'    => 'datetime',
         'tour_nudged_at'     => 'datetime',
         'early_requested_at' => 'datetime',
+        'announced_at'       => 'datetime',
     ];
 }
