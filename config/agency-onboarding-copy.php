@@ -341,6 +341,12 @@ return [
         'savers' => [
             ['controller' => CommissionSettingsController::class, 'method' => 'update'],
         ],
+        'controls' => [
+            ['key' => 'portal_show_agency_commission_totals', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show agents their branch and agency commission totals',
+             'explain' => 'Every agent sees their own commission on My Portal — what they earned, what they take home after splits and deductions, and what is still in their pipeline. This decides whether they also see the combined commission totals for their branch and for the whole agency. It never shows another agent\'s figures, only totals, and only to people whose role already lets them see that branch or agency.',
+             'affects' => 'What this changes: when on, the "My commission" card on My Portal gains two extra lines — the branch total and the agency total for the month. When off (the default), agents see only their own commission.'],
+        ],
     ],
 
     // Gated on the proforma-invoices feature module (auto-derived toggle in the
@@ -1160,6 +1166,14 @@ return [
              'label' => 'Scanned inspection form: tick-box sensitivity',
              'explain' => 'If you print the paper inspection form and scan it back in, CoreX reads the tick boxes. This is the share of the inside of a box that must carry ink before it counts as ticked (a hand tick covers about 5 to 20 percent). Most agencies never need to change it.',
              'affects' => 'How readily a scanned paper form is read as ticked. Lower it if faint or light scans are missing ticks; raise it if stray marks are being read as ticks.'],
+            ['key' => 'omr_unsure_below', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 0.5, 'min' => 0.1, 'max' => 0.95, 'step' => 0.05,
+             'label' => 'Scanned inspection form: ticks to check below this confidence',
+             'explain' => 'When a scanned paper inspection form is read, every tick comes with a confidence from 0 to 1. A tick read with less confidence than this is shown to the agent as "to check" instead of as read, and the agent must confirm it. Two ticked boxes on one row are always "to check".',
+             'affects' => 'How many ticks an agent is asked to confirm after a scan. Raise it to be asked about more rows; lower it if too many clear ticks are being queried.'],
+            ['key' => 'note_read_min_confidence', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 0.5, 'min' => 0.1, 'max' => 0.95, 'step' => 0.05,
+             'label' => 'Scanned inspection form: handwritten notes to type in below this confidence',
+             'explain' => 'CoreX reads the handwritten note on each row of a scanned paper inspection form and fills it into the note box. A note read with less confidence than this (0 to 1) is not filled in; the agent sees "Couldn\'t read the handwritten note" and types it in.',
+             'affects' => 'Whether a doubtful reading of someone\'s handwriting is offered as the note or left for the agent to type. Raise it to trust fewer readings; lower it to accept more of them.'],
             ['key' => 'credit_bureau_name', 'source' => 'rental_application', 'type' => 'text', 'default' => '',
              'heading' => 'Rental application wording',
              'label' => 'Credit bureau you use for tenant checks',

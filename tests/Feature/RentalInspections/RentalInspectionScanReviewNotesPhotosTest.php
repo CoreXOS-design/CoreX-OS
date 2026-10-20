@@ -129,7 +129,7 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
         $html = $this->review();
 
         $this->assertMatchesRegularExpression('/<textarea[^>]*name="notes\[\d+\]"[^>]*>Cracked tiles<\/textarea>/', $html);
-        $this->assertStringContainsString('Note read (87%)', $html);
+        $this->assertStringContainsString('Read from scan (87%)', $html);
         $this->assertStringContainsString('data-scan-add-photo', $html, 'the photo strip has an add control');
         $this->assertStringContainsString('<option value="damaged" selected>Damaged</option>', $html, 'the reader\'s clear tick is pre-selected');
         $this->assertStringContainsString('js/corex-scan-review.js', $html);
@@ -155,7 +155,7 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
 
         $html = $this->review();
 
-        $this->assertStringContainsString('No clear mark', $html);
+        $this->assertStringContainsString('data-qa="row-state-unsure"', $html);
         foreach (['good', 'fair', 'damaged', 'not_working', 'missing', 'other', 'n_a'] as $key) {
             $this->assertStringContainsString('<option value="' . $key . '"', $html);
         }
@@ -294,6 +294,189 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
         $this->assertCount(0, $this->observationsFor($this->items[0]));
     }
 
+    // ── §13.15: three tick states, the count line, the always-visible note, the unreadable note ──────
+
+    public function test_each_row_is_read_to_check_or_not_picked_up_and_the_top_line_counts_them(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'detected_confidence' => 0.9, 'tick_boxes' => 1]);                  // read with confidence
+        $this->mark($this->items[1], ['detected_condition_key' => null, 'ambiguous' => true, 'detected_confidence' => 0.86, 'tick_boxes' => 2]); // two boxes
+        $this->mark($this->items[2], ['detected_condition_key' => null, 'ambiguous' => true, 'detected_confidence' => 0.1, 'tick_boxes' => 0]);  // nothing picked up
+
+        $html = $this->review();
+
+        $this->assertStringContainsString('data-qa="row-state-read"', $html);
+        $this->assertStringContainsString('Check: two boxes ticked', $html);
+        $this->assertStringContainsString('data-qa="row-state-missed"', $html);
+        $this->assertStringContainsString('Not picked up', $html);
+        $this->assertStringContainsString('1 read, 1 to check, 1 not picked up', $html);
+        $this->assertStringNotContainsString('Only conditions wait', $html, 'no other helper text');
+        $this->assertSame(2, preg_match_all('/data-scan-controls\s+style="display: none;"/', $html), 'to check and not picked up start blank, controls closed');
+    }
+
+    public function test_a_faint_tick_is_to_check_and_the_agencys_own_line_decides_it(): void
+    {
+        $mark = $this->mark($this->items[0], ['detected_condition_key' => 'fair', 'detected_confidence' => 0.6, 'tick_boxes' => 1]);
+
+        $this->assertSame('read', $mark->tickState(0.5));
+        $this->assertSame('unsure', $mark->tickState(0.7));
+        $this->assertStringContainsString('1 read, 0 to check, 0 not picked up', $this->review());
+
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['omr_unsure_below' => 0.7]);
+        $html = $this->review();
+        $this->assertStringContainsString('0 read, 1 to check, 0 not picked up', $html);
+        $this->assertStringContainsString('data-qa="row-low-confidence"', $html);
+    }
+
+    public function test_a_mark_read_before_the_box_count_existed_is_still_told_apart_by_its_confidence(): void
+    {
+        $twoBoxes = $this->mark($this->items[0], ['detected_condition_key' => null, 'ambiguous' => true, 'detected_confidence' => 0.86]);
+        $nothing = $this->mark($this->items[1], ['detected_condition_key' => null, 'ambiguous' => true, 'detected_confidence' => 0.2]);
+
+        $this->assertSame('unsure', $twoBoxes->tickState(0.5));
+        $this->assertSame('missed', $nothing->tickState(0.5));
+    }
+
+    public function test_a_detected_note_is_always_visible_even_on_a_row_with_no_condition_and_marked_read_from_the_scan(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => null, 'ambiguous' => true, 'tick_boxes' => 2, 'detected_note' => 'Cracked Tiles!', 'detected_note_confidence' => 0.95]);
+
+        $html = $this->review();
+
+        $this->assertMatchesRegularExpression('/<textarea[^>]*>Cracked Tiles!<\/textarea>/', $html);
+        $this->assertSame(0, preg_match('/data-scan-controls[^>]*>.{0,400}?data-scan-note/s', $html), 'the note box is not inside the closed controls');
+        $this->assertSame(1, preg_match('/data-scan-note-area.*?Read from scan \(95%\).*?<textarea/s', $html), 'the badge sits on the note box');
+        $this->assertStringContainsString('ds-badge-info', $html, 'an existing CoreX badge, no new style');
+    }
+
+    public function test_a_note_the_agent_already_has_recorded_is_shown_and_never_marked_read_from_the_scan(): void
+    {
+        RentalInspectionObservation::record([
+            'agency_id' => $this->agency->id, 'rental_inspection_id' => $this->inspection->id, 'rental_inspection_item_id' => $this->items[0]->id,
+            'observed_by_user_id' => $this->agent->id, 'condition' => 'damaged', 'notes' => 'Cracked tiles - typed by the agent', 'source' => 'in_inspection',
+        ]);
+        $this->mark($this->items[0], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'detected_note' => 'Cracked Tiles!', 'detected_note_confidence' => 0.95]);
+
+        $html = $this->review();
+
+        $this->assertMatchesRegularExpression('/<textarea[^>]*>Cracked tiles - typed by the agent<\/textarea>/', $html);
+        $this->assertStringNotContainsString('Read from scan', $html, 'once it is the agent\'s note it no longer shows as read from the scan');
+    }
+
+    public function test_a_note_area_with_ink_the_ai_could_not_read_says_so_at_the_note_box(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'note_ink' => true, 'detected_note' => null]);                                  // empty result
+        $this->mark($this->items[1], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'note_ink' => true, 'detected_note' => 'smudge?', 'detected_note_confidence' => 0.3]); // below the line
+        $this->mark($this->items[2], ['detected_condition_key' => 'good', 'tick_boxes' => 1, 'note_ink' => false]);                                                               // no ink: nothing to say
+
+        $html = $this->review();
+
+        $this->assertSame(2, substr_count($html, "Couldn't read the handwritten note. Type it in."));
+        $this->assertStringNotContainsString('smudge?', $html, 'a reading below the agency\'s line is not filled in');
+        $this->assertStringNotContainsString('Read from scan', $html);
+    }
+
+    public function test_the_agencys_note_confidence_line_decides_what_fills_the_box(): void
+    {
+        $mark = $this->mark($this->items[0], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'note_ink' => true, 'detected_note' => 'Cracked tiles', 'detected_note_confidence' => 0.6]);
+
+        $this->assertSame('Cracked tiles', $mark->usableDetectedNote(0.5));
+        $this->assertNull($mark->usableDetectedNote(0.7));
+        $this->assertTrue($mark->noteUnreadable(0.7));
+        $this->assertFalse($mark->noteUnreadable(0.5));
+    }
+
+    public function test_the_two_new_thresholds_are_agency_settings_with_defaults_and_reach_the_wizard(): void
+    {
+        $this->assertSame(0.5, \App\Models\RentalInspectionSetting::omrUnsureBelowFor($this->agency->id));
+        $this->assertSame(0.5, \App\Models\RentalInspectionSetting::noteReadMinConfidenceFor($this->agency->id));
+
+        $this->post(route('corex.settings.rental-inspections.update'), ['fault_report_window_days' => 14, 'out_inspection_signing_window_days' => 7, 'omr_unsure_below' => '0.65', 'note_read_min_confidence' => '0.4'])->assertSessionHasNoErrors();
+
+        $this->assertSame(0.65, \App\Models\RentalInspectionSetting::omrUnsureBelowFor($this->agency->id));
+        $this->assertSame(0.4, \App\Models\RentalInspectionSetting::noteReadMinConfidenceFor($this->agency->id));
+
+        $controls = collect(config('agency-onboarding-copy.leases.controls'))->pluck('key')->all();
+        $this->assertContains('omr_unsure_below', $controls);
+        $this->assertContains('note_read_min_confidence', $controls);
+    }
+
+    // ── §13.16: one sticky header with the actions, the live status and the blockers ───────────────
+
+    public function test_the_actions_and_the_status_sit_in_one_sticky_header_and_nothing_is_at_the_bottom(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);
+
+        $html = $this->review();
+
+        $header = $this->between($html, 'id="scan-header"', '<form');
+        $this->assertStringContainsString('position: sticky; top: 0', $header);
+        $this->assertStringContainsString('data-qa="apply-proposed"', $header, 'Apply is in the header');
+        $this->assertStringContainsString('data-qa="open-original"', $header);
+        $this->assertStringContainsString('data-qa="scan-summary"', $header, 'the count line is in the header');
+        $this->assertSame(1, substr_count($html, 'data-qa="apply-proposed"'));
+        $formStart = (int) strpos($html, 'id="scan-review"');
+        $this->assertStringNotContainsString('apply-proposed', substr($html, (int) strpos($html, '</form>', $formStart)), 'nothing after the review form');
+    }
+
+    public function test_apply_is_disabled_with_the_reason_shown_while_a_blocker_remains(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);                                                                        // fine
+        $this->mark($this->items[1], ['detected_condition_key' => null, 'ambiguous' => true, 'tick_boxes' => 2]);                                                      // needs a condition
+        $this->mark($this->items[2], ['detected_condition_key' => 'damaged', 'detected_confidence' => 1.0, 'tick_boxes' => 1]);                                        // Damaged, no note
+
+        $html = $this->review();
+        $header = $this->between($html, 'id="scan-header"', '<form');
+
+        $this->assertMatchesRegularExpression('/data-scan-apply\s+disabled/', $header, 'Apply is disabled');
+        $this->assertStringContainsString('1 row needs a condition', $header);
+        $this->assertStringContainsString('1 Damaged row needs a note', $header);
+        $this->assertStringContainsString('data-scan-next="condition"', $header, 'each blocker is a link that steps to its rows');
+        $this->assertStringContainsString('data-scan-next="note:damaged"', $header);
+        $this->assertStringContainsString('data-notes-required="damaged,not_working,missing,other"', $html);
+        foreach ($this->items as $item) {
+            $this->assertStringContainsString('id="scan-row-' . RentalInspectionScanMark::where('rental_inspection_item_id', $item->id)->value('id') . '"', $html, 'every row can be scrolled to');
+        }
+    }
+
+    public function test_apply_is_enabled_and_no_blocker_is_shown_when_every_row_is_set(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);
+        $this->mark($this->items[1], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'detected_note' => 'Cracked tiles', 'detected_note_confidence' => 0.9]);
+
+        $html = $this->review();
+        $header = $this->between($html, 'id="scan-header"', '<form');
+
+        $this->assertDoesNotMatchRegularExpression('/data-scan-apply\s+disabled/', $header);
+        $this->assertStringNotContainsString('data-scan-next', $header, 'a Damaged row whose note was read has no blocker');
+    }
+
+    public function test_a_server_refusal_after_apply_is_a_link_to_its_row(): void
+    {
+        $mark = $this->mark($this->items[0], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1]);
+
+        $this->apply([$mark->id => 'damaged'], [$mark->id => ''])->assertSessionHasErrors('scan');
+        // the flash is one-shot: read it from the apply response, then render the page with it
+        $response = $this->apply([$mark->id => 'damaged'], [$mark->id => '']);
+        $response->assertSessionHas('scan_refused', fn ($rows) => $rows[0]['mark'] === $mark->id && $rows[0]['focus'] === 'note');
+
+        $page = $this->withSession(['scan_refused' => [['mark' => $mark->id, 'focus' => 'note', 'text' => 'Item 1: a note is required for Damaged.']]])
+            ->get(route('corex.rental-inspections.scans.review', [$this->inspection, $this->scan]))->getContent();
+        $header = $this->between($page, 'id="scan-header"', '<form');
+        $this->assertStringContainsString('href="#scan-row-' . $mark->id . '"', $header);
+        $this->assertStringContainsString('data-scan-goto="' . $mark->id . '"', $header);
+        $this->assertStringContainsString('data-focus="note"', $header);
+        $this->assertStringContainsString('Item 1: a note is required for Damaged.', $header);
+    }
+
+    private function between(string $html, string $from, string $to): string
+    {
+        $a = strpos($html, $from);
+        $this->assertNotFalse($a, "'{$from}' is on the page");
+        $b = strpos($html, $to, $a);
+
+        return substr($html, $a, ($b === false ? strlen($html) : $b) - $a);
+    }
+
     // ── The AI read of the handwriting (a canned answer - Anthropic is never called) ───────────────
 
     public function test_the_read_step_is_off_by_default(): void
@@ -316,8 +499,26 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
         $inked = RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[1]->id)->first();
         $this->assertSame('Cracked tiles', $inked->detected_note);
         $this->assertSame(0.91, $inked->detected_note_confidence);
+        $this->assertTrue($inked->note_ink, 'the row had handwriting in its note area');
+        $this->assertSame(1, $inked->tick_boxes, 'one box ticked');
+        $this->assertFalse(RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[0]->id)->value('note_ink'));
         $this->assertNull(RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[0]->id)->value('detected_note'));
         $this->assertCount(0, RentalInspectionObservation::where('rental_inspection_id', $this->inspection->id)->get(), 'reading never writes to the inspection');
+    }
+
+    public function test_an_empty_ai_answer_on_a_row_with_ink_becomes_a_note_to_type_in(): void
+    {
+        config(['services.anthropic.inspection_note_reading' => true, 'services.anthropic.enabled' => true]);
+        $this->app->instance(RentalInspectionNoteReadService::class, $this->cannedTranscriber(['text' => '', 'confidence' => 0.0]));
+
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+
+        $inked = RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[1]->id)->first();
+        $this->assertTrue($inked->note_ink);
+        $this->assertNull($inked->detected_note);
+        $html = $this->get(route('corex.rental-inspections.scans.review', [$this->inspection, $scan]))->assertOk()->getContent();
+        $this->assertSame(1, substr_count($html, "Couldn't read the handwritten note. Type it in."), 'only the row that had ink says so');
     }
 
     public function test_with_the_switch_off_no_note_is_read_and_nothing_is_sent(): void

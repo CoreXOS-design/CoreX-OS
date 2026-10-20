@@ -226,6 +226,26 @@
                         as ticks.
                     </p>
                 </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned form: ticks to check below this confidence</label>
+                    <input type="number" name="omr_unsure_below" value="{{ old('omr_unsure_below', $omrUnsureBelow) }}"
+                           min="0.1" max="0.95" step="0.05"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 0.50 (0 to 1). A tick read from a scanned form with less confidence than this is
+                        shown as "to check" and the agent must confirm it; two ticked boxes are always "to check".
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned form: handwritten notes to type in below this confidence</label>
+                    <input type="number" name="note_read_min_confidence" value="{{ old('note_read_min_confidence', $noteReadMinConfidence) }}"
+                           min="0.1" max="0.95" step="0.05"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 0.50 (0 to 1). A handwritten note read from a scanned form with less confidence than
+                        this is not filled in; the agent is told to type it in.
+                    </p>
+                </div>
             </div>
         </div>
 

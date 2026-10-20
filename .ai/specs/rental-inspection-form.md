@@ -1006,7 +1006,7 @@ route group's own `.view` gate — matching cancel/destroy vs form/show's existi
   §8's promotion-flow note) — a queued job would be genuinely untestable on the first environment Johan
   actually looks at. A few pages' rasterize-and-sample pass is a few seconds' work, well within a normal
   request.
-- **Partial apply is allowed.** An agent can confirm some rows on the review screen and leave the rest for
+- **Partial apply is allowed.** *(On the review screen this is superseded by §13.16 - Apply waits until every open row has a condition; the server still accepts a partial post.)* An agent can confirm some rows on the review screen and leave the rest for
   a later visit; the scan's own status only flips to `applied` once every mark on it has an
   `applied_observation_id`.
 - **No multi-match/multi-page reconciliation UI beyond the plain per-scan review screen** — if an agent
@@ -1183,4 +1183,56 @@ append-only); the same condition and note again records nothing.
 Files: `RentalInspectionNoteReadService.php`, `RentalInspectionScanReaderService.php` (read hook, `readHandwrittenNotes()`, `applyMark()`),
 `RentalInspectionScanController.php` (`review()`, `apply()`), `scan-review.blade.php`, `public/js/corex-scan-review.js`,
 `RentalInspectionScanMark.php`, `config/services.php`, migration `2026_11_24_120000`, `RentalInspectionScanReviewNotesPhotosTest.php` (16).
+
+### 13.15 Review of scan #25 (inspection #173): three tick states, the note always visible, the unreadable note (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan counted 7 notes on the review screen where the page held 9. Cause: a note on a row with no condition picked (Floors, two boxes ticked) sat inside the
+row's closed controls, so the AI-read note was hidden. On scan #25's data exactly one noted row was hidden that way (Floors); the second row he could not
+see could not be identified from the data. Rulings and what was built:
+
+- **A detected note is ALWAYS visible**, whatever the row's condition. Only SAVING waits for a condition: the photo controls still open when a condition is
+  picked (nothing is recorded without one), and a note the agent typed while no condition was picked is saved the moment one is. An untouched AI note
+  waits for Apply, as before. The note box starts on the note already recorded when there is one (never overwritten), else on the AI-read note.
+- **"Read from scan (95%)"** (existing `ds-badge-info`) marks an AI-read note sitting on the box; the agent's first edit removes it, and a note
+  already recorded is never marked. This replaces the small "Note read (87%)" text.
+- **Unreadable note.** A note area that had handwriting in it (`note_ink`, set by the reader while the AI read is on, dark share >= 0.015) but has no
+  usable reading - an empty AI answer, or a confidence under `note_read_min_confidence` - says **"Couldn't read the handwritten note. Type it in."** at
+  the note box (amber), and a reading under the line is not filled in.
+- **Three tick states per row** (`RentalInspectionScanMark::tickState()`), each an existing CoreX badge: **Read** with confidence (`ds-badge-success`,
+  "Read: Fair (100%)"), **Check** - picked up but unsure: two boxes, a faint tick, or confidence under `omr_unsure_below` (`ds-badge-warning`, "Check: two
+  boxes ticked" / "Check: read Fair (35%)" / "Check: unclear"), and **Not picked up** - nothing over the sensitivity on the row (`ds-badge-danger`). Check and Not
+  picked up start with the condition select blank: the agent must confirm or set it. `scan_marks.tick_boxes` (how many boxes read as marked) tells "two
+  boxes" from "nothing"; a mark read before the column existed is told apart by its confidence (under 0.4 = nothing picked up, because confidence =
+  strongest box / (2.5 x sensitivity)).
+- **One count line** on top replaces the old summary paragraph and the "Only conditions wait for Apply" sentence: "X read, Y to check, Z not picked up"
+  (rows still to apply). No other helper text.
+- **Two new agency settings** (read-time defaults, on Settings -> Rental Inspections AND in the Setup Wizard Rentals step, §10a): `omr_unsure_below` (default
+  0.50 - the constant the reader and the screen used to hard-code) and `note_read_min_confidence` (default 0.50). Migration
+  `2026_11_24_130000` (those two columns, `tick_boxes`, `note_ink`).
+- A scan read before this change has no `note_ink`: its rows show no "couldn't read" message until it is re-read.
+
+Files: `RentalInspectionScanMark.php`, `RentalInspectionSetting.php`, `RentalInspectionScanReaderService.php`, `RentalInspectionScanController.php`,
+`scan-review.blade.php`, `corex-scan-review.js`, `RentalInspectionSettingsController.php`, `settings/rental-inspections.blade.php`,
+`AgencySetupWizardController.php`, `config/agency-onboarding-copy.php`, migration `2026_11_24_130000`; tests in `RentalInspectionScanReviewNotesPhotosTest`
+(24), `RentalInspectionSiteFormTest`, `RentalsStepRuledInSettingsTest`.
+
+### 13.16 The review screen's sticky header: actions, live status, blockers, error links (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan's rule: the response and the next action come first and stay visible. The review screen has ONE sticky header (`position: sticky; top: 0`) holding, in
+order: the server's response (success / refusals), the title, the process actions - **Open original**, **Back to inspection** and **Apply proposed marks**
+(the three the same size, `corex-btn-outline text-xs`, one aligned row) - and the status line. **Nothing sits at the bottom of the page**; the old bottom Apply
+button is gone.
+
+- **Live status line:** the count "X read, Y to check, Z not picked up" (a row the agent has set counts as read) and what still blocks Apply, both
+  recomputed in the browser as rows are fixed - no reload (`corex-scan-review.js`, `refreshStatus()`). The server renders the same line on load.
+- **Blockers:** an open row with no condition ("2 rows need a condition"); a condition that needs a note (the agency's own vocabulary, `data-notes-required`)
+  with none ("1 Damaged row needs a note", one blocker per condition).
+- **Every blocker and every error is a link.** A blocker is a "next" link that steps through its rows (each press goes to the next offending row, then wraps);
+  it scrolls to the row (`id="scan-row-{mark}"`), focuses its control (the condition select, or the note box for a note blocker) and outlines the row briefly. After
+  Apply, each server refusal is flashed as `scan_refused` (mark id, what to focus, text) and shown in the header as a link to its row; `errors.scan` keeps the plain
+  sentence for anything else (e.g. the inspection is locked).
+- **Apply is disabled, with the reason shown** (the blockers beside it), while any blocker remains; the form also refuses to submit disabled. The server's own
+  rules (`apply()` skips blank rows, refuses a note-needing condition with no note) are unchanged.
+- Files: `scan-review.blade.php` (header, `$rowView` closure shared by the header's blockers and the rows), `corex-scan-review.js`,
+  `RentalInspectionScanController.php` (`notesRequiredKeys`, `scan_refused`), `RentalInspectionScanReviewNotesPhotosTest` (4 new tests).
 

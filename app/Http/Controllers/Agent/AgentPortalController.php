@@ -248,9 +248,18 @@ class AgentPortalController extends Controller
         $navFavourites = app(\App\Services\Navigation\NavFavouriteService::class)->forUser($user);
         $navFavouriteMax = \App\Models\UserNavFavourite::MAX_PER_USER;
 
+        // Agency Tracker re-home step 2: Targets & Budget, Where am I vs where I should be, My Activity.
+        // An assistant has no earnings or targets of their own (AT-267 section 10): nothing is computed for them.
+        $myPortal = $isAssistant ? null : $this->myPortalBlocks($user);
+        $overviewSub = $isAssistant ? 'compliance'
+            : (! $myPortal ? 'earnings'
+                : (in_array(request('sub'), ['whereami', 'targets', 'myactivity'], true) ? request('sub') : 'whereami'));
+
         return view('agent.portal', compact(
             'user',
             'isAssistant',
+            'myPortal',
+            'overviewSub',
             'navFavourites',
             'navFavouriteMax',
             'documents',
@@ -284,6 +293,61 @@ class AgentPortalController extends Controller
             'ppraLetterCanCreate',
             'ppraLetterMissing'
         ));
+    }
+
+    /**
+     * The figures for the three read-only My Portal blocks (agency-tracker-rehome.md sections 4.2, 5.2, 6).
+     * No input is saved from them. The month comes from ?period= (current month when missing or invalid); the
+     * two deal-summary columns take their lens (me / my branch / the agency) and rows from the query string -
+     * display choices only, limited to the lenses the user's deal data scope allows.
+     * Failure-isolated: if the numbers cannot be built the rest of the portal still loads.
+     */
+    private function myPortalBlocks(User $user): ?array
+    {
+        try {
+            $svc = app(\App\Services\Agent\MyPortalNumbers::class);
+            $period = \App\View\Components\PeriodSelector::monthFrom(request('period'));
+
+            $budget = app(\App\Services\RoadToSold\BudgetService::class)->forUser($user, $period);
+            $targets = app(\App\Services\RoadToSold\TargetService::class)->monthlyFor($user, $period);
+            $stock = $svc->stock($user);
+            $lenses = $svc->lensesFor($user);
+            $lensA = in_array(request('a'), $lenses, true) ? request('a') : \App\Services\Agent\MyPortalNumbers::LENS_OWN;
+            $lensB = in_array(request('b'), $lenses, true) ? request('b') : ($lenses[1] ?? $lensA);
+            $rows = array_values(array_intersect(
+                array_keys(\App\Services\Agent\MyPortalNumbers::ROWS),
+                (array) request('rows', array_keys(\App\Services\Agent\MyPortalNumbers::ROWS))
+            )) ?: array_keys(\App\Services\Agent\MyPortalNumbers::ROWS);
+            $actuals = $svc->ownActuals($user, $period);
+            $points = $svc->points($user, $period, $targets['points']);
+
+            return [
+                'period'      => $period,
+                'months'      => $svc->historyMonths($user),
+                'budget'      => $budget,
+                'targets'     => $targets,
+                'stock'       => $stock,
+                'requirement' => $svc->requirement(app(\App\Services\RoadToSold\BudgetService::class)->worksheetFor($user, $period), $stock['sales']),
+                'branchReq'   => app(\App\Services\RoadToSold\BudgetService::class)
+                    ->requirementFor((int) $user->effectiveAgencyId(), $user->effectiveBranchId() ? (int) $user->effectiveBranchId() : null, $period),
+                'lenses'      => $lenses,
+                'lensA'       => $lensA,
+                'lensB'       => $lensB,
+                'rows'        => $rows,
+                'summaryA'    => $svc->dealSummary($user, $lensA, $period),
+                'summaryB'    => $svc->dealSummary($user, $lensB, $period),
+                'money'       => $svc->ownMoney($user, $period),
+                'totals'      => $svc->commissionTotals($user, $period),
+                'actuals'     => $actuals,
+                'listingsLive' => $svc->listingsLive($user, $period),
+                'points'      => $points,
+                'comparison'  => $svc->comparison($user, $period),
+            ];
+        } catch (\Throwable $e) {
+            \Log::warning('agent_portal.my_portal_blocks_failed', ['error' => $e->getMessage()]);
+
+            return null;
+        }
     }
 
     public function updateProfile(ProfileUpdateRequest $request)

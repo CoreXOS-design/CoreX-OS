@@ -7,10 +7,14 @@
  *     (client_idempotency_key) per save so a retried request is answered from the row that is already there;
  *   - photos: POST /photos (storePhotos) through public/js/corex-photo-batch-uploader.js (one key per file), tagged to the item.
  * Plain DOM, no Alpine. Rules this file keeps:
- *   - a row with no condition picked has its note and photo controls closed (the Blade starts them hidden; picking a condition opens them);
+ *   - the note box is ALWAYS there (a detected note is never hidden); only SAVING waits for a condition: the photo controls start closed
+ *     and open when a condition is picked, and a note typed before a condition is picked is saved the moment one is (§13.15);
  *   - nothing is ever recorded without a condition - no placeholder observations: a photo on a row whose picked condition is not what is
  *     recorded yet first records that condition (with the note typed so far), and a condition that needs a note refuses to record without
  *     one (the server's own 422, shown in the row) so the photo waits for the note;
+ *   - §13.16: the sticky header's count line and blockers are live (refreshStatus) - what still blocks Apply ("2 rows need a condition", "1 Damaged
+ *     row needs a note") updates as rows are fixed, each blocker is a link that steps to the next offending row and focuses its control, and the
+ *     Apply button is disabled while any blocker remains;
  *   - the note box always posts with the form too, so Apply sends the confirmed note (an AI pre-filled one the agent never touched included).
  */
 (function () {
@@ -29,7 +33,104 @@
         });
     };
 
+    var header = document.getElementById('scan-header');
+    var applyButton = document.querySelector('[data-scan-apply]');
+    var countEl = document.querySelector('[data-scan-count]');
+    var blockersEl = document.querySelector('[data-scan-blockers]');
+    var notesRequired = (root.dataset.notesRequired || '').split(',').filter(Boolean);
+    var conditionLabels = {};
+    try { conditionLabels = JSON.parse(root.dataset.conditionLabels || '{}'); } catch (e) { /* labels fall back to the key */ }
+    var lastJump = {};       // blocker type -> the row id last jumped to, so "next" steps through them
+    var blocked = {};        // blocker type -> the rows blocking right now
+
+    // Recomputes the count line, the blockers and the Apply button from what is on the screen right now.
+    function refreshStatus() {
+        if (!countEl || !blockersEl) return;
+        var counts = { read: 0, unsure: 0, missed: 0 };
+        var noCondition = [];
+        var noNote = {};
+        root.querySelectorAll('[data-scan-row]').forEach(function (row) {
+            var select = row.querySelector('[data-scan-condition]');
+            var note = row.querySelector('[data-scan-note]');
+            var value = select ? select.value : '';
+            var applied = row.dataset.applied === '1';
+            if (!applied) {
+                // a row the agent has set counts as read; an untouched one keeps what the reader made of it (a cleared clear tick is to check)
+                counts[value ? 'read' : (row.dataset.tick === 'read' ? 'unsure' : row.dataset.tick)]++;
+            }
+            if (!applied && !value) {
+                noCondition.push(row);
+            } else if (value && notesRequired.indexOf(value) >= 0 && (!note || note.value.trim() === '')) {
+                (noNote[value] = noNote[value] || []).push(row);
+            }
+        });
+        countEl.textContent = counts.read + ' read, ' + counts.unsure + ' to check, ' + counts.missed + ' not picked up';
+
+        blocked = {};
+        blockersEl.textContent = '';
+        function addBlocker(type, text, rows) {
+            blocked[type] = rows;
+            var a = document.createElement('a');
+            a.href = '#';
+            a.className = 'underline font-semibold';
+            a.style.color = 'var(--ds-crimson)';
+            a.setAttribute('data-scan-next', type);
+            a.textContent = text;
+            blockersEl.appendChild(a);
+        }
+        if (noCondition.length) addBlocker('condition', noCondition.length + (noCondition.length === 1 ? ' row needs' : ' rows need') + ' a condition', noCondition);
+        Object.keys(noNote).forEach(function (key) {
+            var n = noNote[key].length;
+            addBlocker('note:' + key, n + ' ' + (conditionLabels[key] || key) + (n === 1 ? ' row needs' : ' rows need') + ' a note', noNote[key]);
+        });
+
+        var hasBlockers = Object.keys(blocked).length > 0;
+        if (applyButton) {
+            applyButton.disabled = hasBlockers;
+            applyButton.style.opacity = hasBlockers ? '0.5' : '';
+            applyButton.style.cursor = hasBlockers ? 'not-allowed' : '';
+        }
+    }
+
+    // Scrolls to a row and focuses the control the blocker or error is about, with a brief outline so the eye finds it under the sticky header.
+    function goToRow(row, what) {
+        if (!row) return;
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        var control = what === 'note' ? row.querySelector('[data-scan-note]') : row.querySelector('[data-scan-condition]');
+        if (control) control.focus({ preventScroll: true });
+        row.style.outline = '2px solid var(--ds-amber)';
+        setTimeout(function () { row.style.outline = ''; }, 1800);
+    }
+
+    if (header) {
+        header.addEventListener('click', function (e) {
+            var next = e.target.closest('[data-scan-next]');
+            if (next) {
+                e.preventDefault();
+                var type = next.getAttribute('data-scan-next');
+                var rows = blocked[type] || [];
+                if (!rows.length) return;
+                var at = rows.findIndex(function (r) { return r.id === lastJump[type]; });
+                var row = rows[(at + 1) % rows.length];
+                lastJump[type] = row.id;
+                goToRow(row, type === 'condition' ? 'condition' : 'note');
+
+                return;
+            }
+            var go = e.target.closest('[data-scan-goto]');
+            if (go) {
+                e.preventDefault();
+                goToRow(document.getElementById('scan-row-' + go.getAttribute('data-scan-goto')), go.getAttribute('data-focus'));
+            }
+        });
+    }
+    root.addEventListener('submit', function (e) {
+        refreshStatus();
+        if (applyButton && applyButton.disabled) e.preventDefault();
+    });
+
     root.querySelectorAll('[data-scan-row]').forEach(initRow);
+    refreshStatus();
 
     function initRow(row) {
         var select = row.querySelector('[data-scan-condition]');
@@ -48,15 +149,25 @@
         var busy = false;
         var again = false;
         var timer = null;
+        var edited = false;      // the agent has changed the note box: it is theirs now, no longer "read from scan"
+        var readBadge = row.querySelector('[data-scan-read-badge]');
+        var unreadable = row.querySelector('[data-scan-unreadable]');
 
         function say(text) { if (status) status.textContent = text || ''; }
 
         select.addEventListener('change', function () {
             controls.style.display = select.value ? '' : 'none';
             say('');
+            refreshStatus();
+            // A note the agent typed while no condition was picked saves as soon as one is (an untouched AI note waits for Apply).
+            if (select.value && edited) { clearTimeout(timer); timer = setTimeout(saveNote, DEBOUNCE_MS); }
         });
 
         note.addEventListener('input', function () {
+            edited = true;
+            refreshStatus();
+            if (readBadge) { readBadge.remove(); readBadge = null; }
+            if (unreadable && note.value.trim() !== '') { unreadable.remove(); unreadable = null; }
             clearTimeout(timer);
             timer = setTimeout(saveNote, DEBOUNCE_MS);
         });

@@ -128,6 +128,15 @@ final class PeriodSelectorComponentTest extends TestCase
         $this->assertStringContainsString('Statement month', $html);
     }
 
+    public function test_keep_values_travel_with_the_month_and_override_the_url(): void
+    {
+        $html = $this->render('/somewhere?sub=old&period=2026-06', '<x-period-selector :keep="[\'sub\' => \'targets\']" />');
+
+        $this->assertStringContainsString('<input type="hidden" name="sub" value="targets">', $html);
+        $this->assertStringNotContainsString('value="old"', $html);
+        $this->assertStringContainsString('sub=targets', $html, 'previous / next links keep the panel');
+    }
+
     public function test_controllers_resolve_the_same_way(): void
     {
         $this->assertSame('2026-06', PeriodSelector::monthFrom('2026-06'));

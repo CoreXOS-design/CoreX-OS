@@ -222,8 +222,13 @@ class RentalInspectionScanController extends Controller
             'source' => $rentalInspection->type === RentalInspection::TYPE_OUT
                 ? \App\Models\RentalInspectionObservation::SOURCE_OUT_INSPECTION
                 : \App\Models\RentalInspectionObservation::SOURCE_IN_INSPECTION,
-            // Confidence runs 0-1 (1 = a clear tick); a tick that only just cleared the sensitivity is doubtful: flagged, never pre-selected.
-            'lowConfidenceBelow' => 0.5,
+            // Confidence runs 0-1 (1 = a clear tick). Under the agency's line a tick is "picked up but unsure": shown as to check, never
+            // pre-selected (form spec §13.15). A read note under its own line is not filled in.
+            // The conditions that need a note (the agency's own vocabulary) - what blocks Apply in the header while a row has one with no note.
+            'notesRequiredKeys' => collect($conditionStates)->pluck('key')
+                ->filter(fn ($k) => RentalInspectionSetting::conditionRequiresNotesFor($rentalInspection->agency_id, $k))->values()->all(),
+            'unsureBelow' => RentalInspectionSetting::omrUnsureBelowFor($rentalInspection->agency_id),
+            'noteMinConfidence' => RentalInspectionSetting::noteReadMinConfidenceFor($rentalInspection->agency_id),
         ]);
     }
 
@@ -288,7 +293,7 @@ class RentalInspectionScanController extends Controller
 
             // "Damaged needs a note" - the very rule the capture endpoint (storeObservation) enforces, from the agency's own vocabulary.
             if ($note === null && RentalInspectionSetting::conditionRequiresNotesFor($rentalInspection->agency_id, $key)) {
-                $refused[] = ($mark->item?->label ?? 'A row') . ': a note is required for ' . ($states->firstWhere('key', $key)['label'] ?? $key) . '.';
+                $refused[] = ['mark' => $mark->id, 'focus' => 'note', 'text' => ($mark->item?->label ?? 'A row') . ': a note is required for ' . ($states->firstWhere('key', $key)['label'] ?? $key) . '.'];
 
                 continue;
             }
@@ -309,7 +314,10 @@ class RentalInspectionScanController extends Controller
             ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])
             ->with('success', $allApplied ? 'All rows applied.' : 'Confirmed rows applied — some rows still need review.');
 
-        return $refused !== [] ? $redirect->withErrors(['scan' => implode(' ', $refused)]) : $redirect;
+        // Each refusal is also handed to the header as a link to its row (`scan_refused`); `errors.scan` keeps the plain sentence for anything else.
+        return $refused !== []
+            ? $redirect->withErrors(['scan' => implode(' ', array_column($refused, 'text'))])->with('scan_refused', $refused)
+            : $redirect;
     }
 
     /** One stable, valid UUID per (this apply press, mark): the same press sent twice replays instead of recording twice. */
