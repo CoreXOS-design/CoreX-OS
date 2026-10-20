@@ -59,6 +59,7 @@ Branches are read (for the extra-branch fee). Property / Contact / Deal are unto
 | **D3** | **Every plan switch emails `andre@corexos.co.za` and `johan@corexos.co.za`**, sent via the existing `corex` mailer (`config/mail.php` → `mail.mailers.corex`, from `mail@corexos.co.za`). |
 | **D4** | **No VAT.** Nothing about VAT appears on either page, in the data model, or in the engine. Prices are the number shown. |
 | **D5** | **Custom amount and discount are mutually exclusive — never both at once.** The discount % applies to the **auto-computed** price, for a duration in whole months. The agency page shows **how many months remain**. |
+| **D7** | **New price list — headcount bands (Johan, 2026-10-19).** One flat monthly fee for the band the billable seats fall in: **1 → R450 · 2 → R900 · 3–5 → R1 495 · 6–10 → R2 495 · 11–15 → R3 295 · 16–20 → R3 995 · 21–25 → R4 595 · 26–30 → R5 095 · 31+ → on quotation** (no list price; nothing is charged for the seats until CoreX sets a custom amount — the agency page says "on quotation", the owner page flags "needs a quoted price"). **R750 for each branch after the first, on every band** (D2a unchanged). **Agencies already on CoreX keep the Team / Agency prices they signed for**; only agencies created from 19 Oct 2026 are on the bands. Each agency is pinned to its price list in `agency_subscriptions.price_list` (`tiers_2026_07` \| `bands_2026_10`); the migration `2026_11_16_100700` stamps every existing agency (with or without a row) `tiers_2026_07`; `AgencySubscription::forAgency()` stamps a new row with `config('corex-billing.price_list')`. On the band list the stored `plan` is the band (`band1` … `band8`, or `quote`). **D3 amended for bands:** moving between bands updates the stored plan silently (the price list working as published); CoreX is emailed only when an agency goes **above the last band** (`quote`), because only then must someone act. A new row settles its first band silently. VAT: the amounts stay VAT-inclusive once RR Technologies registers, with no increase (D4 unchanged). Engine: `SubscriptionPricingService::derivePlan($seats, $subscription)` / `bandPlanLines()`; tests `tests/Feature/Billing/BandPricingTest.php`. The tier tests pin their agencies to `tiers_2026_07`. |
 
 ---
 
@@ -468,6 +469,10 @@ agency-configurable setting anywhere in this build.
 
 **This is on the record as a decision, not an oversight** — per #10a it is Johan's call to
 confirm.
+
+The price list an agency is on (`agency_subscriptions.price_list`, D7, 2026-10-19) is the same
+kind of thing — a CoreX-side commercial term, never an agency setting — and stays out of the
+wizard for the same reason.
 
 ---
 

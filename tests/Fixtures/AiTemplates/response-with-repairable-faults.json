@@ -3,7 +3,7 @@
   {"field":"image_1","x":0,"y":0,"w":1200,"h":628,"zIndex":1},
   {"field":"gradient","x":0,"y":300,"w":1200,"h":328,"zIndex":2,"gradFrom":"#0b1220","gradTo":"rgba(11,18,32,0)","gradAngle":0},
   {"field":"title","x":40,"y":440,"w":700,"h":50,"zIndex":3,"fontSize":30,"fontWeight":700,"fontFamily":"Arial","color":"white"},
-  {"field":"price","x":40,"y":500,"w":1200,"h":80,"zIndex":3,"fontSize":56,"fontWeight":"800","color":"#ffffff","bgColor":"#0b1220e6","bgOpacity":0.9},
+  {"field":"price","x":40,"y":500,"w":700,"h":80,"zIndex":3,"fontSize":56,"fontWeight":"800","color":"#ffffff","bgColor":"#0b1220e6","bgOpacity":0.9},
   {"field":"agent_name","x":760,"y":590,"w":400,"h":60,"zIndex":3,"fontSize":14,"color":"#ffffff"}
  ]},
  {"name":"Split Dark","canvasBgMode":"solid","canvasBg":"#0b1220f0","elements":[

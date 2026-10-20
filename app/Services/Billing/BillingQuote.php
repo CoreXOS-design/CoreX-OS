@@ -39,6 +39,8 @@ final class BillingQuote
         public readonly int $discountMonthsRemaining = 0,
         public readonly ?string $discountEndsOn = null,
         public readonly ?string $discountNote = null,
+        public readonly bool $onQuotation = false,
+        public readonly bool $usesBands = false,
     ) {
     }
 

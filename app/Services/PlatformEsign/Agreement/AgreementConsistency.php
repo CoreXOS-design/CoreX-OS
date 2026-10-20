@@ -23,16 +23,16 @@ class AgreementConsistency
      */
     public static function check(string $md, array $rates, array $parentRates, string $where): array
     {
+        if (AgreementPricing::isBands($rates)) {
+            return self::checkBands($md, AgreementPricing::withDefaults($rates), AgreementPricing::withDefaults($parentRates), $where);
+        }
         $rates = array_merge(AgreementPricing::DEFAULT_RATES, $rates);
         $parentRates = array_merge(AgreementPricing::DEFAULT_RATES, $parentRates);
         $t1 = (int) $rates['agency_t1_max'];
         $t2 = (int) $rates['agency_t2_max'];
         $team = (int) $rates['team_max_seats'];
         $quote = (int) $rates['quote_above_agents'];
-        $text = preg_replace_callback('/\{\{rate:([a-z0-9_]+)\}\}/', fn ($m) => AgreementPricing::rate((float) ($rates[$m[1]] ?? 0)), $md);
-        $text = preg_replace('/\{\{[^}]*\}\}/', ' ', (string) $text);
-        $text = html_entity_decode(strip_tags((string) $text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = preg_replace('/\s+/u', ' ', $text);
+        $text = self::plainText($md, $rates);
         $errors = [];
 
         // "seats 1 to 10", "seats 11 to 20"
@@ -87,9 +87,64 @@ class AgreementConsistency
                 }
             }
         }
-        // A price that is still the OLD value of a rate that was changed on the Rates tab.
-        $now = array_map(fn ($k) => round((float) $rates[$k], 2), array_keys(AgreementPricing::DEFAULT_RATES));
-        foreach (AgreementVersions::RATE_FIELDS as $key => [$label, $kind]) {
+        $errors = array_merge($errors, self::leftOverPrices($text, $rates, $parentRates, AgreementVersions::RATE_FIELDS, $where));
+
+        return array_values(array_unique($errors));
+    }
+
+    /**
+     * Band pricing (spec §11.5a): every "A to B agents" in the words must be one of the bands, every "more than N agents" must be the top of
+     * the last band (where quotation starts), and no amount may still be the old price of a rate changed on the Rates tab.
+     */
+    private static function checkBands(string $md, array $rates, array $parentRates, string $where): array
+    {
+        $text = self::plainText($md, $rates);
+        $bands = AgreementPricing::bands($rates);
+        $top = AgreementPricing::topOfBands($rates);
+        $errors = [];
+        if (preg_match_all('/\b(\d{1,4}) to (\d{1,4}) agents\b/i', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                $match = array_filter($bands, fn ($b) => $b['from'] === (int) $x[1] && $b['to'] === (int) $x[2]);
+                if (!$match) {
+                    $errors[] = $where . ': the wording says “' . $x[1] . ' to ' . $x[2] . ' agents” but no band on the Rates tab runs from ' . $x[1] . ' to ' . $x[2]
+                        . ' agents. The bands are: ' . implode(', ', array_map(fn ($b) => AgreementPricing::bandLabel($b['from'], $b['to']), $bands)) . '. Make the wording and the Rates tab agree.';
+                }
+            }
+        }
+        if (preg_match_all('/\b(?:more than|over|above) (\d{1,4}) agents\b/i', $text, $m, PREG_SET_ORDER)) {
+            foreach ($m as $x) {
+                if ((int) $x[1] !== $top) {
+                    $errors[] = $where . ': the wording says “more than ' . $x[1] . ' agents” but the last band on the Rates tab ends at ' . $top . ' agents, so quotation starts above ' . $top . '. Make them agree.';
+                }
+            }
+        }
+        $fields = AgreementPricing::isBands($parentRates) ? AgreementVersions::BAND_RATE_FIELDS : [];
+        $errors = array_merge($errors, self::leftOverPrices($text, $rates, $parentRates, $fields, $where));
+
+        return array_values(array_unique($errors));
+    }
+
+    /** The contract as plain words, with every price marker replaced by the price it prints. */
+    private static function plainText(string $md, array $rates): string
+    {
+        $text = preg_replace_callback('/\{\{rate:([a-z0-9_]+)\}\}/', fn ($m) => AgreementPricing::rate((float) ($rates[$m[1]] ?? 0)), $md);
+        $text = preg_replace('/\{\{[^}]*\}\}/', ' ', (string) $text);
+        $text = html_entity_decode(strip_tags((string) $text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return (string) preg_replace('/\s+/u', ' ', $text);
+    }
+
+    /**
+     * A price that is still the OLD value of a rate that was changed on the Rates tab.
+     *
+     * @param array<string,array{0:string,1:string}> $fields the rate fields the draft and its parent share
+     * @return string[]
+     */
+    private static function leftOverPrices(string $text, array $rates, array $parentRates, array $fields, string $where): array
+    {
+        $errors = [];
+        $now = array_map(fn ($k) => round((float) $rates[$k], 2), array_keys($fields));
+        foreach ($fields as $key => [$label, $kind]) {
             if ($kind !== 'money' || round((float) $rates[$key], 2) === round((float) $parentRates[$key], 2)) {
                 continue;
             }

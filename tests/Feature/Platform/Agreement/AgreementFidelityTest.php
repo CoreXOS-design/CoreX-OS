@@ -82,11 +82,14 @@ class AgreementFidelityTest extends TestCase
 
     // ── the real wording ───────────────────────────────────────────────────
 
-    public function test_a_fresh_database_holds_only_version_1_0_and_it_is_the_source_word_for_word(): void
+    public function test_a_fresh_database_holds_version_1_0_word_for_word_and_the_band_priced_1_1_on_top(): void
     {
         $this->assertSame(0, WordingVersion::query()->count(), 'migrate alone seeds no wording version');
-        $v = app(AgreementContent::class)->ensureSeeded();
-        $this->assertSame(1, WordingVersion::withTrashed()->count());
+        $current = app(AgreementContent::class)->ensureSeeded();
+        $this->assertSame(2, WordingVersion::withTrashed()->count());
+        $this->assertSame('1.1', $current->version, 'the band pricing (spec §11.5a) is current on a fresh environment');
+        $v = WordingVersion::where('version', '1.0')->firstOrFail();
+        $this->assertSame($v->id, $current->parent_version_id);
         $this->assertSame('1.0', $v->version);
         $this->assertSame('Version 1.0 — 28 September 2026', $v->label());
 
@@ -114,6 +117,7 @@ class AgreementFidelityTest extends TestCase
         Role::clearCache();
         $owner = User::factory()->create(['role' => 'super_admin', 'agency_id' => null, 'name' => 'Johan Reichel']);
 
+        $this->pinTierPricing(); // this proof is of the signed-off source text, which is version 1.0
         Mail::fake();
         $svc = app(AgreementService::class);
         // --seal / --cleanup only ever touch a throwaway made for the proof (the recipient is the proof address), never a real agreement.
@@ -147,5 +151,17 @@ class AgreementFidelityTest extends TestCase
         $this->assertSame(1, substr_count($out, 'Set by CoreX as agreed'), 'and appear nowhere else');
         $this->assertStringContainsString('Version 1.0 — 28 September 2026', $out, 'the footer of the PDFs reads the v1.0 label');
         $this->assertSame(0, $exit, $out);
+    }
+
+    /** The environment before the band pricing was published: 1.0 is current. */
+    private function pinTierPricing(): void
+    {
+        app(AgreementContent::class)->ensureSeeded();
+        // A published version can never be deleted through the app (WordingVersion refuses), so the rows are removed underneath it.
+        $ids = WordingVersion::withTrashed()->get()
+            ->filter(fn (WordingVersion $w) => \App\Services\PlatformEsign\Agreement\AgreementPricing::isBands((array) $w->rates_json))
+            ->pluck('id');
+        \App\Models\PlatformEsign\WordingAudit::whereIn('version_id', $ids)->delete();
+        \Illuminate\Support\Facades\DB::table((new WordingVersion())->getTable())->whereIn('id', $ids)->orderByDesc('id')->delete();
     }
 }

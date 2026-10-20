@@ -29,6 +29,8 @@ use Tests\TestCase;
 class AgreementAuditFixesTest extends TestCase
 {
     use RefreshDatabase;
+    // Written against the tier-priced agreement (version 1.0): the environment as it was before the band pricing (spec §11.5a).
+    use \Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing;
 
     private const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
     private const PDF = "%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF";

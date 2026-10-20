@@ -193,10 +193,10 @@ class AgreementWordingController extends Controller
         $v = $this->version($version);
         $part = $request->query('part', 'part_b');
         $part = isset(AgreementContent::PARTS[$part]) || $part === 'rates' ? $part : 'part_b';
-        $rates = array_merge(AgreementPricing::DEFAULT_RATES, (array) $v->rates_json);
+        $rates = AgreementPricing::withDefaults((array) $v->rates_json);
 
         return view('platform-esign.wording.show', [
-            'v' => $v, 'part' => $part, 'rates' => $rates, 'rateFields' => AgreementVersions::RATE_FIELDS,
+            'v' => $v, 'part' => $part, 'rates' => $rates, 'rateFields' => AgreementVersions::rateFields($rates),
             'clauses' => $part === 'rates' ? [] : $this->renderer->blocks($v, $part, 'edit'),
             'current' => $this->versions->current(), 'problems' => $v->is_published ? [] : $this->versions->problems($v),
             'suggested' => $this->versions->nextVersion(), 'sentCount' => $v->documents()->count(),

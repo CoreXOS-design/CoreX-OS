@@ -94,6 +94,18 @@
             <p class="text-sm mt-3" style="color: var(--text-primary);" id="discount-preview" aria-live="polite"></p>
         </details>
 
+        @if(\App\Services\PlatformEsign\Agreement\AgreementPricing::isBands((array) $version->rates_json))
+        @php $topBand = \App\Services\PlatformEsign\Agreement\AgreementPricing::topOfBands((array) $version->rates_json); @endphp
+        <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('quoted_fee') || $errors->has('quoted_fee')) open @endif>
+            <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Quoted monthly fee <span class="font-normal" style="color: var(--text-muted);">(only for an agency with more than {{ $topBand }} agents)</span></summary>
+            <div class="mt-3">
+                <label class="ds-label block mb-1" for="quoted_fee">Monthly fee agreed for more than {{ $topBand }} agents (R)</label>
+                <input id="quoted_fee" name="quoted_fee" inputmode="decimal" value="{{ old('quoted_fee') }}" maxlength="14" class="ds-field" placeholder="e.g. 5995" autocomplete="off">
+                @error('quoted_fee')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                <p class="text-xs mt-2" style="color: var(--text-muted);">Up to {{ $topBand }} agents the price list sets the fee. Above that the fee is on quotation: enter it here and the agreement shows it. Without it, an agency with more than {{ $topBand }} agents is asked to contact CoreX and cannot sign.</p>
+            </div>
+        </details>
+        @else
         <details class="rounded-md p-3" style="border: 1px solid var(--border);" @if(old('plan')) open @endif>
             <summary class="text-sm font-semibold cursor-pointer" style="color: var(--text-primary);">Fix the plan <span class="font-normal" style="color: var(--text-muted);">(optional — only for a negotiated case)</span></summary>
             <div class="mt-3">
@@ -106,6 +118,7 @@
                 <p class="text-xs mt-2" style="color: var(--text-muted);">Normally the plan follows the number of agents the recipient enters. Fixing it is recorded in the agreement's history and the recipient sees the plan fixed.</p>
             </div>
         </details>
+        @endif
 
         <div class="flex flex-wrap items-center gap-3 pt-1">
             <button class="corex-btn-primary" type="submit">Send Subscription Agreement</button>
