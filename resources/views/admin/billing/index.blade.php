@@ -65,9 +65,19 @@
     <div class="corex-kpi-grid">
         <x-corex-kpi-card title="Monthly revenue" :value="Zar::format($totals['mrr_zar'])" />
         <x-corex-kpi-card title="Billable users" :value="number_format($totals['seats'])" />
-        <x-corex-kpi-card title="On Team plan" :value="(string) $totals['on_team']" />
-        <x-corex-kpi-card title="On Agency plan" :value="(string) $totals['on_agency']" />
+        <x-corex-kpi-card title="On price bands" :value="(string) $totals['on_bands']" />
+        <x-corex-kpi-card title="On old prices (Team / Agency)" :value="(string) ($totals['on_team'] + $totals['on_agency'])" />
     </div>
+
+    @if($totals['on_quotation'] > 0)
+        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="text-xs font-semibold uppercase tracking-wider mb-1" style="color:var(--text-muted);">Needs a quoted price</div>
+            <p class="text-sm" style="color:var(--text-secondary);">
+                {{ $totals['on_quotation'] }} {{ Str::plural('agency', $totals['on_quotation']) }} {{ $totals['on_quotation'] === 1 ? 'has' : 'have' }} more users than the price bands cover
+                and {{ $totals['on_quotation'] === 1 ? 'is' : 'are' }} not being charged for them yet. Open the agency below and set a custom amount.
+            </p>
+        </div>
+    @endif
 
     @if($totals['discount_zar'] > 0)
         <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
@@ -129,6 +139,11 @@
                             <span class="ds-badge ds-badge-pill {{ $quote->derivedPlan === AgencySubscription::PLAN_AGENCY ? 'ds-badge-info' : 'ds-badge-success' }}">
                                 {{ $quote->planLabel }}
                             </span>
+                            @if($quote->onQuotation)
+                                <div class="text-xs mt-1 font-medium" style="color:var(--ds-crimson);">On quotation — set a custom amount</div>
+                            @elseif(! $quote->usesBands)
+                                <div class="text-xs mt-1" style="color:var(--text-muted);">Old prices</div>
+                            @endif
                         </td>
                         <td class="px-4 py-3 text-right tabular-nums" style="color:var(--text-secondary);">{{ Zar::format($quote->computedZar) }}</td>
                         <td class="px-4 py-3">
@@ -312,16 +327,26 @@
     {{-- Pricing reference — so nobody has to go digging in config to sanity-check a number --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         <div class="text-xs font-semibold uppercase tracking-wider mb-2" style="color:var(--text-muted);">Current pricing</div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
             <div>
-                <div class="font-semibold mb-1" style="color:var(--text-primary);">{{ config('corex-billing.team.label') }}</div>
+                <div class="font-semibold mb-1" style="color:var(--text-primary);">Price bands — new agencies</div>
+                <div style="color:var(--text-secondary);">
+                    One flat monthly fee per band:<br>
+                    @foreach(config('corex-billing.bands.bands') as $band)
+                        {{ $band['from'] }}{{ $band['to'] !== $band['from'] ? '–' . $band['to'] : '' }} {{ $band['to'] === 1 ? 'agent' : 'agents' }}: {{ Zar::format($band['amount']) }}<br>
+                    @endforeach
+                    More than {{ collect(config('corex-billing.bands.bands'))->last()['to'] }}: on quotation.
+                </div>
+            </div>
+            <div>
+                <div class="font-semibold mb-1" style="color:var(--text-primary);">{{ config('corex-billing.team.label') }} <span class="font-normal" style="color:var(--text-muted);">(old prices)</span></div>
                 <div style="color:var(--text-secondary);">
                     {{ Zar::format(config('corex-billing.team.seat_rate')) }} per user, flat.<br>
                     Up to {{ config('corex-billing.team.max_seats') }} users.
                 </div>
             </div>
             <div>
-                <div class="font-semibold mb-1" style="color:var(--text-primary);">{{ config('corex-billing.agency.label') }}</div>
+                <div class="font-semibold mb-1" style="color:var(--text-primary);">{{ config('corex-billing.agency.label') }} <span class="font-normal" style="color:var(--text-muted);">(old prices)</span></div>
                 <div style="color:var(--text-secondary);">
                     {{ Zar::format(config('corex-billing.agency.base_fee')) }} base, plus graduated seats:<br>
                     @foreach(config('corex-billing.agency.seat_tiers') as $tier)
@@ -333,13 +358,14 @@
                 <div class="font-semibold mb-1" style="color:var(--text-primary);">Branches</div>
                 <div style="color:var(--text-secondary);">
                     First {{ config('corex-billing.branches.included') }} included.<br>
-                    {{ Zar::format(config('corex-billing.branches.rate')) }} per extra branch, on both plans.
+                    {{ Zar::format(config('corex-billing.branches.rate')) }} per extra branch, on every plan and band.
                 </div>
             </div>
         </div>
         <div class="text-xs mt-3" style="color:var(--text-muted);">
-            Rates live in <code>config/corex-billing.php</code>. Both plans include full access to everything —
-            the plan only decides how the price is worked out.
+            Rates live in <code>config/corex-billing.php</code>. Agencies that joined before 19 October 2026 stay on the old
+            prices; every agency added since is on the price bands. Every plan and band includes full access to everything —
+            it only decides how the price is worked out.
         </div>
     </div>
 

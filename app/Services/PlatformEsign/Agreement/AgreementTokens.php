@@ -16,8 +16,9 @@ class AgreementTokens
     /** Kinds whose count must stay exactly as in the version the draft was copied from. */
     public const GUARDED = ['f', 'o', 'q', 'amt', 'rr', 'sig', 'ini', 'ctl'];
 
-    private const QUANTITY_LINES = ['team_seats', 'agency_t1', 'agency_t2', 'agency_t3', 'branches'];
-    private const AMOUNT_LINES = ['team_seats', 'agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches', 'total'];
+    // Tier-shaped lines, then the band-shaped ones (AgreementPricing::BAND_LINES, spec §11.5a).
+    private const QUANTITY_LINES = ['team_seats', 'agency_t1', 'agency_t2', 'agency_t3', 'branches', 'band1', 'band2', 'band3', 'band4', 'band5', 'band6', 'band7', 'band8', 'quoted'];
+    private const AMOUNT_LINES = ['team_seats', 'agency_base', 'agency_t1', 'agency_t2', 'agency_t3', 'branches', 'total', 'band1', 'band2', 'band3', 'band4', 'band5', 'band6', 'band7', 'band8', 'quoted'];
 
     /** @return string[] canonical tokens in order, e.g. "f:reg_no", "o:plan:team", "ref" */
     public static function extract(string $md): array
@@ -52,7 +53,7 @@ class AgreementTokens
                 'o' => isset($p[1], $p[2]) && isset($schema[$p[1]]['options'][$p[2]]),
                 'q' => isset($p[1]) && in_array($p[1], self::QUANTITY_LINES, true),
                 'amt' => isset($p[1]) && in_array($p[1], self::AMOUNT_LINES, true),
-                'rate' => isset($p[1]) && array_key_exists($p[1], array_merge(AgreementPricing::DEFAULT_RATES, $rates)) && !str_ends_with($p[1], '_max') && $p[1] !== 'quote_above_agents',
+                'rate' => isset($p[1]) && array_key_exists($p[1], AgreementPricing::withDefaults($rates)) && !str_ends_with($p[1], '_max') && $p[1] !== 'quote_above_agents',
                 'sig' => isset($p[1]) && in_array($p[1], ['agency', 'mandate', 'rr'], true),
                 'ini' => isset($p[1]) && in_array($p[1], ['agency', 'rr'], true),
                 'auto' => isset($p[1]) && in_array($p[1], ['day', 'monthyear'], true),

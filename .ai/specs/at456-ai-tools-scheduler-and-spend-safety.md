@@ -421,6 +421,61 @@ create with AI pop up where a user can choose like add QR add this or that etc, 
 - [ ] Johan tests on QA2 (a live generation was NOT run in this build).
 
 
+### B.11 No words on top of each other (Johan 2026-10-20: "harden the AI ... it should test before giving results") - as built
+
+**Why.** A live AI template ("Bold Sale – Diagonal Split", agency 20) had a Vacant Land / Plot version with the erf size and
+the price per m² at exactly the same spot under the price (same x and y), so neither could be read; its Apartment / Flat
+version had the parking number over the agent's name. The validator (§B.8) checked bounds, font size, contrast and colours,
+but never whether two pieces of text share space, so the design went straight to the user.
+
+**Rule (`AdLayoutValidator::checkOverlaps()`, run by both `validate()` and `validateAndRepair()`).** Every pair of elements
+that show words or a picture of their own is compared; boxes that share more than `OVERLAP_TOLERANCE` (6) pixels **both**
+across and down are refused, naming both elements and the shared area ("Element 12 (erf_size) and Element 13 (price_per_m2)
+sit on top of each other (they share 260 x 40 pixels) ..."). A hair of shared edge between stacked lines (2-4 px, normal) passes.
+Exempt - meant to have things drawn over them - `OVERLAP_EXEMPT_FIELDS`: the property photos (image_1-5, collage), a company
+ad's picture (custom_image), color_block, shape, gradient, line, watermark and the corner ribbon (its box is mostly empty). The
+agent photo, the logos and the QR code DO count (a picture over words is a clash too).
+
+**Never repaired, by design.** Moving text automatically can push it off its panel or onto a photo, so a clash is a
+rejection: the existing targeted retry (Defaults and each property-type version) is told exactly which two elements to move.
+A Default that still clashes after its retry is not shown (fewer options); a property-type version that still clashes is
+dropped and that type uses the main design ("No separate design for <Type> — uses the main design", §B.10 item 6). The user
+never sees a design with words on top of each other. This also covers designs the "move back inside the canvas" repair
+pushes onto a neighbour (e.g. a facebook-shaped answer squeezed into a square).
+
+**Prompt ("test before answering").** HARD LIMITS rule **1c** (generated from the same constants): such elements must never
+share space, may touch by at most 6 px, facts that belong together go side by side (x + w plus a gap) or one under the other
+(y + h plus a gap) - never at the same x and y - and the AI must compare every pair before answering. Unticked extras are
+not named (decision 20); a company ad's rule names its own picture, not the listing photos. Applies to company ads too (same
+validator, §8 of company-ads.md).
+
+**Existing templates are not changed.** Already-saved templates keep their layout; the live template above needs its two
+Vacant Land facts (and the Apartment parking number) dragged apart in the Ad Builder - a live data change only on Johan's order.
+
+**Proof.** New `tests/Feature/Tools/AiTemplateOverlapGuardTest.php` (7: the live Vacant Land clash refused naming both; side by
+side / one under the other pass; tolerance edge 6 px passes, 7 px refused; photos/blocks/dividers/watermark not a clash; agent
+photo over the name is; prompt rule 1c incl. decision 20 + company mode; end to end: a clashing option is retried with both
+named and the user gets three clean options). `AiTemplateMultiTypeAndMustIncludeTest` +2 (a clashing Vacant Land version is
+retried and the fixed one kept; one that still clashes is dropped for the main design). Test data adjusted where the old
+data itself had overlapping boxes: `response-with-repairable-faults.json` (Hero Pill price box 1200 → 700 wide, so the
+repaired agent name no longer lands in it), `AiTemplateRepairTest::validOption()` (agent name y 540 → 440, so the
+"moved back inside" price no longer lands on it), and one `AiTemplateBlocksAndStylesTest` case now runs the facebook-drawn
+recording at facebook size instead of instagram. 11 AI-template test files, 217 tests, all green. **No live AI call was made.**
+**Audit follow-ups (2026-10-20, `.ai/audits/2026-10-20-qa2-overlap-guard-and-band-pricing-audit.md`, Johan "yes develop").**
+- Each overlap message names both elements by field AND position ("Element 12 (erf_size at x 730, y 354) and ..."): after repairs
+  and removals the element number may not match the AI's own answer; the position always identifies the box, also when two
+  elements share a type.
+- At most `MAX_OVERLAP_ERRORS` (3) overlap messages per design, then one "And N more pairs ..." line: the retry shows only the
+  first 12 errors of all designs together, so one messy design no longer crowds out the others' errors.
+- Company ad with no picture: `custom_image` is now in the forbidden list passed to the prompt, so rule 1c no longer names the
+  picture box the prompt says not to use.
+- Not changed (recorded): text over a corner ribbon's band is not caught (the ribbon box is exempt); rotation is ignored (boxes
+  compared unrotated); facts deliberately stacked because only one shows per listing are refused (safe direction).
+- Tests: `AiTemplateOverlapGuardTest` +2 (cap + summary; same-type elements told apart by position), `CompanyAdAiBuilderTest`
+  no-picture case asserts rule 1c does not name custom_image. 11 AI-template files, 219 green.
+- Live check (3 real generations, 35 designs incl. type versions, 2026-10-20, before these follow-ups): 0 overlaps reached the user.
+- [ ] Lane owner tests on QA2 (generate with Vacant Land / Plot and Apartment / Flat ticked; check no version has words on top of each other).
+
 ## C. Article Library (system-dev section → Ad Manager tab)
 
 ### C.1 What it does
@@ -507,7 +562,7 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Pictures:** `marketing-scheduled/{agency}/{user}/{uuid}.jpg` on the public disk. `marketing:purge-scheduled-images` (daily 03:20) removes pictures of published posts 30 days after publishing, of failed/cancelled posts 30 days after they were last touched, and uploads that never became a post after 2 days; pictures of posts still waiting are never touched.
 - **Times** typed and shown in the app timezone (Africa/Johannesburg) — no per-agency timezone column was added.
 - **Permission:** `ad_manager.schedule_posts` ("Schedule social posts", module ad_manager, Role Manager via the config). Defaults: agent, branch manager, office admin (admin gets everything); not viewer. Route middleware + controller check + the fourth pill and the Schedule buttons are hidden without it.
-- **Not built / out of scope:** a "publish now" button (for listings — company ads have one since `company-ads.md` §14c, through this same publisher); automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
+- **Not built / out of scope:** ~~a "publish now" button for listings~~ (built 2026-10-19, §D.10; company ads have had one since `company-ads.md` §14c, through this same publisher); automatic retry; a standalone create form; Phase 2 "Make a social post" from an article.
 - **QA2:** no scheduler cron and no queue worker (left that way by Johan) — run `php artisan marketing:publish-due` by hand to publish what is due. Meta App Review is still pending, so only app Testers can connect an account to test with.
 
 ### D.8 Audit fixes (2026-10-17) — tests: `tests/Feature/Tools/ScheduledPostsAuditFixesTest.php`
@@ -519,6 +574,39 @@ Pick an ad (image + copy) and platform(s), choose a date/time; CoreX publishes i
 - **Picture address rebuilt at publish time** from the stored file path, so a host/domain change inside the 60-day window cannot send Meta a dead address.
 - **Status sort** on Scheduled Posts follows the lifecycle (scheduled, publishing, published, failed, cancelled, draft), not the database enum order.
 - **Direct publish wording/logging.** `ScheduledPostPublisher::explain()` takes a context: a direct publish says "…then post it again", a scheduled one "…then schedule the post again". The direct-publish error log keeps the original Meta message (token-scrubbed) for diagnosis; the user still sees the plain reason.
+
+### D.9 Schedule by agent (Johan 2026-10-19) — as built
+**Why.** Every Sunday the marketing person generates 2 ads per agent, then schedules agent by agent from the top of the list: each agent's 1st ad on Tuesday, 2nd on Thursday, agents 30 minutes apart. Clicking each ad was the only way. Johan's answers (2026-10-19): agent order is **A to Z or the user's own order**, and every day uses that same order; the user picks the ads, so an agent with 1 ad posts on 1 day and an agent with **more ads than ticked days is refused, naming the agent**; any days of the week (a full week with 5 ads per agent is normal); no Instagram yet (the platform ticks are unchanged).
+
+**Where.** Ad Manager results step → the existing **Schedule N ads** button → the Schedule window gets a third choice, **By agent**, above "One a day" and "All at the same time". Listing ads only (company ads keep their own Post / Schedule).
+
+**What the window shows (mode `agents`).**
+- "N ads for M agents · X per agent" (or "X to Y per agent") — detected from the batch, grouped by each listing's agent.
+- **Starting from** (date) and **Post on** Mon–Sun ticks. Each ticked weekday becomes its first date on or after Starting from; days are used earliest first.
+- **First post each day at** (time) and **Time between agents** (5–240 minutes; offered 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240).
+- **Agent order**: A to Z, or My own order (a numbered list with up / down buttons; moving an agent switches to My own order). Listings with no agent come last, as "Unassigned".
+- A live **Preview** table (agent × day, time + listing title per cell). Problems (too many ads, past midnight, no day ticked, over the batch limit) show instead and the Schedule button is disabled.
+
+**The rule (server, `ScheduledPostService::planByAgent`).** Agent of each ad = the listing's stored `agent_id` (never a client value). Agent k's n-th ad (in batch order) goes on the n-th day. On each day the agents that have an ad that day post one after the other in the order shown, from the first time, `gap` minutes apart (so a day with fewer agents finishes earlier — no empty slots). Refused, nothing saved: an agent with more ads than days ("Angelique Botha has 3 ads, but only 2 days are ticked. Each agent gets one ad per day: remove ads or tick more days."); a day running past midnight; the usual 5-minute / 60-day window on the earliest and latest post. The order the window showed is sent as `agents`; the server puts those first and anyone missing after them A to Z (`orderAgents`).
+
+**Remembered.** The pattern (weekdays, first time, gap, order, own-order list) is saved per user per agency in `ad_schedule_patterns` (migration `2026_11_17_100000`, `BelongsToAgency`, soft deletes, unique agency+user) in the same transaction as the posts, and opens the window next time (mode defaults to By agent once a pattern exists; first time: Tue + Thu, 30 minutes, A to Z). Choosing A to Z keeps the previous own order for later. Not an agency setting — a remembered choice, so not in the Setup Wizard.
+
+**Limits.** A By-agent batch takes up to 150 ads (`MAX_AGENT_BATCH`; other modes stay at 50). A big batch can outrun the 60-a-minute picture upload limit; the window then waits 20 seconds and carries on (up to 4 waits per picture) instead of failing.
+
+**API.** No new route: `api.v1.ad-manager.scheduled.store` takes `mode=agents` with `time`, `days[]` (Y-m-d, 1–7, distinct), `gap`, `order` (`alpha`|`custom`), `agents[]`. Result rows from the generator now carry `agent_id`.
+
+**Multi-agency.** Pattern rows are per agency (pinned to the agency being worked in, also for an owner account); nothing defaults to any one agency's agents, days or wording.
+
+**Tests:** `tests/Feature/Tools/ScheduleByAgentTest.php` (A to Z slots, own order + missing agents, too-many refusal saves nothing, a full week × 5, past-midnight, 5-minute rule, company ad / out-of-scope listing refused, pattern remembered + handed to the page + second agency isolated, `orderAgents`). Green 2026-10-19: 9/9, and `ScheduledPostsTest` 41/41 unchanged.
+
+### D.10 Post now from the Ad Manager (Johan 2026-10-19) — as built
+**Why.** Johan: at the end of making an ad in the Ad Manager there should be a "post now", like on a property's marketing page (Publish Now).
+
+**What.** Every schedulable ad in the results step has a **Post now** button (above "Schedule this post"). It opens the same window with **Post now** chosen (a one-ad window offers Post now / Schedule for a date and time); no date or time is asked; the button reads Post now. The ad's own picture (rendered and uploaded exactly as for scheduling) and its description go to the user's connected Page(s) at once, and the window shows per platform "it is live on your Page" or the plain reason it was not (Posted / Partly posted / Not posted).
+
+**How.** `api.v1.ad-manager.scheduled.store` with `mode=now`, which already posted company ads through `ScheduledPostPublisher` (same atomic claim, same publish-time checks, `CONTEXT_DIRECT` wording, `MarketingPostPublished` on success, a failure recorded as `failed` with its reason). The rule changed in `ScheduledPostService::schedule()`: `now` takes company ads (any number, unchanged) **or exactly one listing ad**; several listings, or a listing alongside anything else, is refused: "Post one listing ad at a time straight away, or schedule them." (deliberately one at a time — a batch going out in the same minute is what scheduling is for). The listing still has to be in the user's scope, on the market and marketing-ready, and the platform connected, exactly as for scheduling. No new route, no migration, no npm build. The property marketing page's own Publish Now is untouched.
+
+**Tests:** `ScheduledPostsTest` (one listing posted now → published with the platform id, one Meta call, event fired; several listings / an off-market listing refused, nothing saved; the button is on the page); `CompanyAdPostingTest::test_post_now_takes_a_listing_only_on_its_own_and_an_item_is_one_thing` (old "company ads only" refusal replaced by the one-listing rule).
 
 ### D.5 Blockers / prerequisites
 - **Meta App Review + Business Verification** must pass before any agency other than app Testers can connect. Build and test on Johan's/Andre's own accounts until then.
@@ -562,6 +650,7 @@ Every other AT-456 route returns a page or a redirect (Dev Settings Article Libr
 | Per-agency template generation limit (default 20) | AI usage agency page (owner) | **No** — Johan sets it per agency |
 | Article sources, schedule, max per run | `/admin/article-library` (owner) | **No** — system-level |
 | (none for D) | — | n/a |
+| D.9 remembered "Schedule by agent" pattern | Per user, saved when a batch is scheduled | **No** — a remembered choice, not an agency setting |
 
 ## Multi-agency check ("what does it look like for the SECOND agency?")
 Own colours/logo in B; own drafts and own count in C; own posts, scope and connection in D; own spend window and pause state in A. No HFC wording, ids or defaults anywhere; library articles carry no agency name until an agent edits their copy.

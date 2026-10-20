@@ -18,6 +18,7 @@ class AgreementContent
     public const VERSION = '1.0';
     public const VERSION_DATE = '2026-09-28';
     public const V1_NOTE = 'First published version — the wording as signed off on 28 September 2026.';
+    public const BAND_PRICING_NOTE = 'New pricing (October 2026): one flat monthly fee by number of agents, in price bands from 1 agent to 30 agents; more than 30 agents on quotation; R750 for each branch after the first. Agreements already sent keep the version they were sent with.';
     public const PARTS = ['intro' => 'Cover', 'part_a' => 'Part A', 'part_b' => 'Part B', 'part_c' => 'Part C', 'part_d' => 'Part D', 'mandate' => 'Debit order mandate'];
 
     public static function sourcePath(string $file): string
@@ -45,6 +46,7 @@ class AgreementContent
         }
         if (!$lock) {
             $this->seedV1($userId);
+            $this->seedBandPricing($userId);
 
             return self::current() ?? $this->seedV1($userId);
         }
@@ -52,6 +54,7 @@ class AgreementContent
         try {
             return $lock->block(10, function () use ($userId) {
                 $this->seedV1($userId); // re-checks for an existing template/version itself
+                $this->seedBandPricing($userId);
 
                 return self::current() ?? $this->seedV1($userId);
             });
@@ -89,6 +92,107 @@ class AgreementContent
             'content_json' => $this->buildV1(), 'rates_json' => AgreementPricing::DEFAULT_RATES, 'change_note' => self::V1_NOTE,
             'is_published' => true, 'published_at' => now(), 'created_by' => $userId, 'published_by' => $userId,
         ]);
+    }
+
+    /**
+     * A fresh environment starts on the current price list (spec §11.5a): right after the seed 1.0, the band-priced version is published on
+     * top of it — inside the seed lock, so it happens once. Pagination is calibrated on first use (AgreementLayout::ensure), never on the
+     * anonymous request that happened to seed. Environments that already hold published versions get it from the migration instead.
+     */
+    private function seedBandPricing(?int $userId): void
+    {
+        $tpl = self::template();
+        $cur = self::current();
+        if (!$tpl || !$cur || AgreementPricing::isBands((array) $cur->rates_json)
+            || WordingVersion::withTrashed()->where('template_id', $tpl->id)->where('is_published', true)->count() > 1) {
+            return; // not a fresh seed: an environment with history is moved by publishBandPricing() (the migration), not here
+        }
+        $this->createBandVersion($cur, $userId, null);
+    }
+
+    /**
+     * Publish the band-priced version on top of the current tier-priced one (spec §11.5a). Idempotent: returns the current version unchanged
+     * when it is already band-priced. Refuses while a wording draft is open — a draft copied from the old pricing, published afterwards,
+     * would quietly bring the old prices back.
+     *
+     * @throws \DomainException|\RuntimeException
+     */
+    public function publishBandPricing(?int $userId, ?AgreementLayout $layout = null): WordingVersion
+    {
+        $cur = $this->ensureSeeded($userId);
+        if (AgreementPricing::isBands((array) $cur->rates_json)) {
+            return $cur;
+        }
+        if (WordingVersion::drafts()->where('template_id', $cur->template_id)->exists()) {
+            throw new \DomainException('A wording draft is open. Publish or discard it first, then publish the new pricing.');
+        }
+
+        return $this->createBandVersion($cur, $userId, $layout);
+    }
+
+    private function createBandVersion(WordingVersion $from, ?int $userId, ?AgreementLayout $layout): WordingVersion
+    {
+        $content = $this->bandPricingContent((array) $from->content_json);
+        $rates = AgreementPricing::BAND_RATES;
+        $errors = [];
+        foreach (self::PARTS as $part => $label) {
+            $errors = array_merge($errors, AgreementTokens::validate((string) ($content[$part] ?? ''), $rates, $label),
+                AgreementConsistency::check((string) ($content[$part] ?? ''), $rates, $rates, $label));
+        }
+        if ($errors) {
+            throw new \RuntimeException('The new pricing wording does not check out: ' . implode(' ', $errors));
+        }
+        $versions = app(AgreementVersions::class);
+        $v = WordingVersion::create([
+            'template_id' => $from->template_id, 'parent_version_id' => $from->id, 'version' => $versions->nextVersion(),
+            'version_date' => now()->toDateString(), 'content_json' => $content, 'rates_json' => $rates, 'change_note' => self::BAND_PRICING_NOTE,
+            'layout_json' => null, 'is_published' => true, 'published_at' => now(), 'created_by' => $userId, 'published_by' => $userId,
+        ]);
+        $versions->audit($from->template_id, $v->id, 'published', $userId, 'Published version ' . $v->version . ' — ' . self::BAND_PRICING_NOTE);
+        if ($layout) {
+            $layout->ensure($v);
+        }
+
+        return $v->fresh();
+    }
+
+    /**
+     * The tier-priced wording turned into the band pricing: only the plan, what-it-costs, fee-table and clause B10.1 wording changes.
+     * Every replacement must match EXACTLY once, so a version whose words were edited away from these is refused, never half-converted.
+     *
+     * @param array<string,string> $content
+     * @return array<string,string>
+     */
+    public function bandPricingContent(array $content): array
+    {
+        $a = (string) ($content['part_a'] ?? '');
+        $a = $this->once($a, "<td><p>{{o:plan:team}} CoreX Team</p>\n<p>{{o:plan:agency}} CoreX Agency</p></td>",
+            '<td>CoreX — one plan with full access to everything. The monthly fee is set by the number of agents, in the price bands below.</td>');
+        $a = $this->once($a, 'A monthly base fee (Agency plan only), plus a monthly fee for each seat and each additional branch, at the rates in the CoreX price list',
+            'A flat monthly fee for the price band the number of agents falls in, plus a monthly fee for each branch after the first, at the rates in the CoreX price list');
+        $a = $this->once($a, 'Complete only the lines for the plan ticked above, at the rates in the price list on the date of this form. Seats 11 to 20 and 21 and more are billed at their own rate: for example, 25 agents on the Agency plan are 10 × R295 + 10 × R250 + 5 × R195. For more than 40 agents, a quoted rate is recorded under “Agreed variations”.',
+            'Only the line for the price band the number of agents falls in applies, at the rates in the price list on the date of this form. Each band is one flat monthly fee, whatever the number of agents within it: for example, 4 agents pay {{rate:band3}} a month. For more than 30 agents the monthly fee is on quotation and is recorded when the agreement is sent.');
+        $old = implode("\n", [
+            '| CoreX Team — per seat (up to 10 seats)| {{q:team_seats}}| {{rate:team_seat}}| R {{amt:team_seats}}|',
+            '| CoreX Agency — base fee| 1| {{rate:agency_base}}| R {{amt:agency_base}}|',
+            '| CoreX Agency — seats 1 to 10| {{q:agency_t1}}| {{rate:agency_t1}}| R {{amt:agency_t1}}|',
+            '| CoreX Agency — seats 11 to 20| {{q:agency_t2}}| {{rate:agency_t2}}| R {{amt:agency_t2}}|',
+            '| CoreX Agency — seats 21 and more| {{q:agency_t3}}| {{rate:agency_t3}}| R {{amt:agency_t3}}|',
+            '| Additional branches (Agency plan)| {{q:branches}}| {{rate:branch}}| R {{amt:branches}}|',
+        ]);
+        $rows = [];
+        foreach (AgreementPricing::bands(AgreementPricing::BAND_RATES) as $b) {
+            $rows[] = '| ' . AgreementPricing::bandLabel($b['from'], $b['to']) . '| {{q:' . $b['key'] . '}}| {{rate:' . $b['key'] . '}}| R {{amt:' . $b['key'] . '}}|';
+        }
+        $rows[] = '| More than ' . AgreementPricing::topOfBands(AgreementPricing::BAND_RATES) . ' agents — quoted fee| {{q:quoted}}| On quotation| R {{amt:quoted}}|';
+        $rows[] = '| Additional branches (each branch after the first)| {{q:branches}}| {{rate:branch}}| R {{amt:branches}}|';
+        $a = $this->once($a, $old, implode("\n", $rows));
+
+        $b = (string) ($content['part_b'] ?? '');
+        $b = $this->once($b, '**10.1** Fees are the base fee (if any) for the plan chosen in the Sign-up Form, plus a fee for each seat and each additional branch, at the rates in our published price list.',
+            '**10.1** Fees are the flat monthly fee for the price band the Agency’s seats fall in, plus a fee for each branch after the first, at the rates in our published price list.');
+
+        return array_merge($content, ['part_a' => $a, 'part_b' => $b]);
     }
 
     /** The template of the web document (null until seeded). */

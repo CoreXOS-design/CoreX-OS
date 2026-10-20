@@ -148,7 +148,7 @@ final class CompanyAdPostingTest extends TestCase
         $this->assertSame($ad->id, $note->data['company_ad_id']);
     }
 
-    public function test_post_now_is_only_for_company_ads_and_an_item_is_one_thing(): void
+    public function test_post_now_takes_a_listing_only_on_its_own_and_an_item_is_one_thing(): void
     {
         [$agency, $branch, $manager] = $this->world('branch_manager');
         $this->connect($manager, 'facebook');
@@ -157,10 +157,11 @@ final class CompanyAdPostingTest extends TestCase
         $path = $this->storedImage($manager);
         $this->actingAs($manager);
 
-        // A listing cannot be posted "now" from here (unchanged Post Scheduler rule for listings).
+        // A listing can only be posted "now" on its own (§D.10), never alongside other ads.
         $this->postJson(route('api.v1.ad-manager.scheduled.store'), [
-            'items' => [['property_id' => $property->id, 'copy' => 'x', 'image_path' => $path]], 'platforms' => ['facebook'], 'mode' => 'now',
-        ])->assertStatus(422)->assertJsonFragment(['error' => 'Only a company ad can be posted straight away from here.']);
+            'items' => [['property_id' => $property->id, 'copy' => 'x', 'image_path' => $path], ['company_ad_id' => $ad->id, 'copy' => 'x', 'image_path' => $path]],
+            'platforms' => ['facebook'], 'mode' => 'now',
+        ])->assertStatus(422)->assertJsonFragment(['error' => 'Post one listing ad at a time straight away, or schedule them.']);
 
         // Both a listing and a company ad in one item is refused.
         $this->postJson(route('api.v1.ad-manager.scheduled.store'), [

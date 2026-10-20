@@ -386,6 +386,34 @@ Agency base R1 495 + seats 1–10 R295, 11–20 R250, 21+ R195 + additional bran
   "Monthly fee at start" paragraph and the fee table text describe the graduated rule).
 Tests: `AgreementFeeTableTest` (1, 10, 11, 13, 20, 21, 25, 40, 41 agents × 1, 2, 4 branches; 10↔11 switching; resume; forced plan; surfaces), real-browser proof `scripts/verify-agreement-fees.cjs`.
 
+### 11.5a Band pricing — the October 2026 price list (Johan, 2026-10-19)
+The agreement prices by **one flat monthly fee per headcount band**: 1 agent R450 · 2 agents R900 · 3 to 5 R1 495 · 6 to 10 R2 495 · 11 to 15 R3 295 ·
+16 to 20 R3 995 · 21 to 25 R4 595 · 26 to 30 R5 095 · **more than 30 on quotation** · additional branches R750 each (every branch after the first, whatever
+the band). VAT wording unchanged (inclusive once RR Technologies registers, no increase).
+- **Two price shapes, chosen by the pinned version's `rates_json`.** A version is band-shaped when its rates hold `band1` (`AgreementPricing::isBands()`):
+  rates `band1`…`band8` (fee) + `band1_max`…`band8_max` (agents the band runs up to) + `branch`. Tier-shaped versions (§11.5) keep pricing exactly as before —
+  every agreement prices by the shape it was **sent** with. `AgreementPricing::withDefaults()` completes rates with the defaults of the version's OWN shape.
+- **Fee table lines:** `band1`…`band8`, `quoted`, `branches`. The derived `plan` is the line carrying the agents' fee (`band3`, …, or `quoted`), `''` while
+  nothing can be priced. Only that line (quantity 1) and additional branches fill; every other band row stays blank. No plan ticks, no "Fix the plan".
+- **More than 30 agents:** the sender may record a **quoted monthly fee** on the send form (`rr_data.quoted_fee`, audited `quoted_fee_set`, internal). With it the
+  "More than 30 agents — quoted fee" line carries it; without it the form says "For more than 30 agents the monthly fee is on quotation. Please contact CoreX —
+  we will send you an agreement with your quoted fee." and the agreement **cannot be submitted** (`AgreementFields::validateRecipient`).
+- **Wording (version 1.1 on a fresh environment, the next number elsewhere):** made from the current version by `AgreementContent::bandPricingContent()` —
+  exact-once replacements of the Plan row (one plan, full access, fee by price band), "What the plan costs", the "Monthly fee at start" paragraph (worked
+  example "4 agents pay {{rate:band3}} a month"; "more than 30 agents … on quotation"), the fee rows, and clause **B10.1** (flat monthly fee for the price band
+  plus each branch after the first). Every other word is unchanged. A version whose words were edited away from these is refused, never half-converted.
+- **Publishing:** existing environments — migration `2026_11_16_100800_publish_band_pricing_agreement_version` (`publishBandPricing()`; idempotent; refuses while a
+  wording draft is open, because a draft copied from the old pricing would bring the old prices back if published later). Fresh environments — `ensureSeeded()`
+  seeds 1.0 and publishes the band version on top inside the seed lock. Both validate the result with `AgreementTokens::validate` + `AgreementConsistency::check`.
+- **Wording editor:** the Rates tab of a band-shaped version offers the band fields (`AgreementVersions::BAND_RATE_FIELDS`; bands must ascend without overlap);
+  publish refuses wording that names an "A to B agents" band the rates do not have, or a "more than N agents" other than the top of the last band.
+- **ONE calculation** as in §11.5: `AgreementPricing::derive()`; the page JS `calcBands()` mirrors `computeBands()` (proved figure-for-figure, 0–40 agents × 1/2/4
+  branches × with/without a quoted fee).
+Tests: `AgreementBandPricingTest`. The tier-shaped tests use `Tests\Feature\Platform\Agreement\Concerns\PinsTierPricing` (the environment before the band version).
+  **Run against a database 2026-10-20 (QA2):** `AgreementBandPricingTest` + `BandPricingTest` 48/48; the 21 tier-pinned billing/agreement files 379/381. Fixed in the tests only: the tier pin (and two copies of it) removed the band version with `forceDelete()`, which the model correctly refuses for a published version - it now removes the rows underneath; the band version itself is not checked against the "fields may not be added or removed" rule (it IS the developer change that rule leaves to developers) - instead a draft made from it must pass every publish rule. The 2 remaining failures (`AgreementFidelityTest` PDF match, `WordingSafetyTest` logo `<img src="http://` on the public page) fail identically on QA2 without this change - not caused by it, not touched.
+  **Deploy guard (2026-10-20, audit H1, Johan "yes develop"):** the band migration throws when a wording draft is open or the current wording is not 1.0, and a throw at deploy step 6 leaves the site in maintenance. `scripts/deploy.sh` pre-flight 1h now checks both from the database BEFORE the backup and maintenance, and refuses with what to do (publish/discard the draft; or a developer dry-runs the conversion and re-runs with `BAND_PRICING_WORDING_CHECKED=1`). Skipped once the migration has run, or where the agreement was never seeded. Proven with 9 scenarios against a throw-away MySQL. Live checked read-only 2026-10-20: only 1.0, no draft, live 1.0 identical to the code's 1.0, dry-run conversion clean.
+  **Quoted fee into billing (2026-10-20, Johan decision 4):** at full signature the agreement's `rr_data.quoted_fee` becomes the agency's billing custom amount (event `Platform\SubscriptionAgreementCompleted` → `Billing\ApplyAgreedQuotedFee`; agency-billing.md D7a). Every existing agency also moves to the bands (D7a decision 1), so the agreement and the bill now use the same price list.
+
 ### 11.6 Pagination — the screen and the PDF are the same pages
 `AgreementLayout` renders the document in canonical mode, splits it into top-level blocks, estimates each block's height and packs
 blocks into pages (forced break before every Part and before the mandate; headings keep with next; tables are never split), then

@@ -160,7 +160,7 @@ class ScheduledPostsController extends Controller
 
     /**
      * POST — schedule the chosen ads on the chosen platforms. All or nothing. An item is a listing ad (property_id)
-     * or a company ad (company_ad_id, Company Ads §7). Mode 'now' posts company ads straight away: the rows are made
+     * or a company ad (company_ad_id, Company Ads §7). Mode 'now' posts company ads or one listing ad (§D.10) straight away: the rows are made
      * due this minute and published here through the same atomic claim and publish-time checks as the scheduler.
      */
     public function store(Request $request, ScheduledPostPublisher $publisher): JsonResponse
@@ -168,21 +168,37 @@ class ScheduledPostsController extends Controller
         $user = $request->user();
         $this->authorizeUse($user);
 
+        // "Schedule by agent" (§D.9) carries a whole week of agents' ads, so it takes a bigger batch.
+        $maxItems = $request->input('mode') === 'agents' ? ScheduledPostService::MAX_AGENT_BATCH : 50;
+
         $data = $request->validate([
-            'items'                 => 'required|array|min:1|max:50',
+            'items'                 => 'required|array|min:1|max:' . $maxItems,
             'items.*.property_id'   => 'nullable|required_without:items.*.company_ad_id|integer',
             'items.*.company_ad_id' => 'nullable|required_without:items.*.property_id|integer',
             'items.*.copy'          => 'required|string|max:5000',
             'items.*.image_path'    => 'required|string|max:300',
             'platforms'             => 'required|array|min:1',
             'platforms.*'           => 'in:facebook,instagram',
-            'mode'                  => 'required|in:at,daily,now',
-            'date'                  => 'required_unless:mode,now|nullable|date_format:Y-m-d',
+            'mode'                  => 'required|in:at,daily,now,agents',
+            'date'                  => 'required_if:mode,at,daily|nullable|date_format:Y-m-d',
             'time'                  => 'required_unless:mode,now|nullable|date_format:H:i',
+            'days'                  => 'required_if:mode,agents|nullable|array|min:1|max:7',
+            'days.*'                => 'date_format:Y-m-d|distinct',
+            'gap'                   => 'required_if:mode,agents|nullable|integer|min:' . ScheduledPostService::MIN_GAP_MINUTES . '|max:' . ScheduledPostService::MAX_GAP_MINUTES,
+            'order'                 => 'required_if:mode,agents|nullable|in:alpha,custom',
+            'agents'                => 'nullable|array|max:500',
+            'agents.*'              => 'integer',
         ]);
 
+        $pattern = $data['mode'] === 'agents' ? [
+            'days'   => $data['days'] ?? [],
+            'gap'    => (int) ($data['gap'] ?? 0),
+            'order'  => (string) ($data['order'] ?? 'alpha'),
+            'agents' => $data['agents'] ?? [],
+        ] : [];
+
         try {
-            $created = $this->posts->schedule($user, $data['items'], $data['platforms'], $data['mode'], (string) ($data['date'] ?? ''), (string) ($data['time'] ?? ''));
+            $created = $this->posts->schedule($user, $data['items'], $data['platforms'], $data['mode'], (string) ($data['date'] ?? ''), (string) ($data['time'] ?? ''), $pattern);
         } catch (ScheduleException $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         }

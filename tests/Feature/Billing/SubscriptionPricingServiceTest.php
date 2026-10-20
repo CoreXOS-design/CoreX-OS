@@ -40,7 +40,13 @@ class SubscriptionPricingServiceTest extends TestCase
 
     private function makeAgency(string $name = 'Home Finders Coastal'): Agency
     {
-        return Agency::create(['name' => $name, 'slug' => Str::slug($name) . '-' . uniqid()]);
+        $agency = Agency::create(['name' => $name, 'slug' => Str::slug($name) . '-' . uniqid()]);
+        // An agency on the Team / Agency tier prices — every agency that joined before the October 2026 price
+        // bands keeps them (spec agency-billing §3 D7). The bands are proven in BandPricingTest.
+        \App\Models\Billing\AgencySubscription::forAgency((int) $agency->id)
+            ->update(['price_list' => \App\Models\Billing\AgencySubscription::PRICE_LIST_TIERS]);
+
+        return $agency;
     }
 
     /** Seats are ANY active, non-archived user — role is irrelevant (spec D1). */

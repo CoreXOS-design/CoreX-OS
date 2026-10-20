@@ -322,6 +322,9 @@ class AppServiceProvider extends ServiceProvider
         // matching Agency Timeline item. SYNC on purpose (see AgencyFeatureToggled).
         Event::listen(\App\Events\Platform\AgencyContractSigned::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
         Event::listen(\App\Events\Platform\AgencySetupWizardCompleted::class, \App\Listeners\Platform\CompleteTimelineItemsOnTrigger::class);
+        // A fully signed Subscription Agreement's quoted fee (more than the last band) becomes the agency's billing amount
+        // (Johan 2026-10-20). SYNC and failure-isolated inside the listener.
+        Event::listen(\App\Events\Platform\SubscriptionAgreementCompleted::class, \App\Listeners\Billing\ApplyAgreedQuotedFee::class);
         // AT-450 — a collected title deed tells the responsible agent and emails every owner. SYNC and failure-isolated inside the listener.
         Event::listen(\App\Events\TitleDeeds\TitleDeedCollected::class, \App\Listeners\TitleDeeds\NotifyOnTitleDeedCollected::class);
         // §17.5 (maintenance flow, Build 1) — one in-app note to the property's agent per crew "Send to office".
