@@ -250,6 +250,7 @@ class Agency extends Model
         'is_demo',
         'require_external_access_authorization',
         'timezone', // audit 2026-10-20 (L7) - the agency's own timezone (IANA name); null = the application's
+        'portal_show_agency_commission_totals',
         'dashboard_settings_mode',
         'split_branches_enabled',
         // .ai/specs/other-agency-stock.md §6 — which roles may see Other Agency
@@ -466,6 +467,7 @@ class Agency extends Model
         'ss_show_complex_section' => 'boolean',
         'privacy_policy_published_at' => 'datetime',
         'require_external_access_authorization' => 'boolean',
+        'portal_show_agency_commission_totals' => 'boolean',
         'split_branches_enabled' => 'boolean',
         'other_agency_stock_visible_roles' => 'array',
         'assistants_enabled' => 'boolean',

@@ -22,6 +22,31 @@ class TargetService
     private array $ownMemo = [];
 
     /**
+     * The monthly numbers an agent is working to: deals, sales value, listings and points
+     * (agency-tracker-rehome.md section 4.3). Read only: reads the `targets` row for that month and
+     * writes nothing (the old dashboard re-derived and saved missing targets as a side effect).
+     * `set` is false when the month has no row, so a screen can say "no target set" instead of showing zeros.
+     *
+     * @return array{deals: int, value: float, listings: int, points: int, set: bool}
+     */
+    public function monthlyFor(User $u, string $period): array
+    {
+        $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+        $row = $agencyId > 0
+            ? DB::table('targets')->where('agency_id', $agencyId)->where('user_id', $u->id)
+                ->where('period', $period)->whereNull('deleted_at')->first()
+            : null;
+
+        return [
+            'deals'    => (int) ($row->deals_target ?? 0),
+            'value'    => (float) ($row->value_target ?? 0),
+            'listings' => (int) ($row->listings_target ?? 0),
+            'points'   => (int) ($row->points_target ?? 0),
+            'set'      => $row !== null,
+        ];
+    }
+
+    /**
      * The week that applies to an agent: weekday (1..7) => target, own numbers over the default.
      *
      * @return array<int,int>
