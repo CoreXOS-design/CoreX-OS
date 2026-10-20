@@ -464,3 +464,14 @@ Already built earlier: #2 public holidays and #3 release time (Part 1), #11 tour
 4. **Ellie:** read-only tool `whats_new_for_me` (`EllieToolkit`, spec ellie-v2.md §3.2): status, what switched on
    for this user in the last 30 days (only what they can open, with tour links), the next 5 groups coming, and the
    page link. The system prompt routes "what's new / what changed / what is coming" questions to it.
+
+### 17d. Tour gap report fix — 2026-10-20
+
+`FeatureTourCoverage` matched a tour's page against a feature's `route_prefixes` only as written, but prefixes
+are written without the app's own `corex/` segment (Training: `training` for `corex/training`). So the Training
+tours (and the core Contacts / Properties / Command Centre / FICA tours) were not counted, and Training showed
+"no tour yet". It now matches both forms, the same way `FeatureRolloutUsage::recordVisit` already did. Test:
+`FeatureRolloutDefaultsPageTest::test_a_tour_on_a_corex_page_is_matched_through_the_feature_route_prefix`.
+After the fix, 26 of the 66 features a group can hold have a tour; the other 40 genuinely have none in
+`TourRegistry` (all 16 Rentals features, Road to Sold, Marketing, Public Website, Title Deeds and others).
+Writing those tours is separate work, not part of this ticket.

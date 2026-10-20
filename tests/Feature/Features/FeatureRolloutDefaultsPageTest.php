@@ -154,4 +154,14 @@ final class FeatureRolloutDefaultsPageTest extends TestCase
         $html = $this->actingAs($owner)->get(route('admin.feature-rollout-defaults.index'))->assertOk()->getContent();
         $this->assertStringContainsString('1 of 2 features in the waves have a tour', $html);
     }
+
+    public function test_a_tour_on_a_corex_page_is_matched_through_the_feature_route_prefix(): void
+    {
+        // Training's pages live at corex/training and corex/training-help while its route_prefixes are written
+        // without "corex/" — the Training tours were reported as "no tour yet" until both forms were matched.
+        $by = app(FeatureTourCoverage::class)->toursByFeature();
+        $keys = array_column($by['training'] ?? [], 'key');
+        $this->assertContains('train-courses', $keys);
+        $this->assertContains('train-help', $keys);
+    }
 }

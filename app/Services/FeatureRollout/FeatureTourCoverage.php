@@ -63,8 +63,15 @@ class FeatureTourCoverage
             foreach ($this->features->catalogue() as $featureKey => $def) {
                 foreach ((array) ($def['route_prefixes'] ?? []) as $prefix) {
                     $prefix = trim((string) $prefix, '/');
-                    if ($prefix !== '' && ($uri === $prefix || str_starts_with($uri, $prefix . '/'))) {
-                        return $featureKey;
+                    if ($prefix === '') {
+                        continue;
+                    }
+                    // Prefixes are written without the app's own "corex/" segment (e.g. 'training' for
+                    // corex/training), the same way FeatureRolloutUsage::recordVisit reads them.
+                    foreach ([$prefix, 'corex/' . $prefix] as $p) {
+                        if ($uri === $p || str_starts_with($uri, $p . '/')) {
+                            return $featureKey;
+                        }
                     }
                 }
             }
