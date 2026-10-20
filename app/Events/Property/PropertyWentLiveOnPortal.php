@@ -11,8 +11,7 @@ use App\Models\Property;
  * Fires the first time a property goes live on a listing portal: `p24_activated_at` or
  * `pp_activated_at` goes from empty to stamped. One event per portal per property; a later refresh
  * or re-publish (which re-stamps an existing value) does not raise it. Not the same as
- * PropertyPublished, which is the agency's own website. Only a listing CoreX itself submitted counts
- * (the portal's *_last_submitted_at is set): stock an import brings in did not go live through the agent's work. Raised by PropertyObserver::updated().
+ * PropertyPublished, which is the agency's own website. Raised by PropertyObserver::updated().
  * Spec: road-to-sold.md step 7.
  */
 final class PropertyWentLiveOnPortal extends AbstractDomainEvent

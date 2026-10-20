@@ -479,17 +479,11 @@ class PropertyObserver
         // Road to Sold step 7: the listing went live on a portal - p24_/pp_activated_at stamped for the FIRST
         // time (later refreshes re-stamp an existing value and raise nothing). One event per portal. Never
         // breaks the save.
-        //
-        // Only a listing CoreX itself SUBMITTED counts (Johan, 20 Oct 2026): stock an import brings in
-        // (P24ListingNumberReconciler stamps p24_activated_at for a listing already live on P24) did not
-        // go live through the agent's work and must not inflate Road to Sold. The submit paths are the only
-        // writers of *_last_submitted_at, so "the portal's last-submitted stamp is set" means CoreX submitted it.
         foreach ([
-            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_P24 => ['p24_activated_at', 'p24_last_submitted_at'],
-            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_PRIVATE_PROPERTY => ['pp_activated_at', 'pp_last_submitted_at'],
-        ] as $portal => [$column, $submittedColumn]) {
-            if ($property->wasChanged($column) && $property->{$column} !== null && $property->getOriginal($column) === null
-                && $property->{$submittedColumn} !== null) {
+            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_P24 => 'p24_activated_at',
+            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_PRIVATE_PROPERTY => 'pp_activated_at',
+        ] as $portal => $column) {
+            if ($property->wasChanged($column) && $property->{$column} !== null && $property->getOriginal($column) === null) {
                 \App\Support\Events\SafeRaise::dispatch('PropertyWentLiveOnPortal', fn () => new \App\Events\Property\PropertyWentLiveOnPortal(
                     property: $property,
                     portal: $portal,
