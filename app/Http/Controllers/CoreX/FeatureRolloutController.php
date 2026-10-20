@@ -96,7 +96,9 @@ class FeatureRolloutController extends Controller
             ['path' => $request->url(), 'query' => $request->query()]
         );
 
-        return view('corex.feature-rollout.index', [
+        $history = $plan ? app(\App\Services\FeatureRollout\FeatureRolloutHistory::class)->forRequest($request, (int) $agency->id) : [];
+
+        return view('corex.feature-rollout.index', $history + [
             'agency'     => $agency,
             'plan'       => $plan,
             'next'       => $plan ? $this->rollout->nextWavePerLane($plan)->filter(fn ($w) => $w->scheduled_for)->sortBy(fn ($w) => $w->scheduled_for->timestamp)->first() : null,
@@ -111,6 +113,7 @@ class FeatureRolloutController extends Controller
             'intervalMax'=> $this->rollout->intervalMax(),
             'defaults'   => $this->rollout->defaults(),
             'preview'    => self::canStart($agency) ? $this->rollout->holdPreview($agency) : [],
+            'readiness'  => $plan ? $this->readinessFor($agency, $waves) : [],
         ]);
     }
 
@@ -218,6 +221,19 @@ class FeatureRolloutController extends Controller
         $this->rollout->switchOnAwaiting($this->itemOf($plan, $item), Auth::id());
 
         return back()->with('success', 'Switched on.');
+    }
+
+    /** §12.1 — what each "Set up first" feature still needs, keyed by feature. */
+    private function readinessFor(Agency $agency, $waves): array
+    {
+        $out = [];
+        foreach ($waves as $w) {
+            foreach ($w->items->where('state', AgencyRolloutItem::STATE_AWAITING_SETUP) as $item) {
+                $out[$item->feature_key] = app(\App\Services\FeatureRollout\FeatureReadiness::class)->missing($agency, $item->feature_key);
+            }
+        }
+
+        return $out;
     }
 
     private function requirePlan(bool $mustBeRunning = false): AgencyFeatureRollout

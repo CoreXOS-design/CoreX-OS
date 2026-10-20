@@ -29,6 +29,14 @@ final class FeatureRolloutServiceTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        // These tests are about timing, lanes and pop-ups; readiness (§12.1) would hold their example features
+        // back for want of a logo/address and has its own tests (FeatureRolloutReadinessHistoryTest).
+        config(['feature-rollout.readiness' => []]);
+    }
+
     protected function tearDown(): void
     {
         Carbon::setTestNow();

@@ -12,6 +12,7 @@
         'released_early' => ['On (switched on early)',  'ds-badge-success'],
         'awaiting_admin' => ['Waiting for the agency',  'ds-badge-warning'],
         'dropped'        => ['Skipped',                 'ds-badge-muted'],
+        'awaiting_setup' => ['Set up first',            'ds-badge-warning'],
     ];
     $statusLabel = ['active' => 'Running', 'paused' => 'Paused', 'completed' => 'Finished', 'cancelled' => 'Stopped'];
     $typeLabel = ['sales' => 'Sales only', 'rentals' => 'Rentals only', 'both' => 'Sales and rentals'];
@@ -268,6 +269,15 @@
                                     <span class="ds-badge {{ $sc }}">{{ $sl }}</span>
                                     @if (empty($tours[$item->feature_key]))<span class="ds-badge ds-badge-muted">No tour yet</span>@endif
                                 </div>
+                                @if ($item->state === 'awaiting_setup')
+                                    @php $missing = app(\App\Services\FeatureRollout\FeatureReadiness::class)->missing($agency, $item->feature_key); @endphp
+                                    <div class="w-full flex flex-wrap items-center justify-between gap-2 text-xs" style="color: var(--text-secondary);">
+                                        <span>Waiting for the agency to add {{ collect($missing)->map(fn ($m) => $m['label'] . ' (' . $m['step_title'] . ')')->implode(', ') ?: 'its setup' }}.</span>
+                                        @if ($open || $plan->status === 'completed')
+                                            <form method="POST" action="{{ route('admin.agency-setup-progress.rollout.items.action', $base + ['item' => $item->id, 'action' => 'on']) }}" onsubmit="return confirm('Switch this on for the agency before its setup is done?');">@csrf<button type="submit" class="corex-btn-outline corex-btn-xs">Switch on anyway</button></form>
+                                        @endif
+                                    </div>
+                                @endif
                                 @if ($editable && $item->state === 'held')
                                     <div class="flex flex-wrap gap-1.5 items-center">
                                         @if ($others->isNotEmpty())
@@ -317,6 +327,8 @@
                 <div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $waves->links() }}</div>
             @endif
         </div>
+
+        @include('corex.feature-rollout._history')
 
         @if ($open)
             <form method="POST" action="{{ route('admin.agency-setup-progress.rollout.waves.store', $base) }}" class="rounded-md p-5 grid grid-cols-1 md:grid-cols-4 gap-3 items-end" style="background: var(--surface); border: 1px solid var(--border);">

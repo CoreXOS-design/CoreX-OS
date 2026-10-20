@@ -129,7 +129,9 @@ class AgencyRolloutAdminController extends Controller
         $paged = new LengthAwarePaginator($waves->forPage($page, 25)->values(), $waves->count(), 25, $page,
             ['path' => $request->url(), 'query' => $request->query()]);
 
-        return view('admin.agency-setup-progress.show', [
+        $history = $plan ? app(\App\Services\FeatureRollout\FeatureRolloutHistory::class)->forRequest($request, (int) $agency->id) : [];
+
+        return view('admin.agency-setup-progress.show', $history + [
             'agency'    => $agency,
             'setup'     => $setup,
             'steps'     => AgencyOnboardingSetup::activeSteps($agency),
@@ -309,7 +311,9 @@ class AgencyRolloutAdminController extends Controller
         }
 
         return match ($action) {
-            'on'   => $this->attempt($agency, fn () => $this->rollout->switchOnNow($item, $request->user()->id), 'Feature switched on now.'),
+            'on'   => $this->attempt($agency, fn () => $item->state === AgencyRolloutItem::STATE_HELD
+                ? $this->rollout->switchOnNow($item, $request->user()->id)
+                : $this->rollout->switchOnAwaiting($item, $request->user()->id), 'Feature switched on now.'),
             'skip' => $this->attempt($agency, function () use ($item) {
                 $wave = AgencyRolloutWave::queryWithoutAgencyScope()->findOrFail($item->wave_id);
                 if ($wave->released_at !== null && $item->state !== AgencyRolloutItem::STATE_AWAITING_ADMIN) {

@@ -12,6 +12,7 @@
         'released_early' => ['On (switched on early)', 'ds-badge-success'],
         'awaiting_admin' => ['Ready when you are',   'ds-badge-warning'],
         'dropped'        => ['Skipped',              'ds-badge-muted'],
+        'awaiting_setup' => ['Set up first',         'ds-badge-warning'],
     ];
     $statusLabel = ['active' => 'Running', 'paused' => 'Paused', 'completed' => 'Finished', 'cancelled' => 'Stopped'];
     $input = 'rounded-md px-3 py-2 text-sm';
@@ -123,11 +124,20 @@
                                     <span class="ds-badge {{ $sc }}">{{ $sl }}</span>
                                     @if (! empty($tours[$item->feature_key]))<span class="ds-badge ds-badge-muted" title="{{ collect($tours[$item->feature_key])->pluck('title')->implode(', ') }}">Guided tour</span>@endif
                                 </div>
+                                @if ($item->state === 'awaiting_setup' && ! empty($readiness[$item->feature_key]))
+                                    <div class="w-full text-xs" style="color: var(--text-secondary);" data-readiness="{{ $item->feature_key }}">
+                                        This switches on by itself once you add
+                                        @foreach ($readiness[$item->feature_key] as $i => $m){{ $i > 0 ? ($loop->last ? ' and ' : ', ') : '' }}<a href="{{ $m['url'] }}" style="color: var(--brand-icon);">{{ $m['label'] }}</a> ({{ $m['step_title'] }})@endforeach.
+                                    </div>
+                                @endif
                                 <div class="flex gap-1.5">
                                     @if ($item->state === 'awaiting_admin')
                                         <form method="POST" action="{{ route('corex.feature-rollout.items.on', $item->id) }}" onsubmit="return confirm('Switch this on now? It reaches people outside your agency.');">@csrf<button type="submit" class="corex-btn-primary corex-btn-xs">Switch on</button></form>
                                     @endif
-                                    @if ($running && in_array($item->state, ['held', 'awaiting_admin'], true))
+                                    @if ($item->state === 'awaiting_setup')
+                                        <form method="POST" action="{{ route('corex.feature-rollout.items.on', $item->id) }}" onsubmit="return confirm('Switch this on before its setup is done? Your team may find parts of it empty.');">@csrf<button type="submit" class="corex-btn-outline corex-btn-xs">Switch on anyway</button></form>
+                                    @endif
+                                    @if ($running && in_array($item->state, ['held', 'awaiting_admin', 'awaiting_setup'], true))
                                         <form method="POST" action="{{ route('corex.feature-rollout.items.skip', $item->id) }}" onsubmit="return confirm('Skip this feature? It stays off; you can switch it on from Features any time.');">@csrf<button type="submit" class="corex-btn-outline corex-btn-xs">Skip</button></form>
                                     @endif
                                 </div>
@@ -144,6 +154,8 @@
                 <div class="px-5 py-3" style="border-top: 1px solid var(--border);">{{ $waves->links() }}</div>
             @endif
         </div>
+
+        @include('corex.feature-rollout._history')
     @endif
 </div>
 @endsection

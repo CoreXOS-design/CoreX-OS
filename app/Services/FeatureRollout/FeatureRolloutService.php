@@ -3,6 +3,7 @@
 namespace App\Services\FeatureRollout;
 
 use App\Events\AgencyFeatureToggled;
+use App\Events\FeatureRollout\FeatureRolloutChanged;
 use App\Events\FeatureRollout\FeatureWaveReleased;
 use App\Models\Agency;
 use App\Models\DevSetting;
@@ -15,6 +16,7 @@ use App\Services\Features\AgencyFeatureWriter;
 use App\Services\Features\AgencyTypeFeatureSeeder;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -43,7 +45,19 @@ class FeatureRolloutService
         private readonly AgencyFeatureService $features,
         private readonly AgencyFeatureWriter $writer,
         private readonly RolloutCalendar $calendar,
+        private readonly FeatureReadiness $readiness,
     ) {
+    }
+
+    /**
+     * The rollout's history (spec §12.10): one FeatureRolloutChanged per change, written to domain_event_log
+     * by the wildcard audit listener. The actor is whoever is signed in (null = the scheduler).
+     *
+     * @param array<string,mixed> $details
+     */
+    private function record(int $agencyId, string $action, array $details = []): void
+    {
+        event(new FeatureRolloutChanged($agencyId, $action, $details, Auth::id()));
     }
 
     // ── Pacing defaults (Dev Settings) ─────────────────────────────────────────
@@ -202,6 +216,10 @@ class FeatureRolloutService
             if ($held === []) {
                 $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_COMPLETED, 'completed_at' => now()])->save();
             }
+            $this->record((int) $agency->id, 'started', [
+                'held' => array_keys($held), 'interval_days' => (int) $plan->interval_days,
+                'weekdays_only' => (bool) $plan->weekdays_only, 'side_by_side' => (bool) $plan->side_by_side,
+            ]);
 
             return $plan->fresh();
         });
@@ -326,8 +344,45 @@ class FeatureRolloutService
                 $released++;
             }
         }
+        $this->releaseReadyItems($now);
 
         return $released;
+    }
+
+    /**
+     * Features waiting as "Set up first" whose basics are now filled in are switched on (spec §12.1).
+     * Not for a paused or stopped plan — paused means nothing new switches on.
+     *
+     * @return int features switched on
+     */
+    public function releaseReadyItems(?Carbon $now = null): int
+    {
+        $now = ($now ?? Carbon::now())->copy()->setTimezone($this->calendar->timezone());
+        $count = 0;
+        $items = AgencyRolloutItem::queryWithoutAgencyScope()->where('state', AgencyRolloutItem::STATE_AWAITING_SETUP)->get();
+        foreach ($items->groupBy('rollout_id') as $rolloutId => $planItems) {
+            $plan = AgencyFeatureRollout::queryWithoutAgencyScope()->find($rolloutId);
+            if (! $plan || in_array($plan->status, [AgencyFeatureRollout::STATUS_PAUSED, AgencyFeatureRollout::STATUS_CANCELLED], true)) {
+                continue;
+            }
+            // Same calendar as a wave: only on a release day, once the release time has come.
+            if (! $this->calendar->isReleaseDay($now, $plan) || $now->lt($this->calendar->releaseMoment($now, $plan))) {
+                continue;
+            }
+            $agency = Agency::withoutGlobalScopes()->find($plan->agency_id);
+            foreach ($planItems as $item) {
+                if ($agency && $this->readiness->ready($agency, $item->feature_key)) {
+                    DB::transaction(function () use ($item, $agency) {
+                        $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
+                        $this->apply($agency, [$item->feature_key => true], null);
+                    });
+                    $this->record((int) $agency->id, 'ready_switched_on', ['feature' => $item->feature_key]);
+                    $count++;
+                }
+            }
+        }
+
+        return $count;
     }
 
     /** @return Collection<int,AgencyRolloutWave> the first unreleased wave of each lane */
@@ -356,6 +411,12 @@ class FeatureRolloutService
             foreach ($this->itemsOf($wave)->where('state', AgencyRolloutItem::STATE_HELD) as $item) {
                 if (in_array($item->feature_key, $adminOnly, true)) {
                     $item->forceFill(['state' => AgencyRolloutItem::STATE_AWAITING_ADMIN])->save();
+                    $awaiting[] = $item->feature_key;
+                    continue;
+                }
+                // §12.1 — the basics are not set up yet: wait, and switch on once they are (releaseReadyItems).
+                if (! $this->readiness->ready($agency, $item->feature_key)) {
+                    $item->forceFill(['state' => AgencyRolloutItem::STATE_AWAITING_SETUP])->save();
                     $awaiting[] = $item->feature_key;
                     continue;
                 }
@@ -391,6 +452,7 @@ class FeatureRolloutService
     {
         if ($plan->status === AgencyFeatureRollout::STATUS_ACTIVE) {
             $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_PAUSED, 'paused_at' => now()])->save();
+            $this->record((int) $plan->agency_id, 'paused');
         }
     }
 
@@ -399,6 +461,7 @@ class FeatureRolloutService
         if ($plan->status === AgencyFeatureRollout::STATUS_PAUSED) {
             $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_ACTIVE, 'paused_at' => null])->save();
             $this->schedule($plan, $this->calendar->today());
+            $this->record((int) $plan->agency_id, 'resumed');
         }
     }
 
@@ -411,7 +474,7 @@ class FeatureRolloutService
             $on = [];
             $items = AgencyRolloutItem::queryWithoutAgencyScope()
                 ->where('rollout_id', $plan->id)
-                ->whereIn('state', [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN])
+                ->whereIn('state', [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN, AgencyRolloutItem::STATE_AWAITING_SETUP])
                 ->get();
             foreach ($items as $item) {
                 $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
@@ -424,6 +487,7 @@ class FeatureRolloutService
                 ->update(['released_at' => now()]);
 
             $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_COMPLETED, 'completed_at' => now(), 'paused_at' => null])->save();
+            $this->record((int) $plan->agency_id, 'finished', ['switched_on' => array_keys($on)]);
         });
     }
 
@@ -463,8 +527,14 @@ class FeatureRolloutService
                     $this->relane($plan, $want);
                 }
             }
+            $changed = array_keys($plan->getDirty());
             $plan->save();
             $this->schedule($plan, $this->calendar->today());
+            if ($changed !== []) {
+                $this->record((int) $plan->agency_id, 'pace_changed', array_intersect_key($plan->only([
+                    'interval_days', 'weekdays_only', 'skip_holidays', 'release_time', 'side_by_side',
+                ]), array_flip($changed)));
+            }
         });
     }
 
@@ -495,8 +565,9 @@ class FeatureRolloutService
      */
     public function skipItem(AgencyRolloutItem $item): void
     {
-        if (in_array($item->state, [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN], true)) {
+        if (in_array($item->state, [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN, AgencyRolloutItem::STATE_AWAITING_SETUP], true)) {
             $item->forceFill(['state' => AgencyRolloutItem::STATE_DROPPED])->save();
+            $this->record((int) $item->agency_id, 'feature_skipped', ['feature' => $item->feature_key]);
         }
     }
 
@@ -505,7 +576,7 @@ class FeatureRolloutService
      */
     public function switchOnAwaiting(AgencyRolloutItem $item, ?int $userId): void
     {
-        if ($item->state !== AgencyRolloutItem::STATE_AWAITING_ADMIN) {
+        if (! in_array($item->state, [AgencyRolloutItem::STATE_AWAITING_ADMIN, AgencyRolloutItem::STATE_AWAITING_SETUP], true)) {
             return;
         }
         $agency = Agency::withoutGlobalScopes()->findOrFail($item->agency_id);
@@ -513,6 +584,7 @@ class FeatureRolloutService
             $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
             $this->apply($agency, [$item->feature_key => true], $userId);
         });
+        $this->record((int) $agency->id, 'feature_switched_on', ['feature' => $item->feature_key]);
     }
 
     // ── Listing a plan's waves (agency panel + owner page) ─────────────────────
@@ -654,6 +726,7 @@ class FeatureRolloutService
             'customised_at' => now(),
         ]));
         $this->schedule($plan, $this->calendar->today());
+        $this->record((int) $plan->agency_id, 'group_added', ['group' => $title]);
 
         return $wave;
     }
@@ -661,7 +734,9 @@ class FeatureRolloutService
     public function updateWave(AgencyRolloutWave $wave, string $title, ?string $intro): void
     {
         $this->assertChangeable($wave);
+        $was = $wave->title;
         $wave->forceFill(['title' => $title, 'intro_text' => $intro, 'customised_at' => now()])->save();
+        $this->record((int) $wave->agency_id, 'group_edited', ['group' => $title, 'was' => $was]);
     }
 
     /** Swap a group with its neighbour in its lane (-1 earlier, +1 later), among the groups still to come. */
@@ -681,6 +756,7 @@ class FeatureRolloutService
             $other->forceFill(['position' => $a])->save();
             $this->schedule($plan, $this->calendar->today());
         });
+        $this->record((int) $plan->agency_id, 'group_moved', ['group' => $wave->title, 'direction' => $direction < 0 ? 'earlier' : 'later']);
     }
 
     /** Archive an EMPTY group still to come (its features must be moved, switched on or skipped first). */
@@ -695,6 +771,7 @@ class FeatureRolloutService
             $this->schedule($plan, $this->calendar->today());
             $this->completeIfDone((int) $plan->id);
         });
+        $this->record((int) $plan->agency_id, 'group_archived', ['group' => $wave->title]);
     }
 
     public function restoreWave(AgencyRolloutWave $wave): void
@@ -708,6 +785,7 @@ class FeatureRolloutService
             $wave->forceFill(['position' => $this->nextPosition($plan, (int) $wave->lane), 'customised_at' => now()])->save();
             $this->schedule($plan, $this->calendar->today());
         });
+        $this->record((int) $plan->agency_id, 'group_restored', ['group' => $wave->title]);
     }
 
     /**
@@ -739,6 +817,7 @@ class FeatureRolloutService
             $this->apply($agency, [$key => false], $userId);
             $this->customised($wave);
         });
+        $this->record((int) $plan->agency_id, 'feature_added', ['feature' => $key, 'group' => $wave->title]);
     }
 
     /** Move a held feature to another group still to come in the same plan. */
@@ -757,6 +836,7 @@ class FeatureRolloutService
             $item->forceFill(['wave_id' => $to->id])->save();
             $this->customised($from, $to);
         });
+        $this->record((int) $item->agency_id, 'feature_moved', ['feature' => $item->feature_key, 'from' => $from->title, 'group' => $to->title]);
     }
 
     /** Switch one held feature on now, ahead of its group (it counts as released early). */
@@ -773,6 +853,7 @@ class FeatureRolloutService
             $this->apply($agency, [$item->feature_key => true], $userId);
             $this->customised($wave);
         });
+        $this->record((int) $agency->id, 'feature_switched_on_early', ['feature' => $item->feature_key]);
     }
 
     /**
@@ -832,6 +913,7 @@ class FeatureRolloutService
             $this->schedule($plan, $this->calendar->today());
             $this->completeIfDone((int) $plan->id);
         });
+        $this->record((int) $plan->agency_id, 'reset_to_default');
     }
 
     /**
@@ -867,11 +949,12 @@ class FeatureRolloutService
         $item = AgencyRolloutItem::queryWithoutAgencyScope()
             ->where('agency_id', $event->agencyId)
             ->where('feature_key', $event->featureKey)
-            ->whereIn('state', [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN])
+            ->whereIn('state', [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN, AgencyRolloutItem::STATE_AWAITING_SETUP])
             ->first();
 
         if ($item) {
             $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED_EARLY, 'released_at' => now()])->save();
+            $this->record((int) $event->agencyId, 'feature_switched_on_features_page', ['feature' => $item->feature_key]);
         }
     }
 

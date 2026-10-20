@@ -93,6 +93,7 @@ class FeatureRolloutPopupController extends Controller
         }
 
         $changed = 0;
+        $changes = [];
         if ($data['action'] === 'save') {
             $features = $waves->flatMap(fn ($w) => $this->access->liveFeatures($w))->unique()->all();
             $roles = $this->access->editableRoles((int) $plan->agency_id)->pluck('name')->all();
@@ -102,15 +103,17 @@ class FeatureRolloutPopupController extends Controller
                     continue;
                 }
                 foreach ((array) $byRole as $role => $on) {
+                    $want = filter_var($on, FILTER_VALIDATE_BOOLEAN);
                     if (in_array($role, $roles, true)
-                        && $this->access->setRoleAccess((int) $plan->agency_id, (string) $role, (string) $feature, filter_var($on, FILTER_VALIDATE_BOOLEAN))) {
+                        && $this->access->setRoleAccess((int) $plan->agency_id, (string) $role, (string) $feature, $want)) {
                         $changed++;
+                        $changes[] = ['feature' => (string) $feature, 'role' => (string) $role, 'on' => $want];
                     }
                 }
             }
         }
 
-        $this->access->markReviewed($plan, $waveIds, $request->user()->id);
+        $this->access->markReviewed($plan, $waveIds, $request->user()->id, $data['action'], $changes);
 
         return response()->json(['ok' => true, 'changed' => $changed]);
     }

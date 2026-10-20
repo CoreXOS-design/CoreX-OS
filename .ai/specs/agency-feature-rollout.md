@@ -393,3 +393,28 @@ Decisions made while building Part 1. Where these refine an earlier section, thi
 8. **Moved to Part 5 (with the rest of §12):** tour completion per feature (§12.6), usage of released features
    (§12.8) and the "changed by CoreX team" audit trail (§12.10).
 9. Part 2's panel now uses the shared `FeatureRolloutService::listWaves()` for its group list.
+
+## 17. Build notes — Part 5 (the §12 additions) — 2026-10-20
+
+Already built earlier: #2 public holidays and #3 release time (Part 1), #11 tour gap report (Part 1).
+
+### 17a. Readiness (#1) and history (#10)
+1. **Readiness** is config, not code: `config/feature-rollout.php` `readiness` lists, per feature, the `agencies`
+   columns that must be filled in, their plain words and the setup-guide step that fills them. Shipped:
+   DocuPerfect needs the logo (Branding) and physical address (Agency identity); Compliance needs the agency's
+   FFC number and PPRA number (Agency identity). Same rules for every agency. `FeatureReadiness::missing()`.
+2. When a wave is released, a feature whose basics are missing becomes **awaiting_setup** ("Set up first") —
+   not switched on. The scheduler (`releaseReadyItems`, every run, on release days after the release time,
+   not while paused) switches it on once they are filled in. The admin can also "Switch on anyway" (panel and
+   owner page); "Switch everything on" includes it; skip works on it; switching it on from the Features page
+   counts as early. The day-before prompt and the panel name what is missing with a link to that step.
+3. A feature that switches on later than its wave is not re-announced in the release pop-up (the pop-up is per
+   wave); it shows in the history and on the "New and coming" page (17c).
+4. **History:** every change emits `FeatureRolloutChanged` (agency, action, details, signed-in actor) beside the
+   existing `FeatureWaveReleased`; the wildcard audit listener stores both in `domain_event_log`, and
+   `FeatureRolloutHistory` reads them back for one agency as plain sentences: who (the person, "CoreX team" for a
+   System Owner, "Automatic" for the scheduler) and when. Recorded: started, paused, resumed, finished, pace
+   changed, skipped, switched on (anyway / early / from Features / once set up), feature added / moved, group
+   added / edited / moved / archived / restored, reset to default, access reviewed (keep or each role change).
+   Section "History" on Settings → Feature rollout and on the owner's agency page; filter (switched on /
+   changes / who gets access), date range, newest/oldest, 25 a page; own query names (h_*, hpage).

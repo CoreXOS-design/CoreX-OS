@@ -35,4 +35,20 @@ return [
         5 => 'Every week (5 release days)',
     ],
     'interval_max' => 10,
+
+    // Readiness (spec §12.1): what an agency must have filled in before a feature is worth switching on.
+    // A feature whose basics are missing waits as "Set up first" when its wave is released, and switches
+    // on by itself once they are filled in (the admin can also switch it on anyway). Each requirement is
+    // an `agencies` column that must not be blank, the plain words for it, and the setup-guide step
+    // (config/agency-onboarding-copy.php key) where the agency fills it in. Same for every agency.
+    'readiness' => [
+        'docuperfect' => [
+            ['field' => 'logo_path', 'label' => 'your logo',             'step' => 'branding'],
+            ['field' => 'address',   'label' => 'your physical address', 'step' => 'identity'],
+        ],
+        'compliance' => [
+            ['field' => 'ffc_no',      'label' => "your agency's Fidelity Fund Certificate number", 'step' => 'identity'],
+            ['field' => 'ppra_number', 'label' => 'your PPRA reference number',                    'step' => 'identity'],
+        ],
+    ],
 ];

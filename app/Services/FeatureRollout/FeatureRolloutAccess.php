@@ -2,6 +2,7 @@
 
 namespace App\Services\FeatureRollout;
 
+use App\Events\FeatureRollout\FeatureRolloutChanged;
 use App\Models\Agency;
 use App\Models\FeatureRollout\AgencyFeatureRollout;
 use App\Models\FeatureRollout\AgencyRolloutItem;
@@ -42,6 +43,7 @@ class FeatureRolloutAccess
     private const LIVE_STATES = [
         AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_RELEASED,
         AgencyRolloutItem::STATE_RELEASED_EARLY, AgencyRolloutItem::STATE_AWAITING_ADMIN,
+        AgencyRolloutItem::STATE_AWAITING_SETUP,
     ];
 
     public function __construct(
@@ -227,12 +229,20 @@ class FeatureRolloutAccess
         return $this->rollout->itemsOf($wave)->whereIn('state', self::LIVE_STATES)->pluck('feature_key')->values()->all();
     }
 
-    /** @param list<int> $waveIds */
-    public function markReviewed(AgencyFeatureRollout $plan, array $waveIds, ?int $userId): void
+    /**
+     * @param list<int>                                            $waveIds
+     * @param list<array{feature:string, role:string, on:bool}>    $changes what Save access changed (history, §12.10)
+     */
+    public function markReviewed(AgencyFeatureRollout $plan, array $waveIds, ?int $userId, string $decision = 'keep', array $changes = []): void
     {
+        $titles = AgencyRolloutWave::queryWithoutAgencyScope()->where('rollout_id', $plan->id)->whereIn('id', $waveIds)->pluck('title')->all();
         AgencyRolloutWave::queryWithoutAgencyScope()
             ->where('rollout_id', $plan->id)->whereIn('id', $waveIds)->whereNull('access_reviewed_at')
             ->update(['access_reviewed_at' => now(), 'access_reviewed_by' => $userId]);
+        event(new FeatureRolloutChanged((int) $plan->agency_id, 'access_reviewed', [
+            'groups' => $titles, 'decision' => $decision,
+            'changes' => array_map(fn ($c) => $c['feature'] . '|' . $c['role'] . '|' . ($c['on'] ? 'on' : 'off'), $changes),
+        ], $userId));
     }
 
     // ── The release pop-up ──────────────────────────────────────────────────────

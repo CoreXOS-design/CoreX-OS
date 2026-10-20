@@ -40,6 +40,9 @@ final class FeatureRolloutPopupsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // These tests are about timing, lanes and pop-ups; readiness (§12.1) would hold their example features
+        // back for want of a logo/address and has its own tests (FeatureRolloutReadinessHistoryTest).
+        config(['feature-rollout.readiness' => []]);
         Carbon::setTestNow(Carbon::parse('2026-11-04 09:00')); // Wednesday
         DevSetting::set('feature_rollout.interval_days', '2');
         DevSetting::set('feature_rollout.weekdays_only', '1');

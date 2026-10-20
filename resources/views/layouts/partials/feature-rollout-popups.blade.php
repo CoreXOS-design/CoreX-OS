@@ -75,6 +75,14 @@
                                 @if(!empty($__frCatalogue[$__frKey]['explain']))
                                     <div class="text-xs mt-0.5" style="color:var(--text-secondary);">{{ $__frCatalogue[$__frKey]['explain'] }}</div>
                                 @endif
+                                @php $__frMissing = app(\App\Services\FeatureRollout\FeatureReadiness::class)->missing(\App\Models\Agency::withoutGlobalScopes()->find($__fr['plan']->agency_id), $__frKey); @endphp
+                                @if($__frMissing !== [])
+                                    <div class="text-xs mt-1" style="color:var(--ds-amber, #b45309);" data-readiness="{{ $__frKey }}">
+                                        Set this up first: add
+                                        @foreach($__frMissing as $__frI => $__frM){{ $__frI > 0 ? ($loop->last ? ' and ' : ', ') : '' }}<a href="{{ $__frM['url'] }}" style="color:var(--brand-icon); text-decoration:underline;">{{ $__frM['label'] }}</a>@endforeach.
+                                        It waits until then and switches on by itself once it is done.
+                                    </div>
+                                @endif
                                 @if(in_array($__frKey, $__frAwait, true))
                                     <div class="text-xs mt-1" style="color:var(--ds-amber, #b45309);">This one reaches people outside your agency, so it waits for you to switch it on in Settings → Feature rollout.</div>
                                 @endif
