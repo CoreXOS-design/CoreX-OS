@@ -823,6 +823,9 @@ return [
         ['key' => 'agency_setup.run',            'label' => 'Run Agency Setup Wizard',     'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 5],
         ['key' => 'agency_setup.track',          'label' => 'Track Agency Setup Progress (owner)', 'section' => 'settings', 'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
         ['key' => 'agency_features.manage',      'label' => 'Manage Features (module on/off)', 'section' => 'settings',     'type' => 'access',  'module' => 'settings',         'sort_order' => 6],
+        // AT-478 gradual feature rollout — the agency's own plan (Settings → Feature rollout) and the onboarding
+        // choice. Not in any role's role_defaults include list: admin / super_admin hold it through the all-minus-exclude rule.
+        ['key' => 'manage_feature_rollout',      'label' => 'Manage Feature Rollout (gradual introduction)', 'section' => 'settings', 'type' => 'access', 'module' => 'settings', 'sort_order' => 6],
         // Users page (/admin/users) + its Settings sub-menu link. Key unchanged (every role grant and route keeps working);
         // only its Role Manager home moved from Franchise Admin to Settings, as its own on/off switch beside Access Settings.
         ['key' => 'manage_users',                'label' => 'Users',                       'section' => 'settings',         'type' => 'access',  'module' => 'settings',         'sort_order' => 7],

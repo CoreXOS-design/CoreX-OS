@@ -7,6 +7,7 @@ use App\Http\Controllers\Commission\CommissionSettingsController;
 use App\Http\Controllers\Compliance\FicaOfficerAppointmentsController;
 use App\Http\Controllers\CoreX\Auctions\AuctionSettingsController;
 use App\Http\Controllers\CoreX\AgencyTypeController;
+use App\Http\Controllers\CoreX\FeatureRolloutController;
 use App\Http\Controllers\CoreX\FeatureSettingsController;
 use App\Http\Controllers\CoreX\LeaseSettingsController;
 use App\Http\Controllers\CoreX\RentalInspectionSettingsController;
@@ -162,7 +163,8 @@ return [
         // above these six capability toggles, and post their feature key to
         // FeatureSettingsController@update (agency_features). The six below keep their
         // own store field names + canonical savers.
-        'partial' => 'agency-setup.steps.capabilities-modules',
+        // AT-478: the gradual-introduction choice renders FIRST (how CoreX switches on), then the toolkit.
+        'partial' => ['agency-setup.steps.feature-rollout-choice', 'agency-setup.steps.capabilities-modules'],
         'savers' => [
             ['controller' => SettingsController::class,        'method' => 'updateMarketingEnabled'],
             ['controller' => SettingsController::class,        'method' => 'updateSyndicationPortals'],
@@ -177,6 +179,9 @@ return [
             // (AgencySetupWizardController::save()), so leaving it registered
             // with no matching control would fail validation on every save.
             ['controller' => FeatureSettingsController::class,  'method' => 'update'],
+            // AT-478 — MUST stay last: the gradual introduction holds back the features that are ON after
+            // every switch above has been saved. No-op unless its block was rendered (feature_rollout_present).
+            ['controller' => FeatureRolloutController::class,   'method' => 'saveChoice'],
         ],
         'controls' => [
             ['key' => 'marketing_enabled', 'source' => 'perf', 'type' => 'toggle', 'default' => 1,

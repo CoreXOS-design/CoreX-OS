@@ -3685,6 +3685,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::post('/settings/features', [\App\Http\Controllers\CoreX\FeatureSettingsController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.features.update');
     // What the agency does (sales / rentals / both) — seeds the feature switches. Shared with the wizard's identity step.
     Route::post('/settings/agency-type', [\App\Http\Controllers\CoreX\AgencyTypeController::class, 'update'])->middleware('permission:agency_features.manage')->name('corex.settings.agency-type.update');
+    // AT-478 — the agency's own gradual feature rollout (spec agency-feature-rollout.md §5.2). Own agency only:
+    // no agency/plan id in any URL; item ids are resolved inside the agency's plan.
+    Route::middleware(['permission:manage_feature_rollout', 'agency.required'])->prefix('feature-rollout')->name('corex.feature-rollout.')->group(function () {
+        $c = \App\Http\Controllers\CoreX\FeatureRolloutController::class;
+        Route::get('/',                    [$c, 'index'])->name('index');
+        Route::post('/settings',           [$c, 'saveChoice'])->name('settings');
+        Route::post('/pause',              [$c, 'pause'])->name('pause');
+        Route::post('/resume',             [$c, 'resume'])->name('resume');
+        Route::post('/release-next',       [$c, 'releaseNext'])->name('release-next');
+        Route::post('/finish',             [$c, 'finish'])->name('finish');
+        Route::post('/items/{item}/skip',  [$c, 'skipItem'])->whereNumber('item')->name('items.skip');
+        Route::post('/items/{item}/on',    [$c, 'switchOn'])->whereNumber('item')->name('items.on');
+    });
     // AT-392 authoriser flow, 2026-09-08 — RO/CO decision actions. A
     // separate prefix/controller, gated on RO/CO tier membership
     // (User::isRentalApplicationRO()/isRentalApplicationCO()), not the

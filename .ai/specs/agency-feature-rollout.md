@@ -300,3 +300,27 @@ Decisions made while building Part 1. Where these refine an earlier section, thi
 9. **One write path:** `AgencyFeatureWriter` (extracted from `AgencyTypeFeatureSeeder`) is used by the type seeder and the rollout.
 10. **Schema snapshot** not yet regenerated for `2026_11_18_100000_create_feature_rollout_tables` — the migration
     runs on top of the snapshot. Run `scripts/schema-dump.sh` with the next batch.
+
+## 14. Build notes — Part 2 (wizard choice + agency panel) — 2026-10-20
+
+1. **Who can choose gradual introduction:** an agency with no plan yet whose setup guide is not finished
+   (`FeatureRolloutController::canStart`). An up-and-running agency is never offered it, so re-opening the
+   setup guide can never hide a live team's tools. The CoreX owner page (Part 4) can still start one for any agency.
+2. **The default is "Everything now".** Nothing changes unless the admin picks "Introduce gradually" AND ticks
+   a confirmation that names how many features will be switched off for everyone now (validated server-side).
+3. **Wizard:** the choice is the first block of the capabilities step (`agency-setup.steps.feature-rollout-choice`)
+   and its saver `FeatureRolloutController@saveChoice` runs LAST, after the feature switches in the same step
+   are saved, so the plan holds exactly what the admin left on. The block (and its `feature_rollout_present`
+   marker) renders only for `manage_feature_rollout` holders, and the saver returns before its permission
+   check when the marker is absent, so the step never fails for a user who could not see the block (§6.1).
+4. **One block, two places:** `corex.feature-rollout._choice` is the wizard block AND the panel's settings form (NN #10a).
+5. **Panel:** Settings → Feature rollout (`corex.feature-rollout.index`, sidebar Settings sub menu + Settings rail).
+   Status, next group and date, Pause / Resume, Switch the next group on now, Switch everything on, pace
+   (how often, weekdays only, side by side for sales-and-rentals agencies), the groups with each feature's
+   state, Skip, and Switch on for outward-facing features. Search (group or feature name), filter (all /
+   still to come / switched on, date range), sort (date — default — or name), pagination 25.
+   Own agency only: no agency or plan id in any URL; item ids resolve inside the agency's plan.
+6. **Side by side mid-plan** moves unreleased Rentals groups to their own lane (on) or back into the one
+   list in the default order (off). Waves are created in default order so the merge is exact.
+7. **Permission** `manage_feature_rollout` (settings module): admin / super_admin by the all-minus-exclude
+   rule; nobody else by default. Deploys run `corex:sync-permissions --merge-defaults`.

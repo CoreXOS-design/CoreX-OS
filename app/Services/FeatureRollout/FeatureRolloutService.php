@@ -142,7 +142,7 @@ class FeatureRolloutService
         ])));
         $sideBySide = $type === 'both' && ! empty($options['side_by_side']);
 
-        return DB::transaction(function () use ($agency, $settings, $sideBySide, $type, $userId) {
+        return DB::transaction(function () use ($agency, $settings, $sideBySide, $userId) {
             $plan = AgencyFeatureRollout::withoutAgencyStamping(fn () => AgencyFeatureRollout::create([
                 'agency_id'       => $agency->id,
                 'status'          => AgencyFeatureRollout::STATUS_ACTIVE,
@@ -156,45 +156,42 @@ class FeatureRolloutService
                 'created_by'      => $userId,
             ]));
 
-            $current = $this->features->all($agency);
-            $waveable = $this->waveableFeatures();
-            $taken = [];
             $held = [];
 
-            foreach ($this->lanesFor($type, $sideBySide) as $lane => $defaults) {
-                $position = 0;
-                foreach ($defaults as $default) {
-                    $keys = [];
-                    foreach ((array) $default->feature_keys as $key) {
-                        if (isset($waveable[$key]) && ! isset($taken[$key]) && ($current[$key] ?? false)) {
-                            $keys[] = $key;
-                            $taken[$key] = true;
-                        }
-                    }
-                    if ($keys === []) {
-                        continue; // nothing left for this agency in this wave (type filtered it, or already on/off)
-                    }
+            // Waves are created in plan order. For a sales-and-rentals agency that is the default order
+            // across BOTH lanes, so a later "side by side off" (relane) can merge lanes back by creation order.
+            $rows = [];
+            foreach ($this->planFor($agency, $sideBySide) as $lane => $waves) {
+                foreach ($waves as $w) {
+                    $rows[] = ['lane' => $lane] + $w;
+                }
+            }
+            if ($sideBySide) {
+                usort($rows, fn ($a, $b) => [$a['default']->position, $a['default']->id] <=> [$b['default']->position, $b['default']->id]);
+            }
 
-                    $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
-                        'agency_id'  => $agency->id,
-                        'rollout_id' => $plan->id,
-                        'lane'       => $lane,
-                        'track'      => $default->track,
-                        'position'   => $position += 10,
-                        'title'      => $default->title,
-                        'intro_text' => $default->intro_text,
+            $positions = [];
+            foreach ($rows as ['lane' => $lane, 'default' => $default, 'keys' => $keys]) {
+                $positions[$lane] = ($positions[$lane] ?? 0) + 10;
+                $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
+                    'agency_id'  => $agency->id,
+                    'rollout_id' => $plan->id,
+                    'lane'       => $lane,
+                    'track'      => $default->track,
+                    'position'   => $positions[$lane],
+                    'title'      => $default->title,
+                    'intro_text' => $default->intro_text,
+                ]));
+
+                foreach ($keys as $key) {
+                    AgencyRolloutItem::withoutAgencyStamping(fn () => AgencyRolloutItem::create([
+                        'agency_id'   => $agency->id,
+                        'rollout_id'  => $plan->id,
+                        'wave_id'     => $wave->id,
+                        'feature_key' => $key,
+                        'state'       => AgencyRolloutItem::STATE_HELD,
                     ]));
-
-                    foreach ($keys as $key) {
-                        AgencyRolloutItem::withoutAgencyStamping(fn () => AgencyRolloutItem::create([
-                            'agency_id'   => $agency->id,
-                            'rollout_id'  => $plan->id,
-                            'wave_id'     => $wave->id,
-                            'feature_key' => $key,
-                            'state'       => AgencyRolloutItem::STATE_HELD,
-                        ]));
-                        $held[$key] = false;
-                    }
+                    $held[$key] = false;
                 }
             }
 
@@ -207,6 +204,53 @@ class FeatureRolloutService
 
             return $plan->fresh();
         });
+    }
+
+    /**
+     * What start() would do for this agency right now: per lane, each default wave that still has
+     * something to hold, with the features it holds (switchable, currently ON, not taken by an
+     * earlier wave). Shared by start() and the "this will switch off N features" preview.
+     *
+     * @return array<int, list<array{default: FeatureRolloutWave, keys: list<string>}>>
+     */
+    public function planFor(Agency $agency, bool $sideBySide = false): array
+    {
+        $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
+        $sideBySide = $type === 'both' && $sideBySide;
+        $current = $this->features->all($agency);
+        $waveable = $this->waveableFeatures();
+        $taken = [];
+        $out = [];
+
+        foreach ($this->lanesFor($type, $sideBySide) as $lane => $defaults) {
+            foreach ($defaults as $default) {
+                $keys = [];
+                foreach ((array) $default->feature_keys as $key) {
+                    if (isset($waveable[$key]) && ! isset($taken[$key]) && ($current[$key] ?? false)) {
+                        $keys[] = $key;
+                        $taken[$key] = true;
+                    }
+                }
+                if ($keys !== []) {
+                    $out[$lane][] = ['default' => $default, 'keys' => $keys];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /** @return list<string> the feature keys start() would switch off right now */
+    public function holdPreview(Agency $agency, bool $sideBySide = false): array
+    {
+        $keys = [];
+        foreach ($this->planFor($agency, $sideBySide) as $waves) {
+            foreach ($waves as $w) {
+                array_push($keys, ...$w['keys']);
+            }
+        }
+
+        return $keys;
     }
 
     /**
@@ -379,6 +423,88 @@ class FeatureRolloutService
                 ->update(['released_at' => now()]);
 
             $plan->forceFill(['status' => AgencyFeatureRollout::STATUS_COMPLETED, 'completed_at' => now(), 'paused_at' => null])->save();
+        });
+    }
+
+    /**
+     * The agency admin changes the pace of a running plan (spec §5.2). Every unreleased wave is re-dated
+     * from today through RolloutCalendar. Side by side applies only to a sales-and-rentals agency: it moves
+     * the unreleased Rentals waves into lane 2 (on) or back into the one ordered list (off).
+     *
+     * @param array{interval_days?:int, weekdays_only?:bool, side_by_side?:bool} $values
+     */
+    public function updateSettings(AgencyFeatureRollout $plan, array $values): void
+    {
+        if (! in_array($plan->status, [AgencyFeatureRollout::STATUS_ACTIVE, AgencyFeatureRollout::STATUS_PAUSED], true)) {
+            return;
+        }
+
+        $agency = Agency::withoutGlobalScopes()->findOrFail($plan->agency_id);
+        $both = AgencyTypeFeatureSeeder::normalise($agency->agency_type) === 'both';
+
+        DB::transaction(function () use ($plan, $values, $both) {
+            if (array_key_exists('interval_days', $values)) {
+                $plan->interval_days = max(1, min($this->intervalMax(), (int) $values['interval_days']));
+            }
+            if (array_key_exists('weekdays_only', $values)) {
+                $plan->weekdays_only = (bool) $values['weekdays_only'];
+            }
+            if (array_key_exists('side_by_side', $values)) {
+                $want = $both && (bool) $values['side_by_side'];
+                if ($want !== (bool) $plan->side_by_side) {
+                    $plan->side_by_side = $want;
+                    $this->relane($plan, $want);
+                }
+            }
+            $plan->save();
+            $this->schedule($plan, $this->calendar->today());
+        });
+    }
+
+    /** Move unreleased Rentals waves to lane 2 (side by side) or back to lane 1, keeping their order. */
+    private function relane(AgencyFeatureRollout $plan, bool $sideBySide): void
+    {
+        $waves = $this->wavesOf($plan)->whereNull('released_at');
+        foreach ($waves as $wave) {
+            $lane = ($sideBySide && $wave->track === 'rentals') ? 2 : 1;
+            if ($wave->lane !== $lane) {
+                $wave->forceFill(['lane' => $lane])->save();
+            }
+        }
+        // Side by side only exists for sales-and-rentals agencies, whose waves follow the ONE default order
+        // and were copied in that order — so creation order (id) is the default order. Re-number each lane
+        // by it, so waves merged back into lane 1 slot in where the default list puts them.
+        foreach ($this->wavesOf($plan)->whereNull('released_at')->groupBy('lane') as $laneWaves) {
+            $n = 0;
+            foreach ($laneWaves->sortBy('id') as $wave) {
+                $wave->forceFill(['position' => $n += 10])->save();
+            }
+        }
+    }
+
+    /**
+     * "Skip this feature" — it is taken out of the plan and stays off; the admin can still switch it on
+     * from the Features page at any time (spec §2.7, §2.8: a dropped feature is never switched on by the plan).
+     */
+    public function skipItem(AgencyRolloutItem $item): void
+    {
+        if (in_array($item->state, [AgencyRolloutItem::STATE_HELD, AgencyRolloutItem::STATE_AWAITING_ADMIN], true)) {
+            $item->forceFill(['state' => AgencyRolloutItem::STATE_DROPPED])->save();
+        }
+    }
+
+    /**
+     * Switch on a feature that is waiting for the admin (an outward-facing one, spec §2.9).
+     */
+    public function switchOnAwaiting(AgencyRolloutItem $item, ?int $userId): void
+    {
+        if ($item->state !== AgencyRolloutItem::STATE_AWAITING_ADMIN) {
+            return;
+        }
+        $agency = Agency::withoutGlobalScopes()->findOrFail($item->agency_id);
+        DB::transaction(function () use ($item, $agency, $userId) {
+            $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
+            $this->apply($agency, [$item->feature_key => true], $userId);
         });
     }
 

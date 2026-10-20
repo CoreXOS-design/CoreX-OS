@@ -316,6 +316,8 @@
     } elseif (request()->routeIs(
         'corex.settings*',
         'corex.features.*',
+        // AT-478 — Settings → Feature rollout lives in the Settings sub menu beside Features.
+        'corex.feature-rollout.*',
         'admin.users*',
         // AT-451 - the agency's "alerts switched off" list is opened from the Users page (spec notification-system-overview.md section 14B2).
         'corex.alerts-off.*',
@@ -3036,6 +3038,11 @@
                 <a href="{{ route('corex.features.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.features.*') ? 'active' : '' }}">Features</a>
                 @endpermission
 
+                {{-- AT-478 — the agency's own gradual feature rollout (part of the Settings shell, like Features). --}}
+                @permission('manage_feature_rollout')
+                <a href="{{ route('corex.feature-rollout.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.feature-rollout.*') ? 'active' : '' }}">Feature rollout</a>
+                @endpermission
+
                 {{-- Users — user management (/admin/users). Johan 2026-10-12: a dedicated entry in the Settings sub menu. --}}
                 @permission('manage_users')
                 <a href="{{ route('admin.users') }}" class="corex-nav-subitem {{ request()->routeIs('admin.users*', 'corex.alerts-off.*') ? 'active' : '' }}">Users</a>
@@ -3235,9 +3242,9 @@
         </div>
 
         {{-- Dev Settings --}}
-        {{-- Agency timeline defaults (AT-447) is a Dev Settings page (spec §4.1) reached from the Dev Settings index, so its own
-             route family (admin.timeline-defaults.*, a sibling prefix, not admin.dev-settings.*) lights this item too. --}}
-        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*') ? 'active' : '' }}">
+        {{-- Agency timeline defaults (AT-447) and Feature rollout defaults (AT-478) are Dev Settings pages reached from the Dev Settings
+             index, so their own route families (sibling prefixes, not admin.dev-settings.*) light this item too. --}}
+        <a href="{{ route('admin.dev-settings.index') }}" class="corex-nav-item {{ request()->routeIs('admin.dev-settings.*', 'admin.timeline-defaults.*', 'admin.feature-rollout-defaults.*') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M6.429 9.75 2.25 12l4.179 2.25m0-4.5 5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L21.75 12l-4.179 2.25m0 0 4.179 2.25L12 21.75 2.25 16.5l4.179-2.25m11.142 0-5.571 3-5.571-3" />
             </svg>

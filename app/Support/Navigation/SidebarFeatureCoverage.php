@@ -43,6 +43,8 @@ final class SidebarFeatureCoverage
         // The Settings sub menu (Staging, 12 Oct): the Features page is the on/off switch itself and Users is core people
         // management — neither can be switched off from the page that does the switching.
         'corex.features.*'                  => 'settings',
+        // AT-478 — the gradual feature rollout panel switches features on; like Features it cannot itself be switched off.
+        'corex.feature-rollout.*'           => 'settings',
         'admin.users*'                      => 'settings',
         'admin.company-settings*'           => 'company-settings',
         'corex.role-manager*'               => 'role-manager',
