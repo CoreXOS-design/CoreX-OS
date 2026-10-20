@@ -501,15 +501,19 @@ class RentalApplicationReviewController extends Controller
         // One step is on but this user still gets "Submit for approval": say why, in one line, instead of silently handing the
         // application to somebody else.
         $oneStepNote = null;
-        if ($showSubmitOrApprove && ! $canApproveDirectly && $effectiveMode === 'one_step') {
+        if ($showSubmitOrApprove && ! $canApproveDirectly && $effectiveMode === 'one_step' && ! $noAuthoriser) {
             $oneStepNote = ! $user->mayDecideRentalApplications($agencyId)
                 ? 'One step is on, but you are not ticked as a Reviewer or Override approver in Settings - so this goes to an approver.'
                 : 'You created this application and your agency has other approvers - another approver must approve it.';
         }
-        // Shown to everyone who can decide while the agency has nobody ticked as an approver (A4/A27).
-        $noAuthoriserWarning = $noAuthoriser && $user->mayDecideRentalApplications($agencyId)
-            ? 'Your agency has no approver set up, so applications are approved directly by whoever reviews them (no second person checks the decision). Ask an administrator to choose approvers in Settings → Rental applications.'
-            : null;
+        // While the agency has nobody ticked as an approver (A4/A27) only an administrator may decide (Johan, 20 Oct 2026 - paraphrase):
+        // an administrator is told the fallback is in force; everyone else is told, plainly, that an approver must be set up and who can do it.
+        $noAuthoriserWarning = null;
+        if ($noAuthoriser) {
+            $noAuthoriserWarning = $user->mayDecideRentalApplications($agencyId)
+                ? 'Your agency has no approver set up, so applications are approved directly by an administrator (no second person checks the decision). Choose approvers in Settings → Rental applications.'
+                : 'Your agency has no approver set up yet, so this application cannot be approved or declined until one is. An agency administrator can choose approvers in Settings → Rental applications.';
+        }
         // Only needed to populate the Decline modal's reason picker when the
         // one-step buttons can actually render — same source the authoriser
         // screen's own Decline modal already reads from.
@@ -966,7 +970,7 @@ class RentalApplicationReviewController extends Controller
         // file in a queue no one could open. Say so, and point at the direct Approve / Decline that takes its place.
         if (! RentalApplicationQualifyingSetting::hasAuthoriserFor((int) $rentalApplication->agency_id)) {
             return response()->json([
-                'error' => 'Your agency has no approver set up, so there is nobody to hand this to. Approve or decline it directly instead, and ask an administrator to choose approvers in Settings → Rental applications.',
+                'error' => 'Your agency has no approver set up, so there is nobody to hand this to. An agency administrator can approve or decline it directly, and can choose approvers in Settings → Rental applications.',
                 'reason' => 'no_authoriser',
             ], 422);
         }
