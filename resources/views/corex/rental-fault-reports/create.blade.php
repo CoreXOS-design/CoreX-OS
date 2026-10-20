@@ -21,14 +21,14 @@
     @if(! $property)
         {{-- Johan, 8 Oct 2026: a searchable pick of tenancies (properties that have a lease, shown with their tenant), not a plain dropdown of every
              rental. Choosing one opens this same form with the property and tenancy filled in - exactly the entry "report a fault" from a lease uses. --}}
-        <div class="rounded-md p-6 space-y-4 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-fault-lease-picker>
+        <div class="rounded-md p-6 space-y-4 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-fault-lease-picker data-tour="rmnt-frnew-picker">
             <p class="text-sm font-medium" style="color: var(--text-primary);">Which tenancy is the fault at?</p>
-            <form method="GET" action="{{ route('corex.rental-fault-reports.create') }}" class="flex gap-2">
+            <form method="GET" action="{{ route('corex.rental-fault-reports.create') }}" class="flex gap-2" data-tour="rmnt-frnew-search">
                 <input type="search" name="q" value="{{ $leaseSearch }}" placeholder="Search by tenant name or address" class="prop-input flex-1" autofocus>
                 <button type="submit" class="corex-btn-primary text-sm">Search</button>
                 @if($leaseSearch !== '')<a href="{{ route('corex.rental-fault-reports.create') }}" class="corex-btn-outline text-sm">Clear</a>@endif
             </form>
-            <div class="space-y-1">
+            <div class="space-y-1" data-tour="rmnt-frnew-choices">
                 @forelse($leaseChoices as $choice)
                     <a href="{{ route('corex.rental-fault-reports.create', ['property_id' => $choice->property_id, 'lease_id' => $choice->id]) }}" class="list-row-hover block rounded-md px-3 py-2.5 text-sm no-underline transition-colors duration-150" style="color: var(--text-secondary); border: 1px solid var(--border);" data-lease-choice="{{ $choice->id }}">
                         <span class="font-medium" style="color: var(--text-primary);">{{ $choice->property?->buildDisplayAddress() }}</span>
@@ -44,7 +44,7 @@
     @endif
 
     @if($property)
-    <form method="POST" action="{{ route('corex.rental-fault-reports.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-fault-reports.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-frnew-form">
         @csrf
 
         @if ($errors->any())
@@ -57,7 +57,7 @@
             </div>
         @endif
 
-        <div>
+        <div data-tour="rmnt-frnew-property">
             <label class="prop-label">Property</label>
             @if($property)
                 <input type="hidden" name="property_id" value="{{ $property->id }}">
@@ -81,7 +81,7 @@
             </div>
         @endif
 
-        <div>
+        <div data-tour="rmnt-frnew-by">
             <label class="prop-label">Reported by</label>
             <select name="reported_by_type" x-model="reportedByType" required class="prop-input mt-1">
                 <option value="{{ \App\Models\RentalFaultReport::REPORTED_BY_TENANT }}">Tenant</option>
@@ -121,7 +121,7 @@
             <input type="hidden" name="reported_by_contact_id" :value="selected?.id ?? ''">
         </div>
 
-        <div>
+        <div data-tour="rmnt-frnew-channel">
             <label class="prop-label">How was this reported</label>
             <select name="reported_channel" required class="prop-input mt-1">
                 <option value="{{ \App\Models\RentalFaultReport::CHANNEL_PHONE }}">Phone call</option>
@@ -137,7 +137,7 @@
              specific) BEFORE the rest of the form can be filled in. Optional —
              a report can still be free-text-only if nothing in the list fits. --}}
         @if($property)
-        <div x-data="faultTypePicker({{ $property->id }})">
+        <div x-data="faultTypePicker({{ $property->id }})" data-tour="rmnt-frnew-type">
             <label class="prop-label">Fault type (optional)</label>
             <select name="rental_fault_type_id" x-model="selectedId" @change="loadFirstAid()" class="prop-input mt-1">
                 <option value="">— No type chosen —</option>
@@ -188,19 +188,19 @@
         </div>
         @endif
 
-        <div>
+        <div data-tour="rmnt-frnew-title">
             <label class="prop-label">Title</label>
             <input type="text" name="title" required maxlength="191" placeholder="e.g. Geyser burst — upstairs bathroom" class="prop-input mt-1">
         </div>
 
-        <div>
+        <div data-tour="rmnt-frnew-desc">
             <label class="prop-label">Description</label>
             <textarea name="description" required rows="4" class="prop-input mt-1"></textarea>
         </div>
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ $property ? route('corex.properties.show', $property->id) : route('corex.rental-fault-reports.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm">Report Fault</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-frnew-save">Report Fault</button>
         </div>
     </form>
     @endif

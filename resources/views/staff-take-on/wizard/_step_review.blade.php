@@ -2,7 +2,7 @@
 @php $pe = $takeOn->payrollEmployee; @endphp
 
 <div class="space-y-4">
-    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-stkw-step">
         <h4 class="text-xs font-bold uppercase mb-3" style="color:var(--text-muted); letter-spacing:0.05em;">8. Review & Sign-Off</h4>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -66,7 +66,7 @@
     </div>
 
     @if(!$takeOn->isComplete())
-    <form method="POST" action="{{ route('staff-take-on.complete', $takeOn) }}" x-data="{ confirmed: false }">
+    <form method="POST" action="{{ route('staff-take-on.complete', $takeOn) }}" x-data="{ confirmed: false }" data-tour="cop-stkw-signoff">
         @csrf
         <div class="p-4 rounded-md" style="background:var(--surface); border:1px solid var(--border);">
             <label class="flex items-center gap-2 text-sm cursor-pointer" style="color:var(--text-primary);">
@@ -75,7 +75,7 @@
             </label>
             <p class="text-[10px] mt-1" style="color:var(--text-muted);">Signed by: {{ auth()->user()->name }}</p>
         </div>
-        <button type="submit" :disabled="!confirmed" class="corex-btn-primary mt-4 disabled:opacity-40 disabled:cursor-not-allowed">Submit Take-On</button>
+        <button type="submit" data-tour="cop-stkw-save" :disabled="!confirmed" class="corex-btn-primary mt-4 disabled:opacity-40 disabled:cursor-not-allowed">Submit Take-On</button>
     </form>
     @else
         <div class="p-3 text-xs font-semibold rounded-md" style="background:color-mix(in srgb, var(--brand-icon) 8%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 25%, transparent); color:var(--brand-icon);">

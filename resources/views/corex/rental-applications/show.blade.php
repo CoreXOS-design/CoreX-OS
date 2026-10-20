@@ -39,7 +39,7 @@
     <x-sticky-action-bar>
         <x-slot name="left">
             <div class="min-w-0">
-                <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);">
+                <h1 class="text-sm font-bold leading-tight truncate" style="color: var(--text-primary);" data-tour="rops-ar-head">
                     {{ $rentalApplication->contact?->full_name ?? 'Rental Application' }}
                 </h1>
                 {{-- displayStatusLabel() is the one shared place this text is
@@ -52,10 +52,11 @@
             </div>
         </x-slot>
         <x-slot name="right">
-            <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" class="corex-btn-outline text-xs">Download PDF</a>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rental-applications.pdf', $rentalApplication) }}" class="corex-btn-outline text-xs" data-tour="rops-ar-pdf">Download PDF</a>
 
             @permission('rental_applications.create')
-            <button type="submit" form="rentalApplicationForm" class="text-xs"
+            <button type="submit" form="rentalApplicationForm" class="text-xs" data-tour="rops-ar-save"
                     :class="dirty ? 'corex-btn-primary' : 'corex-btn-outline'">
                 Save
             </button>
@@ -81,7 +82,7 @@
             @endphp
             <form method="POST" action="{{ route('corex.rental-applications.send', $rentalApplication) }}" class="inline-flex items-center gap-2">
                 @csrf
-                <button type="submit" class="text-xs"
+                <button type="submit" class="text-xs" data-tour="rops-ar-send"
                         :class="(!dirty && {{ $canSend ? 'true' : 'false' }}) ? 'corex-btn-primary' : 'corex-btn-outline'"
                         :disabled="dirty || {{ $canSend ? 'false' : 'true' }}"
                         :title="dirty ? 'Save your changes first' : ({{ $canSend ? 'false' : 'true' }} ? 'Add an email address to send' : '')">
@@ -235,7 +236,7 @@
     @endpermission
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-ar-signatures">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Signatures</h2>
             <div class="text-xs space-y-1" style="color: var(--text-secondary);">
                 <div>Declaration: {{ $rentalApplication->declarationSignature() ? '✓ Signed ' . $rentalApplication->declarationSignature()->signed_at->format('d M Y H:i') : 'Not yet signed' }}</div>
@@ -243,7 +244,7 @@
             </div>
         </div>
 
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-ar-docs">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Supporting Documents</h2>
             <p id="noDocumentsYet" class="text-xs" style="color: var(--text-muted);" @if($rentalApplication->documents->isNotEmpty()) hidden @endif>None uploaded yet.</p>
             <ul id="supportingDocumentsList" class="text-xs space-y-1" style="color: var(--text-secondary);" @if($rentalApplication->documents->isEmpty()) hidden @endif>
@@ -310,7 +311,7 @@
         --}}
         <input type="hidden" name="expected_updated_at" value="{{ old('expected_updated_at', $rentalApplication->updated_at?->timestamp) }}">
 
-        <div>
+        <div data-tour="rops-ar-property">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Property</h2>
             @include('corex.rental-applications.partials.property-link-control')
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
@@ -318,7 +319,7 @@
             </div>
         </div>
 
-        <div>
+        <div data-tour="rops-ar-personal">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Personal Details</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 @if($fieldConfig['full_name']['shown'])
@@ -448,7 +449,7 @@
             @endif
         </div>
 
-        <div>
+        <div data-tour="rops-ar-employment">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Employment</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 @if($fieldConfig['employment_type']['shown'])
@@ -496,7 +497,7 @@
             @endif
         </div>
 
-        <div>
+        <div data-tour="rops-ar-lease">
             <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Requirement of Lease</h2>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 @if($fieldConfig['occupation_date']['shown'])

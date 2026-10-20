@@ -155,7 +155,7 @@
     </div>
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner flex items-center gap-4">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex items-center gap-4" data-tour="smk-mk-banner">
         <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style="background:rgba(0,180,216,0.2);">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#00b4d8" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M10.34 15.84c-.688-.06-1.386-.09-2.09-.09H7.5a4.5 4.5 0 1 1 0-9h.75c.704 0 1.402-.03 2.09-.09m0 9.18c.253.962.584 1.892.985 2.783.247.55.06 1.21-.463 1.511l-.657.38c-.551.318-1.26.117-1.527-.461a20.845 20.845 0 0 1-1.44-4.282m3.102.069a18.03 18.03 0 0 1-.59-4.59c0-1.586.205-3.124.59-4.59m0 9.18a23.848 23.848 0 0 1 8.835 2.535M10.34 6.66a23.847 23.847 0 0 1 8.835-2.535m0 0A23.74 23.74 0 0 1 18.795 3m.38 1.125a23.91 23.91 0 0 1 1.014 5.395m-1.014 8.855c-.118.38-.245.754-.38 1.125m.38-1.125a23.91 23.91 0 0 0 1.014-5.395m-1.394 0A21.967 21.967 0 0 1 18 11.25c0-2.61-.353-5.135-1.014-7.52M20.489 18.824A21.961 21.961 0 0 1 22.5 12c0-2.61-.353-5.135-1.014-7.52m0 0a24.5 24.5 0 0 1 1.014-1.48"/></svg>
         </div>
@@ -166,7 +166,7 @@
     </div>
 
     {{-- Section 1: Connected Accounts --}}
-    <div class="rounded-2xl p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-2xl p-5 space-y-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-mk-accounts">
         <h2 class="text-sm font-bold uppercase tracking-widest" style="color:var(--text-muted);">Connected Accounts</h2>
         <div class="grid grid-cols-1 gap-4">
 
@@ -200,7 +200,7 @@
     </div>
 
     {{-- Section 2: Ad Builder --}}
-    <div class="rounded-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-mk-builder">
         <div class="p-5 border-b" style="border-color:var(--border);">
             <h2 class="text-sm font-bold uppercase tracking-widest" style="color:var(--text-muted);">Ad Builder</h2>
         </div>
@@ -223,7 +223,7 @@
                 {{-- Facebook tab --}}
                 <div x-show="activeTab === 'facebook'">
                     {{-- Mode picker --}}
-                    <div x-show="fbMode === null && !awaitingEmojiChoice" class="space-y-3">
+                    <div x-show="fbMode === null && !awaitingEmojiChoice" class="space-y-3" data-tour="smk-mk-mode">
                         <p class="text-sm font-medium mb-4" style="color:var(--text-primary);">How would you like to create your Facebook ad?</p>
                         <button type="button" @click="fbMode = 'manual'"
                                 class="w-full flex items-start gap-4 rounded-xl p-4 text-left transition-colors hover:border-[#00b4d8]"
@@ -267,7 +267,7 @@
                         <button type="button" @click="awaitingEmojiChoice = false" class="text-xs" style="color:var(--text-muted);">← Back</button>
                     </div>
                     {{-- Editor --}}
-                    <div x-show="fbMode !== null" x-cloak>
+                    <div x-show="fbMode !== null" x-cloak data-tour="smk-mk-copy">
                         <div class="flex items-center justify-between mb-3">
                             <span class="text-xs" style="color:var(--text-muted);" x-text="fbMode === 'ai' ? 'AI-generated copy — edit as needed' : 'Write your own copy'"></span>
                             <button type="button" @click="fbMode = null; fbCopy = ''; fbHeadline = ''" class="text-xs" style="color:var(--text-muted);">← Change</button>
@@ -278,7 +278,7 @@
                             <span class="text-xs" style="color:var(--text-secondary);">Include emojis ✨ <span style="color:var(--text-muted);">— Ellie adds tasteful emojis to the copy</span></span>
                         </label>
                         <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-muted);">Headline</label>
-                        <input type="text" x-model="fbHeadline" placeholder="Short headline..."
+                        <input type="text" x-model="fbHeadline" data-tour="smk-mk-headline" placeholder="Short headline..."
                                class="w-full rounded-lg px-3 py-2 text-sm mb-3"
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
                         <label class="block text-xs font-semibold mb-1.5" style="color:var(--text-muted);">Ad Copy</label>
@@ -302,7 +302,7 @@
                 </div>
 
                 {{-- Photo / Template selector --}}
-                <div x-data="{ mediaTab: '{{ request('media_tab', 'photos') }}' }">
+                <div x-data="{ mediaTab: '{{ request('media_tab', 'photos') }}' }" data-tour="smk-mk-media">
                     {{-- Tab toggle --}}
                     <div class="flex gap-1 mb-3 p-1 rounded-lg" style="background:var(--surface-2); border:1px solid var(--border);">
                         <button type="button" @click="mediaTab = 'photos'; selectedImages = []"
@@ -368,7 +368,7 @@
             </div>
 
             {{-- Right: live preview --}}
-            <div>
+            <div data-tour="smk-mk-preview">
                 {{-- Facebook preview — explicit FB-card colours so it stays readable in BOTH light & dark themes --}}
                 <div x-show="activeTab === 'facebook'" class="rounded-xl overflow-hidden" style="border:1px solid var(--border); background:#fff;">
                     <div class="px-4 pt-4 pb-2 flex items-center gap-3" style="background:#fff;">
@@ -395,7 +395,7 @@
 
     {{-- Section 3: Publish bar --}}
     <div class="rounded-2xl p-5" style="background:var(--surface); border:1px solid var(--border);"
-         x-data="{ selectedPlatforms: [] }">
+         x-data="{ selectedPlatforms: [] }" data-tour="smk-mk-publish">
         <h2 class="text-sm font-bold uppercase tracking-widest mb-4" style="color:var(--text-muted);">Publish</h2>
         <div class="flex items-center gap-6 flex-wrap">
             @if($fbAccount)
@@ -437,7 +437,7 @@
     <div x-init="window.addEventListener('publish-now', e => publishNow(e.detail.platforms))"></div>
 
     {{-- Section 4: Marketing History --}}
-    <div class="rounded-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-2xl overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-mk-history">
         <div class="px-5 py-4 flex items-center justify-between" style="border-bottom:1px solid var(--border); background:var(--surface-2);">
             <h2 class="text-sm font-bold uppercase tracking-widest" style="color:var(--text-muted);">Marketing History</h2>
             <span class="text-xs" style="color:var(--text-muted);">{{ $posts->count() }} post{{ $posts->count() !== 1 ? 's' : '' }}</span>

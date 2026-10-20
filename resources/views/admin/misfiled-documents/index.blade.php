@@ -5,7 +5,7 @@
 <div class="w-full space-y-5">
 
     {{-- Page header (Pattern A) --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-mf-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Misfiled Documents</h1>
@@ -15,12 +15,13 @@
                     removed per the document type's Save-to rule. Nothing is ever hard-deleted.
                 </p>
             </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
         </div>
     </div>
 
     {{-- KPI tiles (below the header — never inside it, per §3.1) --}}
     @if($total > 0)
-    <div class="corex-kpi-grid">
+    <div class="corex-kpi-grid" data-tour="rpt-mf-kpi">
         <x-corex-kpi-card title="To refile" :value="number_format($total)" />
         @foreach($summary as $label => $n)
             <x-corex-kpi-card :title="$label" :value="number_format($n)" />
@@ -45,7 +46,7 @@
     @endif
 
     {{-- Table --}}
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-mf-table">
         <div class="overflow-x-auto">
             <table class="min-w-full text-sm ds-table">
                 <thead>
@@ -63,7 +64,7 @@
                         @php($linked = $doc->properties)
                         <tr style="border-top: 1px solid var(--border); vertical-align: top;">
                             <td class="px-4 py-3" style="color: var(--text-primary);">
-                                <a href="{{ \Illuminate\Support\Facades\Storage::disk($doc->disk ?? 'public')->url($doc->storage_path) }}"
+                                <a href="{{ \Illuminate\Support\Facades\Storage::disk($doc->disk ?? 'public')->url($doc->storage_path) }}" data-tour="rpt-mf-doc"
                                    target="_blank" rel="noopener" class="font-medium underline"
                                    style="color: var(--brand-icon, #0ea5e9);">{{ $doc->original_name }}</a>
                                 <div class="text-xs" style="color: var(--text-secondary);">#{{ $doc->id }}</div>
@@ -88,7 +89,7 @@
                             <td class="px-4 py-3">
                                 @if($src && $src->contacts->isNotEmpty())
                                     @permission('misfiled_documents.refile')
-                                    <form method="POST" action="{{ route('admin.misfiled-documents.refile', $doc) }}"
+                                    <form method="POST" action="{{ route('admin.misfiled-documents.refile', $doc) }}" data-tour="rpt-mf-refile"
                                           class="flex flex-col gap-2" style="min-width: 220px;">
                                         @csrf
                                         <select name="contact_ids[]" multiple size="{{ min(4, max(2, $src->contacts->count())) }}"

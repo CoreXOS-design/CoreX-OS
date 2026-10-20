@@ -10,9 +10,14 @@
          marketing title. Same fix as the search results below. --}}
     'propertyLabel' => $oldProperty?->buildDisplayAddress() ?? '',
 ]) }})">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Rental Application</h1>
-        <p class="text-xs" style="color: var(--text-muted);">Pick a contact — everything else is optional and can be filled in later or by the applicant themselves.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-ac-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">New Rental Application</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Pick a contact — everything else is optional and can be filled in later or by the applicant themselves.</p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     @if($errors->any())
@@ -28,7 +33,7 @@
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Contact <span style="color: var(--ds-crimson);">*</span></label>
             <input type="text" x-model="contactQuery" @input.debounce.300ms="searchContacts()"
                    placeholder="Search contacts by name, phone or email…"
-                   class="prop-input">
+                   class="prop-input" data-tour="rops-ac-contact">
             <input type="hidden" name="contact_id" x-model="selectedContactId" required>
             <div class="mt-1 rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" x-show="contactResults.length">
                 <template x-for="c in contactResults" :key="c.id">
@@ -39,14 +44,14 @@
                 </template>
             </div>
             <p class="text-xs mt-1" style="color: var(--text-muted);" x-show="selectedContactName" x-text="'Selected: ' + selectedContactName"></p>
-            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);">Can't find them? Create a new contact</button>
+            <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);" data-tour="rops-ac-newcontact">Can't find them? Create a new contact</button>
         </div>
 
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property (optional)</label>
             <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
                    placeholder="Search properties…"
-                   class="prop-input">
+                   class="prop-input" data-tour="rops-ac-property">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
             {{-- Johan, QA1 walk, 2026-09-21 — same richer result row as the
                  PDF splitter's property picker: address + status, then ref +
@@ -68,7 +73,7 @@
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ route('corex.rental-applications.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId">Create</button>
+            <button type="submit" class="corex-btn-primary text-sm" :disabled="!selectedContactId" data-tour="rops-ac-create">Create</button>
         </div>
     </form>
 

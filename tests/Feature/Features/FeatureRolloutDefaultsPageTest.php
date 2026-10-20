@@ -145,9 +145,11 @@ final class FeatureRolloutDefaultsPageTest extends TestCase
         $covered = array_keys(app(FeatureTourCoverage::class)->toursByFeature());
         $this->assertContains('docuperfect', $covered, 'DocuPerfect has tours (defs/docuperfect.php)');
 
-        $noTour = collect(array_keys(app(\App\Services\FeatureRollout\FeatureRolloutService::class)->waveableFeatures()))
-            ->first(fn ($k) => ! in_array($k, $covered, true));
-        $this->assertNotNull($noTour);
+        // Every waveable feature has a tour today (see the test below), so take one away for this run.
+        $noTour = 'presentations';
+        $real = app(FeatureTourCoverage::class)->toursByFeature();
+        unset($real[$noTour]);
+        $this->app->instance(FeatureTourCoverage::class, \Mockery::mock(FeatureTourCoverage::class, ['toursByFeature' => $real]));
 
         FeatureRolloutWave::create(['title' => 'Mixed', 'track' => 'general', 'position' => 10, 'feature_keys' => ['docuperfect', $noTour]]);
 
@@ -163,5 +165,18 @@ final class FeatureRolloutDefaultsPageTest extends TestCase
         $keys = array_column($by['training'] ?? [], 'key');
         $this->assertContains('train-courses', $keys);
         $this->assertContains('train-help', $keys);
+    }
+
+    public function test_every_feature_a_wave_can_hold_has_a_tour(): void
+    {
+        // A tour may name its feature outright when its page belongs to another feature (Marketing on the
+        // property page); that label wins over the permission/route match. An unknown key is ignored.
+        $coverage = app(FeatureTourCoverage::class);
+        $this->assertSame('marketing', $coverage->featureFor(\App\Support\Tours\TourRegistry::all()['smk-mk-hub']));
+        $this->assertNull($coverage->featureFor(['feature' => 'no-such-feature']));
+
+        $covered = array_keys($coverage->toursByFeature());
+        $missing = array_values(array_diff(array_keys(app(\App\Services\FeatureRollout\FeatureRolloutService::class)->waveableFeatures()), $covered));
+        $this->assertSame([], $missing, 'Features with no guided tour: ' . implode(', ', $missing));
     }
 }

@@ -36,16 +36,17 @@
 @section('corex-content')
 <div class="w-full space-y-5">
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-rep-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Reports</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Pick a report on the left, narrow it by period, scope and search, then print it or export it.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
-                <a href="{{ route('corex.rentals.reports.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs">Print</a>
-                <a href="{{ route('corex.rentals.reports.pdf', request()->query()) }}" class="corex-btn-outline text-xs">PDF</a>
-                <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'xlsx'])) }}" class="corex-btn-outline text-xs">Export XLSX</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.rentals.reports.print', request()->query()) }}" target="_blank" class="corex-btn-outline text-xs" data-tour="rops-rep-print">Print</a>
+                <a href="{{ route('corex.rentals.reports.pdf', request()->query()) }}" class="corex-btn-outline text-xs" data-tour="rops-rep-pdf">PDF</a>
+                <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'xlsx'])) }}" class="corex-btn-outline text-xs" data-tour="rops-rep-export">Export XLSX</a>
                 <a href="{{ route('corex.rentals.reports.export', array_merge(request()->query(), ['format' => 'csv'])) }}" class="corex-btn-outline text-xs">Export CSV</a>
             </div>
         </div>
@@ -53,7 +54,7 @@
 
     <div class="flex gap-4 items-start">
         {{-- Report picker --}}
-        <div class="w-48 flex-shrink-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="w-48 flex-shrink-0 rounded-md" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-rep-picker">
             @foreach($reports as $key => $label)
             <a href="{{ route('corex.rentals.reports.index', ['report' => $key]) }}"
                class="list-row-hover block px-3 py-2.5 text-sm no-underline"
@@ -66,7 +67,7 @@
         {{-- Chosen report --}}
         <div class="flex-1 min-w-0 space-y-3">
             <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-            <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-end gap-3 cx-equal-btns">
+            <form method="GET" action="{{ route('corex.rentals.reports.index') }}" class="flex flex-wrap items-end gap-3 cx-equal-btns" data-tour="rops-rep-filters">
                 <input type="hidden" name="report" value="{{ $reportKey }}">
 
                 @if(count($scopeOptions) > 1)
@@ -84,7 +85,7 @@
 
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium" style="color: var(--text-secondary);">Period</label>
-                    <select name="period" onchange="this.form.submit()" class="list-header-filter text-sm {{ ($params['period'] ?? null) && $params['period'] !== (in_array($reportKey, $forwardPeriodReports, true) ? 'next_30' : 'this_month') ? 'is-active' : '' }}">
+                    <select name="period" data-tour="rops-rep-period" onchange="this.form.submit()" class="list-header-filter text-sm {{ ($params['period'] ?? null) && $params['period'] !== (in_array($reportKey, $forwardPeriodReports, true) ? 'next_30' : 'this_month') ? 'is-active' : '' }}">
                         @if(in_array($reportKey, $forwardPeriodReports, true))
                             @foreach(['next_30' => 'Next 30 days', 'next_60' => 'Next 60 days', 'next_90' => 'Next 90 days', 'this_month' => 'This month', 'custom' => 'Custom range', 'any' => 'Any period'] as $p => $l)
                                 <option value="{{ $p }}" @selected(($params['period'] ?? 'next_30') === $p)>{{ $l }}</option>
@@ -107,13 +108,13 @@
 
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-                    <input type="text" name="q" value="{{ $params['q'] ?? '' }}" class="list-header-filter text-sm {{ filled($params['q'] ?? '') ? 'is-active' : '' }}">
+                    <input type="text" name="q" data-tour="rops-rep-search" value="{{ $params['q'] ?? '' }}" class="list-header-filter text-sm {{ filled($params['q'] ?? '') ? 'is-active' : '' }}">
                 </div>
 
                 @if(!empty($groupByOptions))
                 <div class="flex flex-col gap-1">
                     <label class="text-xs font-medium" style="color: var(--text-secondary);">Group by</label>
-                    <select name="group_by" onchange="this.form.submit()" class="list-header-filter text-sm {{ filled($params['group_by'] ?? null) ? 'is-active' : '' }}">
+                    <select name="group_by" data-tour="rops-rep-group" onchange="this.form.submit()" class="list-header-filter text-sm {{ filled($params['group_by'] ?? null) ? 'is-active' : '' }}">
                         <option value="">None</option>
                         @foreach($groupByOptions as $g => $l)
                             <option value="{{ $g }}" @selected(($params['group_by'] ?? '') === $g)>{{ $l }}</option>
@@ -179,7 +180,7 @@
                     </select>
                 </div>
 
-                <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+                <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-rep-filter-btn">Filter</button>
                 <a href="{{ route('corex.rentals.reports.index', ['report' => $reportKey]) }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
                     <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
@@ -209,7 +210,7 @@
             @endif
 
             {{-- Result grid --}}
-            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-rep-grid">
                 <div class="overflow-x-auto">
                 <table class="w-full text-sm">
                     <thead>

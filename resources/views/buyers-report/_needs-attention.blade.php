@@ -3,7 +3,7 @@
      before any tile. Every group now shows the top 10 only, with a "view all"
      toggle for the rest (already loaded server-side, just hidden). --}}
 @php $topN = 10; @endphp
-<div class="rounded-md mb-8" style="background: var(--surface); border: 1px solid var(--border);">
+<div class="rounded-md mb-8" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-br-attention">
     <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Needs Attention</h2>
     </div>

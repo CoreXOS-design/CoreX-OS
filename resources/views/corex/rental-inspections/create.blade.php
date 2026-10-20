@@ -18,7 +18,7 @@
 
 @section('content')
 <div class="p-6 max-w-2xl mx-auto space-y-4">
-    <h1 class="text-lg font-semibold">Start or Schedule an Inspection</h1>
+    <h1 class="text-lg font-semibold" data-tour="rmnt-inspnew-intro">Start or Schedule an Inspection</h1>
 
     <form method="POST" action="{{ route('corex.rental-inspections.store') }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         @csrf
@@ -38,7 +38,7 @@
             </div>
         @endif
 
-        <div>
+        <div data-tour="rmnt-inspnew-property">
             <label class="text-xs font-medium">Property</label>
             <select name="property_id" required class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 <option value="">Select a property…</option>
@@ -51,7 +51,7 @@
             @endif
         </div>
 
-        <div>
+        <div data-tour="rmnt-inspnew-type">
             <label class="text-xs font-medium">Type</label>
             @php
                 // AT-444 follow-up 2 (2026-10-05) — the Lease Hub's next-step
@@ -70,7 +70,7 @@
             </select>
         </div>
 
-        <div class="pt-2" style="border-top: 1px solid var(--border);">
+        <div class="pt-2" style="border-top: 1px solid var(--border);" data-tour="rmnt-inspnew-schedule">
             <p class="text-xs font-medium mb-2">Schedule for later (optional)</p>
             <p class="text-xs mb-3" style="color: var(--text-muted);">
                 Leave the date blank and click "Start Now" below to begin recording immediately — exactly as before.
@@ -78,7 +78,7 @@
                 are notified, and it appears on the "Scheduled inspections" tile until someone opens it to record.
             </p>
             <div class="grid grid-cols-2 gap-3">
-                <div>
+                <div data-tour="rmnt-inspnew-date">
                     <label class="text-xs font-medium">Date</label>
                     <input type="date" name="scheduled_for" value="{{ old('scheduled_for', request()->query('scheduled_for')) }}" @unless(request()->query('planned_date_id')) min="{{ now()->toDateString() }}" @endunless class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
@@ -90,7 +90,7 @@
                     <label class="text-xs font-medium">Duration (minutes)</label>
                     <input type="number" name="scheduled_duration_minutes" value="{{ old('scheduled_duration_minutes', 60) }}" min="5" max="1440" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                 </div>
-                <div>
+                <div data-tour="rmnt-inspnew-inspector">
                     <label class="text-xs font-medium">Inspector</label>
                     <select name="inspector_user_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
                         @foreach($inspectors as $inspectorOption)
@@ -110,8 +110,8 @@
 
         <div class="flex justify-end gap-2 pt-2">
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-xs">Cancel</a>
-            <button type="submit" name="intent" value="start_now" class="corex-btn-outline text-xs">Start Now</button>
-            <button type="submit" name="intent" value="schedule" class="corex-btn-primary text-xs">Schedule</button>
+            <button type="submit" name="intent" value="start_now" class="corex-btn-outline text-xs" data-tour="rmnt-inspnew-start">Start Now</button>
+            <button type="submit" name="intent" value="schedule" class="corex-btn-primary text-xs" data-tour="rmnt-inspnew-schedule-btn">Schedule</button>
         </div>
     </form>
 </div>

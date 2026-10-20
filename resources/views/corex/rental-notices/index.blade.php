@@ -13,20 +13,25 @@
 <div class="w-full space-y-5">
     @include('corex.notices._tabs', ['active' => 'sent'])
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Notices</h1>
-        <p class="text-xs" style="color: var(--text-muted);">Every notice sent to a tenant or landlord: what it was, who received it and when.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-ns-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Notices</h1>
+                <p class="text-xs" style="color: var(--text-muted);">Every notice sent to a tenant or landlord: what it was, who received it and when.</p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-    <form method="GET" action="{{ route('corex.rental-notices.index') }}" class="flex flex-wrap items-end gap-3">
+    <form method="GET" action="{{ route('corex.rental-notices.index') }}" class="flex flex-wrap items-end gap-3" data-tour="rops-ns-filters">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Tenant name or address" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
+            <input type="text" name="q" data-tour="rops-ns-search" value="{{ request('q') }}" placeholder="Tenant name or address" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
-            <select name="notice_type" class="list-header-filter text-sm {{ filled(request('notice_type')) ? 'is-active' : '' }}">
+            <select name="notice_type" data-tour="rops-ns-type" class="list-header-filter text-sm {{ filled(request('notice_type')) ? 'is-active' : '' }}">
                 <option value="">All types</option>
                 @foreach(\App\Models\RentalNoticeTemplate::TYPES as $t)
                     <option value="{{ $t }}" @selected(request('notice_type') === $t)>{{ \App\Models\RentalNoticeTemplate::labelFor($t) }}</option>
@@ -41,7 +46,7 @@
             <label class="text-xs font-medium" style="color: var(--text-secondary);">To</label>
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-ns-filter-btn">Filter</button>
             <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
             {{ number_format($notices->total()) }} {{ \Illuminate\Support\Str::plural('notice', $notices->total()) }}
@@ -49,7 +54,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-ns-list">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -72,7 +77,7 @@
                             @if($notice->sent_to_landlord)<span class="ds-badge ds-badge-pill ds-badge-muted">Landlord</span>@endif
                         </td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('corex.rental-notices.show', $notice) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.rental-notices.show', $notice) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rops-ns-open" @endif>View</a>
                         </td>
                     </tr>
                 @empty

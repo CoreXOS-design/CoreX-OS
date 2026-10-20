@@ -84,6 +84,11 @@ namespace App\Support\Tours;
  *     also_on       — extra route names that render the SAME screen (e.g. a
  *                     calculator's POST result page), so the "?" and a running
  *                     guide carry on there instead of stopping.
+ *     feature       — config/corex-features.php key this tour teaches, when its
+ *                     page's permission or route belongs to another feature (e.g.
+ *                     Marketing on the property page). Only labels the tour for
+ *                     the feature-rollout tour report (FeatureTourCoverage); it
+ *                     never gates anything.
  *
  *   Per-tour (only for tours whose screen needs a record, e.g. one property —
  *   in the URL path or as a required query, e.g. ?pack_instance=):

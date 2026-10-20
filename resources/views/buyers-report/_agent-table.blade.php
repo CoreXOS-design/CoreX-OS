@@ -1,6 +1,6 @@
 {{-- Shared between index and branch pages — expects $report, $money in scope,
      and drill() on the parent x-data component. --}}
-<div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+<div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-br-agents">
     <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">By agent</h2>
     </div>

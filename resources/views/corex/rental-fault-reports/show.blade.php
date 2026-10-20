@@ -46,7 +46,7 @@
 
     {{-- AT-464 / section 28 - after an action the page lands on the Returned | Next bar (data-land-on-next), just under the tabs. --}}
     <div class="flex items-center justify-between">
-        <div>
+        <div data-tour="rmnt-frd-title">
             <h1 class="text-lg font-semibold">{{ $faultReport->title }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ $faultReport->statusLabel() }}</span>
             @if($faultReport->typeName())
@@ -79,7 +79,8 @@
             </span>
         </div>
         @include('partials.header-actions-style')
-        <div class="flex flex-wrap items-center gap-2" data-header-actions>
+        <div class="flex flex-wrap items-center gap-2" data-header-actions data-tour="rmnt-frd-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @permission('rental_fault_reports.cancel')
                 {{-- J7 (Johan, 9 Oct 2026): "Cancel report" only while the owner has not decided; once decided the fault is handled through its work order / outcome. --}}
                 @if(in_array($faultReport->status, [\App\Models\RentalFaultReport::STATUS_REPORTED, \App\Models\RentalFaultReport::STATUS_UNDER_REVIEW, \App\Models\RentalFaultReport::STATUS_AWAITING_APPROVAL], true))
@@ -185,7 +186,7 @@
             return '<a href="#wo-panel-' . e($b['panel']) . '" class="' . $cls . '" data-wo-go="' . e($b['panel']) . '"' . (! empty($b['click']) ? ' data-wo-click="' . e($b['click']) . '"' : '') . ' ' . $attr . '>' . e($b['label']) . '</a>';
         };
     @endphp
-    <ol class="wo-strip" data-wo-strip aria-label="Where this fault is">
+    <ol class="wo-strip" data-wo-strip aria-label="Where this fault is" data-tour="rmnt-frd-strip">
         @foreach($screen['steps'] as $st)
             <li class="wo-step" data-step="{{ $st['key'] }}" data-state="{{ $st['state'] }}" @if($st['state'] === 'current') aria-current="step" @endif>
                 <span class="wo-dot">@if($st['state'] === 'done')&#10003;@elseif($st['state'] === 'current')&#9679;@else&nbsp;@endif</span>
@@ -194,7 +195,7 @@
             </li>
         @endforeach
     </ol>
-    <div class="wo-next wo-next-{{ $fsNext['tone'] }}" data-next-step data-land-on-next data-stage="{{ $stage }}" data-next="{{ $fsNext['key'] }}">
+    <div class="wo-next wo-next-{{ $fsNext['tone'] }}" data-tour="rmnt-frd-next" data-next-step data-land-on-next data-stage="{{ $stage }}" data-next="{{ $fsNext['key'] }}">
         <div class="jc-bar-half" data-returned data-returned-anchor="{{ $fsReturned['anchor'] }}">
             <div><span class="wo-next-label">{{ $fsReturned['label'] }}</span>
                 <a href="#{{ $fsAnchor }}" class="jc-returned-link" data-returned-text>{{ $fsReturned['text'] }}</a>@if($fsReturned['waiting'])<span class="jc-waiting">waiting for you</span>@endif</div>

@@ -12,6 +12,10 @@ use Illuminate\Support\Str;
  *
  * Tours are keyed by the page they run on and the permission they need, not by feature, so a tour
  * is matched to a feature through the registry's own ownership data, in this order:
+ *   0. the tour names its feature outright (`'feature' => '<key>'`) — for a feature whose screen is
+ *      gated by another feature's permission or lives on another feature's page (Marketing on the
+ *      property page, Public website on Edit Agency). Only a label for this report: it does not gate the
+ *      page or the tour, so declaring it never changes who can open what.
  *   1. the tour's permission is owned by a feature (AgencyFeatureService::featureForPermission)
  *   2. the tour's route (or an also_on route) matches a feature's route_names glob
  *   3. the tour's route URI starts with one of a feature's route_prefixes
@@ -39,6 +43,10 @@ class FeatureTourCoverage
 
     public function featureFor(array $tour): ?string
     {
+        if (! empty($tour['feature']) && is_string($tour['feature']) && array_key_exists($tour['feature'], $this->features->catalogue())) {
+            return $tour['feature'];
+        }
+
         if (! empty($tour['permission']) && is_string($tour['permission'])) {
             $owner = $this->features->featureForPermission($tour['permission']);
             if ($owner !== null) {

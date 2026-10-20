@@ -32,18 +32,19 @@
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div>
+            <div data-tour="rmnt-insp-intro">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Rental Inspections</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Every in, out, interim and routine inspection: when it is scheduled, who attends and any discrepancies still open.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- §45.7 (Build I-5) — the Due tab: In/Out due + the interim dates the agency loads. --}}
-            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);" data-tour="rmnt-insp-tabs">
                 <a href="{{ route('corex.rental-inspections.index') }}" class="px-3 py-1.5 text-xs font-semibold" style="background: var(--brand-icon, #0ea5e9); color: #fff;">All inspections</a>
                 <a href="{{ route('corex.rental-inspections.due') }}" data-qa="due-tab" class="px-3 py-1.5 text-xs font-semibold" style="border-left: 1px solid var(--border); background: var(--surface); color: var(--text-muted);">Due</a>
             </div>
                 @permission('rental_inspections.create')
-                <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs">Start Inspection</a>
+                <a href="{{ route('corex.rental-inspections.create') }}" class="corex-btn-primary text-xs" data-tour="rmnt-insp-new">Start Inspection</a>
                 @endpermission
             </div>
         </div>
@@ -113,7 +114,7 @@
         </div>
     @endif
 
-    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);" data-tour="rmnt-insp-filters">
     <form method="GET" action="{{ route('corex.rental-inspections.index') }}" class="flex flex-wrap items-end gap-3">
         @if(! empty($filters['lease_id']))
             <input type="hidden" name="lease_id" value="{{ $filters['lease_id'] }}">
@@ -121,11 +122,11 @@
         @if($archived)
             <input type="hidden" name="archived" value="1">
         @endif
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-insp-search">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Property address, tenant or agent name" class="list-header-filter text-sm {{ filled($filters['q'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-insp-status">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
             <select name="status" class="list-header-filter text-sm {{ filled($filters['status'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
@@ -134,7 +135,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-insp-type">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Type</label>
             <select name="type" class="list-header-filter text-sm {{ filled($filters['type'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All types</option>
@@ -143,7 +144,7 @@
                 @endforeach
             </select>
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-insp-dates">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Scheduled from</label>
             <input type="date" name="date_from" value="{{ $filters['date_from'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_from'] ?? '') ? 'is-active' : '' }}">
         </div>
@@ -151,7 +152,7 @@
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Scheduled to</label>
             <input type="date" name="date_to" value="{{ $filters['date_to'] ?? '' }}" class="list-header-filter text-sm {{ filled($filters['date_to'] ?? '') ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
+        <div class="flex flex-col gap-1" data-tour="rmnt-insp-inspector">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Inspector</label>
             <select name="inspector_id" class="list-header-filter text-sm {{ filled($filters['inspector_id'] ?? null) ? 'is-active' : '' }}">
                 <option value="">All inspectors</option>
@@ -168,11 +169,11 @@
                 <option value="did_not_attend" @selected(($filters['attendance'] ?? '') === 'did_not_attend')>Someone did not attend</option>
             </select>
         </div>
-        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);">
+        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);" data-tour="rmnt-insp-discrepancy">
             <input type="checkbox" name="has_unresolved_discrepancy" value="1" @checked(!empty($filters['has_unresolved_discrepancy']))>
             Has unresolved discrepancy
         </label>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rmnt-insp-filter-btn">Filter</button>
         @if(request()->hasAny(['q', 'status', 'type', 'date_from', 'date_to', 'has_unresolved_discrepancy', 'inspector_id', 'attendance', 'lease_id']))
             <a href="{{ route('corex.rental-inspections.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Clear</a>
         @endif
@@ -183,7 +184,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-insp-table">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -245,7 +246,7 @@
                             @if($inspection->scheduled_for && $inspection->isRecordable())
                             <a href="{{ route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections']) }}" class="corex-btn-primary text-xs">Start</a>
                             @endif
-                            <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">View</a>
+                            <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rmnt-insp-view" @endif>View</a>
                         @endif
                     </td>
                 </tr>

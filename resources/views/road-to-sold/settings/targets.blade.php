@@ -42,7 +42,7 @@
     @endunless
 
     {{-- Agency default --}}
-    <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
+    <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);" data-tour="smk-rt-default">
         <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default week</h3>
         <form method="POST" action="{{ route($rb . 'targets.default') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
@@ -55,7 +55,7 @@
                 </div>
             @endforeach
             @if($canEditDefault)
-                <button type="submit" class="corex-btn-primary">Save default</button>
+                <button type="submit" class="corex-btn-primary" data-tour="smk-rt-default-save">Save default</button>
                 <button type="submit" formaction="{{ route($rb . 'targets.copy-agents') }}" formmethod="POST" name="_method" value="POST"
                         onclick="return confirm('Give EVERY agent this week as their own numbers? Their current numbers are replaced (you can clear them again later).');"
                         class="corex-btn-outline">Give every agent this week</button>
@@ -65,8 +65,8 @@
 
     {{-- Filters --}}
     <form method="GET" action="{{ route($rb . 'targets.index') }}" class="props-filter-panel rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
-          style="background:var(--surface); border:1px solid var(--border);">
-        <div class="sm:col-span-2">
+          style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-rt-filters">
+        <div class="sm:col-span-2" data-tour="smk-rt-search">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="q">Search</label>
             <input class="list-header-filter {{ (!empty($q)) ? 'is-active' : '' }} w-full" id="q" name="q" value="{{ $q }}" type="search" placeholder="Agent name or email"
                   >
@@ -80,7 +80,7 @@
                 </select>
             </div>
         @endif
-        <div>
+        <div data-tour="smk-rt-mode">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="mode">Numbers</label>
             <select class="list-header-filter {{ ($mode !== 'all') ? 'is-active' : '' }} w-full" id="mode" name="mode">
                 <option value="all" @selected($mode === 'all')>All agents</option>
@@ -88,7 +88,7 @@
                 <option value="default" @selected($mode === 'default')>On the agency default</option>
             </select>
         </div>
-        <div>
+        <div data-tour="smk-rt-status">
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="status">Show</label>
             <select class="list-header-filter {{ ($status !== 'active') ? 'is-active' : '' }} w-full" id="status" name="status">
                 <option value="active" @selected($status === 'active')>Current numbers</option>
@@ -110,13 +110,13 @@
     </form>
 
     {{-- The grid --}}
-    <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);" data-tour="smk-rt-grid">
         <table class="w-full text-sm" style="color:var(--text-primary);">
             <thead>
                 <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
                     <th class="px-4 py-2">Agent</th>
                     @foreach($weekdays as $label)<th class="px-2 py-2 text-center">{{ $label }}</th>@endforeach
-                    <th class="px-3 py-2 text-center">Week</th>
+                    <th class="px-3 py-2 text-center" data-tour="smk-rt-week">Week</th>
                     <th class="px-3 py-2 text-center" title="What the agent should have done by today / the whole month, after taking off public holidays and approved leave">{{ now()->format('F') }}</th>
                     <th class="px-4 py-2"></th>
                 </tr>
@@ -130,7 +130,7 @@
                         <div class="text-xs" style="color:var(--text-muted);">{{ $u->branch?->name }} &middot; {{ $row['custom'] ? 'own numbers' : 'agency default' }}</div>
                     </td>
                     @foreach($weekdays as $d => $label)
-                        <td class="px-2 py-2 text-center">
+                        <td class="px-2 py-2 text-center" @if($loop->parent->first && $loop->first) data-tour="smk-rt-day" @endif>
                             <input type="number" min="0" max="{{ $max }}" form="{{ $fid }}" name="week[{{ $d }}]"
                                    value="{{ $status === 'cleared' ? '' : ($row['own'][$d] ?? '') }}" placeholder="{{ $default[$d] }}"
                                    @disabled(! $canWrite || $status === 'cleared') title="{{ $label }} - blank uses the agency default of {{ $default[$d] }}"
@@ -149,7 +149,7 @@
                                             class="corex-btn-primary">Bring back</button>
                                 @endif
                             @elseif($canWrite)
-                                <button type="submit" class="corex-btn-primary">Save</button>
+                                <button type="submit" class="corex-btn-primary" @if($loop->first) data-tour="smk-rt-save" @endif>Save</button>
                                 <button type="submit" formaction="{{ route($rb . 'targets.fill-weekdays', $u->id) }}" name="_method" value="POST"
                                         title="Copies the Monday number onto Tuesday to Friday" class="corex-btn-outline">Monday to Friday</button>
                                 <button type="submit" formaction="{{ route($rb . 'targets.copy-agents') }}" name="_method" value="POST"

@@ -29,7 +29,7 @@
 <div class="w-full space-y-4 rts-page" x-data="rtsPage(@js($pageConfig))">
     @include('road-to-sold._controls')
 
-    <div class="rounded-md px-6 py-4 corex-page-banner">
+    <div class="rounded-md px-6 py-4 corex-page-banner" data-tour="smk-rts-banner">
         <div class="flex items-center justify-between flex-wrap gap-3">
             <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold</h1>
             <div class="flex items-center gap-2 flex-wrap">
@@ -44,11 +44,12 @@
                     </form>
                 @endif
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
-                    <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
+                    <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs" data-tour="smk-rts-report-btn">Report</a>
                 @endif
                 @if($canManageOutcomes)
-                    <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
+                    <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs" data-tour="smk-rts-outcomes-btn">Outcomes</a>
                 @endif
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             </div>
         </div>
     </div>
@@ -68,16 +69,16 @@
     @include('road-to-sold._summary-bar')
 
     {{-- Filters --}}
-    <form method="GET" class="flex items-end gap-3 flex-wrap">
+    <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="smk-rts-filters">
         @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
         @if(! $viewingOwn)<input type="hidden" name="agent" value="{{ $agentId }}">@endif
-        <div>
+        <div data-tour="smk-rts-view">
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-view">Show</label>
             <select id="rts-view" name="view" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
                 @foreach($viewLabels as $v => $l)<option value="{{ $v }}" @selected($filters['view'] === $v)>{{ $l }}</option>@endforeach
             </select>
         </div>
-        <div>
+        <div data-tour="smk-rts-search">
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-q">Search</label>
             <input id="rts-q" type="text" name="q" value="{{ $filters['q'] }}" placeholder="Address, suburb, owner or phone" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} min-width: 14rem;">
         </div>
@@ -89,7 +90,7 @@
                     @foreach($selections as $k => $l)<option value="{{ $k }}" @selected($filters['selection'] === $k)>{{ $l }}</option>@endforeach
                 </select>
             </div>
-            <div>
+            <div data-tour="smk-rts-status">
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-status">Status</label>
                 <select id="rts-status" name="status" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
                     @foreach($statusLabels as $v => $l)<option value="{{ $v }}" @selected($filters['status'] === $v)>{{ $l }}</option>@endforeach
@@ -100,7 +101,7 @@
                 <input id="rts-date" type="date" name="date" value="{{ $date->toDateString() }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
             </div>
         @endif
-        <div>
+        <div data-tour="smk-rts-sort">
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sort">Sort</label>
             <select id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
                 @foreach($sortLabels as $v => $l)<option value="{{ $v }}" @selected($filters['sort'] === $v)>{{ $l }}</option>@endforeach
@@ -112,20 +113,20 @@
                 <option value="desc" @selected($filters['dir'] === 'desc')>Descending</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
+        <button type="submit" class="corex-btn-outline corex-btn-xs" data-tour="smk-rts-search-btn">Search</button>
         @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
             <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
         @endif
     </form>
 
     @if($listView && $counts['any'] > 0)
-        <div class="flex items-center justify-between flex-wrap gap-3 text-xs" style="color: var(--text-primary);">
+        <div class="flex items-center justify-between flex-wrap gap-3 text-xs" style="color: var(--text-primary);" data-tour="smk-rts-progress">
             <div>
                 <strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}
                 @if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif
             </div>
             @if($canAddToDay && $date->isToday() && count($addChoices))
-                <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
+                <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2" data-tour="smk-rts-add-day">
                     @csrf
                     @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                     <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
@@ -139,7 +140,7 @@
     @endif
 
     {{-- The list --}}
-    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-rts-list">
         <table class="w-full text-xs ds-table">
             <thead>
                 <tr style="color: var(--text-muted);">
@@ -165,7 +166,7 @@
                     <td class="px-3 py-2 text-right" style="color: var(--text-primary);">{{ $r['dom'] !== null ? $r['dom'] : '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['agency_name'] ?: '-' }}</td>
                     <td class="px-3 py-2" style="color: var(--text-primary);">{{ $r['why'] ?: '-' }}</td>
-                    <td class="px-3 py-2" style="color: var(--text-primary);">
+                    <td class="px-3 py-2" style="color: var(--text-primary);" @if($loop->first) data-tour="smk-rts-owner" @endif>
                         @if($r['owner_name'])
                             <div class="font-semibold">{{ $r['owner_name'] }}</div>
                             @if($r['owner_phone'])<div style="color: var(--text-muted);">{{ $r['owner_phone'] }}</div>@endif
@@ -186,11 +187,11 @@
                     <td class="px-3 py-2 text-right">
                         <div class="flex items-center justify-end gap-2">
                             @if(! empty($history[$r['tracked_property_id']]))
-                                <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}"
+                                <button type="button" class="corex-btn-outline corex-btn-xs" data-tp="{{ $r['tracked_property_id'] }}" data-address="{{ $r['address'] }}" @if($loop->first) data-tour="smk-rts-history" @endif
                                         @click="openHistory($el.dataset)">History</button>
                             @endif
                             @if($viewingOwn && ($r['status'] === 'open' || in_array($filters['view'], ['no_answer', 'wrong_number'], true)))
-                                <button type="button" class="corex-btn-primary corex-btn-xs"
+                                <button type="button" class="corex-btn-primary corex-btn-xs" @if($loop->first) data-tour="smk-rts-contact" @endif
                                         data-tp="{{ $r['tracked_property_id'] }}" data-item="{{ $r['list_item_id'] }}" data-address="{{ $r['address'] }}"
                                         @click="openContact($el.dataset)">Contacted client</button>
                             @elseif($r['status'] !== 'open')
@@ -241,7 +242,7 @@
         ];
     @endphp
     @if(! empty($feeds))
-    <div class="grid gap-4" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
+    <div class="grid gap-4" data-tour="smk-rts-feeds" style="grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));">
         @foreach($feedBlocks as $fb)
             @php $feed = $feeds[$fb['key']] ?? ['count' => 0, 'items' => []]; @endphp
             <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);">
@@ -289,7 +290,7 @@
 
     {{-- Contacted client popup --}}
     <div x-show="open" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4" style="background: rgba(0,0,0,0.45);" @keydown.escape.window="open = false">
-        <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
+        <form method="POST" action="{{ route('road-to-sold.outcomes.record') }}" data-tour="smk-rts-contact-form" class="w-full max-w-lg rounded-md p-5 space-y-4 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border); max-height: 90vh;">
             @csrf
             @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
             <input type="hidden" name="tracked_property_id" :value="tp">
@@ -300,7 +301,7 @@
                 <div class="text-xs mt-1" style="color: var(--text-muted);" x-text="address"></div>
             </div>
 
-            <div class="space-y-2">
+            <div class="space-y-2" data-tour="smk-rts-outcome-pick">
                 <template x-for="c in choices" :key="c.id">
                     <label class="flex items-start gap-2 text-xs cursor-pointer" style="color: var(--text-primary);">
                         <input type="radio" name="outcome_definition_id" :value="c.id" x-model="chosen" class="mt-0.5">
@@ -329,14 +330,14 @@
                 <input id="rts-appt" type="datetime-local" name="appointment_at" x-model="appointmentAt" :required="needsAppointment" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
             </div>
 
-            <div>
+            <div data-tour="smk-rts-note">
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-note">Note</label>
                 <textarea id="rts-note" name="note" rows="3" maxlength="5000" x-model="note" class="w-full rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}"></textarea>
             </div>
 
             <div class="flex items-center justify-end gap-2 rts-actions">
                 <button type="button" class="corex-btn-outline corex-btn-xs" @click="open = false">Cancel</button>
-                <button type="submit" class="corex-btn-primary corex-btn-xs" :disabled="!current">Save</button>
+                <button type="submit" class="corex-btn-primary corex-btn-xs" :disabled="!current" data-tour="smk-rts-save">Save</button>
             </div>
         </form>
     </div>

@@ -10,7 +10,7 @@
 @endphp
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-tds-head">
         <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
                 <a href="{{ route('title-deeds.index') }}" class="text-xs font-semibold" style="color: var(--brand-icon);">&larr; Title Deeds</a>
@@ -36,7 +36,8 @@
                 elseif ($archived && $can['archive']) { $primary = 'restore'; }
                 $pinOk = $settings['pin_used'] && $settings['pin_issued'] && ! $settings['locked'];
             @endphp
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2" data-tour="rpt-tds-actions">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($open && $can['notify'] && ($deed->status === 'received' || ! $settings['pin_used'] || ! $settings['pin_issued'] || $settings['locked']) && ! ($settings['locked'] && $settings['pin_used']))
                 <form method="POST" action="{{ route('title-deeds.notify', $deed->id) }}">@csrf <input type="hidden" name="_form_token" value="{{ $tokens['notify'] }}">
                     <button type="submit" class="{{ $primary === 'notify' ? 'corex-btn-primary' : 'corex-btn-outline' }} text-xs">{{ $deed->status === 'received' ? 'Notify the owners' : 'Notify the owners again' }}</button>
@@ -80,7 +81,7 @@
     @endif
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div class="lg:col-span-2 rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="lg:col-span-2 rounded-md p-5 space-y-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-tds-details">
             <div>
                 <div class="{{ $label }}" style="color: var(--text-secondary);">Owner(s)</div>
                 <div class="space-y-1">
@@ -122,7 +123,7 @@
             @endif
         </div>
 
-        <div class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+        <div class="rounded-md p-5 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-tds-scan">
             <div class="{{ $label }}" style="color: var(--text-secondary);">Scan of the title deed</div>
             @if($deed->scan_document_id && $deed->scan)
                 <a href="{{ route('title-deeds.scan.download', $deed->id) }}" class="text-sm font-semibold" style="color: var(--brand-icon);">{{ $deed->scan->original_name }}</a>

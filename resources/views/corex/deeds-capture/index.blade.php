@@ -22,12 +22,13 @@
          full-bleed corex-page-banner with the title + one line of context on the left.
          The filter bar sits on the RIGHT of the same banner instead of in its own card
          (Andre, 2026-09-13: "the header and the filter being one"). --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex-shrink-0" data-tour="smk-dc-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deeds Capture</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Captured from CMA / deeds lookups and held here for review — kept separate from Market Intelligence.</p>
             </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
     {{-- Data scope + Agent picker + Search (Johan, 2026-08-20) — same idiom as the Contacts
          list's own filter bar (corex.contacts.index): Alpine agent-picker modal fed by a
          server-scoped candidate list, a search box, submitted via one GET form so every
@@ -71,7 +72,7 @@
                 $deedsScopeLabels = ['own' => 'Own', 'branch' => 'Branch', 'all' => 'All'];
                 $deedsScopeCarry = request()->except(['scope', 'page']);
             @endphp
-            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);">
+            <div class="inline-flex rounded-md overflow-hidden" style="border: 1px solid var(--border);" data-tour="smk-dc-scope">
                 @foreach($deedsScopeOptions as $i => $sc)
                 <a href="{{ route('corex.deeds-capture.index', array_merge($deedsScopeCarry, ['scope' => $sc])) }}"
                    class="px-3 py-1.5 text-xs font-semibold whitespace-nowrap no-underline"
@@ -80,7 +81,7 @@
             </div>
             @endif
 
-            <div class="relative flex-1 min-w-[200px] max-w-sm">
+            <div class="relative flex-1 min-w-[200px] max-w-sm" data-tour="smk-dc-search">
                 <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none" style="color:var(--text-muted);" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z"/>
                 </svg>
@@ -95,7 +96,7 @@
                  current agent filter back to "All" — same reasoning as the Contacts page. --}}
             <input type="hidden" name="agent_id" value="{{ $filterAgentId }}">
 
-            <div class="inline-flex items-center gap-1">
+            <div class="inline-flex items-center gap-1" data-tour="smk-dc-agent">
                 <button type="button" @click="agentPicker = true"
                         class="list-header-filter inline-flex items-center gap-1.5 cursor-pointer"
                         style="{{ $selectedAgent ? 'border-color:var(--brand-icon,#0ea5e9);color:var(--brand-icon,#0ea5e9);' : '' }}">
@@ -1223,7 +1224,7 @@
                     }
                 @endphp
                 @push('deedsQueueRows')
-                <button type="button" @click="pick('tp-{{ $tp->id }}')"
+                <button type="button" @click="pick('tp-{{ $tp->id }}')" @if($loop->first) data-tour="smk-dc-row" @endif
                         :class="selected === 'tp-{{ $tp->id }}' ? 'is-selected' : ''"
                         class="deeds-queue-row w-full text-left flex items-start gap-3 px-3 py-2.5"
                         style="border-top: 1px solid var(--border);">
@@ -1311,10 +1312,10 @@
              }"
              @submit="rememberNext($event)">
 
-            <div class="rounded-md flex flex-col min-h-0 flex-shrink-0 w-full lg:w-[380px] max-h-[40vh] lg:max-h-none" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md flex flex-col min-h-0 flex-shrink-0 w-full lg:w-[380px] max-h-[40vh] lg:max-h-none" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-dc-queue">
                 <div class="flex items-center justify-between gap-2 px-3 py-2.5 flex-shrink-0">
                     <span class="text-[10px] uppercase tracking-wider font-semibold" style="color: var(--text-muted);">{{ $captures->total() + $tvaStandalone->count() }} waiting</span>
-                    <div class="flex items-center gap-1.5 flex-wrap justify-end">
+                    <div class="flex items-center gap-1.5 flex-wrap justify-end" data-tour="smk-dc-counts">
                         @if($deedsCounts['new'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('green') }};">{{ $deedsCounts['new'] }} new</span>@endif
                         @if($deedsCounts['match'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('amber') }};">{{ $deedsCounts['match'] }} {{ $deedsCounts['match'] === 1 ? 'match' : 'matches' }}</span>@endif
                         @if($deedsCounts['look'] > 0)<span class="ds-badge ds-badge-pill" style="{{ $deedsTagStyle('crimson') }};">{{ $deedsCounts['look'] }} need a look</span>@endif
@@ -1335,7 +1336,7 @@
                 @endif
             </div>
 
-            <div class="rounded-md flex-1 min-w-0 flex flex-col min-h-0" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md flex-1 min-w-0 flex flex-col min-h-0" style="background: var(--surface); border: 1px solid var(--border);" data-tour="smk-dc-inspector">
                 @stack('deedsInspectorPanels')
             </div>
         </div>

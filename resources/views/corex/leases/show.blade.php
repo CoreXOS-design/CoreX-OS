@@ -71,7 +71,7 @@
     {{-- Header: address, status, tenant(s), rent, term, actions. Fixed at the
          top of the locked screen (.lease-head); the two panels below it scroll
          on their own. --}}
-    <div class="lease-head flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
+    <div class="lease-head flex flex-wrap items-start justify-between gap-x-3 gap-y-1" data-tour="rops-lr-head">
         <div>
             {{-- Johan, QA1, 2026-10-07 — the property, tenant and landlord open in a NEW tab so the agent never loses this screen. --}}
             <h1 class="text-lg font-semibold">
@@ -112,7 +112,8 @@
             @endif
         </div>
         <div class="flex items-center gap-2">
-            <a href="{{ route('corex.leases.tenancy-report', $lease) }}" target="_blank" class="corex-btn-outline text-xs">Print tenancy report</a>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.leases.tenancy-report', $lease) }}" target="_blank" class="corex-btn-outline text-xs" data-tour="rops-lr-report">Print tenancy report</a>
             @permission('rental_fault_reports.create')
                 @feature('rental-faults')
                 <a href="{{ route('corex.rental-fault-reports.create', array_filter(['property_id' => $lease->property_id, 'lease_id' => $lease->id])) }}" class="corex-btn-outline text-xs">Report a fault</a>
@@ -132,14 +133,14 @@
             @endpermission
             @endfeature
             @permission('rental_notices.create')
-                <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs">Send notice</a>
+                <a href="{{ route('corex.leases.notices.create', $lease) }}" class="corex-btn-outline text-xs" data-tour="rops-lr-notice">Send notice</a>
             @endpermission
             @permission('leases.create')
-                <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')">Edit</button>
+                <button type="button" class="corex-btn-outline text-xs" onclick="document.getElementById('lease-edit-panel').classList.toggle('hidden')" data-tour="rops-lr-edit">Edit</button>
             @endpermission
             @permission('leases.renew')
                 @if(in_array($lease->status, ['draft', 'active'], true))
-                    <div x-data="{ open: {{ $openDialog === 'outcomes' ? 'true' : 'false' }} }" class="relative" data-qa="lease-actions-menu">
+                    <div x-data="{ open: {{ $openDialog === 'outcomes' ? 'true' : 'false' }} }" class="relative" data-qa="lease-actions-menu" data-tour="rops-lr-actions">
                         <button type="button" @click="open = !open" @click.outside="open = false" class="corex-btn-outline text-xs">Lease actions &#9662;</button>
                         <div x-show="open" x-cloak class="absolute right-0 z-10 mt-1 w-64 rounded-md p-1 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,.15);">
                             @if($lease->status === 'active')
@@ -457,7 +458,7 @@
              job cards, tenancy log with its filters. --}}
         <div class="lease-panel space-y-3">
         {{-- Lifecycle strip — every state derived live, never stored. --}}
-    <div class="rounded-md p-3 overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-3 overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lr-lifecycle">
         <div class="flex items-center gap-1 text-xs whitespace-nowrap">
             @foreach($lifecycle as $i => $step)
                 <span class="rounded-full px-3 py-1" style="{{ $lifecycleStateClass($step['state']) }}">{{ $step['label'] }}</span>
@@ -501,7 +502,7 @@
                     @endif
                 </div>
             @elseif($nextStep)
-                <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
+                <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);" data-tour="rops-lr-next">
                     <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
                     {{-- leases.md §15.13 — a step with nothing to click is a statement; "Prepare again" is a form post. --}}
                     @if(empty($nextStep['route_name']))
@@ -533,11 +534,11 @@
             @include('corex.leases._job-cards-panel', ['jobCards' => $jobCards])
             @endfeature
 
-            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lr-log">
                 <h2 class="text-sm font-semibold">Tenancy log</h2>
 
                 <form method="GET" class="flex flex-wrap items-center gap-2">
-                    <input type="text" name="q" value="{{ $timelineFilters['q'] ?? '' }}" placeholder="Search description or actor"
+                    <input type="text" name="q" data-tour="rops-lr-log-search" value="{{ $timelineFilters['q'] ?? '' }}" placeholder="Search description or actor"
                            class="rounded-md px-3 py-1.5 text-xs flex-1 min-w-[180px]" style="border: 1px solid var(--border);">
                     {{-- Johan, QA1, 2026-10-07 — these were read as status ticks. They are FILTERS for the log:
                          a "Show:" label, compact chips, every type shown when none is on, and a clear/reset. --}}
@@ -603,7 +604,7 @@
         {{-- RIGHT panel (scrolls on its own): lease terms, open items, edit (when opened),
              escalation history, inventory, tenant and landlord portal access. --}}
         <div class="lease-panel space-y-3">
-            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lr-terms">
                 <h2 class="text-sm font-semibold">Lease terms</h2>
                 <div><span style="color: var(--text-muted);">Deposit:</span> {{ $lease->deposit_amount !== null ? 'R' . number_format((float) $lease->deposit_amount, 2) : '—' }}</div>
                 @if($showLeaseType ?? false)
@@ -696,7 +697,7 @@
             {{-- leases.md §17 (Johan, 8 Oct 2026) — the lease's own two agents. They are who the tenant's and the landlord's portal
                  links show as "who to call". Changing one is logged in the tenancy log (who, from, to, when). --}}
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="{ editing: {{ $errors->has('owner_agent_user_id') || $errors->has('tenant_agent_user_id') ? 'true' : 'false' }} }" data-qa="lease-agents-card">
+                 x-data="{ editing: {{ $errors->has('owner_agent_user_id') || $errors->has('tenant_agent_user_id') ? 'true' : 'false' }} }" data-qa="lease-agents-card" data-tour="rops-lr-agents">
                 <div class="flex items-center justify-between">
                     <h2 class="text-sm font-semibold">Agents</h2>
                     @permission('leases.create')
@@ -735,7 +736,7 @@
             @php $nt = $noticeTerms ?? null; @endphp
             @if($nt)
             <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);"
-                 x-data="{ editing: {{ $errors->has('notice') || $errors->has('notice_reason') || $errors->hasAny(array_map(fn ($k) => 'notice.' . $k, \App\Services\Rentals\LeaseNoticeTermsService::EDIT_KEYS)) ? 'true' : 'false' }} }" data-qa="lease-notice-card">
+                 x-data="{ editing: {{ $errors->has('notice') || $errors->has('notice_reason') || $errors->hasAny(array_map(fn ($k) => 'notice.' . $k, \App\Services\Rentals\LeaseNoticeTermsService::EDIT_KEYS)) ? 'true' : 'false' }} }" data-qa="lease-notice-card" data-tour="rops-lr-noticeterms">
                 <div class="flex items-center justify-between">
                     <h2 class="text-sm font-semibold">Notice terms</h2>
                     @permission('lease_notice_terms.edit')
@@ -822,7 +823,7 @@
             </div>
             @endif
 
-            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lr-open">
                 <h2 class="text-sm font-semibold">Open items</h2>
                 @feature('rental-faults')
                 <a href="{{ route('corex.rental-fault-reports.index', ['lease_id' => $lease->id]) }}" class="flex items-center justify-between no-underline" style="color: inherit;">
@@ -985,7 +986,7 @@
             {{-- AT-445 — .ai/specs/rental-portal-access.md §9. Portal access for
              this lease's own tenants and landlords, invited from here, same
              mechanism the Contact page already uses. --}}
-            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-lr-portal">
                 <h2 class="text-sm font-semibold">Tenant portal access</h2>
                 @forelse($lease->tenantContacts() as $tenantContact)
                     @include('corex.leases._portal-access-person', ['lease' => $lease, 'contact' => $tenantContact, 'role' => 'tenant'])

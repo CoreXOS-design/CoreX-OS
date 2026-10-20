@@ -18,7 +18,7 @@
     $ccCanShare = $isOpen && $crewLinksEnabled && auth()->user()->hasPermission('rental_job_cards.share');
     $ccCanAsk = $isOpen && $pricesOn && auth()->user()->hasPermission('rental_job_cards.share');
 @endphp
-<section class="jc-card" id="jc-crew" data-crew-card>
+<section class="jc-card" id="jc-crew" data-crew-card data-tour="rmnt-jcd-crew">
     <h2>Crew</h2>
 
     <div class="text-sm">

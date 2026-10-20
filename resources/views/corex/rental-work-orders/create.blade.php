@@ -26,7 +26,7 @@
         </div>
     @endif
 
-    <form method="POST" action="{{ route('corex.rental-work-orders.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);">
+    <form method="POST" action="{{ route('corex.rental-work-orders.store') }}" class="space-y-5 rounded-md p-6 max-w-3xl" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-wonew-form">
         @csrf
 
         @if ($errors->any())
@@ -40,7 +40,7 @@
         @endif
 
         {{-- AT-442 req #1 — "who does the work" is the FIRST choice on every work order. --}}
-        <div>
+        <div data-tour="rmnt-wonew-who">
             <label class="prop-label">Who does the work?</label>
             <div class="flex flex-wrap gap-3 mt-1 text-sm">
                 <label class="flex items-center gap-2 rounded-md px-4 cursor-pointer" style="height:2.25rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);"><input type="radio" name="assignment_type" value="outside_supplier" {{ $presetAssignmentType !== 'internal' ? 'checked' : '' }}> Outside supplier</label>
@@ -48,7 +48,7 @@
             </div>
         </div>
 
-        <div>
+        <div data-tour="rmnt-wonew-property">
             <label class="prop-label">Property</label>
             @if($property)
                 <input type="hidden" name="property_id" value="{{ $property->id }}">
@@ -118,7 +118,7 @@
                 <input type="hidden" name="reported_by_type" value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_INSPECTION }}">
                 <p class="text-xs" style="color: var(--text-muted);">Reported via: this inspection's Follow-up block.</p>
             @else
-                <div>
+                <div data-tour="rmnt-wonew-by">
                     <label class="prop-label">Reported by</label>
                     <select name="reported_by_type" required class="prop-input">
                         <option value="{{ \App\Models\RentalWorkOrder::REPORTED_BY_OWNER_INSTRUCTED }}">Owner instructed</option>
@@ -129,12 +129,12 @@
                 </div>
             @endif
 
-            <div>
+            <div data-tour="rmnt-wonew-title">
                 <label class="prop-label">Title</label>
                 <input type="text" name="title" value="{{ old('title', $followUp['title'] ?? '') }}" required maxlength="191" placeholder="e.g. Geyser burst — upstairs bathroom" class="prop-input">
             </div>
 
-            <div>
+            <div data-tour="rmnt-wonew-desc">
                 <label class="prop-label">Description</label>
                 <textarea name="description" required rows="4" class="prop-input">{{ old('description', $followUp['description'] ?? '') }}</textarea>
             </div>
@@ -144,7 +144,7 @@
 
         <div class="flex justify-end gap-2 pt-4" style="border-top: 1px solid var(--border);">
             <a href="{{ $property ? route('corex.properties.show', $property->id) : route('corex.rental-work-orders.index') }}" class="corex-btn-outline text-sm">Cancel</a>
-            <button type="submit" class="corex-btn-primary text-sm">Log Work Order</button>
+            <button type="submit" class="corex-btn-primary text-sm" data-tour="rmnt-wonew-save">Log Work Order</button>
         </div>
     </form>
 </div>

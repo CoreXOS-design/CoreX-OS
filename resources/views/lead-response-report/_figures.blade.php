@@ -18,7 +18,7 @@
         @if(($lrc['not_measured'] ?? 0) > 0) {{ number_format($lrc['not_measured']) }} earlier enquiries from before response tracking began are not measured and are left out. @endif
     </p>
 
-    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4" data-tour="rpt-lr-tiles">
         @foreach([
             ['received', 'Leads received', $lrc['received'], 'received'],
             ['in_target', 'Responded in target', $lrc['in_target'], 'in_target'],
@@ -51,7 +51,7 @@
         </p>
     @endif
 
-    <div class="rounded-md overflow-hidden mb-4" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden mb-4" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-lr-agents">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
             <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Lead response by agent</h3>
         </div>
@@ -91,7 +91,7 @@
         </div>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-lr-sources">
         <div class="px-4 py-3" style="border-bottom: 1px solid var(--border);">
             <h3 class="text-sm font-semibold" style="color: var(--text-primary);">Lead response by source</h3>
         </div>

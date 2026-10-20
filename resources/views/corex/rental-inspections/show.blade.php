@@ -34,12 +34,13 @@
     @endif
 
     <div class="flex items-center justify-between">
-        <div>
+        <div data-tour="rmnt-inspd-title">
             <h1 class="text-lg font-semibold">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}{{ $inspection->property?->trashed() ? ' (archived)' : '' }}</h1>
             <span class="ds-badge {{ $statusBadgeClass }}">{{ ucfirst(str_replace('_', ' ', $inspection->status)) }}</span>
             <span class="text-xs" style="color: var(--text-muted);">{{ \App\Models\RentalInspection::typeLabel($inspection->type) }} inspection</span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="rmnt-inspd-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             {{-- The printable tick-box form — takes it to the property in wet
                  ink, scans it back in (OMR reader lane builds on this). --}}
             <a href="{{ route('corex.rental-inspections.form', $inspection) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="print-site-form">Print site form</a>
@@ -361,7 +362,7 @@
 
     {{-- §46 — Sign by link: per-party status + send / QR / sign on this device. --}}
     @if(! $inspection->trashed() && $inspection->isRecordable() && app(\App\Services\Rentals\RentalInspectionSigningLinkService::class)->enabledFor($inspection))
-        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="signing-links-card">
+        <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" data-qa="signing-links-card" data-tour="rmnt-inspd-signing">
             @include('corex.rental-inspections.partials._signing-links', ['inspectionIdJs' => (string) $inspection->id, 'reloadOnChange' => true])
         </div>
     @endif
@@ -369,7 +370,7 @@
     @include('corex.rental-inspections.partials._copies-sent', ['inspection' => $inspection])
 
     {{-- §45.8 (Build I-6b) — History: who did what to this inspection, and when. Append-only; newest first. --}}
-    <div id="history" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="inspection-history">
+    <div id="history" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="inspection-history" data-tour="rmnt-inspd-history">
         <div class="flex items-center justify-between gap-3 flex-wrap">
             <h2 class="text-sm font-semibold">History</h2>
             <form method="GET" action="{{ route('corex.rental-inspections.show', $inspection) }}#history" class="flex items-center gap-2">
@@ -727,7 +728,7 @@
 
     {{-- §45.5 (Build I-3) — who attended, in what capacity, and what is on record about each party's
          invitation. Facts only. Read-only here: attendance is recorded on the property's Inspections tab. --}}
-    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="attendance-summary">
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="attendance-summary" data-tour="rmnt-inspd-attendance">
         <div class="flex items-center justify-between gap-3">
             <h2 class="text-sm font-semibold">Attendance</h2>
             <span class="text-xs" style="color: var(--text-muted);">{{ $attendanceBoard['recorded'] }} of {{ $attendanceBoard['expected'] }} recorded &middot; {{ $attendanceBoard['attended'] }} attended</span>

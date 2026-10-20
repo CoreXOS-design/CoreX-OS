@@ -6,14 +6,15 @@
 <div class="w-full space-y-5" x-data="categoryManager()">
 
     {{-- Page Header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-kb-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Knowledge Base</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Ellie's training documents &amp; agent resources</p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-                <button type="button" @click="openCreate()" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <button type="button" @click="openCreate()" data-tour="rpt-kb-new" class="corex-btn-primary text-xs inline-flex items-center gap-1.5">
                     <i class="fas fa-plus text-[10px]"></i> New Category
                 </button>
             </div>
@@ -34,14 +35,14 @@
     @endif
 
     {{-- Upload Section --}}
-    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rpt-kb-upload">
         <h3 class="text-base font-semibold mb-4" style="color: var(--text-primary);">Upload Document</h3>
         <form action="{{ route('admin.knowledge.upload') }}" method="POST" enctype="multipart/form-data">
             @csrf
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
                     <label class="ds-label">Title <span class="text-red-500">*</span></label>
-                    <input type="text" name="title" required
+                    <input type="text" name="title" required data-tour="rpt-kb-title"
                            class="w-full rounded-md text-sm px-3 py-2 mt-1 transition-all duration-300 focus:outline-none"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
                            placeholder="Document title" value="{{ old('title') }}">
@@ -49,7 +50,7 @@
                 </div>
                 <div>
                     <label class="ds-label">Category <span class="text-red-500">*</span></label>
-                    <select name="category_id" required
+                    <select name="category_id" required data-tour="rpt-kb-category"
                             class="w-full rounded-md text-sm px-3 py-2 mt-1 transition-all duration-300 focus:outline-none"
                             style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
                         <option value="">Select category...</option>
@@ -61,7 +62,7 @@
                 </div>
                 <div>
                     <label class="ds-label">File <span class="text-red-500">*</span></label>
-                    <input type="file" name="file" required accept=".pdf,.docx,.doc,.txt,.md"
+                    <input type="file" name="file" required accept=".pdf,.docx,.doc,.txt,.md" data-tour="rpt-kb-file"
                            class="w-full text-sm mt-1 rounded-md px-3 py-1.5 transition-all duration-300"
                            style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-secondary);">
                     @error('file') <div class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</div> @enderror
@@ -81,7 +82,7 @@
                            placeholder="e.g. v2.1" value="{{ old('version') }}">
                 </div>
                 <div class="flex items-end">
-                    <button type="submit" class="corex-btn-primary px-4 py-2 text-sm">Upload Document</button>
+                    <button type="submit" data-tour="rpt-kb-upload-btn" class="corex-btn-primary px-4 py-2 text-sm">Upload Document</button>
                 </div>
             </div>
             <div class="text-xs mt-3" style="color: var(--text-muted);">Accepted: PDF, DOCX, DOC, TXT, MD &mdash; Max 20MB</div>
@@ -89,7 +90,7 @@
     </div>
 
     {{-- Stats Row --}}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4" data-tour="rpt-kb-stats">
         <div class="ds-status-card">
             <div class="ds-label">Total Documents</div>
             <div class="ds-value text-2xl">{{ number_format($stats['total_documents']) }}</div>
@@ -123,7 +124,7 @@
                 <i class="fas fa-plus text-[10px]"></i> New Category
             </button>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="rpt-kb-categories">
             @forelse($categories as $idx => $cat)
                 <div class="rounded-md p-4 transition-all duration-300 relative"
                      style="background: var(--surface); border: 1px solid var(--border);"
@@ -191,7 +192,7 @@
         {{-- Create / Edit Modal --}}
         <template x-teleport="body">
         <div x-show="showModal" x-cloak x-transition.opacity class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" @keydown.escape.window="showModal = false">
-            <div class="rounded-md shadow-xl w-full max-w-md mx-4 p-6" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showModal = false">
+            <div class="rounded-md shadow-xl w-full max-w-md mx-4 p-6" data-tour="rpt-kb-modal" style="background: var(--surface); border: 1px solid var(--border);" @click.outside="showModal = false">
                 <h4 class="text-sm font-bold mb-4" style="color: var(--text-primary);" x-text="editId ? 'Edit Category' : 'New Category'"></h4>
                 <form :action="editId ? '{{ url('admin/knowledge/categories') }}/' + editId : '{{ route('admin.knowledge.storeCategory') }}'" method="POST">
                     @csrf

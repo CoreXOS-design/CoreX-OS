@@ -2,7 +2,10 @@
 
 @section('content')
 <div class="p-6 max-w-2xl space-y-4">
-    <h1 class="text-lg font-semibold">Send Notice — {{ $lease->property?->buildDisplayAddress() }}</h1>
+    <div class="flex items-center justify-between gap-3" data-tour="rops-nc-intro">
+        <h1 class="text-lg font-semibold">Send Notice — {{ $lease->property?->buildDisplayAddress() }}</h1>
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+    </div>
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: #fef2f2; border: 1px solid #fecaca; color: #991b1b;">
@@ -19,7 +22,7 @@
             @csrf
             <div>
                 <label class="prop-label">Template</label>
-                <select name="rental_notice_template_id" x-model="templateId" required class="prop-input">
+                <select name="rental_notice_template_id" x-model="templateId" required class="prop-input" data-tour="rops-nc-template">
                     <option value="">Choose…</option>
                     @foreach($templates as $t)
                         <option value="{{ $t->id }}">{{ $t->name }} ({{ \App\Models\RentalNoticeTemplate::labelFor($t->notice_type) }})</option>
@@ -30,17 +33,17 @@
             <div>
                 <label class="prop-label">Breach description / arrears amount / vacate-by date (as applicable)</label>
                 <p class="text-xs mb-1" style="color: var(--text-muted);">Fill in whichever figures the chosen template uses — enter the token name exactly as it appears in the template, one per line, as <code>token=value</code>.</p>
-                <textarea name="figures_raw" rows="4" class="prop-input" style="font-family: monospace;" placeholder="arrears_amount=R 4,500&#10;vacate_by_date=2026-11-30&#10;breach_description=Rent unpaid for October and November"></textarea>
+                <textarea name="figures_raw" data-tour="rops-nc-figures" rows="4" class="prop-input" style="font-family: monospace;" placeholder="arrears_amount=R 4,500&#10;vacate_by_date=2026-11-30&#10;breach_description=Rent unpaid for October and November"></textarea>
             </div>
 
-            <div class="space-x-4">
+            <div class="space-x-4" data-tour="rops-nc-recipients">
                 <label class="text-sm"><input type="checkbox" name="send_to_tenant" value="1" checked> Send to tenant</label>
                 <label class="text-sm"><input type="checkbox" name="send_to_landlord" value="1"> Send to landlord</label>
             </div>
 
             <div class="flex gap-2">
-                <button type="submit" name="intent" value="preview" class="corex-btn-outline text-sm">Preview</button>
-                <button type="submit" name="intent" value="send" class="corex-btn-primary text-sm" onclick="return confirm('Send this notice now?')">Send notice</button>
+                <button type="submit" name="intent" value="preview" class="corex-btn-outline text-sm" data-tour="rops-nc-preview">Preview</button>
+                <button type="submit" name="intent" value="send" class="corex-btn-primary text-sm" data-tour="rops-nc-send" onclick="return confirm('Send this notice now?')">Send notice</button>
             </div>
             <details class="text-xs" style="color: var(--text-muted);"><summary class="cursor-pointer">Placeholders filled from the lease for you</summary>
                 <ul class="list-disc list-inside">@foreach($autoPlaceholders as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>

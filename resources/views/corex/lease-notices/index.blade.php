@@ -22,20 +22,25 @@
     @include('corex.notices._tabs', ['active' => 'received'])
 
     {{-- Page header --}}
-    <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Notices received</h1>
-        <p class="text-xs" style="color: var(--text-muted);">A tenant or a landlord has given notice. Review each one against the lease and the law before anything goes to the other party.</p>
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rops-nr-intro">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Notices received</h1>
+                <p class="text-xs" style="color: var(--text-muted);">A tenant or a landlord has given notice. Review each one against the lease and the law before anything goes to the other party.</p>
+            </div>
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+        </div>
     </div>
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
-    <form method="GET" action="{{ route('corex.lease-notices.index') }}" class="flex flex-wrap items-end gap-3" data-qa="lease-notices-filters">
+    <form method="GET" action="{{ route('corex.lease-notices.index') }}" class="flex flex-wrap items-end gap-3" data-qa="lease-notices-filters" data-tour="rops-nr-filters">
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
-            <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address or reason" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
+            <input type="text" name="q" data-tour="rops-nr-search" value="{{ request('q') }}" placeholder="Name, address or reason" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="list-header-filter text-sm {{ $status !== 'received' ? 'is-active' : '' }}">
+            <select name="status" data-tour="rops-nr-status" class="list-header-filter text-sm {{ $status !== 'received' ? 'is-active' : '' }}">
                 <option value="">All statuses</option>
                 @foreach(\App\Models\LeaseNotice::STATUS_LABELS as $key => $label)
                     <option value="{{ $key }}" @selected($status === $key)>{{ $label }}</option>
@@ -44,7 +49,7 @@
         </div>
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Given by</label>
-            <select name="given_by" class="list-header-filter text-sm {{ filled(request('given_by')) ? 'is-active' : '' }}">
+            <select name="given_by" data-tour="rops-nr-given-by" class="list-header-filter text-sm {{ filled(request('given_by')) ? 'is-active' : '' }}">
                 <option value="">Anyone</option>
                 <option value="tenant" @selected(request('given_by') === 'tenant')>Tenant</option>
                 <option value="landlord" @selected(request('given_by') === 'landlord')>Landlord</option>
@@ -59,7 +64,7 @@
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
         <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);"><input type="checkbox" name="archived" value="1" @checked(request()->boolean('archived'))> Archived</label>
-        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;" data-tour="rops-nr-filter-btn">Filter</button>
         <a href="{{ route('corex.lease-notices.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Reset</a>
         <div class="flex-1"></div>
         <span class="ds-badge ds-badge-pill ds-badge-info">
@@ -68,7 +73,7 @@
     </form>
     </div>
 
-    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-nr-list">
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -90,7 +95,7 @@
                         <td class="px-4 py-3">{{ $n->effectiveEndDate()->format('j M Y') }}</td>
                         <td class="px-4 py-3"><span class="ds-badge {{ $badge($n->isReceived() ? '--ds-amber' : ($n->isAccepted() ? '--ds-green' : '--text-muted')) }}">{{ $n->statusLabel() }}</span>{{ $n->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3 text-right">
-                            <a href="{{ route('corex.lease-notices.show', $n->id) }}" class="corex-btn-outline text-xs">{{ $n->isReceived() ? 'Review' : 'Open' }}</a>
+                            <a href="{{ route('corex.lease-notices.show', $n->id) }}" class="corex-btn-outline text-xs" @if($loop->first) data-tour="rops-nr-open" @endif>{{ $n->isReceived() ? 'Review' : 'Open' }}</a>
                         </td>
                     </tr>
                 @empty
