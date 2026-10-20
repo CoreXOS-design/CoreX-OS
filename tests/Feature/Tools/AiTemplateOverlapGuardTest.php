@@ -57,8 +57,8 @@ final class AiTemplateOverlapGuardTest extends TestCase
             $this->assertFalse($r['ok'], 'a clash is never shown, repaired or not');
             $this->assertNull($r['layout']);
             $errors = implode(' | ', $r['errors']);
-            $this->assertStringContainsString('(erf_size) and Element', $errors);
-            $this->assertStringContainsString('(price_per_m2) sit on top of each other (they share 260 x 40 pixels)', $errors);
+            $this->assertStringContainsString('(erf_size at x 730, y 354) and Element', $errors);
+            $this->assertStringContainsString('(price_per_m2 at x 730, y 354) sit on top of each other (they share 260 x 40 pixels)', $errors);
         }
     }
 
@@ -113,8 +113,34 @@ final class AiTemplateOverlapGuardTest extends TestCase
         ]);
 
         $errors = implode(' | ', $v->validate($avatar, 'facebook')['errors']);
-        $this->assertStringContainsString('(agent_name) and Element', $errors, 'the agent photo over the agent name is a clash');
-        $this->assertStringContainsString('(agent_avatar) sit on top of each other', $errors);
+        $this->assertStringContainsString('(agent_name at x 720, y 470) and Element', $errors, 'the agent photo over the agent name is a clash');
+        $this->assertStringContainsString('(agent_avatar at x 1000, y 440) sit on top of each other', $errors);
+    }
+
+    public function test_one_messy_design_reports_at_most_three_overlaps_and_a_summary_so_it_cannot_crowd_out_the_others(): void
+    {
+        // One wide text box across five stacked lines: five clashes.
+        $extra = [['field' => 'custom_text', 'text' => 'Wide words', 'x' => 700, 'y' => 380, 'w' => 480, 'h' => 200, 'fontSize' => 18, 'color' => '#ffffff']];
+        foreach (['suburb', 'property_type', 'reference', 'address', 'website'] as $i => $field) {
+            $extra[] = ['field' => $field, 'x' => 720, 'y' => 384 + 38 * $i, 'w' => 420, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'];
+        }
+        $r = (new AdLayoutValidator())->validate($this->option($extra), 'facebook');
+
+        $overlaps = array_values(array_filter($r['errors'], fn ($e) => str_contains($e, 'on top of each other')));
+        $this->assertCount(AdLayoutValidator::MAX_OVERLAP_ERRORS + 1, $overlaps);
+        $this->assertMatchesRegularExpression('/^And \d+ more pairs of elements sit on top of each other in this design/', end($overlaps));
+    }
+
+    public function test_two_elements_of_the_same_type_are_told_apart_by_their_position(): void
+    {
+        $r = (new AdLayoutValidator())->validate($this->option([
+            ['field' => 'custom_text', 'text' => 'Sea views', 'x' => 720, 'y' => 380, 'w' => 200, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
+            ['field' => 'custom_text', 'text' => 'Walk to beach', 'x' => 940, 'y' => 380, 'w' => 200, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
+            ['field' => 'custom_text', 'text' => 'Pet friendly', 'x' => 940, 'y' => 390, 'w' => 200, 'h' => 30, 'fontSize' => 16, 'color' => '#ffffff'],
+        ]), 'facebook');
+
+        $this->assertStringContainsString('(custom_text at x 940, y 380) and Element 8 (custom_text at x 940, y 390)', implode(' | ', $r['errors']));
+        $this->assertStringNotContainsString('x 720, y 380', implode(' | ', $r['errors']), 'the first line clashes with nothing');
     }
 
     public function test_the_prompt_asks_the_ai_to_check_for_overlaps_before_answering_and_names_no_unticked_extra(): void
@@ -160,7 +186,7 @@ final class AiTemplateOverlapGuardTest extends TestCase
         $this->assertSame(2, $fake->calls());
         $retry = json_encode($fake->requestBody(1)['messages']);
         $this->assertStringContainsString('Option 2:', $retry);
-        $this->assertStringContainsString('(price_per_m2) sit on top of each other', $retry);
+        $this->assertStringContainsString('(price_per_m2 at x 730, y 354) sit on top of each other', $retry);
 
         $rejected = collect($gen->validation_log_json)->firstWhere('outcome', 'rejected');
         $this->assertSame('Clash', $rejected['name']);

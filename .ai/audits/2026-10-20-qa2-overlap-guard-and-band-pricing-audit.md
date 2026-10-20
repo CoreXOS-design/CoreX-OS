@@ -5,6 +5,14 @@ Scope: everything built 2026-10-20 and pushed to QA2 —
 `578d7e6dd` New CoreX pricing: headcount bands (agreement + billing); `5f606bb45` band pricing test fixes.
 Two independent read-only reviews (sections below, verbatim), then the conductor's own verification.
 
+## Fixed after the audit (2026-10-20, Johan "yes develop")
+
+- Pricing H1 — deploy pre-flight 1h refuses BEFORE backup/maintenance when the band migration would throw (open draft / non-1.0 wording).
+- Overlap M1 — messages name elements by field + position. Overlap M2 — max 3 overlap messages per design + summary line.
+- Overlap L4 — company ad without a picture: rule 1c no longer names custom_image.
+- Open for Johan (business decisions, not changed): pricing H2 (existing agencies / band agreement vs tier bill), M1 (logins vs
+  agents), M2 (new 31+ agency not emailed), M3 (quoted fee re-entered in billing). Overlap L5/L6 (ribbon band, rotation) recorded.
+
 ## Conductor verification (2026-10-20)
 
 - **Pricing H1 (deploy migration can stop the deploy) — confirmed in code, NOT triggered on live today.** `publishBandPricing()` throws

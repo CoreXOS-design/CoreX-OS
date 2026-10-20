@@ -603,8 +603,8 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
 
         $this->assertSame(1 + 1 + 1, $fake->calls(), 'defaults + the type + one retry');
         $retry = collect($fake->requests)->last()['user'];
-        $this->assertStringContainsString('(erf_size) and Element', $retry);
-        $this->assertStringContainsString('(price_per_m2) sit on top of each other', $retry);
+        $this->assertStringContainsString('(erf_size at x 40, y 590) and Element', $retry);
+        $this->assertStringContainsString('(price_per_m2 at x 40, y 590) sit on top of each other', $retry);
         foreach ($gen->options_json as $opt) {
             $land = collect($opt['variants']['Vacant Land / Plot']['layout']['elements'])->keyBy('field');
             $this->assertSame(40, (int) $land['erf_size']['x']);

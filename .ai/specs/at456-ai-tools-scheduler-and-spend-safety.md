@@ -461,6 +461,19 @@ data itself had overlapping boxes: `response-with-repairable-faults.json` (Hero 
 repaired agent name no longer lands in it), `AiTemplateRepairTest::validOption()` (agent name y 540 → 440, so the
 "moved back inside" price no longer lands on it), and one `AiTemplateBlocksAndStylesTest` case now runs the facebook-drawn
 recording at facebook size instead of instagram. 11 AI-template test files, 217 tests, all green. **No live AI call was made.**
+**Audit follow-ups (2026-10-20, `.ai/audits/2026-10-20-qa2-overlap-guard-and-band-pricing-audit.md`, Johan "yes develop").**
+- Each overlap message names both elements by field AND position ("Element 12 (erf_size at x 730, y 354) and ..."): after repairs
+  and removals the element number may not match the AI's own answer; the position always identifies the box, also when two
+  elements share a type.
+- At most `MAX_OVERLAP_ERRORS` (3) overlap messages per design, then one "And N more pairs ..." line: the retry shows only the
+  first 12 errors of all designs together, so one messy design no longer crowds out the others' errors.
+- Company ad with no picture: `custom_image` is now in the forbidden list passed to the prompt, so rule 1c no longer names the
+  picture box the prompt says not to use.
+- Not changed (recorded): text over a corner ribbon's band is not caught (the ribbon box is exempt); rotation is ignored (boxes
+  compared unrotated); facts deliberately stacked because only one shows per listing are refused (safe direction).
+- Tests: `AiTemplateOverlapGuardTest` +2 (cap + summary; same-type elements told apart by position), `CompanyAdAiBuilderTest`
+  no-picture case asserts rule 1c does not name custom_image. 11 AI-template files, 219 green.
+- Live check (3 real generations, 35 designs incl. type versions, 2026-10-20, before these follow-ups): 0 overlaps reached the user.
 - [ ] Lane owner tests on QA2 (generate with Vacant Land / Plot and Apartment / Flat ticked; check no version has words on top of each other).
 
 ## C. Article Library (system-dev section → Ad Manager tab)

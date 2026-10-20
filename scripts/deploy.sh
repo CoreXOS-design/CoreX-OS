@@ -455,6 +455,42 @@ fi
 FREE_KB=$(df -P "$BACKUP_DIR" | awk 'NR==2 {print $4}')
 (( FREE_KB > 2 * 1024 * 1024 )) || fail "Less than 2 GiB free at $BACKUP_DIR (have $((FREE_KB/1024)) MiB, on $(df -P "$BACKUP_DIR" | awk 'NR==2 {print $1}'))"
 
+# 1h. Can the band-pricing agreement migration apply? (2026-10-20, audit .ai/audits/2026-10-20-qa2-overlap-guard-and-band-pricing-audit.md H1)
+# Migration 2026_11_16_100800_publish_band_pricing_agreement_version turns the current agreement wording into the band-priced
+# version. It throws - and a throw at step 6 leaves the site in maintenance - when a wording draft is open, or when the current
+# wording is not the 1.0 text it rewrites. Both are knowable NOW, from the database alone (this runs before the new code is
+# pulled), so refuse here, before the backup and before maintenance, with what to do. Skipped once the migration has run.
+# BAND_PRICING_WORDING_CHECKED=1 lets an edited (non-1.0) wording through after a developer has dry-run the conversion on it.
+preflight_band_pricing_ready() {
+    local band_mig='2026_11_16_100800_publish_band_pricing_agreement_version'
+    local has_table ran tpl drafts cur
+    q() { MYSQL_PWD="$BACKUP_PASSWORD" mysql --user="$BACKUP_USER" -N -B "$DB_NAME" -e "$1"; }
+
+    has_table=$(q "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name IN ('platform_esign_wording_versions', 'platform_esign_templates', 'migrations')") \
+        || { fail "Pre-flight 1h: could not read the database to check the agreement wording."; return 1; }
+    [[ "$has_table" == "3" ]] || { ok "Agreement band pricing: no agreement wording tables yet - nothing to check"; return 0; }
+    ran=$(q "SELECT COUNT(*) FROM migrations WHERE migration = '${band_mig}'") || { fail "Pre-flight 1h: could not read the migrations table."; return 1; }
+    [[ "$ran" == "0" ]] || { ok "Agreement band pricing: already applied"; return 0; }
+    tpl=$(q "SELECT id FROM platform_esign_templates WHERE source = 'webdoc' AND name = 'CoreX Subscription Agreement' AND deleted_at IS NULL ORDER BY id LIMIT 1") \
+        || { fail "Pre-flight 1h: could not read the agreement template."; return 1; }
+    [[ -n "$tpl" ]] || { ok "Agreement band pricing: agreement never seeded here - it seeds the band version on first use"; return 0; }
+
+    drafts=$(q "SELECT COUNT(*) FROM platform_esign_wording_versions WHERE template_id = ${tpl} AND is_published = 0 AND deleted_at IS NULL") \
+        || { fail "Pre-flight 1h: could not read the agreement wording versions."; return 1; }
+    if [[ "$drafts" != "0" ]]; then
+        fail "Agreement band pricing: an agreement wording DRAFT is open on this site. The new prices are published as a new agreement version during this deploy, which cannot happen over an open draft. Publish or discard the draft (Platform > Agreement wording), then deploy again. Nothing was changed."
+        return 1
+    fi
+    cur=$(q "SELECT version FROM platform_esign_wording_versions WHERE template_id = ${tpl} AND is_published = 1 AND deleted_at IS NULL ORDER BY published_at DESC, id DESC LIMIT 1") \
+        || { fail "Pre-flight 1h: could not read the current agreement version."; return 1; }
+    if [[ "$cur" != "1.0" && "${BAND_PRICING_WORDING_CHECKED:-0}" != "1" ]]; then
+        fail "Agreement band pricing: the current agreement wording is version '${cur}', not the original 1.0 the price change rewrites. A developer must dry-run the conversion on this wording first; if it converts cleanly, re-run with BAND_PRICING_WORDING_CHECKED=1. Nothing was changed."
+        return 1
+    fi
+    ok "Agreement band pricing: no open draft, current wording ${cur} - the new agreement version will publish cleanly"
+}
+preflight_band_pricing_ready
+
 PREV_SHA=$(git rev-parse HEAD)
 ok "Branch=$BRANCH, dir=$DIR, .env APP_ENV=$EXPECT_APP_ENV, tools=present, $((FREE_KB/1024)) MiB free"
 ok "Pre-pull HEAD: $PREV_SHA"

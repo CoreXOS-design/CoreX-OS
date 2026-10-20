@@ -92,6 +92,12 @@ final class AdLayoutValidator
     public const OVERLAP_TOLERANCE = 6;
 
     /**
+     * At most this many overlap errors per design, then one summary line: the AI's retry is shown only the first few errors of
+     * ALL designs together, so one messy design must not crowd out the others' errors (audit 2026-10-20).
+     */
+    public const MAX_OVERLAP_ERRORS = 3;
+
+    /**
      * Elements that are meant to have other things drawn over them, so they never count as a clash: the photos (text over a
      * photo is a design choice), backgrounds, scrims, dividers, the watermark, and the corner ribbon (its box is mostly empty;
      * only the diagonal band is drawn).
@@ -1350,11 +1356,15 @@ final class AdLayoutValidator
             if (in_array($el['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
                 continue;
             }
-            $boxes[] = ['tag' => 'Element ' . ($idx + 1) . " ({$el['field']})", 'x' => (float) $el['x'], 'y' => (float) $el['y'],
+            // The position is in the tag: after repairs and removals the element number may not match the AI's own answer, the
+            // field and x/y always identify the box (two custom_text lines included).
+            $boxes[] = ['tag' => 'Element ' . ($idx + 1) . " ({$el['field']} at x " . (int) round((float) $el['x']) . ', y ' . (int) round((float) $el['y']) . ')',
+                'x' => (float) $el['x'], 'y' => (float) $el['y'],
                 'r' => (float) $el['x'] + (float) $el['w'], 'b' => (float) $el['y'] + (float) $el['h']];
         }
 
-        $n = count($boxes);
+        $n     = count($boxes);
+        $found = 0;
         for ($i = 0; $i < $n; $i++) {
             for ($j = $i + 1; $j < $n; $j++) {
                 $a = $boxes[$i];
@@ -1362,10 +1372,16 @@ final class AdLayoutValidator
                 $across = min($a['r'], $b['r']) - max($a['x'], $b['x']);
                 $down   = min($a['b'], $b['b']) - max($a['y'], $b['y']);
                 if ($across > $tol && $down > $tol) {
-                    $errors[] = "{$a['tag']} and {$b['tag']} sit on top of each other (they share " . (int) round($across) . ' x ' . (int) round($down)
-                        . ' pixels), so neither can be read. Place them side by side or one under the other; their boxes may touch by at most ' . $tol . 'px.';
+                    $found++;
+                    if ($found <= self::MAX_OVERLAP_ERRORS) {
+                        $errors[] = "{$a['tag']} and {$b['tag']} sit on top of each other (they share " . (int) round($across) . ' x ' . (int) round($down)
+                            . ' pixels), so neither can be read. Place them side by side or one under the other; their boxes may touch by at most ' . $tol . 'px.';
+                    }
                 }
             }
+        }
+        if ($found > self::MAX_OVERLAP_ERRORS) {
+            $errors[] = 'And ' . ($found - self::MAX_OVERLAP_ERRORS) . ' more pairs of elements sit on top of each other in this design: re-space the whole block so no two boxes share space.';
         }
     }
 

@@ -563,6 +563,7 @@ final class CompanyAdBuilderService
         $forbidden = array_values(array_diff(array_keys(AdLayoutValidator::FIELDS), array_keys($allowed)));
         if (! $hasPicture) {
             unset($allowed['custom_image']);
+            $forbidden[] = 'custom_image'; // never named anywhere in the limits either (e.g. rule 1c's "may sit on" list)
         }
         if (! in_array('me', $keys, true)) {
             $allowed = array_diff_key($allowed, array_flip(self::ME_FIELDS));
