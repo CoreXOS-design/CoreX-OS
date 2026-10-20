@@ -1,0 +1,541 @@
+# Agency Tracker — taking it apart and re-homing every screen
+
+Status: **spec v1, 20 Oct 2026.** Spec only — no code, no data, no menu changes were made writing this.
+Governing rulings: Johan, 20 Oct 2026 (section 2, verbatim). Section 2 is not edited by lanes.
+Verified against: `QA1` at `8ee4fb502` (read-only). Every `path:line` below was read from that tree on 20 Oct 2026.
+Earlier map (older, superseded where they disagree): `.ai/audits/2026-09-11-agency-tracker-inventory.md`.
+Related specs: `agency-tracker.md`, `road-to-sold.md`, `deal-register-v2-spec.md`, `SPEC_corex_activity_engine.md`, `tvdisplay.md`, `rcr-fic-directive-11-2026-spec.md`, `EVALUATION_CERTIFICATE_REDESIGN.md`, `AT-284-p24-minion.md`.
+
+Abbreviations: `SB` = `resources/views/layouts/corex-sidebar.blade.php`; `RW` = `routes/web.php`.
+Roles: Ag agent, BM branch manager, Ad admin, Ow owner/super_admin, Vw viewer (fresh-install defaults in `config/corex-permissions.php:1071+`; live Role Manager grants can differ).
+
+NOT in this spec: the commission engine (menu items #25 Commission Overview, #26 Commission Management, My Earnings, and the `commission_ledger` double-split). **Separate money spec, needs Johan.** They stay where they are until that spec exists (section 12).
+
+---
+
+## 1. Read this first — what the code says that changes the plan
+
+These are facts found while verifying the rulings. Several change what a lane should build. None was fixed.
+
+1. **Ruling E is not a data migration.** The DR2 screens already run on the SAME table as the old Deal Register. `app/Http/Controllers/Dr2/DealRegisterController.php:31-34` ("an exact rebuild of DR1 on the SAME `deals` tables"), `:65` (`Deal::query()->visibleTo($user)`), `RW:1068-1071`. The 169 live HFC rows on QA1 are already what `/deals-dr2` lists. What actually has to happen: retire the old *screens and routes*, rename the menu label, and make sure every live deal has its DR2 "twin" row (see 2. below). Section 8 specs this honestly. Johan should know the word "migrate" in ruling E turns out to mean "switch off the old screens", not "move data".
+2. **The DR2 twin row (`deals_v2`) is not optional.** Filed emails, documents and calendar links hang off the twin (`communication_links.linkable_type = App\Models\DealV2\DealV2`, `UnfiledEmailsController.php:150`, `Dr2CommunicationLinkController.php:36-37`). A deal with no twin cannot be picked in the unfiled-emails search (`UnfiledEmailsController.php:376-385`, `whereNotNull('deal_v2_id')`). QA1: 73 live deals have no twin.
+3. **The points calculation is wrong for calendar-credited activity — verified.** Calendar mappings store a *points* amount in `value_per_event` (seeded from the definition weight: `database/migrations/2026_06_20_120000_seed_hfc_activity_calendar_mappings.php:76`), but every points query multiplies `value × weight`. "Appointments"/"Presentation" (weight 200, `value_per_event` 200) therefore score 200 × 200 = **40,000** per event instead of 200. Detail in 5.6.
+4. **The Targets-screen bug is real — verified.** Saving the Targets screen writes `listings_target`, `deals_target` and `value_target` as `0` for every listed agent, because the form posts only `points_target` but the handler writes all four (`app/Http/Controllers/Admin/TargetController.php:357-361`, write at `:368-379`). Detail in 5.7.
+5. **Two Worksheet endpoints have no login or permission check.** `POST /worksheet/align-company-target` (`worksheet.align`) and `POST /worksheet/apply-branch-default` (`worksheet.applyBranchDefault`) are registered outside the `auth` group (`RW:2016-2019`; the `auth` group closes at `RW:1979`). The controller has no constructor/middleware either (`WorksheetController.php`, no `__construct`), and the actions call `Auth::user()` then `->id` (`:957-959, :1105-1108`). Not executed; a global middleware could still cover them (UNVERIFIED). Report-only here; they disappear when the Worksheet is removed (step 5), but until then they may be open. Johan/conductor should decide whether to close them sooner as a separate fix.
+6. **Ruling D's claim "RMCP/FIC already lives under Compliance" is only half true.** RMCP (`compliance.rmcp.index`, SB:2148) and FICA (`compliance.fica.index`, SB:2146) are under Compliance. **RCR · FIC 2026 is not** — it is the only compliance-style item left in the Agency Tracker panel (SB:1839-1865), and the `compliance.*` active-group match does not cover `corex.compliance.rcr.*`. It has no permission key and no feature key; its only gate is a role check (`app/Http/Controllers/Compliance/Rcr/RcrSubmissionController.php:499-502`). It holds **0 rows** on QA1 in every `rcr_*` table. A daily job (`routes/console.php:152`, `RcrDeadlineReminderJob`) and two notifications still point at it. Retiring it needs a feature key first (section 9).
+7. **Listing Stock feeds more than the three Listing Stock menu items.** The frozen Propcon import (`listing_stocks`, 213 rows, all `source=propcon`, last updated 2026-08-14 on QA1) is read by the TV display (`TV/TvController.php:83, :245`, `TV/BranchTvController.php:46`), Branch and Agency Performance tiles (`BM/PerformanceController.php:96`, `Admin/PerformanceController.php:136`), the Worksheet (`WorksheetController.php:135, 147, 195, 206, 806, 887, 1222`), My Agent Dashboard (`BM/MyDashboardController.php:34`), calendar expiry (`PropertyCalendarSource.php:146`), and three market-analytics services. Soft-retiring the menu is safe; switching the *data* off is not, until each reader is repointed (section 9). The sidebar comment's TvController line numbers (SB:1966-1971 says `:98, :252`) are stale. `admin.listings.import` is not a registered route at all (SB:1974 sits inside `@if(false)` — lifting it would throw).
+8. **There is no breadcrumb mechanism.** Ruling J says "sidebar highlight/breadcrumb points to its new home". Highlight = the `$activeGroup` `routeIs` chain (SB:112-361) plus each link's own `routeIs`. Breadcrumbs are only hand-written in three views (`admin/users/create-edit.blade.php:119`, `documents/shared-drive/drive.blade.php:48-53`, `components/sticky-action-bar.blade.php:35`). So "breadcrumb" in this spec means: the page title/back-link text and the sidebar highlight; no new breadcrumb system is built.
+9. **There is no TV settings screen.** TV access codes are generated from the two Performance pages (`bm/performance.blade.php:89-110`, `admin/performance.blade.php:468-565`). Moving Branch/Agency Performance to Reports (ruling G) would strand them unless the TV codes get a home first (step 8 before step 6).
+10. **HFC numbers are hardcoded where the Worksheet and branch pages calculate.** 1,060,000 average price, 7.5% commission, 40% correctly priced (`WorksheetController.php:53, 54, 61`, `:515`; view `worksheet/index.blade.php:278, 311`), and the branch pages use `config('performance.commission_rate', 0.075)` / `company_share 0.50` (`BM/PerformanceController.php:41-42`, `Admin/BranchPerformanceController.php:55-56`; neither key exists in `config/performance.php`). Non-negotiable #9 (multi-agency): the My Portal replacement must not carry these across (section 4).
+11. **The "last 7 days / today's activity" widget reads a dead table.** `daily_activities` has 0 rows (QA1) but is still read at `CompanyPerformanceService.php:848-870, 964-1000`, `AgentPerformanceService.php:284-293`, `Admin/AgentPerformanceController.php:150-153`. The per-agent drill-down "last 7 days" strip is always empty; the branch-level 7-day strip uses the live table (`:817-846`).
+12. **The Calculators menu is not "move to a new menu" only — the existing one is gated differently than ruling I assumes.** There is no top-level Calculators group. `calculators.index` ("Calculators") is an item *inside* Trust Interest (SB:2602-2609), gated by `access_calculators` + feature `calculators` (`config/corex-features.php:448-456`, `sidebar_section => 'trust-interest'`). Trust Interest's wrapper (SB:2561-2562) shows if the user has *any* of four permissions, including `access_calculators`. "Admin-only" is true for HFC only because of HFC's grants (QA1 `role_permissions`: agency 1 grants `access_trust_interest` to admin only; 149 other agencies grant it to agent/BM/office_admin too). Live grants: UNVERIFIED.
+
+---
+
+## 2. The rulings — verbatim as relayed to this lane
+
+Pasted into the lane by Johan's side, 20 Oct 2026. Copied exactly; do not edit.
+
+```
+RULINGS (Johan, 20 Oct 2026):
+A. Worksheet → My Portal, simplified. NO inputs: CoreX calculates and supplies. Period selector (current + history). Company requirement and per-user budgets/targets move to Road to Sold settings (Road to Sold itself is specced separately; only define the interface here).
+  - Current active listings: from CoreX properties active stock. Rentals: let stock and to-let active stock.
+  - "Correctly priced" stock: future, needs presentation/CMA data. Spec it as a later step only.
+  - Monthly budget on My Portal: keep personal budget and business budget separate, CoreX calculates the total, drop the "want" side.
+  - Deal summary on My Portal: a compact two-column compare where the user picks what each side shows. Avg sale price (agency/branch/own, from CMA data and/or actual DR2 deals). Commission avg (agency/branch/own, actuals only, drop planning %). Deal count (pending/granted/registered/declined). Total commission: own gross plus own after splits/deductions; agency and branch totals only if an agency setting allows (default off). Pipeline = agent's own net commission on deals not yet registered/paid. Future: once a payslip is generated from DR2, that deal leaves the pipeline.
+  - Target requirements: same as today for now.
+  - Order: build and test My Portal + Road to Sold first, THEN remove Worksheet from Agency Tracker.
+B. Daily activities (manual points + auto points from CoreX work, agency-valued): personal figures → My Portal; branch/agency views → Road to Sold and Reports; activity setup → Road to Sold settings. Merge duplicate menu #13 into #2. Points calc flagged wrong: verify and document.
+C. Targets screen bug (saving zeroes deals/value/listings targets, TargetController.php:357-379 per earlier note): verify; it gets fixed as part of the Road to Sold targets move.
+D. Retire (soft, feature-off, never deleted): Branch Listing Stock and the hidden Listing Stock/Import Listings; RCR·FIC 2026 (legacy, unused; RMCP/FIC already lives under Compliance).
+E. Deals: the old Deal Register is retired after HFC's data is migrated into DR2 (spec the migration with verification counts). DR2 is then renamed "Deal Register". New main menu "Deals": Deal Register, My Deals, Unfiled deal emails, and Deal settings at the bottom (admin-only). Remove the duplicate admin links (#19, #20).
+F. My Agent Dashboard becomes the My Portal overview: "where am I vs where I should be".
+G. Reports gets Branch Performance, Agency (company) Performance, and Worksheet Market (kept for agencies that set budgets; note automating it later).
+H. P24 Auto-Import → agency admin settings. TV Messages (branch + admin) → agency settings next to TV display.
+I. New main menu "Calculators" (everyone): Commission Calculator, Evaluation Certificate, My Evaluations, Pending Authorisations, History & Logs. Calculators must NOT sit under Trust Interest (that is admin-only).
+J. Every move is complete: the old menu item is removed, the moved page's sidebar highlight/breadcrumb points to its new home, the settings move with their screen, and every internal link/redirect is updated (old URLs 301 to the new ones).
+K. Parked idea (record only): an AI scout that watches SA property/law changes and notifies agencies.
+Commission engine items (#25, #26, flagged wrong) are NOT in this spec. List them as "separate money spec, needs Johan".
+```
+
+Menu numbers (#1–#31) below follow the numbered table Johan and the conductor went through on 20 Oct 2026 (sidebar order of the Agency Tracker panel, SB:1718-2038).
+
+---
+
+## 3. The standard every list obeys (BUILD_STANDARD §1a, CLAUDE.md non-negotiable 8)
+
+Applies to every *list* screen this spec builds, moves or touches. A lane that moves a list screen must leave it meeting this, or record what is missing in its report (never silently inherit a gap). Where a page is a dashboard/summary rather than a list, the scoping line still applies.
+
+| Rule | Standard | Applies to (lists in this spec) |
+|---|---|---|
+| Search | Named fields stated per screen (table in 3.1) | Deal Register, My Deals, Unfiled emails, Daily-activity summary drill-downs, RTS targets/budgets grids, Evaluations lists, TV messages, Activity setup lists |
+| Sort | Every sensible column sortable, stated default | same |
+| Filter | Status + date range minimum | same |
+| Pagination | Real pagination, stated page size | same |
+| Empty state | A real "nothing here yet — do X" state, not a blank table | same |
+| CRUD | Create, Read, Update, **Archive** (soft delete only), **Restore** from first build | entities: activity definitions, TV messages, budgets/targets rows, evaluations, deal settings records |
+| Scope | OWN / BRANCH / AGENCY enforced at the **query layer** (BelongsToAgency / AgencyScope / `PermissionService::getDataScope`), not by hiding a link. Direct URL by ID is blocked. Applies to list, detail, export, download and API | every screen |
+| Multi-agency | No HFC wording/ids/defaults; every default neutral; anything an agency may want different is an agency setting (non-negotiable 9, ruling 9 of `CLAUDE.md`) | every screen |
+| Wizard | A moved or new *setting* is surfaced in the Setup Wizard in the same change (non-negotiable 10a), or recorded in `agency-onboarding-setup.md` §5.1 "Deliberately NOT in the wizard" **by Johan's call** | every setting in section 4–9 |
+
+### 3.1 Per-screen search / sort / filter / scope (state before code — lanes confirm in their report)
+
+| Screen (new home) | Search fields | Sort (default) | Filters | Scope |
+|---|---|---|---|---|
+| Deal Register (Deals) | deal no, file no, address, seller, buyer, agent name | deal no desc (existing allow-list `Dr2/DealRegisterController` `index` :58, today also `deal_date`, `property_address`, `property_value`) | status P/G/R/D, commission status, deal-date range, branch, agent | own / branch / agency via `Deal::visibleTo` (`Dr2/DealRegisterController.php:65`) |
+| My Deals | address, seller, buyer, deal no, file no (`Agent/DealRegisterController.php:43-50`) | deal no desc (`:83-91`) | status, commission status, date range (`:53-81`) | own only (`:31-33`, via `deal_user`) |
+| Unfiled deal emails | subject, sender, body snippet | received desc | dismissed on/off, date range, account | agency (`effectiveAgencyId`, badge query SB:1811-1836; list `UnfiledEmailsController.php:154`) |
+| Road to Sold settings → Budgets & requirements | agent name | agent name asc | branch, period, active/archived | branch / agency per `road_to_sold.manage_settings` |
+| Road to Sold settings → Activity points (definitions + auto-credit rules) | activity name | sort order asc | enabled/disabled, manual/auto, archived | agency (definitions are agency-owned after this move — see 5.6) |
+| Road to Sold / Reports → Daily activity summaries (branch, agency) | agent, activity | points desc | date range (7d/month/3m/6m/12m + custom), branch | branch / agency (`BM/…`, `Admin/DailyActivitySummaryController`) |
+| My Portal → Daily activity (own) | n/a (own record list) | date desc | date range | own |
+| Evaluations (My Evaluations / Pending Authorisations) | property address, client name, reference | created desc | status, date range | own (candidate) / authoriser queue |
+| TV Messages (agency settings) | message text | created desc | active/archived, branch | branch / agency |
+
+---
+
+## 4. Ruling A — Worksheet → My Portal (no inputs), numbers → Road to Sold settings
+
+### 4.1 What exists today (verified)
+
+- Route `GET /worksheet` `worksheet.index`, permission `view_worksheet` (`RW:715`); `POST /worksheet` `worksheet.store` (`RW:716`). Controller `app/Http/Controllers/WorksheetController.php` (`index` :14-187, `store` :189-333, `dealRegisterStats` :336-786, `calculate` :870-952, `alignToCompany` :955, `applyBranchDefault` :1103, `syncTargetsFromWorksheet` :1217). View `resources/views/worksheet/index.blade.php` (762 lines). Sidebar SB:1740-1741; legacy `layouts/navigation.blade.php:23, 140`.
+- **Inputs today** (form posts to `worksheet.store`, view :128): `period` (:139); `personal_net_target` (:218); `business_net_target` (:225); `want_net_target` (:232); `commission_percent` (:310); `correctly_priced_percent` (:166, editable only if no CMA-captured listings); hidden `avg_sale_price` (:280) and `current_listings` (:148). Stored in `worksheets` (`database/migrations/2026_01_13_104554_create_worksheets_table.php`; model `app/Models/Worksheet.php`, BelongsToAgency).
+- **`store()` also writes the `targets` table** (`WorksheetController.php:299-328`: `listings_target = ceil(total_listings_needed)`, `deals_target`, `value_target`). `alignToCompany`, `alignTargets`, `applyBranchDefault` do the same via `syncTargetsFromWorksheet` (`:1242-1258`). `AgentPerformanceService.php:57-103` also re-syncs `targets` from the worksheet when value/deals ≤ 0. **A lane replacing the Worksheet must keep `targets` populated by an explicit, named service, not as a hidden side effect.**
+- **Current active listings = frozen Propcon import, not CoreX stock.** `ListingStock` where `user_id`, `source='propcon'`, status like '%active%'/'%for sale%' (`WorksheetController.php:135-142`, `:195-202`, `:806-813`, `:887-894`). QA1: `listing_stocks` 213 rows (last updated 2026-08-14) vs `properties` 9,317 rows, 360 active.
+- **Rentals:** retired from the Worksheet (`WorksheetController.php:931-934`, view :55-60). No rentals number is shown today.
+- **"Correctly priced %":** counts `ListingStock` rows with both `price_cents` and `cma_price_cents > 0`; overpriced = `price_cents > cma_price_cents × 105/100` (`WorksheetController.php:147-165`, duplicated `:206-226`). Falls back to a manual box (default 40).
+- **Period:** `index()` ignores `?period=` and always shows the latest saved period (`:67-69, :168`); "Your Saved Months" is read-only (view :715-760). Auto-creates the current month carrying values forward (`:22-63`). No shared month-picker component exists anywhere (`resources/views/components/` has none; each screen hand-rolls `<input type="month" name="period">`).
+- **Deal summary today:** `dealRegisterStats()` reads `deal_user` + `deals` + `deal_money_lines` (`:348-366`, `:432-457`); stage classifier `:369-374`; commission stored incl. VAT, ex-VAT = ÷(1 + `PerformanceSetting vat_rate`) (`:343-345, :402-404`); not-paid pipeline `:460-512`; all-time `:522-780`. DR2 writes the same `deals` model, so one table.
+- **Branch budget:** `monthly_target_goals.branch_budget` (`app/Models/MonthlyTargetGoal.php`), typed on Branch Performance (`bm/performance.blade.php:410-432`, `BM/PerformanceController.php:166-186`, permission `manage_targets`); required-per-agent = branch_budget ÷ active users in the branch with `counts_for_branch_split` (`WorksheetController.php:86-131`). QA1 has a stray `branch_id = 0` row for 2026-09 (R200,000).
+- **Dead plumbing:** `commission_percent_admin` / `commission_percent_locked` are written by the Admin Worksheet Market (`Admin/WorksheetMarketController.php:348-356`) but never read by `calculate()`/`store()`. `$branchMarket` is computed (`:79-85`) and never rendered. `alignTargets` (:1023) has no route.
+- **Settings the Worksheet depends on:** `PerformanceSetting` keys `vat_rate` (default 15) and `listings_per_sale` (default 5), edited in Company Settings → Performance tab (`resources/views/admin/company-settings/index.blade.php:1783-1806`, saver `Admin/PerformanceSettingsController.php:44-106`; also `admin.performance-settings.edit/update`, `RW:2024-2029`). Neither key is in the Setup Wizard (`config/agency-onboarding-copy.php` has no match).
+
+### 4.2 Target behaviour — My Portal "Targets & Budget" (read-only, no inputs)
+
+Home: a new sub-tab on My Portal Overview (`resources/views/agent/portal.blade.php`, Overview sub-tabs at :183-196; controller `Agent/AgentPortalController.php` `index` :26-260; route `agent.portal`, `RW:2617-2618`, permission `access_my_portal`). It sits next to "My Earnings" (:200-222) and replaces the Agency Tracker "Worksheet" entry. **The page has no input fields at all.** Everything is calculated and supplied.
+
+1. **Period selector** — current month by default, plus history. Build ONE shared `x-period-selector` component (none exists) and use it here, on the My Portal overview (ruling F) and on the Road to Sold pages. History = the months for which the agent had figures; a month with no data renders an empty state, not zeros.
+2. **Active stock** (from CoreX properties — NOT `listing_stocks`):
+   - Sales stock: `Property::ownStock()->onMarket()` for the agent, `listing_type` not a rental (`app/Models/Property.php:152` `scopeOwnStock`, `:218` `scopeOnMarket`, `OFF_MARKET_STATUSES` :69). Rental/to-let stock: same scopes where `Property::isRental()` is true — `listing_type` is normalised to `'rental'` for `rental/to_let/to-let/lease` (`Property.php:2606-2615, :2642`). Use `normaliseListingType`, never a raw string match (the reason is documented at `:2636-2641`).
+   - "Agent's stock" = the agent is the listing agent; exact column to be confirmed by the lane against `Property::scopeOwnListingsFor` (`:2354`). **UNVERIFIED which agent column is canonical for "listed by" — lane confirms before building.**
+3. **"Correctly priced" stock — LATER STEP ONLY (4.4).** Not in the first build. Show nothing for it; do not carry the manual 40% box.
+4. **Monthly budget:** two lines, **Personal budget** and **Business budget**, shown separately, with a CoreX-calculated **Total**. The "Want" line (`want_net_target`) is dropped from display and from the calculation. The figures are *supplied* by the Road to Sold settings screen (4.3) — the agent sees them, cannot edit them.
+5. **Deal summary — compact two-column compare.** Two columns A | B; the user picks, per column, which "lens" it shows (own / branch / agency) and which of these rows:
+
+| Row | Source (actuals only — no planning percentages) | Lens options |
+|---|---|---|
+| Average sale price | CMA data and/or actual deals. Deals: `deals.sale_price`/`property_value` of non-declined deals in the period. CMA: presentation/CMA outcome data (lane to identify; **UNVERIFIED** which table) | own / branch / agency |
+| Average commission | Actual `deals.total_commission` ex-VAT ÷ price, actual deals only; the planning 7.5% is dropped | own / branch / agency |
+| Deal count | `deals.accepted_status` buckets: **P Pending, G Granted, R Registered, D Declined** (`Services/Deal/DealPipelineLockService.php:20-26`; long forms mapped at `Dr2/DealRegisterController.php:80-87`) | own / branch / agency |
+| Total commission — own gross | `deal_money_lines.agent_gross_ex_vat` | own only |
+| Total commission — own after splits/deductions | `deal_money_lines.agent_net_ex_vat` (`app/Models/DealMoneyLine.php:26-47`, rebuilt by `DealMoneyLineRebuilder`) | own only |
+| Total commission — agency / branch | same, summed | shown **only if an agency setting allows (default OFF)** |
+| Pipeline | the agent's own `agent_net_ex_vat` on deals not yet **R Registered / paid** | own only |
+
+   - Lens "branch" and "agency" respect scope at the query layer; the agency-wide *money* rows additionally need the agency setting `portal_show_agency_commission_totals` (name proposed; default false) — a new setting, so it is surfaced in the Setup Wizard (non-negotiable 10a) — suggested step: `commission` (`config/agency-onboarding-copy.php:324`).
+   - Declined deals are excluded from totals (existing rule, `WorksheetController.php:369-374`).
+   - **Money rule:** the figures must come from `DealMoney` / `deal_money_lines` (`app/Services/Finance/DealMoney.php:72`), never from `commission_ledger`/`CommissionLedger` (flagged wrong, separate money spec). The existing My Earnings widget (`AgentPortalController.php:168-174`) is not touched here.
+   - **Future (record only, not built now):** once a payslip is generated from a DR2 deal, that deal leaves the pipeline. **Not possible today:** printing the per-agent deal payslip writes nothing (`Dr2/DealSettlementController.php:401-461`); the only "paid" event is `saveSettlement` with `mark_paid` (`:240-251`), which sets `deals.commission_status='Paid'` and `deal_settlements.paid_at`. Until a "payslip generated" event exists, "not registered/paid" = `accepted_status != 'R'` AND `commission_status != 'Paid'`.
+6. **Target requirements: same as today for now** — the page shows the same derived requirement block as the Worksheet's "Net targets" and "Required per agent" cards (budget → sales needed → listings needed → gap vs active stock; `WorksheetController.php:870-952` `calculate`, cards view :64-110), read-only, computed from the figures in 4.3. Defaults must be neutral: no 1,060,000 / 7.5% / 40% constants (finding 10). Where an agent has no deals yet, show "not enough deals yet to calculate" rather than HFC averages — or read the agency averages (agency lens) when present.
+
+### 4.3 Interface to Road to Sold settings (the only thing this spec defines about RTS)
+
+Road to Sold is specced separately (`road-to-sold.md`; settings hub `road-to-sold.settings.*` = `routes/road-to-sold-settings.php`, mounted at `RW:8153-8158`; keys `road_to_sold.manage_settings/manage_areas/manage_targets`, `config/corex-permissions.php:621-623`; services `app/Services/RoadToSold/SettingsService.php`, `TargetService.php`, `WorkdayService.php`). Contract for what the RTS lane must provide so My Portal can *read* it:
+
+Two new Road to Sold settings tabs (permission `road_to_sold.manage_settings`; scope branch/agency):
+
+- **Budgets & requirements** (replaces the Worksheet budget inputs, the branch-budget box on Branch Performance, and Admin Monthly Goals):
+  - Company/agency monthly requirement (income the agency needs) per period; branch requirement; per-user **personal budget** and **business budget** per period (no "want").
+  - Agency defaults (a setting, with neutral defaults) for users without their own row — same shape as the existing weekday-targets "agency default" (`RtsSetting` default week `[5,5,5,5,5,0,0]`, `app/Models/RoadToSold/RtsSetting.php:143`).
+- **Targets** (the monthly deals/value/listings/points targets that today live in `targets`): see 5.7.
+
+Read interface the lane exposes (names indicative; signatures binding):
+
+```
+RoadToSold\BudgetService::forUser(User $u, string $period): { personalBudget, businessBudget, total, source: 'user'|'branch_default'|'agency_default' }
+RoadToSold\BudgetService::requirementFor(int $agencyId, ?int $branchId, string $period): { requirement, requiredPerAgent }
+RoadToSold\TargetService::monthlyFor(User $u, string $period): { deals, value, listings, points }   // existing TargetService extended; reads `targets`
+```
+
+- Money in integer cents or decimal(12,2) — lane's choice, but the same unit as `deal_money_lines`. Soft delete only (archive/restore) on every row. BelongsToAgency on every table. `agency_id <= 0` returns defaults and never writes (same rule as `SettingsService::forAgency`, `SettingsService.php:36`).
+- **Until the RTS lane ships these tables, My Portal reads the existing sources through the same interface** (`worksheets.personal_net_target/business_net_target` for budgets; `monthly_target_goals.branch_budget` for requirement; `targets` for targets), so step 2 (My Portal) and step 3 (RTS) can be built and tested independently and the data moves in step 3's migration, with counts verified (4.5). The interface hides which table answers.
+- Wizard (10a): the budget/requirement defaults are new agency settings → surfaced in the existing `road_to_sold` wizard step (`config/agency-onboarding-copy.php:1656`) with `explain` + `affects`. `vat_rate` and `listings_per_sale` (the existing Performance settings the calculation uses) are **not in the wizard today** — the RTS/portal lane adds them to the identity or commission step, or Johan records them as deliberately-not-in-wizard.
+
+### 4.4 Later step (spec only): "correctly priced" stock
+
+Needs presentation/CMA data, not the frozen Propcon `cma_price_cents`. Not built until a presentation/CMA outcome table is chosen. Placeholder acceptance: shows "% of my active listings priced within the agency's tolerance of the latest CMA/evaluation value" with tolerance an agency setting (today's 105% is hardcoded, `WorksheetController.php:147-165`). Until then the row is simply absent.
+
+### 4.5 Order, removal, acceptance (A)
+
+Order (Johan): build and test My Portal + Road to Sold first, **then** remove Worksheet from Agency Tracker.
+
+Acceptance checks:
+1. My Portal "Targets & Budget" renders for an agent with deals, an agent with no deals, an assistant (hidden — assistants never see earnings, `agent/portal.blade.php:200`), and a second agency with no HFC data; no HFC constant appears (grep the new view/service for `1060000`, `7.5`, `hfc`).
+2. No `<input>`/`<form>` on the page except the period selector and the lens pickers (which are display preferences, saved per user, not data).
+3. Period selector: current month default; a past month shows that month's figures or an empty state; `?period=` honoured (unlike today).
+4. Stock numbers equal `Property::ownStock()->onMarket()` counts for that agent (sales vs rental) — proven by a tinker count compared to the page.
+5. Pipeline equals the sum of that agent's `agent_net_ex_vat` on deals with `accepted_status != 'R'` and `commission_status != 'Paid'`.
+6. Agency/branch commission totals invisible until the setting is on; direct-URL/API attempts blocked at the query layer.
+7. Only after 1–6 pass and RTS Budgets & Targets are live: remove the Worksheet entry (SB:1740-1741), the two unauthenticated POST routes (`RW:2016-2019`), and redirect `GET /worksheet` 301 → `agent.portal` with the Targets & Budget sub-tab anchor. `worksheet.store`/`align`/`applyBranchDefault` removed; `syncTargetsFromWorksheet` replaced by the named service (4.1).
+8. The orphan `index.blade.php.fix1.20260205_160523` backup in `resources/views/worksheet/` goes with it.
+
+Data verification for the budgets move: counts of `worksheets` rows with `personal_net_target`/`business_net_target` > 0 per period before = rows in the new store after (QA1 baseline: periods 2026-06 (3), 07 (1), 08 (2), 09 (1), 10 (2)); sum of both columns identical before/after; `monthly_target_goals.branch_budget` rows (including the stray `branch_id=0` row — surface to Johan, do not guess) identical.
+
+---
+
+## 5. Rulings B and C — Daily activities, points, targets
+
+### 5.1 What exists today (verified)
+
+- **Agent capture:** `GET /agent/daily` `agent.daily` (`RW:1926`, `access_daily_activity`; controller also requires `daily_activity.view`, `Agent/DailyActivityController.php:76`), `index()` :61-238, store `POST /agent/daily` (`RW:1943`, `store` :340-481), print `agent.daily.print` (`RW:1941-1942`, :240-337). View `agent/daily-v2.blade.php`.
+- **Summaries (three controllers, same idea):** `agent.daily.summary` (`RW:1927`, `Agent/DailyActivitySummaryController`), `bm.daily.summary` (`RW:1931`, drill-downs `:1932-1933`), `admin.daily.summary` (`RW:1935`, drill-downs `:1936-1938`). Range pattern (`7d/month/3m/6m/12m` + `month`) is re-implemented in each controller (`Agent/DailyActivitySummaryController.php:12-40`).
+- **Setup:** `admin.daily-activities.setup` (`RW:1970-1978`; middleware `permission:manage_targets,manage_activity_mappings`; controller `Admin/DailyActivitySetupController.php` `index` :88-101, tabs `?tab=manual|auto`; view `admin/daily-activities/setup.blade.php:68-71`). Old URLs already redirect into it (`RW:1950-1956`, `RW:5736-5740`).
+- **Tables:** `activity_definitions` (name, weight decimal(10,2), scoring_mode, is_enabled, scope), `daily_activity_entries` (value, point_state provisional/confirmed/revoked/overridden, source manual/auto_calendar/auto_instant/auto_other), `activity_definition_calendar_classes` (auto-credit rules: `value_per_event`, `requires_feedback`, `auto_revoke_after_hours`, `daily_cap`, `back_date_limit_hours`). Counts only `confirmed`+`overridden` and sources excluding `auto_other` (`DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES/SOURCES`).
+- **Menu duplicate (#13 vs #2):** both labels point at the same route `agent.daily` — "My Daily Activity" SB:1750 and "Daily Activity Capture" SB:1902 (the latter only when `$effectiveBranchId`). Both exist in the legacy navbar too (`layouts/navigation.blade.php:31, :42`). The nav-audit fixture records the accepted duplicate (`tests/Feature/Navigation/fixtures/sidebar-nav-allowlist.json:183-188`).
+- **Dead legacy:** table `daily_activities` (0 rows), orphan `TargetController::agentDaily/activityDefinitions/activitySetup` (:388, :705, :809), `Agent\AgentDailyController` (no route), views `agent/daily.blade.php`, `agent/daily/index.blade.php` (references non-existent `agent.daily.save`), `admin/targets/activity-definitions.blade.php`, `activity-setup.blade.php`; still-routed POSTs `admin.targets.daily.save` (`RW:1785`), `admin.targets.activity.setup.save/definitions.save/columns.create` (`RW:1953/1957/1960`).
+
+### 5.2 Homes (B)
+
+| Piece | New home |
+|---|---|
+| Personal figures: my points today/this month, my capture form, my own summary, my 14-day strip | **My Portal** — a "My Activity" sub-tab (own scope). The capture form (`agent.daily`) keeps working; its menu entry becomes a My Portal link. One entry replaces #2 and #13 |
+| Branch view (BM summaries + drill-downs) | **Road to Sold** (branch view of the day's activity next to calls) **and** **Reports** (a "Daily Activity" report: branch and agency, date range) |
+| Agency view (admin summaries + drill-downs) | **Road to Sold** (agency view) and **Reports** |
+| Activity setup (definitions, weights, auto-credit rules) | **Road to Sold settings → Activity points** |
+
+Same underlying services; Reports and Road to Sold read one shared points service (5.6), not two copies.
+
+### 5.3 Menu merge (#13 into #2)
+
+Remove SB:1900-1903 ("Daily Activity Capture" under the `view_daily_activity` group) and keep one capture entry. The tour definition `app/Support/Tours/defs/agency-tracker-tools.php:158` targets `agent.daily` and keeps working (route name unchanged).
+
+### 5.4 Move mechanics
+
+- Keep route names (`agent.daily`, `agent.daily.summary`, `bm.daily.summary`, `admin.daily.summary`, `admin.daily-activities.setup`) so the ~40 internal callers (link inventory, 11) do not break; move the *URL* with a 301 only where the URL changes. Callers to update for label/placement (not name): SB:115-121 (active-group matchers), SB:1750-1755, 1902-1908, 1986-1990; `layouts/navigation.blade.php:31, 40, 42, 56-57, 148, 157, 159, 170-171` (confirm whether this legacy navbar is still rendered before editing — no include was found); `dashboard.blade.php:62, 144, 132, 237, 249`; `corex/dashboard.blade.php:153`; `agent/dashboard.blade.php:100`; `command-center/performance.blade.php:130`; `admin/dashboard.blade.php:29, 35, 41`; `bm/daily-summary/index.blade.php:16`.
+- Active-group: add `agent.daily*`, `bm.daily*`, `admin.daily*`, `admin.daily-activities.setup*` to the group that now contains them (My Portal link / Road to Sold in `real-estate` group, `SB:263-292`, `road-to-sold.*` at SB:292 / Reports `SB:381-389`) and remove them from the `agency-tracker` branch (SB:113-136). `tests/Feature/Navigation/SidebarNavMappingTest.php` and the fixture must be updated in the same change.
+- Dead legacy (5.1 last bullet): **not deleted** — stays out of scope unless the lane is told; list in the lane's report. Soft-retire only (rule: never delete). The dead-table readers are repointed to the live table as part of the move (finding 11) because the moved pages would otherwise show blank widgets.
+
+### 5.5 Acceptance (B)
+
+1. A single "My Activity" entry exists on My Portal; the Agency Tracker panel has no capture entry; `agent.daily` still opens, saves and prints.
+2. Branch and agency summaries work from Road to Sold and Reports with the same numbers as before the move for the same period (compare 5 sample agents, a branch, the agency, one month) — the points service is shared (5.6).
+3. Setup screen reachable only from Road to Sold settings; `manage_targets` still gates the manual tab and `manage_activity_mappings` the auto tab; `GET /admin/daily-activities` (old URL) 301s there.
+4. Per-agent "last 7 days"/"today" strips show real data (finding 11).
+5. Wizard: activity setup is a setting → surfaced in the `road_to_sold` step or recorded by Johan as not-in-wizard (non-negotiable 10a). Today `config/agency-onboarding-copy.php` has no daily-activity/points step.
+6. Nav fixtures and `SidebarNavMappingTest` updated; no orphan sidebar link; `Route::has` guards intact.
+
+### 5.6 Points calculation — verified wrong; documented
+
+Verified formula everywhere: Σ(`daily_activity_entries.value` × `activity_definitions.weight`) for `point_state IN (confirmed, overridden)` and `source IN ACHIEVEMENT_TOTAL_SOURCES`. There is **no shared function**; each site re-implements it:
+
+| Site | Lines | Definition filter |
+|---|---|---|
+| Agent daily page month-to-date | `Agent/DailyActivityController.php:120-129` (per-day :146-150, auto rows :198) | no `is_enabled`, no scope filter; picker lists `scope='system'` only (:93-98) |
+| Agent dashboard | `Services/Agent/AgentPerformanceService.php:188-207, :219-246` | `is_enabled=1` and scope `system` OR (`branch` and user's branch) |
+| Branch rollup | `Services/Admin/CompanyPerformanceService.php:633-649, :678-692, :817-846` | same as agent dashboard |
+| Company/period rollup | `CompanyPerformanceService.php:142-152, :414-443, :911-921` | `is_enabled=1`, **no scope filter** |
+| Summaries | Agent `…SummaryController.php:53-65, :74-100`; BM `:56-65, :102`; Admin `:49-52, :87` | system+branch / system+branch / every enabled |
+
+**Defects (all verified in code; production data UNVERIFIED):**
+1. **Double weighting for calendar credit.** Calendar rows are created with `value = mapping->value_per_event` (`ProvisionalPointService.php:171` organiser, `:249` attendee), then multiplied by weight. `value_per_event` was seeded from the definition weight (`database/migrations/2026_06_20_120000_seed_hfc_activity_calendar_mappings.php:76`; `database/seeders/ActivityCalendarMappingSeeder.php:95`; `Demo/DemoAgentDailyActivitySeeder.php:240`). QA1: `property_evaluation` → def 15 (weight 200) `value_per_event` 200 → **40,000** per event; `listing_presentation` the same; `viewing` 50 × 50 = **2,500**. Compare manual "Sign an OTP" = 500 and instant credits `value_per_event=1` (weight = points) (`ActivityInstantActionsSeeder.php:302`). QA1 confirmed calendar rows: 21 entries carry 240,000 points; 210 revoked (3.41M) and 2 provisional (42.5k) are excluded by the state filter.
+   - **Rule the fix must obey:** `value` is a *count*; points = count × agency weight, always. A calendar mapping carries a count per event (normally 1), never a points amount.
+2. **Scope representations disagree.** The model only creates `system`/`agency` scopes (`ActivityDefinition.php:44-61`); queries test `scope = 'branch'`; Setup writes `scope = (string)$branchId` for non-owners (`DailyActivitySetupController.php:173-183, :221`). An agency/branch definition is excluded from the agent/branch dashboards and the agent picker but included in the company view. (QA1: no entries reference such rows.)
+3. **`is_enabled` ignored on the agent page** (`DailyActivityController.php:120-129`) but required by dashboards. The comment at `:107-112` says "[Auto]" definitions are seeded disabled; QA1 has them all enabled.
+4. **Weight cast:** model casts weight to integer (`ActivityDefinition.php:36`), column is decimal(10,2), Setup stores floats (`DailyActivitySetupController.php:144-146`).
+5. **Calendar mappings are seeded for HFC only** (lookup by `slug='hfc-coastal'`: migration and `ActivityCalendarMappingSeeder.php:49`) — a second agency gets none (multi-agency gap).
+6. **Dead weights table** `CompanyPerformanceService::weights()` (:16-45, `dailyPointsExpr` :48-59) is a hard-coded points map for the abandoned `daily_activities` columns (`calls_made`=1, `otps_accepted`=15, …); still referenced (:809, :848-870, :959-1000). Point weights in the live system are agency data (`activity_definitions`), so this is legacy dead weight to remove from the read paths.
+
+Required of the build lane (not fixed here): one `ActivityPointsService` that all sites call; the double-weighting fix with a **data correction plan** (re-base `value_per_event` to counts and rebuild affected entries — never rewrite history silently: write a before/after report and get Johan's go for any change to already-confirmed points); one definition-scope rule; agency-owned definitions (the move to Road to Sold settings makes the catalogue agency data, not a global system catalogue edited by `isOwnerRole`, `DailyActivitySetupController.php:161-183, :213-221`).
+
+### 5.7 Ruling C — Targets screen bug (verified) and its move
+
+- Screen: `GET/POST /admin/targets` `admin.targets` / `admin.targets.save` (`RW:1775-1776`, `manage_targets`; `index()` itself checks `targets.view`, `Admin/TargetController.php:22`). View `resources/views/admin/targets/index.blade.php`: the only editable column is "Monthly Points Target" (`:108-112`, input `targets[{userId}][points_target]` `:129`).
+- **Bug (verified):** `TargetController.php:357` `$listings = isset($row['listings_target']) ? (int)… : 0;` `:358` deals `:0`, `:359` value `:0`, `:361` points; then `Target::updateOrCreate(['period','user_id'], ['branch_id','listings_target'=>$listings,'deals_target'=>$deals,'value_target'=>$value,'points_target'=>$points,'updated_by','created_by'])` at `:368-379`. The form never submits the first three, so **every save zeroes them for every listed agent**, and overwrites `created_by` (`:377`).
+- Consequence: Branch/Company rollups read `targets` directly (`CompanyPerformanceService.php:109-115, :180-183`) and see zeros; the agent dashboard hides it by re-deriving from the worksheet (`AgentPerformanceService.php:57-103`). QA1 2026-09: 23 rows, 17 with points > 0, 6 with deals > 0 (not traced to this bug).
+- **Fix rule (build lane, as part of the RTS targets move):** a save writes only the columns the form submitted (`$request->has()` / `array_key_exists`, per `agency-onboarding-setup.md` §6.1 pattern); never coerce an absent field to 0; do not overwrite `created_by`; update `updated_by` only. Test: save points only → deals/value/listings unchanged.
+- **Related writers with the same family of risk** (all raw `DB::table('targets')->updateOrInsert`, `BM/PerformanceController.php`): `alignTargets` :188-258 (scales branch rows by `branch_budget ÷ (Σ value_target × 0.075 × 0.5)` — hardcoded HFC rates), `alignAgentToCompany` :262-376, `setAgentTargets` :380-490. Moving Branch Performance (step 6) carries these; they must read agency rates from settings, not `0.075/0.5` (finding 10).
+- **Other target screens:** Listing Targets `admin.listing-targets` (`RW:871-875`, table `listing_targets`, no sidebar link, tile only at `admin/dashboard.blade.php:71`) — a target with no "actual" anywhere. Monthly Goals `admin.monthly-goals` (`RW:1778-1782`, `monthly_target_goals`, tile only at `admin/dashboard.blade.php:65`) — its per-agent rollup is near-zero because of the bug above. The bottom-up calculator `TargetsManageController` (`admin.targets.manage*`) has **no route** (listed as a known dead view, `tests/Unit/Routing/RouteReferenceIntegrityTest.php:85`).
+- **New home:** Road to Sold settings → **Targets** (extend the existing tab: `road-to-sold.settings.targets.*`, `routes/road-to-sold-settings.php`, controller `RoadToSold\TargetsController`). It already holds *weekday call* targets (`rts_weekday_targets`, unique `(agency_id, track, user_id, weekday)`) — a different grain and table from `targets.points_target` (monthly points). Both live on the one Targets tab as two sections: "Daily call targets" (existing) and "Monthly targets: points / deals / value / listings" (moved). They do not read or write each other.
+- Monthly Goals and Listing Targets fold into the same tab as agency/branch rollups and listings target; their unlinked routes 301 to it. Fold-in is a build decision for the lane; **dropping the Listing Targets "set but never measured" gap is flagged to Johan: either show actual-vs-target (listing count from `properties`) or retire it.** Not decided here.
+- Acceptance: the save-points-only test above; period dropdown; all four target types editable per agent; archive/restore on rows; branch scope for BM; agency default; `targets` row counts and column sums identical before/after the data move for QA1 2026-09 and 2026-10; Branch/Agency Performance totals unchanged.
+
+---
+
+## 6. Ruling F — My Agent Dashboard becomes the My Portal overview
+
+- Today: `GET /bm/my-dashboard` `bm.my.dashboard` (`RW:1769`, `view_performance`), SB:1771-1772 (inside the "Branch" section, `view_branch_stats`); controller `BM/MyDashboardController.php` `index` :12-69 builds `AgentPerformanceService::getMonthlySnapshot($u,$month)` (:25, service `app/Services/Agent/AgentPerformanceService.php:29-374`) and `ListingStock` stats (:37-62); renders the shared view `agent.dashboard` (`resources/views/agent/dashboard.blade.php`, 448 lines), the same view the agent route `agent.dashboard` renders (`Agent/DashboardController.php:12-33`, `RW:1772`). Sections: "Your focus" (:127), "Your Actuals" (:214), "You vs Branch vs Company" (:249), calendar (`$dailyMap` :63), "Momentum last 7 days" (:386-445). Period form is `<input type="month" name="period">` (:91).
+- **Bugs to fix on the way (verified):** (a) the period form posts to `route('agent.dashboard')` (permission `view_dashboard`) even when opened as `bm.my.dashboard` (`agent/dashboard.blade.php:91`) — "Go" leaves the BM URL; (b) `points_by_date` is limited to the selected month (`AgentPerformanceService.php:221`) so on the 1st–6th the momentum strip loses the prior month's days; (c) `$listingStats` is computed but its use in the view was not found (UNVERIFIED) — if unused, drop the frozen `ListingStock` read.
+- **Target:** the My Portal Overview gains a top block "Where am I vs where I should be": targets vs actuals (points, deals, value, listings), the You-vs-Branch-vs-Company strip, and the momentum strip — all from one snapshot service. Source of "where I should be" = the RTS targets/budgets interface (4.3), so it matches the Targets & Budget block. Use the shared period selector (4.2.1). Listing numbers come from CoreX properties, not `listing_stocks` (finding 7).
+- Home in code: `agent/portal.blade.php` Overview (sub-tabs at :183-196) + `AgentPortalController@index`. The view `agent.dashboard` is re-used as partials, not duplicated.
+- Retire `bm.my.dashboard` as a menu item (SB:1771-1772) and 301 `GET /bm/my-dashboard` → `agent.portal#overview`. Keep `agent.dashboard` working while any caller exists (`dashboard.blade.php:76`, `bm/daily-summary/index.blade.php:16`, `layouts/navigation.blade.php:35, 152`, `command-center/performance.blade.php:130`). Update the sidebar matcher at SB:116.
+- Acceptance: BM, agent, assistant (sees no earnings), second-agency user each get a correct overview; period form stays on My Portal; numbers equal the old My Agent Dashboard for the same agent/month (compare 3 agents); no `ListingStock` read; 7-day strip correct across a month boundary.
+
+---
+
+## 7. Ruling G — Reports gets Branch Performance, Agency Performance, Worksheet Market
+
+### 7.1 Reports today (verified)
+
+`Reports` group: wrapper SB:2498, toggle SB:2500-2505, panel SB:2509. Items: Performance & ROI Report (SB:2516-2519, `performance.agency-report`, `RW:1803-1819`, `view_performance`, feature `performance-roi-report`, controller `Performance/AgencyPerformanceReportController.php`), Buyers Report (SB:2522-2527), Lead Response (SB:2531-2536), Suburb Report (SB:2539-2544). Active-group branch `reports` = SB:381-389 (matches only `buyers-report.*`, `lead-response-report.*`, `performance.agency-report*`, `market-intelligence.suburb-report.*`).
+
+### 7.2 What moves
+
+| Item | Route/controller/view (unchanged names) | Notes |
+|---|---|---|
+| Branch Performance (#6) | `bm.performance` `RW:1861` (`view_performance`), `BM\PerformanceController` :18-164, `bm/performance.blade.php`; POSTs `bm.performance.save` (`RW:1917-1919`, `manage_targets`), `.align` (`RW:1994`), `.alignAgentToCompany` (`RW:1992`), `.setAgentTargets` (`RW:1983`); agent drill-down `bm.agent.performance` (`RW:1921`); admin reuse `admin.branch.performance` (`RW:1800`, `Admin\BranchPerformanceController` renders `bm.performance`, :79) | The branch-budget form (`bm/performance.blade.php:410-432`) and align/targets forms **leave this report page** and live in RTS settings → Budgets & Targets (4.3, 5.7). The report is view-only |
+| Agency Performance (#18) | `admin.performance` `RW:1799`, `Admin\PerformanceController` :13-201, `admin/performance.blade.php`; `admin.agent.performance` (`RW:1922`) | Page gate `canOpenCompanyPages`/`isOwnerRole` (:41) stays |
+| Worksheet Market, BM (#15) and Admin (#23) | `bm.worksheet.market`(+`.save`) `RW:1857-1859`; `admin.worksheet-market`(+`.store`) `RW:2084-2087` | Kept for agencies that set budgets. Both still **write** `worksheets.avg_sale_price_admin` (+ admin: `commission_percent_admin`, `commission_percent_locked`), so they stay as editable Reports "tools", not read-only. **Note (automate later, record only):** the manager-set planning price exists only because the Worksheet had inputs. Once My Portal is calculated (ruling A) the average price should come from actual deals + CMA; then Worksheet Market becomes a pure report and the override fields go. `commission_percent_admin/locked` are written but never read (`WorksheetController.php:877` reads `commission_percent`) — dead today |
+
+- Reports group visibility (SB:2498) must be widened to show the group for users who hold only `view_performance` via these items; add the new entries inside `@feature` wraps per the sidebar rule (`config/corex-features.php:44-48`; guards `SidebarNavAuditor`, `FeatureNavGuardCoverageTest`, `CrossLinkFeatureWrapTest`).
+- **Feature flags:** the `performance-dashboards` registry row (`config/corex-features.php:748+`) already covers "the Dashboard performance pages" (different feature — Dashboard group "Performance/My Performance/Branch Report/Agency Report", SB:816-834, `command-center.performance`). **Do not merge.** Give the moved pages their own feature rows or hang them on `performance-roi-report`; the lane decides and states it.
+- **Active-group:** remove `bm.performance*`, `bm.agent.performance*`, `admin.performance`, `admin.agent.performance*`, `admin.branch.performance*`, `bm.worksheet.market*`, `admin.worksheet-market*` from the `agency-tracker` branch (SB:113-136) and add them to the `reports` branch (SB:381-389). Update the nav-mapping test and fixture.
+
+### 7.3 What each page reads (so the move can repoint)
+
+Both pages read `app/Services/Admin/CompanyPerformanceService.php` (1007 lines): `getBranchRollup` :563, `getPeriodRollup` :61, `getAgentRollup` :939. Deals/commission from the **DR1 `deals`/`deal_user` tables** (`:83-91, :120, :209, :255, :462, :596-601, :712, :726`) — fine, it is the same table DR2 uses (finding 1) — plus `Deal::statusSummaryForBranch` (`app/Models/Deal.php:594`) and `marketAveragesForBranch` (`:720`); targets from `targets` (:109, :651) and `MonthlyTargetGoal`; points from `daily_activity_entries` (:142, :633, :678, :817, :911); **dead table** `daily_activities` (:848, :859) feeds `activities_today` (:890, :1003) — repoint to the live table (finding 11); **frozen `ListingStock`** feeds the listing tiles (`BM/PerformanceController.php:96-120`, `Admin/PerformanceController.php:136-173`) — repoint to CoreX stock (`Property::ownStock()->onMarket()`) or drop the tile; the TV code cards (`TvAccessCode`, `BM/PerformanceController.php:127-134`, `Admin/PerformanceController.php:155-173`) move to the TV settings home (step 8); income projection uses `config('performance.commission_rate', 0.075)` / `company_share 0.50` — HFC defaults, must become agency settings (finding 10).
+Drill links use hardcoded `/admin/deals/{id}` (`Performance/PerformanceDrilldownService.php:90, :255`; `bm/performance.blade.php:167-255`; `admin/branch-performance.blade.php:71-177`; `admin/performance.blade.php:79-169`) — repoint to the renamed Deal Register (section 8). Those links pass `period=` and `commission_status=`, but `Admin\DealController::index` reads only `search, status, commission, branch, agent, sort, direction` (:97-170) — the parameters appear ignored (not executed to confirm); the new Deal Register must honour `period` and `commission_status` so drill-downs land on the same deals.
+
+### 7.4 Acceptance (G)
+
+1. Reports shows Branch Performance, Agency Performance, Worksheet Market (branch/admin variants by permission); Agency Tracker shows none of them.
+2. Page numbers equal pre-move for the same period on QA1 (3 branches, company) — except the three repointed widgets (listing tiles, activities-today, income projection), each of which is listed in the lane's report with before/after.
+3. Sidebar highlight/open panel is Reports for every route above and for every sub-route (agent drill-downs); old URLs 301.
+4. TV code cards exist at the new TV settings home before this step starts.
+5. Budget/target forms are gone from the report pages; the POST routes keep their names but are mounted under RTS settings or 301/405 as stated by the lane (no silent 404).
+
+---
+
+## 8. Ruling E — Deals: new main menu, DR2 becomes "Deal Register", old register retired
+
+### 8.1 What exists (verified)
+
+- **Old register (DR1) screens:** `admin.deals` family `RW:878-908` (`index` :878, `create` :885, `store` :887, `edit` :889, `log` :890, `remark` :891, `update` :893, `quickUpdate` :894, `settle` :897-898, `settle.save` :900-901, `settle.print` :904-905, `settle.print.agent` :907-908; `create_deals`, settle = `settle_deals`); `admin.deals.branches.attach/detach` `RW:1903-1904`; `agent.deals.index/log/remark` `RW:880-882` (`view_deals`). Controllers `Admin/DealController.php` (1147 lines), `Agent/DealRegisterController.php` (171 lines). Views `resources/views/admin/deals/*` (three stray `index.blade.php.pre_restore.*` backups), `agent/deals/*`. Read API `RW:587-588`.
+- **New register (DR2):** `Route::prefix('deals-dr2')->name('deals-dr2.')` `RW:1072-1220` — register `index` :1073, capture `create/store` :1074-1075, `edit/update/quickUpdate` :1121-1124, pipeline family :1145-1182, communications :1154-1157, documents :1200-1203, distribute :1211-1216, proforma :1207, work orders :1186-1219, unfiled emails :1104-1113. Controller `Dr2/DealRegisterController.php` (1873 lines; `index` :58, `create` :279, `edit` :327, `store` :374 calls `DealSyncService::ensureTwin` :1020, `update` :629). Settlement copy `Dr2/DealSettlementController.php` (`settle` :43, `saveSettlement` :76, `printSettlement` :350, `printAgentPayslip` :401). Views `resources/views/dr2/*`. No `feature:` middleware on the group; `config/corex-features.php:95-102` has `deals` as core (cannot be switched off). **There is no DR2 flag** — the spec's "retire DR1 UI behind a flag" (`deal-register-v2-spec.md:305`) was never built.
+- **Both read the same `deals` table** (finding 1). DR2's twin rows: `deals_v2` via `deals.deal_v2_id` ↔ `deals_v2.legacy_deal_id` (UNIQUE, `2026_10_15_000500_deals_v2_legacy_deal_id_unique.php`; link columns `2026_07_03_100001_add_dr1_dr2_link_columns.php:28-29`; relaxation `2026_07_24_000001_dr2_twin_backfill_relax_and_marker.php`). The old standalone DealV2 module (`deals-v2/*`) is already soft-retired (`DealV2Controller.php:35-39` redirects to `deals-dr2.index`; sidebar group disabled at SB:2945).
+- **Statuses:** `deals.accepted_status` P/G/D/R (the four buckets), `deals.commission_status` Not Paid/Paid/Loss. Twin enum `active/completed/cancelled/on_hold/granted/declined` maps via `DealSyncService.php:266-292`.
+- **Sidebar today:** My Deals SB:1758 (My Performance block, `view_own_stats`+`view_deals`); Deal Register SB:1776 (`view_deals`+`create_deals`); Deal Register (DR2) SB:1779 (and `Route::has('deals-dr2.index')`); Unfiled Emails SB:1828 (label "Deal Register Unfiled Emails", badge query SB:1811-1836); **duplicate admin copies SB:1952 and SB:1955 (#19, #20)**; "Deal Register Settings" group SB:3051-3100 (visible if any of `deals_v2.manage_suppliers`, `deals_v2.manage_pipeline`, `access_settings`, `deals_v2.manage_distribution_rules`, SB:3061). Active-group matchers: `agent.deals.*` SB:115, `admin.deals*` SB:120, `deals-dr2.*` SB:126 (all open Agency Tracker), `deal-register-settings` SB:328-337. Legacy navbar `layouts/navigation.blade.php:39, 54, 156, 168` also links `admin.deals` (still rendered? UNVERIFIED).
+
+### 8.2 The "Deals" main menu (new)
+
+A new top-level group "Deals" (declare per SB mechanics: `<button @click="push('deals')">` + `corex-nav-panel`; add to `$activeGroup` chain and `$navGroupParents` if nested). Items, in order:
+1. **Deal Register** (the renamed DR2, route `deals-dr2.index`)
+2. **My Deals** (`agent.deals.index`)
+3. **Unfiled deal emails** (`deals-dr2.unfiled-emails.index`, badge kept)
+4. **Deal settings** — bottom of the menu, **admin-only** (see 8.4)
+
+Remove: #5, #9, #10, #11, #19, #20 from Agency Tracker (SB:1758, 1776, 1779, 1828, 1952, 1955). Remove the matchers SB:115, 120, 126 from `agency-tracker` and add them under `deals`. The disabled `deals-v2` group (SB:2939-2990, `@if(false …)` at :2945) and `app/Support/Navigation/SidebarFeatureCoverage.php:57-66` (lists `deals-v2` and `deal-register-settings` as platform groups, "retired Deals menu") must be reconciled — the lane checks that file before relying on it: the "Deal Register Settings" block is live (SB:3061) despite that list.
+Feature wrap: the `deals` feature is core (cannot be off), so no new flag is needed for the group; nav permission `view_deals`.
+
+### 8.3 Retiring the old register and renaming DR2 — the spec
+
+Because the data is already shared (finding 1), "migration" has three parts, each with verification counts (QA1 baseline from the 20 Oct read; live counts **UNVERIFIED** — the lane must read Prod counts before the promotion):
+
+**Part 1 — twin completeness (the only real data work).**
+- Run `php artisan deals:backfill-v2-twins [--agency=] [--dry-run]` (`app/Console/Commands/DealV2/BackfillV2Twins.php:30`; idempotent; creates twins with no pipeline; writes only the raw `deals.deal_v2_id` pointer). Cross-check with `deals:parity-check` (`DealParityCheck.php:33`) and `deals:align-v2-twins --dry-run` (`AlignV2TwinsToDeals.php:38`).
+- QA1 baseline before: `deals` 178 rows (169 live, 9 trashed), all `agency_id=1`; live by status/commission: R/Paid 60, R/Not Paid 1, D/Loss 32, D/Not Paid 36, G/Paid 22, G/Not Paid 10, P/Not Paid 7, NULL 1; `deals_v2` 103 rows (102 live); twin status completed 62, granted 16, active 13 (12 live), declined 12; 102 `deals` have `deal_v2_id`, 0 zero-pointers, 0 one-sided links; **live deals with no live twin: 73** (76 incl. trashed).
+- Targets after: live deals with no live twin = **0**; `COUNT(deals where deal_v2_id not null)` = `COUNT(deals_v2 where legacy_deal_id not null)`; 0 one-sided; trashed deals (9) decision stated by the lane (the 3 with NULL status and 5 with P are most likely abandoned drafts — flag to Johan, do not backfill silently).
+- One `deals_v2` row (native, no `legacy_deal_id`) exists on QA1 that is not backfilled; lane reports what it is.
+
+**Part 2 — child-record integrity (counts must be identical before/after).** FKs/links to `deals` (QA1 rows): `deal_user` 332, `deal_branches` 180, `deal_contacts` 55, `deal_properties` 42, `deal_settlements` 40, `deal_step_instances.dr1_deal_id` 258, `deal_activity_log.dr1_deal_id` 172, `proforma_invoices` 4, `deal_link_review_queue` 0, `auction_lots` 0, `presentation_outcomes` 0; unconstrained: `deal_logs.deal_id` 510, `deal_money_lines.deal_id` 92,211 (174 deals), `commission_ledger.deal_id` 6, `title_deeds.deal_id` 3, `communication_learned_refs.deal_id` 30, `communication_filing_suspense` 31 resolved, `deal_step_work_orders.dr1_deal_id` 3, `deal_conditions` 4. FKs to `deals_v2`: `documents.deal_id` 170, `deal_document_distributions` 12, `deal_step_instances.deal_id` 19, `deal_activity_log.deal_id` 34, `deal_v2_agents` 1; polymorphic `communication_links` (`DealV2`) 178 (169 live), `calendar_event_links` (`CalendarEvent.php:192`, `CalendarEventService.php:612`). **Nothing changes in these tables for this step; the check proves it.** Run the counts before and after the route/menu change; every number identical.
+
+**Part 3 — field coverage (only matters if the twin is ever promoted to the register).** `deals` has ~20 columns the twin lacks: `deal_no`, `file_no`, `period`, `deal_date`, `granted_at`, `registration_date`, `sale_date`, `property_address`, `seller_name`, `buyer_name`, `attorney_name`, `remarks`, all provider/contact ids, `accepted_status`, `property_value`, `sale_price`, `total_commission`, per-side external agency ids, link-review fields, `presentation_id`, `is_demo`, `managed_by_user_id`, `deal_pipeline_template_id`, `pipeline_started_at`. The twin has `legacy_deal_id`, `reference`, `status`, `listing_agent_id`, `selling_agent_id`, `purchase_price`, `commission_percentage`, `commission_amount`, `commission_vat`, `offer_date`, `expected_registration`, `actual_registration`, `overall_rag`, `backfilled_at`, … **Decision recorded: the register of record stays `deals` (spec §22, `deal-register-v2-spec.md:412-462`); the twin remains the pipeline/communications mirror. The "DR2 canonical = `deals_v2`" plan (`deal-register-v2-spec.md:24, 290-305`) is superseded in practice. `.ai/specs/deal-register-v2-rebuild-spec.md`, which the code cites, does not exist in this checkout.** Johan should know DR2 "owns" no separate record.
+
+**Retire the old screens (the actual change).**
+- `GET admin.deals` (index) 301 → `deals-dr2.index` (query string preserved: `search, status, commission, branch, agent, sort, direction` plus `period`, `commission_status` — add the last two to the DR2 index so the Performance drill-links keep working, 7.3). `admin.deals.create` → `deals-dr2.create`; `admin.deals.edit` → `deals-dr2.edit`; `admin.deals.log/remark` → `deals-dr2.log/remark`; `admin.deals.settle*` → `deals-dr2.settle*` (**two copies of settlement on the same tables** — `Admin\DealController::settle/saveSettlement/print*` :654-1012 vs `Dr2\DealSettlementController`; the DR2 copy is kept; before redirecting, the lane diffs the two for behaviour the DR2 copy lacks and reports it, because settlement is money). `agent.deals.index` stays (it is My Deals, ruling E) but its sidebar link moves; its rows already deep-link into DR2 (`agent/deals/index.blade.php:176-177, :190-198`).
+- **Keep the old route names** registered as redirects (the `prospecting.index` pattern, `RW:8069-8078`) so the ~60 callers (8.5) never throw `RouteNotFoundException`; then update callers to the new names in the same change.
+- POST routes (`store`, `update`, `quickUpdate`, `remark`, `settle.save`) get a 308 (method-preserving) redirect only if the lane proves a caller still posts to them; otherwise 410/405 with a message. Never a silent 404.
+- Permissions: `create_deals`/`view_deals`/`settle_deals` unchanged (`config/corex-permissions.php:58-60`). The in-controller `deals.view/create` aborts (`Admin/DealController.php:55, 79, 99`; `Dr2/DealRegisterController.php:60`) are separate keys — the lane lists them in its report so the rename does not strand a role.
+- **Rename:** label "Deal Register (DR2)" → "Deal Register" everywhere; keep the `deals-dr2.*` route names and `/deals-dr2` URLs for now (changing 121 view lines + 34 controller lines + hardcoded `url('deals-dr2/…')` is churn with no business value). If Johan wants the URL changed later it is a separate 301 step. The hard-coded `url('deals-dr2/unfiled-emails')` and `url('deals-dr2/communications')` (`dr2/unfiled-emails.blade.php:109, 153, 172, 184`, `dr2/_communications.blade.php:18`, `dr2/pipeline-timeline.blade.php:241`, `dr2/pipeline-list.blade.php:214`) must be listed in the report so they are tested.
+- DR1 soft-retirement: views `resources/views/admin/deals/*` stay in the repo (never deleted), unreachable from menu and redirected. A feature-off switch is **not** available for `deals` (core) — the redirect is the retirement.
+
+### 8.4 Deal settings (bottom of Deals, admin-only)
+
+One menu entry "Deal settings" (admin-only: permission `access_settings`; the existing Deal Register Settings group becomes this single entry opening a settings hub, or stays as a short sub-list — lane's choice, stated). The existing deal-settings screens and their gates (verified):
+
+| Screen | Route / controller | Permission | Sidebar |
+|---|---|---|---|
+| Supplier Directory | `deals-v2.suppliers.index` (`RW:1280-1303`), `DealV2\SupplierDirectoryController` | `deals_v2.manage_suppliers` | SB:3081 |
+| Deal Pipelines (templates, steps, master, defaults) | `deals-v2.pipeline.*` (`RW:1243-1261`), `DealPipelineSetupController`, `DealPipelineStepController`, `Dr2MasterTemplateController` | `deals_v2.manage_pipeline` | SB:3088 |
+| Deal Property Sync | `admin.settings.deal-property-sync.index/update` (`RW:1761-1762`), `DealPropertySyncSettingsController` | `access_settings` | SB:3095 |
+| Deal Document Distribution | `admin.settings.document-distribution`/`.save` (`RW:1765-1766`); guard also checks `admin.settings.deal-distribution-rules.index` (`RW:1754-1758`) | `deals_v2.manage_distribution_rules` | SB:3102-3104 |
+| Service Types and Groups | `deals-v2.settings.service-types.*` (`RW:1265-1276`), `AgencyServiceTypeController` | `deals_v2.manage_pipeline` | main Settings group (active match SB:325) |
+| Commission settings | `corex.settings.commission` (`RW:5225-5228`), `Commission\CommissionSettingsController` | `access_settings` | not in the deal group — **leave: commission is the separate money spec** |
+
+"Admin-only" is enforced by the existing permissions (default-granted to admin/super_admin only for `access_settings`; confirm `deals_v2.*` defaults) **and** by the query layer — hiding the link is not enough (direct-URL by ID must 403 for a non-admin). Active-group `deal-register-settings` (SB:328-337) is repointed to the Deals group. Wizard: these settings already exist; nothing new to surface unless the lane adds one.
+
+### 8.5 Link updates (J) — non-test callers, families
+
+- `admin.deals*` / `/admin/deals`: `Admin/DealController.php` redirects :29, 64, 74, 350, 461, 481, 651, 697, 955; `CoreX/ContactMatchController.php:824`; views `components/list-header.blade.php:7`, `layouts/corex-header.blade.php:98` (global "new deal" = `admin.deals.create`), `layouts/navigation.blade.php:39, 54, 156, 168`, `dashboard.blade.php:111, 215`, `admin/dashboard.blade.php:9, 17`, `admin/finance/audit/run.blade.php:76`, `admin/finance/audit/deal.blade.php:50`, `corex/contacts/_linked-deals.blade.php:24`; hardcoded `Performance/PerformanceDrilldownService.php:90, 255`, `bm/performance.blade.php:167-255`, `admin/branch-performance.blade.php:71-177`, `admin/performance.blade.php:79-169`, `admin/deals/form.blade.php:79`; stray compiled `resources/views/presentations/*.php`. Tests: 3 files.
+- `agent.deals.*`: `Agent/DealRegisterController.php:98, 131, 147, 169`; `Services/CommandCenter/CalendarTileService.php:497`; `Support/Tours/defs/agency-tracker-tools.php:221`; `agent/deals/index.blade.php:33, 70, 183, 212`; `agent/deals/log.blade.php:16, 40`. Tests: 1.
+- `deals-dr2.*` outside DR2 itself: `Notifications/Proforma/ProformaCreatedNotification.php:33`, `CalendarTileService.php:474`, `Calendar/CalendarSourceLinkResolver.php:41`, `Services/TitleDeeds/TitleDeedDealLink.php:87`, `Http/Controllers/TitleDeeds/TitleDeedController.php:751`, `DealV2/DealV2Controller.php:38`, `DealV2/DealV2SettlementController.php:43, 60, 187, 222`, `proforma/show.blade.php:21`, `proforma/_deal-section.blade.php:24`, `corex/deeds-capture/_tva-capture.blade.php:38`, `corex/auctions/lots/show.blade.php:62`. Tests: 31 files (3 touch unfiled emails; also the fixture `tests/Feature/Navigation/fixtures/sidebar-nav-allowlist.json`).
+
+### 8.6 Everything that reads the deal table (must still work — none needs repointing for the menu retirement)
+
+Worksheet `WorksheetController.php:80`; Targets `Admin/TargetController.php:30`, `TargetsManageController.php:97`; Performance `Admin/PerformanceController.php:67`, `BranchPerformanceController.php:65`, `BM/PerformanceController.php:53`, `BM/AgentPerformanceController.php:62`, `AgentPerformanceController.php:85`, `AgentPerformanceService.php:110`, `CompanyPerformanceService.php:84`, `Oversight/OversightService.php:151`, `Performance/PerformanceDrilldownService.php:79`; TV `TV/TvController.php:80`, `TV/BranchTvController.php:42`; commission/finance `AgentCommissionController.php:20`, `FinanceAuditController.php:23`, `Finance/RollupService.php`, `FinanceEngine.php:33`, `SlidingScaleService.php:123`, `CommissionLedger`, `Proforma/ProformaFinancialResolver.php`; settlement/payslip `Dr2/DealSettlementController`, `Admin/DealController`, `SettlementScreenRows.php`, `DealMoneyLineRebuilder.php`; Ellie `Services/AI/Ellie/EllieToolkit.php:522`; API `Api/V1/DealsController.php:16` (`RW:587-588`); `CalendarTileService.php:440`; `Rentals/RentalPortalScopeService.php:161`; compliance `PpraSales*`, `PpraSamplePicker*`; `Admin/AgentDeletionService.php:55`. Readers that count both registers and de-duplicate: `Performance/Providers/AbstractDealMetricProvider.php:11-20`, `DealStatusBreakdownService.php:8-30`, `DealsRegisteredProvider.php`, `PropertyIntelligenceService.php:399-413`, `SuburbReports/SuburbReportDataService.php:29, 261`, `Support/Sales/SaleStageLabel.php`, `Compliance/PpraSalesFileAggregationService.php:216-227`, `Services/Activity/ParticipantResolver.php:8, 53`. Readers of the **twin** that need it to exist: `Communications/CommunicationDealLinkingService.php`, `CorrespondenceFilingService.php`, `CorrespondenceMatchService.php`, `Deal/Pipeline/CommunicationEventSource.php`, `Calendar/Sources/DealCalendarSource.php`, `CalendarEvent.php:192`, `Models/Document.php:77`, `ScanDealNotifications.php:48`, `Auctions/AuctionDealFactory.php`, the SB:1817-1823 badge query.
+
+### 8.7 Acceptance (E)
+
+1. Part 1–2 counts above: before/after tables attached to the lane's report; no number changes except "live deals without twin" → 0.
+2. Deals menu exists with exactly Deal Register, My Deals, Unfiled deal emails, Deal settings (admin only); an agent sees the first three, a non-admin never sees or can open Deal settings (URL by ID 403); Agency Tracker has none of #5, #9, #10, #11, #19, #20.
+3. Every old `admin.deals*` URL redirects (301 for GET) to the DR2 equivalent with the query string; every old route name still resolves (`route('admin.deals')` works); the 60-odd callers updated.
+4. The DR2 register honours `period` and `commission_status` (drill-downs from Performance land on the same deals the tile counted).
+5. A deal captured, edited, settled and filed an email to, entirely through the new Deal Register, appears in My Deals, Worksheet-replacement numbers and Performance for the right agent/branch/agency; own/branch/agency scoping proven for agent, BM, admin, and a second-agency admin (no leakage).
+6. Settlement diff report between `Admin\DealController::settle*` and `Dr2\DealSettlementController` delivered and signed off by Johan before the DR1 settle routes are redirected (money).
+7. Unfiled-emails badge parity with the list: the badge does not exclude dismissed emails (SB:1817-1823) but the list does (`UnfiledEmailsController.php:154`) — fix or note (UNVERIFIED by execution).
+8. `SidebarNavMappingTest`, `sidebar-nav-allowlist.json` and the 31 DR2 test files green for the touched files (single most relevant file at a time, via `scripts/lane-test.sh`).
+
+---
+
+## 9. Ruling D — Retire (soft, feature-off, never deleted)
+
+### 9.1 Branch Listing Stock + hidden Listing Stock / Import Listings
+
+- Visible: Branch Listing Stock (#7) SB:1768-1770 (`access_listing_stock`), `bm.listings` `RW:1863` (`access_listing_stock` + `view_branch_stats`, no feature middleware), `BM\ListingStockController`, view `bm/listings/index.blade.php`.
+- Hidden already (menu `@if(false)`): Company Listing Stock SB:1944-1948 (`admin.listings.stock`), Listing Stock SB:1961-1965 (`admin.listings.agents`), Import Listings SB:1972-1975 (`admin.listings.import` — **route does not exist**). Routes `admin.listings.agents/.stock/…` `RW:1564-1581` (`view_listings`, `access_listing_stock`, `view_branch_stats`, `feature:agency-tracker`), controllers `Admin\ListingStockController`, `Admin\CompanyListingStockController`.
+- Data: `ListingStock` (`app/Models/ListingStock.php`), `listing_stocks` + `listing_stock_agents`; QA1 213 rows, all `agency_id=1`, `source='propcon'`. Spec `agency-tracker.md:58-59`.
+- **No feature key exists for listing stock alone** (nearest is `agency-tracker`, too broad: it also owns `view_performance`, `manage_targets`, worksheet, daily activity — `config/corex-features.php:343-354`). Introduce a feature row `listing-stock-legacy` (default **off for new agencies; on only where the agency still has rows**… the lane proposes the default; Johan's rule is "retire, soft, feature-off") owning permission modules/keys `access_listing_stock`, `access_import_listings`, `view_listings`, `import_listings` and `route_names`/`route_prefixes` `bm/listings`, `admin/listings`. When off: routes 404 (EnforceFeatureRoutes), Role Manager hides the keys, grants kept (`config/corex-features.php:50-53`).
+- **Readers that must be repointed before the data is considered dead** (findings 7): TV (`TV/TvController.php:83, :245`, `BranchTvController.php:46`), Branch/Agency Performance tiles, Worksheet (removed anyway, step 5), My Agent Dashboard `$listingStats` (6), `PropertyCalendarSource.php:146`, `DealListingMatcher.php:95`, `CompetitorStockMatchService.php:1305`, `PropConInsightsService.php:38, 55, 511`, plus `Admin\ListingStockController.php:21, 113, 115, 163, 227`, `CompanyListingStockController.php:40`, `BM\ListingStockController.php:46`. Each is either repointed to `properties` or explicitly listed "left on frozen data, by decision" in the lane report. **Retiring the menu does NOT switch the TV tiles to zero**: until TV is repointed, TV keeps reading the table.
+- Tile links to the old pages (`bm/performance.blade.php:277-297`, `admin/performance.blade.php:211-237`, `bm/listings/index.blade.php:96, 106, 121`) are removed with the tiles or repointed to Properties filtered lists.
+- Redirects: `bm.listings` and `admin.listings.*` GET → Properties list (`/corex/properties` or the Properties area equivalent — lane confirms the correct target) with 301 while the feature is on; 404 once the feature is off.
+- Acceptance: no Listing Stock entry in any menu; with the feature off, 404 on the old URLs and no 500 anywhere (TV, Performance, calendar, matcher, presentations all still render with the table untouched); permissions retained in the DB; one Pest/PHPUnit file proving the redirect and the 404.
+
+### 9.2 RCR · FIC 2026
+
+- Today: routes `RW:332-347` (group `corex/compliance/rcr`, names `corex.compliance.rcr.*`: `index, store, show, answers.save, answers.evidence, auto-populate, send-for-review, submit, export, question.show, answer.copied, answer.transposed`) and `RW:350-355` (`corex.admin.rcr.questionnaires.*`); group middleware is only `auth` (`RW:311`), **no permission or feature middleware**; the only gate is `RcrSubmissionController.php:499-502` (roles admin, super_admin, branch_manager, principal). Views `compliance/rcr/{index,show,question-deep-view,export-pdf}.blade.php`. Sidebar SB:1839-1865 (role check + `Route::has`, deadline badge querying `RcrSubmission`). Models `app/Models/Compliance/Rcr/*`; tables `rcr_*` — **0 rows on QA1 in all** (live: UNVERIFIED — check Prod before retiring, "unused" is Johan's word, not yet proven). Spec `rcr-fic-directive-11-2026-spec.md`.
+- Dependents to neutralise, not delete: `Jobs RcrDeadlineReminderJob` (`routes/console.php:152`, 07:00 daily), `Notifications/Compliance/RcrDeadlineApproachingNotification.php:65`, `RcrSubmissionCompletedNotification.php:42`, event `RcrSubmissionSubmitted` (`app/Providers/AppServiceProvider.php:586, 658`), `Listeners/Activity/CreditInstantActionListener.php`, tour `Support/Tours/defs/compliance-b.php:247`, `TourRegistry`, services `app/Services/Compliance/Rcr/`. No tests reference `corex.compliance.rcr` (0).
+- Retire by: new feature row `rcr-fic` (default off), `route_prefixes ['corex/compliance/rcr','corex/admin/rcr']`, so the routes 404 when off and the scheduled job's agency loop skips agencies where it is off; remove SB:1839-1865 and the `corex.compliance.rcr.*` matcher at SB:126. Leave RMCP/FICA exactly where they are (SB:2146, 2148). Honest statement for Johan: RCR is *not* already under Compliance (finding 6); retiring it does not move it anywhere.
+- Acceptance: RCR link gone from the sidebar; routes 404 with the feature off; the 07:00 job runs without error and sends nothing; if any agency has a draft/in-review submission at switch-off, the lane lists it and Johan decides (no data touched).
+
+---
+
+## 10. Ruling H — P24 Auto-Import and TV Messages → agency settings
+
+### 10.1 P24 Auto-Import
+
+- Today: `RW:8133-8146`, `Route::middleware(['auth','permission:access_settings'])->prefix('admin/settings/minion')->name('admin.minion.')` — `setup`, `tree.towns`, `tree.suburbs`, `areas.toggle`, `settings.save`, `run-now`. Controller `Admin/MinionCaptureController.php` (`index` :23-45, `saveSettings` :123; `agencyId()` uses `$r->user()->agency_id` :19, **not `effectiveAgencyId()`** — a cross-agency owner could hit a null agency, UNVERIFIED impact). View `admin/minion/setup.blade.php`. Storage `MinionCaptureSettings::resolved($agencyId)` (`app/Models/MinionCaptureSettings.php:27`), defaults `config('minion_capture')`, areas `minion_capture_areas`, runs `MinionCaptureRun`; schedule `routes/console.php:609` (`minion:capture --cycle`). Spec `AT-284-p24-minion.md`. Sidebar SB:1976-1978 — nested inside `@permission('access_import_listings')` (SB:1967) **and** the Admin `view_company_stats` block, so it is currently hidden behind two unrelated permissions. Callers: `RoadToSold/AreasController.php:69`, `road-to-sold/settings/areas.blade.php:314`.
+- New home: **agency settings hub** (`/corex/settings`, `corex.settings`, `RW:3365`, `access_settings`, view `resources/views/corex/settings.blade.php`) — a new rail item under **Operations** (rail group at view line 173; add `['key'=>'p24-auto-import','type'=>'section']` and an `x-show="activeSection === 'p24-auto-import'"` block, the pattern at `corex/settings.blade.php:2447` / `:3830`). The page content/controller can stay where it is; only the entry point and highlight move. (The settings hub is the "agency admin settings" — Company Settings tabs are Company, Branding, Branches, Other Agency Stock, Website, Performance: `company-settings/index.blade.php:52-57`.)
+- Callers to update: `RoadToSold/AreasController.php:69` and `areas.blade.php:314` ("Refresh now" link) keep working (route name unchanged).
+- Wizard (10a): not in the wizard today (the `syndication_p24_enabled` toggle, `config/agency-onboarding-copy.php:197-201`, is Property24 *publishing*, a different thing). The lane either adds the on/off + schedule to a step or Johan records not-in-wizard.
+- Fix on the way: `agencyId()` → `effectiveAgencyId()`.
+
+### 10.2 TV Messages (branch + admin) and TV display
+
+- Today: admin `RW:1867-1871` (`admin.tv-messages`, `.store`, `.update`, `.delete`, `.restore`; wrapped `permission:manage_tv_messages` + `feature:tv-display`, `RW:1866`); BM `RW:1912-1915` (`bm.tv-messages`, `.store`, `.update`, `.delete`); codes admin `RW:1874-1877` (`admin.tv-code.generate/revoke/generate-company/revoke-company`), BM `RW:1986-1989` (`bm.tv-code.generate/revoke`, permission only, no feature). Controller `TvMessageController.php` (240 lines; admin redirects :89, 115, 122; BM :187, 216, 228), `Admin\TvCodeController`, `BM\TvCodeController`, `TV\TvController`, `TV\BranchTvController`. Views `admin/tv-messages/index.blade.php`, `bm/tv-messages/index.blade.php`, `components/tv-link.blade.php`. Models `TvMessage`, `TvAccessCode`. Public TV routes `RW:2002, 2011-2013`. Permissions `manage_tv_messages` (`config/corex-permissions.php:98`), `access_tv_messages` (:48), `tv_messages.*` (:325-328); feature `tv-display` (`config/corex-features.php:466-474`, `permission_modules ['tv_messages']`). Sidebar BM SB:1918-1922, admin SB:2001-2005. Spec `tvdisplay.md`.
+- The agency/branch switcher and `/agency/select` routes (`RW:1881-1909`) sit under `manage_tv_messages` deliberately **separate from the `tv-display` feature** — do not gate them on the TV feature (comment `RW:1879-1883`).
+- **There is no "TV display settings" screen to sit next to.** TV access codes are made on the Performance pages (finding 9). New home: **agency settings hub → "TV Display"** rail section containing (a) TV codes (company + per branch; generate/revoke), (b) TV Messages (one list; BM sees own branch, admin all), and (c) a link to the TV URL. This creates the "TV display" settings the ruling assumes. Admin and BM variants collapse into one scoped screen (BM branch scope at the query layer) — the old route names stay as redirects/aliases.
+- Dependency order: step 8 (TV settings home) **before** step 6 (Performance pages move to Reports), because the TV code cards leave the Performance pages.
+- Wizard: no TV mention (only the auto-derived Capabilities toggle). Add a TV step item or Johan records not-in-wizard.
+- Acceptance: TV codes generate/revoke from settings (admin: company + any branch; BM: own branch only; agent: neither, 403); messages create/edit/archive/restore with search/sort/filter (3.1); the public `/tv…` pages still work; the Performance pages no longer carry the TV cards; sidebar link gone from Agency Tracker; old URLs redirect.
+
+---
+
+## 11. Ruling I — new main menu "Calculators" (everyone)
+
+- Today: items sit in Agency Tracker "Tools" (sub-label SB:2019, gate `@permission('access_calculators')` SB:2018): Commission Calculator SB:2020 (`tools.commission`, `RW:1609`, `ToolsController@commission` `ToolsController.php:13`, view `tools/tools.blade.php`, `defaultTab 'commission'`); Evaluation Certificate SB:2021 (`tools.cma`, `RW:1610`, `ToolsController@cma` :24, same view `defaultTab 'cma'`); My Evaluations SB:2022-2025 (`tools.cma.evaluation.mine`, `RW:1629`, `Tools\EvaluationCertificateController@mine` :793, view `tools/evaluation-certificate/mine.blade.php`); Pending Authorisations SB:2026-2031 (`tools.cma.evaluation.authorisations`, `RW:1628`, `@authorisations` :776); History & Logs SB:2033 (`tools.commission?section=history`, same route; plus `tools.history.index/store/show/destroy`, `RW:1671-1674`). Other `tools.cma.evaluation.*` routes `RW:1620-1627`; public signed client view `RW:8149`. Every route: `permission:access_calculators`; nothing feature-gated (the `calculators` feature has no `route_names`, and these paths are not in its `route_prefixes`).
+- Gating of the two evaluation items: **My Evaluations** shows only for candidate practitioners (`CandidatePractitionerService::isCandidate()`, `app/Services/CandidatePractitionerService.php:30` → `User::isCandidate()`, `app/Models/User.php:1315-1318`: `designation` contains "Candidate" — no role/permission test). **Pending Authorisations** shows only when `EvaluationAuthorisationService::pendingCountFor()` > 0 (`app/Services/EvaluationAuthorisationService.php:45-52`, 30-second cache `evalcert.pending_auth_count.<userId>`; authorisers per `CandidatePractitionerService.php:61-75`: full-status practitioner/principal by designation, admin, super_admin, owner). Those conditional rules **stay**; "everyone" means everyone with `access_calculators`, with the two conditional items appearing when they apply. The controller re-checks `access_calculators` (`EvaluationCertificateController.php:779, 796`).
+- **Trust Interest today contains a "Calculators" item** (`calculators.index`, SB:2602-2609, `RW:708-713`, `access_calculators`, feature `calculators`) and the Deposit Interest Calculator + History (SB:2592, 2598). Ruling I: "Calculators must NOT sit under Trust Interest". Interpretation (spec'd, flagged): the new **Calculators** main menu holds the five Agency Tracker tools **and** the `calculators.index` item; Trust Interest keeps only the Trust Interest Register and the Deposit Interest Calculator + Calculation History (those are trust-account tools, `access_deposit_calculator`/`access_trust_interest`). The `calculators` feature row's `sidebar_section` changes `trust-interest` → `calculators` (`config/corex-features.php:453`). Trust Interest wrapper condition SB:2561-2562 drops `access_calculators` from its "any of" list, otherwise holders of only `access_calculators` still see an empty Trust Interest group. **Johan to confirm:** is the Deposit Interest Calculator a "calculator" he wants in Calculators too? Code-wise it is gated by `access_deposit_calculator` (separate), so it stays in Trust Interest unless he says otherwise.
+- New group "Calculators": top-level, shown to anyone with `access_calculators`. Declare per the SB mechanics (`push('calculators')`); `$activeGroup` chain gains a `calculators` branch matching `tools.commission`, `tools.cma*`, `tools.history.*`, `calculators.*`; remove those from the `agency-tracker` branch (SB:134-135) and the `trust-interest` branch (SB:358-364 `deposit-interest-calculator.*`/`calculators.*` split accordingly). `tests/Feature/Navigation/SidebarNavMappingTest.php:150-151` (maps the two evaluation routes to `'agency-tracker'`) and the fixture update in the same change. Section placement: under the existing "Tools" section (SB:2453) next to Reports/Trust Interest, so the sidebar stays grouped.
+- Highlight rule for the two Commission Calculator links on one route stays query-string based (`!request()->query('section')` vs `?section=history`, SB:2020, 2033).
+- Callers: `layouts/navigation.blade.php:26, 27, 143, 144`; tours `Support/Tours/defs/agency-tracker-tools.php:258` (`tools.commission`) and `:332` (`tools.cma`); `config/corex-navigation-atlas.php:323` (`tools.cma`; route-NAME keyed — names unchanged, so safe); `tools/evaluation-certificate/mine.blade.php:28, 32, 72`; `tools/tools.blade.php:534`; `EvaluationCertificateController.php:630` (notification URL — must keep resolving). Tests: `tests/Feature/Tools/EvaluationCertificateScreenTest.php`, `SidebarNavMappingTest.php`.
+- Notes found while here (report-only): the Commission Calculator uses fixed 15% VAT and generic 50/60/70% split examples regardless of the agency (`agency-tracker-inventory.md` §6) — not changed by this move; flag for the Calculators lane to make VAT agency-driven (multi-agency rule) only if Johan asks.
+- Acceptance: Calculators visible to an agent, BM, admin, assistant (if `access_calculators`); invisible to a user without the permission; not nested in Trust Interest; an agent with only `access_calculators` sees no empty Trust Interest group; candidate sees My Evaluations; authoriser with pending sees Pending Authorisations with the badge; all five URLs open and highlight Calculators; old Agency Tracker "Tools" block gone.
+
+---
+
+## 12. Commission engine — NOT in this spec
+
+Menu #25 Commission Overview (`commission.principal`) and #26 Commission Management (`commission.index`), both `RW:2797-2799` (`feature:commission-management`, `deny_assistant`; owner/super_admin only), the `commission_ledger` ledger, "My Earnings" and the My Portal earnings widgets (`AgentPortalController.php:168-174`) are flagged wrong (re-split; duplicate write; see the 11 Sep inventory). **Separate money spec, needs Johan.** They stay in the Agency Tracker panel until that spec decides their home. The panel therefore does not become empty: after all steps it holds Commission Overview, Commission Management only (plus the `commission-management` feature wrap, `config/corex-features.php:355-364`, `depends_on ['agency-tracker']`). **Consequence for the build:** do not turn the `agency-tracker` feature off for an agency until the money spec moves these two, or its dependants vanish too.
+
+---
+
+## 13. Menu-move table — every Agency Tracker item (numbers from the 20 Oct walk-through)
+
+"Settings that move with it" = data/config editable on, or consumed only by, that screen. Route names stay unless stated; every old URL that changes gets a 301 (J). "Highlight" = which sidebar group opens (SB `$activeGroup` chain).
+
+| # | Old menu item (Agency Tracker) | New home | Settings that move with it | Old URL fate | Step |
+|---|---|---|---|---|---|
+| 1 | Worksheet (`worksheet.index`, SB:1740) | **My Portal → Targets & Budget** (read-only) | personal/business budget, branch/agency requirement, per-user targets → **RTS settings → Budgets & requirements**; `vat_rate`, `listings_per_sale` stay in Company Settings → Performance and are added to the wizard | `GET /worksheet` 301 → `agent.portal#targets`; `worksheet.store/align/applyBranchDefault` removed (the last two currently unauthenticated, finding 5) | 2 (build), 5 (remove) |
+| 2 | My Daily Activity (`agent.daily`, SB:1750) | **My Portal → My Activity** | none (own record) | route unchanged; menu link → portal anchor | 3 |
+| 3 | Daily Activity Summary — agent (`agent.daily.summary`, SB:1752) | **My Portal → My Activity** (own summary) | none | route unchanged | 3 |
+| 4 | Setup — daily activities (`admin.daily-activities.setup`, SB:1755/1908/1990) | **Road to Sold settings → Activity points** | activity definitions + weights + auto-credit rules (`activity_definitions`, `activity_definition_calendar_classes`); fix points/scope defects (5.6) | `/admin/daily-activities` 301 → RTS settings tab; sub-routes (`RW:1974-1977`) re-mounted | 3 |
+| 5 | My Deals (`agent.deals.index`, SB:1758) | **Deals → My Deals** | none | route unchanged | 6 |
+| 6 | Branch Performance (`bm.performance`, SB:1766) | **Reports → Branch Performance** (view-only) | branch-budget form + align/set-target actions → RTS settings → Budgets & Targets; TV code cards → Settings → TV Display; listing tiles repointed | route names unchanged; POST actions re-mounted under RTS settings; old `/bm/performance` stays (same name) | 7 (needs 4 and 8) |
+| 7 | Branch Listing Stock (`bm.listings`, SB:1768) | **Retired** (feature `listing-stock-legacy` off) | permissions retained; `listing_stocks` untouched | GET 301 → Properties list while on; 404 when off | 9 |
+| 8 | My Agent Dashboard (`bm.my.dashboard`, SB:1771) | **My Portal Overview** ("where am I vs where I should be") | none (reads RTS targets) | `GET /bm/my-dashboard` 301 → `agent.portal#overview`; keep `agent.dashboard` while callers exist | 2 |
+| 9 | Deal Register — old (`admin.deals`, SB:1776) | **Retired**; old URLs redirect to the new Deal Register | none (same `deals` table) | `admin.deals*` GET 301 → `deals-dr2.*`; old route names kept as redirects | 6 |
+| 10 | Deal Register (DR2) (`deals-dr2.index`, SB:1779) | **Deals → Deal Register** (renamed) | label only; URLs/route names unchanged | none | 6 |
+| 11 | Deal Register Unfiled Emails (SB:1828) | **Deals → Unfiled deal emails** | none; badge query kept | route unchanged | 6 |
+| 12 | RCR · FIC 2026 (`corex.compliance.rcr.index`, SB:1839) | **Retired** (feature `rcr-fic` off) | none; job/notifications neutralised | 404 when off | 9 |
+| 13 | Daily Activity Capture (SB:1902) | **Merged into #2** | none | menu entry removed; route is #2's | 3 |
+| 14 | Daily Activity Summary — branch (`bm.daily.summary`, SB:1905) | **Road to Sold** (branch view) + **Reports → Daily Activity** | none | route unchanged | 4 |
+| 15 | Worksheet Market — branch (`bm.worksheet.market`, SB:1913) | **Reports → Worksheet Market** | `worksheets.avg_sale_price_admin` | route unchanged | 7 |
+| 16 | Targets (`admin.targets`, SB:1916/1995) | **Road to Sold settings → Targets** | monthly points/deals/value/listings targets; Listing Targets and Monthly Goals fold in; **fix zeroing bug (5.7)** | `/admin/targets` 301 → RTS settings Targets; `admin.monthly-goals`, `admin.listing-targets` 301 → same tab | 4 |
+| 17 | TV Messages — branch (`bm.tv-messages`, SB:1920) | **Settings → TV Display** | TV messages + branch TV codes | route names kept as aliases/redirects | 8 |
+| 18 | Performance (`admin.performance`, SB:1935) | **Reports → Agency Performance** | TV company cards → Settings → TV Display; listing tiles repointed; HFC income-projection constants → settings | route name unchanged | 7 (needs 4 and 8) |
+| 19 | Deal Register — admin duplicate (SB:1952) | **Removed** | none | none | 6 |
+| 20 | Deal Register (DR2) — admin duplicate (SB:1955) | **Removed** | none | none | 6 |
+| 21 | P24 Auto-Import (`admin.minion.setup`, SB:1977) | **Settings hub → Operations → P24 Auto-Import** | minion settings/areas/schedule (`minion_capture_*`) | route name unchanged | 8 |
+| 22 | Daily Activity Summary — company (`admin.daily.summary`, SB:1986) | **Road to Sold** (agency view) + **Reports → Daily Activity** | none | route unchanged | 4 |
+| 23 | Worksheet Market — company (`admin.worksheet-market`, SB:1999) | **Reports → Worksheet Market** | `avg_sale_price_admin`, `commission_percent_admin/locked` (the last two are dead — never read) | route unchanged | 7 |
+| 24 | TV Messages — admin (`admin.tv-messages`, SB:2003) | **Settings → TV Display** | TV messages + company/branch TV codes | route names kept | 8 |
+| 25 | Commission Overview (`commission.principal`) | **Stays — separate money spec, needs Johan** | — | — | — |
+| 26 | Commission Management (`commission.index`) | **Stays — separate money spec, needs Johan** | — | — | — |
+| 27 | Commission Calculator (`tools.commission`, SB:2020) | **Calculators** | none | route unchanged | 10 |
+| 28 | Evaluation Certificate (`tools.cma`, SB:2021) | **Calculators** | none | route unchanged | 10 |
+| 29 | My Evaluations (`tools.cma.evaluation.mine`, SB:2022) | **Calculators** (candidates only, existing rule) | none | route unchanged | 10 |
+| 30 | Pending Authorisations (`tools.cma.evaluation.authorisations`, SB:2026) | **Calculators** (when pending > 0, existing rule) | none | route unchanged | 10 |
+| 31 | History & Logs (`tools.commission?section=history`, SB:2033) | **Calculators** | none | route unchanged | 10 |
+| — | Hidden: Deal Link Review (`corex.admin.deal-link-review.index`, SB hidden by `false &&`), Company Listing Stock, Listing Stock, Import Listings | Stay hidden; Listing Stock family under #7's feature; Deal Link Review untouched (not in ruling D) | — | — | — |
+| — | `calculators.index` "Calculators" (inside Trust Interest, SB:2602-2609) | **Calculators** (see section 11) | feature row `calculators` `sidebar_section` | route unchanged | 10 |
+
+---
+
+## 14. Build order and acceptance per step
+
+Rule for every step: **one lane at a time; route names kept; old menu item removed in the same change; sidebar group/highlight updated and `SidebarNavMappingTest` + `sidebar-nav-allowlist.json` updated in the same change; every internal link updated; old URLs 301; moved settings reach the Setup Wizard or Johan records the omission (10a); QA1 only, nothing to Staging/live (CLAUDE.md #5); one test file at a time via `scripts/lane-test.sh`.** Each step's report states: what changed, how proven, and "nothing outside the task touched".
+
+| Step | Content | Depends on | Acceptance (in addition to the section's own list) |
+|---|---|---|---|
+| 1 | **Shared pieces:** `x-period-selector` component; `ActivityPointsService` skeleton (points rule only, no data change); sidebar mechanics test updates | — | component renders with/without `?period=`; unit test of points rule: `value` is a count, points = count × weight |
+| 2 | **My Portal:** Targets & Budget (4), Overview (6), My Activity (5.2 personal). Reads existing tables through the 4.3 interface | 1 | 4.5 checks 1–6; no HFC constants; assistants see no earnings |
+| 3 | **Daily activities moves + points fix:** menu merge #13→#2, summaries to Road to Sold/Reports, Setup to RTS settings, points defects 5.6 fixed with a before/after report (Johan's go before touching confirmed points) | 1, 2 | 5.5 checks 1–6; shared points service in all 9 sites; dead-table readers repointed |
+| 4 | **Road to Sold settings: Budgets & requirements + Targets** (4.3, 5.7); data move with counts; **targets-zeroing bug fixed**; Monthly Goals/Listing Targets folded | 1 | 5.7 acceptance; `worksheets`/`monthly_target_goals`/`targets` counts and sums identical before/after |
+| 5 | **Remove Worksheet from Agency Tracker** (and the two unauthenticated POSTs) | 2, 4 tested | 4.5 check 7; no `worksheet.*` caller left; 301 live |
+| 6 | **Deals menu:** twin backfill (8.3 part 1), counts, Deals group, DR1 redirects, rename, remove #19/#20, deal settings entry | — | 8.7 |
+| 7 | **Reports:** Branch/Agency Performance + Worksheet Market moved; repointed widgets; forms removed from pages | 4, 8 (TV codes), 6 (drill links) | 7.4 |
+| 8 | **Settings moves:** TV Display (codes + messages) and P24 Auto-Import into the settings hub | — (must precede 7) | 10.2 acceptance; 10.1 `effectiveAgencyId()` fix |
+| 9 | **Retire** Listing Stock family and RCR (feature keys, redirects, neutralised job) | 7 (tiles repointed), 8 (TV repointed) | 9.1, 9.2 |
+| 10 | **Calculators menu** | — | section 11 |
+| 11 | **Clean-up:** Agency Tracker panel left with Commission #25/#26 only; remove empty section labels; prune `agency-tracker` matchers; fixture/test pruning | all | the panel renders no empty sub-label; no `agency-tracker` route matcher lists a moved route |
+
+Order notes: steps 6, 8 and 10 are independent of A–C and can run in parallel lanes (Johan's cap: two working lanes at a time + one kept clear). Step 5 never runs before 2 and 4 are tested. Step 7 never runs before 8 (TV cards) and 4 (forms).
+
+### 14.1 Cross-cutting acceptance for J (applies to every step)
+
+1. `route:list` shows every old route name still registered (as redirect where the URL moved) — `RouteReferenceIntegrityTest` (`tests/Unit/Routing/`) passes.
+2. `rg` for each old URL string and old label in `app/ resources/ routes/ config/` returns only the redirects and the stray compiled `resources/views/presentations/*.php` caches (stale — they contain a `C:\Users\…` path, `9fea17b4…php:549`; lane lists them, never edits them).
+3. The sidebar highlight and open panel for the moved page and every sub-route (drill-downs, create/edit) is the new group. Verified by opening the page in a browser session as agent, BM, admin.
+4. Ellie navigation atlas `config/corex-navigation-atlas.php` is route-name keyed (`:323`, `:449`) — names unchanged, so safe; the lane confirms.
+5. Guided tours keyed on route names (`Support/Tours/defs/agency-tracker-tools.php:29, 158, 221, 258, 332`; `compliance-b.php:247`) still resolve; tours for removed pages (Worksheet) are retired or re-pointed in the same change.
+6. Legacy navbar `resources/views/layouts/navigation.blade.php` and `resources/views/dashboard.blade.php` link to many of these routes (lines listed per section). Whether either is still rendered is UNVERIFIED (`dashboard` route redirects to `corex.dashboard`, `RW:308`; no include of `navigation.blade.php` found) — the lane checks and updates the links regardless, since they would throw on a removed route name only if the names were removed (they are not).
+
+---
+
+## 15. Ruling K — parked idea (record only)
+
+An AI scout that watches South African property and law changes (PPRA notices, Property Practitioners Act amendments, FICA/POPIA directives, CPA, municipal and deeds-office changes) and notifies agencies of what affects them. **Not specced, not scheduled, no build.** When picked up it needs its own spec (sources, review step so AI suggests and a person confirms — operating principle 5, per-agency subscription settings, notification channel via the existing notification system, never a silent behaviour change).
+
+---
+
+## 16. Not verified in code (be honest about it)
+
+- **Live (Prod) data and grants** — every count above is QA1. Prod row counts for `deals`, `deals_v2`, `rcr_*`, `listing_stocks`, `worksheets`, `targets` and live Role Manager grants (`access_trust_interest`, `deals_v2.*`, `manage_targets`) are UNVERIFIED; lanes read Prod before any promotion.
+- Which `properties` column is canonical for "this agent's listing" (4.2.2) and which table holds CMA/presentation average-price data for the deal-summary "from CMA data" lens (4.2.5) and "correctly priced" (4.4).
+- Whether `resources/views/layouts/navigation.blade.php` and `resources/views/dashboard.blade.php` are still rendered (14.1.6).
+- Middleware on `admin.deals.branches.attach/detach` (`RW:1903-1904`) and on `deals-dr2.proforma.generate` (`RW:1207`) — not read.
+- Whether the Deposit Interest Calculator belongs in the new Calculators menu (Johan's call, section 11).
+- Whether `$listingStats` is used in `agent/dashboard.blade.php` (6); whether the unfiled-email badge overcounts dismissed emails (8.7.7); whether the Performance drill-down `period`/`commission_status` params are truly ignored (7.3) — both read, not executed.
+- `TvMessage` / `TvAccessCode` table names (10.2) — not checked.
+- `agencyId()` null-agency impact in `MinionCaptureController` (10.1).
+- Whether `worksheets` NOT NULL columns tolerate the Worksheet Market `updateOrCreate` for an agent with no row (migration defaults apply) — not checked.
+- Which agent column / `counts_for_branch_split` rule defines "agents in branch" consistently between the Worksheet display and its auto-fill buttons (flagged in the 11 Sep audit; two counts, not re-verified).
