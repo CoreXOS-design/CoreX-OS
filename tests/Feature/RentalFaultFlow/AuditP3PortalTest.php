@@ -138,6 +138,25 @@ final class AuditP3PortalTest extends TestCase
         $this->assertSame(RentalFaultReport::STATUS_REPORTED, $f->fresh()->status);
     }
 
+    public function test_a_tenant_whose_lease_has_ended_can_still_read_their_fault_but_cannot_add_to_or_withdraw_it(): void
+    {
+        $f = $this->openFault();
+        $before = \App\Models\RentalFaultReportUpdate::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count();
+        $this->lease->forceFill(['status' => Lease::STATUS_EXPIRED])->saveQuietly();
+        $this->as($this->tenant);
+
+        // audit 2026-10-20 finding 6 (D17): the write lookup needs a lease still in force, exactly as work orders do; the history stays readable
+        $this->getJson(self::BASE . "/fault-reports/{$f->id}")->assertOk();
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/notes", ['note' => 'months after move-out'])->assertStatus(404);
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/withdraw", ['reason' => 'moved out long ago'])->assertStatus(404);
+        $this->assertSame(RentalFaultReport::STATUS_REPORTED, $f->fresh()->status);
+        $this->assertSame($before, \App\Models\RentalFaultReportUpdate::withoutGlobalScopes()->where('rental_fault_report_id', $f->id)->count(), 'nothing was added to the fault');
+
+        // the same lease back in force: the same calls work
+        $this->lease->forceFill(['status' => Lease::STATUS_ACTIVE])->saveQuietly();
+        $this->postJson(self::BASE . "/fault-reports/{$f->id}/notes", ['note' => 'still dripping'])->assertStatus(201);
+    }
+
     public function test_withdrawing_cancels_in_the_tenants_name_keeps_the_record_and_needs_a_reason(): void
     {
         $f = $this->openFault();
@@ -309,26 +328,28 @@ final class AuditP3PortalTest extends TestCase
 
         Sanctum::actingAs($this->agent, ['*']);
         $url = "/api/v1/mobile/rental-job-cards/{$card->id}";
-        $withCosts = $this->getJson($url);
-        if ($withCosts->status() === 404) {
-            $this->markTestSkipped('Mobile job card route not under /api/v1/mobile in this build.');
-        }
-        $withCosts->assertOk();
+        // audit 2026-10-20 (L9): the route exists - a 404 is a real regression (a scope or routing break) and must FAIL this test, never skip it
+        $withCosts = $this->getJson($url)->assertOk();
         $this->assertArrayHasKey('total_amount', $withCosts->json());
         $this->assertArrayHasKey('unit_price', $withCosts->json('lines.0'));
         $this->assertStringStartsWith('http', $withCosts->json('photos.0.url'));
         $this->assertStringEndsWith('/storage/properties/' . $this->property->id . '/x.jpg', $withCosts->json('photos.0.url'));
 
-        $agent2 = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'agent']);
-        if (! $agent2->hasPermission('rental_job_cards.view_costs')) {
-            Sanctum::actingAs($agent2, ['*']);
-            $res = $this->getJson($url);
-            if ($res->status() === 200) {
-                $this->assertArrayNotHasKey('total_amount', $res->json());
-                $this->assertArrayNotHasKey('unit_price', $res->json('lines.0') ?? []);
-                $this->assertArrayNotHasKey('line_total', $res->json('lines.0') ?? []);
-            }
-        }
+        // a user who may VIEW job cards but holds no view_costs: the answer is 200 and carries no money at all
+        \App\Models\Role::firstOrCreate(['name' => 'viewer-no-costs', 'agency_id' => $this->agency->id], ['label' => 'Viewer']);
+        \App\Models\RolePermission::updateOrCreate(['role' => 'viewer-no-costs', 'permission_key' => 'rental_job_cards.view', 'agency_id' => $this->agency->id], ['scope' => 'all']);
+        \App\Services\PermissionService::clearCache();
+        $agent2 = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'viewer-no-costs']);
+        $this->assertFalse($agent2->hasPermission('rental_job_cards.view_costs'), 'the fixture really does lack the permission');
+        $this->assertTrue($agent2->hasPermission('rental_job_cards.view'));
+
+        Sanctum::actingAs($agent2, ['*']);
+        $res = $this->getJson($url)->assertOk();
+        $this->assertArrayNotHasKey('total_amount', $res->json());
+        $this->assertArrayHasKey('lines', $res->json(), 'the lines are still there');
+        $this->assertNotEmpty($res->json('lines'));
+        $this->assertArrayNotHasKey('unit_price', $res->json('lines.0'));
+        $this->assertArrayNotHasKey('line_total', $res->json('lines.0'));
     }
 
     // ── C-D6 / A28: existence leaks answer 404 ───────────────────────────────────────────────────────────────

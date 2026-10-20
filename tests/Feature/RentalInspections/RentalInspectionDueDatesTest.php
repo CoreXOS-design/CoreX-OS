@@ -1014,6 +1014,11 @@ final class RentalInspectionDueDatesTest extends TestCase
         } catch (\LogicException $e) {
             $this->assertNotSame(RentalInspection::STATUS_COMPLETED, $interim->fresh()->status);
         }
+        // Audit B12 (19 Oct 2026): who was present is recorded BEFORE the signing window opens, for every type that follows the full checks
+        $attendance = app(\App\Services\Rentals\RentalInspectionAttendanceService::class);
+        foreach ($attendance->expectedParties($interim) as $party) {
+            $attendance->record($interim, ['party_role' => $party['party_role'], 'party_contact_id' => $party['contact_id'], 'party_user_id' => $party['user_id'], 'outcome' => 'attended'], $this->agent);
+        }
         $interim->startAwaitingSignature();
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $interim->fresh()->status, 'interim has the signing window');
 

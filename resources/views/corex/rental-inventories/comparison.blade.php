@@ -93,7 +93,7 @@
                                 @csrf
                                 <input type="hidden" name="party_role" value="{{ $party['role'] }}">
                                 @if($party['contact_id'])<input type="hidden" name="party_contact_id" value="{{ $party['contact_id'] }}">@endif
-                                <input type="text" name="signed_name" required maxlength="191" value="{{ $party['sign_off']->signed_name ?? ($party['role'] === 'agent' ? auth()->user()->name : $party['name']) }}" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);" placeholder="Name">
+                                <input type="text" name="signed_name" required maxlength="191" value="{{ $party['role'] === 'agent' ? auth()->user()->name : ($party['sign_off']->signed_name ?? $party['name']) }}" @if($party['role'] === 'agent') readonly title="The agent's sign-off is always in the name of the person signed in" @endif class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);" placeholder="Name">
                                 <select name="disposition" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);">
                                     <option value="signed">Signed</option>
                                     @if($party['role'] !== 'agent')<option value="refused">Refused to sign</option>@endif

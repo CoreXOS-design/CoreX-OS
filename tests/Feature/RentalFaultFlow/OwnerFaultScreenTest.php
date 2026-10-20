@@ -87,8 +87,9 @@ class OwnerFaultScreenTest extends TestCase
         $this->landlord->forceFill(['client_user_id' => $login->id])->saveQuietly();
         $this->assertNull($login->fresh()->current_agency_id);
 
-        Sanctum::actingAs($login, ['client']);
-        $this->getJson('/api/v1/client/rentals/landlord/properties')->assertOk()->assertJsonCount(1, 'properties');
+        // A real token, as the portal issues one: the chosen agency is recorded on the token (audit D5, AT-471), which Sanctum::actingAs's stand-in token cannot take.
+        $plain = $login->createToken('test', ['client'])->plainTextToken;
+        $this->withToken($plain)->getJson('/api/v1/client/rentals/landlord/properties')->assertOk()->assertJsonCount(1, 'properties');
         $this->assertSame($this->agency->id, $login->fresh()->current_agency_id, 'the single agency is remembered');
     }
 

@@ -109,6 +109,9 @@ class RentalCrewScheduleService
             ->limit(self::MAX_ROWS * 4)
             ->get();
         $properties = $this->propertiesFor($cards->pluck('property_id')->all(), $agencyId);
+        // audit 2026-10-20 (L4): the work orders in ONE query (a card used to load its own - up to 800 extra queries on this public page)
+        $workOrders = \App\Models\RentalWorkOrder::withoutGlobalScopes()->where('agency_id', $agencyId)
+            ->whereIn('id', $cards->pluck('rental_work_order_id')->filter()->unique()->all())->get()->keyBy('id');
 
         $toPriceIds = \App\Models\RentalJobCardPriceRequest::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->where('status', \App\Models\RentalJobCardPriceRequest::STATUS_OPEN)
@@ -119,7 +122,7 @@ class RentalCrewScheduleService
         $loadCards = collect();   // the cards whose parts count towards "What to load": Today + Scheduled
         foreach ($cards as $card) {
             $property = $properties[$card->property_id] ?? null;
-            $row = $this->row($card, $property, $tz);
+            $row = $this->row($card, $property, $tz, $workOrders[$card->rental_work_order_id] ?? null);
             $row['to_price'] = in_array($card->id, $toPriceIds, true);
             if ($showTenant && $card->lease_id) {
                 $tenantsByLease[$card->lease_id] ??= JobSiteInfo::tenants((int) $card->lease_id);
@@ -384,13 +387,17 @@ class RentalCrewScheduleService
         return $property?->buildDisplayAddress() ?: '';
     }
 
-    private function row(RentalJobCard $card, ?Property $property, string $tz): array
+    private function row(RentalJobCard $card, ?Property $property, string $tz, ?\App\Models\RentalWorkOrder $workOrder = null): array
     {
         $scheduled = $card->scheduled_at?->copy()->setTimezone($tz);
         $due = $card->due_at?->copy()->setTimezone($tz);
         $address = $this->address($property);
         // AT-459 — the access contact + note as the work order holds it (the card's own, then the property's, when the work order has none)
-        $access = JobSiteInfo::accessContact($card->workOrder()->withoutGlobalScopes()->first(), $card);
+        // The relations are handed over already loaded: JobSiteInfo reads the work order's / card's property for its last fallback, which would otherwise be one more query each.
+        $workOrder?->setRelation('property', $property);
+        $card->setRelation('property', $property);
+        $card->setRelation('workOrder', $workOrder);
+        $access = JobSiteInfo::accessContact($workOrder, $card);
 
         return [
             'id' => $card->id,

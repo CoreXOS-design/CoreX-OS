@@ -13,12 +13,15 @@ use Illuminate\Support\Facades\Storage;
  * addresses. New uploads go to the private disk ({@see PrivateImageService::storeUpload()}); this moves the existing ones, once.
  *
  * What it moves: a fault-report photo with NO staff uploader (that is what a portal upload is - the same rule the tenant's own view
- * uses), whose file is `properties/{id}/{name}.jpg|png|webp` on the public disk.
+ * uses), whose file is `properties/{id}/{name}.jpg|png|webp` on the public disk. Audit 2026-10-20 adds the other pictures a tenant or the
+ * crew sends that used to land on the public disk: a work-order photo of type `dispute` (the tenant's "not fixed" photos), a `crew_receipt`
+ * (office evidence of a payment), and a tenant progress photo (uploaded_via = tenant, written from 2026-10-20 on - older tenant progress
+ * photos carry no marker that tells them from a contractor's upload, so they are left alone).
  *
  * What it will NOT touch (reported as "shared"): a file that anything else also points at - an inspection or inventory photo, a
- * property gallery / valve / DB-board picture, a fault photo a member of staff uploaded, a work-order photo that is not a plain
- * `reported` copy of the fault photo. The only other rows that move with a file are those exact "same stored picture" copies
- * (fault photos with no uploader, work-order photos of type `reported`), because they are the same evidence and must keep resolving.
+ * property gallery / valve / DB-board picture, a fault photo a member of staff uploaded, a work-order photo that is neither a plain
+ * `reported` copy of the fault photo nor one of the kinds above. The only other rows that move with a file are those exact "same stored
+ * picture" copies (fault photos with no uploader, work-order photos of the movable kinds), because they are the same evidence and must keep resolving.
  *
  * Order per file, so a crash can never leave a row pointing at nothing: copy to the private disk -> verify (size) -> repoint the rows
  * -> remove the old public file and its derived copies (the regenerable list thumbnail and portal-img caches, never a record).
@@ -57,7 +60,22 @@ class PrivatiseFaultPhotos extends Command
             $files[$rel][] = $row;
         }
 
-        $this->info($tag . 'Found ' . count($files) . ' public fault-photo file(s) from the portal.');
+        // the work-order pictures a tenant / the crew sent (never a contractor's or the office's own upload)
+        $woRows = DB::table('rental_work_order_photos')
+            ->where('storage_path', 'not like', PrivateImageService::PREFIX . '%')
+            ->where(fn ($q) => $this->ownKindScope($q))
+            ->when($this->option('agency') !== null && $this->option('agency') !== '', fn ($q) => $q->where('agency_id', (int) $this->option('agency')))
+            ->orderBy('id')
+            ->get(['id', 'agency_id', 'storage_path']);
+        foreach ($woRows as $row) {
+            $rel = $images->legacyPublicRel($row->storage_path);
+            if ($rel === null || ! preg_match('#^properties/(\d+)/[^/]+\.(?:jpe?g|png|webp)$#i', $rel)) {
+                continue;
+            }
+            $files[$rel][] = $row;
+        }
+
+        $this->info($tag . 'Found ' . count($files) . ' public portal / crew picture file(s).');
 
         $moved = 0;
         $skipped = 0;
@@ -76,7 +94,7 @@ class PrivatiseFaultPhotos extends Command
             }
 
             if ($dry) {
-                $this->line("would move: {$rel} (" . count($faultRows) . ' fault photo row(s))');
+                $this->line("would move: {$rel} (" . count($faultRows) . ' row(s))');
                 $moved++;
 
                 continue;
@@ -92,6 +110,17 @@ class PrivatiseFaultPhotos extends Command
         $this->info($tag . "Done. {$moved} moved, {$skipped} skipped.");
 
         return self::SUCCESS;
+    }
+
+    /** Work-order photos a tenant or the crew sent: the tenant's dispute photos, a crew receipt, a tenant progress photo. */
+    private function ownKindScope($q)
+    {
+        return $q->whereIn('photo_type', ['dispute', 'crew_receipt'])->orWhere('uploaded_via', 'tenant');
+    }
+
+    private function isOwnKind(object $row): bool
+    {
+        return in_array($row->photo_type, ['dispute', 'crew_receipt'], true) || $row->uploaded_via === 'tenant';
     }
 
     /** null = fine to move; otherwise the plain reason it is left alone. */
@@ -121,10 +150,11 @@ class PrivatiseFaultPhotos extends Command
                 return "shared: {$table}";
             }
         }
-        $wo = DB::table('rental_work_order_photos')->where('storage_path', 'like', '%' . $rel)->get(['id', 'agency_id', 'photo_type', 'storage_path'])
+        $wo = DB::table('rental_work_order_photos')->where('storage_path', 'like', '%' . $rel)->get(['id', 'agency_id', 'photo_type', 'uploaded_via', 'storage_path'])
             ->filter(fn ($r) => $sameFile($r->storage_path));
         $agencyIds = $faultAll->pluck('agency_id')->unique();
-        if ($wo->contains(fn ($r) => $r->photo_type !== 'reported' || ! $agencyIds->contains($r->agency_id))) {
+        $movableWo = fn ($r): bool => ($r->photo_type === 'reported' && $agencyIds->contains($r->agency_id)) || $this->isOwnKind($r);
+        if ($wo->contains(fn ($r) => ! $movableWo($r))) {
             return 'shared: a work-order photo that is not the reported copy';
         }
 
@@ -179,7 +209,8 @@ class PrivatiseFaultPhotos extends Command
                     DB::table('rental_fault_report_photos')->where('id', $r->id)->update(['storage_path' => $ref]);
                 }
             }
-            foreach (DB::table('rental_work_order_photos')->where('photo_type', 'reported')->where('storage_path', 'like', '%' . $rel)->get(['id', 'storage_path']) as $r) {
+            foreach (DB::table('rental_work_order_photos')->where(fn ($q) => $q->where('photo_type', 'reported')->orWhere(fn ($o) => $this->ownKindScope($o)))
+                ->where('storage_path', 'like', '%' . $rel)->get(['id', 'storage_path']) as $r) {
                 if ($images->legacyPublicRel($r->storage_path) === $rel) {
                     DB::table('rental_work_order_photos')->where('id', $r->id)->update(['storage_path' => $ref]);
                 }

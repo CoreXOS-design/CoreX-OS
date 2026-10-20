@@ -197,6 +197,7 @@
                                style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);"
                                placeholder="e.g. 081 234 5678">
                     </div>
+                    @include('partials.agency-timezone-field', ['agency' => $agency, 'surface' => '--surface-2'])
                     <div>
                         <label class="block text-xs font-medium mb-1" style="color:var(--text-secondary);">Primary Cell Label</label>
                         <input type="text" name="phone_label" value="{{ old('phone_label', $agency->phone_label) }}"

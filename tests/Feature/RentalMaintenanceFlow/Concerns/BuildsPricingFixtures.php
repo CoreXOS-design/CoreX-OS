@@ -154,4 +154,23 @@ trait BuildsPricingFixtures
     {
         return RentalVatType::where('agency_id', $this->agency->id)->where('rate_mode', RentalVatType::RATE_MODE_AGENCY_RATE)->firstOrFail();
     }
+
+    /**
+     * Audit 2026-10-20: a private picture is shown as a signed `/private-image/{token}` URL (a new one on every render), so a test that needs to know WHICH
+     * stored picture a URL opens reads the `private:` reference back out of the token. Null for anything else (a public /storage address, a malformed URL).
+     */
+    protected function refOfSignedUrl(?string $url): ?string
+    {
+        if (! $url || ! preg_match('#/private-image/([A-Za-z0-9_-]+)#', (string) $url, $m)) {
+            return null;
+        }
+        $b64 = strtr($m[1], '-_', '+/');
+        try {
+            $data = json_decode(\Illuminate\Support\Facades\Crypt::decryptString($b64 . str_repeat('=', (4 - strlen($b64) % 4) % 4)), true);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($data) ? ($data['r'] ?? null) : null;
+    }
 }

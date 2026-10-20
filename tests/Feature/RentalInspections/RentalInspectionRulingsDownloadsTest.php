@@ -82,9 +82,7 @@ final class RentalInspectionRulingsDownloadsTest extends TestCase
 
     private function agentSigns(RentalInspection $inspection): void
     {
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
-        ])->assertStatus(201);
+        $this->agentSignsNow($inspection);
     }
 
     /** Text of every page of a generated PDF (pdftotext, one string per page). */

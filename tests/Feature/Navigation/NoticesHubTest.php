@@ -25,7 +25,8 @@ final class NoticesHubTest extends TestCase
     use BuildsNoticeFixture;
     use RefreshDatabase;
 
-    private const ALL = ['rental_breaches.view', 'rental_notices.review', 'rental_notices.create', 'rental_notice_templates.manage_settings'];
+    // A28 (19 Oct 2026): the history of notices SENT is opened by rental_notices.view, not .create
+    private const ALL = ['rental_breaches.view', 'rental_notices.review', 'rental_notices.view', 'rental_notice_templates.manage_settings'];
 
     protected function setUp(): void
     {
@@ -187,11 +188,26 @@ final class NoticesHubTest extends TestCase
         $middleware = collect(Route::getRoutes()->getByName('corex.notices.index')->gatherMiddleware())->first(fn ($m) => is_string($m) && str_starts_with($m, 'permission:'));
         $this->assertEqualsCanonicalizing(self::ALL, explode(',', substr($middleware, 11)));
 
+        // the menu item's own guard IS the tab list (audit 2026-10-20 finding 8): it shows exactly when a tab can open, so it can never disagree with the tabs
         $sidebar = (string) file_get_contents(base_path('resources/views/layouts/corex-sidebar.blade.php'));
         preg_match("/route\\('corex\\.notices\\.index'\\)/", $sidebar, $hit, PREG_OFFSET_CAPTURE);
         $before = substr($sidebar, max(0, (int) $hit[0][1] - 1500), 1500);
-        foreach (self::ALL as $key) {
-            $this->assertStringContainsString("'{$key}'", $before, "the menu item's guard names {$key}");
-        }
+        $this->assertStringContainsString('NoticesTabs::forUser($user) !== []', $before);
+        // and the outer Rentals group gate carries every tab permission too
+        $this->assertSame(1, preg_match("/@if\\(\\\$user && \\(\\\$user->hasAnyPermission\\(\\['rental_applications\\.view'[^\n]*NoticesTabs::permissions\\(\\)/", $sidebar), 'the outer Rentals gate lists the tab permissions');
+    }
+
+    public function test_a_user_holding_only_create_has_no_tab_so_no_notices_item_and_the_entry_answers_403(): void
+    {
+        // .create opens no tab (the history of notices sent is .view). The menu item shows exactly when NoticesTabs::forUser() has a tab
+        // (asserted on the sidebar source above), so with no tab there is no item to click into a 403.
+        $createOnly = $this->agentHolding(['rental_notices.create']);
+
+        $this->actingAs($createOnly)->get(route('corex.notices.index'))->assertForbidden();
+        $this->assertSame([], NoticesTabs::forUser($createOnly));
+
+        // and a user holding only the templates permission still has the one tab (the menu's outer gate lists it too)
+        $templatesOnly = $this->agentHolding(['rental_notice_templates.manage_settings']);
+        $this->assertSame(['templates'], array_keys(NoticesTabs::forUser($templatesOnly)));
     }
 }

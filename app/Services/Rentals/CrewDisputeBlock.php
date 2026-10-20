@@ -43,7 +43,7 @@ final class CrewDisputeBlock
             ->where('photo_type', RentalWorkOrder::PHOTO_DISPUTE)
             ->orderBy('id')
             ->get()
-            ->map(fn (RentalWorkOrderPhoto $p) => ['url' => $p->storage_path])
+            ->map(fn (RentalWorkOrderPhoto $p) => ['url' => $p->displayUrl()])
             ->all();
 
         return [

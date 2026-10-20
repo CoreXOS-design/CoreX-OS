@@ -579,6 +579,169 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
         $this->assertSame(3, \App\Models\AI\AiUsageEvent::where('source', \App\Models\AI\AiUsageEvent::SOURCE_IMAGE_ANALYSIS)->count(), 'every call is on the AI usage ledger');
     }
 
+    // ── Audit 20 Oct 2026 (M1, M7, M8, L5) ──────────────────────────────────────────────────────
+
+    /** M1 - a note written beside a row that is already recorded on screen (greyed on the form) is still read, never silently dropped. */
+    public function test_a_handwritten_note_beside_a_row_already_recorded_on_screen_is_still_read(): void
+    {
+        config(['services.anthropic.inspection_note_reading' => true, 'services.anthropic.enabled' => true]);
+        $fake = $this->cannedTranscriber(['text' => 'Chipped tile by bath', 'confidence' => 0.9]);
+        $this->app->instance(RentalInspectionNoteReadService::class, $fake);
+        foreach ([0, 1] as $i) {
+            RentalInspectionObservation::create([
+                'agency_id' => $this->agency->id, 'rental_inspection_id' => $this->inspection->id, 'rental_inspection_item_id' => $this->items[$i]->id,
+                'observed_by_user_id' => $this->agent->id, 'condition' => 'good', 'source' => 'in_inspection',
+            ]);
+        }
+
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->fresh()->status, $scan->fresh()->failure_reason ?? '');
+        $withNote = RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[1]->id)->first();
+        $this->assertNotNull($withNote, 'the row with writing beside it is proposed even though its tick matches the screen');
+        $this->assertSame('good', $withNote->detected_condition_key, 'the on-screen condition stands');
+        $this->assertFalse((bool) $withNote->ambiguous);
+        $this->assertTrue($withNote->note_ink);
+        $this->assertSame('Chipped tile by bath', $withNote->detected_note);
+        $this->assertCount(1, $fake->received, 'only the row with ink is sent');
+        $this->assertNull(
+            RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->where('rental_inspection_item_id', $this->items[0]->id)->first(),
+            'a recorded row with nothing written beside it is still skipped'
+        );
+        $this->assertCount(2, RentalInspectionObservation::where('rental_inspection_id', $this->inspection->id)->get(), 'reading writes nothing to the inspection');
+    }
+
+    /** M7 - AI reading of handwriting is a per-agency setting, ON by default, under the platform master switch. */
+    public function test_note_reading_is_on_by_default_for_every_agency_and_the_platform_switch_stays_the_master(): void
+    {
+        $this->assertTrue(\App\Models\RentalInspectionSetting::noteReadEnabledFor($this->agency->id), 'no settings row: on');
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['omr_mark_threshold' => 0.05]);
+        $this->assertTrue(\App\Models\RentalInspectionSetting::noteReadEnabledFor($this->agency->id), 'an existing row that never set it: on');
+
+        $service = app(RentalInspectionNoteReadService::class);
+        $this->assertFalse($service->enabled($this->agency->id), 'platform switch off: off for everyone');
+        config(['services.anthropic.inspection_note_reading' => true, 'services.anthropic.enabled' => true]);
+        $this->assertTrue($service->enabled($this->agency->id));
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['note_read_enabled' => false]);
+        $this->assertFalse($service->enabled($this->agency->id), 'the agency switched it off');
+        $this->assertTrue($service->enabled(), 'the platform-wide question (no agency) is unchanged');
+    }
+
+    public function test_an_agency_that_switched_note_reading_off_never_has_a_crop_sent_even_with_the_platform_switch_on(): void
+    {
+        config(['services.anthropic.inspection_note_reading' => true, 'services.anthropic.enabled' => true]);
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['note_read_enabled' => false]);
+        $fake = $this->cannedTranscriber(['text' => 'Cracked tiles', 'confidence' => 0.91]);
+        $this->app->instance(RentalInspectionNoteReadService::class, $fake);
+
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+
+        $this->assertSame([], $fake->received, 'nothing left the building');
+        $this->assertSame(RentalInspectionScan::STATUS_NEEDS_REVIEW, $scan->fresh()->status);
+        $this->assertNull(RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->whereNotNull('detected_note')->first());
+    }
+
+    /** M8 - a scan over the page cap is refused with a readable reason and never left "processing". */
+    public function test_a_scan_over_the_page_cap_fails_with_a_readable_reason(): void
+    {
+        $pdf = new Imagick();
+        for ($i = 0; $i < RentalInspectionScanReaderService::MAX_PAGES + 1; $i++) {
+            $p = new Imagick();
+            $p->newImage(20, 20, new ImagickPixel('white'));
+            $p->setImageFormat('pdf');
+            $pdf->addImage($p);
+        }
+        $pdf->setImageFormat('pdf');
+        $path = "properties/{$this->property->id}/rental-inspection-scans/many.pdf";
+        Storage::disk('local')->put($path, $pdf->getImagesBlob());
+        $scan = RentalInspectionScan::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'rental_inspection_id' => $this->inspection->id,
+            'original_filename' => 'many.pdf', 'storage_path' => $path, 'mime_type' => 'application/pdf',
+            'status' => RentalInspectionScan::STATUS_PROCESSING, 'uploaded_by_user_id' => $this->agent->id,
+        ]);
+
+        app(RentalInspectionScanReaderService::class)->process($scan->fresh());
+
+        $fresh = $scan->fresh();
+        $this->assertSame(RentalInspectionScan::STATUS_FAILED, $fresh->status);
+        $this->assertStringContainsString((RentalInspectionScanReaderService::MAX_PAGES + 1) . ' pages', $fresh->failure_reason);
+        $this->assertStringContainsString('at most ' . RentalInspectionScanReaderService::MAX_PAGES . ' pages', $fresh->failure_reason);
+        $this->assertSame(RentalInspectionScanReaderService::MAX_PAGES + 1, $fresh->page_count);
+    }
+
+    /** M8 - a read that runs out of its time budget stops itself: failed with a readable reason, not stuck "processing". */
+    public function test_a_scan_that_runs_out_of_time_is_failed_with_a_readable_reason(): void
+    {
+        $slow = new class(app(RentalInspectionFormPdfService::class), app(\App\Services\Rentals\RentalInspectionScanGeometry::class), app(RentalInspectionNoteReadService::class)) extends RentalInspectionScanReaderService {
+            protected function timeBudgetSeconds(): float
+            {
+                return -1.0; // already over
+            }
+        };
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+
+        $slow->process($scan->fresh());
+
+        $fresh = $scan->fresh();
+        $this->assertSame(RentalInspectionScan::STATUS_FAILED, $fresh->status);
+        $this->assertStringContainsString('took longer than the server allows', $fresh->failure_reason);
+        $this->assertSame(0, RentalInspectionScanMark::where('rental_inspection_scan_id', $scan->id)->count());
+    }
+
+    /** M8 - any other failure inside the read also lands as failed with a reason. */
+    public function test_an_unexpected_error_during_a_read_leaves_the_scan_failed_not_processing(): void
+    {
+        $broken = new class(app(RentalInspectionFormPdfService::class), app(\App\Services\Rentals\RentalInspectionScanGeometry::class), app(RentalInspectionNoteReadService::class)) extends RentalInspectionScanReaderService {
+            protected function timeBudgetSeconds(): float
+            {
+                throw new \RuntimeException('boom');
+            }
+        };
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+
+        $broken->process($scan->fresh());
+
+        $fresh = $scan->fresh();
+        $this->assertSame(RentalInspectionScan::STATUS_FAILED, $fresh->status);
+        $this->assertStringContainsString('boom', $fresh->failure_reason);
+    }
+
+    /** M8 - the pages are rasterized once per upload and dropped when the request's work is done. */
+    public function test_the_rasterized_pages_are_kept_for_the_request_and_then_flushed(): void
+    {
+        $service = app(RentalInspectionScanReaderService::class);
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+        // no printed form yet is not the case here (the helper prints one), so make the read fail after rasterizing: a form that is gone
+        \App\Models\RentalInspectionForm::withoutGlobalScopes()->where('rental_inspection_id', $this->inspection->id)->update(['deleted_at' => now()]);
+
+        $service->process($scan->fresh());
+
+        $cache = (new \ReflectionProperty($service, 'rasterCache'))->getValue($service);
+        $this->assertNotNull($cache, 'a failed read keeps the pages for the re-file / QR look in the same request');
+        $this->assertTrue($cache['complete']);
+        $service->flushRasterCache();
+        $this->assertNull((new \ReflectionProperty($service, 'rasterCache'))->getValue($service));
+    }
+
+    /** L5 - re-reading a scan whose every mark was already applied keeps it applied. */
+    public function test_rereading_an_applied_scan_keeps_it_applied(): void
+    {
+        $service = app(RentalInspectionScanReaderService::class);
+        $scan = $this->scanFromGeneratedForm(inkNoteOfItemIndex: 1);
+        $service->process($scan->fresh());
+        foreach ($scan->marks()->get() as $mark) {
+            $service->applyMark($mark, 'good', $this->agent, RentalInspectionObservation::SOURCE_IN_INSPECTION);
+        }
+        $scan->forceFill(['status' => RentalInspectionScan::STATUS_APPLIED, 'applied_by_user_id' => $this->agent->id, 'applied_at' => now()])->save();
+
+        $service->reread($scan->fresh());
+
+        $this->assertSame(RentalInspectionScan::STATUS_APPLIED, $scan->fresh()->status);
+        $this->assertSame(0, $scan->marks()->whereNull('applied_observation_id')->count());
+    }
+
     // ── helpers for the read step ───────────────────────────────────────────────────────────────
 
     private function cannedTranscriber(array $answer): RentalInspectionNoteReadService

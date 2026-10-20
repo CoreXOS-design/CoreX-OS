@@ -51,6 +51,22 @@ class ParseMarketReportJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     /**
+     * Seconds a queue worker lets one run take. The AI read can wait on the platform lock and then make a call of up
+     * to 180s, so it needs more than the worker's 60s default (a job's own $timeout overrides the worker's --timeout).
+     */
+    public int $timeout = 330;
+
+    /** How often a continuation puts itself back when the platform-wide AI lock is busy, and how long it waits each time. */
+    private const MAX_BUSY_RELEASES = 40;
+    private const BUSY_RELEASE_SECONDS = 30;
+
+    /** A queued AI read that has not finished within this long is given up on (see failed()). */
+    public function retryUntil(): \DateTimeInterface
+    {
+        return now()->addMinutes(45);
+    }
+
+    /**
      * @param bool $forceNewAiRead  Report recogniser (mic-complete-spec §8.9): pay for a fresh AI read
      *                              even if the file's cached answer exists. Only a CoreX admin's Re-run sets it.
      */
@@ -61,6 +77,15 @@ class ParseMarketReportJob implements ShouldQueue
         public readonly bool $aiAllowed = true,
         /** true = a CoreX owner retrying from the admin queue: skips the "same layout already queued" block. */
         public readonly bool $adminRetry = false,
+        /**
+         * true = called from a web request. If the report reaches the paid AI step, the step is NOT run here: the
+         * report is left "being read" and the whole read is queued for a worker (the web request returns at once).
+         */
+        public readonly bool $deferAi = false,
+        /** The CoreX owner who pressed Re-run (told when a queued re-run finishes). */
+        public readonly ?int $actorUserId = null,
+        /** true = this is the queued second half of a deferred read (never set by a caller). */
+        public readonly bool $continuation = false,
     ) {}
 
     public function handle(
@@ -136,9 +161,19 @@ class ParseMarketReportJob implements ShouldQueue
             }
 
             if ($parser instanceof GenericFallbackParser) {
+                if ($this->aiAllowed && $this->deferAi && $aiReader->mayAttempt($report)) {
+                    // The paid read must never run inside a web request (it can wait on the platform-wide lock and then
+                    // on a 180s call). Leave the report "being read" and queue the whole read; nothing has been written yet.
+                    $this->handOverToQueue();
+
+                    return;
+                }
                 $aiOutcome = $this->aiAllowed
                     ? $aiReader->read($report, $absolutePath, $this->forceNewAiRead, $this->adminRetry)
                     : \App\Services\MarketReports\DTOs\AiReadOutcome::unread('Not read: no learned layout matches yet, and this re-run does not use the AI.', code: 'ai_not_used');
+                if ($this->continuation && $aiOutcome->code === AiReportReadService::CODE_BUSY && $this->putBackBecauseBusy()) {
+                    return; // another report holds the AI lock: stay "being read", try again shortly
+                }
                 if ($aiOutcome->wasRead()) {
                     $result     = $aiOutcome->result;
                     $readMethod = MarketReport::READ_AI;
@@ -387,6 +422,7 @@ class ParseMarketReportJob implements ShouldQueue
                 event(new \App\Events\MarketReports\MarketReportReadByAi($report, fromCache: (bool) $aiOutcome?->fromCache));
                 SpotCheckMarketReportJob::dispatch($report->id);
                 $this->learnLayout($report, $aiOutcome, $absolutePath, $learner);
+                $this->closeCaseAfterOwnerRerun($report);
             } elseif ($isZeroCompWithSummary || $isGenericFallback || $isRecognizedButEmpty) {
                 $flaggedBy = $isZeroCompWithSummary
                     ? 'zero_comp_with_summary_guard'
@@ -418,7 +454,7 @@ class ParseMarketReportJob implements ShouldQueue
                     'flagged_by'  => $flaggedBy,
                 ]);
                 if ($isGenericFallback) {
-                    event(new \App\Events\MarketReports\MarketReportUnreadable($report, reasonCode: $aiOutcome?->code, newCase: (bool) $aiOutcome?->newCase));
+                    event(new \App\Events\MarketReports\MarketReportUnreadable($report, reasonCode: $aiOutcome?->code, newCase: (bool) $aiOutcome?->newCase, caseId: $aiOutcome?->caseId));
                 } else {
                     event(new \App\Events\MarketReports\MarketReportSpotCheckFlagged(
                         report: $report,
@@ -447,6 +483,103 @@ class ParseMarketReportJob implements ShouldQueue
                 'error'     => $e->getMessage(),
             ]);
         }
+
+        $this->tellActorIfRerun($report);
+    }
+
+    /** Queue the whole read for a worker (the report stays "being read" meanwhile). */
+    private function handOverToQueue(): void
+    {
+        self::dispatch(
+            $this->reportId, $this->forceNewAiRead, true, $this->adminRetry,
+            deferAi: false, actorUserId: $this->actorUserId, continuation: true,
+        );
+    }
+
+    /**
+     * The platform-wide AI lock was busy. Put this run back on the queue for a little later instead of holding a
+     * worker. Returns false when it is not a real queue run, or it has waited long enough (the report is then
+     * shown as not read, with the plain "busy" reason).
+     */
+    private function putBackBecauseBusy(): bool
+    {
+        if ($this->job === null || $this->job instanceof \Illuminate\Queue\Jobs\SyncJob || $this->attempts() >= self::MAX_BUSY_RELEASES) {
+            return false;
+        }
+        $this->release(self::BUSY_RELEASE_SECONDS);
+
+        return true;
+    }
+
+    /**
+     * A queued owner Re-run that ended in a good AI read closes the layout case the same way an Approve does
+     * (counters reset, queued reports re-run on the new layout with no AI call, agents told).
+     */
+    private function closeCaseAfterOwnerRerun(MarketReport $report): void
+    {
+        if (!$this->continuation || !$this->adminRetry || $this->actorUserId === null) {
+            return;
+        }
+        try {
+            $learned = \App\Models\MarketReports\MarketReportLearnedLayout::query()
+                ->where('learned_from_report_id', $report->id)->latest('id')->first();
+            if ($learned !== null) {
+                $summary = app(\App\Services\MarketReports\LayoutCaseResolver::class)->resolveForLayout($learned, $this->actorUserId);
+                $this->ownerResolution = \App\Services\MarketReports\LayoutCaseResolver::summaryText($summary);
+            }
+        } catch (Throwable $e) {
+            Log::warning('ParseMarketReportJob: closing the layout case after a re-run failed', ['report_id' => $report->id, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** Text added to the owner's "re-run finished" message when the case was closed. */
+    private string $ownerResolution = '';
+
+    /** A queued owner Re-run tells the owner how it ended (a web request cannot: it returned long ago). */
+    private function tellActorIfRerun(MarketReport $report): void
+    {
+        if (!$this->continuation || !$this->adminRetry || $this->actorUserId === null) {
+            return;
+        }
+        try {
+            $report->refresh();
+            $user = \App\Models\User::query()->withoutGlobalScope(\App\Models\Scopes\AgencyScope::class)->whereKey($this->actorUserId)->first();
+            if (!$user) {
+                return;
+            }
+            $text = 'Re-run finished: ' . ($report->readBadge() ?? 'read by a built-in parser') . '.'
+                . ($this->ownerResolution !== '' ? ' ' . $this->ownerResolution : '');
+            $user->notify(new \App\Notifications\PillarEventNotification(
+                eventKey:     'market_report.rerun_finished',
+                pillar:       'Presentation',
+                title:        'Re-run finished: ' . ($report->file_name ?: 'report'),
+                body:         $text,
+                subjectType:  MarketReport::class,
+                subjectId:    (int) $report->id,
+                subjectLabel: $report->file_name,
+                actionUrl:    \Illuminate\Support\Facades\Route::has('market-intelligence.reports.recogniser.queue') ? route('market-intelligence.reports.recogniser.queue', [], false) : null,
+                severity:     'info',
+                payload:      ['report_id' => (int) $report->id, 'agency_id' => (int) $report->agency_id],
+                channels:     ['database'],
+            ));
+        } catch (Throwable $e) {
+            Log::warning('ParseMarketReportJob: re-run notification failed', ['report_id' => $this->reportId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    /** The worker gave up on this run (timed out, or never got the AI lock): the report must not sit "being read" forever. */
+    public function failed(?Throwable $e = null): void
+    {
+        $report = MarketReport::query()->withoutGlobalScopes()->find($this->reportId);
+        if ($report === null || $report->parse_status === MarketReport::PARSE_PARSED) {
+            return;
+        }
+        $report->forceFill([
+            'parse_status'       => MarketReport::PARSE_FAILED,
+            'parse_completed_at' => now(),
+            'raw_extracted_json' => ['error' => 'The queued read did not finish.'],
+        ])->save();
+        Log::error('ParseMarketReportJob: queued read did not finish', ['report_id' => $this->reportId, 'error' => $e?->getMessage()]);
     }
 
     /** Keep the report's type label in step with the parser that actually read it. */

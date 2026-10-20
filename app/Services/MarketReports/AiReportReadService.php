@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\MarketReports;
 
 use App\Exceptions\AI\AiPausedException;
+use App\Exceptions\AI\InvalidNarrativeRequestException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\MarketReportAiUsage;
@@ -37,12 +38,30 @@ class AiReportReadService
     public const CODE_MONTHLY_CAP        = 'ai_monthly_cap';
     public const CODE_PLATFORM_DAILY_CAP = 'ai_platform_daily_cap';
     public const CODE_CASE_OPEN          = 'layout_case_open';
+    public const CODE_BUSY               = 'ai_busy';
+
+    /** How long a run waits for the platform-wide AI lock before giving up for now (the queued job tries again later). */
+    public const LOCK_WAIT_SECONDS = 5;
+
+    /** What an agent / owner reads when the AI call itself failed. The technical detail goes to the log only. */
+    public const FAILED_PLAIN = 'The AI service could not read this report just now.';
 
     public function __construct(
         private readonly AnthropicGateway $gateway,
         private readonly CanonicalReadMapper $mapper,
         private readonly ReportReadSettings $settings,
     ) {}
+
+    /**
+     * Could this report reach a paid AI call at all? (The agency's switch and the platform's master switch are both on.)
+     * Cheap and side-effect free: the parse job uses it to decide whether the AI step must be handed to the queue,
+     * so a web request never waits on a paid call.
+     */
+    public function mayAttempt(MarketReport $report): bool
+    {
+        return $this->settings->aiEnabledForAgency((int) $report->agency_id)
+            && (bool) config('services.anthropic.enabled', true);
+    }
 
     /**
      * @param bool $forceNew    pay for a fresh AI read even when this file's answer is cached
@@ -56,7 +75,7 @@ class AiReportReadService
             return AiReadOutcome::unread('AI reading of unrecognised reports is switched off for this agency.', code: 'agency_off');
         }
         if (!(bool) config('services.anthropic.enabled', true)) {
-            return AiReadOutcome::unread('AI is switched off for the whole platform (ANTHROPIC_ENABLED).', code: 'platform_off');
+            return AiReadOutcome::unread('AI reading is switched off for the whole platform.', code: 'platform_off');
         }
         if (!is_file($absolutePath) || !is_readable($absolutePath)) {
             return AiReadOutcome::unread('The stored PDF could not be found.', code: 'file_missing');
@@ -79,21 +98,24 @@ class AiReportReadService
 
         // From here a paid call may happen. Serialise platform-wide: AI reads are rare, and
         // this is what makes "one layout problem = one AI attempt" true even when many
-        // agencies upload the same new layout at the same moment.
+        // agencies upload the same new layout at the same moment. The wait is short on purpose:
+        // the caller is a queue worker that puts the report back on the queue when the lock is busy
+        // (code 'ai_busy'), never a web request sitting on a lock.
         try {
-            return Cache::lock('market-report-ai-read', 240)->block(240, fn () => $this->readPaid($report, $absolutePath, $hash, $adminRetry));
+            return Cache::lock('market-report-ai-read', 240)->block(self::LOCK_WAIT_SECONDS, fn () => $this->readPaid($report, $absolutePath, $hash, $adminRetry));
         } catch (LockTimeoutException) {
-            return AiReadOutcome::unread('The AI reader was busy with another report; try again shortly.', code: 'ai_busy');
+            return AiReadOutcome::unread('The AI reader was busy with another report; it will be tried again shortly.', code: self::CODE_BUSY);
         }
     }
 
     private function readPaid(MarketReport $report, string $absolutePath, string $hash, bool $adminRetry): AiReadOutcome
     {
-        // 1. Fingerprint the unknown layout BEFORE any AI call. If the same layout is already
-        //    queued or already failed (any agency), do not call the AI again.
+        // 1. Fingerprint the unknown layout BEFORE any AI call. If the same layout has already been
+        //    attempted by the AI and failed (any agency), do not call the AI again. A case that was only
+        //    opened because an agency was over its limit (no AI attempt yet) does NOT block other agencies.
         $anchors = $this->anchorsFor($absolutePath);
         if (!$adminRetry && $anchors !== []) {
-            $case = $this->matchOpenCase($anchors);
+            $case = $this->matchOpenCase($anchors, attemptedOnly: true);
             if ($case !== null) {
                 $report->forceFill(['layout_case_id' => $case->id])->save();
 
@@ -114,36 +136,52 @@ class AiReportReadService
 
         // 3. Caps (Johan's ruling 20 Oct): the agency's monthly allowance, then the platform's
         //    daily one. Slots are taken atomically BEFORE the call. AiSpendGuard stays the last net.
+        //    An agency over its limit (or the platform over its daily one) holds THAT report only: it waits
+        //    for the CoreX team without blocking any other agency's AI read (Johan, 20 Oct 2026).
+        //    The period keys are fixed here, once, and handed to every release, so a slot taken just before
+        //    midnight / month-end is returned to the row it was taken from.
         $agencyId = (int) $report->agency_id;
+        $monthKey = MarketReportAiUsage::monthKey();
+        $dayKey   = MarketReportAiUsage::dayKey();
         $monthly  = $this->settings->monthlyCap();
-        if (!MarketReportAiUsage::reserveAgencyMonth($agencyId, $monthly)) {
+        if (!MarketReportAiUsage::reserveAgencyMonth($agencyId, $monthly, $monthKey)) {
             return $this->hold($report, $anchors, self::CODE_MONTHLY_CAP,
                 "This agency has used its {$monthly} AI reads for the month; the report is queued for the CoreX team to add the layout.", false);
         }
         $daily = $this->settings->platformDailyCap();
-        if (!MarketReportAiUsage::reservePlatformDay($daily)) {
-            MarketReportAiUsage::releaseAgencyMonth($agencyId);
+        if (!MarketReportAiUsage::reservePlatformDay($daily, $dayKey)) {
+            MarketReportAiUsage::releaseAgencyMonth($agencyId, $monthKey);
 
             return $this->hold($report, $anchors, self::CODE_PLATFORM_DAILY_CAP,
                 "The platform's daily limit of {$daily} AI reads has been reached; the report is queued for the CoreX team.", false);
         }
 
-        // 4. The call.
+        // 4. The call. A slot stays used ONLY when a request actually went to the AI: any failure before
+        //    that point (nothing sent, spend-guard pause, a request the gateway refused as malformed) gives both back.
+        $sent = false;
         try {
-            $payload = $this->callGateway($report, $absolutePath, $hash);
+            $payload = $this->callGateway($report, $absolutePath, $hash, $sent);
         } catch (AiPausedException $e) {
-            // Refused before anything was sent: nothing was spent, give both slots back.
-            MarketReportAiUsage::releaseBoth($agencyId);
+            MarketReportAiUsage::releaseBoth($agencyId, $monthKey, $dayKey);
 
             return $this->hold($report, $anchors, 'ai_paused', 'AI is paused for this agency (spend limit reached).', false);
         } catch (\Throwable $e) {
             Log::warning('AiReportReadService: AI call failed', [
                 'report_id' => $report->id,
+                'sent'      => $sent,
+                'exception' => $e::class,
                 'error'     => mb_substr($e->getMessage(), 0, 300),
             ]);
 
-            // A call that was sent still counts (it may have been charged).
-            return $this->hold($report, $anchors, 'ai_failed', 'The AI read failed: ' . mb_substr($e->getMessage(), 0, 160), true);
+            if (!$sent || $e instanceof InvalidNarrativeRequestException) {
+                // Nothing reached the AI, so nothing was spent: give both slots back and do not count an attempt.
+                MarketReportAiUsage::releaseBoth($agencyId, $monthKey, $dayKey);
+
+                return $this->hold($report, $anchors, 'ai_failed', self::FAILED_PLAIN, false);
+            }
+
+            // A call that was sent still counts (it may have been charged). The technical detail stays in the log.
+            return $this->hold($report, $anchors, 'ai_failed', self::FAILED_PLAIN, true);
         }
         if ($payload === null) {
             return $this->hold($report, $anchors, 'ai_failed', 'The AI answered, but its answer could not be understood.', true);
@@ -167,6 +205,11 @@ class AiReportReadService
 
         if ($report->layout_case_id) {
             $case = MarketReportLayoutCase::query()->find($report->layout_case_id);
+        }
+        if ($case === null && $anchors !== []) {
+            // Join the layout's open case if one exists (e.g. an earlier cap hold that made no AI attempt),
+            // so one layout has one case however many agencies' reports are waiting on it.
+            $case = $this->matchOpenCase($anchors);
         }
         if ($case === null && $anchors !== []) {
             $case = MarketReportLayoutCase::query()->create([
@@ -202,12 +245,21 @@ class AiReportReadService
         }
     }
 
-    /** An OPEN case whose fixed headings are (nearly) all on this page. */
-    private function matchOpenCase(array $anchors): ?MarketReportLayoutCase
+    /**
+     * An OPEN case whose fixed headings are (nearly) all on this page.
+     *
+     * @param bool $attemptedOnly true = only a case the AI has actually tried and failed on (it blocks a new AI call);
+     *                            false = also a case opened by an over-limit hold (reports can still wait together in it).
+     */
+    private function matchOpenCase(array $anchors, bool $attemptedOnly = false): ?MarketReportLayoutCase
     {
         $min  = $this->settings->layoutMinMatch();
         $text = implode("\n", $anchors); // already normalised; presentShare normalises again harmlessly
-        foreach (MarketReportLayoutCase::query()->where('status', MarketReportLayoutCase::STATUS_OPEN)->orderBy('id')->get() as $case) {
+        $query = MarketReportLayoutCase::query()->where('status', MarketReportLayoutCase::STATUS_OPEN);
+        if ($attemptedOnly) {
+            $query->where('ai_attempts', '>', 0);
+        }
+        foreach ($query->orderBy('id')->get() as $case) {
             if (LayoutFingerprint::presentShare((array) $case->anchors, $text) >= $min) {
                 return $case;
             }
@@ -263,8 +315,11 @@ class AiReportReadService
         );
     }
 
-    /** @return array<string, mixed>|null the AI's parsed JSON, cached */
-    private function callGateway(MarketReport $report, string $absolutePath, string $hash): ?array
+    /**
+     * @param bool $sent set to true immediately before the request goes to the AI; stays false for any failure before that
+     * @return array<string, mixed>|null the AI's parsed JSON, cached
+     */
+    private function callGateway(MarketReport $report, string $absolutePath, string $hash, bool &$sent = false): ?array
     {
         $bytes = file_get_contents($absolutePath);
         if ($bytes === false || $bytes === '') {
@@ -294,6 +349,7 @@ class AiReportReadService
             timeoutSeconds:  180,
         );
 
+        $sent = true;
         $response = $this->gateway->generateStructured($request, $this->schemaDescription());
         $json = $response->outputJson;
         if (!is_array($json)) {

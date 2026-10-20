@@ -387,6 +387,9 @@ class RentalInspectionSetting extends Model
 
     /** Johan's ruling 20 Oct 2026: money is not tracked in CoreX, so deduction amounts are NOT recorded unless the agency turns this on. */
     public const DEFAULT_RECORD_DEDUCTION_AMOUNTS = false;
+
+    /** Audit M7 - AI reading of handwritten notes on a scanned form: ON for every agency unless it switches it off. */
+    public const DEFAULT_NOTE_READ_ENABLED = true;
     public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
 
     /**
@@ -487,6 +490,7 @@ class RentalInspectionSetting extends Model
         'omr_mark_threshold',
         'omr_unsure_below',
         'note_read_min_confidence',
+        'note_read_enabled',
         'form_paper_size',
         'form_safe_margin_mm',
         'public_link_expiry_days',
@@ -543,6 +547,7 @@ class RentalInspectionSetting extends Model
         'omr_mark_threshold' => 'float',
         'omr_unsure_below' => 'float',
         'note_read_min_confidence' => 'float',
+        'note_read_enabled' => 'boolean',
         'public_link_expiry_days' => 'integer',
         'photo_link_minutes' => 'integer',
         'signing_link_enabled' => 'boolean',
@@ -1810,6 +1815,17 @@ class RentalInspectionSetting extends Model
         $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_unsure_below') : null;
 
         return $value !== null ? (float) $value : self::DEFAULT_OMR_UNSURE_BELOW;
+    }
+
+    /**
+     * Audit M7 - does this agency let CoreX read the handwriting on its scanned site forms with AI? Read-time default: ON (null / no row / no
+     * agency reads as on). The platform-wide switch is checked separately, in RentalInspectionNoteReadService::enabled($agencyId).
+     */
+    public static function noteReadEnabledFor(?int $agencyId): bool
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('note_read_enabled') : null;
+
+        return $value !== null ? (bool) $value : self::DEFAULT_NOTE_READ_ENABLED;
     }
 
     /** AT-472 / form spec §13.15 - read-time default, same pattern as omrMarkThresholdFor(). */

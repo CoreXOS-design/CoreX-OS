@@ -3160,3 +3160,12 @@ sniffed content type, not the client filename. Shared code: `App\Support\Private
 
 An inventory no longer needs its own photos of a room the move-in inspection already photographed: each room on the capture screen has **Use inspection photos**, and each line on the move-out comparison has **From the move-out inspection**. The photo is stored once (in the inspection store) and the inventory keeps a reference to it - it behaves as an ordinary inventory photo (tag it to a line, shown in the comparison, on the public page and counted in the report). New inventory uploads are private (signed, expiring links). Full design and rules: `rental-inspections.md` section 66.
 
+
+## 28. Audit of 20 Oct 2026 - a signed inventory keeps its shared photos; the agent's move-out sign-off is the signed-in user (M4, L4, L7)
+
+Full list: `rental-inspections.md` section 69.
+
+- **M4 - evidence stays.** A photo this inventory SHARES from an inspection (section 27) is dropped from lists only while the inventory is a **draft**. Once it is **awaiting signatures or completed** the shared photos are signed evidence: archiving the inspection photo, or the whole inspection, no longer removes them from the inventory's room strip, the move-in/move-out comparison, the public page or the report's photo count, and their pictures keep opening (`RentalInventoryPhoto::scopeUsable`, `LOCKED_INVENTORY_STATUSES`, `evidenceIsLocked()`; the `sourceInspectionPhoto` relation now includes archived sources).
+- **L7 - archiving the inventory's reference revokes its links.** A reference's signed link is guarded by the reference row and the inventory (and, while draft, the source photo and its inspection); archiving the reference stops links already handed out when they are served.
+- **L4 - the AGENT's move-out sign-off is the logged-in user.** `recordMoveOutSignOff` stores the signed-in user's name on the agent row whatever was typed (read-only field on the comparison screen). Tenant and landlord rows are still the agent's record of that person's sign-off.
+- Tests: `RentalInspectionAuditFixes1020Test`.

@@ -132,8 +132,9 @@ class RentalNoticeService
             }
         }
 
-        // values are escaped, then line breaks kept (a clause block is several lines)
-        return (string) preg_replace_callback(self::TOKEN, fn ($m) => array_key_exists($m[1], $values) ? nl2br(e($values[$m[1]]), false) : $m[0], (string) $template->body_html);
+        // the template's own HTML is cleaned of anything active before it is shown unescaped (it was already cleaned on save; templates saved
+        // before that are cleaned here), then the placeholder values - which are escaped - are put in, line breaks kept (a clause block is several lines)
+        return (string) preg_replace_callback(self::TOKEN, fn ($m) => array_key_exists($m[1], $values) ? nl2br(e($values[$m[1]]), false) : $m[0], \App\Support\Html\NoticeHtmlCleaner::clean((string) $template->body_html));
     }
 
     /** Placeholders still unfilled in rendered HTML. @return list<string> */

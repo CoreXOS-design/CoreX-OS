@@ -997,9 +997,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         if (! $inspection->signatures()->where('party_role', 'landlord')->exists()) {
             RentalInspectionSignature::capture($inspection, 'landlord', 'signed', ['party_contact_id' => $this->landlord->id, 'party_signature_path' => '/fake/l.png', 'recorded_by_user_id' => $this->admin->id]);
         }
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
-        ])->assertStatus(201);
+        $this->agentSignsNowAsInspector($inspection);
         $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
     }
 
@@ -1023,9 +1021,7 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertStatus(409);
         Mail::assertNotSent(SignedDocumentDistributionMail::class);
 
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
-        ])->assertStatus(201);
+        $this->agentSignsNowAsInspector($inspection);
         $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
@@ -1415,5 +1411,15 @@ final class RentalInspectionSigningLinkTest extends TestCase
         $this->assertStringContainsString("saveAgentSignatureFor(", $html);
         $this->assertStringContainsString('$root.dataset.autosaved', $html);
         $this->assertStringContainsString('data-qa="filter-show-all"', $html);
+    }
+
+    /** Audit M2: only the inspection's own agent (the inspector) draws "Sign now" as the agent; the admin is logged back in. */
+    private function agentSignsNowAsInspector(RentalInspection $inspection): void
+    {
+        $this->actingAs($this->inspector);
+        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
+        ])->assertStatus(201);
+        $this->actingAs($this->admin);
     }
 }

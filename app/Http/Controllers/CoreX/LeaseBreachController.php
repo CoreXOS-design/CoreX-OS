@@ -310,9 +310,11 @@ class LeaseBreachController extends Controller
             return back()->withErrors(['rental_notice_template_id' => 'Choose one of your agency\'s notice to vacate templates.']);
         }
         $figures = $this->parseFigures((string) ($data['figures_raw'] ?? ''));
-        // the vacate date / time and the breach summary the agent confirmed on the form (a typed name=value line still wins)
+        // The date and time the tenant must be out by come ONLY from the form's own fields - the one value the notice prints and the breach
+        // stores (audit 2026-10-20 finding 7). A typed vacate_date= / vacate_time= line is ignored; every other typed line still wins.
+        unset($figures['vacate_date'], $figures['vacate_time']);
         if (! empty($data['vacate_date'])) {
-            $figures += $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id);
+            $figures = $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id) + $figures;
         }
         if (trim((string) ($data['breach_summary'] ?? '')) !== '') {
             $figures += ['breach_summary' => trim($data['breach_summary'])];

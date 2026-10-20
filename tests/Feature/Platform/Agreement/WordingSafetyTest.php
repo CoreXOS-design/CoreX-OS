@@ -91,8 +91,13 @@ class WordingSafetyTest extends TestCase
 
         $res = $this->get('/legal')->assertOk()->assertSee('TAIL-OF-LEGAL-TEXT')->assertSee('overlay')->assertSee('click me');
         $body = $res->getContent();
-        foreach (['onerror', 'onmouseover', 'javascript', '169.254', 'position:fixed', 'inset:0', 'alert(', '<img src="http://'] as $bad) {
+        foreach (['onerror', 'onmouseover', 'javascript', '169.254', 'position:fixed', 'inset:0', 'alert('] as $bad) {
             $this->assertStringNotContainsStringIgnoringCase($bad, $body, $bad . ' reached the public page');
+        }
+        // The page's own letterhead logo is an absolute URL (APP_URL), so "no http image" would be wrong; what must hold is that the ONLY image is that logo.
+        preg_match_all('/<img\b[^>]*>/i', $body, $imgs);
+        foreach ($imgs[0] as $img) {
+            $this->assertStringContainsString('/platform-company/logo', $img, 'an image other than the letterhead logo reached the public page: ' . $img);
         }
     }
 

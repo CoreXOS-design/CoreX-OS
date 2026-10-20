@@ -58,7 +58,7 @@ class SendLandlordDisputeMailJob implements ShouldQueue
             return;
         }
 
-        $photos = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $round->id)->orderBy('id')->pluck('storage_path')->all();
+        $photos = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $round->id)->orderBy('id')->get()->map(fn (RentalWorkOrderPhoto $p) => $p->mailUrl())->filter()->values()->all();
 
         try {
             $dispatcher->send(trim((string) $landlord->email), new RentalLandlordDisputeMail(

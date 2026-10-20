@@ -189,7 +189,7 @@ class CrewJobLinkController extends Controller
         try {
             $result = $this->lineEntry()->add($card, $request, CrewViewContext::forJobLink($record, $card, $request));
         } catch (\App\Services\Rentals\CrewLineLooksDuplicate $e) {
-            return $this->lineDuplicate($e);
+            return $this->lineDuplicate($e, $request, $back);
         } catch (\InvalidArgumentException $e) {
             return $this->lineFailure($request, $e->getMessage(), $back, true);
         } catch (\LogicException $e) {

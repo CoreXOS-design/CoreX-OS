@@ -110,10 +110,33 @@ class LeaseBreach extends Model
         return $this->breach_party === Lease::NOTICE_BY_LANDLORD ? Lease::NOTICE_BY_TENANT : Lease::NOTICE_BY_LANDLORD;
     }
 
+    /** Today's date (Y-m-d) in the agency's own timezone - the one place "today" is read for the remedy / vacate gates. */
+    protected function agencyTodayDate(): string
+    {
+        $tz = $this->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'UTC');
+
+        return \Carbon\Carbon::now($tz)->toDateString();
+    }
+
     /** The remedy-by date has been reached (today or earlier) - "was it fixed?" is now the question (rental-notices.md §7b). */
+    public function remedyDateReached(): bool
+    {
+        return $this->remedy_deadline !== null && $this->remedy_deadline->toDateString() <= $this->agencyTodayDate();
+    }
+
+    /**
+     * The whole of the remedy-by day has gone by (it is now a later day than the remedy-by date, in the agency's timezone): only then may a
+     * notice to vacate go out - the tenant has the whole of their last remedy day (rental-notices.md §7b, Johan 20 Oct 2026).
+     */
     public function remedyWindowPassed(): bool
     {
-        return $this->remedy_deadline !== null && $this->remedy_deadline->lte(\Carbon\Carbon::today());
+        return $this->remedy_deadline !== null && $this->remedy_deadline->toDateString() < $this->agencyTodayDate();
+    }
+
+    /** The first day a notice to vacate can go out: the day after the remedy-by date. Null when there is no remedy-by date. */
+    public function vacateAvailableFrom(): ?\Carbon\Carbon
+    {
+        return $this->remedy_deadline?->copy()->startOfDay()->addDay();
     }
 
     /** Days from today to the remedy-by date: positive = days left, 0 = due today, negative = overdue. Null once the breach is closed or has no date. */
@@ -147,7 +170,7 @@ class LeaseBreach extends Model
         return ($this->daysToRemedy() ?? 0) < 0;
     }
 
-    /** A notice to vacate may be issued: a tenant breach, still unremedied, from the remedy-by date onward. */
+    /** A notice to vacate may be issued: a tenant breach, still unremedied, from the day AFTER the remedy-by date. */
     public function canIssueVacate(): bool
     {
         return $this->isIssued() && $this->breach_party === Lease::NOTICE_BY_TENANT && $this->remedyWindowPassed();

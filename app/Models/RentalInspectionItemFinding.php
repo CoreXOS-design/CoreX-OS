@@ -167,6 +167,16 @@ class RentalInspectionItemFinding extends Model
                 );
             }
 
+            // Audit M6 - a charge classified or re-priced AFTER the agent reviewed the deductions summary is a change they have not seen:
+            // the review is cleared, so the lease hub asks for it again before the charges are carried to the accounting system.
+            $cleared = \App\Models\RentalInspection::withoutGlobalScopes()->whereKey($outInspection->id)->whereNotNull('deductions_reviewed_at')
+                ->update(['deductions_reviewed_at' => null, 'deductions_reviewed_by_user_id' => null]);
+            if ($cleared) {
+                $outInspection->setAttribute('deductions_reviewed_at', null);
+                $outInspection->setAttribute('deductions_reviewed_by_user_id', null);
+                $outInspection->syncOriginalAttributes(['deductions_reviewed_at', 'deductions_reviewed_by_user_id']);
+            }
+
             return $replacement;
         });
     }

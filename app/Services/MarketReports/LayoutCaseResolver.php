@@ -40,6 +40,18 @@ final class LayoutCaseResolver
         private readonly ReportReadSettings $settings,
     ) {}
 
+    /** One plain sentence for what closing the cases did (the owner's message). Empty when no case was involved. */
+    public static function summaryText(array $s): string
+    {
+        if (($s['cases'] ?? 0) === 0) {
+            return '';
+        }
+
+        return "{$s['cases']} queued layout case(s) closed: {$s['agencies_reset']} agency AI counter(s) reset, "
+            . "{$s['imported']} of {$s['reports']} queued report(s) now imported and their agents told"
+            . ($s['still_queued'] > 0 ? ", {$s['still_queued']} still in the queue." : '.');
+    }
+
     /**
      * @return array{cases:int, agencies_reset:int, reports:int, imported:int, still_queued:int}
      */

@@ -40,8 +40,17 @@ class MobileRentalJobCardController extends Controller
     {
         $this->guardRentalRecordScope($rentalJobCard, 'rental_job_cards', $rentalJobCard->property?->branch_id);
 
-        $validated = $request->validate(['access_notes' => ['nullable', 'string']]);
-        $rentalJobCard->update($validated);
+        // Audit 2026-10-20 (M3): the access contact lives on the WORK ORDER (AT-459) and every surface - crew link, contractor link, emails, the web card -
+        // reads it from there, so the app writes it through the one place that decides where it goes. Only the note changes: who lets the worker in, and
+        // their number, stay exactly as they are. Same 2000-character limit as the web form.
+        $validated = $request->validate(['access_notes' => ['nullable', 'string', 'max:2000']]);
+        if ($request->has('access_notes')) {
+            $workOrder = $rentalJobCard->workOrder()->withoutGlobalScopes()->first();
+            $current = \App\Services\Rentals\JobSiteInfo::accessContact($workOrder, $rentalJobCard);
+            \App\Services\Rentals\JobSiteInfo::saveAccessContact($workOrder, $rentalJobCard, [
+                'access_contact_name' => $current['name'], 'access_contact_phone' => $current['phone'], 'access_note' => $validated['access_notes'] ?? null,
+            ]);
+        }
 
         return response()->json($this->payload($rentalJobCard, $request->user()));
     }
@@ -103,7 +112,8 @@ class MobileRentalJobCardController extends Controller
             'status' => $jobCard->status,
             'property_address' => $jobCard->property?->buildDisplayAddress(),
             'tenant_names' => $jobCard->lease?->tenantNames(),
-            'access_notes' => $jobCard->access_notes,
+            // what the work order holds (the card's own copy only when it has no work order, then the property's note) - the same note every other surface shows
+            'access_notes' => \App\Services\Rentals\JobSiteInfo::accessContact($jobCard->workOrder, $jobCard)['note'],
             // 2026-10-05 — crew is the current assignment; assigned_user is
             // LEGACY ONLY (a card from before crews existed, never written
             // again) and null on every job card created from now on.

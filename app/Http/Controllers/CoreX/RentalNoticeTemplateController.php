@@ -129,7 +129,7 @@ class RentalNoticeTemplateController extends Controller
     {
         $file = $request->file('document');
         if (! $file) {
-            $data['body_html'] = (string) ($data['body_html'] ?? '');
+            $data['body_html'] = \App\Support\Html\NoticeHtmlCleaner::clean((string) ($data['body_html'] ?? ''));
 
             return $data;
         }
@@ -144,6 +144,6 @@ class RentalNoticeTemplateController extends Controller
         $path = 'rental-notice-templates/' . (int) $request->user()->effectiveAgencyId() . '/' . uniqid() . '-' . $name;
         \Illuminate\Support\Facades\Storage::disk('local')->put($path, file_get_contents($file->getRealPath()));
 
-        return ['body_html' => $html, 'source_file_name' => $name, 'source_file_path' => $path] + $data;
+        return ['body_html' => \App\Support\Html\NoticeHtmlCleaner::clean($html), 'source_file_name' => $name, 'source_file_path' => $path] + $data;
     }
 }

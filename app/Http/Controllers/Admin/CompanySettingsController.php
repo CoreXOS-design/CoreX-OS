@@ -124,6 +124,8 @@ class CompanySettingsController extends Controller
             // AT-49 — marketing email-signature footer (blank = Agency default w/ unsubscribe link).
             'marketing_unsubscribe_footer' => ['nullable', 'string', 'max:2000'],
             'popi_url'              => ['nullable', 'string', 'max:500'],
+            // Audit 2026-10-20 (L7): the agency's own timezone (IANA name; blank = the application's). Only written when the form posts the box.
+            'timezone'              => ['nullable', 'string', 'timezone:all'],
             // Phase 9c-3 rebuild — privacy policy as Company Settings field.
             'privacy_policy_markdown' => ['nullable', 'string', 'max:200000'],
             'privacy_policy_action'   => ['nullable', 'string', 'in:publish,unpublish'],
@@ -210,6 +212,11 @@ class CompanySettingsController extends Controller
             if ($shortCode !== null) {
                 $data['short_code'] = $shortCode;
             }
+        }
+
+        // The agency's own timezone (audit 2026-10-20, L7) - only when this form posted the box (the sibling website / branding forms share update()).
+        if (! $request->has('timezone')) {
+            unset($data['timezone']);
         }
 
         // Part 2 — only touch the prospected-badge toggle when the company form

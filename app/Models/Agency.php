@@ -249,6 +249,7 @@ class Agency extends Model
         'is_active',
         'is_demo',
         'require_external_access_authorization',
+        'timezone', // audit 2026-10-20 (L7) - the agency's own timezone (IANA name); null = the application's
         'dashboard_settings_mode',
         'split_branches_enabled',
         // .ai/specs/other-agency-stock.md §6 — which roles may see Other Agency
@@ -668,14 +669,25 @@ class Agency extends Model
     }
 
     /**
-     * AT-117 §4a — the timezone the send-window is evaluated in. No per-agency
-     * timezone column today; CoreX is single-region SA, so this is the app
-     * timezone (Africa/Johannesburg, UTC+2, no DST). Centralised here so a future
-     * per-agency timezone column is a one-line change, not a hunt across surfaces.
+     * The timezone this agency's people read times in, and the one the outreach send-window is evaluated in (AT-117 §4a; the rentals screens and mails read it
+     * through AppDate::agencyTimezone()). The agency's OWN setting (`agencies.timezone`, an IANA name - Company Settings and the Setup Wizard identity step) when it
+     * holds a valid one, else the application's timezone (config app.timezone). Never a place name written into code. (Method name kept: it is the one seam every
+     * caller already uses.)
      */
     public function outreachTimezone(): string
     {
-        return config('app.timezone') ?: 'UTC';
+        $own = trim((string) $this->timezone);
+        if ($own !== '') {
+            try {
+                new \DateTimeZone($own);
+
+                return $own;
+            } catch (\Throwable) {
+                // an unknown name (a hand edit, an old tz database) is ignored, never a crash on a public page
+            }
+        }
+
+        return (string) config('app.timezone');
     }
 
     /**
