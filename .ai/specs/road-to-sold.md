@@ -1,7 +1,7 @@
 # Road to Sold v2 (and Road to Rented) — the recipe for a successful agent
 
 **Jira: AT-454** (one ticket for the whole build; commits prefixed `AT-454:`).
-Status: **spec v2.1, 20 Oct 2026 — Johan's answers 1–7 recorded in section 15 (question 8 is still open). Spec only — no code, no data, no menu changes were made writing this.**
+Status: **APPROVED (20 Oct 2026) — approved by the conductor on Johan's delegation, 20 Oct 2026.** Spec v2.2, 20 Oct 2026 — Johan's answers 1–7 and the conductor's ruling on question 8 are recorded in section 15 (nothing open). Spec only — no code, no data, no menu changes were made writing this.**
 Governing rulings: Johan, 20 Oct 2026 (section 1, verbatim — lanes do not edit it).
 Verified against `QA1` at `8ee4fb502` (read-only), 20 Oct 2026. Every `path:line` was read from that tree. Anything not read is marked **UNVERIFIED**.
 Supersedes: v1 of this file (13 Oct 2026). **v1 is kept whole, unedited, in Appendix A** (including Johan's original business rules of 13 Oct 2026 07:19). Section 2 says which v1 rulings still stand.
@@ -659,9 +659,9 @@ A scheduled and on-demand report listing: completions with no matching source re
 
 ---
 
-## 15. Johan's answers (20 Oct 2026) and what is still open
+## 15. Johan's answers (20 Oct 2026) and the conductor's ruling on question 8
 
-Numbering follows the list Johan was given. Answers 1–7 are decided; **question 8 is pending** (Johan is explaining it to the person it concerns — leave it open; no lane builds sign-off for owners/principals until it is answered).
+Numbering follows the list Johan was given. Answers 1–7 are Johan's. **Question 8 is settled** by the conductor on Johan's delegation, 20 Oct 2026 (below). No question is open in this section.
 
 | # | Question | Johan's answer | Where it lands |
 |---|---|---|---|
@@ -672,7 +672,7 @@ Numbering follows the list Johan was given. Answers 1–7 are decided; **questio
 | 5 | Interim daily-activity move first? | **Yes (interim points fix first).** | 7.6, 14, 14.1; `agency-tracker-rehome.md` step 3 |
 | 6 | Correcting old points: change history, or fix from cut-over? | **Yes — fix from the cut-over date, plus a before/after report.** Past months keep their old totals. | 7.3, 7.4, phase 3 |
 | 7 | Aftercare (step 13): follow-up reminder + referral log now? | **Yes.** | 5.6 (stays as specced: follow-up task N days after registration + referral record; a fuller client-for-life programme is a later spec) |
-| 8 | Level sign-off: only agents/candidates, or owners/principals too? | **PENDING — Johan is explaining it to the person it concerns.** | 8.1: until answered, sign-off applies to agents and candidates only (the safe default); owners/principals are not signed off, and the setting is not built |
+| 8 | Level sign-off: only agents/candidates, or owners/principals too? | **Levels and level sign-off apply to agents and candidates only, not to owners or principals.** *(conductor on Johan's delegation, 20 Oct 2026)* | 8.1: no level, no sign-off request and no sign-off screen row exists for an owner or principal; the setting for owners/principals is not built |
 
 ---
 
