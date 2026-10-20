@@ -2013,10 +2013,15 @@ Route::post('/tv/verify', [\App\Http\Controllers\TV\TvController::class, 'verify
 Route::get('/tv/display/{code}', [\App\Http\Controllers\TV\TvController::class, 'display'])->middleware('throttle:30,1')->name('tv.display');
 
 
+// Both act on the logged-in user's worksheet (Auth::user()->id), so they need a login and
+// the same permission as the Worksheet page that posts to them (agency-tracker-rehome.md step 0).
 Route::post('/worksheet/align-company-target', [\App\Http\Controllers\WorksheetController::class, 'alignToCompany'])
+    ->middleware(['auth', 'permission:view_worksheet'])
     ->name('worksheet.align');
 
-Route::post('/worksheet/apply-branch-default', [\App\Http\Controllers\WorksheetController::class, 'applyBranchDefault'])->name('worksheet.applyBranchDefault');
+Route::post('/worksheet/apply-branch-default', [\App\Http\Controllers\WorksheetController::class, 'applyBranchDefault'])
+    ->middleware(['auth', 'permission:view_worksheet'])
+    ->name('worksheet.applyBranchDefault');
 
 
 

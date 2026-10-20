@@ -554,3 +554,18 @@ An AI scout that watches South African property and law changes (PPRA notices, P
 - `agencyId()` null-agency impact in `MinionCaptureController` (10.1).
 - Whether `worksheets` NOT NULL columns tolerate the Worksheet Market `updateOrCreate` for an agent with no row (migration defaults apply) — not checked.
 - Which agent column / `counts_for_branch_split` rule defines "agents in branch" consistently between the Worksheet display and its auto-fill buttons (flagged in the 11 Sep audit; two counts, not re-verified).
+
+---
+
+## 17. Build log (lanes append here; one entry per phase)
+
+### P1 — steps 0 and 1 (AT-475, QA1, 20 Oct 2026)
+
+**Step 0 — done.** `POST /worksheet/align-company-target` (`worksheet.align`) and `POST /worksheet/apply-branch-default` (`worksheet.applyBranchDefault`) now carry `auth` + `permission:view_worksheet` in `routes/web.php` (same gate as the Worksheet page whose buttons post to them). Route names and URLs unchanged; nothing else on the Worksheet touched. Proven by `tests/Feature/AgencyTracker/WorksheetOpenPostsClosedTest.php`: logged out → login page, no data change; logged in without `view_worksheet` → 403; with it → reaches the action as before ("No worksheet found." / "No branch budget configured."); a second role granted `view_worksheet` not locked out. Both routes still disappear for good when the Worksheet is removed (step 5).
+
+**Step 1 — done.**
+- `<x-period-selector>` = `app/View/Components/PeriodSelector.php` + `resources/views/components/period-selector.blade.php`. A plain GET form (no JavaScript framework): `?period=YYYY-MM`, current month when missing or not a real month, previous/next arrows (next disabled on the current month), the page's other query values carried in hidden inputs, `page` dropped on change. Props: `name` (default `period`), `action`, `label`, `selected`, `months`. With `:months` it renders the "history" dropdown (newest first, current month always offered, a selected month outside the history still shown); without it, a native month input. Controllers read the month with `PeriodSelector::monthFrom(request('period'))` so page and picker agree. It is for single-month screens; the range/preset selector `performance/agency-report/_period-selector` is a different component and is untouched. Adopted by no existing screen yet (My Portal, step 2, is the first user). Test: `tests/Feature/AgencyTracker/PeriodSelectorComponentTest.php`.
+- `App\Services\Activity\ActivityPointsService` = the points rule only: `pointsFor($count, $weight)` = count × weight (negative count and non-numeric weight absorbed as 0, rounded to 2 decimals) and `sqlPoints($entryAlias, $definitionAlias)` for aggregate queries. It reads no table and changes no stored number; the nine sites in 5.6 still carry their own `value × weight` and move onto it in step 3. Test: `tests/Unit/Activity/ActivityPointsServiceTest.php` (includes the verified defect: one calendar event with weight 200 is 200 points, not 40,000).
+- "Sidebar mechanics test updates": nothing to update in P1 — no menu entry, route name or sidebar group changed. Those start in step 3.
+
+**Found, reported, not fixed (outside P1):** `worksheets` column defaults carry HFC numbers (`avg_sale_price` 1,060,000, `commission_percent` 7.50, `correctly_priced_percent` 40.00) in the schema itself, so finding 10 also applies to the table, not only to `WorksheetController`. `ActivityDefinition` still casts `weight` to integer over a decimal(10,2) column (5.6 defect 4) — `ActivityPointsService` accepts the decimal as stored.
