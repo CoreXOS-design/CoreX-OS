@@ -1782,8 +1782,12 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/settings/document-distribution',  [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'index'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution');
     Route::post('/admin/settings/document-distribution', [\App\Http\Controllers\Admin\DocumentDistributionMatrixController::class, 'save'])->middleware('permission:deals_v2.manage_distribution_rules')->name('admin.settings.document-distribution.save');
 
-      // BM: My Agent Dashboard (BM's own numbers)
-      Route::get('/bm/my-dashboard', [\App\Http\Controllers\BM\MyDashboardController::class, 'index'])->middleware('permission:view_performance')->name('bm.my.dashboard');
+      // The old "My Agent Dashboard" lives on in My Portal (Overview > Where I Am) - agency-tracker-rehome.md section 6.
+      // The route NAME is kept so every caller still resolves; the URL 301s to its new home, keeping the month.
+      Route::get('/bm/my-dashboard', fn (\Illuminate\Http\Request $request) => redirect()->route('agent.portal', array_filter([
+          'sub'    => 'whereami',
+          'period' => $request->query('period'),
+      ]), 301))->name('bm.my.dashboard');
 
 
     // Agent Dashboard (agent-only)
