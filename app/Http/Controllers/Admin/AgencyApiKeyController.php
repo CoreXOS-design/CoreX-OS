@@ -164,6 +164,89 @@ class AgencyApiKeyController extends Controller
         );
     }
 
+    /**
+     * "Test connection" — answers "is this website connected?" for one key.
+     * Checks both directions: website → CoreX (has the site called the API with
+     * this key, per last_used_at) and CoreX → website (a signed `connection.test`
+     * POST to the webhook URL, sent synchronously). The test POST is NOT logged
+     * in agency_webhook_deliveries, so it never enters the retry sweep.
+     *
+     * Spec: .ai/specs/agency-public-api.md §7.1a
+     */
+    public function testConnection(Request $request, Agency $agency, AgencyApiKey $apiKey): \Illuminate\Http\JsonResponse
+    {
+        $this->authorizeAgency($agency);
+        $this->ensureBelongs($agency, $apiKey);
+
+        $checks = [];
+        $add = function (string $label, string $status, string $detail) use (&$checks) {
+            $checks[] = ['label' => $label, 'status' => $status, 'detail' => $detail];
+        };
+
+        // 1. Master switch.
+        $agency->website_enabled
+            ? $add('Website switch', 'ok', 'The website is live — CoreX is sharing data.')
+            : $add('Website switch', 'fail', 'The website is offline. Click “Make website live” above, otherwise the site receives no data.');
+
+        // 2. Key status.
+        $apiKey->isActive()
+            ? $add('API key', 'ok', 'This key is active.')
+            : $add('API key', 'fail', 'This key is ' . $apiKey->statusLabel() . ' — the website cannot connect with it. Regenerate the secret to reactivate it.');
+
+        // 3. Website → CoreX.
+        if ($apiKey->last_used_at) {
+            $add('Website → CoreX', 'ok', 'The website last connected ' . $apiKey->last_used_at->diffForHumans() . ' (' . $apiKey->last_used_at->format('Y-m-d H:i') . ').');
+        } else {
+            $add('Website → CoreX', 'fail', 'The website has never connected with this key. Check the key has been put into the website’s settings.');
+        }
+
+        // 4. CoreX → website (webhook push).
+        if (!in_array(AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $apiKey->scopes ?? [], true)) {
+            $add('CoreX → website', 'skip', 'Not set up — this key does not receive pushed updates (the website fetches data itself).');
+        } elseif (!$apiKey->webhook_url) {
+            $add('CoreX → website', 'warn', 'No webhook URL set, so CoreX cannot push changes to the website. Add it under “Edit scopes / webhook”.');
+        } elseif (!$apiKey->webhook_secret) {
+            $add('CoreX → website', 'fail', 'No webhook signing secret on this key. Save the key once under “Edit scopes / webhook” to create one.');
+        } else {
+            $body = json_encode([
+                'event'       => 'connection.test',
+                'occurred_at' => now()->toIso8601String(),
+                'agency_id'   => $agency->id,
+                'data'        => ['message' => 'CoreX connection test — no action needed.'],
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            try {
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Content-Type'      => 'application/json',
+                    'X-CoreX-Signature' => hash_hmac('sha256', $body, $apiKey->webhook_secret),
+                    'X-CoreX-Event'     => 'connection.test',
+                ])->timeout(10)->withBody($body, 'application/json')->post($apiKey->webhook_url);
+
+                $code = $response->status();
+                if ($response->successful()) {
+                    $add('CoreX → website', 'ok', "The website received a test update and accepted it (HTTP {$code}).");
+                } elseif (in_array($code, [401, 403], true)) {
+                    $add('CoreX → website', 'fail', "The website was reached but rejected the update (HTTP {$code}). The webhook signing secret on the website probably doesn't match — copy it again from “Reveal webhook signing secret”.");
+                } elseif ($code === 404) {
+                    $add('CoreX → website', 'fail', 'The website was reached but the webhook URL was not found (HTTP 404). Check the webhook URL.');
+                } else {
+                    $add('CoreX → website', 'warn', "The website was reached but answered HTTP {$code}. The address works; the website may not recognise test messages, or it has an error.");
+                }
+            } catch (\Throwable $e) {
+                $add('CoreX → website', 'fail', 'Could not reach the website: ' . \Illuminate\Support\Str::limit($e->getMessage(), 200));
+            }
+        }
+
+        $failed  = collect($checks)->contains('status', 'fail');
+        $warned  = collect($checks)->contains('status', 'warn');
+
+        return response()->json([
+            'success' => !$failed,
+            'message' => $failed ? 'Not fully connected — see below.' : ($warned ? 'Connected, with a warning — see below.' : 'Connected — everything checks out.'),
+            'checks'  => $checks,
+        ]);
+    }
+
     /** Master "website is live" switch for the agency (visibility layer 1). */
     public function toggleWebsite(Request $request, Agency $agency): RedirectResponse
     {
