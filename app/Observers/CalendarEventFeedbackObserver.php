@@ -2,7 +2,6 @@
 
 namespace App\Observers;
 
-use App\Events\Evaluation\EvaluationCompleted;
 use App\Models\BuyerPropertyView;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventClassSetting;
@@ -11,7 +10,6 @@ use App\Models\Contact;
 use App\Models\DailyActivityEntry;
 use App\Services\Activity\PointStateService;
 use App\Services\BuyerStateService;
-use App\Support\Events\SafeRaise;
 use Illuminate\Support\Facades\Log;
 
 class CalendarEventFeedbackObserver
@@ -102,61 +100,6 @@ class CalendarEventFeedbackObserver
         // Refresh buyer_property_views cache for this (contact × property)
         if ($feedback->property_id) {
             $this->refreshPropertyView($feedback->contact_id, $feedback->property_id, $feedback->id, $feedback->agency_id);
-        }
-    }
-
-    /**
-     * Road to Sold step 4: the evaluation was DONE - the first feedback captured for a property_evaluation
-     * event. Once per evaluation: a second attendee's feedback, or an edit of the first, raises nothing.
-     * created() and updated() are separate hooks on purpose: after a create, wasRecentlyCreated stays true for
-     * every later save of the same in-memory object, so it cannot be used to tell "the save that captured it".
-     */
-    public function created(CalendarEventFeedback $feedback): void
-    {
-        $this->raiseEvaluationCompleted($feedback);
-    }
-
-    public function updated(CalendarEventFeedback $feedback): void
-    {
-        if ($feedback->wasChanged('captured_at') && $feedback->getOriginal('captured_at') === null) {
-            $this->raiseEvaluationCompleted($feedback);
-        }
-    }
-
-    /** Never breaks the feedback save. */
-    private function raiseEvaluationCompleted(CalendarEventFeedback $feedback): void
-    {
-        try {
-            if (! $feedback->calendar_event_id || $feedback->captured_at === null) {
-                return;
-            }
-            $event = CalendarEvent::withoutGlobalScopes()->find($feedback->calendar_event_id);
-            if (! $event || $event->category !== 'property_evaluation') {
-                return;
-            }
-            $earlier = CalendarEventFeedback::withoutGlobalScopes()
-                ->where('calendar_event_id', $feedback->calendar_event_id)
-                ->where('id', '!=', $feedback->id)
-                ->whereNotNull('captured_at')
-                ->exists();
-            if ($earlier) {
-                return;
-            }
-            SafeRaise::dispatch('EvaluationCompleted', fn () => new EvaluationCompleted(
-                calendarEventId: (int) $event->id,
-                feedbackId: (int) $feedback->id,
-                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
-                userId: $event->user_id !== null ? (int) $event->user_id : null,
-                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
-                contactId: $feedback->contact_id !== null ? (int) $feedback->contact_id : ($event->contact_id !== null ? (int) $event->contact_id : null),
-                completedAt: (string) $feedback->captured_at,
-                actorUserId: $feedback->captured_by_user_id !== null ? (int) $feedback->captured_by_user_id : null,
-            ));
-        } catch (\Throwable $e) {
-            Log::warning('EvaluationCompleted hook caught exception, feedback save proceeds', [
-                'feedback_id' => $feedback->id ?? null,
-                'message'     => $e->getMessage(),
-            ]);
         }
     }
 

@@ -475,22 +475,6 @@ class PropertyObserver
         } catch (\Throwable $e) {
             Log::warning("Geocode-on-address-change failed for property #{$property->id}: {$e->getMessage()}");
         }
-
-        // Road to Sold step 7: the listing went live on a portal - p24_/pp_activated_at stamped for the FIRST
-        // time (later refreshes re-stamp an existing value and raise nothing). One event per portal. Never
-        // breaks the save.
-        foreach ([
-            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_P24 => 'p24_activated_at',
-            \App\Events\Property\PropertyWentLiveOnPortal::PORTAL_PRIVATE_PROPERTY => 'pp_activated_at',
-        ] as $portal => $column) {
-            if ($property->wasChanged($column) && $property->{$column} !== null && $property->getOriginal($column) === null) {
-                \App\Support\Events\SafeRaise::dispatch('PropertyWentLiveOnPortal', fn () => new \App\Events\Property\PropertyWentLiveOnPortal(
-                    property: $property,
-                    portal: $portal,
-                    actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
-                ));
-            }
-        }
     }
 
     /**

@@ -178,21 +178,6 @@ class OutcomeService
 
         $this->markListItemWorked($outcome, $agencyId, $agentId);
 
-        // The outcome is saved: tell the rest of CoreX once (road-to-sold.md step 3). Never breaks the capture.
-        \App\Support\Events\SafeRaise::dispatch('RoadToSoldOutcomeRecorded', fn () => new \App\Events\RoadToSold\RoadToSoldOutcomeRecorded(
-            outcomeId: (int) $outcome->id,
-            agencyId: $agencyId,
-            track: $track,
-            outcomeKey: (string) $outcome->outcome_key,
-            kind: (string) $outcome->kind,
-            trackedPropertyId: (int) $outcome->tracked_property_id,
-            userId: $agentId,
-            recordedByUserId: $outcome->recorded_by_user_id ? (int) $outcome->recorded_by_user_id : null,
-            evaluationBooked: (bool) $outcome->valuation_booked,
-            calendarEventId: $outcome->calendar_event_id ? (int) $outcome->calendar_event_id : null,
-            actorUserId: (int) $actor->id,
-        ));
-
         return $outcome;
     }
 

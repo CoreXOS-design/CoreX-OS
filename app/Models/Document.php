@@ -56,7 +56,6 @@ class Document extends Model
     public function properties(): BelongsToMany
     {
         return $this->belongsToMany(Property::class, 'document_properties')
-            ->using(DocumentProperty::class)
             ->withTimestamps();
     }
 
