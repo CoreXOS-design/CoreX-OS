@@ -719,7 +719,7 @@
             <p class="text-xs" style="color:var(--text-muted);">Each website gets its own key. The key's name is the label shown as its Syndication Portal on every property.</p>
 
             @forelse($agency->apiKeys as $key)
-                <div class="rounded-md p-3 space-y-2" style="background: var(--surface-2); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false }">
+                <div class="rounded-md p-3 space-y-2" style="background: var(--surface-2); border:1px solid var(--border);" x-data="{ editing: false, showSecret: false, showDeliveries: false, ...websiteConnectionTest('{{ route('agencies.api-keys.test', [$agency, $key]) }}', '{{ csrf_token() }}') }">
                     <div class="flex items-center justify-between gap-3 flex-wrap">
                         <div>
                             <div class="text-sm font-semibold" style="color:var(--text-primary);">{{ $key->name }}</div>
@@ -751,6 +751,7 @@
                     </div>
                     @endif
                     <div class="flex gap-2 flex-wrap pt-1">
+                        <button type="button" @click="runTest()" :disabled="testBusy" class="corex-btn-outline text-xs disabled:opacity-60" x-text="testBusy ? 'Testing…' : 'Test connection'"></button>
                         <button type="button" @click="editing = !editing" class="corex-btn-outline text-xs" x-text="editing ? 'Close' : 'Edit scopes / webhook'"></button>
                         @if(in_array(\App\Models\AgencyApiKey::SCOPE_WEBHOOKS_RECEIVE, $key->scopes ?? [], true))
                         <button type="button" @click="showDeliveries = !showDeliveries" class="corex-btn-outline text-xs" x-text="showDeliveries ? 'Hide deliveries' : 'Webhook deliveries'"></button>
@@ -769,6 +770,18 @@
                             @csrf @method('DELETE')
                             <button class="corex-btn-outline text-xs" style="color:var(--ds-crimson);">Delete</button>
                         </form>
+                    </div>
+
+                    {{-- Test connection result — spec .ai/specs/agency-public-api.md §7.1a --}}
+                    <div x-show="testMessage" x-cloak class="pt-2 mt-1 space-y-1" style="border-top:1px solid var(--border);">
+                        <p class="text-xs font-semibold" :style="testOk ? 'color:var(--ds-emerald,#10b981);' : 'color:var(--ds-crimson);'" x-text="testMessage"></p>
+                        <template x-for="c in testChecks" :key="c.label">
+                            <div class="text-xs flex gap-2">
+                                <span class="font-semibold shrink-0" :style="{ ok: 'color:var(--ds-emerald,#10b981);', fail: 'color:var(--ds-crimson);', warn: 'color:var(--ds-amber);', skip: 'color:var(--text-muted);' }[c.status]"
+                                      x-text="{ ok: '✓', fail: '✗', warn: '!', skip: '–' }[c.status] + ' ' + c.label"></span>
+                                <span style="color:var(--text-secondary);" x-text="c.detail"></span>
+                            </div>
+                        </template>
                     </div>
 
                     {{-- Webhook delivery log — diagnose why pushes aren't arriving --}}
@@ -1166,6 +1179,26 @@ function p24Actions(cfg) {
             this.busy = true; this.action = 'refresh'; this.message = '';
             const { ok, msg } = await this._post(cfg.refreshUrl);
             this.ok = ok; this.message = msg; this.busy = false; this.action = null;
+        },
+    };
+}
+
+function websiteConnectionTest(url, csrf) {
+    return {
+        testBusy: false, testMessage: '', testOk: false, testChecks: [],
+        async runTest() {
+            this.testBusy = true; this.testMessage = ''; this.testChecks = [];
+            try {
+                const r = await fetch(url, { method: 'POST', headers: { 'X-CSRF-TOKEN': csrf, 'Accept': 'application/json' } });
+                let body = {};
+                try { body = await r.json(); } catch (e) {}
+                this.testOk = r.ok && body.success;
+                this.testMessage = body.message || ('HTTP ' + r.status);
+                this.testChecks = body.checks || [];
+            } catch (e) {
+                this.testOk = false; this.testMessage = 'Test failed: ' + e.message;
+            }
+            this.testBusy = false;
         },
     };
 }

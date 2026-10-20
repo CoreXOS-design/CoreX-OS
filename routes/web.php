@@ -5562,6 +5562,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');
             Route::post('/{agency}/api-keys/{apiKey}/revoke',  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'revoke'])->name('api-keys.revoke');
             Route::post('/{agency}/api-keys/{apiKey}/bulk-activate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivate'])->name('api-keys.bulk-activate');
+            Route::post('/{agency}/api-keys/{apiKey}/test',    [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'testConnection'])->name('api-keys.test');
             Route::delete('/{agency}/api-keys/{apiKey}',       [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'destroy'])->name('api-keys.destroy');
         });
     });
