@@ -585,6 +585,50 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         $this->assertSame(2, $this->builder()->usage($agency)['used'], 'two requests, each counted once however many types (saving costs nothing)');
     }
 
+    /**
+     * Johan 2026-10-20: a Vacant Land version put the erf size and the price per m² in the same spot under the price. A type
+     * version is now checked for words on top of each other like any design: the retry is told which two clash; a version that
+     * still clashes is dropped and that type uses the main design.
+     */
+    public function test_a_land_version_with_two_facts_on_top_of_each_other_is_retried_and_kept_once_they_are_apart(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->seedTypes($agency, self::TYPES);
+        $fake = $this->smartAi(variant: function (string $type, int $forOption, array $default, int $round) {
+            return $this->landWithPlotFacts($default, $round === 1 ? 40 : 360);
+        });
+        $this->actingAs($user);
+
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, ['Vacant Land / Plot']);
+
+        $this->assertSame(1 + 1 + 1, $fake->calls(), 'defaults + the type + one retry');
+        $retry = collect($fake->requests)->last()['user'];
+        $this->assertStringContainsString('(erf_size) and Element', $retry);
+        $this->assertStringContainsString('(price_per_m2) sit on top of each other', $retry);
+        foreach ($gen->options_json as $opt) {
+            $land = collect($opt['variants']['Vacant Land / Plot']['layout']['elements'])->keyBy('field');
+            $this->assertSame(40, (int) $land['erf_size']['x']);
+            $this->assertSame(360, (int) $land['price_per_m2']['x'], 'the kept version is the one with the two facts side by side');
+        }
+    }
+
+    public function test_a_land_version_that_still_has_facts_on_top_of_each_other_after_its_retry_is_dropped_for_the_main_design(): void
+    {
+        [$agency, $user] = $this->agencyWithUser();
+        $this->seedTypes($agency, self::TYPES);
+        $this->smartAi(variant: fn (string $type, int $forOption, array $default, int $round) => $this->landWithPlotFacts($default, 40));
+        $this->actingAs($user);
+
+        $gen = $this->builder()->generate($user, 'x', 'facebook', null, null, 'auto', false, ['Vacant Land / Plot']);
+
+        $this->assertSame(AiTemplateGeneration::STATUS_SUCCESS, $gen->status);
+        $this->assertCount(3, $gen->options_json, 'the main designs are still offered');
+        foreach ($gen->options_json as $opt) {
+            $this->assertSame([], array_keys($opt['variants']));
+            $this->assertSame('No separate design for Vacant Land / Plot — uses the main design', $opt['variant_notes']['Vacant Land / Plot']);
+        }
+    }
+
     public function test_a_type_call_that_fails_outright_does_not_spoil_the_other_types_or_the_defaults(): void
     {
         [$agency, $user] = $this->agencyWithUser();
@@ -1041,6 +1085,17 @@ final class AiTemplateMultiTypeAndMustIncludeTest extends TestCase
         } elseif (str_contains(strtolower($type), 'apartment')) {
             $design['elements'][] = ['field' => 'levy', 'x' => 480, 'y' => 590, 'w' => 260, 'h' => 30, 'zIndex' => 3, 'fontSize' => 20, 'color' => '#ffffff'];
         }
+
+        return $design;
+    }
+
+    /** A land version showing the erf size at x=40 and the price per m² at $ppmX on the same row (x=40 = the two on top of each other). */
+    private function landWithPlotFacts(array $design, int $ppmX): array
+    {
+        $design = $this->adapt($design, 'Vacant Land / Plot');
+        $design['elements'] = array_values(array_filter($design['elements'], fn ($e) => $e['field'] !== 'erf_size'));
+        $design['elements'][] = ['field' => 'erf_size', 'x' => 40, 'y' => 590, 'w' => 300, 'h' => 30, 'zIndex' => 3, 'fontSize' => 20, 'color' => '#ffffff'];
+        $design['elements'][] = ['field' => 'price_per_m2', 'x' => $ppmX, 'y' => 590, 'w' => 300, 'h' => 30, 'zIndex' => 3, 'fontSize' => 20, 'color' => '#ffffff'];
 
         return $design;
     }

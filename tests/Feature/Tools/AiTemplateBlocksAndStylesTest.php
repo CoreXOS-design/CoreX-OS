@@ -458,7 +458,8 @@ final class AiTemplateBlocksAndStylesTest extends TestCase
         $fake = $this->fakeAi($this->recorded('response-with-new-blocks.json'));   // the model names three DIFFERENT styles
         $this->actingAs($user);
 
-        $gen = $this->builder()->generate($user, 'A calm look', 'instagram', 'House', null, 'coastal');
+        // The recorded answer is drawn for 1200x628; squeezed into a square, its rows land on each other (now refused), so it runs at its own size.
+        $gen = $this->builder()->generate($user, 'A calm look', 'facebook', 'House', null, 'coastal');
 
         $prompt = json_encode($fake->firstRequestBody()['system']);
         $coastal = AdTemplateStyles::get('coastal');

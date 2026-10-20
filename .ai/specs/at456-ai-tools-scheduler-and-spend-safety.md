@@ -421,6 +421,48 @@ create with AI pop up where a user can choose like add QR add this or that etc, 
 - [ ] Johan tests on QA2 (a live generation was NOT run in this build).
 
 
+### B.11 No words on top of each other (Johan 2026-10-20: "harden the AI ... it should test before giving results") - as built
+
+**Why.** A live AI template ("Bold Sale – Diagonal Split", agency 20) had a Vacant Land / Plot version with the erf size and
+the price per m² at exactly the same spot under the price (same x and y), so neither could be read; its Apartment / Flat
+version had the parking number over the agent's name. The validator (§B.8) checked bounds, font size, contrast and colours,
+but never whether two pieces of text share space, so the design went straight to the user.
+
+**Rule (`AdLayoutValidator::checkOverlaps()`, run by both `validate()` and `validateAndRepair()`).** Every pair of elements
+that show words or a picture of their own is compared; boxes that share more than `OVERLAP_TOLERANCE` (6) pixels **both**
+across and down are refused, naming both elements and the shared area ("Element 12 (erf_size) and Element 13 (price_per_m2)
+sit on top of each other (they share 260 x 40 pixels) ..."). A hair of shared edge between stacked lines (2-4 px, normal) passes.
+Exempt - meant to have things drawn over them - `OVERLAP_EXEMPT_FIELDS`: the property photos (image_1-5, collage), a company
+ad's picture (custom_image), color_block, shape, gradient, line, watermark and the corner ribbon (its box is mostly empty). The
+agent photo, the logos and the QR code DO count (a picture over words is a clash too).
+
+**Never repaired, by design.** Moving text automatically can push it off its panel or onto a photo, so a clash is a
+rejection: the existing targeted retry (Defaults and each property-type version) is told exactly which two elements to move.
+A Default that still clashes after its retry is not shown (fewer options); a property-type version that still clashes is
+dropped and that type uses the main design ("No separate design for <Type> — uses the main design", §B.10 item 6). The user
+never sees a design with words on top of each other. This also covers designs the "move back inside the canvas" repair
+pushes onto a neighbour (e.g. a facebook-shaped answer squeezed into a square).
+
+**Prompt ("test before answering").** HARD LIMITS rule **1c** (generated from the same constants): such elements must never
+share space, may touch by at most 6 px, facts that belong together go side by side (x + w plus a gap) or one under the other
+(y + h plus a gap) - never at the same x and y - and the AI must compare every pair before answering. Unticked extras are
+not named (decision 20); a company ad's rule names its own picture, not the listing photos. Applies to company ads too (same
+validator, §8 of company-ads.md).
+
+**Existing templates are not changed.** Already-saved templates keep their layout; the live template above needs its two
+Vacant Land facts (and the Apartment parking number) dragged apart in the Ad Builder - a live data change only on Johan's order.
+
+**Proof.** New `tests/Feature/Tools/AiTemplateOverlapGuardTest.php` (7: the live Vacant Land clash refused naming both; side by
+side / one under the other pass; tolerance edge 6 px passes, 7 px refused; photos/blocks/dividers/watermark not a clash; agent
+photo over the name is; prompt rule 1c incl. decision 20 + company mode; end to end: a clashing option is retried with both
+named and the user gets three clean options). `AiTemplateMultiTypeAndMustIncludeTest` +2 (a clashing Vacant Land version is
+retried and the fixed one kept; one that still clashes is dropped for the main design). Test data adjusted where the old
+data itself had overlapping boxes: `response-with-repairable-faults.json` (Hero Pill price box 1200 → 700 wide, so the
+repaired agent name no longer lands in it), `AiTemplateRepairTest::validOption()` (agent name y 540 → 440, so the
+"moved back inside" price no longer lands on it), and one `AiTemplateBlocksAndStylesTest` case now runs the facebook-drawn
+recording at facebook size instead of instagram. 11 AI-template test files, 217 tests, all green. **No live AI call was made.**
+- [ ] Lane owner tests on QA2 (generate with Vacant Land / Plot and Apartment / Flat ticked; check no version has words on top of each other).
+
 ## C. Article Library (system-dev section → Ad Manager tab)
 
 ### C.1 What it does

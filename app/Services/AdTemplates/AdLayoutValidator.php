@@ -81,8 +81,23 @@ final class AdLayoutValidator
 
     /** Tolerance (px) for an element a hair past the canvas edge. */
     private const EDGE_TOLERANCE = 2;
+
     /** The margin used in the prompt's worked example of an inset line (a prompt illustration only; the validator never enforces it). */
     private const EXAMPLE_INSET = 40;
+
+    /**
+     * Two words-or-picture elements whose boxes share more than this many pixels BOTH across and down sit on top of each other
+     * and are refused (a hair of shared edge between stacked lines of text is normal and not visible).
+     */
+    public const OVERLAP_TOLERANCE = 6;
+
+    /**
+     * Elements that are meant to have other things drawn over them, so they never count as a clash: the photos (text over a
+     * photo is a design choice), backgrounds, scrims, dividers, the watermark, and the corner ribbon (its box is mostly empty;
+     * only the diagonal band is drawn).
+     */
+    private const OVERLAP_EXEMPT_FIELDS = ['image_1', 'image_2', 'image_3', 'image_4', 'image_5', 'collage', 'custom_image',
+        'color_block', 'shape', 'gradient', 'line', 'watermark', 'ribbon'];
 
     /** Plain colour names the model sometimes writes; swapped for these exact hex values (never passed through). */
     private const NAMED_COLORS = [
@@ -415,6 +430,8 @@ final class AdLayoutValidator
         } elseif (! collect($elements)->contains(fn ($e) => in_array($e['field'], self::PHOTO_FIELDS, true))) {
             $errors[] = 'A property ad needs at least one property photo element (image_1 … image_5, or a collage).';
         }
+
+        $this->checkOverlaps($elements, $errors);
 
         $this->checkContrast($elements, $canvasStops, $errors, $repair, $repairs);
 
@@ -980,6 +997,9 @@ final class AdLayoutValidator
         $bm  = self::BACKDROP_MIN_ALPHA;
         $own = implode(' and ', self::OWN_BACKGROUND_FIELDS);
         $okScript = implode(', ', self::SCRIPT_OK_FIELDS);
+        // The elements other things may sit on, as this mode knows them (an unticked extra is not mentioned - decision 20).
+        $exempt   = array_values(array_filter(self::OVERLAP_EXEMPT_FIELDS, static fn (string $f): bool => $on($f)
+            && ($company ? ! in_array($f, self::PHOTO_FIELDS, true) : $f !== 'custom_image')));
         $script   = implode(' / ', self::SCRIPT_FONTS);
 
         return "HARD LIMITS - every option is checked by a program. One broken rule throws the whole option away, so check your own numbers before you answer:\n"
@@ -988,6 +1008,9 @@ final class AdLayoutValidator
             . "A line or block across the whole width is x=0 with w={$cw}; across the whole height is y=0 with h={$ch}; inset by a margin of {$inset}px it is x={$inset} with w={$insetW} (the width MINUS the margin on BOTH sides). "
             . "The usual mistake is a divider line given the full width ({$cw}) but an x greater than 0, which runs past the right edge (x + w is then more than {$cw}).\n"
             . "1b. CHECK BEFORE YOU ANSWER: for every element in every option, add x + w and y + h; the first must be at most {$cw} and the second at most {$ch}, and x and y must not be negative. Fix any element that fails before you write the answer.\n"
+            . '1c. No overlaps: two elements that show words or a picture of their own (every element except ' . implode(', ', $exempt) . ') must never share space. '
+            . 'Their boxes may touch by at most ' . self::OVERLAP_TOLERANCE . 'px. Facts that belong together go SIDE BY SIDE (the second starts at the first one\'s x + w plus a gap) or ONE UNDER THE OTHER (the second starts at the first one\'s y + h plus a gap) - never at the same x and y. '
+            . 'Before you answer, compare every such pair in every option, and move or shrink one of any two that overlap.' . "\n"
             . '2. Count: between ' . self::MIN_ELEMENTS . ' and ' . self::MAX_ELEMENTS . ' elements per option, '
             . ($company ? "at most one custom_image, and the agency always on the ad (agency_name, logo or agency_logo).\n" : "and at least one property photo (image_1 to image_5).\n")
             . "3. Font size: fontSize is at least {$min} on every text element (the watermark is exempt). Never write a smaller number.\n"
@@ -1308,6 +1331,43 @@ final class AdLayoutValidator
     // ─────────────────────────────────────────────────────────────────────
     // Contrast
     // ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Words or pictures drawn on top of each other (Johan 2026-10-20: an AI design put the erf size and the price per m² in the
+     * same spot, so neither could be read). Every pair of elements that are not backgrounds, photos or decoration
+     * (OVERLAP_EXEMPT_FIELDS) is compared; boxes sharing more than OVERLAP_TOLERANCE pixels both ways are refused, naming both,
+     * so the AI's retry is told exactly what to move. Never repaired: shuffling text automatically can push it off its panel or
+     * onto a photo, so a design that still clashes after the retry is not offered at all.
+     *
+     * @param  array<int, array<string, mixed>> $elements built elements
+     * @param  array<int, string>               $errors
+     */
+    private function checkOverlaps(array $elements, array &$errors): void
+    {
+        $tol   = self::OVERLAP_TOLERANCE;
+        $boxes = [];
+        foreach ($elements as $idx => $el) {
+            if (in_array($el['field'], self::OVERLAP_EXEMPT_FIELDS, true)) {
+                continue;
+            }
+            $boxes[] = ['tag' => 'Element ' . ($idx + 1) . " ({$el['field']})", 'x' => (float) $el['x'], 'y' => (float) $el['y'],
+                'r' => (float) $el['x'] + (float) $el['w'], 'b' => (float) $el['y'] + (float) $el['h']];
+        }
+
+        $n = count($boxes);
+        for ($i = 0; $i < $n; $i++) {
+            for ($j = $i + 1; $j < $n; $j++) {
+                $a = $boxes[$i];
+                $b = $boxes[$j];
+                $across = min($a['r'], $b['r']) - max($a['x'], $b['x']);
+                $down   = min($a['b'], $b['b']) - max($a['y'], $b['y']);
+                if ($across > $tol && $down > $tol) {
+                    $errors[] = "{$a['tag']} and {$b['tag']} sit on top of each other (they share " . (int) round($across) . ' x ' . (int) round($down)
+                        . ' pixels), so neither can be read. Place them side by side or one under the other; their boxes may touch by at most ' . $tol . 'px.';
+                }
+            }
+        }
+    }
 
     /**
      * @param array<int, array<string, mixed>> $elements  Updated in place when $repair fixes a text colour / shadow.
