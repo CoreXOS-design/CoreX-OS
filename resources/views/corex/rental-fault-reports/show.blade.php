@@ -19,16 +19,11 @@
     };
     // The owner's decision, read at the TOP of the page: the appoint-contractor step is the first thing the agent sees once the owner has approved.
     $latestDecision = $faultReport->decision();
-    $prefillSupplier = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY) ? $latestDecision->contractorSupplier : null;
     $prefillOwner = ($latestDecision && $latestDecision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) ? $latestDecision : null;
-    // section 22: the contractor the agent proposed when sending this to the owner to authorise pre-fills the appoint step
-    if (! $prefillSupplier && ! $prefillOwner && $faultReport->proposed_supplier_id) {
-        $prefillSupplier = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $faultReport->agency_id)->find($faultReport->proposed_supplier_id);
-    }
-    // section 28.2: ... else the property's own "first to look" default
-    if (! $prefillSupplier && ! $prefillOwner && ! empty($firstResponders) && ($frFirst = $firstResponders->first()) && ! empty($frFirst['supplier_id'])) {
-        $prefillSupplier = \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $faultReport->agency_id)->find($frFirst['supplier_id']);
-    }
+    // Johan, 20 Oct 2026 (spec 29.R3): the owner's pick, else the property's default contractor (section 21), else NOTHING - the agent picks.
+    // The contractor the agent proposed when sending this to the owner is not a pick by itself (RentalFaultContractorService::defaultSupplierId).
+    $prefillSupplierId = $prefillOwner ? null : app(\App\Services\Rentals\RentalFaultContractorService::class)->defaultSupplierId($faultReport, collect($contractorPicker));
+    $prefillSupplier = $prefillSupplierId ? \App\Models\DealV2\AgencyServiceProvider::withoutGlobalScopes()->where('agency_id', $faultReport->agency_id)->find($prefillSupplierId) : null;
     // J7: a declined fault whose outcome was filled in automatically - the Outcome block is then a summary, not a task.
     $declinedClosed = $faultReport->status === \App\Models\RentalFaultReport::STATUS_DECLINED && (bool) $faultReport->outcome_set_automatically;
     $isOpen = ! in_array($faultReport->status, ['resolved', 'cancelled'], true);

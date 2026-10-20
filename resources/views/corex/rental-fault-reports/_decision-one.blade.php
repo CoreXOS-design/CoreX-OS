@@ -10,7 +10,8 @@
 @php
     $d1Notices = $inspectNotices;
     $d1Sent = $faultReport->sent_to_owner_at !== null;
-    $d1Default = (string) ($firstResponders->first()['supplier_id'] ?? ($faultReport->proposed_supplier_id ?: ''));
+    // Johan, 20 Oct 2026 (spec 29.R3): the owner's pick, else the property's default contractor, else NOTHING is ticked - never the proposed one, never the first in the list
+    $d1Default = (string) (app(\App\Services\Rentals\RentalFaultContractorService::class)->defaultSupplierId($faultReport, collect($contractorPicker)) ?? '');
     if ($d1Default !== '' && ! isset($d1Notices[$d1Default])) { $d1Default = ''; }
     $d1CanInspect = auth()->user()->hasPermission('rental_fault_reports.raise_work_order');
     $d1CanSend = auth()->user()->hasPermission('rental_fault_reports.send_to_owner') && ! $d1Sent;
