@@ -21,6 +21,8 @@ final class MarketReportUnreadable extends AbstractDomainEvent
         public readonly ?string $reasonCode = null,
         /** true when this report opened a new layout case (the team is alerted once per case). */
         public readonly bool $newCase = false,
+        /** The layout case the report sits in, or null when it could not be fingerprinted (no case exists). */
+        public readonly ?int $caseId = null,
     ) {
         parent::__construct($traceId);
     }
@@ -40,6 +42,7 @@ final class MarketReportUnreadable extends AbstractDomainEvent
             'note'        => $this->report->ai_read_note,
             'reason_code' => $this->reasonCode,
             'new_case'    => $this->newCase,
+            'case_id'     => $this->caseId,
         ];
     }
 }

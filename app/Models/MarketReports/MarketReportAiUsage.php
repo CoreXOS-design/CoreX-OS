@@ -50,28 +50,36 @@ class MarketReportAiUsage extends Model
         return (int) self::query()->where('agency_id', self::PLATFORM)->where('period_key', self::dayKey())->value('reads_count');
     }
 
-    /** Take one of the agency's slots for this month, atomically (row lock), or refuse. */
-    public static function reserveAgencyMonth(int $agencyId, int $cap): bool
+    /**
+     * Take one of the agency's slots for this month, atomically (row lock), or refuse.
+     *
+     * @param string|null $period the month key to reserve in; the caller keeps it and passes the SAME key to
+     *                            the release, so a slot taken just before month-end is returned to the row it came from
+     */
+    public static function reserveAgencyMonth(int $agencyId, int $cap, ?string $period = null): bool
     {
-        return self::reserve($agencyId, self::monthKey(), $cap);
+        return self::reserve($agencyId, $period ?? self::monthKey(), $cap);
     }
 
-    /** Take one of the platform's slots for today, atomically, or refuse. */
-    public static function reservePlatformDay(int $cap): bool
+    /** Take one of the platform's slots for today, atomically, or refuse. $period as for the agency month. */
+    public static function reservePlatformDay(int $cap, ?string $period = null): bool
     {
-        return self::reserve(self::PLATFORM, self::dayKey(), $cap);
+        return self::reserve(self::PLATFORM, $period ?? self::dayKey(), $cap);
     }
 
-    /** Give both slots back (the AI was never actually called). */
-    public static function releaseBoth(int $agencyId): void
+    /**
+     * Give both slots back (the AI was never actually called), into the rows they were taken from.
+     * With no keys given it falls back to the current month/day (only right when no period boundary was crossed).
+     */
+    public static function releaseBoth(int $agencyId, ?string $monthKey = null, ?string $dayKey = null): void
     {
-        self::release($agencyId, self::monthKey());
-        self::release(self::PLATFORM, self::dayKey());
+        self::release($agencyId, $monthKey ?? self::monthKey());
+        self::release(self::PLATFORM, $dayKey ?? self::dayKey());
     }
 
-    public static function releaseAgencyMonth(int $agencyId): void
+    public static function releaseAgencyMonth(int $agencyId, ?string $monthKey = null): void
     {
-        self::release($agencyId, self::monthKey());
+        self::release($agencyId, $monthKey ?? self::monthKey());
     }
 
     /** A CoreX layout approval gives the agency its reads back for this month. */
