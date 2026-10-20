@@ -5579,6 +5579,24 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // first-login trigger, e.g. the emailed link was lost or has expired.
     Route::middleware('owner_only')->post('/admin/agency-setup-progress/{setupId}/resend', [\App\Http\Controllers\Admin\AgencySetupProgressController::class, 'resend'])
         ->name('admin.agency-setup-progress.resend');
+    // AT-478 Part 4 — one agency's setup + gradual introduction, and the CoreX team's changes to its plan.
+    // Cross-agency owner tool: the agency is in the URL; group / feature ids resolve inside its plan only.
+    // Spec: .ai/specs/agency-feature-rollout.md §5.5
+    Route::middleware('owner_only')->prefix('admin/agency-setup-progress/agencies/{agency}')
+        ->whereNumber('agency')->name('admin.agency-setup-progress.')->group(function () {
+            $c = \App\Http\Controllers\Admin\AgencyRolloutAdminController::class;
+            Route::get('/',                                 [$c, 'show'])->name('show');
+            Route::post('/rollout/start',                   [$c, 'start'])->name('rollout.start');
+            Route::post('/rollout/pace',                    [$c, 'pace'])->name('rollout.pace');
+            Route::post('/rollout/{action}',                [$c, 'control'])->whereIn('action', ['pause', 'resume', 'release-next', 'finish', 'reset'])->name('rollout.control');
+            Route::post('/rollout/waves',                   [$c, 'storeWave'])->name('rollout.waves.store');
+            Route::put('/rollout/waves/{wave}',             [$c, 'updateWave'])->whereNumber('wave')->name('rollout.waves.update');
+            Route::post('/rollout/waves/{wave}/move',       [$c, 'moveWave'])->whereNumber('wave')->name('rollout.waves.move');
+            Route::delete('/rollout/waves/{wave}',          [$c, 'archiveWave'])->whereNumber('wave')->name('rollout.waves.archive');
+            Route::post('/rollout/waves/{wave}/restore',    [$c, 'restoreWave'])->whereNumber('wave')->name('rollout.waves.restore');
+            Route::post('/rollout/waves/{wave}/features',   [$c, 'addFeature'])->whereNumber('wave')->name('rollout.waves.features.store');
+            Route::post('/rollout/items/{item}/{action}',   [$c, 'itemAction'])->whereNumber('item')->whereIn('action', ['move', 'on', 'skip'])->name('rollout.items.action');
+        });
 
     // Agency edit/update — accessible to admins with manage_performance_settings.
     // Controller enforces own-agency scope unless the user is an owner.

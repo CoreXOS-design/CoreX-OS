@@ -86,33 +86,7 @@ class FeatureRolloutController extends Controller
         $totals = ['features' => 0, 'released' => 0];
 
         if ($plan) {
-            $all = $this->rollout->wavesOf($plan)->map(function (AgencyRolloutWave $w) {
-                $w->setRelation('items', $this->rollout->itemsOf($w));
-                return $w;
-            });
-            foreach ($all as $w) {
-                foreach ($w->items as $item) {
-                    $totals['features']++;
-                    if (in_array($item->state, ['released', 'released_early'], true)) {
-                        $totals['released']++;
-                    }
-                }
-            }
-
-            $waves = $all
-                ->when($status === 'upcoming', fn ($c) => $c->whereNull('released_at'))
-                ->when($status === 'released', fn ($c) => $c->whereNotNull('released_at'))
-                ->when(! empty($filters['from']), fn ($c) => $c->filter(fn ($w) => $w->scheduled_for && $w->scheduled_for->toDateString() >= $filters['from']))
-                ->when(! empty($filters['to']), fn ($c) => $c->filter(fn ($w) => $w->scheduled_for && $w->scheduled_for->toDateString() <= $filters['to']))
-                ->when(! empty($filters['q']), function ($c) use ($filters, $labels) {
-                    $q = mb_strtolower($filters['q']);
-                    return $c->filter(fn ($w) => str_contains(mb_strtolower($w->title), $q)
-                        || $w->items->contains(fn ($i) => str_contains(mb_strtolower($labels[$i->feature_key] ?? $i->feature_key), $q)));
-                })
-                ->sortBy($sort === 'name'
-                    ? [['title', 'asc']]
-                    : [fn ($a, $b) => [$a->scheduled_for?->timestamp ?? PHP_INT_MAX, $a->lane, $a->position] <=> [$b->scheduled_for?->timestamp ?? PHP_INT_MAX, $b->lane, $b->position]])
-                ->values();
+            ['waves' => $waves, 'totals' => $totals] = $this->rollout->listWaves($plan, ['status' => $status, 'sort' => $sort] + $filters, $labels);
         }
 
         $perPage = 25;

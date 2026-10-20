@@ -17,8 +17,8 @@ class AgencyRolloutWave extends Model
     use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'rollout_id', 'lane', 'track', 'position', 'title', 'intro_text',
-        'scheduled_for', 'access_reviewed_at', 'access_reviewed_by', 'released_at',
+        'agency_id', 'rollout_id', 'source_wave_id', 'lane', 'track', 'position', 'title', 'intro_text',
+        'scheduled_for', 'access_reviewed_at', 'access_reviewed_by', 'released_at', 'customised_at',
     ];
 
     protected $casts = [
@@ -27,6 +27,7 @@ class AgencyRolloutWave extends Model
         'scheduled_for'      => 'date',
         'access_reviewed_at' => 'datetime',
         'released_at'        => 'datetime',
+        'customised_at'      => 'datetime',
     ];
 
     public function rollout(): BelongsTo

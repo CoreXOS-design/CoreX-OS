@@ -176,6 +176,7 @@ class FeatureRolloutService
                 $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
                     'agency_id'  => $agency->id,
                     'rollout_id' => $plan->id,
+                    'source_wave_id' => $default->id,
                     'lane'       => $lane,
                     'track'      => $default->track,
                     'position'   => $positions[$lane],
@@ -431,7 +432,7 @@ class FeatureRolloutService
      * from today through RolloutCalendar. Side by side applies only to a sales-and-rentals agency: it moves
      * the unreleased Rentals waves into lane 2 (on) or back into the one ordered list (off).
      *
-     * @param array{interval_days?:int, weekdays_only?:bool, side_by_side?:bool} $values
+     * @param array{interval_days?:int, weekdays_only?:bool, skip_holidays?:bool, release_time?:string, side_by_side?:bool} $values
      */
     public function updateSettings(AgencyFeatureRollout $plan, array $values): void
     {
@@ -448,6 +449,12 @@ class FeatureRolloutService
             }
             if (array_key_exists('weekdays_only', $values)) {
                 $plan->weekdays_only = (bool) $values['weekdays_only'];
+            }
+            if (array_key_exists('skip_holidays', $values)) {
+                $plan->skip_holidays = (bool) $values['skip_holidays'];
+            }
+            if (array_key_exists('release_time', $values) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) $values['release_time'])) {
+                $plan->release_time = (string) $values['release_time'];
             }
             if (array_key_exists('side_by_side', $values)) {
                 $want = $both && (bool) $values['side_by_side'];
@@ -506,6 +513,346 @@ class FeatureRolloutService
             $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED, 'released_at' => now()])->save();
             $this->apply($agency, [$item->feature_key => true], $userId);
         });
+    }
+
+    // ── Listing a plan's waves (agency panel + owner page) ─────────────────────
+
+    /**
+     * A plan's waves with their items, filtered and sorted for a list screen, plus feature totals.
+     * status: all | upcoming | released | archived (archived = soft-deleted waves, owner page only).
+     *
+     * @param  array{q?:?string, status?:?string, from?:?string, to?:?string, sort?:?string} $filters
+     * @param  array<string,string> $labels feature key => label (search by feature name)
+     * @return array{waves: Collection<int,AgencyRolloutWave>, totals: array{features:int, released:int}}
+     */
+    public function listWaves(AgencyFeatureRollout $plan, array $filters, array $labels): array
+    {
+        $status = $filters['status'] ?? 'all';
+        $withItems = function (AgencyRolloutWave $w) {
+            $w->setRelation('items', $this->itemsOf($w));
+            return $w;
+        };
+
+        $live = $this->wavesOf($plan)->map($withItems);
+        $totals = ['features' => 0, 'released' => 0];
+        foreach ($live as $w) {
+            foreach ($w->items as $item) {
+                $totals['features']++;
+                if (in_array($item->state, [AgencyRolloutItem::STATE_RELEASED, AgencyRolloutItem::STATE_RELEASED_EARLY], true)) {
+                    $totals['released']++;
+                }
+            }
+        }
+
+        $waves = $status === 'archived'
+            ? AgencyRolloutWave::queryWithoutAgencyScope()->onlyTrashed()->where('rollout_id', $plan->id)->get()->map($withItems)
+            : $live;
+
+        $q = mb_strtolower((string) ($filters['q'] ?? ''));
+        $waves = $waves
+            ->when($status === 'upcoming', fn ($c) => $c->whereNull('released_at'))
+            ->when($status === 'released', fn ($c) => $c->whereNotNull('released_at'))
+            ->when(! empty($filters['from']), fn ($c) => $c->filter(fn ($w) => $w->scheduled_for && $w->scheduled_for->toDateString() >= $filters['from']))
+            ->when(! empty($filters['to']), fn ($c) => $c->filter(fn ($w) => $w->scheduled_for && $w->scheduled_for->toDateString() <= $filters['to']))
+            ->when($q !== '', fn ($c) => $c->filter(fn ($w) => str_contains(mb_strtolower($w->title), $q)
+                || $w->items->contains(fn ($i) => str_contains(mb_strtolower($labels[$i->feature_key] ?? $i->feature_key), $q))))
+            ->sortBy(($filters['sort'] ?? 'date') === 'name'
+                ? [['title', 'asc']]
+                : [fn ($a, $b) => [$a->scheduled_for?->timestamp ?? PHP_INT_MAX, $a->lane, $a->position] <=> [$b->scheduled_for?->timestamp ?? PHP_INT_MAX, $b->lane, $b->position]])
+            ->values();
+
+        return ['waves' => $waves, 'totals' => $totals];
+    }
+
+    /**
+     * One line per agency for the owner's Agency Setup Progress list (spec §5.5). Two queries for any
+     * number of agencies. key: on | paused | completed | none; rank orders the Rollout sort.
+     *
+     * @param  list<int> $agencyIds
+     * @return array<int, array{key:string, label:string, rank:int, next:?string}>
+     */
+    public function summaries(array $agencyIds): array
+    {
+        $plans = AgencyFeatureRollout::queryWithoutAgencyScope()->whereIn('agency_id', $agencyIds)->get()->keyBy('agency_id');
+        $waves = AgencyRolloutWave::queryWithoutAgencyScope()->whereIn('rollout_id', $plans->pluck('id'))
+            ->get(['id', 'rollout_id', 'scheduled_for', 'released_at'])->groupBy('rollout_id');
+
+        $out = [];
+        foreach ($agencyIds as $agencyId) {
+            $plan = $plans->get($agencyId);
+            if (! $plan) {
+                $out[$agencyId] = ['key' => 'none', 'label' => 'Not on gradual introduction', 'rank' => 4, 'next' => null];
+                continue;
+            }
+            $mine = $waves->get($plan->id, collect());
+            $done = $mine->whereNotNull('released_at')->count();
+            $next = $mine->whereNull('released_at')->whereNotNull('scheduled_for')->sortBy('scheduled_for')->first()?->scheduled_for;
+            $of = $done . ' of ' . $mine->count() . ' groups on';
+
+            $out[$agencyId] = match ($plan->status) {
+                AgencyFeatureRollout::STATUS_PAUSED    => ['key' => 'paused', 'label' => 'Paused · ' . $of, 'rank' => 2, 'next' => null],
+                AgencyFeatureRollout::STATUS_ACTIVE    => ['key' => 'on', 'label' => $of . ($next ? ' · next ' . $next->format('D j M') : ''), 'rank' => 1, 'next' => $next?->toDateString()],
+                default                                => ['key' => 'completed', 'label' => 'Finished', 'rank' => 3, 'next' => null],
+            };
+        }
+
+        return $out;
+    }
+
+    // ── Changing a running plan (CoreX team, spec §5.5) ────────────────────────
+    // Released waves are history and never change. Every change marks the wave customised_at (the
+    // "changed for this agency" badge) and re-dates the unreleased waves from today. A refused change
+    // throws \DomainException with a sentence the page shows as it is.
+
+    public function isOpen(AgencyFeatureRollout $plan): bool
+    {
+        return in_array($plan->status, [AgencyFeatureRollout::STATUS_ACTIVE, AgencyFeatureRollout::STATUS_PAUSED], true);
+    }
+
+    private function assertChangeable(AgencyRolloutWave $wave): AgencyFeatureRollout
+    {
+        $plan = AgencyFeatureRollout::queryWithoutAgencyScope()->findOrFail($wave->rollout_id);
+        if (! $this->isOpen($plan)) {
+            throw new \DomainException('This introduction has finished, so its groups can no longer be changed.');
+        }
+        if ($wave->released_at !== null) {
+            throw new \DomainException("\"{$wave->title}\" has already switched on, so it can no longer be changed.");
+        }
+
+        return $plan;
+    }
+
+    private function customised(AgencyRolloutWave ...$waves): void
+    {
+        foreach ($waves as $w) {
+            $w->forceFill(['customised_at' => now()])->save();
+        }
+    }
+
+    private function nextPosition(AgencyFeatureRollout $plan, int $lane): int
+    {
+        return (int) AgencyRolloutWave::queryWithoutAgencyScope()->withTrashed()
+            ->where('rollout_id', $plan->id)->where('lane', $lane)->max('position') + 10;
+    }
+
+    /** A new, empty group at the end of a lane (lane 2 only exists while sales and rentals run side by side). */
+    public function addWave(AgencyFeatureRollout $plan, string $title, ?string $intro, int $lane = 1): AgencyRolloutWave
+    {
+        if (! $this->isOpen($plan)) {
+            throw new \DomainException('This introduction has finished, so no groups can be added.');
+        }
+        $lane = ($lane === 2 && $plan->side_by_side) ? 2 : 1;
+
+        $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
+            'agency_id'     => $plan->agency_id,
+            'rollout_id'    => $plan->id,
+            'lane'          => $lane,
+            'track'         => $lane === 2 ? 'rentals' : 'general',
+            'position'      => $this->nextPosition($plan, $lane),
+            'title'         => $title,
+            'intro_text'    => $intro,
+            'customised_at' => now(),
+        ]));
+        $this->schedule($plan, $this->calendar->today());
+
+        return $wave;
+    }
+
+    public function updateWave(AgencyRolloutWave $wave, string $title, ?string $intro): void
+    {
+        $this->assertChangeable($wave);
+        $wave->forceFill(['title' => $title, 'intro_text' => $intro, 'customised_at' => now()])->save();
+    }
+
+    /** Swap a group with its neighbour in its lane (-1 earlier, +1 later), among the groups still to come. */
+    public function moveWave(AgencyRolloutWave $wave, int $direction): void
+    {
+        $plan = $this->assertChangeable($wave);
+        $lane = $this->wavesOf($plan)->whereNull('released_at')->where('lane', $wave->lane)->sortBy('position')->values();
+        $i = $lane->search(fn ($w) => $w->id === $wave->id);
+        $j = $i + ($direction < 0 ? -1 : 1);
+        if ($i === false || ! isset($lane[$j])) {
+            return; // already first / last
+        }
+        $other = $lane[$j];
+        DB::transaction(function () use ($wave, $other, $plan) {
+            [$a, $b] = [$wave->position, $other->position];
+            $wave->forceFill(['position' => $b, 'customised_at' => now()])->save();
+            $other->forceFill(['position' => $a])->save();
+            $this->schedule($plan, $this->calendar->today());
+        });
+    }
+
+    /** Archive an EMPTY group still to come (its features must be moved, switched on or skipped first). */
+    public function archiveWave(AgencyRolloutWave $wave): void
+    {
+        $plan = $this->assertChangeable($wave);
+        if ($this->itemsOf($wave)->isNotEmpty()) {
+            throw new \DomainException("Move, switch on or skip the features in \"{$wave->title}\" before archiving it.");
+        }
+        DB::transaction(function () use ($wave, $plan) {
+            $wave->delete();
+            $this->schedule($plan, $this->calendar->today());
+            $this->completeIfDone((int) $plan->id);
+        });
+    }
+
+    public function restoreWave(AgencyRolloutWave $wave): void
+    {
+        $plan = AgencyFeatureRollout::queryWithoutAgencyScope()->findOrFail($wave->rollout_id);
+        if (! $this->isOpen($plan)) {
+            throw new \DomainException('This introduction has finished, so groups can no longer be restored.');
+        }
+        DB::transaction(function () use ($wave, $plan) {
+            $wave->restore();
+            $wave->forceFill(['position' => $this->nextPosition($plan, (int) $wave->lane), 'customised_at' => now()])->save();
+            $this->schedule($plan, $this->calendar->today());
+        });
+    }
+
+    /**
+     * Add a feature to a group still to come. Only a feature that is switched ON for the agency now and is
+     * not already in its plan can be added — it is switched off now and comes back with this group. A
+     * feature the agency has off is never added, so the plan can never switch on something they turned off.
+     */
+    public function addFeature(AgencyRolloutWave $wave, string $key, ?int $userId): void
+    {
+        $plan = $this->assertChangeable($wave);
+        $agency = Agency::withoutGlobalScopes()->findOrFail($plan->agency_id);
+        $label = $this->features->catalogue()[$key]['label'] ?? $key;
+
+        if (! isset($this->waveableFeatures()[$key])) {
+            throw new \DomainException("{$label} cannot be part of a gradual introduction.");
+        }
+        if (AgencyRolloutItem::queryWithoutAgencyScope()->withTrashed()->where('rollout_id', $plan->id)->where('feature_key', $key)->exists()) {
+            throw new \DomainException("{$label} is already part of this agency's introduction — move it instead.");
+        }
+        if (! $this->features->enabled($key, $agency)) {
+            throw new \DomainException("{$label} is switched off for this agency, so there is nothing to hold back.");
+        }
+
+        DB::transaction(function () use ($wave, $plan, $agency, $key, $userId) {
+            AgencyRolloutItem::withoutAgencyStamping(fn () => AgencyRolloutItem::create([
+                'agency_id' => $plan->agency_id, 'rollout_id' => $plan->id, 'wave_id' => $wave->id,
+                'feature_key' => $key, 'state' => AgencyRolloutItem::STATE_HELD,
+            ]));
+            $this->apply($agency, [$key => false], $userId);
+            $this->customised($wave);
+        });
+    }
+
+    /** Move a held feature to another group still to come in the same plan. */
+    public function moveFeature(AgencyRolloutItem $item, AgencyRolloutWave $to): void
+    {
+        $from = AgencyRolloutWave::queryWithoutAgencyScope()->findOrFail($item->wave_id);
+        $this->assertChangeable($from);
+        $this->assertChangeable($to);
+        if ((int) $to->rollout_id !== (int) $item->rollout_id) {
+            throw new \DomainException('That group belongs to a different agency.');
+        }
+        if ($item->state !== AgencyRolloutItem::STATE_HELD || $from->id === $to->id) {
+            return;
+        }
+        DB::transaction(function () use ($item, $from, $to) {
+            $item->forceFill(['wave_id' => $to->id])->save();
+            $this->customised($from, $to);
+        });
+    }
+
+    /** Switch one held feature on now, ahead of its group (it counts as released early). */
+    public function switchOnNow(AgencyRolloutItem $item, ?int $userId): void
+    {
+        $wave = AgencyRolloutWave::queryWithoutAgencyScope()->findOrFail($item->wave_id);
+        $this->assertChangeable($wave);
+        if ($item->state !== AgencyRolloutItem::STATE_HELD) {
+            return;
+        }
+        $agency = Agency::withoutGlobalScopes()->findOrFail($item->agency_id);
+        DB::transaction(function () use ($item, $wave, $agency, $userId) {
+            $item->forceFill(['state' => AgencyRolloutItem::STATE_RELEASED_EARLY, 'released_at' => now()])->save();
+            $this->apply($agency, [$item->feature_key => true], $userId);
+            $this->customised($wave);
+        });
+    }
+
+    /**
+     * "Reset to default list": the groups still to come are rebuilt from TODAY's Dev Settings order, for the
+     * features those groups hold now (released groups are history and stay). A feature the default no longer
+     * places goes into a final "Other features" group, so a reset never switches anything on by itself.
+     * The old groups are archived (soft), never deleted.
+     */
+    public function resetToDefault(AgencyFeatureRollout $plan): void
+    {
+        if (! $this->isOpen($plan)) {
+            throw new \DomainException('This introduction has finished, so there is nothing to reset.');
+        }
+        $agency = Agency::withoutGlobalScopes()->findOrFail($plan->agency_id);
+        $old = $this->wavesOf($plan)->whereNull('released_at');
+        $items = $old->flatMap(fn ($w) => $this->itemsOf($w))->keyBy('feature_key');
+
+        $rows = [];
+        $taken = [];
+        $type = AgencyTypeFeatureSeeder::normalise($agency->agency_type);
+        foreach ($this->lanesFor($type, (bool) $plan->side_by_side) as $lane => $defaults) {
+            foreach ($defaults as $default) {
+                $keys = array_values(array_filter((array) $default->feature_keys, fn ($k) => $items->has($k) && ! isset($taken[$k])));
+                foreach ($keys as $k) {
+                    $taken[$k] = true;
+                }
+                if ($keys !== []) {
+                    $rows[] = ['lane' => $lane, 'default' => $default, 'keys' => $keys];
+                }
+            }
+        }
+        if ($plan->side_by_side) {
+            usort($rows, fn ($a, $b) => [$a['default']->position, $a['default']->id] <=> [$b['default']->position, $b['default']->id]);
+        }
+        $leftover = $items->keys()->reject(fn ($k) => isset($taken[$k]))->values()->all();
+
+        DB::transaction(function () use ($plan, $old, $items, $rows, $leftover) {
+            foreach ($old as $w) {
+                $w->delete();
+            }
+            $create = function (int $lane, ?FeatureRolloutWave $default, string $title, ?string $intro, array $keys) use ($plan, $items) {
+                $wave = AgencyRolloutWave::withoutAgencyStamping(fn () => AgencyRolloutWave::create([
+                    'agency_id' => $plan->agency_id, 'rollout_id' => $plan->id, 'source_wave_id' => $default?->id,
+                    'lane' => $lane, 'track' => $default?->track ?? 'general',
+                    'position' => $this->nextPosition($plan, $lane), 'title' => $title, 'intro_text' => $intro,
+                ]));
+                foreach ($keys as $k) {
+                    $items[$k]->forceFill(['wave_id' => $wave->id])->save();
+                }
+            };
+            foreach ($rows as $r) {
+                $create($r['lane'], $r['default'], $r['default']->title, $r['default']->intro_text, $r['keys']);
+            }
+            if ($leftover !== []) {
+                $create(1, null, 'Other features', null, $leftover);
+            }
+            $this->schedule($plan, $this->calendar->today());
+            $this->completeIfDone((int) $plan->id);
+        });
+    }
+
+    /**
+     * How a group differs from the Dev Settings default it was copied from (today's version of it).
+     * null = the group was added for this agency (no default).
+     *
+     * @return array{added: list<string>, missing: list<string>}|null
+     */
+    public function differences(AgencyRolloutWave $wave): ?array
+    {
+        $source = $wave->source_wave_id ? FeatureRolloutWave::withTrashed()->find($wave->source_wave_id) : null;
+        if (! $source) {
+            return null;
+        }
+        $default = array_values(array_intersect((array) $source->feature_keys, array_keys($this->waveableFeatures())));
+        $mine = $this->itemsOf($wave)->where('state', '!=', AgencyRolloutItem::STATE_DROPPED)->pluck('feature_key')->all();
+
+        return [
+            'added'   => array_values(array_diff($mine, $default)),
+            'missing' => array_values(array_diff($default, $mine)),
+        ];
     }
 
     // ── Reacting to the Features page ──────────────────────────────────────────

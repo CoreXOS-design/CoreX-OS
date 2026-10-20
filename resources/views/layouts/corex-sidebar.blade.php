@@ -343,6 +343,7 @@
     } elseif (request()->routeIs(
         'agencies.*',
         'admin.agency-setup-progress',
+        'admin.agency-setup-progress.*',
         'admin.ai-usage.*',
         'admin.billing.*',
         'admin.agency-timelines.*'
@@ -3147,7 +3148,7 @@
                 <a href="{{ route('agencies.index') }}" class="corex-nav-subitem {{ request()->routeIs('agencies.*') ? 'active' : '' }}">Agency Management</a>
 
                 {{-- Agency Setup Progress — onboarding-wizard tracking board (owner-only) --}}
-                <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress') ? 'active' : '' }}">Agency Setup Progress</a>
+                <a href="{{ route('admin.agency-setup-progress') }}" class="corex-nav-subitem {{ request()->routeIs('admin.agency-setup-progress', 'admin.agency-setup-progress.*') ? 'active' : '' }}">Agency Setup Progress</a>
 
                 {{-- AI Usage (MIC Phase B2) --}}
                 @permission('mic.view_ai_costs')

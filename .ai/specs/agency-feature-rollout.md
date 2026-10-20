@@ -359,3 +359,37 @@ Decisions made while building Part 1. Where these refine an earlier section, thi
    outside it are ignored.
 8. **New table:** `rollout_announcement_views` (migration `2026_11_18_100100`). Schema snapshot regen still
    pending (with §13.10).
+
+## 16. Build notes — Part 4 (owner per-agency page) — 2026-10-20
+
+1. **List:** Agency Setup Progress gains a "Gradual introduction" column ("2 of 8 groups on · next Fri 6 Nov" /
+   "Paused · …" / "Finished" / "Not on gradual introduction", `FeatureRolloutService::summaries()`, two queries),
+   a filter (running / paused / finished / not on it) and a sort (next release first). The agency name links to
+   the new page. Nothing else on the list changed.
+2. **Page:** `admin.agency-setup-progress.show` (`/admin/agency-setup-progress/agencies/{agency}`,
+   `AgencyRolloutAdminController`): setup guide steps done, introduction status, controls, pace, and the
+   agency's groups (search, show all / to come / switched on / archived, date range, sort by date or name, 25 a page).
+   Who checked access and when is shown per group.
+3. **Starting from here:** allowed for an agency already up and running (unlike the agency's own wizard choice,
+   §14.1) because it is a deliberate CoreX-team action; it names every feature that switches off and must be
+   confirmed (validated server-side).
+4. **Changes** (groups still to come only — a switched-on group is history and every change to it is refused
+   with a plain message): add a feature (only one that is ON for the agency and not already in its plan — it is
+   switched off now; a feature the agency has off is never added, so the plan can never switch on something
+   they turned off), move a held feature to another group, switch one on now (released early), skip, edit a
+   group's name/message, move a group earlier/later, add a group (to either lane when side by side), archive an
+   EMPTY group (soft) and restore it at the end, pace (how often, release time, weekdays only, public holidays,
+   side by side — hidden "0" companions, §6.1). Every change re-dates the groups still to come from today.
+5. **Reset to the default list** rebuilds the groups still to come from TODAY's Dev Settings order, for the
+   features those groups hold now; anything the default no longer places goes into a final "Other features"
+   group, so a reset never switches anything on. The old groups are archived (soft), never deleted.
+6. **Differences:** `agency_rollout_waves.source_wave_id` (the default group it was copied from) and
+   `customised_at` (migration `2026_11_18_100200`). Badges "Changed for this agency" / "Added for this agency";
+   "Show differences from the default" lists features only in this agency's group and features in today's
+   default group that are not here.
+7. **Scoping:** owner_only route + `isOwnerRole()` in every action. The agency comes from the URL (unscoped,
+   multi-tenancy rule #5); group and feature ids resolve only inside that agency's plan — another agency's id
+   is a 404. Changes never touch another agency or the Dev Settings defaults (tested).
+8. **Moved to Part 5 (with the rest of §12):** tour completion per feature (§12.6), usage of released features
+   (§12.8) and the "changed by CoreX team" audit trail (§12.10).
+9. Part 2's panel now uses the shared `FeatureRolloutService::listWaves()` for its group list.
