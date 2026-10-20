@@ -332,6 +332,52 @@ final class CatalogueMarkupDriverTest extends TestCase
         $this->assertSame('0.00', (string) $closedLine->fresh()->unit_price, 'a completed card never changes');
     }
 
+    /** Audit 2026-10-20 M4: a card quoted to / approved by the owner is never repriced; a card that is changed says so in its history. */
+    public function test_the_command_skips_a_quoted_or_approved_card_and_writes_a_history_line_for_a_card_it_changes(): void
+    {
+        $this->world();
+        $item = $this->store(['cost_excl' => '0.00', 'selling_excl' => '0.00', 'pricing_driver' => 'selling_excl', 'markup_type' => 'percent', 'markup_value' => 20]);
+        $open = $this->emptyCard();
+        $openLine = $this->line($item, 100.0, $open);
+        $quoted = $this->emptyCard();
+        $quotedLine = $this->line($item, 100.0, $quoted);
+        $approved = $this->emptyCard();
+        $approvedLine = $this->line($item, 100.0, $approved);
+        foreach ([$openLine, $quotedLine, $approvedLine] as $l) {
+            $this->assertSame('0.00', (string) $l->unit_price);
+        }
+
+        // the owner was sent a quote for one card ...
+        \App\Models\RentalWorkOrderQuote::create([
+            'agency_id' => $this->agency->id, 'rental_work_order_id' => $quoted->rental_work_order_id, 'rental_job_card_id' => $quoted->id,
+            'amount' => 120, 'quote_date' => now()->toDateString(), 'detail_text' => 'x', 'captured_by_user_id' => $this->admin->id,
+        ]);
+        // ... and approved an amount on another
+        $approved->workOrder()->withoutGlobalScopes()->first()->forceFill(['approved_amount' => 120, 'approval_basis' => \App\Models\RentalWorkOrder::BASIS_OWNER_DECISION])->save();
+        $totalBefore = [$quoted->fresh()->total_amount, $approved->fresh()->total_amount];
+
+        $this->actingAs($this->user)->put(route('corex.rental-catalogue-items.update', $item), $this->payload([
+            'cost_excl' => '0.00', 'markup_type' => 'percent', 'markup_value' => '20', 'pricing_driver' => 'markup',
+        ]))->assertSessionHasNoErrors();
+
+        $this->artisan('rentals:rederive-catalogue-markup-lines', ['--all' => true])
+            ->expectsOutputToContain("card {$quoted->id}: its quote was sent to the owner")
+            ->expectsOutputToContain("card {$approved->id}: the owner approved an amount")
+            ->assertSuccessful();
+
+        $this->assertSame('0.00', (string) $quotedLine->fresh()->unit_price, 'a quoted card keeps the price the owner was shown');
+        $this->assertSame('0.00', (string) $approvedLine->fresh()->unit_price, 'an approved card keeps the amount the owner approved');
+        $this->assertSame($totalBefore, [$quoted->fresh()->total_amount, $approved->fresh()->total_amount]);
+        $this->assertSame(0, $quoted->updates()->where('update_type', 'line_priced')->count());
+
+        // the open card WAS changed, and its history says what moved
+        $this->assertSame('120.00', (string) $openLine->fresh()->unit_price);
+        $history = $open->updates()->where('update_type', 'line_priced')->get();
+        $this->assertCount(1, $history);
+        $this->assertStringContainsString('Plumbing job', $history->first()->note);
+        $this->assertStringContainsString('120', $history->first()->note);
+    }
+
     // ── the legacy writers ──────────────────────────────────────────────────────────────
 
     public function test_a_writer_that_hands_over_a_price_makes_the_item_a_fixed_price_item(): void

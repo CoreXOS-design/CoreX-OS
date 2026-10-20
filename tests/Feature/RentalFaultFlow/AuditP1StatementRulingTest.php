@@ -135,4 +135,24 @@ final class AuditP1StatementRulingTest extends TestCase
         app(RentalWhoPaysService::class)->rule($open->fresh(), $this->agent, 'tenant', null, 'A toy was in the drain');
         $this->assertSame([], array_filter($this->sent, fn ($s) => $s[1] instanceof RentalOwnerFinalStatementMail));
     }
+
+    /** Audit 2026-10-20 (M5): nothing changed = nothing sent. */
+    public function test_a_ruling_that_names_the_payer_the_statement_already_shows_does_not_send_it_again(): void
+    {
+        $wo = $this->closedFaultJob();
+        $wo->forceFill(['paid_by' => 'owner'])->save();
+        app(RentalWorkOrderService::class)->sendOwnerFinalStatement($wo->fresh());   // the statement the owner holds now says "Paid by: Owner"
+        $this->sent = [];
+        $count = fn () => count(array_filter($this->sent, fn ($s) => $s[1] instanceof RentalOwnerFinalStatementMail));
+
+        $ruling = app(RentalWhoPaysService::class)->rule($wo->fresh(), $this->agent, 'owner', null, 'Chosen when the job card was completed');
+
+        $this->assertSame(0, $count(), 'the owner already holds a statement that says Owner - an updated one would repeat it');
+        $this->assertSame($ruling->id, (int) $wo->fresh()->final_statement_ruling_id, 'and the ruling is recorded as covered, so it is never sent later either');
+        $this->assertStringNotContainsString('Updated final statement', $wo->updates()->pluck('note')->implode(' | '));
+
+        // a LATER ruling that changes the payer is a change: it does send
+        app(RentalWhoPaysService::class)->rule($wo->fresh(), $this->agent, 'tenant', null, 'A toy was in the drain after all');
+        $this->assertSame(1, $count());
+    }
 }

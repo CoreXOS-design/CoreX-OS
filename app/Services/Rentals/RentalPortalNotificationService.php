@@ -26,7 +26,8 @@ class RentalPortalNotificationService
      * Audit C-A1: this used to send NOTHING, silently, when the agency's setting was off or no owner had an email. It now says so: the return value tells the caller
      * and, for a fault, the fault's history carries a line the agent can see ("Owner could not be told - ...").
      *
-     * @return array{sent: int, reason: ?string} reason = why nobody was emailed (null when at least one owner was)
+     * @return array{sent: int, reason: ?string, failed?: int} reason = why nobody was emailed (null when at least one owner was); `failed` = owners whose mail could not be sent while another's was.
+     *         Throws when owners have an address but EVERY send failed (audit 2026-10-20 M2: never report a reminder as sent when it was not).
      */
     public function notifyLandlordDecisionNeeded(RentalFaultReport|RentalWorkOrder $subject, int $reminderNumber = 0): array
     {
@@ -36,7 +37,7 @@ class RentalPortalNotificationService
                 $subject->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_OWNER_NOT_TOLD, null, ($reminderNumber > 0 ? 'Owner reminder not sent' : 'Owner could not be told') . ' - ' . $reason);
             }
 
-            return ['sent' => 0, 'reason' => $reason];
+            return ['sent' => 0, 'failed' => 0, 'reason' => $reason];
         };
         if (!RentalPortalSetting::notifyLandlordOnDecisionNeededFor($agencyId)) {
             return $say('the agency has switched off the email that tells the owner a decision is needed. Phone them.');
@@ -49,17 +50,28 @@ class RentalPortalNotificationService
         }
 
         $sent = 0;
+        $failed = 0;
+        $lastError = null;
         foreach ($landlords as $landlord) {
             if ($landlord->email) {
-                Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email, $landlord, $reminderNumber));
-                $sent++;
+                // one owner's bad address / transport error must not stop the next owner being told (and must not make a retry email the first one again)
+                try {
+                    Mail::to($landlord->email)->send(new RentalLandlordDecisionNeededMail($subject, $landlord->first_name ?? '', $landlord->email, $landlord, $reminderNumber));
+                    $sent++;
+                } catch (\Throwable $e) {
+                    $failed++;
+                    $lastError = $e;
+                }
             }
+        }
+        if ($sent === 0 && $lastError !== null) {
+            throw $lastError;   // nobody could be told: the caller decides (the chase takes its step back and retries)
         }
         if ($sent === 0) {
             return $say($landlords->isEmpty() ? 'no owner is on file for this property. Phone them.' : 'no owner has an email address on file. Phone them.');
         }
 
-        return ['sent' => $sent, 'reason' => null];
+        return ['sent' => $sent, 'failed' => $failed, 'reason' => null];
     }
 
     /** The steps the tenant is told about (Johan, 8 Oct 2026) - the appointment has its own mail; "work completed - please check" is the completion-check mail. */

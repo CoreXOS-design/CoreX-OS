@@ -979,9 +979,16 @@ class RentalWorkOrderService
         if ($workOrder->status !== RentalWorkOrder::STATUS_COMPLETED || (int) $workOrder->final_statement_ruling_id === (int) $ruling->id) {
             return 0;
         }
-        $wasSent = $workOrder->updates()->where('update_type', 'note')->where('note', 'like', 'Final statement emailed to the owner%')->exists();
-        if (! $wasSent) {
+        $firstSent = $workOrder->updates()->where('update_type', 'note')->where('note', 'like', 'Final statement emailed to the owner%')->orderBy('id')->first();
+        if (! $firstSent) {
             return 0;   // the statement has not gone out yet (or never could): the first one will already show the ruling
+        }
+        // Audit 2026-10-20 (M5): nothing changed = nothing sent. If the statement the owner already holds shows exactly the payer this ruling names, an "updated" one
+        // would only repeat it (closing a card with "Owner" on a job whose statement already said "Owner"). The ruling is still recorded as covered.
+        if ($this->payerOnTheStatementOwnerHolds($workOrder, $ruling, $firstSent->created_at) === $ruling->summary()) {
+            RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrder->id)->update(['final_statement_ruling_id' => $ruling->id]);
+
+            return 0;
         }
         // claim first - two rulings racing, or a retry, cannot both send
         $claimed = RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrder->id)
@@ -1008,6 +1015,22 @@ class RentalWorkOrderService
         $this->faultForRuling($workOrder)?->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_PAYER_RULED, null, $line);
 
         return $sent;
+    }
+
+    /** The "Paid by" text on the final statement the owner last received (the same wording the statement's own line uses). */
+    private function payerOnTheStatementOwnerHolds(RentalWorkOrder $workOrder, \App\Models\RentalPayerRuling $ruling, $firstSentAt): string
+    {
+        $lastResentFor = $workOrder->final_statement_ruling_id
+            ? \App\Models\RentalPayerRuling::withoutGlobalScopes()->find($workOrder->final_statement_ruling_id)
+            : null;
+        if ($lastResentFor) {
+            return $lastResentFor->summary();
+        }
+        // the original statement: the ruling that stood when it went out, else the work order's own "paid by"
+        $standing = \App\Models\RentalPayerRuling::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)
+            ->where('id', '<', $ruling->id)->where('ruled_at', '<', $firstSentAt)->orderByDesc('id')->first();
+
+        return $standing ? $standing->summary() : ($workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—');
     }
 
     private function faultForRuling(RentalWorkOrder $workOrder): ?\App\Models\RentalFaultReport
