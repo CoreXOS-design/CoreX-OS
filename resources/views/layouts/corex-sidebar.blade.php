@@ -1747,9 +1747,11 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
+                @feature('deals')
                 @permission('view_deals')
                 <a href="{{ route('agent.deals.index') }}" class="corex-nav-subitem {{ request()->routeIs('agent.deals.*') ? 'active' : '' }}">My Deals</a>
                 @endpermission
+                @endfeature
                 @endpermission
 
                 {{-- Branch Manager section (view branch stats) --}}
@@ -1764,6 +1766,7 @@
                 @permission('view_performance')
                 <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
+                @feature('deals')
                 @permission('view_deals')
                 @permission('create_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
@@ -1772,6 +1775,7 @@
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
                 @endpermission
+                @endfeature
                 {{-- Branch Manager section ends here (matches the section's own opening
                      comment above) — permission-block fix, 2026-08-22. Previously the
                      matching @endpermission for view_branch_stats did not appear until
@@ -1800,6 +1804,7 @@
                      flagged to Johan separately rather than removed silently. --}}
 
                 {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
+                @feature('deals')
                 @permission('view_deals')
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
                     @php
@@ -1828,6 +1833,7 @@
                     </a>
                 @endif
                 @endpermission
+                @endfeature
 
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
                     @php
@@ -1940,6 +1946,7 @@
                 @endif
                 @endif
                 @endpermission
+                @feature('deals')
                 @permission('view_deals')
                 @permission('create_deals')
                 <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
@@ -1948,6 +1955,7 @@
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
                 @endif
                 @endpermission
+                @endfeature
                 @permission('view_listings')
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
                      screen; route + permission gate left fully live. Reversible: delete the

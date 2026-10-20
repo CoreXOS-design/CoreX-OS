@@ -18,7 +18,9 @@
         </div>
         <div style="display:flex;gap:.5rem;">
             <a href="{{ route('proforma.download', $invoice) }}" target="_blank" class="corex-btn-primary">Download PDF</a>
+            @feature('deals')
             <a href="{{ route('deals-dr2.pipeline', $invoice->deal_id) }}" class="corex-btn-secondary">← Deal</a>
+            @endfeature
         </div>
     </div>
 

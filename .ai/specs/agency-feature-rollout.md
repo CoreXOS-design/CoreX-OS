@@ -274,3 +274,29 @@ layout (popup includes), `AgencyTypeFeatureSeeder` (run before the hold step).
 10. **Audit trail.** Every release, skip, pause and access change, with who and when.
 11. **Tour gap report.** Features in a wave with no guided tour (~60 of ~77 today), so the team knows
     which tours to write first.
+
+## 13. Build notes — Part 1 (engine, Dev Settings, Deals switchable) — 2026-10-20
+
+Decisions made while building Part 1. Where these refine an earlier section, this section wins.
+
+1. **Tracks** are stored as `general` / `sales` / `rentals` (shown as General / Sales / Rentals). Lanes:
+   rentals-only = Rentals waves then General; sales-only = General + Sales; both = one list in order;
+   both + side by side = lane 1 General + Sales, lane 2 Rentals. One ordered list in Dev Settings, each wave badged with its track.
+2. **Features in no wave are NOT held.** New agencies get them from day one. Dev Settings flags them
+   ("Not in any wave") with a check, plus two more checks: a feature in two waves, and a feature placed before a feature it depends on.
+3. **One plan per agency, ever.** `start()` on an agency that already has a plan returns that plan. A finished
+   plan is the record of how the agency was introduced and is never deleted.
+4. **Outward-facing list** (`config/feature-rollout.php` `admin_switch_on`): `public-website`, `outreach`.
+   Portal syndication and payroll are already off for every new agency (`agency-types.opt_in_features`), so they are never held.
+5. **"Every week"** = 5 release days (a working week when weekdays-only is on). Custom = 1–10.
+6. **Public holidays** read `public_holidays`. For ZA the year is generated on demand (the generator only
+   knows SA rules). Any other country uses the rows already there.
+7. **Catch-up:** a missed day releases one wave per lane per run, never several at once. The scheduler runs every 15 minutes.
+8. **Deals** (`config/corex-features.php`): switchable, on by default. Owns the deal register screens (legacy, DR2, deals-v2)
+   and their permissions. Deliberately NOT owned, because other areas use them: suppliers & contractors and their
+   service types (Rentals), and the plain property / contact / attorney / supplier lookups (seller info, deeds capture).
+   Commission Management and Proforma Invoices now depend on Deals. Every cross-screen link to a deal page
+   is wrapped (`FeatureNavGuardCoverageTest`).
+9. **One write path:** `AgencyFeatureWriter` (extracted from `AgencyTypeFeatureSeeder`) is used by the type seeder and the rollout.
+10. **Schema snapshot** not yet regenerated for `2026_11_18_100000_create_feature_rollout_tables` — the migration
+    runs on top of the snapshot. Run `scripts/schema-dump.sh` with the next batch.

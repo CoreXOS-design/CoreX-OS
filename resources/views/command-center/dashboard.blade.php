@@ -203,7 +203,7 @@
                                     // falling back to the tasks index so every inbox item is actionable.
                                     $taskLink = $task->property ? route('corex.properties.show', $task->property)
                                               : ($task->contact  ? route('corex.contacts.show',  $task->contact)
-                                              : ($task->deal_id  ? route('deals-v2.show',        $task->deal_id)
+                                              : (($task->deal_id && feature('deals')) ? route('deals-v2.show',        $task->deal_id)
                                               : route('command-center.tasks')));
                                 @endphp
                                 <div class="rounded-md p-3 border-l-2 cursor-pointer hover:brightness-110 transition"

@@ -36,7 +36,9 @@
                           <x-nav-link :href="route('bm.performance')" :active="request()->routeIs('bm.performance')">Branch Performance</x-nav-link>
 
                     <x-nav-link :href="route('bm.worksheet.market')" :active="request()->routeIs('bm.worksheet.market*')">Worksheet Market</x-nav-link>
+                        @feature('deals')
                         <x-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-nav-link>
+                        @endfeature
                         <x-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Daily Activity Setup</x-nav-link>
                         @if($effectiveBranchId)
                             <x-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">Daily Activity Capture</x-nav-link>
@@ -51,7 +53,9 @@
 @endif
                         <x-nav-link :href="route('admin.performance')" :active="request()->routeIs('admin.performance')">Performance</x-nav-link>
                         <x-nav-link :href="route('admin.performance-settings.edit')" :active="request()->routeIs('admin.performance-settings*')">Company Settings</x-nav-link>
+                        @feature('deals')
                         <x-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-nav-link>
+                        @endfeature
                         <x-nav-link :href="route('admin.targets')" :active="request()->routeIs('admin.targets')">Targets</x-nav-link>
                         <x-nav-link :href="route('admin.targets.activity.definitions')" :active="request()->routeIs('admin.targets.activity.definitions*')">Activity Definitions</x-nav-link>
                         <x-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Activity Setup</x-nav-link>
@@ -153,7 +157,9 @@
                   <x-responsive-nav-link :href="route('bm.performance')" :active="request()->routeIs('bm.performance')">Branch Performance</x-responsive-nav-link>
 
                 <x-responsive-nav-link :href="route('bm.worksheet.market')" :active="request()->routeIs('bm.worksheet.market*')">Worksheet Market</x-responsive-nav-link>
+                @feature('deals')
                 <x-responsive-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-responsive-nav-link>
+                @endfeature
                 <x-responsive-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Daily Activity Setup</x-responsive-nav-link>
                 @if($effectiveBranchId)
                     <x-responsive-nav-link :href="route('agent.daily')" :active="request()->routeIs('agent.daily')">Daily Activity Capture</x-responsive-nav-link>
@@ -165,7 +171,9 @@
 
                 <x-responsive-nav-link :href="route('admin.worksheet-market')" :active="request()->routeIs('admin.worksheet-market*')">Worksheet Market</x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.performance')" :active="request()->routeIs('admin.performance')">Performance</x-responsive-nav-link>
+                @feature('deals')
                 <x-responsive-nav-link :href="route('admin.deals')" :active="request()->routeIs('admin.deals*')">Deal Register</x-responsive-nav-link>
+                @endfeature
                 <x-responsive-nav-link :href="route('admin.targets')" :active="request()->routeIs('admin.targets')">Targets</x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.targets.activity.definitions')" :active="request()->routeIs('admin.targets.activity.definitions*')">Activity Definitions</x-responsive-nav-link>
                 <x-responsive-nav-link :href="route('admin.targets.activity.setup')" :active="request()->routeIs('admin.targets.activity.setup*')">Activity Setup</x-responsive-nav-link>

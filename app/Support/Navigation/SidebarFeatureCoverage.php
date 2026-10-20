@@ -39,9 +39,6 @@ final class SidebarFeatureCoverage
         'corex.properties.index'            => 'properties',
         'corex.map.index'                   => 'properties',
         'corex.contacts.index'               => 'contacts',
-        'deals-v2.*'                        => 'deals',
-        'admin.settings.deal-*'             => 'deals',
-        'admin.settings.document-distribution*' => 'deals',
         'corex.settings'                    => 'settings',
         // The Settings sub menu (Staging, 12 Oct): the Features page is the on/off switch itself and Users is core people
         // management — neither can be switched off from the page that does the switching.

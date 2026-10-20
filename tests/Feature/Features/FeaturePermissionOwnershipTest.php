@@ -22,7 +22,7 @@ final class FeaturePermissionOwnershipTest extends TestCase
      */
     private const ALWAYS_AVAILABLE = [
         // Core pillars and the shell (registry rows marked core — never switched off)
-        'dashboard' => 'core', 'properties' => 'core', 'contacts' => 'core', 'deals' => 'core (deal register)',
+        'dashboard' => 'core', 'properties' => 'core', 'contacts' => 'core',
         'my_portal' => 'core', 'settings' => 'core', 'roles' => 'core (Role Manager)', 'sidebar' => 'core',
         'command_center' => 'core (home)', 'command_center_calendar' => 'core (home)', 'command_center_tasks' => 'core (home)',
         'viewing_feedback_edit' => 'core (calendar)', 'users' => 'core (people)', 'branches' => 'core (tenant structure)',
@@ -30,7 +30,7 @@ final class FeaturePermissionOwnershipTest extends TestCase
         'diagnostics' => 'core (tenant)', 'soft_deletes' => 'core (archive register)', 'remote_access' => 'core (support access)',
         'data_scope' => 'core (visibility scoping)', 'franchise_admin' => 'core (platform admin)',
         // Pillar-adjacent modules with no registry feature of their own
-        'deals_v2' => 'Deal pillar (DR2)', 'dr2_unfiled_emails' => 'Deal pillar (DR2)',
+        'deals_v2' => 'only suppliers & contractors remain (shared with Rentals); the deal keys are owned by the deals feature by key',
         'buyer_notes' => 'Contact pillar (buyer notes on the Intelligence tab and Core Matches)', 'other_agency_stock' => 'Property pillar (imported other-agency listings; no feature of its own)',
         'buyer_pipeline' => 'Contact pillar', 'contact_governance' => 'Contact pillar', 'contact_rental_history' => 'Contact pillar',
         'client_portal' => 'client access', 'client_app' => 'client access', 'assistants' => 'people (assistant identity)',

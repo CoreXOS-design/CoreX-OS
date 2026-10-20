@@ -73,7 +73,7 @@
                         if ($deal->agents->isNotEmpty()) {
                             $entitySubtext .= ($entitySubtext ? ' — ' : '') . $deal->agents->pluck('name')->join(', ');
                         }
-                        $editUrl = route('admin.deals.edit', $deal);
+                        $editUrl = feature('deals') ? route('admin.deals.edit', $deal) : null;
                     }
                 } elseif ($entityType === 'agent_period') {
                     $user = $userMap[(int)$entityId] ?? null;

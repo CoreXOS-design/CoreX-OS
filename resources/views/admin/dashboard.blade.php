@@ -6,19 +6,23 @@
                 <p class="text-sm text-[var(--text-secondary)]">Quick access to admin tools and setup.</p>
             </div>
 
+            @feature('deals')
             <a href="{{ route('admin.deals') }}"
                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-primary)] border border-[var(--border)]">
                 <span>Open Deal Register</span>
                 <span class="text-[var(--text-faint)]">→</span>
             </a>
+            @endfeature
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            @feature('deals')
             <a href="{{ route('admin.deals') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
                 <div class="text-sm text-[var(--text-muted)]">Money</div>
                 <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Deal Register</div>
                 <div class="mt-2 text-sm text-[var(--text-muted)]">Capture & settle deals, track commission status.</div>
             </a>
+            @endfeature
 
             <a href="{{ route('admin.performance') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
                 <div class="text-sm text-[var(--text-muted)]">Performance</div>
