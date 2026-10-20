@@ -53,7 +53,8 @@ class AgreementController extends Controller
             'start' => $prefill[$agencyId] ?? ['name' => '', 'email' => '', 'cell' => ''],
             'version' => $version, 'expiryDays' => AgreementService::expiryDays(),
             'takeOnOptions' => \App\Services\PlatformEsign\Agreement\AgreementTakeOn::options(),
-            'exampleFee' => (float) (($version->rates_json ?? [])['agency_base'] ?? \App\Services\PlatformEsign\Agreement\AgreementPricing::DEFAULT_RATES['agency_base']),
+            // The discount preview's example monthly fee: the base fee of the tier pricing, the 3-to-5 band of the band pricing.
+            'exampleFee' => (float) (\App\Services\PlatformEsign\Agreement\AgreementPricing::withDefaults((array) ($version->rates_json ?? []))[\App\Services\PlatformEsign\Agreement\AgreementPricing::isBands((array) ($version->rates_json ?? [])) ? 'band3' : 'agency_base']),
         ]);
     }
 
@@ -65,7 +66,7 @@ class AgreementController extends Controller
             'agency_id' => 'nullable|integer|exists:agencies,id', 'note' => 'nullable|string|max:490',
             'variation_text' => 'nullable|string|max:500', 'variation_amount' => 'nullable|string|max:14',
             'variation_type' => 'nullable|in:amount,percent', 'variation_value' => 'nullable|string|max:14', 'variation_months' => 'nullable|string|max:6',
-            'plan' => 'nullable|in:team,agency',
+            'plan' => 'nullable|in:team,agency', 'quoted_fee' => 'nullable|string|max:14',
             'take_on_month' => ['required', 'regex:/^\d{4}-(0[1-9]|1[0-2])$/', function ($attribute, $value, $fail) {
                 if (!\App\Services\PlatformEsign\Agreement\AgreementTakeOn::valid((string) $value)) {
                     $fail('Choose a take-on month that is this month or later.');

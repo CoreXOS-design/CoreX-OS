@@ -193,6 +193,10 @@ final class CompanyAdAiBuilderTest extends TestCase
         }
         $this->assertStringContainsString('There is NO picture', $this->userText($fake->requestBody(0)));
         $this->assertStringNotContainsString('- custom_image:', $fake->requestBody(0)['system']);
+        // Audit 2026-10-20: the overlap rule's "may sit on" list does not name the picture box the prompt forbids.
+        $system = $fake->requestBody(0)['system'];
+        $rule   = substr($system, strpos($system, '1c. No overlaps'), 300);
+        $this->assertStringNotContainsString('custom_image', $rule);
     }
 
     public function test_a_design_that_ignores_the_chosen_picture_is_retried_then_dropped(): void

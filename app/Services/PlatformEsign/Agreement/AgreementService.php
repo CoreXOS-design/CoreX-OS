@@ -96,14 +96,24 @@ class AgreementService
         if ($takeOn !== '' && !AgreementTakeOn::valid($takeOn)) {
             throw new \DomainException('Choose a take-on month that is this month or later.');
         }
+        $bands = AgreementPricing::isBands((array) $version->rates_json);
         // Optional owner-only override for a negotiated case: the recipient then sees that plan fixed whatever the number of agents.
-        $forcedPlan = in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
-        $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
+        // Tier pricing only — band pricing has no plan to fix.
+        $forcedPlan = !$bands && in_array($d['plan'] ?? '', ['team', 'agency'], true) ? $d['plan'] : '';
+        // Band pricing (spec §11.5a): the monthly fee agreed for an agency above the last band.
+        $quoted = '';
+        if ($bands && trim((string) ($d['quoted_fee'] ?? '')) !== '') {
+            $quoted = AgreementFields::cleanMoney((string) $d['quoted_fee']);
+            if ($quoted === '' || (float) $quoted <= 0) {
+                throw new \DomainException('Enter the quoted monthly fee as an amount in rand, for example 5995 or 5995.50.');
+            }
+        }
+        $rr = array_filter(['variation_text' => $varText] + $discount + ['plan_forced' => $forcedPlan, 'quoted_fee' => $quoted, 'take_on_month' => $takeOn, 'single_entry' => '1'], fn ($v) => $v !== '');
         if ($takeOn !== '') {
             $values = $values + AgreementTakeOn::values($takeOn);
         }
 
-        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn, $discount) {
+        $doc = DB::transaction(function () use ($version, $tpl, $agency, $name, $email, $d, $values, $rr, $sender, $userId, $forcedPlan, $takeOn, $discount, $quoted) {
             $doc = Document::create([
                 'template_id' => $tpl->id, 'template_version' => (int) $tpl->version, 'wording_version_id' => $version->id,
                 'agency_id' => $agency?->id, 'title' => 'CoreX Subscription Agreement — ' . ($agency?->name ?: $name),
@@ -129,6 +139,9 @@ class AgreementService
             }
             if ($discount) {
                 $this->esign->log($doc, 'discount_set', 'Discount agreed by ' . $sender->name . ': ' . AgreementDiscount::short(AgreementDiscount::fromRr($rr)) . ' (applied to the whole monthly bill) — the agreement states it in words', null, $userId);
+            }
+            if ($quoted !== '') {
+                $this->esign->log($doc, 'quoted_fee_set', 'Quoted monthly fee for more than ' . AgreementPricing::topOfBands((array) $version->rates_json) . ' agents set by ' . $sender->name . ': ' . AgreementPricing::rate((float) $quoted), null, $userId);
             }
             if ($forcedPlan !== '') {
                 $this->esign->log($doc, 'plan_forced', 'Plan fixed by ' . $sender->name . ' to CoreX ' . ucfirst($forcedPlan) . ' (negotiated) — the recipient sees it fixed', null, $userId);
@@ -709,6 +722,7 @@ class AgreementService
         }
 
         $this->esign->complete($doc->fresh());
+        $this->announceCompleted($doc, $user->id);
 
         return [];
     }
@@ -898,8 +912,26 @@ class AgreementService
             return $errors;
         }
         $this->esign->complete($doc->fresh());
+        $this->announceCompleted($doc, $user->id);
 
         return [];
+    }
+
+    /**
+     * Tell the rest of CoreX the agreement is fully signed (SubscriptionAgreementCompleted - billing takes the quoted fee from it).
+     * Only for an agreement linked to an agency; one sent without an agency has nobody to bill, so the document says so.
+     */
+    private function announceCompleted(Document $doc, int $userId): void
+    {
+        $fresh = $doc->fresh();
+        if (! $fresh?->agency_id) {
+            if (trim((string) (((array) $fresh?->rr_data)['quoted_fee'] ?? '')) !== '') {
+                $this->esign->log($doc, 'billing_quoted_fee_not_applied', 'Billing: no agency is linked to this agreement, so the quoted monthly fee was not applied - set it by hand under Admin > Billing', null, $userId);
+            }
+
+            return;
+        }
+        event(new \App\Events\Platform\SubscriptionAgreementCompleted((int) $fresh->agency_id, (int) $fresh->id, $userId));
     }
 
     private function wetInkAttestation(Document $doc): string

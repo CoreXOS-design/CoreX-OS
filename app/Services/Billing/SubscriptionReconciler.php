@@ -48,12 +48,20 @@ class SubscriptionReconciler
         }
 
         $seats       = $this->pricing->billableSeats($agency);
-        $derivedPlan = $this->pricing->derivePlan($seats);
+        $derivedPlan = $this->pricing->derivePlan($seats, $subscription);
         $storedPlan  = (string) $subscription->plan;
 
         if ($storedPlan === $derivedPlan) {
             return null;
         }
+
+        // Band price list (spec §3 D7): the stored band simply follows the
+        // headcount — moving between bands is the price list working as
+        // published, not news. CoreX is emailed only when an agency goes above
+        // the last band, because only then does someone have to act (agree a
+        // price). A NEW row (created with the default 'team') settles silently.
+        $silent = $subscription->usesBands()
+            && ($derivedPlan !== AgencySubscription::PLAN_QUOTE || ! $this->pricing->isBandPlan($storedPlan));
 
         // ── COMPARE-AND-SET ──────────────────────────────────────────────────
         // Flip the plan ONLY if it is still what we read a moment ago. If a
@@ -69,8 +77,8 @@ class SubscriptionReconciler
                 'updated_at'      => now(),
             ]);
 
-        if ($affected !== 1) {
-            return null;   // someone else won the race and owns the notification
+        if ($affected !== 1 || $silent) {
+            return null;   // someone else won the race and owns the notification (or there is nothing to announce)
         }
 
         $branches = $this->pricing->branchCount($agency);

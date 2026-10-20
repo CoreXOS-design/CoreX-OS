@@ -36,8 +36,8 @@ class SubscriptionPricingService
         $seats    = $this->billableSeats($agency);
         $branches = $this->branchCount($agency);
 
-        $derivedPlan = $this->derivePlan($seats);
         $subscription = AgencySubscription::forAgency((int) $agency->id);
+        $derivedPlan = $this->derivePlan($seats, $subscription);
 
         $lines    = $this->lines($derivedPlan, $seats, $branches);
         $computed = round(array_sum(array_column($lines, 'amount')), 2);
@@ -63,6 +63,11 @@ class SubscriptionPricingService
         $included         = (int) config('corex-billing.branches.included', 1);
         $billableBranches = max(0, $branches - $included);
 
+        // Above the last band nothing is billed for the headcount until CoreX
+        // agrees a price (a custom amount) — the page says so instead of
+        // quoting a number nobody agreed to.
+        $onQuotation = $derivedPlan === AgencySubscription::PLAN_QUOTE && ! $hasCustom;
+
         return new BillingQuote(
             agencyId:                (int) $agency->id,
             seats:                   $seats,
@@ -82,6 +87,8 @@ class SubscriptionPricingService
             discountMonthsRemaining: $subscription->discountMonthsRemaining($on),
             discountEndsOn:          $discountActive ? $subscription->discountEndsOn()?->toDateString() : null,
             discountNote:            $discountActive ? $subscription->discount_note : null,
+            onQuotation:             $onQuotation,
+            usesBands:               $subscription->usesBands(),
         );
     }
 
@@ -124,9 +131,25 @@ class SubscriptionPricingService
             ->count();
     }
 
-    /** The plan the headcount implies. The 11th seat moves them to Agency. */
-    public function derivePlan(int $seats): string
+    /**
+     * The plan the headcount implies, on the agency's price list.
+     *
+     * Band price list: the band the headcount falls in ('band1' … 'bandN'),
+     * or 'quote' above the last band. Tier price list (and no subscription
+     * given): the 11th seat moves them from Team to Agency.
+     */
+    public function derivePlan(int $seats, ?AgencySubscription $subscription = null): string
     {
+        if ($subscription !== null && $subscription->usesBands()) {
+            foreach ($this->bands() as $i => $band) {
+                if ($seats <= (int) $band['to']) {
+                    return 'band' . ($i + 1);
+                }
+            }
+
+            return AgencySubscription::PLAN_QUOTE;
+        }
+
         $maxTeamSeats = (int) config('corex-billing.team.max_seats', 10);
 
         return $seats > $maxTeamSeats
@@ -136,7 +159,53 @@ class SubscriptionPricingService
 
     public function planLabel(string $plan): string
     {
+        if ($band = $this->band($plan)) {
+            return $this->bandLabel((int) $band['from'], (int) $band['to']);
+        }
+        if ($plan === AgencySubscription::PLAN_QUOTE) {
+            return 'More than ' . $this->topOfBands() . ' agents';
+        }
+
         return (string) config("corex-billing.{$plan}.label", ucfirst($plan));
+    }
+
+    /** Is this one of the band price list's plans ('band1' … 'bandN', 'quote')? */
+    public function isBandPlan(string $plan): bool
+    {
+        return $plan === AgencySubscription::PLAN_QUOTE || $this->band($plan) !== null;
+    }
+
+    /** @return list<array{from:int,to:int,amount:float}> */
+    private function bands(): array
+    {
+        return array_values((array) config('corex-billing.bands.bands', []));
+    }
+
+    /** The band a 'bandN' plan names, or null. */
+    private function band(string $plan): ?array
+    {
+        if (! preg_match('/^band(\d+)$/', $plan, $m)) {
+            return null;
+        }
+
+        return $this->bands()[(int) $m[1] - 1] ?? null;
+    }
+
+    private function topOfBands(): int
+    {
+        $bands = $this->bands();
+
+        return $bands ? (int) end($bands)['to'] : 0;
+    }
+
+    /** "1 agent", "2 agents", "3 to 5 agents" — the same words as the agreement. */
+    private function bandLabel(int $from, int $to): string
+    {
+        if ($from === $to) {
+            return $from . ($from === 1 ? ' agent' : ' agents');
+        }
+
+        return "{$from} to {$to} agents";
     }
 
     /**
@@ -152,9 +221,11 @@ class SubscriptionPricingService
      */
     public function lines(string $plan, int $seats, int $branches): array
     {
-        $lines = $plan === AgencySubscription::PLAN_AGENCY
-            ? $this->agencyPlanLines($seats)
-            : $this->teamPlanLines($seats);
+        $lines = match (true) {
+            $this->isBandPlan($plan)                 => $this->bandPlanLines($plan, $seats),
+            $plan === AgencySubscription::PLAN_AGENCY => $this->agencyPlanLines($seats),
+            default                                  => $this->teamPlanLines($seats),
+        };
 
         // Branches are plan-agnostic (spec §3 D2a): the first is included, each
         // one beyond that is charged — on Team as well as Agency.
@@ -176,6 +247,30 @@ class SubscriptionPricingService
         }
 
         return $lines;
+    }
+
+    /**
+     * Band: ONE flat monthly fee for the band the headcount falls in — 4 users
+     * pay the 3-to-5 fee, not 4 × anything. Above the last band there is no
+     * list price: the fee is on quotation (a custom amount), so no seat line.
+     */
+    private function bandPlanLines(string $plan, int $seats): array
+    {
+        $band = $this->band($plan);
+        if ($seats === 0 || $band === null) {
+            return [];
+        }
+
+        $amount = (float) $band['amount'];
+
+        return [[
+            'group'  => 'seats',
+            'label'  => $this->bandLabel((int) $band['from'], (int) $band['to']),
+            'note'   => 'One flat monthly fee for your number of users.',
+            'qty'    => 1,
+            'unit'   => $amount,
+            'amount' => round($amount, 2),
+        ]];
     }
 
     /** Team: flat headcount × rate. No base fee, no tiers. */

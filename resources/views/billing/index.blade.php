@@ -93,11 +93,21 @@
 
     {{-- ── Summary tiles ── --}}
     <div class="corex-kpi-grid">
-        <x-corex-kpi-card title="Your plan" :value="$quote->planLabel" />
+        <x-corex-kpi-card :title="$quote->usesBands ? 'Your price band' : 'Your plan'" :value="$quote->planLabel" />
         <x-corex-kpi-card title="Billable users" :value="(string) $quote->seats" />
         <x-corex-kpi-card title="Branches" :value="(string) $quote->branches" />
-        <x-corex-kpi-card title="Monthly total" :value="Zar::format($quote->payableZar)" />
+        <x-corex-kpi-card title="Monthly total" :value="$quote->onQuotation ? 'On quotation' : Zar::format($quote->payableZar)" />
     </div>
+
+    {{-- Above the last price band there is no list price: the fee is agreed with CoreX. --}}
+    @if($quote->onQuotation)
+        <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
+            <div class="text-sm font-medium" style="color:var(--text-primary);">Your monthly fee is on quotation</div>
+            <p class="text-sm mt-0.5" style="color:var(--text-secondary);">
+                You have {{ $quote->seats }} users — more than our price bands cover. CoreX will contact you to agree your monthly fee.
+            </p>
+        </div>
+    @endif
 
     {{-- ── The arithmetic, as a sectioned receipt ──────────────────────────
          Sections come from each line's `group` key, never from matching its
@@ -110,7 +120,11 @@
             <div>
                 <h2 class="text-base font-semibold" style="color:var(--text-primary);">How this is worked out</h2>
                 <p class="text-sm mt-0.5" style="color:var(--text-secondary);">
-                    You are on the {{ $quote->planLabel }} plan. Every line below adds up to your total — check our maths.
+                    @if($quote->usesBands)
+                        Your price band is {{ $quote->planLabel }}. Every line below adds up to your total — check our maths.
+                    @else
+                        You are on the {{ $quote->planLabel }} plan. Every line below adds up to your total — check our maths.
+                    @endif
                 </p>
             </div>
 
@@ -146,7 +160,9 @@
                             Users — you have {{ $quote->seats }}
                         </div>
                         <div class="text-xs mt-0.5" style="color:var(--text-secondary);">
-                            @if($quote->derivedPlan === \App\Models\Billing\AgencySubscription::PLAN_AGENCY)
+                            @if($quote->usesBands)
+                                One flat monthly fee for your number of users — it only changes when you move into another band.
+                            @elseif($quote->derivedPlan === \App\Models\Billing\AgencySubscription::PLAN_AGENCY)
                                 Rates are banded by how many users you have — not by who they are.
                                 Nobody is "the R195 person"; the bands simply price your headcount.
                             @else

@@ -279,6 +279,10 @@ class AgreementFields
         if (!isset($errors['agents']) && ($d['plan'] ?? '') === 'team' && (int) ($d['agents'] ?? 0) > (int) ($rates['team_max_seats'] ?? 10)) {
             $errors['agents'] = 'CoreX Team is for up to ' . (int) ($rates['team_max_seats'] ?? 10) . ' seats — choose the CoreX Agency plan for more.';
         }
+        if (!isset($errors['agents']) && AgreementPricing::isBands($rates) && (int) ($d['agents'] ?? 0) > AgreementPricing::topOfBands($rates) && ($d['plan'] ?? '') === '') {
+            // Above the last band without the sender's quoted fee there is no price to agree to (spec §11.5a).
+            $errors['agents'] = AgreementRenderer::overBandsNote(AgreementPricing::topOfBands($rates));
+        }
         foreach (['da_account', 'm_account'] as $k) {
             if (!isset($errors[$k]) && !empty($d[$k]) && !preg_match('/^[0-9 \-]{4,30}$/', (string) $d[$k])) {
                 $errors[$k] = 'Account numbers contain digits only.';
