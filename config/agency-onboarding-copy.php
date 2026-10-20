@@ -1170,6 +1170,11 @@ return [
              'label' => 'Scanned inspection form: ticks to check below this confidence',
              'explain' => 'When a scanned paper inspection form is read, every tick comes with a confidence from 0 to 1. A tick read with less confidence than this is shown to the agent as "to check" instead of as read, and the agent must confirm it. Two ticked boxes on one row are always "to check".',
              'affects' => 'How many ticks an agent is asked to confirm after a scan. Raise it to be asked about more rows; lower it if too many clear ticks are being queried.'],
+            // Audit M7 (Johan, 20 Oct 2026) - same saver (RentalInspectionSettingsController::update()), has()-guarded there.
+            ['key' => 'note_read_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Scanned inspection form: read handwritten notes with AI',
+             'explain' => 'When a scanned paper inspection form is uploaded, CoreX can send a small picture of each row\'s handwritten note area to an AI service to read the handwriting and pre-fill the note box. Only note areas that actually contain writing are sent, never the whole page, and the agent always confirms or edits the note before it is saved.',
+             'affects' => 'On (the default): handwritten notes on a scanned form arrive pre-filled for the agent to check. Off: nothing from your scanned forms is sent to an AI service - the agent types the notes in. Ticks are always read inside CoreX either way.'],
             ['key' => 'note_read_min_confidence', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 0.5, 'min' => 0.1, 'max' => 0.95, 'step' => 0.05,
              'label' => 'Scanned inspection form: handwritten notes to type in below this confidence',
              'explain' => 'CoreX reads the handwritten note on each row of a scanned paper inspection form and fills it into the note box. A note read with less confidence than this (0 to 1) is not filled in; the agent sees "Couldn\'t read the handwritten note" and types it in.',
