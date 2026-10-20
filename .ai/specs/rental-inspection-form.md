@@ -1006,7 +1006,7 @@ route group's own `.view` gate — matching cancel/destroy vs form/show's existi
   §8's promotion-flow note) — a queued job would be genuinely untestable on the first environment Johan
   actually looks at. A few pages' rasterize-and-sample pass is a few seconds' work, well within a normal
   request.
-- **Partial apply is allowed.** An agent can confirm some rows on the review screen and leave the rest for
+- **Partial apply is allowed.** *(On the review screen this is superseded by §13.16 - Apply waits until every open row has a condition; the server still accepts a partial post.)* An agent can confirm some rows on the review screen and leave the rest for
   a later visit; the scan's own status only flips to `applied` once every mark on it has an
   `applied_observation_id`.
 - **No multi-match/multi-page reconciliation UI beyond the plain per-scan review screen** — if an agent
@@ -1215,4 +1215,24 @@ Files: `RentalInspectionScanMark.php`, `RentalInspectionSetting.php`, `RentalIns
 `scan-review.blade.php`, `corex-scan-review.js`, `RentalInspectionSettingsController.php`, `settings/rental-inspections.blade.php`,
 `AgencySetupWizardController.php`, `config/agency-onboarding-copy.php`, migration `2026_11_24_130000`; tests in `RentalInspectionScanReviewNotesPhotosTest`
 (24), `RentalInspectionSiteFormTest`, `RentalsStepRuledInSettingsTest`.
+
+### 13.16 The review screen's sticky header: actions, live status, blockers, error links (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan's rule: the response and the next action come first and stay visible. The review screen has ONE sticky header (`position: sticky; top: 0`) holding, in
+order: the server's response (success / refusals), the title, the process actions - **Open original**, **Back to inspection** and **Apply proposed marks**
+(the three the same size, `corex-btn-outline text-xs`, one aligned row) - and the status line. **Nothing sits at the bottom of the page**; the old bottom Apply
+button is gone.
+
+- **Live status line:** the count "X read, Y to check, Z not picked up" (a row the agent has set counts as read) and what still blocks Apply, both
+  recomputed in the browser as rows are fixed - no reload (`corex-scan-review.js`, `refreshStatus()`). The server renders the same line on load.
+- **Blockers:** an open row with no condition ("2 rows need a condition"); a condition that needs a note (the agency's own vocabulary, `data-notes-required`)
+  with none ("1 Damaged row needs a note", one blocker per condition).
+- **Every blocker and every error is a link.** A blocker is a "next" link that steps through its rows (each press goes to the next offending row, then wraps);
+  it scrolls to the row (`id="scan-row-{mark}"`), focuses its control (the condition select, or the note box for a note blocker) and outlines the row briefly. After
+  Apply, each server refusal is flashed as `scan_refused` (mark id, what to focus, text) and shown in the header as a link to its row; `errors.scan` keeps the plain
+  sentence for anything else (e.g. the inspection is locked).
+- **Apply is disabled, with the reason shown** (the blockers beside it), while any blocker remains; the form also refuses to submit disabled. The server's own
+  rules (`apply()` skips blank rows, refuses a note-needing condition with no note) are unchanged.
+- Files: `scan-review.blade.php` (header, `$rowView` closure shared by the header's blockers and the rows), `corex-scan-review.js`,
+  `RentalInspectionScanController.php` (`notesRequiredKeys`, `scan_refused`), `RentalInspectionScanReviewNotesPhotosTest` (4 new tests).
 

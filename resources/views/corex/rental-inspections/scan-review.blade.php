@@ -20,19 +20,51 @@
     §13.15 (Johan, 20 Oct 2026, scan #25): every row's tick is in one of THREE states - read with confidence / picked up but unsure (agent
     must confirm) / not picked up at all (agent must set it) - with one count line on top; a detected note is ALWAYS visible (only saving waits
     for a condition), marked "Read from scan" until the agent edits it; a note area with ink the AI could not read says so at the note box.
+
+    §13.16 (Johan, 20 Oct 2026): the response and the next action come first and stay visible - ONE sticky header carries the title, the process
+    actions (Open original, Back, Apply), the flash/server response, the live count line and what still blocks Apply. Every blocker and every
+    error is a link that scrolls to its row and focuses its control. Apply is disabled, with the reason shown, while a blocker remains. Nothing
+    sits at the bottom of the page.
 --}}
 
 @section('content')
-<div class="p-6 max-w-3xl mx-auto space-y-4">
-    @if(session('success'))
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
-    @endif
-    @if($errors->any())
-        <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-qa="scan-errors">
-            @foreach($errors->all() as $error)<p>{{ $error }}</p>@endforeach
-        </div>
-    @endif
+@php
+    $stateLabel = collect($conditionStates)->pluck('label', 'key');
+    $pct = fn ($v) => (int) round($v * 100);
+    // One place decides what a row starts as, so the header's blockers and the row itself can never disagree.
+    $rowView = function ($mark) use ($onScreen, $onScreenNotes, $unsureBelow, $noteMinConfidence, $stateLabel) {
+        $itemId = (int) $mark->rental_inspection_item_id;
+        $recordedCondition = $onScreen[$itemId] ?? '';
+        $recordedNote = $onScreenNotes[$itemId] ?? null;
+        $applied = $mark->applied_observation_id !== null;
+        $tick = $mark->tickState($unsureBelow);
+        $startKey = $applied
+            ? ($recordedCondition !== '' ? $recordedCondition : (string) $mark->confirmed_condition_key)
+            : ($tick === 'read' ? (string) $mark->detected_condition_key : '');
+        $usableNote = (! $applied && $recordedNote === null) ? $mark->usableDetectedNote($noteMinConfidence) : null;
+        $noteUnreadable = (! $applied && $recordedNote === null && $usableNote === null) && $mark->noteUnreadable($noteMinConfidence);
 
+        return [
+            'itemId' => $itemId, 'recordedCondition' => $recordedCondition, 'recordedNote' => $recordedNote, 'applied' => $applied, 'tick' => $tick,
+            'startKey' => $startKey, 'usableNote' => $usableNote, 'noteUnreadable' => $noteUnreadable, 'startNote' => $recordedNote ?? $usableNote ?? '',
+        ];
+    };
+    $open = $scan->marks->whereNull('applied_observation_id');
+    $tickCounts = ['read' => 0, 'unsure' => 0, 'missed' => 0];
+    foreach ($open as $m) { $tickCounts[$m->tickState($unsureBelow)]++; }
+    // What blocks Apply right now: an open row with no condition; a condition that needs a note with none.
+    $blockNoCondition = 0;
+    $blockNeedsNote = [];   // condition key => rows
+    foreach ($scan->marks as $m) {
+        $v = $rowView($m);
+        if (! $v['applied'] && $v['startKey'] === '') { $blockNoCondition++; }
+        elseif ($v['startKey'] !== '' && in_array($v['startKey'], $notesRequiredKeys, true) && trim($v['startNote']) === '') { $blockNeedsNote[$v['startKey']] = ($blockNeedsNote[$v['startKey']] ?? 0) + 1; }
+    }
+    $hasBlockers = $blockNoCondition > 0 || $blockNeedsNote !== [];
+    $failed = in_array($scan->status, ['failed', 'version_mismatch'], true);
+    $refused = session('scan_refused', []);
+@endphp
+<div class="p-6 max-w-3xl mx-auto space-y-4">
     {{-- §64 - the upload was made on another inspection; its own form code says this one, so it was filed and read here. --}}
     @if(session('scan_routed'))
         @php $routed = session('scan_routed'); @endphp
@@ -44,18 +76,50 @@
         </div>
     @endif
 
-    <div class="flex items-center justify-between">
-        <div>
-            <h1 class="text-lg font-semibold">Review scan — {{ $scan->original_filename }}</h1>
-            <span class="text-xs" style="color: var(--text-muted);">
-                {{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}
-                · uploaded by {{ $scan->uploadedBy?->name }} on {{ $scan->created_at?->format('Y-m-d H:i') }}
-            </span>
+    <div id="scan-header" class="space-y-2" style="position: sticky; top: 0; z-index: 30; background: var(--bg); padding: 0.5rem 0; border-bottom: 1px solid var(--border);" data-qa="scan-header">
+        @if(session('success'))
+            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);" data-qa="scan-success">{{ session('success') }}</div>
+        @endif
+        @if($refused || $errors->any())
+            <div class="text-xs p-2 rounded space-y-1" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" data-qa="scan-errors">
+                @forelse($refused as $r)
+                    <p><a href="#scan-row-{{ $r['mark'] }}" class="underline font-semibold" data-scan-goto="{{ $r['mark'] }}" data-focus="{{ $r['focus'] }}">{{ $r['text'] }}</a></p>
+                @empty
+                    @foreach($errors->all() as $error)<p>{{ $error }}</p>@endforeach
+                @endforelse
+            </div>
+        @endif
+        <div class="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+                <h1 class="text-lg font-semibold">Review scan — {{ $scan->original_filename }}</h1>
+                <span class="text-xs" style="color: var(--text-muted);">
+                    {{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}
+                    · uploaded by {{ $scan->uploadedBy?->name }} on {{ $scan->created_at?->format('Y-m-d H:i') }}
+                </span>
+            </div>
+            <div class="flex items-center gap-2">
+                <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan, 'view' => 1]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="open-original">Open original</a>
+                <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">&larr; Back to inspection</a>
+                @if(! $failed && ! $readOnly && $scan->marks->isNotEmpty())
+                    <button type="submit" form="scan-review" class="corex-btn-outline text-xs" data-qa="apply-proposed" data-scan-apply @disabled($hasBlockers) @if($hasBlockers) style="opacity: 0.5; cursor: not-allowed;" @endif>{{ $open->isNotEmpty() ? 'Apply proposed marks' : 'Save changes' }}</button>
+                @endif
+            </div>
         </div>
-        <div class="flex items-center gap-2">
-            <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan, 'view' => 1]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="open-original">Open original</a>
-            <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">&larr; Back to inspection</a>
-        </div>
+        @if($readOnly && ! $failed)
+            <span class="ds-badge" data-qa="scan-read-only">Read-only</span>
+        @elseif(! $failed && ! $readOnly && $scan->marks->isNotEmpty())
+            <p class="text-xs flex flex-wrap items-center gap-x-3 gap-y-1" data-qa="scan-status">
+                <span class="font-semibold" style="color: var(--text-secondary);" data-qa="scan-summary" data-scan-count>{{ $tickCounts['read'] }} read, {{ $tickCounts['unsure'] }} to check, {{ $tickCounts['missed'] }} not picked up</span>
+                <span class="flex flex-wrap items-center gap-x-3" data-scan-blockers data-qa="scan-blockers">
+                    @if($blockNoCondition > 0)
+                        <a href="#" class="underline font-semibold" style="color: var(--ds-crimson);" data-scan-next="condition">{{ $blockNoCondition }} {{ $blockNoCondition === 1 ? 'row needs' : 'rows need' }} a condition</a>
+                    @endif
+                    @foreach($blockNeedsNote as $key => $n)
+                        <a href="#" class="underline font-semibold" style="color: var(--ds-crimson);" data-scan-next="note:{{ $key }}">{{ $n }} {{ $stateLabel[$key] ?? $key }} {{ $n === 1 ? 'row needs' : 'rows need' }} a note</a>
+                    @endforeach
+                </span>
+            </p>
+        @endif
     </div>
 
     {{-- AT-463 / §62 - what the reader made of EACH page, in plain words: a page that could not be read says why. --}}
@@ -88,7 +152,7 @@
         </div>
     @endif
 
-    @if(in_array($scan->status, ['failed', 'version_mismatch'], true))
+    @if($failed)
         <div class="rounded-md p-4" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent);">
             <p class="text-sm font-semibold" style="color: var(--ds-crimson);">
                 {{ $scan->status === 'version_mismatch' ? 'This scan does not match the inspection\'s current form.' : 'This scan could not be read.' }}
@@ -103,48 +167,24 @@
               data-observations-url="{{ route('corex.rental-inspections.observations.store', $inspection) }}"
               data-photos-url="{{ route('corex.rental-inspections.photos.store', $inspection) }}"
               data-source="{{ $source }}"
+              data-notes-required="{{ implode(',', $notesRequiredKeys) }}"
+              data-condition-labels="{{ json_encode($stateLabel) }}"
               data-readonly="{{ $readOnly ? '1' : '0' }}">
             @csrf
             <input type="hidden" name="apply_key" value="{{ $applyKey }}">
-            @php
-                $groupedMarks = $scan->marks->groupBy(fn ($m) => $m->item?->room?->label ?? 'General');
-                $stateLabel = collect($conditionStates)->pluck('label', 'key');
-                $open = $scan->marks->whereNull('applied_observation_id');
-                $tickCounts = ['read' => 0, 'unsure' => 0, 'missed' => 0];
-                foreach ($open as $m) { $tickCounts[$m->tickState($unsureBelow)]++; }
-            @endphp
-            @if($readOnly)
-                <span class="ds-badge" data-qa="scan-read-only">Read-only</span>
-            @elseif($open->isNotEmpty())
-                <p class="text-xs font-semibold" style="color: var(--text-secondary);" data-qa="scan-summary">{{ $tickCounts['read'] }} read, {{ $tickCounts['unsure'] }} to check, {{ $tickCounts['missed'] }} not picked up</p>
-            @endif
+            @php $groupedMarks = $scan->marks->groupBy(fn ($m) => $m->item?->room?->label ?? 'General'); @endphp
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @forelse($groupedMarks as $roomLabel => $marksInRoom)
                     <h2 class="text-xs font-bold uppercase tracking-wide pt-2" style="color: var(--text-secondary);">{{ $roomLabel }}</h2>
                     <div class="space-y-2">
                         @foreach($marksInRoom as $mark)
                             @php
-                                $itemId = (int) $mark->rental_inspection_item_id;
-                                $recordedCondition = $onScreen[$itemId] ?? '';
-                                $recordedNote = $onScreenNotes[$itemId] ?? null;
-                                $applied = $mark->applied_observation_id !== null;
-                                $tick = $mark->tickState($unsureBelow);
-                                // The condition the select starts on: what an applied row was confirmed as; else the reader's CLEAR tick only - a
-                                // row that is to check or not picked up starts blank (the agent must confirm / set it).
-                                $startKey = $applied
-                                    ? ($recordedCondition !== '' ? $recordedCondition : (string) $mark->confirmed_condition_key)
-                                    : ($tick === 'read' ? (string) $mark->detected_condition_key : '');
-                                // The note box: the note already recorded wins (never overwritten); else the AI-read handwriting, when it is good
-                                // enough; a note area with ink that could not be read says so instead.
-                                $usableNote = (! $applied && $recordedNote === null) ? $mark->usableDetectedNote($noteMinConfidence) : null;
-                                $noteUnreadable = (! $applied && $recordedNote === null && $usableNote === null) && $mark->noteUnreadable($noteMinConfidence);
-                                $startNote = $recordedNote ?? $usableNote ?? '';
+                                extract($rowView($mark));
                                 $rowPhotos = $photos[$itemId] ?? [];
-                                $pct = fn ($v) => (int) round($v * 100);
                                 $detectedLabel = $mark->detected_condition_key ? ($stateLabel[$mark->detected_condition_key] ?? ucfirst(str_replace('_', ' ', $mark->detected_condition_key))) : null;
                             @endphp
                             <div class="text-sm py-1 space-y-2" style="border-bottom: 1px solid var(--border);"
-                                 data-scan-row data-mark-id="{{ $mark->id }}" data-item-id="{{ $itemId }}"
+                                 id="scan-row-{{ $mark->id }}" data-scan-row data-mark-id="{{ $mark->id }}" data-item-id="{{ $itemId }}" data-applied="{{ $applied ? '1' : '0' }}" data-tick="{{ $tick }}"
                                  data-recorded-condition="{{ $recordedCondition }}" data-recorded-note="{{ $recordedNote }}">
                                 <div class="flex items-center justify-between gap-3">
                                     <span>{{ $mark->item?->label ?? 'Unknown item' }}
@@ -209,9 +249,6 @@
                 @endforelse
             </div>
 
-            @if(! $readOnly && $scan->marks->isNotEmpty())
-                <button type="submit" class="corex-btn-outline text-xs" data-qa="apply-proposed">{{ $open->isNotEmpty() ? 'Apply proposed marks' : 'Save changes' }}</button>
-            @endif
         </form>
         @unless($readOnly)
             <script src="{{ asset_v('js/corex-photo-batch-uploader.js') }}"></script>

@@ -400,6 +400,83 @@ final class RentalInspectionScanReviewNotesPhotosTest extends TestCase
         $this->assertContains('note_read_min_confidence', $controls);
     }
 
+    // ── §13.16: one sticky header with the actions, the live status and the blockers ───────────────
+
+    public function test_the_actions_and_the_status_sit_in_one_sticky_header_and_nothing_is_at_the_bottom(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);
+
+        $html = $this->review();
+
+        $header = $this->between($html, 'id="scan-header"', '<form');
+        $this->assertStringContainsString('position: sticky; top: 0', $header);
+        $this->assertStringContainsString('data-qa="apply-proposed"', $header, 'Apply is in the header');
+        $this->assertStringContainsString('data-qa="open-original"', $header);
+        $this->assertStringContainsString('data-qa="scan-summary"', $header, 'the count line is in the header');
+        $this->assertSame(1, substr_count($html, 'data-qa="apply-proposed"'));
+        $formStart = (int) strpos($html, 'id="scan-review"');
+        $this->assertStringNotContainsString('apply-proposed', substr($html, (int) strpos($html, '</form>', $formStart)), 'nothing after the review form');
+    }
+
+    public function test_apply_is_disabled_with_the_reason_shown_while_a_blocker_remains(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);                                                                        // fine
+        $this->mark($this->items[1], ['detected_condition_key' => null, 'ambiguous' => true, 'tick_boxes' => 2]);                                                      // needs a condition
+        $this->mark($this->items[2], ['detected_condition_key' => 'damaged', 'detected_confidence' => 1.0, 'tick_boxes' => 1]);                                        // Damaged, no note
+
+        $html = $this->review();
+        $header = $this->between($html, 'id="scan-header"', '<form');
+
+        $this->assertMatchesRegularExpression('/data-scan-apply\s+disabled/', $header, 'Apply is disabled');
+        $this->assertStringContainsString('1 row needs a condition', $header);
+        $this->assertStringContainsString('1 Damaged row needs a note', $header);
+        $this->assertStringContainsString('data-scan-next="condition"', $header, 'each blocker is a link that steps to its rows');
+        $this->assertStringContainsString('data-scan-next="note:damaged"', $header);
+        $this->assertStringContainsString('data-notes-required="damaged,not_working,missing,other"', $html);
+        foreach ($this->items as $item) {
+            $this->assertStringContainsString('id="scan-row-' . RentalInspectionScanMark::where('rental_inspection_item_id', $item->id)->value('id') . '"', $html, 'every row can be scrolled to');
+        }
+    }
+
+    public function test_apply_is_enabled_and_no_blocker_is_shown_when_every_row_is_set(): void
+    {
+        $this->mark($this->items[0], ['detected_condition_key' => 'good', 'tick_boxes' => 1]);
+        $this->mark($this->items[1], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1, 'detected_note' => 'Cracked tiles', 'detected_note_confidence' => 0.9]);
+
+        $html = $this->review();
+        $header = $this->between($html, 'id="scan-header"', '<form');
+
+        $this->assertDoesNotMatchRegularExpression('/data-scan-apply\s+disabled/', $header);
+        $this->assertStringNotContainsString('data-scan-next', $header, 'a Damaged row whose note was read has no blocker');
+    }
+
+    public function test_a_server_refusal_after_apply_is_a_link_to_its_row(): void
+    {
+        $mark = $this->mark($this->items[0], ['detected_condition_key' => 'damaged', 'tick_boxes' => 1]);
+
+        $this->apply([$mark->id => 'damaged'], [$mark->id => ''])->assertSessionHasErrors('scan');
+        // the flash is one-shot: read it from the apply response, then render the page with it
+        $response = $this->apply([$mark->id => 'damaged'], [$mark->id => '']);
+        $response->assertSessionHas('scan_refused', fn ($rows) => $rows[0]['mark'] === $mark->id && $rows[0]['focus'] === 'note');
+
+        $page = $this->withSession(['scan_refused' => [['mark' => $mark->id, 'focus' => 'note', 'text' => 'Item 1: a note is required for Damaged.']]])
+            ->get(route('corex.rental-inspections.scans.review', [$this->inspection, $this->scan]))->getContent();
+        $header = $this->between($page, 'id="scan-header"', '<form');
+        $this->assertStringContainsString('href="#scan-row-' . $mark->id . '"', $header);
+        $this->assertStringContainsString('data-scan-goto="' . $mark->id . '"', $header);
+        $this->assertStringContainsString('data-focus="note"', $header);
+        $this->assertStringContainsString('Item 1: a note is required for Damaged.', $header);
+    }
+
+    private function between(string $html, string $from, string $to): string
+    {
+        $a = strpos($html, $from);
+        $this->assertNotFalse($a, "'{$from}' is on the page");
+        $b = strpos($html, $to, $a);
+
+        return substr($html, $a, ($b === false ? strlen($html) : $b) - $a);
+    }
+
     // ── The AI read of the handwriting (a canned answer - Anthropic is never called) ───────────────
 
     public function test_the_read_step_is_off_by_default(): void

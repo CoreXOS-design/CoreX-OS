@@ -8261,3 +8261,10 @@ detected note is always visible, marked "Read from scan (n%)" until the agent ed
 read (empty, or under the agency's line) says "Couldn't read the handwritten note. Type it in." Two new agency settings (Settings -> Rental Inspections and
 the Setup Wizard Rentals step): "ticks to check below this confidence" and "handwritten notes to type in below this confidence", both default 0.50.
 
+### 68.2 Scan review: one sticky header (20 Oct 2026; Johan; QA1 only; AT-472)
+
+Full detail in `rental-inspection-form.md` §13.16. The title, **Open original**, **Back to inspection** and **Apply proposed marks** (same size, one row), the
+server's response, the live count line and what still blocks Apply are one sticky header; nothing is at the bottom. Blockers ("2 rows need a condition", "1 Damaged
+row needs a note") update as rows are fixed and are links that step to the next offending row, focusing its control; server refusals after Apply are links to their
+rows. Apply is disabled, with the reason shown, while a blocker remains.
+
