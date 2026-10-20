@@ -327,7 +327,7 @@ class AgentPortalController extends Controller
                 'budget'      => $budget,
                 'targets'     => $targets,
                 'stock'       => $stock,
-                'requirement' => $svc->requirement($user, $budget, $stock['sales']),
+                'requirement' => $svc->requirement(app(\App\Services\RoadToSold\BudgetService::class)->worksheetFor($user, $period), $stock['sales']),
                 'branchReq'   => app(\App\Services\RoadToSold\BudgetService::class)
                     ->requirementFor((int) $user->effectiveAgencyId(), $user->effectiveBranchId() ? (int) $user->effectiveBranchId() : null, $period),
                 'lenses'      => $lenses,
