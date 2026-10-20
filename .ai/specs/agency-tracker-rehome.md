@@ -1,6 +1,6 @@
 # Agency Tracker — taking it apart and re-homing every screen
 
-Status: **spec v1.1, 20 Oct 2026 (Johan's answers of 20 Oct recorded in section 0).** Spec only — no code, no data, no menu changes were made writing this.
+Status: **APPROVED (20 Oct 2026) — approved by the conductor on Johan's delegation, 20 Oct 2026.** Spec v1.1, 20 Oct 2026 (Johan's answers of 20 Oct recorded in section 0). Spec only — no code, no data, no menu changes were made writing this.
 Governing rulings: Johan, 20 Oct 2026 (section 2, verbatim). Section 2 is not edited by lanes.
 Verified against: `QA1` at `8ee4fb502` (read-only). Every `path:line` below was read from that tree on 20 Oct 2026.
 Earlier map (older, superseded where they disagree): `.ai/audits/2026-09-11-agency-tracker-inventory.md`.
