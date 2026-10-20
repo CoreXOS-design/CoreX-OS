@@ -1416,3 +1416,32 @@ Everything a user can see in Road to Sold says **evaluation**: the seeded outcom
 * **Kept, never shown to a user:** the call-log column `rts_contact_outcomes.valuation_booked` and the form field of the same name (a rename would touch every lane's queries for no visible change); the page's Alpine state names (`valuation`, `offers_valuation`, `oldValuation`); the PHP variable `$wantsValuation`; the ledger key `valuation` in tests.
 * **Migration `2026_10_29_600000_rename_valuation_to_evaluation_in_road_to_sold`** (idempotent) re-words what is already stored: each agency's seeded outcome (label only where the agency has not renamed it itself; the key always moves unless the agency already owns the new key), the call log (key, and the label snapshot where it is still the seeded wording), saved summary-bar steps and the settings audit trail, the "Road to Sold - Spoke - valuation booked…" note on the owner contact (the agent's own words are never edited), and the title of the calendar appointments Road to Sold created.
 * Guarded by `EvaluationWordingMigrationTest` and by `AgentWeekScenarioTest`, which fails if the list page, any report view or any drill-down says the old word.
+
+
+---
+
+## 20. Build log (lanes append here; one entry per phase)
+
+### P2 - phase 0, Get Stock events (AT-475, QA1, 20 Oct 2026)
+
+Built the part of phase 0 (section 14) that records the Get Stock moments as domain events: nothing else of phase 0, and no engine (phase 1). Each event is added to `corex-domain-events-spec.md` section 5 in the same change.
+
+| Moment (step) | Event | Raised by | Fires |
+|---|---|---|---|
+| outcome logged (3) | `RoadToSold\RoadToSoldOutcomeRecorded` | `OutcomeService::record()` after its transaction | once per saved outcome; a refused capture raises nothing |
+| evaluation booked (4) | `Evaluation\EvaluationBooked` | `CalendarEventObserver::created()`, category `property_evaluation` | once per booking, from the calendar or from the Road to Sold outcome (same row); edits do not re-raise |
+| evaluation done (4) | `Evaluation\EvaluationCompleted` | `CalendarEventFeedbackObserver::created()` + `updated()` | once per evaluation: the first feedback with `captured_at`; a second attendee or an edit does not re-raise |
+| owner found (2) | `Prospecting\OwnerLinkedToTrackedProperty` | new `TrackedPropertyObserver::created()` + `updated()` | `owner_contact_id` empty -> contact, or a tracked property created with its owner; replacing an owner does not |
+| presentation given (5) | `Presentation\PresentationPresented` | new `PresentationDeliveryObserver::created()` + `updated()` | the first delivery of a presentation whose `sent_at` is stamped (email sent, link copied, WhatsApp click-through); `presentations.status` stays as it was |
+| mandate filed (6) | `Document\DocumentFiledToProperty` | new `DocumentPropertyObserver::created()` on the new `DocumentProperty` link model | every new link of a `mandate`-type document to a property, whichever path made it |
+| listing live on portal (7) | `Property\PropertyWentLiveOnPortal` | `PropertyObserver::updated()` | `p24_activated_at` / `pp_activated_at` empty -> stamped; one per portal per property |
+
+**Decisions made in the build (the spec left them open):**
+- "Presentation presented" = the first delivery that reaches the seller (spec 4 step 5 listed three possible hooks). The seller opening the link, and a booked `listing_presentation` calendar event, are NOT used. `presentations.status` is not written (the documented `presented` value stays unused; changing it could lock editing).
+- "Mandate filed" is detected at the link row, not at each caller: `Document::properties()` and `Property::documents()` now declare `DocumentProperty` as their pivot class, so every `attach` / `sync` / `syncWithoutDetaching` saves through a model the observer can see. The relations behave as before (checked: sync, move, detach, timestamps). This covers the property file upload, the contact upload, the mobile compliance upload, the PDF splitter and the e-sign filing (`SignatureService::linkFiledDocumentToContactsAndProperty`) without editing any of those. Counted types: `mandate` only (`DocumentPropertyObserver::COUNTED_TYPE_SLUGS`); the OTP type is added by the Sell Stock phase, and the agency-editable list (13.1) comes with the task engine.
+- The observers use separate `created()` / `updated()` hooks, not `saved()`: after a create, `wasRecentlyCreated` stays true for every later save of the same in-memory object, so a `saved()` check re-raised the event on the next edit (found by the first test run; fixed before landing).
+- Events are raised at the moment of the write, through `App\Support\Events\SafeRaise` (a failing listener or event log is logged and swallowed; the user's save always stands). Not deferred to commit - the same as the existing observer-raised events, and what lets the rolled-back proof work.
+
+**Not done in this phase (still open in section 6):** `MandateSigned` / `DocumentSigned` remain registered and never raised (the e-signed mandate is covered by `DocumentFiledToProperty` and the existing direct `mandate.signed` credit, both untouched); `deal.commission_finalised` points wiring; `presentation.lost`; the wizard-draft `property.captured` placement; the `VisibleAgents`/`Scope::level` disagreement; the other events of 6.2 (seller link, viewing pack, core match, viewing held, OTP signed, aftercare, area drive). No listener consumes the new events yet - they land in the event log (`domain_event_log`) and wait for the engine (phase 1).
+
+**Found, not fixed:** `Property24SyndicationService.php:447` re-stamps `p24_activated_at` on EVERY submit that has a listing number (the PP service stamps once) - so the field is "last activated", not "first"; the new event reads only the empty -> stamped change, so it is unaffected. `P24ListingNumberReconciler.php:170` stamps `p24_activated_at = now()` when it imports a listing that was already live on P24, so importing existing stock will raise `PropertyWentLiveOnPortal` for it.

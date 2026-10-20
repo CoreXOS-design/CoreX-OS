@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Observers;
 
+use App\Events\Evaluation\EvaluationBooked;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Services\Activity\ProvisionalPointService;
+use App\Support\Events\SafeRaise;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -36,6 +38,20 @@ final class CalendarEventObserver
                 'method'   => __FUNCTION__,
                 'message'  => $e->getMessage(),
             ]);
+        }
+
+        // Road to Sold step 4: a property evaluation was booked (from the calendar or from a Road to Sold
+        // outcome - both create the same calendar row). One event per booking. Never breaks the save.
+        if ($event->category === 'property_evaluation') {
+            SafeRaise::dispatch('EvaluationBooked', fn () => new EvaluationBooked(
+                calendarEventId: (int) $event->id,
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                propertyId: $event->property_id !== null ? (int) $event->property_id : null,
+                contactId: $event->contact_id !== null ? (int) $event->contact_id : null,
+                startsAt: $event->event_date ? (string) $event->event_date : null,
+                actorUserId: $event->created_by_id !== null ? (int) $event->created_by_id : (auth()->id() ? (int) auth()->id() : null),
+            ));
         }
     }
 

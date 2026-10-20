@@ -1411,6 +1411,7 @@ class Property extends Model
     public function documents(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Document::class, 'document_properties')
+            ->using(DocumentProperty::class)
             ->withTimestamps()
             ->latest('documents.created_at');
     }
