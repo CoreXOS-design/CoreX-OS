@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\RentalInspectionPhoto;
+use App\Models\RentalInventoryPhoto;
 use App\Services\Images\PrivateImageStore;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -16,18 +17,24 @@ use Illuminate\Support\Facades\Storage;
  * no other record points at the same public file (a fault report or work order raised from the photo shares the address) - the public
  * original is removed. It is a MOVE of evidence, not a delete: the row (archived or not) and the picture both survive.
  *
+ * With --inventory it does the same for the inventory's own room photos (audit B32 - new ones are private from the start, older ones are
+ * still public URLs). A shared photo (an inventory reference to an inspection photo) holds no file of its own and is never touched.
+ *
  * Idempotent and resumable. A legacy row keeps working until it is moved, so the order against a deploy does not matter.
  * Run --dry-run first.
  */
 class PrivatiseRentalInspectionPhotos extends Command
 {
-    protected $signature = 'rental-inspections:privatise-photos {--agency=} {--limit=} {--dry-run} {--remove-public}';
+    protected $signature = 'rental-inspections:privatise-photos {--agency=} {--limit=} {--dry-run} {--remove-public} {--inventory}';
 
     protected $description = 'Move inspection photos from the public disk to private storage (idempotent; --remove-public also removes the public original once nothing else uses it).';
 
     public function handle(PrivateImageStore $store): int
     {
-        $query = RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()
+        $inventory = (bool) $this->option('inventory');
+        $table = $inventory ? 'rental_inventory_photos' : 'rental_inspection_photos';
+        $query = ($inventory ? RentalInventoryPhoto::withoutGlobalScopes() : RentalInspectionPhoto::withoutGlobalScopes())->withTrashed()
+            ->whereNotNull('storage_path')
             ->where('storage_path', 'not like', PrivateImageStore::PREFIX . '%')
             ->orderBy('id');
         if ($agencyId = $this->option('agency')) {
@@ -57,16 +64,19 @@ class PrivatiseRentalInspectionPhotos extends Command
                 continue;
             }
 
-            $reference = $store->importFromPublic($relative, "rental-inspections/{$photo->agency_id}/{$photo->rental_inspection_id}");
+            $directory = $inventory
+                ? "rental-inventories/{$photo->agency_id}/{$photo->rental_inventory_id}"
+                : "rental-inspections/{$photo->agency_id}/{$photo->rental_inspection_id}";
+            $reference = $store->importFromPublic($relative, $directory);
             if (! $reference || ! $store->exists($reference)) {
                 $this->error("Photo {$photo->id}: the private copy could not be made - left as it is.");
                 continue;
             }
-            DB::table('rental_inspection_photos')->where('id', $photo->id)->update(['storage_path' => $reference]);
+            DB::table($table)->where('id', $photo->id)->update(['storage_path' => $reference]);
             $counts['moved']++;
 
             if ($this->option('remove-public')) {
-                if ($this->publicFileStillUsed($raw, $photo->id)) {
+                if ($this->publicFileStillUsed($raw, $table, $photo->id)) {
                     $counts['kept_public_shared']++;
                 } else {
                     Storage::disk('public')->delete($relative);
@@ -94,7 +104,7 @@ class PrivatiseRentalInspectionPhotos extends Command
     }
 
     /** Does any other record still point at this public file (another photo row, a fault report photo, a work order photo)? */
-    private function publicFileStillUsed(string $raw, int $exceptInspectionPhotoId): bool
+    private function publicFileStillUsed(string $raw, string $ownTable, int $exceptPhotoId): bool
     {
         foreach (['rental_fault_report_photos', 'rental_work_order_photos'] as $table) {
             if (DB::table($table)->where('storage_path', $raw)->exists()) {
@@ -102,6 +112,16 @@ class PrivatiseRentalInspectionPhotos extends Command
             }
         }
 
-        return DB::table('rental_inspection_photos')->where('storage_path', $raw)->where('id', '!=', $exceptInspectionPhotoId)->exists();
+        foreach (['rental_inspection_photos', 'rental_inventory_photos'] as $table) {
+            $q = DB::table($table)->where('storage_path', $raw);
+            if ($table === $ownTable) {
+                $q->where('id', '!=', $exceptPhotoId);
+            }
+            if ($q->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

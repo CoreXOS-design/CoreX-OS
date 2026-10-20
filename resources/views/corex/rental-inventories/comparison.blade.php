@@ -238,6 +238,26 @@
                                            @change="uploadMoveOutPhoto({{ $row['line_id'] }}, $event.target.files); $event.target.value=''">
                                 </label>
                                 @endpermission
+                                {{-- Audit 2026-10-19 B32 - one photo set per room: the room was already photographed in the move-out inspection,
+                                     so use that photo here rather than photographing it again. --}}
+                                @permission('rental_inventories.create')
+                                @permission('rental_inspections.view')
+                                <button type="button" class="text-xs font-semibold mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                        @click="openInspectionPhotos({{ $row['line_id'] }})">
+                                    <span>From the move-out inspection</span>
+                                </button>
+                                <div x-show="pickerLine === {{ $row['line_id'] }}" x-cloak class="pt-1">
+                                    <div class="flex items-center gap-1 flex-wrap">
+                                        <template x-for="p in pickerPhotos" :key="p.id">
+                                            <button type="button" @click="useInspectionPhoto({{ $row['line_id'] }}, p)" :title="p.taken_caption_short">
+                                                <img :src="p.storage_path" alt="Inspection photo" class="rounded-md object-cover" style="width:44px; height:44px; border:1px solid var(--border);">
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <p x-show="pickerLoaded && !pickerPhotos.length" x-cloak class="text-xs pt-1" style="color: var(--text-muted);">The move-out inspection has no photo of this room that is not already used here.</p>
+                                </div>
+                                @endpermission
+                                @endpermission
                             </div>
                         </div>
                     </div>
@@ -281,6 +301,10 @@ function rentalInventoryComparison(inventoryId) {
         // §14 — "that is the view an agent hands a tenant."
         onlyDifferences: false,
         photoBusy: {},
+        // Audit B32 - the move-out inspection's photos of a line's room, offered as that line's evidence.
+        pickerLine: null,
+        pickerPhotos: [],
+        pickerLoaded: false,
         field(lineId) { return this.forms[lineId] || (this.forms[lineId] = { disposition_key: '', quantity_found: null, notes: '' }); },
         openFor(lineId) { this.activeLine = this.activeLine === lineId ? null : lineId; },
         async save(lineId) {
@@ -306,6 +330,30 @@ function rentalInventoryComparison(inventoryId) {
         // warning) reflect reality immediately — the SAME pattern save()
         // above already uses on this exact page, not a second mechanism
         // built for photos specifically.
+        async openInspectionPhotos(lineId) {
+            if (this.pickerLine === lineId) { this.pickerLine = null; return; }
+            this.pickerLine = lineId;
+            this.pickerPhotos = [];
+            this.pickerLoaded = false;
+            this.lifecycleError = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/lines/${lineId}/move-out-inspection-photos`, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Could not load the inspection photos (${res.status}).`); }
+                this.pickerPhotos = (await res.json()).photos || [];
+            } catch (e) { this.lifecycleError = e.message; }
+            this.pickerLoaded = true;
+        },
+        async useInspectionPhoto(lineId, photo) {
+            this.lifecycleError = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/lines/${lineId}/move-out-inspection-photos/${photo.id}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                window.location.reload();
+            } catch (e) { this.lifecycleError = e.message; }
+        },
         async uploadMoveOutPhoto(lineId, files) {
             const fileList = Array.from(files || []);
             if (!fileList.length) return;

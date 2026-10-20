@@ -7,13 +7,15 @@ use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\Property;
 use App\Models\PropertyRoom;
+use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventorySetting;
 use App\Services\Compliance\MarketingReadinessService;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageStore;
 use App\Services\Matching\MatchingService;
+use App\Services\Rentals\RentalRoomPhotoSet;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -85,6 +87,8 @@ class RentalInventoryCaptureController extends Controller
                 'lines.photos',
                 'photos' => fn ($q) => $q->orderByDesc('created_at'),
                 'photos.uploadedBy',
+                'photos.sourceInspectionPhoto',
+                'photos.lines',
                 'roomMarks',
             ]);
 
@@ -103,12 +107,8 @@ class RentalInventoryCaptureController extends Controller
                 'photos' => $l->photos->pluck('id'),
             ])->values();
 
-            $photosForJs = $inventory->photos->map(fn ($p) => [
-                'id' => $p->id,
-                'property_room_id' => $p->property_room_id,
-                'storage_path' => $p->storage_path,
-                'lines' => $p->lines->pluck('id'),
-            ])->values();
+            $roomPhotos = app(RentalRoomPhotoSet::class);
+            $photosForJs = $inventory->photos->map(fn ($p) => $roomPhotos->payload($p))->values();
 
             // §12 — the completion gate's "nothing in this room" state,
             // surfaced here so the capture screen can show it and offer the
@@ -232,7 +232,9 @@ class RentalInventoryCaptureController extends Controller
             abort_if(! $line || (int) $line->rental_inventory_id !== (int) $rentalInventory->id, 404);
         }
 
-        $storer = app(PropertyImageStorer::class);
+        // Audit B32 - a new inventory photo goes to the same private store as an inspection photo (signed, expiring link, GPS stripped).
+        $storer = app(PrivateImageStore::class);
+        $directory = 'rental-inventories/' . $rentalInventory->agency_id . '/' . $rentalInventory->id;
         $created = [];
 
         foreach ($validated['photos'] as $i => $file) {
@@ -246,7 +248,7 @@ class RentalInventoryCaptureController extends Controller
                 }
             }
 
-            $url = $storer->store($file, $rentalInventory->property_id);
+            $url = $storer->store($file, $directory);
 
             $photo = RentalInventoryPhoto::create([
                 'agency_id' => $rentalInventory->agency_id,
@@ -270,14 +272,66 @@ class RentalInventoryCaptureController extends Controller
         // the same shape resolveOrStartFor()'s show() action already builds
         // ($photosForJs) — 'lines' must always be present, even empty, or
         // `photo.lines.length` on a freshly-uploaded tile throws client-side.
+        $roomPhotos = app(RentalRoomPhotoSet::class);
+
         return response()->json([
-            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => [
-                'id' => $p->id,
-                'property_room_id' => $p->property_room_id !== null ? (int) $p->property_room_id : null,
-                'storage_path' => $p->storage_path,
-                'lines' => $p->lines->pluck('id'),
-            ])->values(),
+            'photos' => collect($created)->map(fn (RentalInventoryPhoto $p) => $roomPhotos->payload($p))->values(),
         ], 201);
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/inspection-photos?property_room_id= - audit 2026-10-19 B32. The move-in inspection's photos of a
+     * room that this inventory can share instead of photographing the room again. Needs the right to see inspections, and only returns photos
+     * of inspections the user may see (own / branch / agency).
+     */
+    public function inspectionPhotos(Request $request, RentalInventory $rentalInventory): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+
+        $validated = $request->validate([
+            'property_room_id' => ['nullable', 'integer', Rule::exists('property_rooms', 'id')->where('property_id', $rentalInventory->property_id)],
+        ]);
+
+        $set = app(RentalRoomPhotoSet::class);
+
+        return response()->json([
+            'photos' => $set->candidates($rentalInventory, RentalInventoryPhoto::SIDE_MOVE_IN, isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null, $request->user())
+                ->map(fn ($p) => $set->candidatePayload($p))->values(),
+        ]);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/inspection-photos/{inspectionPhoto} - share that inspection photo with this inventory's room
+     * (and, with rental_inventory_line_id, tag it to a line in the same request). Sharing it again returns the same photo.
+     */
+    public function shareInspectionPhoto(Request $request, RentalInventory $rentalInventory, int $inspectionPhoto): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+        $rentalInventory->assertEditable();
+
+        $validated = $request->validate([
+            'rental_inventory_line_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inventory_lines')],
+        ]);
+
+        $line = null;
+        if (! empty($validated['rental_inventory_line_id'])) {
+            $line = RentalInventoryLine::find($validated['rental_inventory_line_id']);
+            abort_if(! $line || (int) $line->rental_inventory_id !== (int) $rentalInventory->id, 404);
+        }
+
+        $source = RentalInspectionPhoto::query()->find($inspectionPhoto);
+        abort_if($source === null, 404);
+
+        $set = app(RentalRoomPhotoSet::class);
+        try {
+            $reference = $set->share($rentalInventory, $source, $request->user(), RentalInventoryPhoto::SIDE_MOVE_IN, $line, $request->user());
+        } catch (\InvalidArgumentException $e) {
+            abort(404);
+        }
+
+        return response()->json(['photo' => $set->payload($reference->load('lines', 'sourceInspectionPhoto'))], 201);
     }
 
     /**

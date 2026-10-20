@@ -3155,3 +3155,8 @@ now goes to the private disk with a server-chosen name/extension and is read bac
 `rental-inventories.public.signature-wet-ink-file` (public report page, live token only) — old public-URL values keep
 working as-is; (c) the PDF-vs-image decision when filing a scan to the property (inventory and inspection) uses the
 sniffed content type, not the client filename. Shared code: `App\Support\PrivateScanFile`.
+
+## 27. Room photos are shared with the inspection (2026-10-19, audit B32 - BUILT)
+
+An inventory no longer needs its own photos of a room the move-in inspection already photographed: each room on the capture screen has **Use inspection photos**, and each line on the move-out comparison has **From the move-out inspection**. The photo is stored once (in the inspection store) and the inventory keeps a reference to it - it behaves as an ordinary inventory photo (tag it to a line, shown in the comparison, on the public page and counted in the report). New inventory uploads are private (signed, expiring links). Full design and rules: `rental-inspections.md` section 66.
+
