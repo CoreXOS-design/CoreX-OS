@@ -34,6 +34,8 @@ class TestimonialsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        // Webhook addresses are checked by SafeWebhookUrl (public hosts only); fake DNS so test hosts resolve to a public IP.
+        $this->app->instance(\App\Support\Net\SafeFeedUrl::class, new \App\Support\Net\SafeFeedUrl(fn () => ['93.184.216.34']));
 
         $this->agency = Agency::create(['name' => 'Coastal', 'slug' => 'coastal', 'website_enabled' => true]);
         $this->branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);

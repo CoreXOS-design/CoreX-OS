@@ -122,7 +122,7 @@ final class MarketReportController extends Controller
             if ($existing->trashed()) {
                 $existing->restore();
                 $this->resetReportForReparse($existing);
-                ParseMarketReportJob::dispatchSync($existing->id);
+                ParseMarketReportJob::dispatchSync($existing->id, deferAi: true);
                 return redirect()
                     ->route('market-intelligence.reports.show', $existing)
                     ->with('status', 'Archived report restored from the same file and re-parsed.');
@@ -172,11 +172,17 @@ final class MarketReportController extends Controller
             'data_points_count'   => 0,
         ]);
 
-        ParseMarketReportJob::dispatchSync($report->id);
+        ParseMarketReportJob::dispatchSync($report->id, deferAi: true);
 
         $confidencePart = $detectedConfidence
             ? ' (auto-detected with ' . round($detectedConfidence->score * 100) . '% confidence)'
             : '';
+        // An unrecognised report is read by AI on a queue worker, never inside this request: say so.
+        if ($report->refresh()->isBeingRead()) {
+            return redirect()
+                ->route('market-intelligence.reports.show', $report)
+                ->with('status', 'Report uploaded' . $confidencePart . '. It is being read now — this page updates by itself when it is done.');
+        }
         return redirect()
             ->route('market-intelligence.reports.show', $report)
             ->with('status', 'Report uploaded and parsed' . $confidencePart . '.');
@@ -245,7 +251,7 @@ final class MarketReportController extends Controller
                 if ($existing->trashed()) {
                     $existing->restore();
                     $this->resetReportForReparse($existing);
-                    ParseMarketReportJob::dispatchSync($existing->id);
+                    ParseMarketReportJob::dispatchSync($existing->id, deferAi: true);
                     $existing->refresh()->load('reportType');
                     return response()->json([
                         'status'             => 'restored',
@@ -318,7 +324,7 @@ final class MarketReportController extends Controller
             ]);
 
             // Match single-file behaviour: parse synchronously.
-            ParseMarketReportJob::dispatchSync($report->id);
+            ParseMarketReportJob::dispatchSync($report->id, deferAi: true);
 
             $report->refresh()->load('reportType');
 
@@ -331,9 +337,11 @@ final class MarketReportController extends Controller
                 'parse_status'       => $report->parse_status,
                 'data_points_count'  => $report->data_points_count,
                 'detected_confidence_pct' => $detectedConfPct,
-                'message'            => $detectedConfPct
-                    ? "Parsed (auto-detected with {$detectedConfPct}% confidence)."
-                    : 'Parsed.',
+                'message'            => $report->isBeingRead()
+                    ? 'Uploaded — being read now.'
+                    : ($detectedConfPct
+                        ? "Parsed (auto-detected with {$detectedConfPct}% confidence)."
+                        : 'Parsed.'),
             ]);
         } catch (\Throwable $e) {
             Log::error('MarketReportController::bulkImportStore — exception', [
@@ -410,10 +418,12 @@ final class MarketReportController extends Controller
                 ->with('error', 'Source PDF missing on disk — cannot re-parse. Re-upload the original file to recover.');
         }
         $this->resetReportForReparse($report);
-        ParseMarketReportJob::dispatchSync($report->id);
+        ParseMarketReportJob::dispatchSync($report->id, deferAi: true);
         return redirect()
             ->route('market-intelligence.reports.show', $report)
-            ->with('status', 'Report re-parsed.');
+            ->with('status', $report->refresh()->isBeingRead()
+                ? 'Re-parse started. The report is being read now — this page updates by itself when it is done.'
+                : 'Report re-parsed.');
     }
 
     /**

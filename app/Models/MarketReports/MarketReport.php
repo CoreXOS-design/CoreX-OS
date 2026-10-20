@@ -127,6 +127,21 @@ final class MarketReport extends Model
         };
     }
 
+    /**
+     * True while the report is waiting for / going through its read (an unrecognised report's AI read runs on a queue
+     * worker after the upload returns). A report that has sat in that state for over an hour is not "being read" any
+     * more — it is stuck — so the page stops promising an update.
+     */
+    public function isBeingRead(): bool
+    {
+        if (!in_array($this->parse_status, [self::PARSE_PENDING, self::PARSE_PARSING], true)) {
+            return false;
+        }
+        $since = $this->parse_started_at ?? $this->created_at;
+
+        return $since === null || $since->gt(now()->subHour());
+    }
+
     public function readBadge(): ?string
     {
         return match ($this->read_method) {
