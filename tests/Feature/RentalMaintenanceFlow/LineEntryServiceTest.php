@@ -134,7 +134,7 @@ final class LineEntryServiceTest extends TestCase
         $line = RentalJobCardLine::findOrFail($res->json('line.id'));
         $receipts = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->get();
         $this->assertCount(1, $receipts);
-        $this->assertSame($receipts->first()->storage_path, $res->json('line.receipt_url'));
+        $this->assertSame($receipts->first()->storage_path, $this->refOfSignedUrl($res->json('line.receipt_url')), 'the crew sees the receipt through a signed link to the private file');
         $this->assertCount(0, RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->get(), 'a receipt is not one of the up-to-3 photos');
 
         $labour = $this->add(['type' => 'labour', 'description' => 'Fit it', 'quantity' => 1], ['receipt_camera' => UploadedFile::fake()->image('r.jpg')])->assertOk();
@@ -147,7 +147,7 @@ final class LineEntryServiceTest extends TestCase
         $second = $this->ajax(route('rentals.crew-job.lines.update', [$this->raw, $id]), $this->part(['description' => 'Element', 'unit_cost' => '48.50']), ['receipt_file' => UploadedFile::fake()->image('two.png')])->assertOk();
 
         $newest = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->latest('id')->firstOrFail();
-        $this->assertSame($newest->storage_path, $second->json('line.receipt_url'));
+        $this->assertSame($newest->storage_path, $this->refOfSignedUrl($second->json('line.receipt_url')));
     }
 
     // ── change, remove, undo ────────────────────────────────────────────────────────────
@@ -265,5 +265,62 @@ final class LineEntryServiceTest extends TestCase
         $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-saved"'));
         $this->assertSame(1, substr_count($html, 'class="cj-line-form cj-entry is-new"'), 'still exactly one blank row after a saved line');
         $this->assertStringContainsString('id="cj-send-form"', $html);
+    }
+
+    /** Audit 2026-10-20 (L2): a replay of an add whose line was since removed must not answer "Added" for an archived line. */
+    public function test_a_replayed_add_of_a_line_that_was_since_removed_says_so_and_does_not_bring_it_back(): void
+    {
+        $key = 'removed-key-1234-abcd';
+        $first = $this->add($this->part(['client_key' => $key]))->assertOk();
+        RentalJobCardLine::findOrFail($first->json('line.id'))->delete();   // the crew pressed Remove / Undo (archived, never hard-deleted)
+
+        $again = $this->add($this->part(['client_key' => $key]));
+
+        $again->assertStatus(422);
+        $this->assertStringContainsString('removed from your list', $again->json('message'));
+        $this->assertNull($again->json('line'), 'no success row for an archived line');
+        $this->assertSame(0, RentalJobCardLine::count(), 'nothing came back');
+    }
+
+    /** Audit 2026-10-20 (L1): a slow first save holding the same key's lock is a plain message, not a raw 500. */
+    public function test_a_lock_that_times_out_on_a_slow_concurrent_add_is_a_message_not_a_500(): void
+    {
+        $key = 'locked-key-1234-abcd';
+        $lock = \Illuminate\Support\Facades\Cache::lock("crew-line-key:{$this->card->id}:{$key}:lock", 30);
+        $this->assertTrue($lock->get());
+        try {
+            $res = $this->add($this->part(['client_key' => $key]));
+        } finally {
+            $lock->release();
+        }
+
+        $res->assertStatus(422);
+        $this->assertStringContainsString('still being saved', $res->json('message'));
+        $this->assertSame(0, RentalJobCardLine::count());
+
+        // once the first save is done the same key replays normally
+        $this->add($this->part(['client_key' => $key]))->assertOk();
+        $this->assertSame(1, RentalJobCardLine::count());
+    }
+
+    /** Audit 2026-10-20 (L10): a "does the office already have it?" question is JSON for the no-reload row, and the ordinary page banner for a plain form post - never a raw JSON 409 page. */
+    public function test_a_duplicate_question_is_a_banner_for_a_plain_form_post_and_json_only_for_the_script(): void
+    {
+        $existing = new RentalJobCardLine(['description' => 'Basin trap', 'quantity' => 2, 'unit' => 'each']);
+        $answers = new class {
+            use \App\Http\Controllers\Concerns\AnswersCrewLineRequests {
+                lineDuplicate as public;
+            }
+        };
+        $e = new \App\Services\Rentals\CrewLineLooksDuplicate($existing);
+
+        $plain = $answers->lineDuplicate($e, \Illuminate\Http\Request::create('/x', 'POST'), '/back');
+        $this->assertInstanceOf(\Illuminate\Http\RedirectResponse::class, $plain);
+        $this->assertStringContainsString('Already on the job card', $plain->getSession()->get('errors')->first('crew'));
+        $this->assertStringContainsString('Basin trap', $plain->getSession()->get('errors')->first('crew'));
+
+        $json = $answers->lineDuplicate($e, \Illuminate\Http\Request::create('/x', 'POST', [], [], [], ['HTTP_ACCEPT' => 'application/json']), '/back');
+        $this->assertSame(409, $json->getStatusCode());
+        $this->assertTrue($json->getData(true)['duplicate']);
     }
 }

@@ -100,8 +100,33 @@ return new class extends Migration {
         );
     }
 
+    /**
+     * Reverses exactly what up() added (audit fix 2026-10-20: it used to be an empty, "additive only" down()).
+     * The learned-layout reference row is removed only when no report points at it, so a rollback can never leave a
+     * report with a dangling type. The one-off 'unread' back-fill disappears with the read_method column it wrote to.
+     * Rolling back loses the learned layouts and the cached AI answers (they live only in these tables): that is the
+     * meaning of rolling the feature back, and the layouts re-learn from the next AI read.
+     */
     public function down(): void
     {
-        // Additive, never destructive: nothing is dropped on rollback.
+        Schema::dropIfExists('market_report_learned_layouts');
+        Schema::dropIfExists('market_report_ai_reads');
+
+        $typeId = DB::table('market_report_types')->where('key', 'learned_layout')->value('id');
+        if ($typeId !== null && !DB::table('market_reports')->where('report_type_id', $typeId)->exists()) {
+            DB::table('market_report_types')->where('id', $typeId)->delete();
+        }
+
+        if (Schema::hasColumn('market_reports', 'read_method')) {
+            Schema::table('market_reports', function (Blueprint $table) {
+                $table->dropIndex('idx_mr_read_method_resolved');
+            });
+            Schema::table('market_reports', function (Blueprint $table) {
+                $table->dropColumn([
+                    'read_method', 'read_publisher', 'ai_read_note', 'ai_read_confidence',
+                    'learned_layout_id', 'resolved_at', 'resolved_by_user_id',
+                ]);
+            });
+        }
     }
 };

@@ -947,6 +947,7 @@ class User extends Authenticatable
      * May this user approve / decline an application THEY created? An Override (CO) or administrator always may. A Reviewer
      * (RO) may too when the agency is on One step AND they are its only approver - a one-person agency has nobody else to
      * hand the application to (Sherry, 13 Oct 2026). With other approvers in the agency the independent-eyes rule stands.
+     * With NO approver configured only an administrator (override tier) may - see mayDecideRentalApplications().
      */
     public function mayDecideOwnRentalApplication(?int $agencyId = null): bool
     {
@@ -954,10 +955,8 @@ class User extends Authenticatable
         if ($this->isRentalApplicationOverrideTier($agencyId)) {
             return true;
         }
-        // No approver configured at all (a new agency): nobody else exists to hand the file to, so whoever reviewed it decides it.
-        if ($agencyId && ! \App\Models\RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId)) {
-            return true;
-        }
+        // No approver configured at all (a new agency): ONLY an administrator decides (and the override tier above already covers them) -
+        // never "whoever reviewed it" (Johan, 20 Oct 2026 - paraphrase). Everyone else waits for an approver to be set up.
         if (! $agencyId || ! $this->isRentalApplicationAuthoriser($agencyId)) {
             return false;
         }
@@ -968,19 +967,17 @@ class User extends Authenticatable
 
     /**
      * Audit fix A4/A27 + A11 (2026-10-19) - may this user make the approve / decline call on an application? A configured
-     * Reviewer or Override approver; an administrator (the override tier already could reopen, but was refused here); and
-     * anyone at all while the agency has NO approver configured, because a hand-off into an empty queue is a dead end and
-     * the agency falls back to one-step approval (see RentalApplicationQualifyingSetting::effectiveApprovalModeFor()).
+     * Reviewer or Override approver, or an administrator (the override tier). While the agency has NO approver configured
+     * the agency falls back to one-step approval (see RentalApplicationQualifyingSetting::effectiveApprovalModeFor()) but
+     * ONLY an administrator may make the call - nobody else, until an approver is set up (Johan, 20 Oct 2026 - paraphrase;
+     * audit follow-up to A4/A27: the earlier "anyone at all" fallback let any agent approve, even their own file).
      * Which RECORDS the user may touch is a separate question (guardRentalApplication - own / branch / agency).
      */
     public function mayDecideRentalApplications(?int $agencyId = null): bool
     {
         $agencyId = $agencyId ?? $this->effectiveAgencyId();
-        if ($this->isRentalApplicationAuthoriser($agencyId) || $this->isRentalApplicationOverrideTier($agencyId)) {
-            return true;
-        }
 
-        return (bool) $agencyId && ! \App\Models\RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId);
+        return $this->isRentalApplicationAuthoriser($agencyId) || $this->isRentalApplicationOverrideTier($agencyId);
     }
 
     /** May this user open the authoriser queue? Approvers and administrators; the no-approver fallback decides on the review screen, so it has no queue. */

@@ -204,6 +204,11 @@ class RentalCatalogueItemController extends Controller
         }
 
         $money = ['nullable', 'numeric', 'min:0', 'max:99999999.99'];
+        // The markup box is an INPUT only when markup is what drives the price. For a selling-price item it shows the figure the server DERIVED from selling and cost,
+        // which is negative when the item is sold below cost - and is posted back unchanged on the next Save. It is recalculated, never trusted, so it is not held to
+        // "not negative" there (audit 2026-10-20 M1: a below-cost item could not be saved again). A typed markup is still refused when it is negative.
+        $markupIsInput = $request->input('pricing_driver') === CatalogueItemPricing::DRIVER_MARKUP;
+        $markupRule = ['nullable', 'numeric', $markupIsInput ? 'min:0' : 'min:-99999999', 'max:99999999'];
         $data = $request->validate([
             'rental_catalogue_item_type_id' => ['required', Rule::exists('rental_catalogue_item_types', 'id')->where('agency_id', $agencyId)],
             'code' => [
@@ -220,7 +225,7 @@ class RentalCatalogueItemController extends Controller
             'selling_excl' => $money,
             'selling_incl' => $money,
             'markup_type' => ['nullable', Rule::in([CatalogueItemPricing::MARKUP_RAND, CatalogueItemPricing::MARKUP_PERCENT])],
-            'markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'markup_value' => $markupRule,
             'cost_basis' => ['nullable', Rule::in([CatalogueItemPricing::COST_BASIS_EXCL, CatalogueItemPricing::COST_BASIS_INCL])],
             'pricing_driver' => ['nullable', Rule::in([CatalogueItemPricing::DRIVER_MARKUP, CatalogueItemPricing::DRIVER_SELLING_EXCL, CatalogueItemPricing::DRIVER_SELLING_INCL])],
             'default_rental_vat_type_id' => ['nullable', Rule::exists('rental_vat_types', 'id')->where('agency_id', $agencyId)],

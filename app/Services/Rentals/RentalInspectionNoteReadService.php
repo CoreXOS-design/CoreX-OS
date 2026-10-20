@@ -24,7 +24,8 @@ use Throwable;
  *      ESCALATE_BELOW confidence. Every call goes through the gateway, so the AI usage ledger (AiUsageRecorder) records tokens and rand cost.
  *
  * The whole step is behind services.anthropic.inspection_note_reading (env RENTAL_INSPECTION_NOTE_READING, default OFF): until Johan says
- * the API key is good, no scan upload makes an AI call. A failing or absent AI never fails a scan - the marks simply carry no detected note.
+ * the API key is good, no scan upload makes an AI call. Under that master switch each agency has its own on/off (rental_inspection_settings.
+ * note_read_enabled, default ON - audit M7); an agency that switches it off never has a crop of its forms sent anywhere. A failing or absent AI never fails a scan - the marks simply carry no detected note.
  */
 class RentalInspectionNoteReadService
 {
@@ -45,10 +46,17 @@ class RentalInspectionNoteReadService
     {
     }
 
-    /** Off unless the release switch is on AND the platform AI switch is on. */
-    public function enabled(): bool
+    /**
+     * Off unless the platform release switch is on AND the platform AI switch is on (the master kill switch above every agency) AND - when an
+     * agency is given - that agency has not switched note reading off (audit M7; its setting defaults to ON).
+     */
+    public function enabled(?int $agencyId = null): bool
     {
-        return (bool) config('services.anthropic.inspection_note_reading') && (bool) config('services.anthropic.enabled');
+        if (! (config('services.anthropic.inspection_note_reading') && config('services.anthropic.enabled'))) {
+            return false;
+        }
+
+        return $agencyId === null || \App\Models\RentalInspectionSetting::noteReadEnabledFor($agencyId);
     }
 
     // ── 1. The crop ─────────────────────────────────────────────────────────────────────────────

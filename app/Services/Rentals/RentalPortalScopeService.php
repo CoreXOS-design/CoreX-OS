@@ -274,16 +274,29 @@ class RentalPortalScopeService
     }
 
     /** A maintenance request the OWNER raised on the lease is the owner's, not the tenant's to see (A-L3, Johan 2026-10-18): both tenant fault lookups drop it. */
-    public function tenantFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
+    private function tenantFaultReportsQuery(Contact $contact, array $leaseIds)
     {
-        $leaseIds = $this->tenantLeaseIds($contact);
-
         return RentalFaultReport::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
             ->whereIn('lease_id', $leaseIds)
-            ->where(fn ($q) => $q->whereNull('reported_by_type')->orWhere('reported_by_type', '!=', RentalFaultReport::REPORTED_BY_LANDLORD))
-            ->find($faultReportId);
+            ->where(fn ($q) => $q->whereNull('reported_by_type')->orWhere('reported_by_type', '!=', RentalFaultReport::REPORTED_BY_LANDLORD));
+    }
+
+    /** Read access: a fault on any of the tenant's leases, past included (owner-raised ones excluded). */
+    public function tenantFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
+    {
+        return $this->tenantFaultReportsQuery($contact, $this->tenantLeaseIds($contact))->find($faultReportId);
+    }
+
+    /**
+     * Write access (add to / withdraw): the same fault, but only on a lease still IN FORCE - exactly as tenantActionableWorkOrder() does for
+     * work orders. A tenant whose lease has ended keeps read-only access to their own history and may no longer add to or withdraw a fault
+     * (audit 2026-10-20 finding 6, D17 consistency).
+     */
+    public function tenantActionableFaultReport(Contact $contact, int $faultReportId): ?RentalFaultReport
+    {
+        return $this->tenantFaultReportsQuery($contact, $this->tenantActiveLeaseIds($contact))->find($faultReportId);
     }
 
     public function tenantFaultReports(Contact $contact)

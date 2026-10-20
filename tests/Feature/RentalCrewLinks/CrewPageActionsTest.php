@@ -12,6 +12,7 @@ use App\Models\Contact;
 use App\Models\RentalCrew;
 use App\Models\RentalCrewLinkEvent;
 use App\Models\RentalJobCard;
+use App\Models\RentalPortalSetting;
 use App\Models\RentalWorkOrderPhoto;
 use App\Services\Property\ContactPropertyLinker;
 use App\Services\Rentals\RentalMailDispatcher;
@@ -288,6 +289,8 @@ final class CrewPageActionsTest extends TestCase
         };
         $this->app->instance(RentalMailDispatcher::class, $fake);
         Mail::fake();
+        // Audit C-C4 (19 Oct 2026): the setting now defaults OFF (the owner hears at the agent's close); this test is about the agency that chose to tell the owner at completion
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_landlord_on_crew_completion' => true]);
         $landlord = Contact::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'first_name' => 'Lenny', 'last_name' => 'Landlordson', 'email' => 'landlord@example.invalid']);
         ContactPropertyLinker::link($landlord->id, $this->property->id, 'landlord');
 

@@ -202,7 +202,7 @@ class CrewPageController extends Controller
         try {
             $result = $this->lineEntry()->add($jobCard, $request, CrewViewContext::forCrewPage($record, $jobCard, $request));
         } catch (\App\Services\Rentals\CrewLineLooksDuplicate $e) {
-            return $this->lineDuplicate($e);
+            return $this->lineDuplicate($e, $request, $back);
         } catch (\InvalidArgumentException|\LogicException $e) {
             return $this->lineFailure($request, $e->getMessage(), $back, true);
         }

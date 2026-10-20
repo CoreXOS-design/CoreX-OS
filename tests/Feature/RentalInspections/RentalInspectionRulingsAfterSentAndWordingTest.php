@@ -292,7 +292,7 @@ final class RentalInspectionRulingsAfterSentAndWordingTest extends TestCase
         $link2 = $this->issueLink($in, 'tenant', $this->tenant2->id);
         $this->postJson(route('corex.rental-inspections.signing-links.device-submit', [$in, $link2]), $this->signPayload(['typed_name' => 'Sipho Khumalo']))->assertStatus(201);
         $this->postJson(route('corex.rental-inspections.signatures.store', $in), ['party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.signatures.store', $in), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn'])->assertStatus(201);
+        $this->agentSignsNow($in);
     }
 
     public function test_the_signature_page_a_party_reads_shows_the_wording_they_signed(): void

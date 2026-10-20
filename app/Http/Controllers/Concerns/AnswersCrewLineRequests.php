@@ -49,8 +49,16 @@ trait AnswersCrewLineRequests
     }
 
     /** §17.43 (C-E3): not a failure - a question. 409 + the words to show and what the office already has; the page sends the same add again with add_anyway=1. */
-    protected function lineDuplicate(CrewLineLooksDuplicate $e): JsonResponse
+    protected function lineDuplicate(CrewLineLooksDuplicate $e, ?Request $request = null, ?string $redirectTo = null): JsonResponse|RedirectResponse
     {
+        // audit 2026-10-20 (L10): the service only asks when the request can be asked (it expects JSON), so a plain form post never gets here - but if a caller ever
+        // does reach it with one, the person gets the question as the ordinary banner on the page, never a raw JSON 409 document.
+        if ($request !== null && $redirectTo !== null && ! $this->wantsLineJson($request)) {
+            $line = $e->summary();
+
+            return redirect($redirectTo)->withErrors(['crew' => $e->getMessage() . ' (' . $line['description'] . ', ' . $line['quantity'] . ($line['unit'] ? ' ' . $line['unit'] : '') . ')'])->withInput();
+        }
+
         return response()->json(['ok' => false, 'duplicate' => true, 'message' => $e->getMessage(), 'existing' => $e->summary()], 409);
     }
 

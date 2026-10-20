@@ -117,7 +117,9 @@ class RentalApplicationAuthorisationController extends Controller
         abort_unless(
             $user->mayDecideRentalApplications($agencyId),
             403,
-            'Only a configured Reviewer or Override user may act on this application.',
+            RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId)
+                ? 'Only a configured Reviewer or Override user may act on this application.'
+                : 'Your agency has no approver set up yet, so only an agency administrator may approve or decline this application. An administrator can choose approvers in Settings → Rental applications.',
         );
 
         // AT-392 — own/branch/agency, Johan's design standard, enforced at

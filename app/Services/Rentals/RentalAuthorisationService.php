@@ -351,6 +351,10 @@ class RentalAuthorisationService
             'status' => $sent ? RentalFaultReport::STATUS_AWAITING_APPROVAL : ($fault->owner_version_saved_at ? RentalFaultReport::STATUS_UNDER_REVIEW : RentalFaultReport::STATUS_REPORTED),
             'owner_approval_status' => $sent ? RentalFaultReport::APPROVAL_PENDING : RentalFaultReport::APPROVAL_NOT_REQUIRED,
             'approval_route' => null,
+            // Audit 2026-10-20 (M2): a re-opened wait is a NEW wait. Its chase ledger is cleared and its clock restarts now - otherwise it would be chased at once (the old
+            // `sent_to_owner_at`) or never again (the ledger already full from the earlier wait).
+            'owner_reminder_1_at' => null, 'owner_reminder_2_at' => null, 'owner_queue_flagged_at' => null, 'owner_chase_failed_at' => null,
+            'owner_chase_from' => $sent ? now() : null,
         ]);
         // a decline closes the fault by itself with an automatic outcome - reopening it removes that automatic outcome again
         if ($wasDeclined && $fault->outcome_set_automatically && $fault->outcome === RentalFaultReport::OUTCOME_OWNER_DECLINED) {

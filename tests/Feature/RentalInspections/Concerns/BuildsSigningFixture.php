@@ -171,9 +171,28 @@ trait BuildsSigningFixture
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
             'party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG,
         ])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
+        $this->agentSignsNow($inspection);
+    }
+
+    /** The inspection's own agent (the inspector) draws "Sign now" - audit M2: no one else may sign as the agent, drawn or PIN. Logs the admin back in. */
+    protected function agentSignsNow(RentalInspection $inspection): \Illuminate\Testing\TestResponse
+    {
+        $response = $this->agentDrawsSignature($inspection);
+        $response->assertStatus(201);
+
+        return $response;
+    }
+
+    /** The same post, as the inspection's own agent, with no assertion on the answer (for the tests that expect a refusal for another reason). */
+    protected function agentDrawsSignature(RentalInspection $inspection): \Illuminate\Testing\TestResponse
+    {
+        $this->actingAs(User::withoutGlobalScopes()->findOrFail($inspection->inspector_user_id ?: $inspection->created_by_user_id));
+        $response = $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
             'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
-        ])->assertStatus(201);
+        ]);
+        $this->actingAs($this->admin);
+
+        return $response;
     }
 
     protected function complete(RentalInspection $inspection): void

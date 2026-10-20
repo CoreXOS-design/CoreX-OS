@@ -235,6 +235,8 @@ class LeaseRenewalController extends Controller
      */
     public function changeNoticeOutcome(Request $request, Lease $lease): RedirectResponse
     {
+        // audit 2026-10-20 (finding 5): the same single permission as recording the notice - not leases.renew alone
+        abort_unless($request->user()?->hasPermission('rental_notices.review'), 403, 'You do not have permission to change a recorded notice.');
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
         $validated = $request->validate([
             'notice_outcome' => ['required', 'in:' . Lease::NOTICE_OUTCOME_READVERTISE . ',' . Lease::NOTICE_OUTCOME_WITHDRAW . ',' . Lease::NOTICE_OUTCOME_LEAVE],
@@ -253,6 +255,8 @@ class LeaseRenewalController extends Controller
 
     public function reverseNotice(Request $request, Lease $lease): RedirectResponse
     {
+        // audit 2026-10-20 (finding 5): the same single permission as recording the notice - not leases.renew alone
+        abort_unless($request->user()?->hasPermission('rental_notices.review'), 403, 'You do not have permission to change a recorded notice.');
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
 
         app(LeaseRenewalService::class)->reverseNotice($lease, $request->user());

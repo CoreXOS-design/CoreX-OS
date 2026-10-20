@@ -259,6 +259,16 @@ Events that should fire webhooks (emit if not already emitted — current `app/E
 - Retry with exponential backoff (e.g. 1m, 5m, 30m, 2h, 6h) up to N attempts; log every attempt in `agency_webhook_deliveries`.
 - Payloads are small (the changed resource); sites may treat the webhook as a "refresh this id" signal and re-pull via the REST API for the full record.
 
+### 6.4 Where CoreX may post to — the SSRF guard (audit fix, 2026-10-20)
+
+`webhook_url` is typed in by an agency admin, so CoreX must never be usable as a probe of its own network. Every route to the address goes through `App\Support\Net\SafeWebhookUrl` (built on the article-feed guard `SafeFeedUrl`):
+
+- **Rules:** `http`/`https` only, ports 80/443 only, no `user:password` in the link; the host must resolve and **every** address it resolves to must be public. Refused: loopback, private (RFC 1918), link-local (including `169.254.169.254`), CGNAT, multicast, documentation/benchmark/reserved, the IPv6 equivalents (IPv4-mapped, NAT64 and 6to4 forms are judged as the IPv4 they carry), and numeric shorthand hosts (`2130706433`, `0x7f.1`).
+- **Checked three times:** when the address is saved (validation message in plain words), when **Test connection** posts to it, and when the queued `DeliverAgencyWebhook` posts to it (the only real sender).
+- **At send time** the connection is pinned to the IP that was just checked (no second DNS lookup), and **redirects are not followed** (a 3xx answer is reported, never followed), so a public address cannot bounce the request to an internal one.
+- A delivery whose address is refused is failed immediately and not retried (`failed_at` set, reason in `last_error`); a host that merely does not resolve right now is an ordinary failed attempt and follows the usual retry schedule.
+- Tests: `tests/Feature/AgencyPublicApi/WebhookSsrfGuardTest.php`.
+
 ### 6.3 Operations (cron + .env) — built
 
 Retries are driven by `next_retry_at` + a scheduled sweep, NOT queue-native backoff
@@ -375,8 +385,10 @@ checklist rendered inline under the key:
 4. **CoreX → website** — only for keys with `webhooks:receive`: no URL → warn; else a
    synchronous signed POST (same body/headers/HMAC as `DeliverAgencyWebhook`, event
    `connection.test`, 10s timeout). 2xx ok · 401/403 fail (secret mismatch) · 404 fail
-   (wrong URL) · other HTTP warn (reachable) · network error fail. Keys without the
-   scope show "skip".
+   (wrong URL) · 3xx fail ("CoreX does not follow redirects") · other HTTP warn (reachable) ·
+   address refused by the SSRF guard (§6.4) or network error fail, in plain words — the raw
+   connection error is **never** shown (it is logged server-side). Keys without the scope show "skip".
+   The route is throttled (10 requests per minute).
 
 The test POST is **not** written to `agency_webhook_deliveries`, so it never enters the
 `webhooks:retry-due` sweep. Receiving sites should answer 2xx to `connection.test`

@@ -67,6 +67,19 @@
         </div>
     </div>
 
+    @if($report->isBeingRead())
+        {{-- An unrecognised report is read by AI on a queue worker after the upload returns; reuse this page until it is done. --}}
+        <div id="report-being-read" style="margin-bottom: 12px; padding: 10px 14px; font-size: 0.8125rem;
+                    background: color-mix(in srgb, var(--brand-icon, #0ea5e9) 12%, transparent);
+                    color: var(--text-primary); border: 1px solid var(--brand-icon, #0ea5e9); border-radius: 4px;">
+            <strong>This report is being read.</strong>
+            It was not in a format CoreX already knows, so it is being read now. This page updates by itself when it is done.
+        </div>
+        <script>
+            setTimeout(function () { window.location.reload(); }, 10000);
+        </script>
+    @endif
+
     @if($report->readBadge())
         <div style="margin-bottom: 12px; padding: 10px 14px; font-size: 0.8125rem;
                     background: color-mix(in srgb, {{ $report->read_method === 'unread' ? 'var(--ds-crimson, #dc2626)' : 'var(--ds-amber, #d97706)' }} 12%, transparent);

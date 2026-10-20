@@ -252,11 +252,11 @@ final class DisputeLifecycleTest extends TestCase
         $html = $sent[0][1]->render();
         $this->assertStringContainsString('The tap still drips', $html);
         $this->assertStringContainsString($freshUrl, $html);
-        $urls = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $this->round->id)->pluck('storage_path')->all();
-        $this->assertCount(2, $urls);
-        foreach ($urls as $url) {
-            $this->assertStringContainsString($url, $html, 'every tenant photo is linked');
-        }
+        // audit 2026-10-20: the tenant's photos are private references, so the mail carries a signed link per photo (never the stored reference itself)
+        $stored = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $this->round->id)->get();
+        $this->assertCount(2, $stored);
+        $this->assertSame(2, preg_match_all('#href="[^"]*/private-image/#', $html), 'every tenant photo is linked');
+        $this->assertStringNotContainsString('private:', $html);
         $this->assertStringNotContainsString('Thandi', $html, 'the crew is told what is wrong, not who said it');
         $this->assertStringNotContainsString($this->tenant->email, $html);
 
@@ -312,11 +312,10 @@ final class DisputeLifecycleTest extends TestCase
         $this->assertStringContainsString('The tap still drips after the repair', $html);
         $this->assertStringContainsString('Report fixed', $html);
         $this->assertStringNotContainsString('Mark work completed', $html);
-        $photoUrls = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $this->round->id)->pluck('storage_path')->all();
-        $this->assertCount(2, $photoUrls);
-        foreach ($photoUrls as $url) {
-            $this->assertSame(1, substr_count($html, 'href="' . $url . '"'), "dispute photo shown exactly once — inside the banner, not also in the general gallery: {$url}");
-        }
+        $this->assertCount(2, RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_completion_round_id', $this->round->id)->get());
+        // the photos are private references (audit 2026-10-20): each one is a signed link, shown exactly once - inside the banner, not also in the general gallery
+        $this->assertSame(2, preg_match_all('#href="[^"]*/private-image/#', $html), 'dispute photos shown exactly once, inside the banner');
+        $this->assertStringNotContainsString('private:', $html);
         $this->assertStringNotContainsString('Thandi', $html);
         $this->assertStringNotContainsString($this->tenant->email, $html);
     }

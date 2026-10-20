@@ -14,6 +14,10 @@ use Illuminate\Console\Command;
  * was priced this way (they carry the catalogue's derived, often R0.00, selling). Only lines whose source is the catalogue
  * (`catalogue_price` / `catalogue_markup`) are touched: a price set by hand, a line markup, a card markup are never moved, and a
  * completed or cancelled card never changes. Deliberately needs --job-card or --all, and --dry-run shows the change without making it.
+ *
+ * Audit 2026-10-20 (M4): a card whose quote was SENT to the owner, or whose amount the owner APPROVED, is never changed either - the total must stay what the owner
+ * was asked to approve / did approve (repriceLine() would also refresh the frozen VAT of such a card). It is listed as skipped, with the reason. Every card the
+ * command DOES change gets a history line ("Line priced") naming each line and its old and new selling price, so the change is never invisible on the card.
  */
 class RederiveCatalogueMarkupLines extends Command
 {
@@ -44,6 +48,7 @@ class RederiveCatalogueMarkupLines extends Command
         $changed = 0;
         $touchedCards = [];
         $cleared = 0;
+        $notes = [];   // card id => one text per changed line, for the card's history
 
         // AT-466 - a figure typed into the Selling box that was meant as a markup (R10 on a R789.50 cost) made the line "set by hand".
         // The criterion: a hand-set selling that equals the line's own markup value or its catalogue item's markup value; or a line named with --line.
@@ -68,6 +73,11 @@ class RederiveCatalogueMarkupLines extends Command
 
                     continue;
                 }
+                if ($locked = $this->quotedOrApprovedReason($card)) {
+                    $this->line("skip hand line {$line->id} (card {$card->id}: {$locked})");
+
+                    continue;
+                }
                 $this->line(sprintf('card %d line %d "%s": hand selling %s taken off (%s)', $card->id, $line->id, $line->description, number_format($price, 2),
                     $named ? 'named with --line' : 'equals its markup value'));
                 $cleared++;
@@ -77,6 +87,7 @@ class RederiveCatalogueMarkupLines extends Command
                     $line->setRelation('jobCard', $card);
                     $pricing->repriceLine($line);
                     $touchedCards[$card->id] = $card;
+                    $notes[$card->id][] = sprintf('"%s": hand selling %s taken off, now %s', $line->description, number_format($price, 2), $line->fresh()->unit_price ?? '—');
                     $changed++;
                 }
             }
@@ -86,6 +97,11 @@ class RederiveCatalogueMarkupLines extends Command
             $card = RentalJobCard::withoutGlobalScopes()->find($line->rental_job_card_id);
             if (! $card || $card->trashed() || $card->isClosed()) {
                 $this->line("skip line {$line->id} (card {$line->rental_job_card_id} is closed or archived)");
+
+                continue;
+            }
+            if ($locked = $this->quotedOrApprovedReason($card)) {
+                $this->line("skip line {$line->id} (card {$card->id}: {$locked})");
 
                 continue;
             }
@@ -104,14 +120,31 @@ class RederiveCatalogueMarkupLines extends Command
             if (! $dry) {
                 $pricing->repriceLine($line);
                 $touchedCards[$card->id] = $card;
+                $notes[$card->id][] = sprintf('"%s": selling %s -> %s', $line->description, $before ?? '—', $after);
             }
         }
         foreach ($touchedCards as $card) {
             $card->recalcTotal();
+            // the card's own history says what moved (a change to a price is never invisible)
+            $card->logUpdate('line_priced', null, 'Selling prices re-derived from the catalogue markup (maintenance command): ' . implode('; ', $notes[$card->id] ?? []));
         }
 
         $this->info(($dry ? 'DRY RUN - would change ' : 'Changed ') . "{$changed} line(s) of {$lines->count()} checked" . ($this->option('clear-hand') ? "; hand flag " . ($dry ? 'would be cleared' : 'cleared') . " on {$cleared}." : '.'));
 
         return self::SUCCESS;
+    }
+
+    /** Why this card must not be repriced (a quote went to the owner, or the owner approved an amount); null when it may be. */
+    private function quotedOrApprovedReason(RentalJobCard $card): ?string
+    {
+        if ($card->quotes()->withoutGlobalScopes()->exists() || $card->vat_snapshotted_at !== null) {
+            return 'its quote was sent to the owner';
+        }
+        $workOrder = $card->workOrder()->withoutGlobalScopes()->first();
+        if ($workOrder && ($workOrder->hasApprovedBaseline() || $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_APPROVED)) {
+            return 'the owner approved an amount';
+        }
+
+        return null;
     }
 }

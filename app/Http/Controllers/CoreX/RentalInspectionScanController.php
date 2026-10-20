@@ -66,7 +66,18 @@ class RentalInspectionScanController extends Controller
 
         // Synchronous — QA has no queue worker (BUILD_STANDARD §8h), and a
         // few-page scan's rasterize-and-sample pass is a few seconds' work,
-        // well within a normal request.
+        // well within a normal request. Audit M8: the reader caps the pages in one upload (RentalInspectionScanReaderService::MAX_PAGES),
+        // rasterizes the file once for this whole request, and always leaves the scan failed - with a readable reason - rather than
+        // "processing" when it errors or runs out of time. The rasterized pages are dropped as soon as the request's work is done.
+        try {
+            return $this->storeProcessed($request, $rentalInspection, $scan);
+        } finally {
+            $this->reader->flushRasterCache();
+        }
+    }
+
+    private function storeProcessed(Request $request, RentalInspection $rentalInspection, RentalInspectionScan $scan): RedirectResponse
+    {
         $this->reader->process($scan->fresh());
         $scan->refresh();
 

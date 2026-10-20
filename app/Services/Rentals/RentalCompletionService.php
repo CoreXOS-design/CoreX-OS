@@ -19,7 +19,6 @@ use App\Models\RentalWorkOrderPhoto;
 use App\Models\RentalWorkOrderSetting;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
-use App\Services\Images\PropertyImageStorer;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -423,7 +422,8 @@ class RentalCompletionService
     /** @param array<int, UploadedFile> $photos */
     private function storeDisputePhotos(RentalWorkOrder $wo, ?RentalJobCard $card, RentalWorkCompletionRound $round, array $photos, ?User $user): void
     {
-        $storer = app(PropertyImageStorer::class);
+        // D14 (audit 2026-10-20): the tenant's dispute photos are private references, like every other picture a tenant sends
+        $images = app(\App\Services\Images\PrivateImageService::class);
         foreach ($photos as $file) {
             RentalWorkOrderPhoto::withoutGlobalScopes()->create([
                 'agency_id' => $wo->agency_id,
@@ -432,7 +432,7 @@ class RentalCompletionService
                 'rental_completion_round_id' => $round->id,
                 'photo_type' => RentalWorkOrder::PHOTO_DISPUTE,
                 'uploaded_via' => $user ? RentalWorkOrderPhoto::VIA_OFFICE : RentalWorkOrderPhoto::VIA_TENANT,
-                'storage_path' => $storer->store($file, $wo->property_id),
+                'storage_path' => $images->storeUpload($file, (int) $wo->property_id),
                 'uploaded_by_user_id' => $user?->id,
                 'file_size_bytes' => $file->getSize(),
             ]);
@@ -536,7 +536,7 @@ class RentalCompletionService
         if ($to && filter_var($to, FILTER_VALIDATE_EMAIL)) {
             try {
                 app(RentalMailDispatcher::class)->send($to, new RentalDisputeSentBackMail(
-                    $wo, $card->crew?->name, (string) $round?->response_note, $photos->pluck('storage_path')->all(), $linkUrl, $agent,
+                    $wo, $card->crew?->name, (string) $round?->response_note, $photos->map(fn (RentalWorkOrderPhoto $p) => $p->mailUrl())->filter()->values()->all(), $linkUrl, $agent,
                 ));
                 $emailed = true;
             } catch (\Throwable $e) {
@@ -566,7 +566,7 @@ class RentalCompletionService
         if ($to && filter_var($to, FILTER_VALIDATE_EMAIL)) {
             try {
                 app(RentalMailDispatcher::class)->send($to, new RentalDisputeSentBackMail(
-                    $wo, $provider?->name, (string) $round?->response_note, $photos->pluck('storage_path')->all(), null, $agent,
+                    $wo, $provider?->name, (string) $round?->response_note, $photos->map(fn (RentalWorkOrderPhoto $p) => $p->mailUrl())->filter()->values()->all(), null, $agent,
                 ));
                 $emailed = true;
             } catch (\Throwable $e) {

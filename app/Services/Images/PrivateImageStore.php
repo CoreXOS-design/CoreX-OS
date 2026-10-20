@@ -17,8 +17,8 @@ use Illuminate\Support\Str;
  *
  * Every stored image is RE-ENCODED (upright, capped at $maxEdge, JPEG), which drops ALL embedded metadata - including the GPS position a
  * phone writes into the EXIF (PropertyImageStorer only re-encodes oversize files, so a normal-sized JPEG kept its GPS). A file GD cannot
- * decode (HEIC) goes through Imagick when this PHP has it; failing that it is stored as it arrived and the gap is logged - evidence is never
- * refused over a format.
+ * decode (HEIC) goes through Imagick when this PHP has it; failing that an iPhone HEIC is refused with a readable message (audit L3 - it could
+ * never be displayed), and any other undecodable file is stored as it arrived and the gap is logged.
  */
 class PrivateImageStore
 {
@@ -53,7 +53,14 @@ class PrivateImageStore
 
         $bytes = $this->cleanJpegBytes($file);
         if ($bytes === null) {
-            // not decodable here (HEIC with no Imagick, a corrupt file): keep it as it arrived rather than lose evidence
+            // Audit L3 - an iPhone HEIC this server cannot decode would be kept but never displayable (the picture route serves only
+            // JPEG/PNG/WebP/GIF): refuse it with a readable message so the agent re-takes or re-shares it as a JPEG.
+            $extension0 = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: '');
+            $mime0 = strtolower((string) $file->getMimeType());
+            if (in_array($extension0, ['heic', 'heif'], true) || in_array($mime0, ['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence'], true)) {
+                throw new \App\Exceptions\UnreadableImageException();
+            }
+            // not decodable here (a corrupt file): keep it as it arrived rather than lose evidence
             $extension = strtolower($file->getClientOriginalExtension() ?: $file->extension() ?: 'bin');
             $path = $directory . '/' . Str::uuid() . '.' . preg_replace('/[^a-z0-9]/', '', $extension);
             $bytes = (string) file_get_contents($file->getRealPath());
@@ -84,6 +91,8 @@ class PrivateImageStore
             $upload = new UploadedFile($tmp, basename($publicRelativePath), null, null, true);
 
             return $this->store($upload, $directory);
+        } catch (\App\Exceptions\UnreadableImageException) {
+            return null; // the caller reports "could not be made" and leaves the public original as it is
         } finally {
             @unlink($tmp);
         }
@@ -92,21 +101,6 @@ class PrivateImageStore
     public function exists(string $reference): bool
     {
         return self::isReference($reference) && Storage::disk(self::DISK)->exists(self::pathOf($reference));
-    }
-
-    /**
-     * A real PUBLIC copy of a private image - for the one place the picture genuinely has to leave (evidence handed to a repair job / fault
-     * report that the portals show). Returns the public /storage URL. The private original is untouched.
-     */
-    public function copyToPublic(string $reference, int $propertyId): ?string
-    {
-        if (! $this->exists($reference)) {
-            return null;
-        }
-        $path = "properties/{$propertyId}/" . Str::uuid() . '.' . (pathinfo(self::pathOf($reference), PATHINFO_EXTENSION) ?: 'jpg');
-        Storage::disk('public')->put($path, Storage::disk(self::DISK)->get(self::pathOf($reference)));
-
-        return Storage::url($path);
     }
 
     /**

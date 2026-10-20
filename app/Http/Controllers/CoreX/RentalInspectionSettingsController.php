@@ -120,6 +120,8 @@ class RentalInspectionSettingsController extends Controller
             'omrMarkThreshold' => RentalInspectionSetting::omrMarkThresholdFor($agencyId),
             'omrUnsureBelow' => RentalInspectionSetting::omrUnsureBelowFor($agencyId),
             'noteReadMinConfidence' => RentalInspectionSetting::noteReadMinConfidenceFor($agencyId),
+            // Audit M7 - AI reading of handwritten notes on a scanned form (default on; the platform switch is the master).
+            'noteReadEnabled' => RentalInspectionSetting::noteReadEnabledFor($agencyId),
             // AT-463 / §60 — the paper the printed site form is laid out for.
             'formPaperSize' => RentalInspectionSetting::formPaperSizeFor($agencyId),
             'formPaperSizeOptions' => RentalInspectionSetting::formPaperSizeOptions(),
@@ -174,6 +176,8 @@ class RentalInspectionSettingsController extends Controller
             'signing_link_enabled' => ['nullable', 'boolean'],
             // has()-guarded below: a wizard step that does not render it must not reset it.
             'record_deduction_amounts' => ['nullable', 'boolean'],
+            // Audit M7 - has()-guarded below: a wizard step that does not render the toggle must not switch it off.
+            'note_read_enabled' => ['nullable', 'boolean'],
             'signing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             // §49 — signatures required to complete, per type; each has()-guarded below (a wizard step renders only some).
             'signatures_required_in' => ['nullable', 'boolean'],
@@ -214,6 +218,9 @@ class RentalInspectionSettingsController extends Controller
         // §46 — same hidden-0-then-checkbox control and the same has() guard; the expiry saves only when filled.
         if ($request->has('signing_link_enabled')) {
             $attributes['signing_link_enabled'] = $request->boolean('signing_link_enabled');
+        }
+        if ($request->has('note_read_enabled')) {
+            $attributes['note_read_enabled'] = $request->boolean('note_read_enabled');
         }
         if ($request->has('record_deduction_amounts')) {
             $attributes['record_deduction_amounts'] = $request->boolean('record_deduction_amounts');

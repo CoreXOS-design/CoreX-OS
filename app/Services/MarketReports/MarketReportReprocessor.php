@@ -28,14 +28,18 @@ final class MarketReportReprocessor
         return !empty($report->file_path) && Storage::disk('local')->exists($report->file_path);
     }
 
-    /** @return bool false when the stored PDF is missing (nothing was changed) */
-    public function rerun(MarketReport $report, bool $forceNewAiRead = false, bool $aiAllowed = true, bool $adminRetry = false): bool
+    /**
+     * @param bool $deferAi true when called from a web request: if the report reaches the paid AI step the read is
+     *                      queued for a worker and the report is left "being read" (the call returns at once)
+     * @return bool false when the stored PDF is missing (nothing was changed)
+     */
+    public function rerun(MarketReport $report, bool $forceNewAiRead = false, bool $aiAllowed = true, bool $adminRetry = false, bool $deferAi = false, ?int $actorUserId = null): bool
     {
         if (!$this->fileExists($report)) {
             return false;
         }
         $this->reset($report);
-        ParseMarketReportJob::dispatchSync($report->id, $forceNewAiRead, $aiAllowed, $adminRetry);
+        ParseMarketReportJob::dispatchSync($report->id, $forceNewAiRead, $aiAllowed, $adminRetry, $deferAi, $actorUserId);
 
         return true;
     }

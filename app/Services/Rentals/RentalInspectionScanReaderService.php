@@ -58,6 +58,21 @@ class RentalInspectionScanReaderService
     /** Print/detectability note only, matching cc5's own RECOMMENDED_MIN_SCAN_DPI — the DPI actually used to rasterize an uploaded scan for analysis. */
     private const RASTER_DPI = 200;
 
+    /**
+     * Audit M8 - the most pages one upload may carry. A form is a handful of pages (a large property is rarely past a dozen), so 30 leaves
+     * generous room for re-scans while firmly bounding the rasterize-and-sample work done inside one web request. Over the limit the scan is
+     * refused with a readable reason (never silently truncated): split it and upload the parts. Stated in rental-inspection-form.md §13.
+     */
+    public const MAX_PAGES = 30;
+
+    /** How much of the PHP time limit a scan may use before it stops itself with a readable reason (the rest is left for saving). */
+    private const TIME_BUDGET_SHARE = 0.8;
+
+    /** The pages rasterized for the most recent scan, kept for the rest of the SAME upload request so a re-file / QR look does not rasterize again. */
+    private ?array $rasterCache = null;
+
+    private ?float $deadlineAt = null;
+
     public function __construct(
         private RentalInspectionFormPdfService $formPdfService,
         private RentalInspectionScanGeometry $geometry,
@@ -78,6 +93,64 @@ class RentalInspectionScanReaderService
      *                                because its own form code says so, §64)
      */
     public function process(RentalInspectionScan $scan, array $leadNotes = []): void
+    {
+        // Audit M8 - a scan never stays "processing". Any failure leaves it failed with a readable reason, and so does a fatal PHP time-limit,
+        // which skips every catch block: the shutdown hook below runs after it and fails the scan if the read never finished.
+        $finished = false;
+        $scanId = $scan->id;
+        register_shutdown_function(static function () use (&$finished, $scanId) {
+            if ($finished) {
+                return;
+            }
+            try {
+                RentalInspectionScan::withoutGlobalScopes()->whereKey($scanId)->where('status', RentalInspectionScan::STATUS_PROCESSING)->update([
+                    'status' => RentalInspectionScan::STATUS_FAILED,
+                    'failure_reason' => 'Reading this scan took longer than the server allows, so it was stopped. Upload fewer pages at a time, or scan at 200-300 dpi in black and white or greyscale.',
+                ]);
+            } catch (\Throwable) {
+                // nothing more can be done at shutdown
+            }
+        });
+
+        try {
+            $this->deadlineAt = microtime(true) + $this->timeBudgetSeconds();
+            $this->processScan($scan, $leadNotes);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Scan read failed', ['scan' => $scanId, 'error' => $e->getMessage()]);
+            RentalInspectionScan::withoutGlobalScopes()->whereKey($scanId)->update([
+                'status' => RentalInspectionScan::STATUS_FAILED,
+                'failure_reason' => $e instanceof ScanTimeBudgetExceeded
+                    ? $e->getMessage()
+                    : 'The scan could not be read: ' . $e->getMessage() . ' Try scanning it again at 200-300 dpi in black and white or greyscale.',
+            ]);
+        } finally {
+            $finished = true;
+            $this->deadlineAt = null;
+        }
+    }
+
+    /** Seconds this scan may run before it stops itself: a share of PHP's own limit (generous when the limit is off). Overridable in tests. */
+    protected function timeBudgetSeconds(): float
+    {
+        $limit = (int) ini_get('max_execution_time');
+
+        return $limit > 0 ? $limit * self::TIME_BUDGET_SHARE : 600.0;
+    }
+
+    private function assertWithinTimeBudget(string $what): void
+    {
+        if ($this->deadlineAt !== null && microtime(true) > $this->deadlineAt) {
+            throw new ScanTimeBudgetExceeded('Reading this scan took longer than the server allows (' . $what . '), so it was stopped. Upload fewer pages at a time, or scan at 200-300 dpi in black and white or greyscale.');
+        }
+    }
+
+    /** Drops the rasterized pages kept for the current upload (the controller calls this when the request's work is done). */
+    public function flushRasterCache(): void
+    {
+        $this->rasterCache = null;
+    }
+
+    private function processScan(RentalInspectionScan $scan, array $leadNotes = []): void
     {
         // 2026-09-22, Johan — checked ONCE, here, at the entry point, not
         // scattered through rasterize()'s internals. Without this, a missing
@@ -104,7 +177,19 @@ class RentalInspectionScanReaderService
         $absolutePath = Storage::disk('local')->path($scan->storage_path);
 
         try {
-            $pages = $this->rasterize($absolutePath, $scan->mime_type);
+            $total = $this->pageCountOf($absolutePath, $scan->mime_type);
+            if ($total > self::MAX_PAGES) {
+                $scan->forceFill([
+                    'status' => RentalInspectionScan::STATUS_FAILED,
+                    'page_count' => $total,
+                    'failure_reason' => "This scan has {$total} pages; one upload can carry at most " . self::MAX_PAGES . ' pages. Split it into smaller files (each page of the form only needs to be in once) and upload them one after the other.',
+                ])->save();
+
+                return;
+            }
+            $pages = $this->rasterizeCached($scan, $absolutePath);
+        } catch (ScanTimeBudgetExceeded $e) {
+            throw $e; // process() turns it into the scan's own readable failure
         } catch (\Throwable $e) {
             $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'Could not open the scan file: ' . $e->getMessage()])->save();
 
@@ -146,6 +231,7 @@ class RentalInspectionScanReaderService
         $firstIdentity = null;
         $firstLayout = null;
         foreach ($pages as $fileIndex => $page) {
+            $this->assertWithinTimeBudget('page ' . $fileIndex . ' of ' . count($pages));
             $found = null;
             $firstFail = null;
             $staleIdentity = null;
@@ -310,6 +396,7 @@ class RentalInspectionScanReaderService
             $scan->forceFill(['status' => RentalInspectionScan::STATUS_NEEDS_REVIEW, 'read_notes' => $notes, 'page_results' => array_values($results)])->save();
         });
 
+        $this->rasterCache = null; // a read that got this far needs its pages no more
         $this->readHandwrittenNotes($noteCrops);
     }
 
@@ -322,7 +409,9 @@ class RentalInspectionScanReaderService
      */
     public function readHandwrittenNotes(array $crops): void
     {
-        if ($crops === [] || ! $this->noteReader->enabled()) {
+        // Audit M7 - belt and braces: an agency that has switched note reading off never has a crop sent, whoever built the list.
+        $crops = array_filter($crops, fn ($c) => $this->noteReader->enabled((int) $c['agency_id']));
+        if ($crops === []) {
             return;
         }
 
@@ -356,6 +445,15 @@ class RentalInspectionScanReaderService
         ])->save();
 
         $this->process($scan->fresh());
+
+        // Audit L5 - a scan whose every mark was already applied stays applied: reading it again cannot make it "need review" when nothing
+        // is left to review.
+        $scan->refresh();
+        if ($scan->status === RentalInspectionScan::STATUS_NEEDS_REVIEW
+            && $scan->marks()->whereNotNull('applied_observation_id')->exists()
+            && $scan->marks()->whereNull('applied_observation_id')->doesntExist()) {
+            $scan->forceFill(['status' => RentalInspectionScan::STATUS_APPLIED])->save();
+        }
     }
 
     /**
@@ -373,7 +471,9 @@ class RentalInspectionScanReaderService
             return null;
         }
         try {
-            $pages = $this->rasterize(Storage::disk('local')->path($scan->storage_path), $scan->mime_type);
+            // Only the first four pages are ever looked at, so only those are rasterized (and the pages process() already
+            // rasterized for this upload are reused, never done a second time).
+            $pages = $this->rasterizeCached($scan, Storage::disk('local')->path($scan->storage_path), 4);
         } catch (\Throwable) {
             return null;
         }
@@ -590,7 +690,7 @@ class RentalInspectionScanReaderService
 
         $offsets = $this->geometry->alignRows($canvas, $byItem);
         $rowHeight = $this->rowHeightOf($byItem);
-        $readNotes = $geo !== null && $this->noteReader->enabled();
+        $readNotes = $geo !== null && $this->noteReader->enabled($scan->agency_id);
         $unsureBelow = RentalInspectionSetting::omrUnsureBelowFor($scan->agency_id);
         $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0, 'untrusted' => false];
 
@@ -630,10 +730,23 @@ class RentalInspectionScanReaderService
             // An item already recorded on screen (it printed greyed): a row left alone, or ticked the same as the screen,
             // proposes nothing. Only a different tick - or a doubtful one - reaches the agent.
             $onScreen = $recorded[$itemId] ?? null;
-            if ($onScreen !== null && (count($marked) === 0 || (! $ambiguous && $detectedKey === $onScreen))) {
+            // Audit M1 - a handwritten NOTE beside such a row is still new information: a row with note ink is never skipped here. It
+            // goes through as a proposal that keeps the on-screen condition and carries the note for the agent to confirm.
+            $noteCrop = null;
+            if ($readNotes && ! $untrusted) {
+                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
+                $noteCrop = $crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN ? $crop : null;
+            }
+            $leftAlone = $onScreen !== null && (count($marked) === 0 || (! $ambiguous && $detectedKey === $onScreen));
+            if ($leftAlone && $noteCrop === null) {
                 $counts['unchanged']++;
 
                 continue;
+            }
+            if ($leftAlone) {
+                $detectedKey = $onScreen;
+                $ambiguous = false;
+                $confidence = 1.0;
             }
 
             // One row per (scan, item) - the table's unique key counts archived rows too, so a re-read brings the archived
@@ -645,19 +758,14 @@ class RentalInspectionScanReaderService
             if ($mark->exists && $mark->trashed()) {
                 $mark->restore();
             }
-            // AT-472 - the row's handwritten note, when there is any ink in its note area (never sent anywhere otherwise).
-            $noteCrop = null;
-            if ($readNotes) {
-                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
-                $noteCrop = $crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN ? $crop : null;
-            }
+            // AT-472 - the row's handwritten note ($noteCrop, cropped above) is sent only when there is ink in its note area.
             $mark->fill([
                 'agency_id' => $scan->agency_id,
                 'page_number' => $pageNumber,
                 'detected_condition_key' => $detectedKey,
                 'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
                 'ambiguous' => $ambiguous,
-                'tick_boxes' => count($marked),
+                'tick_boxes' => $leftAlone ? 0 : count($marked),
             ] + ($readNotes ? ['note_ink' => $noteCrop !== null, 'detected_note' => null, 'detected_note_confidence' => null] : []))->save();
             $counts[$ambiguous || ($confidence !== null && $confidence < $unsureBelow) ? 'flagged' : 'proposed']++;
 
@@ -747,21 +855,58 @@ class RentalInspectionScanReaderService
 
     // ── Rasterization ───────────────────────────────────────────────────
 
-    /** @return array<int, Imagick> pages keyed 1..N */
-    private function rasterize(string $absolutePath, string $mimeType): array
+    /** How many pages the file has, without rasterizing any (a PDF is only pinged; a picture is one page). */
+    private function pageCountOf(string $absolutePath, string $mimeType): int
+    {
+        if ($mimeType !== 'application/pdf') {
+            return 1;
+        }
+        $probe = new Imagick();
+        $probe->pingImage($absolutePath);
+        $n = $probe->getNumberImages();
+        $probe->clear();
+
+        return $n;
+    }
+
+    /**
+     * The pages of this scan's file, rasterized at most once per upload: a later look at the same file (the QR owner check, a re-file onto
+     * the inspection the form belongs to) takes them from here. Keyed by the scan row and its file's size, so a different file never matches.
+     *
+     * @return array<int, Imagick> pages keyed 1..N (only the first $limit when one is given)
+     */
+    private function rasterizeCached(RentalInspectionScan $scan, string $absolutePath, ?int $limit = null): array
+    {
+        $key = $scan->id . '|' . $scan->mime_type . '|' . (@filesize($absolutePath) ?: 0);
+        $c = $this->rasterCache;
+        if ($c !== null && $c['key'] === $key && ($c['complete'] || ($limit !== null && count($c['pages']) >= $limit))) {
+            return $limit !== null ? array_slice($c['pages'], 0, $limit, true) : $c['pages'];
+        }
+
+        $pages = $this->rasterize($absolutePath, $scan->mime_type, $limit);
+        $total = $limit === null ? true : ($this->pageCountOf($absolutePath, $scan->mime_type) <= $limit);
+        $this->rasterCache = ['key' => $key, 'pages' => $pages, 'complete' => $total];
+
+        return $pages;
+    }
+
+    /** @return array<int, Imagick> pages keyed 1..N (at most $limit when given) */
+    private function rasterize(string $absolutePath, string $mimeType, ?int $limit = null): array
     {
         if ($mimeType === 'application/pdf') {
-            $imagick = new Imagick();
-            $imagick->setResolution(self::RASTER_DPI, self::RASTER_DPI);
-            $imagick->readImage($absolutePath);
+            $frames = $this->pageCountOf($absolutePath, $mimeType);
+            if ($limit !== null) {
+                $frames = min($frames, $limit);
+            }
             $pages = [];
-            // Each page must be its OWN Imagick. Iterating `foreach ($imagick as $frame)` hands back the SAME object
-            // every time (repositioned), so storing $frame made every page of a multi-page PDF the last page - a
-            // 3-page scan was read as page 3 three times. getImage() copies the current frame out on its own.
-            $frames = $imagick->getNumberImages();
+            // Each page is read on its OWN (`file.pdf[N]`): one page in memory at a time while reading, and every page is its own
+            // Imagick (iterating one multi-frame object hands back the SAME object repositioned - a 3-page scan was once read as
+            // page 3 three times).
             for ($i = 0; $i < $frames; $i++) {
-                $imagick->setIteratorIndex($i);
-                $frame = $imagick->getImage();
+                $this->assertWithinTimeBudget('page ' . ($i + 1));
+                $frame = new Imagick();
+                $frame->setResolution(self::RASTER_DPI, self::RASTER_DPI);
+                $frame->readImage($absolutePath . '[' . $i . ']');
                 $this->flattenToOpaqueWhite($frame);
                 $frame->setImageColorspace(Imagick::COLORSPACE_GRAY);
                 $frame->setImageFormat('png');
