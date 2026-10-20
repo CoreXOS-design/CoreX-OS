@@ -282,6 +282,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
         $this->inspection('out', RentalInspection::STATUS_IN_PROGRESS);
 
         $step = app(LeaseHubService::class)->nextStep($this->lease->fresh(), $this->agent);
+        $this->assertNotSame('Review the move-out charges', $step['label'] ?? null);
         $this->assertNotSame('Review the deposit deductions', $step['label'] ?? null);
     }
 
