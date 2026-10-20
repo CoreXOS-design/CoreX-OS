@@ -362,6 +362,26 @@ This is the "launch day" button: create the website's API key, build the site, c
 
 No new top-level sidebar entry needed (lives inside the existing Agencies admin), but the panel must be reachable the same day it ships.
 
+### 7.1a "Test connection" per website key (Johan, 2026-10-20)
+
+Each key row on the API Access panel has a **Test connection** button
+(`POST /settings/agencies/{agency}/api-keys/{apiKey}/test`, route `agencies.api-keys.test`,
+`agency_api.manage`, own-agency scope + key-belongs-to-agency 404). It returns a JSON
+checklist rendered inline under the key:
+
+1. **Website switch** — `agencies.website_enabled` on (fail if off).
+2. **API key** — key active (fail if revoked/expired).
+3. **Website → CoreX** — `last_used_at` set (fail "never connected" otherwise; shows when).
+4. **CoreX → website** — only for keys with `webhooks:receive`: no URL → warn; else a
+   synchronous signed POST (same body/headers/HMAC as `DeliverAgencyWebhook`, event
+   `connection.test`, 10s timeout). 2xx ok · 401/403 fail (secret mismatch) · 404 fail
+   (wrong URL) · other HTTP warn (reachable) · network error fail. Keys without the
+   scope show "skip".
+
+The test POST is **not** written to `agency_webhook_deliveries`, so it never enters the
+`webhooks:retry-due` sweep. Receiving sites should answer 2xx to `connection.test`
+(no action needed). Tests: `tests/Feature/AgencyPublicApi/Phase7ConnectionTestTest.php`.
+
 ### 7.2 Per-agent "Show on website" control
 
 On each agent (User edit / agent profile screen), add a **"Show on website"** toggle bound to `users.show_on_website`. Off by default. Flipping it fires the appropriate `agent.published` / `agent.removed` webhook (§6.1). A small status pill ("On website" / "Hidden") shows current state at a glance. Gated by the same permission that lets a manager edit that agent.
