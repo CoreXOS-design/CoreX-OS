@@ -276,3 +276,24 @@ gets one tour per main screen, not one per route.
 - `TourRegistryIntegrityTest` and `AdvancedGuidingTest` green (every anchor exists in a view; every
   page tour has hands-on steps and sections; permissions match page gates).
 - Every new tour's main screen renders on QA2 with all of its always-visible anchors present.
+
+### 12.1 Round 2 — side pages (2026-10-20)
+
+Andre: tour the remaining real screens of those features too. 49 more tours: record and side screens of
+Rentals (hub contacts / pipeline / properties / matches, document types, lease agreement confirm, breach,
+deposit deductions, renewal, notice and breach detail, application review and submission, the authorisation
+queue and decision, take-on import batch / map columns / preview / saved mappings, property history), rental
+maintenance (fault-type edit, crew link log, catalogue import preview, deposit comparison, scan review,
+inventory start / detail / comparison), reports (one agent / one branch of the Buyers and Performance reports),
+finance audit run and deal, PPRA inspection pack practitioners / sales & rentals / transformation, the agent's
+own PPRA employment letter, Road to Sold settings / areas / outcomes, title deed hand-over, and the branch
+manager's TV messages.
+
+Deliberately NOT toured (nothing to guide): print views, spreadsheet/CSV exports, JSON lookups, file
+downloads, previews, the retired `/rental*` and `/rentals*` addresses that only redirect, the tenant's
+on-device signing page, the social-media page picker mid-OAuth, and the CoreX owner's agency management.
+
+New optional tour key `user_check` (TourRegistry::visibleTo): a no-argument User method that must return
+true — for a screen gated on named people rather than a permission or role. Used by the authorisation queue
+tours (`seesRentalAuthorisationQueue`), so the Guided Tours page never offers them to someone the queue turns
+away. Test: `AdvancedGuidingTest::test_user_check_offers_the_authorisation_guides_only_to_reviewers`.

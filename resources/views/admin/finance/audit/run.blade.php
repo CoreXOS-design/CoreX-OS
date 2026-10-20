@@ -4,7 +4,7 @@
 @section('content')
 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4">
+    <div style="background:#0b2a4a;" class="rounded-2xl px-6 py-4" data-tour="cop-fin-run-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <a href="{{ route('admin.finance.audit.index') }}" class="text-sm text-white/60 hover:underline">&larr; Audit Center</a>
@@ -29,8 +29,9 @@
                 </div>
             </div>
 
-            <div class="flex gap-4">
-                <div class="text-center">
+            <div class="flex gap-4 items-center">
+                @include('layouts.partials.tour-header-launcher')
+                <div class="text-center" data-tour="cop-fin-run-counts">
                     <div class="text-2xl font-extrabold text-white">{{ number_format($counts['total']) }}</div>
                     <div class="text-xs text-white/50 uppercase tracking-wide">Total</div>
                 </div>
@@ -55,7 +56,7 @@
     @endif
 
     {{-- Grouped Items --}}
-    <div class="space-y-3" x-data="{ openGroups: {} }">
+    <div class="space-y-3" x-data="{ openGroups: {} }" data-tour="cop-fin-run-groups">
         @foreach($groupedItems as $groupKey => $groupItems)
             @php
                 [$entityType, $entityId] = explode(':', $groupKey, 2);
@@ -91,7 +92,7 @@
             @endphp
 
             <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
-                <button type="button"
+                <button type="button" @if($loop->first) data-tour="cop-fin-run-group" @endif
                         x-on:click="openGroups['{{ $groupKey }}'] = !openGroups['{{ $groupKey }}']"
                         class="w-full px-5 py-4 flex items-center justify-between text-left
                                {{ $summary['errors'] > 0 ? 'bg-red-50/60 dark:bg-red-900/10' : 'hover:bg-[color-mix(in_srgb,var(--text-primary)_6%,var(--surface-2))]' }}
@@ -127,7 +128,7 @@
                     </div>
                 </button>
 
-                <div x-show="openGroups['{{ $groupKey }}']" x-cloak>
+                <div x-show="openGroups['{{ $groupKey }}']" x-cloak @if($loop->first) data-tour="cop-fin-run-items" @endif>
                     <table class="min-w-full text-sm ds-table">
                         <thead>
                             <tr class="border-b border-t" style="border-color:var(--border); color:var(--text-secondary); background:var(--surface-2)">

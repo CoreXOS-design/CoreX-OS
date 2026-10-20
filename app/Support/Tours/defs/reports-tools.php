@@ -938,4 +938,394 @@ return [
         ],
     ],
 
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // ROUND 2 — side pages (AT-478 follow-on)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    // ── Buyers Report: one agent ─────────────────────────────────────────────
+    'rpt-buyers-agent' => [
+        'key'         => 'rpt-buyers-agent',
+        'title'       => 'Reading one agent\'s Buyers Report',
+        'description' => 'See how one agent is working their buyers: what happened in the period, who needs attention and every buyer they hold.',
+        'route'       => 'buyers-report.agent',
+        'permission'  => 'view_buyers_report',
+        'pick_from'   => 'buyers-report.index',
+        'pick_note'   => 'Click an agent\'s name in the agent table to open their report — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-bra-intro"]',
+                'section' => 'This agent\'s report',
+                'title'   => 'One agent\'s buyers',
+                'body'    => 'This is the same report as the main Buyers Report, but only for this one agent. The line under their name shows the period and buyer type you are looking at. The arrow at the top takes you back to the whole report.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-type"]',
+                'section' => 'Choosing what to see',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a type to narrow the report — or press Skip this step.', 'target' => 'select'],
+                'title'   => 'Filter by type',
+                'body'    => 'Show every buyer, or only one type of contact such as buyers or leads. The page reloads with the figures for that type only.',
+            ],
+            [
+                'element' => '[data-tour="rpt-period"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a period — or press Skip this step.', 'target' => 'select[name="period"]'],
+                'title'   => 'Choose the period',
+                'body'    => 'Every figure on this page follows the period you choose. "Compare to" shows how it stacks up against an earlier one.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-export"]',
+                'title'   => 'Print or download',
+                'body'    => 'Print opens a clean print view of this agent\'s report; Download PDF saves it as a file. Hand it to the agent in a one-on-one.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-tiles"]',
+                'section' => 'The figures',
+                'do'      => ['action' => 'click', 'say' => 'Click a figure to see the buyers behind it.', 'target' => 'button', 'until' => '[data-tour="rpt-drill"]'],
+                'title'   => 'What happened to this agent\'s buyers',
+                'body'    => 'Buyers held, added, won, appointments, emails, WhatsApps and losses for the period. Every figure is clickable and opens the list of buyers behind it.',
+            ],
+            [
+                'element'       => '[data-tour="rpt-drill"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Look through the list, then click the cross to close it.', 'target' => 'button[aria-label="Close"]'],
+                'title'         => 'The buyers behind the number',
+                'body'          => 'This list always matches the figure you clicked. Close it when you are done.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-attention"]',
+                'section' => 'Who needs attention',
+                'title'   => 'Needs Attention',
+                'body'    => 'The agent\'s buyers that need a follow-up: cold and lost buyers (longest-stuck first), buyers parked on purpose, buyers who viewed a property but have no feedback, and recent losses with the reason.',
+            ],
+            [
+                'element' => '[data-tour="rpt-bra-book"]',
+                'section' => 'Every buyer they hold',
+                'title'   => 'The buyer book',
+                'body'    => 'One row for every buyer this agent holds: their state (new, warm, cold, lost or won), how long they have been in that state and in the pipeline, when the agent last worked them, and the appointments and messages in the period. A long "days in state" on a cold buyer is the one to ask about.',
+            ],
+            [
+                'element' => '[data-tour="rpt-bra-lost"]',
+                'section' => 'Lost this period',
+                'title'   => 'Buyers lost',
+                'body'    => 'Buyers the agent marked as lost in the period, with the reason, the value of the buyer\'s budget and when it was recorded. This box only shows when there were losses.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-pipeline"]',
+                'section' => 'Buyers right now',
+                'title'   => 'Where the buyers sit now',
+                'body'    => 'A snapshot of today, not of the period: how many of this agent\'s buyers sit in each stage of the Buyer Pipeline.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-demand"]',
+                'section' => 'Demand analysis',
+                'title'   => 'What would we sell them?',
+                'body'    => 'Tick the property types and set a price range to see how many buyers would consider something there. Useful before you go looking for new mandates.',
+            ],
+        ],
+    ],
+
+    // ── Buyers Report: one branch ────────────────────────────────────────────
+    'rpt-buyers-branch' => [
+        'key'         => 'rpt-buyers-branch',
+        'title'       => 'Reading one branch\'s Buyers Report',
+        'description' => 'See how a branch is working its buyers and which agents in it need a nudge.',
+        'route'       => 'buyers-report.branch',
+        'permission'  => 'view_buyers_report',
+        'pick_from'   => 'buyers-report.index',
+        'pick_note'   => 'Click a branch name in the agent table to open its report — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-brb-intro"]',
+                'section' => 'This branch\'s report',
+                'title'   => 'One branch\'s buyers',
+                'body'    => 'This is the Buyers Report for one branch only. The line under the branch name shows the period and buyer type. The arrow at the top takes you back to the whole report.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-type"]',
+                'section' => 'Choosing what to see',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a type to narrow the report — or press Skip this step.', 'target' => 'select'],
+                'title'   => 'Filter by type',
+                'body'    => 'Show every buyer, or only one type of contact such as buyers or leads.',
+            ],
+            [
+                'element' => '[data-tour="rpt-period"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a period — or press Skip this step.', 'target' => 'select[name="period"]'],
+                'title'   => 'Choose the period',
+                'body'    => 'Every figure on the page follows this choice. "Compare to" shows how the period stacks up against an earlier one.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-export"]',
+                'title'   => 'Print or download',
+                'body'    => 'Print opens a clean print view; Download PDF saves it as a file. Both use the filters you have on screen.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-tiles"]',
+                'section' => 'The figures',
+                'do'      => ['action' => 'click', 'say' => 'Click a figure to see the buyers behind it.', 'target' => 'button', 'until' => '[data-tour="rpt-drill"]'],
+                'title'   => 'What happened to the branch\'s buyers',
+                'body'    => 'Buyers held, added, won, appointments, emails, WhatsApps and losses for the period, for this branch only. Every figure opens the list of buyers behind it.',
+            ],
+            [
+                'element'       => '[data-tour="rpt-drill"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Look through the list, then click the cross to close it.', 'target' => 'button[aria-label="Close"]'],
+                'title'         => 'The buyers behind the number',
+                'body'          => 'This list always matches the figure you clicked. Close it when you are done.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-attention"]',
+                'section' => 'Who needs attention',
+                'title'   => 'Needs Attention',
+                'body'    => 'Cold and lost buyers, parked buyers, viewings with no feedback and recent losses — for this branch\'s agents. Each list shows the top ten; use "View all" for the rest.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-agents"]',
+                'section' => 'The branch\'s agents',
+                'title'   => 'Agents in this branch',
+                'body'    => 'One row per agent in the branch with their buyers held, added, won, appointments, losses and value lost. Click an agent\'s name to open their own report.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-pipeline"]',
+                'section' => 'Buyers right now',
+                'title'   => 'Where the buyers sit now',
+                'body'    => 'A snapshot of today: how many of the branch\'s buyers sit in each stage of the Buyer Pipeline.',
+            ],
+            [
+                'element' => '[data-tour="rpt-br-demand"]',
+                'section' => 'Demand analysis',
+                'title'   => 'What would we sell them?',
+                'body'    => 'Tick the property types and set a price range to see how many of this branch\'s buyers would consider something there.',
+            ],
+        ],
+    ],
+
+    // ── Performance & ROI: one agent ─────────────────────────────────────────
+    'rpt-perf-agent' => [
+        'key'         => 'rpt-perf-agent',
+        'title'       => 'Reading one agent\'s performance',
+        'description' => 'See every figure for one agent in the period next to the period before it, and how they work their buyers.',
+        'route'       => 'performance.agency-report.agent',
+        'feature'     => 'performance-roi-report',
+        'permission'  => 'view_performance',
+        'pick_from'   => 'performance.agency-report',
+        'pick_note'   => 'Click an agent\'s name in the agent table to open their journey — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-pa-intro"]',
+                'section' => 'This agent\'s journey',
+                'title'   => 'One agent, one period',
+                'body'    => 'Everything on this page is about the one agent named at the top, for the period you pick. The line under the name shows their branch, the period and the earlier period it is compared with. "Back to report" returns to the whole-agency report.',
+            ],
+            [
+                'element' => '[data-tour="rpt-period"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a period — or press Skip this step.', 'target' => 'select[name="period"]'],
+                'title'   => 'Choose the period',
+                'body'    => 'This month, last month, this quarter, a custom range and more. All the figures below follow it, and each is compared with the period just before.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pa-print"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Print agent to open a printable copy — or press Skip this step.'],
+                'title'   => 'Print this agent\'s figures',
+                'body'    => 'Opens a clean print view in a new tab, ready to hand to the agent or keep on file.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pa-metrics"]',
+                'section' => 'The agent\'s figures',
+                'title'   => 'Every figure with its trend',
+                'body'    => 'Each box shows the figure for the period, and underneath it whether it went up or down against the earlier period and by how much. Green is up, red is down.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pa-buyers"]',
+                'section' => 'Buyer activity',
+                'title'   => 'How they work their buyers',
+                'body'    => 'The agent\'s buyer picture for the period: the tiles add up buyers held, added, won and lost, and the small tags show how many buyers sit in each pipeline stage right now.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pa-book"]',
+                'title'   => 'Buyer by buyer',
+                'body'    => 'One row per buyer: their stage, how long they have been in it and in the pipeline, the appointments and messages in the period, and when they were last worked. Buyers lost in the period are listed below with the reason.',
+            ],
+        ],
+    ],
+
+    // ── Performance & ROI: one branch ────────────────────────────────────────
+    'rpt-perf-branch' => [
+        'key'         => 'rpt-perf-branch',
+        'title'       => 'Reading one branch\'s performance',
+        'description' => 'See a branch\'s totals for the period against the one before, and open any agent in it.',
+        'route'       => 'performance.agency-report.branch',
+        'feature'     => 'performance-roi-report',
+        'permission'  => 'view_performance',
+        'pick_from'   => 'performance.agency-report',
+        'pick_note'   => 'Click a branch in the branch chart or table to open it — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-pb-intro"]',
+                'section' => 'This branch',
+                'title'   => 'One branch, one period',
+                'body'    => 'The branch\'s figures added up for the period you pick, compared with the period just before. "Back to company report" returns to the whole-agency report.',
+            ],
+            [
+                'element' => '[data-tour="rpt-period"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a period — or press Skip this step.', 'target' => 'select[name="period"]'],
+                'title'   => 'Choose the period',
+                'body'    => 'All the figures below follow this choice, and each is compared with the period just before.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pb-totals"]',
+                'section' => 'Branch totals',
+                'title'   => 'Every figure with its trend',
+                'body'    => 'Each box is one figure for the whole branch. Underneath it shows whether it went up or down against the earlier period, and by how much. Green is up, red is down.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pb-agents"]',
+                'section' => 'Agents in this branch',
+                'title'   => 'Who contributed what',
+                'body'    => 'One row per agent with each figure for the period. Use it to see who is carrying the branch and who needs help.',
+            ],
+            [
+                'element' => '[data-tour="rpt-pb-agent-link"]',
+                'do'      => ['action' => 'click', 'say' => 'Click an agent\'s name to open their journey — or press Skip this step.'],
+                'title'   => 'Go one level deeper',
+                'body'    => 'An agent\'s name opens their own page: every figure with its trend, plus how they work their buyers.',
+            ],
+        ],
+    ],
+
+    // ── Title Deeds: handing a deed over ─────────────────────────────────────
+    'rpt-title-deed-handover' => [
+        'key'         => 'rpt-title-deed-handover',
+        'title'       => 'Handing a title deed over',
+        'description' => 'Check who is collecting the deed, record how they were identified, and hand it over.',
+        'route'       => 'title-deeds.handover',
+        'permission'  => 'title_deeds.handover',
+        'pick_from'   => 'title-deeds.index',
+        'pick_note'   => 'Open the title deed being collected and click "Hand over" — the guide starts once the hand-over screen opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-tdh-head"]',
+                'section' => 'Who is at the counter',
+                'title'   => 'Handing the deed over',
+                'body'    => 'This screen records the moment a deed leaves the office: who collected it, how you checked who they are, and their signature. The deed and its owners are shown at the top. Once you hand it over the deed is marked as collected and cannot be handed over again.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-ways"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick the situation that matches who is at the counter — or press Skip this step.', 'target' => 'button'],
+                'title'   => 'How are they collecting?',
+                'body'    => 'Pick what is true right now: the collector has the PIN, the owner is here without it, or someone else is here without it. Only the ways your agency allows are shown, and the line under the buttons lists what will happen next.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-pin"]',
+                'section' => 'Checking who they are',
+                'do'      => ['action' => 'fill', 'say' => 'Type the PIN the collector gives you.'],
+                'title'   => 'The collection PIN',
+                'body'    => 'The owners were sent a PIN when they were told the deed had arrived. Ask the collector for it and type it here. Too many wrong tries lock the PIN, and you can issue a new one from the deed\'s page.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-owner"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick the owner who is collecting.', 'target' => 'select'],
+                'title'   => 'Which owner is collecting',
+                'body'    => 'Choose the owner standing in front of you. If you are checking their ID instead of a PIN, you will also type the ID number you saw.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-photo"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Choose file to add a photo of their ID — or press Skip this step.', 'target' => 'input[type="file"]'],
+                'title'   => 'Photo of their ID',
+                'body'    => 'Take a photo of the collector\'s ID with your phone or upload one. It is filed with the hand-over as proof. Your agency decides whether this is required or optional.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-sign"]',
+                'section' => 'Signature',
+                'do'      => ['action' => 'fill', 'say' => 'Type the collector\'s full name.', 'target' => '#typed_name'],
+                'title'   => 'The collector signs',
+                'body'    => 'Type the collector\'s full name, then let them sign in the white box with a finger or the mouse. "Clear the signature" lets them start again.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tdh-link"]',
+                'title'   => 'Or sign on their own phone',
+                'body'    => 'If they would rather sign on their own phone, create a signing link here and send it by email or WhatsApp. The screen then waits until they have signed before you can hand the deed over.',
+            ],
+            [
+                'element'       => '[data-tour="rpt-tdh-submit"]',
+                'section'       => 'Hand it over',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Hand the deed over when the collector has what they need.'],
+                'title'         => 'Hand the deed over',
+                'body'          => 'The deed is marked as collected, the agent is told, and every owner gets an email confirming it.',
+            ],
+        ],
+    ],
+
+    // ── TV Display: branch manager's messages ────────────────────────────────
+    'rpt-tv-messages-bm' => [
+        'key'         => 'rpt-tv-messages-bm',
+        'title'       => 'Setting up messages for your branch TV',
+        'description' => 'Write the messages and live figures that scroll on your branch\'s wall-mounted TV.',
+        'route'       => 'bm.tv-messages',
+        'permission'  => 'manage_tv_messages',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rpt-tvb-intro"]',
+                'section' => 'What the TV shows',
+                'title'   => 'Your branch TV messages',
+                'body'    => 'The TV in your branch shows the leaderboards plus the messages you write here. Messages you add on this page go to your branch\'s TV only. The tag in the corner shows which branch you are writing for.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-add"]',
+                'section' => 'Adding a message',
+                'title'   => 'Add a message',
+                'body'    => 'Write the message, choose where it appears, then add it. It is then included in what your branch\'s TV shows.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-message"]',
+                'do'      => ['action' => 'fill', 'say' => 'Type the message.'],
+                'title'   => 'The message',
+                'body'    => 'A motivational line, an announcement, a reminder about an open day. Keep it short enough to read from across the room.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-values"]',
+                'do'      => ['action' => 'click', 'say' => 'Click a value to drop it into your message — or press Skip this step.', 'target' => 'button'],
+                'title'   => 'Insert live figures',
+                'body'    => 'These tags are placeholders that the TV replaces with real numbers, such as the branch\'s deals so far this period or active listings. Click one to add it to the message.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-showon"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick where it shows on the TV.'],
+                'title'   => 'Where on the screen',
+                'body'    => 'Hero is the main message area, Ticker is the message strip. The default shows it in both.',
+            ],
+            [
+                'element'       => '[data-tour="rpt-tvb-addbtn"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Add Message when you are ready.'],
+                'title'         => 'Add it',
+                'body'          => 'The message appears in your branch\'s list below.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-list"]',
+                'section' => 'Messages you already have',
+                'title'   => 'Your branch messages',
+                'body'    => 'Every message for your branch, with who created it. Each row can be changed in place: edit the wording, where it shows, switch it on or off with the tick, then click Save on that row. Delete removes it from the TV.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-row"]',
+                'do'      => ['action' => 'fill', 'say' => 'Change the wording of a message — or press Skip this step.', 'target' => 'input[name="message"]'],
+                'title'   => 'Edit a message',
+                'body'    => 'Change the text, where it shows or the On tick, then click Save on that row.',
+            ],
+            [
+                'element' => '[data-tour="rpt-tvb-global"]',
+                'section' => 'Agency-wide messages',
+                'title'   => 'Messages from head office',
+                'body'    => 'Messages the agency has set for every branch TV. You can see them here but not change them.',
+            ],
+        ],
+    ],
+
 ];

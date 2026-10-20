@@ -7,10 +7,11 @@
 
 @section('content')
 <div class="p-6 space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between" data-tour="rops-tos-intro">
         <h1 class="text-lg font-semibold">Take-on import — {{ $run->source_filename }}</h1>
-        <div class="space-x-2">
-            <a href="{{ route('corex.rentals.take-on-import.issues', $run) }}" class="corex-btn-secondary text-xs">Download issue report</a>
+        <div class="flex items-center gap-2">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rentals.take-on-import.issues', $run) }}" class="corex-btn-secondary text-xs" data-tour="rops-tos-issues">Download issue report</a>
             <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary text-xs">Back to batches</a>
         </div>
     </div>
@@ -19,7 +20,7 @@
         <div class="ds-alert-success">{{ session('status') }}</div>
     @endif
 
-    <div class="corex-card p-4 text-xs flex gap-6">
+    <div class="corex-card p-4 text-xs flex gap-6" data-tour="rops-tos-summary">
         <div>Status: <span class="ds-badge ds-badge-info">{{ ucfirst(str_replace('_', ' ', $run->status)) }}</span></div>
         <div>Uploaded by {{ $run->user?->name }} on {{ $run->created_at->format('Y-m-d H:i') }}</div>
         @if ($run->completed_at)
@@ -27,7 +28,7 @@
         @endif
     </div>
 
-    <div class="corex-card p-4">
+    <div class="corex-card p-4" data-tour="rops-tos-rows">
         <div class="overflow-x-auto">
         <table class="ds-table w-full text-xs">
             <thead>
@@ -76,7 +77,7 @@
 
     @permission('rentals_take_on_import.manage')
     @if ($run->status === 'completed')
-        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" data-confirm="Archive this batch? Anything it created that has not been edited since will be archived." data-confirm-danger data-confirm-label="Archive">
+        <form method="POST" action="{{ route('corex.rentals.take-on-import.archive', $run) }}" data-tour="rops-tos-archive" data-confirm="Archive this batch? Anything it created that has not been edited since will be archived." data-confirm-danger data-confirm-label="Archive">
             @csrf
             <button type="submit" class="corex-btn-danger-outline text-xs">Archive this batch</button>
         </form>

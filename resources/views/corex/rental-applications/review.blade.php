@@ -255,7 +255,7 @@
                     row (which would just recreate the "lots of wasted
                     screen" complaint one row lower).
                 --}}
-                <h1 class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
+                <h1 class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}" data-tour="rops-rv-head">
                     <span class="truncate font-bold" style="min-width:0;">{{ $headerTitleText }}</span>
                     <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
                         &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
@@ -407,7 +407,7 @@
             </div>
         </x-slot>
         <x-slot name="right">
-                <div class="flex items-center gap-2 flex-wrap justify-end">
+                <div class="flex items-center gap-2 flex-wrap justify-end" data-tour="rops-rv-actions">
                     @if($viewerRole === 'agent')
                         {{-- 2026-09-08 — Johan, three times now: "same fight with placement
                              of buttons - submit to auth should be on the header at the
@@ -421,7 +421,7 @@
                                 <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
                             @endif
                             @unless($canApproveDirectly ?? false)
-                            <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
+                            <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" data-tour="rops-rv-submit" :disabled="submittingForApproval"
                                     @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
                             @endunless
                         @endunless
@@ -429,6 +429,7 @@
                     @else
                         <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Back to list</a>
                     @endif
+                    @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 </div>
         </x-slot>
     </x-sticky-action-bar>
@@ -857,7 +858,7 @@
                  membership, and an authoriser reviewing someone else's
                  application isn't guaranteed to pass it — handing them a link
                  that can 403 isn't a real feature. --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ summaryOpen: false }">
+            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ summaryOpen: false }" data-tour="rops-rv-summary">
                 <button type="button" class="w-full flex items-center justify-between text-left" @click="summaryOpen = !summaryOpen">
                     <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Submitted Application</h2>
                     <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="summaryOpen ? 'Hide' : 'Show'"></span>
@@ -1129,7 +1130,7 @@
                  } }"
                  x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
-                    <button type="button" data-qa="docs-toggle" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
+                    <button type="button" data-qa="docs-toggle" data-tour="rops-rv-docs" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
                         <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
                             Supporting Documents
                             <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
@@ -1140,7 +1141,7 @@
                         <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="docsOpen ? 'Hide' : 'Show'"></span>
                     </button>
                     @if($documents->filter(fn ($r) => $r['inline_viewable'])->isNotEmpty())
-                        <button type="button" class="text-xs font-semibold" style="color: var(--ds-blue, #2563eb);" @click="openContinuousView()">View &amp; Mark Up all &rarr;</button>
+                        <button type="button" class="text-xs font-semibold" style="color: var(--ds-blue, #2563eb);" data-tour="rops-rv-markup" @click="openContinuousView()">View &amp; Mark Up all &rarr;</button>
                     @endif
                 </div>
 
@@ -1347,7 +1348,7 @@
                  entirely. Johan: "An empty state that says so is the fix." The
                  card and its heading now always render; only the body inside
                  switches between the list and a plain-language empty state. --}}
-            <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rops-rv-audit">
                 <div class="flex items-center justify-between mb-3">
                     <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Audit Trail ({{ $auditLogTotal }})</h2>
                     @if($auditLog->count() > 10)
@@ -1666,9 +1667,9 @@
              (new, below). Open/collapsed remembered per user per section
              via rentalChecklistPanel()'s togglePanel()/isPanelOpen() —
              default Finances open, Checklist open (§3.1). --}}
-        <div class="rental-review-aside">
+        <div class="rental-review-aside" data-tour="rops-rv-aside">
         <div class="rr-accordion-section">
-            <button type="button" class="rr-accordion-header" @click="togglePanel('finances', true)">
+            <button type="button" class="rr-accordion-header" data-tour="rops-rv-finances" @click="togglePanel('finances', true)">
                 <span class="flex items-center gap-1.5">
                     {{ $viewerRole === 'agent' ? 'Affordability Assessment' : "Agent's Assessment" }}
                     @if($viewerRole === 'agent')
@@ -1986,7 +1987,7 @@
              archived every section renders nothing here at all. --}}
         <template x-if="checklistSections.length > 0">
             <div class="rr-accordion-section">
-                <button type="button" class="rr-accordion-header" @click="togglePanel('checklist', true)">
+                <button type="button" class="rr-accordion-header" data-tour="rops-rv-checklist" @click="togglePanel('checklist', true)">
                     <span>Checklist <span class="text-[10px] font-normal" style="color: var(--text-muted);" x-text="'(' + checklistOverall() + ')'"></span></span>
                     <span class="rr-accordion-chevron" :class="{ 'rr-accordion-chevron-open': isPanelOpen('checklist', true) }">&rsaquo;</span>
                 </button>
@@ -2113,7 +2114,7 @@
     .rr-equal-btns .corex-btn-primary, .rr-equal-btns .corex-btn-outline { box-sizing: border-box; border: 1px solid transparent; min-height: 30px; display: inline-flex; align-items: center; justify-content: center; }
     .rr-equal-btns .corex-btn-outline { border-color: var(--border); }
 </style>
-            <div class="pt-2 rr-equal-btns" style="border-top: 1px solid var(--border);">
+            <div class="pt-2 rr-equal-btns" style="border-top: 1px solid var(--border);" data-tour="rops-rv-decide">
                 @if($viewerRole === 'agent')
                     {{-- Stage 3, 2026-09-11 — for a figure with nothing to
                          highlight. A self-contained inline form (@click
@@ -2126,7 +2127,7 @@
                          add a NEW line, and there is nothing partial about
                          "add" the way there is about, say, a date field the
                          agent might still want to glance at. --}}
-                    <button type="button" data-qa="ledger-add-manual-open" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
+                    <button type="button" data-qa="ledger-add-manual-open" data-tour="rops-rv-addline" class="corex-btn-outline text-xs w-full mb-1.5" x-show="!reviewLocked" @click="openManualEntry()">Add line manually</button>
                     <div x-show="manualEntryOpen && !reviewLocked" x-cloak class="rounded-md p-2 mb-1.5" style="border: 1px solid var(--border); background: var(--surface-2, #f9fafb);">
                         <div class="grid grid-cols-2 gap-1 mb-1">
                             <button type="button" data-qa="ledger-add-manual-type-income" class="text-xs rounded-md py-1" :style="{ border: '1px solid var(--border)', background: manualEntry.entry_type === 'income' ? 'var(--ds-purple-soft, #f3e8ff)' : 'transparent', color: manualEntry.entry_type === 'income' ? 'var(--ds-purple, #7c3aed)' : 'var(--text-secondary)' }" @click="manualEntry.entry_type = 'income'">Income</button>
@@ -2154,7 +2155,7 @@
                         </div>
                     </div>
                     @if($canSendBackToApplicant)
-                        <button type="button" data-qa="send-back-to-applicant-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
+                        <button type="button" data-qa="send-back-to-applicant-open" data-tour="rops-rv-sendback" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackModalOpen = true">Send back to applicant</button>
                     @endif
                     @unless(in_array($rentalApplication->status, ['submitted_for_approval', 'approved', 'declined'], true) || $isPendingAuthorisation)
                         @if($canApproveDirectly)
@@ -2182,8 +2183,8 @@
                     @if($blockedBySelfApproval)
                         <p class="text-[11px]" style="color: var(--text-muted);">You created this application — only another authoriser may act on it.</p>
                     @else
-                        <button type="button" data-qa="authoriser-send-back-open" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
-                        <button type="button" data-qa="authoriser-approve-open" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve &amp; continue</button>
+                        <button type="button" data-qa="authoriser-send-back-open" data-tour="rops-rv-a-sendback" class="corex-btn-outline text-xs w-full mb-1.5" @click="sendBackToAgentModalOpen = true">Send back</button>
+                        <button type="button" data-qa="authoriser-approve-open" data-tour="rops-rv-a-approve" class="corex-btn-primary text-xs w-full mb-1.5" @click="approveModalOpen = true; approveConfirming = false">Approve &amp; continue</button>
                         {{-- Equal weight with Approve, 2026-09-14 (cc4's walk,
                              Johan GO): "declining is the unusual, awkward
                              path" was a real, visible bias — a full-width
@@ -2195,7 +2196,7 @@
                              visually agree) — distinct from Approve's solid
                              primary treatment on purpose, per instruction:
                              equal weight, not equal invitation. --}}
-                        <button type="button" data-qa="authoriser-decline-open" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
+                        <button type="button" data-qa="authoriser-decline-open" data-tour="rops-rv-a-decline" class="corex-btn-outline text-xs w-full mb-1.5" style="color: var(--ds-red, #dc2626); border-color: var(--ds-red, #dc2626);" @click="declineModalOpen = true">Decline</button>
                     @endif
                 @endif
             </div>

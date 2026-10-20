@@ -4,7 +4,7 @@
 @section('corex-content')
 <div class="w-full space-y-5">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="cop-ppr-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
                 <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">
@@ -17,10 +17,11 @@
                 </p>
             </div>
             <div class="flex flex-wrap items-center gap-2">
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
                 @if($principalOnly)
                     <a href="{{ route('admin.ppra-inspection-pack.practitioners') }}" class="corex-btn-outline text-xs">Full roster</a>
                 @else
-                    <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.pdf') }}" class="corex-btn-outline text-xs">Export PDF</a>
+                    <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.pdf') }}" class="corex-btn-outline text-xs" data-tour="cop-ppr-export">Export PDF</a>
                     <a href="{{ route('admin.ppra-inspection-pack.practitioner-register.csv') }}" class="corex-btn-outline text-xs">Export CSV</a>
                 @endif
                 <a href="{{ route('admin.ppra-inspection-pack.index') }}" class="corex-btn-outline text-xs">Back to checklist</a>
@@ -28,19 +29,19 @@
         </div>
     </div>
 
-    <form method="GET" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
+    <form method="GET" data-tour="cop-ppr-filter" class="props-filter-panel flex flex-wrap items-end gap-3 rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);">
         @if($principalOnly)
             <input type="hidden" name="principal" value="1">
         @endif
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Search</label>
-            <input class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Name or designation"
+            <input data-tour="cop-ppr-search" class="list-header-filter {{ (request('search') !== null && request('search') !== '') ? 'is-active' : '' }}" type="text" name="search" value="{{ request('search') }}" placeholder="Name or designation"
                   >
         </div>
         @unless($principalOnly)
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Role</label>
-            <select class="list-header-filter {{ (request('role') !== null && request('role') !== '') ? 'is-active' : '' }}" name="role">
+            <select data-tour="cop-ppr-role" class="list-header-filter {{ (request('role') !== null && request('role') !== '') ? 'is-active' : '' }}" name="role">
                 <option value="">All roles</option>
                 @foreach($roleOptions as $roleOption)
                     <option value="{{ $roleOption }}" @selected(request('role')===$roleOption)>{{ ucwords(str_replace('_', ' ', $roleOption)) }}</option>
@@ -50,7 +51,7 @@
         @endunless
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">FFC Status</label>
-            <select class="list-header-filter {{ (request('status') !== null && request('status') !== '') ? 'is-active' : '' }}" name="status">
+            <select data-tour="cop-ppr-status" class="list-header-filter {{ (request('status') !== null && request('status') !== '') ? 'is-active' : '' }}" name="status">
                 <option value="">All FFC statuses</option>
                 <option value="green" @selected(request('status')==='green')>Valid</option>
                 <option value="amber" @selected(request('status')==='amber')>Expiring / Pending</option>
@@ -59,19 +60,19 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Sort</label>
-            <select class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
+            <select data-tour="cop-ppr-sort" class="list-header-filter {{ (false) ? 'is-active' : '' }}" name="sort">
                 <option value="status" @selected(request('sort', 'status')==='status')>Status (worst first)</option>
                 <option value="name" @selected(request('sort')==='name')>Name</option>
             </select>
         </div>
-        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;">Filter</button>
+        <button type="submit" class="corex-btn-primary text-xs" style="height:2.25rem;" data-tour="cop-ppr-filter-btn">Filter</button>
     </form>
 
     @php
         $statusTone = ['green' => 'ds-badge-success', 'amber' => 'ds-badge-warning', 'red' => 'ds-badge-danger'];
     @endphp
 
-    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);">
+    <div class="rounded-md overflow-hidden" style="background:var(--surface); border:1px solid var(--border);" data-tour="cop-ppr-table">
         @if($roster->isEmpty())
             <div class="py-12 px-6 text-center">
                 <h3 class="text-base font-semibold mb-1" style="color:var(--text-primary);">

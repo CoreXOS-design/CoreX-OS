@@ -89,6 +89,10 @@ namespace App\Support\Tours;
  *                     Marketing on the property page). Only labels the tour for
  *                     the feature-rollout tour report (FeatureTourCoverage); it
  *                     never gates anything.
+ *     user_check    — name of a no-argument User method that must return true
+ *                     for the tour to be offered, for a screen its controller
+ *                     gates on named people rather than a permission or role
+ *                     (e.g. 'seesRentalAuthorisationQueue'). See visibleTo().
  *
  *   Per-tour (only for tours whose screen needs a record, e.g. one property —
  *   in the URL path or as a required query, e.g. ?pack_instance=):
@@ -1341,6 +1345,14 @@ class TourRegistry
         // a middleware that was never applied. See defs/compliance-b.php's 'comp-rcr'.
         $roles = $tour['roles'] ?? null;
         if ($roles && ! (is_string($user->role ?? null) && in_array($user->role, $roles, true)) && empty($user->is_admin)) {
+            return false;
+        }
+
+        // A screen whose controller gates on a per-agency list of named people (no permission key, no role),
+        // e.g. the rental application authorisation queue (User::seesRentalAuthorisationQueue()). The tour
+        // names that same User method so the guide is offered to exactly the people the page lets in.
+        $userCheck = $tour['user_check'] ?? null;
+        if ($userCheck && ! (is_string($userCheck) && method_exists($user, $userCheck) && $user->{$userCheck}() === true)) {
             return false;
         }
 

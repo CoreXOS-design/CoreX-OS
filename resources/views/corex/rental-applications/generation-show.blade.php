@@ -10,7 +10,7 @@
 @section('corex-content')
 <div class="w-full" style="max-width: 56rem; margin: 0 auto; padding: 1rem;">
 
-    <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center justify-between mb-4" data-tour="rops-gen-head">
         <div>
             <h1 class="text-sm font-bold" style="color: var(--text-primary);">
                 Submission {{ $sealed->generation }} of {{ $latestGeneration }}
@@ -21,9 +21,12 @@
                 @if($sealed->ip_address) from {{ $sealed->ip_address }} @endif
             </p>
         </div>
-        <a href="{{ route('corex.rental-applications.review', $rentalApplication) }}" class="text-xs underline" style="color: var(--ds-blue, #2563eb);">
-            Back to review
-        </a>
+        <div class="flex items-center gap-3">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            <a href="{{ route('corex.rental-applications.review', $rentalApplication) }}" class="text-xs underline" style="color: var(--ds-blue, #2563eb);" data-tour="rops-gen-back">
+                Back to review
+            </a>
+        </div>
     </div>
 
     @unless($isLatest)
@@ -34,13 +37,13 @@
              already does it (rental-applications.blade.php's qualifying-
              formula warning) — a fixed dark amber text colour that reads
              correctly regardless of the surrounding theme. --}}
-        <div class="mb-4 rounded-md px-3 py-2 text-xs" style="background: var(--ds-amber-soft, #fffbeb); border: 1px solid var(--ds-amber, #b45309); color: var(--ds-amber, #b45309);">
+        <div class="mb-4 rounded-md px-3 py-2 text-xs" style="background: var(--ds-amber-soft, #fffbeb); border: 1px solid var(--ds-amber, #b45309); color: var(--ds-amber, #b45309);" data-tour="rops-gen-previous">
             This is a PREVIOUS submission — the applicant has since reopened and resubmitted a newer version
             (submission {{ $latestGeneration }}). This view is read-only history and cannot be edited.
         </div>
     @endunless
 
-    <div class="rounded-md" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md" style="border: 1px solid var(--border); background: var(--surface);" data-tour="rops-gen-fields">
         <div class="px-3 py-2 text-xs font-semibold" style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
             What was submitted
         </div>
@@ -139,7 +142,7 @@
         </div>
     </div>
 
-    <div class="rounded-md mt-4" style="border: 1px solid var(--border); background: var(--surface);">
+    <div class="rounded-md mt-4" style="border: 1px solid var(--border); background: var(--surface);" data-tour="rops-gen-signatures">
         <div class="px-3 py-2 text-xs font-semibold" style="border-bottom: 1px solid var(--border); color: var(--text-secondary);">
             Signatures for this submission
         </div>

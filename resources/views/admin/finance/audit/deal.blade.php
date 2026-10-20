@@ -4,7 +4,7 @@
 @section('content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4">
+    <div style="background:var(--brand-default);" class="rounded-2xl px-6 py-4" data-tour="cop-fin-deal-intro">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
                 <div class="text-sm text-white/60 space-x-2">
@@ -33,7 +33,8 @@
             </div>
 
             <div class="flex flex-col items-end gap-2">
-                <div class="text-right">
+                @include('layouts.partials.tour-header-launcher')
+                <div class="text-right" data-tour="cop-fin-deal-run">
                     <div class="text-xs text-white/40">Audit Run</div>
                     <div class="font-semibold text-white">#{{ $run->id }}</div>
                     <div class="text-xs text-white/50">{{ AuditLabelHelper::periodLabel($run->period) }}</div>
@@ -62,7 +63,7 @@
         </div>
     @else
 
-    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)">
+    <div class="rounded-2xl border overflow-hidden" style="border-color:var(--border); background:var(--surface)" data-tour="cop-fin-deal-metrics">
         <div class="px-4 py-3 border-b flex items-center justify-between" style="border-color:var(--border)">
             <h3 class="ds-section-header">Audit Metrics</h3>
             <div class="text-xs" style="color:var(--text-muted)">Definition-by-definition breakdown for this deal.</div>
@@ -83,7 +84,7 @@
                 <tbody class="divide-y divide-[color:var(--border)]">
                     @foreach($items as $item)
                         <tr class="{{ $item->severity === 'error' ? 'bg-red-50/40 dark:bg-red-900/10' : '' }} hover:bg-[color:var(--surface-2)]">
-                            <td class="px-4 py-3">
+                            <td class="px-4 py-3" @if($loop->first) data-tour="cop-fin-deal-status" @endif>
                                 @if($item->severity === 'error')
                                     <span class="ds-badge ds-badge-danger">fail</span>
                                 @elseif($item->severity === 'warn')
@@ -212,7 +213,7 @@
     @endif
 
     <div>
-        <a href="{{ route('admin.finance.audit.run', $run) }}"
+        <a href="{{ route('admin.finance.audit.run', $run) }}" data-tour="cop-fin-deal-back"
            class="text-sm hover:underline" style="color:var(--brand-icon)">
             &larr; Back to Run #{{ $run->id }}
         </a>

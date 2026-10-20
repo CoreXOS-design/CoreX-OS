@@ -50,11 +50,12 @@
     @endif
 
     <div class="flex items-center justify-between gap-3 flex-wrap">
-        <div>
+        <div data-tour="rmnt-cmp-title">
             <h1 class="text-lg font-semibold">{{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}</h1>
             <span class="text-xs" style="color: var(--text-muted);">Move-out comparison — {{ $inspection->lease?->tenantNames() ?? 'Unknown tenant' }}</span>
         </div>
-        <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2" data-tour="rmnt-cmp-actions">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
             @if($inventory)
                 <a href="{{ route('corex.rental-inventories.comparison', $inventory) }}" class="corex-btn-outline text-xs" data-qa="mo-inventory-link">Inventory comparison</a>
             @endif
@@ -67,7 +68,7 @@
             No move-in inspection was found for this tenancy — nothing to compare against yet. Every item below is shown as "New item".
         </div>
     @else
-        <p class="text-xs" style="color: var(--text-muted);" data-qa="mo-baseline">
+        <p class="text-xs" style="color: var(--text-muted);" data-qa="mo-baseline" data-tour="rmnt-cmp-baseline">
             Compared with the move-in inspection of {{ ($inInspection->completed_at ?? $inInspection->scheduled_for ?? $inInspection->created_at)?->format('j M Y') }}
             @unless($comparison['baseline_completed']) <strong>(not completed — compared with whatever was recorded)</strong> @endunless
             @if($inInspection->lease_id !== $inspection->lease_id) <span>— from an earlier lease term of this tenancy</span> @endif.
@@ -76,7 +77,7 @@
     @endunless
 
     {{-- counts: each chip filters to that difference --}}
-    <div class="flex flex-wrap items-center gap-2" data-qa="mo-counts">
+    <div class="flex flex-wrap items-center gap-2" data-qa="mo-counts" data-tour="rmnt-cmp-counts">
         @foreach($differenceLabels as $key => $label)
             <a href="{{ route('corex.rental-inspections.deposit-comparison', [$inspection] + $queryWith(['difference' => ($filters['difference'] ?? null) === $key ? null : $key])) }}"
                class="px-2.5 py-1 rounded-full text-xs font-semibold" style="{{ $differenceStyle($key) }} {{ ($filters['difference'] ?? null) === $key ? 'outline: 2px solid var(--brand-icon, #0ea5e9);' : '' }}">
@@ -86,7 +87,7 @@
     </div>
 
     @if(!empty($comparison['header_facts']))
-    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);">
+    <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-tour="rmnt-cmp-facts">
         <h2 class="text-sm font-semibold">Keys, remotes &amp; meters</h2>
         @foreach($comparison['header_facts'] as $fact)
             <div class="flex items-center justify-between text-sm" style="border-bottom: 1px solid var(--border); padding-bottom: 4px;">
@@ -101,14 +102,14 @@
     @endif
 
     {{-- search / filter / sort --}}
-    <form method="GET" action="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="flex flex-wrap items-end gap-3" data-qa="mo-filters">
+    <form method="GET" action="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="flex flex-wrap items-end gap-3" data-qa="mo-filters" data-tour="rmnt-cmp-filters">
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Search</label><br>
-            <input type="text" name="q" value="{{ $filters['q'] ?? '' }}" placeholder="Item, room or note" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <input type="text" name="q" data-tour="rmnt-cmp-search" value="{{ $filters['q'] ?? '' }}" placeholder="Item, room or note" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Room</label><br>
-            <select name="room" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <select name="room" data-tour="rmnt-cmp-room-filter" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All rooms</option>
                 @foreach($roomOptions as $opt)
                     <option value="{{ $opt['id'] }}" @selected((string) ($filters['room'] ?? '') === (string) $opt['id'])>{{ $opt['label'] }}</option>
@@ -117,7 +118,7 @@
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Difference</label><br>
-            <select name="difference" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <select name="difference" data-tour="rmnt-cmp-difference" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
                 @foreach($differenceLabels as $key => $label)
                     <option value="{{ $key }}" @selected(($filters['difference'] ?? '') === $key)>{{ $label }}</option>
@@ -126,7 +127,7 @@
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Classification</label><br>
-            <select name="classification" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <select name="classification" data-tour="rmnt-cmp-classification" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="">All</option>
                 <option value="none" @selected(($filters['classification'] ?? '') === 'none')>Not classified yet</option>
                 <option value="any" @selected(($filters['classification'] ?? '') === 'any')>Classified</option>
@@ -137,23 +138,23 @@
         </div>
         <div>
             <label class="text-xs" style="color: var(--text-muted);">Order</label><br>
-            <select name="sort" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
+            <select name="sort" data-tour="rmnt-cmp-order" class="rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);">
                 <option value="walking" @selected(($filters['sort'] ?? 'walking') === 'walking')>Walking order</option>
                 <option value="severity" @selected(($filters['sort'] ?? '') === 'severity')>Worst first</option>
             </select>
         </div>
-        <label class="flex items-center gap-1.5 text-xs pb-2" style="color: var(--text-secondary);">
+        <label class="flex items-center gap-1.5 text-xs pb-2" style="color: var(--text-secondary);" data-tour="rmnt-cmp-only">
             <input type="checkbox" name="differences_only" value="1" @checked($filters['differences_only'])> Differences only
         </label>
-        <button type="submit" class="corex-btn-outline text-xs">Apply</button>
+        <button type="submit" class="corex-btn-outline text-xs" data-tour="rmnt-cmp-apply">Apply</button>
         @if(request()->hasAny(['q', 'room', 'difference', 'classification', 'differences_only', 'sort']))
             <a href="{{ route('corex.rental-inspections.deposit-comparison', $inspection) }}" class="corex-btn-outline text-xs">Clear</a>
         @endif
     </form>
 
     @forelse($comparison['rooms'] as $room)
-    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ open: true }" data-qa="mo-room-{{ $room['key'] }}">
-        <button type="button" @click="open = !open" class="w-full flex items-center justify-between px-4 py-2.5 text-left">
+    <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ open: true }" data-qa="mo-room-{{ $room['key'] }}" data-tour="rmnt-cmp-room">
+        <button type="button" @click="open = !open" class="w-full flex items-center justify-between px-4 py-2.5 text-left" data-tour="rmnt-cmp-roomhead">
             <span class="text-sm font-semibold">{{ $room['label'] }}
                 <span class="text-xs font-normal" style="color: var(--text-muted);">· {{ count($room['rows']) }} item{{ count($room['rows']) === 1 ? '' : 's' }}@if($room['marked']) · <strong style="color:#b45309;">{{ $room['marked'] }} to look at</strong>@endif</span>
             </span>
@@ -186,7 +187,7 @@
 
             @forelse($room['rows'] as $row)
             @php $item = $row['item']; $finding = $row['finding']; @endphp
-            <div class="text-sm space-y-2 pt-2" style="border-top: 1px solid var(--border);" data-qa="mo-row-{{ $row['key'] }}" data-difference="{{ $row['difference'] }}">
+            <div class="text-sm space-y-2 pt-2" style="border-top: 1px solid var(--border);" data-qa="mo-row-{{ $row['key'] }}" data-difference="{{ $row['difference'] }}" data-tour="rmnt-cmp-row">
                 <div class="flex items-center justify-between gap-3">
                     <span class="font-medium">{{ $item->label }}@if($item->is_retired) <span class="text-xs" style="color: var(--text-muted);">(retired item)</span>@endif</span>
                     <span class="px-2 py-0.5 rounded-full text-xs font-semibold" style="{{ $differenceStyle($row['difference']) }}">{{ $row['difference_label'] }}</span>
@@ -239,7 +240,7 @@
                         </div>
                     @endif
                     @permission('rental_inspections.review_deposit_comparison')
-                        <form method="POST" action="{{ route('corex.rental-inspections.deposit-comparison.finding', [$inspection, $item->id]) }}" class="flex flex-wrap items-center gap-2" data-qa="mo-classify-{{ $row['key'] }}"
+                        <form method="POST" action="{{ route('corex.rental-inspections.deposit-comparison.finding', [$inspection, $item->id]) }}" class="flex flex-wrap items-center gap-2" data-qa="mo-classify-{{ $row['key'] }}" data-tour="rmnt-cmp-classify"
                               x-data="{ disposition: @js($finding->disposition ?? array_key_first($dispositionLabels)) }">
                             @csrf
                             <select name="disposition" x-model="disposition" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);">
@@ -273,7 +274,7 @@
     </div>
     @endforelse
 
-    <p class="text-xs" style="color: var(--text-muted);">
+    <p class="text-xs" style="color: var(--text-muted);" data-tour="rmnt-cmp-note">
         This is a record of what was found, for review — no amount has been calculated or applied against any deposit.@if($recordAmounts) An amount you type on a finding is only recorded.@endif
     </p>
 

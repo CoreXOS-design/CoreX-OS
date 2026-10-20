@@ -76,7 +76,7 @@
         </div>
     @endif
 
-    <div id="scan-header" class="space-y-2" style="position: sticky; top: 0; z-index: 30; background: var(--bg); padding: 0.5rem 0; border-bottom: 1px solid var(--border);" data-qa="scan-header">
+    <div id="scan-header" class="space-y-2" style="position: sticky; top: 0; z-index: 30; background: var(--bg); padding: 0.5rem 0; border-bottom: 1px solid var(--border);" data-qa="scan-header" data-tour="rmnt-scanr-header">
         @if(session('success'))
             <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);" data-qa="scan-success">{{ session('success') }}</div>
         @endif
@@ -90,7 +90,7 @@
             </div>
         @endif
         <div class="flex items-center justify-between gap-2 flex-wrap">
-            <div>
+            <div data-tour="rmnt-scanr-title">
                 <h1 class="text-lg font-semibold">Review scan — {{ $scan->original_filename }}</h1>
                 <span class="text-xs" style="color: var(--text-muted);">
                     {{ $inspection->property?->buildDisplayAddress() ?? 'Unknown property' }}
@@ -98,17 +98,18 @@
                 </span>
             </div>
             <div class="flex items-center gap-2">
-                <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan, 'view' => 1]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="open-original">Open original</a>
+                @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+                <a href="{{ route('corex.rental-inspections.scans.download', [$inspection, $scan, 'view' => 1]) }}" target="_blank" rel="noopener" class="corex-btn-outline text-xs" data-qa="open-original" data-tour="rmnt-scanr-original">Open original</a>
                 <a href="{{ route('corex.rental-inspections.show', $inspection) }}" class="corex-btn-outline text-xs">&larr; Back to inspection</a>
                 @if(! $failed && ! $readOnly && $scan->marks->isNotEmpty())
-                    <button type="submit" form="scan-review" class="corex-btn-outline text-xs" data-qa="apply-proposed" data-scan-apply @disabled($hasBlockers) @if($hasBlockers) style="opacity: 0.5; cursor: not-allowed;" @endif>{{ $open->isNotEmpty() ? 'Apply proposed marks' : 'Save changes' }}</button>
+                    <button type="submit" form="scan-review" class="corex-btn-outline text-xs" data-qa="apply-proposed" data-tour="rmnt-scanr-apply" data-scan-apply @disabled($hasBlockers) @if($hasBlockers) style="opacity: 0.5; cursor: not-allowed;" @endif>{{ $open->isNotEmpty() ? 'Apply proposed marks' : 'Save changes' }}</button>
                 @endif
             </div>
         </div>
         @if($readOnly && ! $failed)
             <span class="ds-badge" data-qa="scan-read-only">Read-only</span>
         @elseif(! $failed && ! $readOnly && $scan->marks->isNotEmpty())
-            <p class="text-xs flex flex-wrap items-center gap-x-3 gap-y-1" data-qa="scan-status">
+            <p class="text-xs flex flex-wrap items-center gap-x-3 gap-y-1" data-qa="scan-status" data-tour="rmnt-scanr-status">
                 <span class="font-semibold" style="color: var(--text-secondary);" data-qa="scan-summary" data-scan-count>{{ $tickCounts['read'] }} read, {{ $tickCounts['unsure'] }} to check, {{ $tickCounts['missed'] }} not picked up</span>
                 <span class="flex flex-wrap items-center gap-x-3" data-scan-blockers data-qa="scan-blockers">
                     @if($blockNoCondition > 0)
@@ -124,7 +125,7 @@
 
     {{-- AT-463 / §62 - what the reader made of EACH page, in plain words: a page that could not be read says why. --}}
     @if(! empty($scan->page_results))
-        <div class="rounded-md p-3 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);" data-qa="scan-page-results">
+        <div class="rounded-md p-3 text-xs space-y-1" style="background: var(--surface); border: 1px solid var(--border);" data-qa="scan-page-results" data-tour="rmnt-scanr-pages">
             <p class="font-semibold" style="color: var(--text-secondary);">What was read from each page</p>
             @foreach($scan->page_results as $pr)
                 @php $ok = ($pr['status'] ?? '') === 'read'; @endphp
@@ -175,7 +176,7 @@
             @php $groupedMarks = $scan->marks->groupBy(fn ($m) => $m->item?->room?->label ?? 'General'); @endphp
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 @forelse($groupedMarks as $roomLabel => $marksInRoom)
-                    <h2 class="text-xs font-bold uppercase tracking-wide pt-2" style="color: var(--text-secondary);">{{ $roomLabel }}</h2>
+                    <h2 class="text-xs font-bold uppercase tracking-wide pt-2" style="color: var(--text-secondary);" data-tour="rmnt-scanr-room">{{ $roomLabel }}</h2>
                     <div class="space-y-2">
                         @foreach($marksInRoom as $mark)
                             @php
@@ -184,13 +185,13 @@
                                 $detectedLabel = $mark->detected_condition_key ? ($stateLabel[$mark->detected_condition_key] ?? ucfirst(str_replace('_', ' ', $mark->detected_condition_key))) : null;
                             @endphp
                             <div class="text-sm py-1 space-y-2" style="border-bottom: 1px solid var(--border);"
-                                 id="scan-row-{{ $mark->id }}" data-scan-row data-mark-id="{{ $mark->id }}" data-item-id="{{ $itemId }}" data-applied="{{ $applied ? '1' : '0' }}" data-tick="{{ $tick }}"
+                                 id="scan-row-{{ $mark->id }}" data-scan-row data-tour="rmnt-scanr-row" data-mark-id="{{ $mark->id }}" data-item-id="{{ $itemId }}" data-applied="{{ $applied ? '1' : '0' }}" data-tick="{{ $tick }}"
                                  data-recorded-condition="{{ $recordedCondition }}" data-recorded-note="{{ $recordedNote }}">
                                 <div class="flex items-center justify-between gap-3">
                                     <span>{{ $mark->item?->label ?? 'Unknown item' }}
                                         <span class="text-xs" style="color: var(--text-muted);">p.{{ $mark->page_number }} &middot; on screen: {{ $recordedCondition !== '' ? ($stateLabel[$recordedCondition] ?? $recordedCondition) : 'not recorded' }}@if($recordedNote) &middot; &ldquo;{{ $recordedNote }}&rdquo;@endif</span>
                                     </span>
-                                    <div class="flex items-center gap-2">
+                                    <div class="flex items-center gap-2" data-tour="rmnt-scanr-state">
                                         @if($applied)
                                             <span class="ds-badge ds-badge-success">Applied — {{ ucfirst(str_replace('_', ' ', $mark->confirmed_condition_key)) }}</span>
                                             <span class="text-xs" style="color: var(--text-muted);">by {{ $mark->confirmedBy?->name }}</span>
@@ -208,7 +209,7 @@
                                             @endif
                                         @endif
                                         @unless($readOnly)
-                                            <select name="condition_keys[{{ $mark->id }}]" class="text-xs rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-scan-condition>
+                                            <select name="condition_keys[{{ $mark->id }}]" class="text-xs rounded-md px-2 py-1" style="border: 1px solid var(--border);" data-scan-condition data-tour="rmnt-scanr-condition">
                                                 <option value="">— Confirm —</option>
                                                 @foreach($conditionStates as $state)
                                                     <option value="{{ $state['key'] }}" @selected($startKey === $state['key'])>{{ $state['label'] }}</option>
@@ -224,7 +225,7 @@
                                         </div>
                                     @endif
                                 @else
-                                    <div class="space-y-1" data-scan-note-area>
+                                    <div class="space-y-1" data-scan-note-area data-tour="rmnt-scanr-note">
                                         @if($usableNote !== null)
                                             <span class="ds-badge ds-badge-info" data-scan-read-badge data-qa="row-note-read">Read from scan ({{ $pct($mark->detected_note_confidence) }}%)</span>
                                         @elseif($noteUnreadable)

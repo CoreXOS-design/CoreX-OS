@@ -792,4 +792,261 @@ return [
         ],
     ],
 
+
+    // ══ ROUND 2 — side pages (AT-478 follow-on) ═════════════════════════════
+
+    // ── Road to Sold settings: the General tab ───────────────────────────────
+    'smk-rts-settings' => [
+        'key'         => 'smk-rts-settings',
+        'title'       => 'Setting up Road to Sold',
+        'description' => 'Decide where the daily call list comes from, how many properties to show, what happens after a call and what counts as on track.',
+        'route'       => 'road-to-sold.settings.index',
+        'permission'  => 'road_to_sold.manage_settings',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="smk-rtg-intro"]',
+                'section' => 'Where you are',
+                'title'   => 'Road to Sold settings',
+                'body'    => 'These are your agency\'s rules for the daily call list. Nothing here is fixed in the program — change a number and every agent\'s list follows it from the next day. Anything left on its standard value works well for most agencies. The tabs above (Areas, Targets) are the other settings screens you have permission for.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-areas"]',
+                'section' => 'Areas',
+                'title'   => 'Areas',
+                'body'    => 'How suburbs are handed to agents, which portals Road to Sold captures from, and how often an area needs fresh data before you are reminded.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-lock"]',
+                'do'      => ['action' => 'choose', 'say' => 'Tick or untick the box — or press Skip this step.', 'target' => 'input[type="checkbox"]'],
+                'title'   => 'Lock agents to their areas',
+                'body'    => 'On: an agent only gets properties in their own suburbs. Off: they get their own suburbs first and then the agency\'s other suburbs once their own are done.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-refresh"]',
+                'do'      => ['action' => 'fill', 'say' => 'Type a number of days — or press Skip this step.'],
+                'title'   => 'When to ask for a refresh',
+                'body'    => 'If nothing has been captured from the portals for an area in this many days, the area is flagged as needing a refresh so the list does not go stale.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-holidays"]',
+                'section' => 'Targets and missed items',
+                'do'      => ['action' => 'choose', 'say' => 'Pick the country whose public holidays apply — or press Skip this step.'],
+                'title'   => 'Public holidays',
+                'body'    => 'Choose your country. Its public holidays are taken off the target so nobody is behind for a day the office was closed.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-missed"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick what happens to unfinished properties — or press Skip this step.'],
+                'title'   => 'Properties not worked by the end of the day',
+                'body'    => 'Show as missed keeps them on the day they were due, so the miss is visible. Roll over moves them to the next working day instead.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-sources"]',
+                'section' => 'Where the call list comes from',
+                'title'   => 'Where the call list comes from',
+                'body'    => 'The kinds of property that go on the list, such as new on the market or not selling. Tick the ones you want, and use the arrows beside each to put them in the order agents should meet them. The list fills from the top.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-limits"]',
+                'do'      => ['action' => 'fill', 'say' => 'Change a limit — or press Skip this step.', 'target' => 'input'],
+                'title'   => 'Limits for those sources',
+                'body'    => 'The numbers that decide what counts as new on the market, long on the market or not selling. The standard value for each is shown next to the box.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-matching"]',
+                'section' => 'Matching and list size',
+                'title'   => 'Matching and list size',
+                'body'    => 'Which buyer matches count, which buyers count as active, which listing statuses count as on the market, and how many properties can be added in one go.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-aftercall"]',
+                'section' => 'After a call',
+                'title'   => 'After a call',
+                'body'    => 'How many no-answers in a row before a property drops off the list, and how long an agent keeps a property after logging a call. The outcomes themselves are set up with the Outcomes button on the Road to Sold list.',
+            ],
+            [
+                'element' => '[data-tour="smk-rtg-bar"]',
+                'section' => 'The on-track bar',
+                'title'   => 'The on-track bar',
+                'body'    => 'Choose which steps appear in the bar at the top of each agent\'s list, and the percentages at which it turns green or red. Agents see this every day, so keep it simple.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rtg-save"]',
+                'section'       => 'Saving',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Save settings when you are happy with your changes.'],
+                'title'         => 'Save settings',
+                'body'          => 'Applies your changes to every agent\'s list from the next day. "Put everything back to the defaults" next to it resets this page to the standard values after you confirm; your suburbs and weekday numbers are not touched.',
+            ],
+        ],
+    ],
+
+    // ── Road to Sold settings: Areas ─────────────────────────────────────────
+    'smk-rts-areas' => [
+        'key'         => 'smk-rts-areas',
+        'title'       => 'Giving agents their suburbs',
+        'description' => 'See which suburbs each agent phones, give them more, and find suburbs nobody works yet.',
+        'route'       => 'road-to-sold.settings.areas.index',
+        'permission'  => 'road_to_sold.manage_areas',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="smk-rta-intro"]',
+                'section' => 'What this page is for',
+                'title'   => 'Road to Sold areas',
+                'body'    => 'Agents phone properties in their own suburbs first. The suburbs listed here come from your own stock and the adverts Market Intelligence has captured, so nobody has to type them in. This page only decides which agent works which suburb.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-views"]',
+                'title'   => 'Two ways to look',
+                'body'    => 'Agents and their suburbs lists each agent with the suburbs they work. Suburbs and who works them turns it around: each suburb with its agents, how much stock and how many adverts it has, and when it was last captured.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-filter"]',
+                'section' => 'Finding what you need',
+                'title'   => 'Filters',
+                'body'    => 'Narrow the list by a name, a town, or a branch, and sort it. The tick-boxes below find agents with no suburbs, suburbs nobody works, or areas that need a fresh capture.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-search"]',
+                'do'      => ['action' => 'fill', 'say' => 'Type an agent, suburb or town — or press Skip this step.'],
+                'title'   => 'Search',
+                'body'    => 'Type part of a name, suburb or town.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-town"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a town — or press Skip this step.'],
+                'title'   => 'Town',
+                'body'    => 'Show only suburbs in one town.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-sort"]',
+                'do'      => ['action' => 'choose', 'say' => 'Choose how to order the list — or press Skip this step.'],
+                'title'   => 'Sort by',
+                'body'    => 'For example the areas that most need a refresh first, or the agents with the most suburbs.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rta-apply"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Apply to filter the list.'],
+                'title'         => 'Apply',
+                'body'          => 'Reloads the list with your choices. Clear removes them.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-agent"]',
+                'section' => 'Giving an agent suburbs',
+                'title'   => 'An agent and their suburbs',
+                'body'    => 'Each box is one agent with the number of suburbs they work. Each suburb shows when it was last captured from the portals and flags it if it needs a refresh. An agent with no suburbs gets no call list while "Lock agents to their areas" is on.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-add"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Add suburbs to give this agent more — or press Skip this step.'],
+                'title'   => 'Add suburbs',
+                'body'    => 'Opens a search of your suburbs. Tick the ones this agent should work and add them in one go.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rta-picker"]',
+                'advanced_only' => true,
+                'title'         => 'Pick the suburbs',
+                'body'          => 'Search by name or town, tick the suburbs and press "Add ticked suburbs". Each one shows how much of your own stock and how many captured adverts it has, so you can give agents the busiest suburbs first.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-chips"]',
+                'title'   => 'Taking a suburb away',
+                'body'    => 'Remove takes a suburb off an agent after you confirm. Nothing is deleted: choose "Removed suburbs" in the Show box to find it and give it back.',
+            ],
+            [
+                'element' => '[data-tour="smk-rta-suburbs"]',
+                'section' => 'Suburbs and who works them',
+                'title'   => 'The suburb list',
+                'body'    => 'Open the "Suburbs and who works them" view to see this. Each row is a suburb with its town, your stock, the captured adverts, who works it and when each portal was last captured. "Nobody yet" is a suburb to hand out. Hide takes a suburb out of Road to Sold without deleting anything, and it can be brought back.',
+            ],
+        ],
+    ],
+
+    // ── Road to Sold settings: Outcomes ──────────────────────────────────────
+    'smk-rts-outcomes' => [
+        'key'         => 'smk-rts-outcomes',
+        'title'       => 'Setting up call outcomes',
+        'description' => 'Decide which outcomes an agent can log after a call and what happens to the property next.',
+        'route'       => 'road-to-sold.settings.outcomes.index',
+        'permission'  => 'road_to_sold.manage_settings',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="smk-rto-intro"]',
+                'section' => 'What outcomes are',
+                'title'   => 'Call outcomes',
+                'body'    => 'After every call the agent picks one outcome, such as "Spoke to the owner" or "No answer". Each outcome decides whether the call counts as an attempt or a conversation, and what happens to the property next. They are listed here in the order agents see them.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-add"]',
+                'section' => 'Adding an outcome',
+                'do'      => ['action' => 'click', 'say' => 'Click Add outcome to open the form.', 'until' => '[data-tour="smk-rto-form"]'],
+                'title'   => 'Add outcome',
+                'body'    => 'Opens a small form for a new outcome. Add one when agents keep telling you the choices do not fit what happens on a call.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rto-label"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'fill', 'say' => 'Type the name agents will see.'],
+                'title'         => 'Name',
+                'body'           => 'A short name an agent can pick quickly in the middle of a call.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rto-kind"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'choose', 'say' => 'Say whether this counts as an attempt or a conversation.'],
+                'title'         => 'Counts as',
+                'body'          => 'An attempt is a call where nobody really spoke. A conversation is when you spoke to someone. The Road to Sold figures count the two separately.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rto-next"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'choose', 'say' => 'Say what happens to the property next.'],
+                'title'         => 'What happens next',
+                'body'          => 'Bring the property back after some days, move it to a named list, or never show it again. Pick "never again" for an owner who asked not to be called, and CoreX can also record a call opt-out on their contact.',
+            ],
+            [
+                'element'       => '[data-tour="smk-rto-save"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Save when the outcome is right.'],
+                'title'         => 'Save',
+                'body'          => 'The outcome is added to the end of the list agents see.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-search"]',
+                'section' => 'Finding an outcome',
+                'do'      => ['action' => 'fill', 'say' => 'Type part of an outcome name — or press Skip this step.'],
+                'title'   => 'Search name',
+                'body'    => 'Type part of a name and press Search.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-status"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick which outcomes to show — or press Skip this step.'],
+                'title'   => 'Show',
+                'body'    => 'All outcomes, only those switched on, only those switched off, or archived ones you can restore.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-sort"]',
+                'do'      => ['action' => 'choose', 'say' => 'Choose how to order the list — or press Skip this step.'],
+                'title'   => 'Sort by',
+                'body'    => 'The order agents see, by name, or grouped by attempt and conversation.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-table"]',
+                'section' => 'Your outcomes',
+                'title'   => 'The outcomes',
+                'body'    => 'Each row shows what the outcome counts as, what happens next, and whether it is on. Up and Down change the order agents see. Switch off hides an outcome from agents without losing it; Archive removes it after you confirm (calls already logged keep their wording) and Restore brings it back.',
+            ],
+            [
+                'element' => '[data-tour="smk-rto-edit"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Edit to change an outcome — or press Skip this step.', 'until' => '[data-tour="smk-rto-form"]'],
+                'title'   => 'Edit',
+                'body'    => 'Opens the same form filled in. Changing an outcome does not change calls already logged with it.',
+            ],
+        ],
+    ],
+
 ];

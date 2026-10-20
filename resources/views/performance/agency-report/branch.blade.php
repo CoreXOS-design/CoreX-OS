@@ -4,7 +4,7 @@
 
 @section('corex-content')
 <div class="w-full space-y-5">
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner" data-tour="rpt-pb-intro">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
             <a href="{{ route('performance.agency-report', ['period' => $preset]) }}"
@@ -16,11 +16,14 @@
             </p>
         </div>
 
-        @include('performance.agency-report._period-selector', [
-            'preset' => $preset,
-            'presets' => $presets,
-            'formAction' => route('performance.agency-report.branch', $report['branch']['key']),
-        ])
+        <div class="flex items-end gap-2 flex-wrap">
+            @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
+            @include('performance.agency-report._period-selector', [
+                'preset' => $preset,
+                'presets' => $presets,
+                'formAction' => route('performance.agency-report.branch', $report['branch']['key']),
+            ])
+        </div>
       </div>
     </div>
 
@@ -31,7 +34,7 @@
     {{-- The branch's rolled-up metrics, each with its prior-period trend. --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">Branch totals</h2>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3" data-tour="rpt-pb-totals">
             @foreach($report['metrics'] as $m)
                 @php
                     $delta = $m['delta'];
@@ -56,7 +59,7 @@
     {{-- Agents in this branch — drill one level further into a single agent's journey. --}}
     <div>
         <h2 class="text-xs font-bold uppercase tracking-widest mb-2" style="color:var(--text-muted);">Agents in this branch</h2>
-        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);">
+        <div class="overflow-x-auto rounded" style="border:1px solid var(--border);" data-tour="rpt-pb-agents">
             <table class="w-full text-xs">
                 <thead>
                     <tr style="background:var(--surface-2);">
@@ -71,7 +74,7 @@
                         <tr style="border-top:1px solid var(--border);">
                             <td class="px-3 py-2">
                                 <a href="{{ route('performance.agency-report.agent', ['user' => $agent['user_id'], 'period' => $preset]) }}"
-                                   class="no-underline" style="color:var(--brand, #3b82f6);">{{ $agent['name'] }}</a>
+                                   class="no-underline" style="color:var(--brand, #3b82f6);" @if($loop->first) data-tour="rpt-pb-agent-link" @endif>{{ $agent['name'] }}</a>
                             </td>
                             @foreach($report['metric_meta'] as $m)
                                 <td class="text-right px-3 py-2" style="color:var(--text-primary);">{{ $agent['metrics'][$m['key']] ?? 0 }}</td>

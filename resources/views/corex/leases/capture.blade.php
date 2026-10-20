@@ -132,12 +132,12 @@
 
         @if($isRenew)
             {{-- Renewal: the property and the tenants are the lease being renewed — shown, never typed (R7). --}}
-            <div>
+            <div data-tour="rops-rn-property">
                 <label class="prop-label">Property</label>
                 <div class="text-sm mt-1 font-medium" style="color: var(--text-primary);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }}</div>
             </div>
 
-            <div class="space-y-2">
+            <div class="space-y-2" data-tour="rops-rn-tenants">
                 <label class="prop-label">Tenant(s)</label>
                 <div class="space-y-1">
                     @forelse($lease->tenants as $t)

@@ -21,9 +21,12 @@
     $groupLabels = ['lease' => 'Lease', 'parties' => 'Who signs', 'term' => 'Term', 'agreement' => 'Agreement details', 'schedule' => 'Schedule', 'calculated' => 'Worked out from the figures'];
 @endphp
 <div class="p-6 max-w-2xl mx-auto space-y-4" data-qa="agreement-confirm">
-    <div>
-        <h1 class="text-lg font-semibold">Confirm lease details</h1>
-        <p class="text-sm" style="color: var(--text-muted);">{{ $addressLine }} — {{ $lease->tenantNames() }}</p>
+    <div class="flex items-start justify-between gap-3" data-tour="rops-ag-intro">
+        <div>
+            <h1 class="text-lg font-semibold">Confirm lease details</h1>
+            <p class="text-sm" style="color: var(--text-muted);">{{ $addressLine }} — {{ $lease->tenantNames() }}</p>
+        </div>
+        @include('layouts.partials.tour-header-launcher', ['variant' => 'surface'])
     </div>
 
     @if(session('error'))
@@ -31,9 +34,9 @@
     @endif
 
     @if($needs)
-        <p class="text-sm font-medium" data-qa="confirm-heading">The agreement was changed in e-sign. Check each highlighted value, then confirm.</p>
+        <p class="text-sm font-medium" data-qa="confirm-heading" data-tour="rops-ag-verdict">The agreement was changed in e-sign. Check each highlighted value, then confirm.</p>
     @else
-        <p class="text-sm" data-qa="confirm-clean">The agreement and the lease agree.@if($cleanApprove) Check the details below, then approve.@endif</p>
+        <p class="text-sm" data-qa="confirm-clean" data-tour="rops-ag-verdict">The agreement and the lease agree.@if($cleanApprove) Check the details below, then approve.@endif</p>
     @endif
 
     <form method="POST" action="{{ $postUrl ?? '#' }}" class="space-y-4 rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
@@ -44,7 +47,7 @@
         @endunless
 
         @foreach($rows->groupBy('group') as $group => $groupRows)
-            <div class="space-y-2">
+            <div class="space-y-2" @if($loop->first) data-tour="rops-ag-rows" @endif>
                 <p class="prop-label">{{ $groupLabels[$group] ?? ucfirst($group) }}</p>
                 @foreach($groupRows as $row)
                     @php
@@ -57,7 +60,7 @@
                             : (($isBlocked || $cannot) ? 'border: 1px solid var(--ds-crimson); background: color-mix(in srgb, var(--ds-crimson) 8%, transparent);'
                             : 'border: 1px solid var(--border); background: var(--surface-2);');
                     @endphp
-                    <div class="rounded px-3 py-2 text-sm space-y-1" style="{{ $wrap }}" data-qa="confirm-row-{{ $row['key'] }}" data-state="{{ $state }}">
+                    <div class="rounded px-3 py-2 text-sm space-y-1" style="{{ $wrap }}" data-qa="confirm-row-{{ $row['key'] }}" data-state="{{ $state }}" @if($differs || $isBlocked || $cannot) data-tour="rops-ag-differs" @endif>
                         <div class="flex flex-wrap items-baseline justify-between gap-x-3">
                             <span class="text-xs" style="color: var(--text-muted);">{{ $row['label'] }}</span>
                             @if($cannot)
@@ -66,7 +69,7 @@
                         </div>
 
                         @if($cannot)
-                            <input type="text" name="lease_confirm[entered][{{ $row['key'] }}]" value="{{ $entered[$row['key']] ?? '' }}"
+                            <input type="text" data-tour="rops-ag-typed" name="lease_confirm[entered][{{ $row['key'] }}]" value="{{ $entered[$row['key']] ?? '' }}"
                                    class="prop-input" maxlength="2000" @disabled(! $postUrl) aria-label="{{ $row['label'] }} — as printed in the agreement">
                             <p class="text-xs" style="color: var(--text-muted);">
                                 The lease says {{ $row['lease'] ?? 'nothing' }}; the agreement {{ $row['agreement'] !== null && $row['agreement'] !== '' ? 'shows “' . $row['agreement'] . '”, which cannot be read as a ' . ($row['type'] ?? 'value') : 'shows nothing here' }}.
@@ -86,7 +89,7 @@
 
                         @if($isBlocked)
                             @php $side = str_starts_with($row['key'], 'landlord') ? 'landlord' : 'tenant'; @endphp
-                            <p class="text-xs font-medium" style="color: var(--ds-crimson);" data-qa="confirm-person-blocked">The agreement names a different person. A change of tenant is a new lease.</p>
+                            <p class="text-xs font-medium" style="color: var(--ds-crimson);" data-qa="confirm-person-blocked" data-tour="rops-ag-blocked">The agreement names a different person. A change of tenant is a new lease.</p>
                             <p class="text-xs flex flex-wrap gap-x-3">
                                 @foreach($partyLinks[$side] ?? [] as $party)
                                     <a href="{{ $party['url'] }}" target="_blank" rel="noopener" class="underline">Correct the contact — {{ $party['name'] }}</a>
@@ -105,7 +108,7 @@
         @endforeach
 
         @if(! empty($verdict['text_changes']))
-            <div class="space-y-1" data-qa="confirm-text-changes">
+            <div class="space-y-1" data-qa="confirm-text-changes" data-tour="rops-ag-wording">
                 <p class="prop-label">Changes to the wording (read only)</p>
                 <ul class="text-xs space-y-1">
                     @foreach($verdict['text_changes'] as $change)
@@ -119,10 +122,10 @@
             </div>
         @endif
 
-        <div class="flex flex-wrap items-center justify-end gap-3 pt-2">
+        <div class="flex flex-wrap items-center justify-end gap-3 pt-2" data-tour="rops-ag-actions">
             <a href="{{ $agreementUrl }}" class="corex-btn-outline text-xs" data-qa="confirm-back">Back to the agreement</a>
             @if($postUrl && ($needs || $cleanApprove || $stage === 'activate'))
-                <button type="submit" class="corex-btn-primary text-xs" @disabled($blocked) @if($blocked) aria-disabled="true" style="opacity: 0.5; cursor: not-allowed;" @endif data-qa="confirm-submit">{{ $buttonLabel }}</button>
+                <button type="submit" class="corex-btn-primary text-xs" @disabled($blocked) @if($blocked) aria-disabled="true" style="opacity: 0.5; cursor: not-allowed;" @endif data-qa="confirm-submit" data-tour="rops-ag-confirm">{{ $buttonLabel }}</button>
             @endif
         </div>
         @if($stage === 'preview')

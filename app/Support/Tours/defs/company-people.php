@@ -1212,4 +1212,333 @@ return [
         ],
     ],
 
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // ROUND 2 — side pages (AT-478 follow-on)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // ── Finance Engine: one audit run ───────────────────────────────────────
+    'cop-fin-audit-run' => [
+        'key'         => 'cop-fin-audit-run',
+        'title'       => 'Reading an audit run',
+        'description' => 'See what one finance audit checked and open any deal, agent or branch to find the figure that did not match.',
+        'route'       => 'admin.finance.audit.run',
+        'permission'  => 'access_finance_engine',
+        'pick_from'   => 'admin.finance.audit.index',
+        'pick_note'   => 'Click a run number in the Audit Runs list — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-fin-run-intro"]',
+                'section' => 'This audit run',
+                'title'   => 'Audit run',
+                'body'    => 'One run of the finance audit: the month it covers, when it started and finished, and whether it completed. A run that shows "failed" did not finish and should be run again from the Audit Centre.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-run-counts"]',
+                'title'   => 'The totals',
+                'body'    => 'How many figures were checked, how many matched their formula, how many failed and how many only need a look (warn). Start with the fails.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-run-groups"]',
+                'section' => 'What was checked',
+                'title'   => 'Grouped by deal, agent, branch and company',
+                'body'    => 'Every checked figure belongs to a deal, an agent for the month, a branch for the month, or the company. Groups with failures are shaded red and listed first. Each bar shows how many figures matched, failed or need a look.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-run-group"]',
+                'do'      => ['action' => 'click', 'say' => 'Click a bar to open its figures.', 'until' => '[data-tour="cop-fin-run-items"]'],
+                'title'   => 'Open a group',
+                'body'    => 'Click a bar to see its figures. Open the groups marked "fail" to see which figure did not match. "View Deal" on a deal bar opens that deal in the Deal Register.',
+            ],
+            [
+                'element'       => '[data-tour="cop-fin-run-items"]',
+                'advanced_only' => true,
+                'title'         => 'Expected against actual',
+                'body'          => 'For each figure: its status, what it is, the amount the formula says it should be (Expected), the amount recorded (Actual), the difference and a short message. A difference of more than a few cents is shown in red.',
+            ],
+        ],
+    ],
+
+    // ── Finance Engine: one deal in an audit run ────────────────────────────
+    'cop-fin-audit-deal' => [
+        'key'         => 'cop-fin-audit-deal',
+        'title'       => 'Reading a deal\'s audit result',
+        'description' => 'See every figure checked for one deal in an audit run, with what was expected, what was recorded and the difference.',
+        'route'       => 'admin.finance.audit.deal',
+        'permission'  => 'access_finance_engine',
+        'pick_from'   => 'admin.finance.audit.index',
+        'pick_note'   => 'This page opens from a link to one deal\'s audit result — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-fin-deal-intro"]',
+                'section' => 'The deal',
+                'title'   => 'One deal in the audit',
+                'body'    => 'The deal number, its property, its agents, the month it belongs to, its commission status and the deal date. The links at the top take you back to the Audit Centre or to the run this result comes from.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-deal-run"]',
+                'title'   => 'Which audit run',
+                'body'    => 'The audit run these figures come from, the month it covered and whether it finished. A newer run may show different figures if the deal was changed since.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-deal-metrics"]',
+                'section' => 'Figure by figure',
+                'title'   => 'Audit metrics',
+                'body'    => 'Every figure checked for this deal. Expected is what the formula says it should be, Actual is what is recorded, and Diff is the gap. Failures are shaded red; a difference of more than a few cents shows in red.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-deal-status"]',
+                'title'   => 'Match, warn or fail',
+                'body'    => 'Match means the figure is right. Warn needs a look. Fail means the recorded figure does not agree with the formula and should be corrected on the deal. Where a figure is split between agents, a small table underneath shows each agent\'s share.',
+            ],
+            [
+                'element' => '[data-tour="cop-fin-deal-back"]',
+                'section' => 'Going back',
+                'do'      => ['action' => 'click', 'say' => 'Click Back to Run to return to the whole run — or press Skip this step.'],
+                'title'   => 'Back to the run',
+                'body'    => 'Returns to the full audit run so you can open the next deal.',
+            ],
+        ],
+    ],
+
+    // ── PPRA Inspection Pack: practitioner register ─────────────────────────
+    'cop-ppra-practitioners' => [
+        'key'         => 'cop-ppra-practitioners',
+        'title'       => 'Checking the practitioner register',
+        'description' => 'See every practitioner with their Fidelity Fund Certificate status, find the ones that are missing or expiring, and export the register.',
+        'route'       => 'admin.ppra-inspection-pack.practitioners',
+        'permission'  => 'ppra_inspection_pack.view',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-ppr-intro"]',
+                'section' => 'The register',
+                'title'   => 'Practitioner Register',
+                'body'    => 'The PPRA inspector asks for every practitioner in the agency with their Fidelity Fund Certificate (FFC). This page lists every active agent, branch manager and admin with their FFC status, taken from the documents they uploaded.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-export"]',
+                'title'   => 'Export for the inspector',
+                'body'    => 'Export PDF gives the inspector a printable register; Export CSV gives you a spreadsheet. Both include whatever the filter below is showing.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-search"]',
+                'section' => 'Finding people',
+                'do'      => ['action' => 'fill', 'say' => 'Type part of a name — or press Skip this step.'],
+                'title'   => 'Search',
+                'body'    => 'Type part of a name or designation to narrow the list.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-role"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a role — or press Skip this step.'],
+                'title'   => 'Role',
+                'body'    => 'Show only agents, only branch managers, and so on.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-status"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick an FFC status — or press Skip this step.'],
+                'title'   => 'FFC status',
+                'body'    => 'Valid means the certificate is current. Expiring or pending needs attention soon. Missing or expired is a gap the inspector will see — fix these first.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-sort"]',
+                'do'      => ['action' => 'choose', 'say' => 'Choose how to order the list — or press Skip this step.'],
+                'title'   => 'Sort',
+                'body'    => 'The worst statuses first (the default), or alphabetically by name.',
+            ],
+            [
+                'element'       => '[data-tour="cop-ppr-filter-btn"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Filter to apply your choices.'],
+                'title'         => 'Apply',
+                'body'          => 'Reloads the list with your search, role, status and sort.',
+            ],
+            [
+                'element' => '[data-tour="cop-ppr-table"]',
+                'section' => 'Reading the list',
+                'title'   => 'Who has a certificate',
+                'body'    => 'One row per person: role, designation, FFC number, status and expiry date. "View" in the last column opens the uploaded certificate; "Not uploaded" means nobody has filed one yet — ask the practitioner to upload it in their profile.',
+            ],
+        ],
+    ],
+
+    // ── PPRA Inspection Pack: sales and rentals list ────────────────────────
+    'cop-ppra-sales-rentals' => [
+        'key'         => 'cop-ppra-sales-rentals',
+        'title'       => 'Listing sales and rentals for an inspection',
+        'description' => 'See every property that was active and advertised in the financial year, by sales and rentals, and export it for the inspector.',
+        'route'       => 'admin.ppra-inspection-pack.sales-rentals',
+        'permission'  => 'ppra_inspection_pack.view',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-psr-intro"]',
+                'section' => 'What the list is',
+                'title'   => 'Sales and rentals for the year',
+                'body'    => 'The inspector asks for every property you had active and advertised in the current financial year. This page builds that list from your listings, split into sales and rentals. The line under the title shows the dates it covers.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-export"]',
+                'title'   => 'Export for the inspector',
+                'body'    => 'Export PDF gives a printable list; Export CSV gives a spreadsheet. Both cover the dates and search you have on screen.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-note"]',
+                'title'   => 'How "advertised" is worked out',
+                'body'    => 'A property counts as advertised when it was live on a property portal or your own website. The portals only keep the latest activation date, so a property taken down and re-advertised in the same year still counts once.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-search"]',
+                'section' => 'Narrowing the list',
+                'do'      => ['action' => 'fill', 'say' => 'Type part of an address — or press Skip this step.'],
+                'title'   => 'Search by address',
+                'body'    => 'Type part of a street or address to find one property.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-from"]',
+                'do'      => ['action' => 'fill', 'say' => 'Pick a start date — or press Skip this step.'],
+                'title'   => 'Custom start date',
+                'body'    => 'Leave this empty to use the financial year. Fill in both dates only if the inspector asks for a different period.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-to"]',
+                'do'      => ['action' => 'fill', 'say' => 'Pick an end date — or press Skip this step.'],
+                'title'   => 'Custom end date',
+                'body'    => 'The last day of the period you want.',
+            ],
+            [
+                'element'       => '[data-tour="cop-psr-filter-btn"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Filter to apply your choices.'],
+                'title'         => 'Apply',
+                'body'          => 'Reloads the lists with your search and dates. "Clear custom range" returns to the financial year.',
+            ],
+            [
+                'element' => '[data-tour="cop-psr-list"]',
+                'section' => 'The lists',
+                'title'   => 'Sales, then rentals',
+                'body'    => 'Each list shows the address, suburb and the date the property was listed, with the number of properties in the heading. Use the page links under a list to see more.',
+            ],
+        ],
+    ],
+
+    // ── PPRA Inspection Pack: transformation statement ──────────────────────
+    'cop-ppra-transformation' => [
+        'key'         => 'cop-ppra-transformation',
+        'title'       => 'Writing the transformation statement',
+        'description' => 'Record the agency\'s transformation initiatives for the inspector, or upload your own statement, and keep every version.',
+        'route'       => 'admin.ppra-inspection-pack.transformation.index',
+        'permission'  => 'ppra_inspection_pack.view',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-ptr-intro"]',
+                'section' => 'What this is for',
+                'title'   => 'Transformation initiatives',
+                'body'    => 'The inspector asks what your agency is doing about transformation. Write it here, or upload a statement you already have. Every save is kept as a version, and the newest one goes into the inspection pack.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-current"]',
+                'title'   => 'The current version',
+                'body'    => 'The statement that will go into the pack: when it was saved, by whom, and a download link if it is an uploaded document. This box only shows once a statement has been saved.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-write"]',
+                'section' => 'Writing it in CoreX',
+                'title'   => 'Write it in CoreX',
+                'body'    => 'List each initiative on its own, with what it is, when it ran, who took part and what was spent. Saving builds a clean statement from the list.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-ellie"]',
+                'do'      => ['action' => 'click', 'say' => 'Click to let Ellie draft a first initiative — or press Skip this step.'],
+                'title'   => 'Ask Ellie to help me draft',
+                'body'    => 'Ellie suggests one realistic initiative for an agency of your size and adds it to the list. It is only a starting point — change it to match what you really do before you save.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-initiative"]',
+                'do'      => ['action' => 'fill', 'say' => 'Describe the initiative.', 'target' => 'textarea'],
+                'title'   => 'An initiative',
+                'body'    => 'Say what the initiative is and why it counts as transformation, for example training candidate practitioners. Add the start and end dates, how many people were involved and what was spent in rand.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-add"]',
+                'do'      => ['action' => 'click', 'say' => 'Click to add another initiative — or press Skip this step.'],
+                'title'   => 'Add another initiative',
+                'body'    => 'Adds a blank initiative to the list. Use Remove on a row to drop one.',
+            ],
+            [
+                'element'       => '[data-tour="cop-ptr-save"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Save statement when the list is complete.'],
+                'title'         => 'Save statement',
+                'body'          => 'Saves the list as a new version. Earlier versions stay in the history below.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-upload"]',
+                'section' => 'Or upload your own',
+                'do'      => ['action' => 'choose', 'say' => 'Choose a PDF or Word file — or press Skip this step.', 'target' => 'input[type="file"]'],
+                'title'   => 'Upload your own statement',
+                'body'    => 'If you already have a transformation statement or B-BBEE document, upload it instead (PDF, DOC or DOCX) with an optional caption. It becomes the current version.',
+            ],
+            [
+                'element' => '[data-tour="cop-ptr-history"]',
+                'section' => 'Version history',
+                'title'   => 'Every version',
+                'body'    => 'Search, filter by type or date, and see who saved each version. Archive hides an old version without deleting it, and Restore brings it back.',
+            ],
+        ],
+    ],
+
+    // ── PPRA Employment Letters: the agent's own copy ───────────────────────
+    'cop-pel-mine' => [
+        'key'         => 'cop-pel-mine',
+        'title'       => 'Filing your PPRA employment letter',
+        'description' => 'Read your own PPRA confirmation-of-employment letter, print it, and upload the signed copy.',
+        'route'       => 'ppra-employment-letters.show',
+        'permission'  => 'access_my_portal',
+        'feature'     => 'ppra-employment-letters',
+        'pick_from'   => 'agent.portal',
+        'pick_note'   => 'Open your PPRA letter from the Documents tab in My Portal — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="cop-pelm-intro"]',
+                'section' => 'Your letter',
+                'title'   => 'Confirmation of employment',
+                'body'    => 'The PPRA wants proof that you work for the agency. This is your letter and its status. "Back to My Portal" returns to your documents.',
+            ],
+            [
+                'element' => '[data-tour="cop-pelm-letter"]',
+                'title'   => 'The letter itself',
+                'body'    => 'This is the letter exactly as it will print. Check your name and the principal\'s name are right before you sign.',
+            ],
+            [
+                'element' => '[data-tour="cop-pelm-download"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Download to save the letter — or press Skip this step.'],
+                'title'   => 'Download',
+                'body'    => 'Saves the letter so you can print it. You and the principal then sign it by hand.',
+            ],
+            [
+                'element' => '[data-tour="cop-pelm-print"]',
+                'title'   => 'Print',
+                'body'    => 'Opens the letter in a new tab, ready to print.',
+            ],
+            [
+                'element' => '[data-tour="cop-pelm-signed"]',
+                'section' => 'Filing the signed copy',
+                'do'      => ['action' => 'choose', 'say' => 'Choose the scanned signed letter (PDF, JPG or PNG).', 'target' => 'input[type="file"]'],
+                'title'   => 'Upload the signed copy',
+                'body'    => 'Scan the signed letter or take a clear photo and upload it here. A newer upload replaces the current one, and earlier uploads are kept as history. Once it is filed the letter shows as signed.',
+            ],
+            [
+                'element' => '[data-tour="cop-pelm-archive"]',
+                'section' => 'If you made it by mistake',
+                'title'   => 'Archive this letter',
+                'body'    => 'Hides the letter if it was made by mistake. It is not deleted, and you can start a new one any time.',
+            ],
+        ],
+    ],
+
 ];

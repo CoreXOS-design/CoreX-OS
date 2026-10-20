@@ -1459,4 +1459,570 @@ return [
         ],
     ],
 
+    // ═════════════════════════════════════════════════════════════════════════
+    // ROUND 2 — SIDE PAGES (AT-478 follow-on)
+    // ═════════════════════════════════════════════════════════════════════════
+
+    'rmnt-faulttypes-edit' => [
+        'key'         => 'rmnt-faulttypes-edit',
+        'title'       => 'Editing a fault type',
+        'description' => 'Change a fault type\'s urgency and first-aid steps, say who normally pays for each cause and attach documents.',
+        'route'       => 'corex.rental-fault-types.edit',
+        'permission'  => 'rental_fault_types.create',
+        'pick_from'   => 'corex.rental-fault-types.index',
+        'pick_note'   => 'Open the fault type you want to change with Edit — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-ftedit-intro"]',
+                'section' => 'The type',
+                'title'   => 'Changing a fault type',
+                'body'    => 'Nothing changes until you press Save. The causes and documents further down are saved with their own buttons.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-name"]',
+                'do'      => ['action' => 'fill', 'say' => 'Change the name — or press Skip this step.'],
+                'title'   => 'Name',
+                'body'    => 'How the type reads in lists and on the tenant\'s screen, for example "Blocked drain".',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-category"]',
+                'do'      => ['action' => 'fill', 'say' => 'Change the category — or press Skip this step.'],
+                'title'   => 'Category',
+                'body'    => 'A trade or group, such as Plumbing. Types with the same category sit together in lists and filters.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-urgency"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick the urgency — or press Skip this step.'],
+                'title'   => 'Urgency',
+                'body'    => 'Routine can wait for a normal booking, Urgent should be sorted soon, and Emergency needs action straight away. An open emergency fault is marked with a red tag on the fault list.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-firstaid"]',
+                'section' => 'Helping the reporter',
+                'do'      => ['action' => 'fill', 'say' => 'Change the first-aid steps — or press Skip this step.'],
+                'title'   => 'First-aid steps',
+                'body'    => 'Shown to the tenant before they can log this fault, for example "Switch off the water at the main valve". Writing {{main_water_valve_location}} or {{db_board_location}} fills in the place recorded on the property.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-active"]',
+                'do'      => ['action' => 'choose', 'say' => 'Tick or untick Active — or press Skip this step.'],
+                'title'   => 'Active',
+                'body'    => 'Active types are offered to tenants. Untick it to keep a type but stop offering it for new reports.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-ftedit-save"]',
+                'section'       => 'Saving',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Save to keep your changes.'],
+                'title'         => 'Save the type',
+                'body'          => 'Saving keeps the changes to the name, urgency and first-aid steps. The causes and documents below save on their own buttons.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-causes"]',
+                'section' => 'Who normally pays',
+                'title'   => 'Self-checks and causes',
+                'body'    => 'Two short lists. Self-checks are things a tenant can look at before reporting, such as a flat battery. Causes are what a contractor might find, such as roots in the pipe. For each one you can note who normally pays if that was the cause: the owner, the tenant or no default. It is only a suggestion; the agent decides on the work order.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-docs"]',
+                'section' => 'Documents',
+                'title'   => 'Attached documents',
+                'body'    => 'Pictures, PDFs and video links that show the reporter how to do the first-aid steps. Download or open one to check it, or remove it if it is out of date.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-ftedit-adddoc"]',
+                'do'      => ['action' => 'fill', 'say' => 'Paste a video link or type a caption — or press Skip this step.', 'target' => 'input[name="caption"]'],
+                'title'   => 'Add a document',
+                'body'    => 'Choose an image or a PDF, or paste a video link, add a caption if you like, then press Add document. It is attached straight away.',
+            ],
+        ],
+    ],
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CREW LINK LOG
+    // ═════════════════════════════════════════════════════════════════════════
+
+    'rmnt-crews-linklog' => [
+        'key'         => 'rmnt-crews-linklog',
+        'title'       => 'Reading a crew\'s link log',
+        'description' => 'Everything that has happened on one crew member\'s standing link — created, sent, revoked, opened and used.',
+        'route'       => 'corex.rental-crews.link.events',
+        'permission'  => 'rental_job_cards.share',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-crews',
+        'pick_from'   => 'corex.rental-crews.index',
+        'pick_note'   => 'Open the crew, then its link log — the guide starts once the log opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-linklog-title"]',
+                'section' => 'What this log is',
+                'title'   => 'The link\'s history',
+                'body'    => 'A crew member uses one standing link on their phone to see and work their jobs. This is the full record of that link: what the office did to it, and when the crew opened or used it. It only grows; entries cannot be edited or removed.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-linklog-filter"]',
+                'section' => 'Finding an entry',
+                'title'   => 'Narrow the log',
+                'body'    => 'Show everything, or only one kind of entry, such as links emailed or revoked.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-linklog-event"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a kind of entry — or press Skip this step.'],
+                'title'   => 'Show',
+                'body'    => 'Link created, regenerated, emailed, sent on WhatsApp or revoked are things the office did. Crew page opened, Job opened and Crew action are things the crew did.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-linklog-filter-btn"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Filter to apply your choice.'],
+                'title'         => 'Apply the filter',
+                'body'          => 'Filter reloads the log with your choice.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-linklog-table"]',
+                'section' => 'Reading the log',
+                'title'   => 'Newest first',
+                'body'    => 'Each row shows when it happened, what happened, the job it concerned and who did it. Office actions show the staff member; crew actions show the device they used. Use it to check whether a link was opened, or to see what happened before you revoke it.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-linklog-jobcol"]',
+                'title'   => 'Job',
+                'body'    => 'When an entry belongs to a job card, its title is shown, and you can click it to open the card if you have access to job cards.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-linklog-back"]',
+                'section' => 'Going back',
+                'title'   => 'Back to the crew',
+                'body'    => 'Returns to the crew\'s page, where you can create, email or revoke the link.',
+            ],
+        ],
+    ],
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // CATALOGUE IMPORT PREVIEW
+    // ═════════════════════════════════════════════════════════════════════════
+
+    'rmnt-catalogue-import-preview' => [
+        'key'         => 'rmnt-catalogue-import-preview',
+        'title'       => 'Checking an import preview',
+        'description' => 'See exactly what an uploaded price list will do to your catalogue before anything is saved.',
+        'route'       => 'corex.rental-catalogue-items.import.preview',
+        'permission'  => 'rental_catalogue.manage',
+        'pick_from'   => 'corex.rental-catalogue-items.import.index',
+        'pick_note'   => 'Upload your file here and click Preview import — the guide starts on the preview.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-impprev-title"]',
+                'section' => 'The preview',
+                'title'   => 'Nothing is saved yet',
+                'body'    => 'This is a dry run of your file. Your catalogue only changes when you press Confirm import at the bottom. The preview is kept for a short while; if it expires, upload the file again.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-impprev-counts"]',
+                'section' => 'Reading the result',
+                'title'   => 'The totals',
+                'body'    => 'How many rows were read, how many will be added as new items, how many will update an existing item, how many will be skipped because the code already exists, and how many have errors. Rows with errors are left out.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-impprev-table"]',
+                'title'   => 'Row by row',
+                'body'    => 'Each row shows the code, description, type, unit, VAT type and price as CoreX understood them. A dash means the value was empty or not recognised. Check the prices before you go on.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-impprev-actioncol"]',
+                'title'   => 'What will happen',
+                'body'    => 'New adds the item. Will update replaces the existing item with your values. Already exists, skip leaves it as it is. Error says what is wrong with the row, for example a missing code; fix it in your file and upload again.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-impprev-back"]',
+                'title'   => 'Something looks wrong?',
+                'body'    => 'Upload a different file to start again. Nothing has been changed.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-impprev-confirm"]',
+                'section'       => 'Saving',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Confirm import when you are happy with the preview.'],
+                'title'         => 'Confirm the import',
+                'body'          => 'This adds and updates the items listed above. The button is greyed out when there is nothing to import.',
+            ],
+        ],
+    ],
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // INSPECTIONS — MOVE-OUT COMPARISON AND SCAN REVIEW
+    // ═════════════════════════════════════════════════════════════════════════
+
+    'rmnt-insp-compare' => [
+        'key'         => 'rmnt-insp-compare',
+        'title'       => 'Comparing move-out with move-in',
+        'description' => 'Go through what changed since move-in, room by room, and record your decision on each difference.',
+        'route'       => 'corex.rental-inspections.deposit-comparison',
+        'permission'  => 'rental_inspections.view',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-inspections',
+        'pick_from'   => 'corex.rental-inspections.index',
+        'pick_note'   => 'Open a move-out inspection and click its comparison button — the guide starts once the comparison opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-cmp-title"]',
+                'section' => 'The comparison',
+                'title'   => 'What you are looking at',
+                'body'    => 'The property and tenant, with every item of the move-out inspection set beside what was recorded at move-in. It is a record of what was found, for you to review.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-baseline"]',
+                'title'   => 'What it is compared with',
+                'body'    => 'The completed move-in inspection of the same tenancy, even when that was on an earlier lease term. Interim inspections and fault reports show up on the items they touched, but are never the comparison. If there is no move-in inspection, every item shows as new.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-actions"]',
+                'title'   => 'Related pages',
+                'body'    => 'Inventory comparison appears when the property has an inventory. The arrow takes you back to the move-out inspection.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-counts"]',
+                'section' => 'Reading the differences',
+                'title'   => 'Counts by kind of difference',
+                'body'    => 'Worse, Different, Same, Better, New item and Not at move-out, with how many items fall in each. Click one to show only those items; click it again to clear.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-facts"]',
+                'title'   => 'Keys, remotes and meters',
+                'body'    => 'The counts and readings taken at move-in beside those at move-out, with Changed where they differ.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-search"]',
+                'section' => 'Finding an item',
+                'do'      => ['action' => 'fill', 'say' => 'Type an item, room or word from a note — or press Skip this step.'],
+                'title'   => 'Search',
+                'body'    => 'Finds items by name, room or the words in a note.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-room-filter"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a room — or press Skip this step.'],
+                'title'   => 'Room',
+                'body'    => 'Show one room only.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-difference"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick a kind of difference — or press Skip this step.'],
+                'title'   => 'Difference',
+                'body'    => 'Show only items that got worse, are new, and so on.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-classification"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick one — or press Skip this step.'],
+                'title'   => 'Classification',
+                'body'    => 'Not classified yet is your to-do list: the differences you have not yet made a decision on.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-order"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick an order — or press Skip this step.'],
+                'title'   => 'Order',
+                'body'    => 'Walking order follows the property room by room. Worst first puts the most serious differences at the top.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-only"]',
+                'do'      => ['action' => 'choose', 'say' => 'Tick Differences only — or press Skip this step.'],
+                'title'   => 'Differences only',
+                'body'    => 'Hides items that are unchanged so you see only what needs a look.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-cmp-apply"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Apply to use your choices.'],
+                'title'         => 'Apply',
+                'body'          => 'Apply reloads the comparison with your search and filters.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-roomhead"]',
+                'section' => 'Going through a room',
+                'do'      => ['action' => 'click', 'say' => 'Click a room heading to fold it away — or press Skip this step.'],
+                'title'   => 'One block per room',
+                'body'    => 'The heading shows how many items the room has and how many are worth a look. Click it to hide or show the room.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-row"]',
+                'title'   => 'One item',
+                'body'    => 'Move-in on the left, move-out on the right, each with its condition, note and photos. Click a photo to see the two sets side by side. A difference tag at the top right says how the item changed.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-classify"]',
+                'section' => 'Recording your decision',
+                'do'      => ['action' => 'fill', 'say' => 'Type your reasoning for this item — or press Skip this step.', 'target' => 'input[name="note"]'],
+                'title'   => 'Your decision',
+                'body'    => 'For an item that changed, choose what it is, such as fair wear and tear or charge to the tenant, and give your reasoning (required). If amounts are switched on for your agency, a charge needs its amount. CoreX only records this; the money is settled in your accounting system.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-cmp-classify"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Record to keep your decision.', 'target' => 'button[type="submit"]'],
+                'title'         => 'Record it',
+                'body'          => 'Your decision is kept with your name and the date. A later change adds to the record rather than replacing it.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-cmp-note"]',
+                'title'   => 'Not a deposit calculation',
+                'body'    => 'This page never works out or deducts anything from a deposit. It is a record of what was found, for review.',
+            ],
+        ],
+    ],
+
+    'rmnt-insp-scan-review' => [
+        'key'         => 'rmnt-insp-scan-review',
+        'title'       => 'Reviewing a scanned site form',
+        'description' => 'Check what CoreX read from your ticked paper form, correct anything it got wrong and apply it to the inspection.',
+        'route'       => 'corex.rental-inspections.scans.review',
+        'permission'  => 'rental_inspections.view',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-inspections',
+        'pick_from'   => 'corex.rental-inspections.index',
+        'pick_note'   => 'Open the inspection, upload the scanned form and open its review — the guide starts once the review opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-scanr-title"]',
+                'section' => 'The review',
+                'title'   => 'Nothing is applied yet',
+                'body'    => 'CoreX has read the ticks and handwriting on your scanned form and proposes a condition for each item. Nothing reaches the inspection until you confirm every row and press Apply. This heading stays at the top as you scroll.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-original"]',
+                'section' => 'Checking against the paper',
+                'title'   => 'Open original',
+                'body'    => 'Opens the scan itself in a new tab, so you can compare it with what CoreX read.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-status"]',
+                'section' => 'What still needs you',
+                'title'   => 'Read, to check, not picked up',
+                'body'    => 'How many rows were read with confidence, how many CoreX was unsure about and how many it could not find a tick for. Below it, red links name what is stopping Apply, such as a row with no condition or a condition that needs a note. Click one to jump to that row.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-pages"]',
+                'title'   => 'What was read from each page',
+                'body'    => 'For every page of the scan: read or not, and why. If a page was not read, check that it is the right form, the page is flat and well lit, and then upload it again.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-room"]',
+                'section' => 'Going through the items',
+                'title'   => 'One block per room',
+                'body'    => 'Items are grouped by room, in the order of the form.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-row"]',
+                'title'   => 'One item',
+                'body'    => 'The item, the page it was on and what is already recorded on screen for it. The tag on the right says how sure CoreX is: Read, Check, or Not picked up.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-state"]',
+                'title'   => 'How sure CoreX was',
+                'body'    => 'Read means a clear tick. Check means two boxes were ticked or the tick was faint, so look at the paper. Not picked up means you must choose the condition yourself. CoreX never guesses on an unclear row.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-condition"]',
+                'do'      => ['action' => 'choose', 'say' => 'Confirm or correct the condition.'],
+                'title'   => 'The condition',
+                'body'    => 'Choose the condition that is right, whatever CoreX proposed. Every row needs one before you can apply.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-scanr-note"]',
+                'do'      => ['action' => 'fill', 'say' => 'Add or correct the note — or press Skip this step.'],
+                'title'   => 'Note and photos',
+                'body'    => 'Handwriting CoreX could read is filled in and marked Read from scan; edit it if it is wrong, or type it in if CoreX could not read it. Some conditions require a note. Once a condition is chosen, Add photo lets you attach a photo to the item. Notes and photos are saved as you add them.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-scanr-apply"]',
+                'section'       => 'Applying the marks',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Apply proposed marks when every row is confirmed.'],
+                'title'         => 'Apply',
+                'body'          => 'Applying records your confirmed conditions and notes on the inspection. The button stays off, with the reason beside it, while anything is still missing. A signed or completed inspection is read-only.',
+            ],
+        ],
+    ],
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // INVENTORIES — START, RECORD, COMPARISON
+    // ═════════════════════════════════════════════════════════════════════════
+
+    'rmnt-inv-start' => [
+        'key'         => 'rmnt-inv-start',
+        'title'       => 'Starting an inventory',
+        'description' => 'Begin the room-by-room inventory of a property.',
+        'route'       => 'corex.rental-inventories.create',
+        'permission'  => 'rental_inventories.create',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-inspections',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-invnew-title"]',
+                'section' => 'Starting an inventory',
+                'title'   => 'One choice',
+                'body'    => 'An inventory is made once for a property: what is in each room and in what number. Pick the property and CoreX starts it.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invnew-property"]',
+                'do'      => ['action' => 'choose', 'say' => 'Pick the property.', 'target' => 'select'],
+                'title'   => 'Property',
+                'body'    => 'Every property is offered. If it has an active lease the inventory is attached to that tenancy; otherwise, for example a property for sale or between tenants, it is kept on the property itself. A property can have only one open inventory at a time.',
+            ],
+            [
+                'element'       => '[data-tour="rmnt-invnew-start"]',
+                'advanced_only' => true,
+                'do'            => ['action' => 'click', 'say' => 'Click Start Inventory.'],
+                'title'         => 'Start',
+                'body'          => 'This opens the new inventory, where you add its items room by room.',
+            ],
+        ],
+    ],
+
+    'rmnt-inv-detail' => [
+        'key'         => 'rmnt-inv-detail',
+        'title'       => 'Working an inventory',
+        'description' => 'One inventory — what is in each room, who signs it and how to finish and share it.',
+        'route'       => 'corex.rental-inventories.show',
+        'permission'  => 'rental_inventories.view',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-inspections',
+        'pick_from'   => 'corex.rental-inventories.index',
+        'pick_note'   => 'Open the inventory you want to work on with View — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-invd-title"]',
+                'section' => 'The inventory',
+                'title'   => 'What and where',
+                'body'    => 'The property, the status and when and by whom it was started.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-actions"]',
+                'title'   => 'Page buttons',
+                'body'    => 'Print for signature gives a paper copy to be signed by hand while the inventory is open. A completed inventory with a tenancy also offers the move-out comparison. Back to list returns to all inventories.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-report"]',
+                'section' => 'Sharing the report',
+                'title'   => 'The signed report',
+                'body'    => 'Once the inventory is completed: download the report, copy a share link or send it on WhatsApp. Resend report shows exactly who will receive it before you confirm.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-parties"]',
+                'section' => 'Recording the contents',
+                'title'   => 'Who is involved',
+                'body'    => 'The owner, the tenants on the lease and who did the inspection.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-items"]',
+                'title'   => 'Items by room',
+                'body'    => 'Every room of the property is listed, even an empty one. A room shows its items with quantities, Nothing in this room if it was ticked as empty, or Not checked if nobody has looked yet. Remove takes a line off but keeps it in the record.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-additem"]',
+                'do'      => ['action' => 'fill', 'say' => 'Type what the item is, for example Wooden TV table — or press Skip this step.', 'target' => 'input[name="description"]'],
+                'title'   => 'Add an item',
+                'body'    => 'Type the room, the quantity and a plain description, then press Add item. For a full walk-through with photos, use the capture screen from the inventory list.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-signatures"]',
+                'section' => 'Signatures',
+                'title'   => 'Who has signed',
+                'body'    => 'Everyone who has signed, refused or signed on paper, with the date. A refusal is kept as a refusal and never shown as a signature.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-sign"]',
+                'title'   => 'Recording a signature',
+                'body'    => 'For each person still to answer: sign on screen, upload a paper signature, send it out for a paper signature, or record that they refused and why. The agent signs last, once everyone else has answered.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-complete"]',
+                'section' => 'Finishing',
+                'title'   => 'Complete',
+                'body'    => 'Closes the inventory once everyone has answered. If any room is still unchecked, Complete names it so you can go and finish it first.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-buyer"]',
+                'title'   => 'Buyer acceptance',
+                'body'    => 'Only on a property with an accepted offer. Optional: send the buyer a link to accept what comes with the sale. They sign on their own device.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invd-cancel"]',
+                'section' => 'Started by mistake',
+                'title'   => 'Cancel this inventory',
+                'body'    => 'Use this only if the inventory should not exist. It stays on record as cancelled, and you can start a new one.',
+            ],
+        ],
+    ],
+
+    'rmnt-inv-compare' => [
+        'key'         => 'rmnt-inv-compare',
+        'title'       => 'Checking an inventory at move-out',
+        'description' => 'Compare what is there today with the original move-in inventory, item by item, and complete the move-out check.',
+        'route'       => 'corex.rental-inventories.comparison',
+        'permission'  => 'rental_inventories.view',
+        // Counted for this feature in the rollout tour report (FeatureTourCoverage); a label only, never a gate.
+        'feature'     => 'rental-inspections',
+        'pick_from'   => 'corex.rental-inventories.index',
+        'pick_note'   => 'Open a completed inventory and click Move-out comparison — the guide starts once it opens.',
+        'setup'       => [['action' => 'scrollTop']],
+        'steps' => [
+            [
+                'element' => '[data-tour="rmnt-invc-title"]',
+                'section' => 'The comparison',
+                'title'   => 'Against the original',
+                'body'    => 'Every line is compared with the original move-in inventory, not with any later check. Nothing here is a deposit figure; it is what was found, for you to review.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-only"]',
+                'do'      => ['action' => 'choose', 'say' => 'Tick Only differences — or press Skip this step.'],
+                'title'   => 'Only differences',
+                'body'    => 'Hides the lines that have not changed. This is the view to hand a tenant.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-check"]',
+                'section' => 'The move-out check',
+                'title'   => 'Move-out check',
+                'body'    => 'Every item needs a finding before the check can be completed. "Present" counts as a finding. The line says how many are still to record.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-complete"]',
+                'title'   => 'Complete the check',
+                'body'    => 'Greyed out until every item has a finding. Once it is completed, a sign-off line appears for each person involved.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-signoffs"]',
+                'title'   => 'Sign-off',
+                'body'    => 'For the agent and each tenant and owner: type their name, choose Signed or Refused to sign, give the reason if they refused, and press Record. Replace corrects an earlier answer.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-rows"]',
+                'section' => 'Going through the items',
+                'title'   => 'One line per item',
+                'body'    => 'Items that have not changed are one grey line reading no change. Everything else, or anything not yet checked, gets a full block, because those are the ones you may still need to act on.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-qty"]',
+                'title'   => 'The count',
+                'body'    => 'For example "4 at move-in, 2 today". The finding below it says whether the item is present, short, damaged or missing, with who recorded it and when.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-record"]',
+                'do'      => ['action' => 'click', 'say' => 'Click Record on an item — or press Skip this step.', 'until' => '[data-tour="rmnt-invc-panel"]'],
+                'title'   => 'Record or correct',
+                'body'    => 'Opens a small form: choose what you found, how many are there and add a note. Press Save to keep it.',
+            ],
+            [
+                'element' => '[data-tour="rmnt-invc-today"]',
+                'title'   => 'Photos',
+                'body'    => 'Move-in photos are on the left and today\'s on the right. A line with no photo today is flagged in red, because a claim without a photo is weak. Add photo uploads one at once, and From the move-out inspection reuses a photo already taken of that room.',
+            ],
+        ],
+    ],
+
 ];
