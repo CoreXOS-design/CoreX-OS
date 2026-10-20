@@ -54,7 +54,14 @@ class ParseMarketReportJob implements ShouldQueue
      * @param bool $forceNewAiRead  Report recogniser (mic-complete-spec §8.9): pay for a fresh AI read
      *                              even if the file's cached answer exists. Only a CoreX admin's Re-run sets it.
      */
-    public function __construct(public readonly int $reportId, public readonly bool $forceNewAiRead = false) {}
+    public function __construct(
+        public readonly int $reportId,
+        public readonly bool $forceNewAiRead = false,
+        /** false = a learned layout may read it, but the AI must not be called (the automatic re-run after a layout is approved). */
+        public readonly bool $aiAllowed = true,
+        /** true = a CoreX owner retrying from the admin queue: skips the "same layout already queued" block. */
+        public readonly bool $adminRetry = false,
+    ) {}
 
     public function handle(
         MarketReportParserRegistry $registry,
@@ -129,7 +136,9 @@ class ParseMarketReportJob implements ShouldQueue
             }
 
             if ($parser instanceof GenericFallbackParser) {
-                $aiOutcome = $aiReader->read($report, $absolutePath, $this->forceNewAiRead);
+                $aiOutcome = $this->aiAllowed
+                    ? $aiReader->read($report, $absolutePath, $this->forceNewAiRead, $this->adminRetry)
+                    : \App\Services\MarketReports\DTOs\AiReadOutcome::unread('Not read: no learned layout matches yet, and this re-run does not use the AI.', code: 'ai_not_used');
                 if ($aiOutcome->wasRead()) {
                     $result     = $aiOutcome->result;
                     $readMethod = MarketReport::READ_AI;
@@ -375,7 +384,7 @@ class ParseMarketReportJob implements ShouldQueue
                         'completed_at' => now()->toIso8601String(),
                     ],
                 ]);
-                event(new \App\Events\MarketReports\MarketReportReadByAi($report));
+                event(new \App\Events\MarketReports\MarketReportReadByAi($report, fromCache: (bool) $aiOutcome?->fromCache));
                 SpotCheckMarketReportJob::dispatch($report->id);
                 $this->learnLayout($report, $aiOutcome, $absolutePath, $learner);
             } elseif ($isZeroCompWithSummary || $isGenericFallback || $isRecognizedButEmpty) {
@@ -397,6 +406,8 @@ class ParseMarketReportJob implements ShouldQueue
                         'data_points'  => count($result->dataPoints),
                         'has_summary'  => $hasSummary,
                         'flagged_by'   => $flaggedBy,
+                        // Why the AI step did not read it (e.g. 'ai_monthly_cap'), for the queue and the agent's banner.
+                        'reason_code'  => $isGenericFallback ? $aiOutcome?->code : null,
                         'completed_at' => now()->toIso8601String(),
                     ],
                 ]);
@@ -407,7 +418,7 @@ class ParseMarketReportJob implements ShouldQueue
                     'flagged_by'  => $flaggedBy,
                 ]);
                 if ($isGenericFallback) {
-                    event(new \App\Events\MarketReports\MarketReportUnreadable($report));
+                    event(new \App\Events\MarketReports\MarketReportUnreadable($report, reasonCode: $aiOutcome?->code, newCase: (bool) $aiOutcome?->newCase));
                 } else {
                     event(new \App\Events\MarketReports\MarketReportSpotCheckFlagged(
                         report: $report,
@@ -463,6 +474,11 @@ class ParseMarketReportJob implements ShouldQueue
             $layoutText = app(LearnedLayoutParser::class)->textFor($absolutePath);
             $why = null;
             $layout = $learner->learnAndSave($report, $outcome, $layoutText, $why);
+            if ($layout !== null && $report->layout_case_id) {
+                // The layout this report was queued under now exists: the case waits for a CoreX approval.
+                \App\Models\MarketReports\MarketReportLayoutCase::query()->whereKey($report->layout_case_id)
+                    ->update(['status' => \App\Models\MarketReports\MarketReportLayoutCase::STATUS_LEARNED, 'learned_layout_id' => $layout->id]);
+            }
             Log::info('ParseMarketReportJob: layout learning', [
                 'report_id' => $report->id,
                 'learned'   => $layout?->id,

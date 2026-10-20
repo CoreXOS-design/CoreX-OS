@@ -61,7 +61,7 @@ final class MarketReport extends Model
         'is_demo',
         // Report recogniser (spec §8.9)
         'read_method', 'read_publisher', 'ai_read_note', 'ai_read_confidence',
-        'learned_layout_id', 'resolved_at', 'resolved_by_user_id',
+        'learned_layout_id', 'layout_case_id', 'resolved_at', 'resolved_by_user_id',
     ];
 
     protected $casts = [
@@ -106,12 +106,33 @@ final class MarketReport extends Model
     }
 
     /** Badge text for the list/detail views; null when a built-in parser read it. */
+    /** Why the AI step did not read an unread report (e.g. 'ai_monthly_cap'), or null. */
+    public function unreadReasonCode(): ?string
+    {
+        if ($this->read_method !== self::READ_UNREAD || !is_array($this->spot_check_results)) {
+            return null;
+        }
+
+        return $this->spot_check_results['reason_code'] ?? null;
+    }
+
+    /** For the CoreX queue: the reason a report was held without an AI read, in a few words. */
+    public function heldLabel(): ?string
+    {
+        return match ($this->unreadReasonCode()) {
+            'ai_monthly_cap'        => 'Held – agency monthly AI limit',
+            'ai_platform_daily_cap' => 'Held – platform daily AI limit',
+            'layout_case_open'      => 'Queued – same layout already with CoreX',
+            default                 => null,
+        };
+    }
+
     public function readBadge(): ?string
     {
         return match ($this->read_method) {
             self::READ_AI      => 'Read by AI – check figures',
             self::READ_LEARNED => 'Read by a learned layout',
-            self::READ_UNREAD  => 'Could not be read – saved for CoreX admin',
+            self::READ_UNREAD  => 'Not recognised – sent to CoreX',
             default            => null,
         };
     }

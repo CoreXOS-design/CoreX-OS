@@ -78,9 +78,9 @@
             @elseif($report->read_method === 'learned')
                 CoreX recognised this publisher's layout from an earlier report and read it with the saved mapping.
             @else
-                Couldn't read it. It's saved and in the CoreX admin queue.
+                Your report could not be recognised. It has been sent to CoreX to fix. CoreX will report back to you as soon as possible.
             @endif
-            @if($report->ai_read_note && $report->read_method !== 'ai')
+            @if($report->ai_read_note && $report->read_method !== 'ai' && auth()->user()?->isOwnerRole())
                 <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 2px;">{{ $report->ai_read_note }}</div>
             @endif
         </div>

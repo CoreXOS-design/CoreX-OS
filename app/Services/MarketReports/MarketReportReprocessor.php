@@ -29,13 +29,13 @@ final class MarketReportReprocessor
     }
 
     /** @return bool false when the stored PDF is missing (nothing was changed) */
-    public function rerun(MarketReport $report, bool $forceNewAiRead = false): bool
+    public function rerun(MarketReport $report, bool $forceNewAiRead = false, bool $aiAllowed = true, bool $adminRetry = false): bool
     {
         if (!$this->fileExists($report)) {
             return false;
         }
         $this->reset($report);
-        ParseMarketReportJob::dispatchSync($report->id, $forceNewAiRead);
+        ParseMarketReportJob::dispatchSync($report->id, $forceNewAiRead, $aiAllowed, $adminRetry);
 
         return true;
     }

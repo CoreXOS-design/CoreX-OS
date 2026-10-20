@@ -47,6 +47,14 @@
                 <input type="number" min="1" max="100" step="1" name="report_ai_max_pages" value="{{ old('report_ai_max_pages', $system['report_ai_max_pages']) }}" style="{{ $input }} width: 100%;">
                 <span>Longer reports are saved, not sent. Default 40.</span>
             </label>
+            <label style="font-size: 0.6875rem; color: var(--text-muted);">AI reads per agency per month
+                <input type="number" min="0" max="100" step="1" name="report_ai_monthly_cap" value="{{ old('report_ai_monthly_cap', $system['report_ai_monthly_cap']) }}" style="{{ $input }} width: 100%;">
+                <span>After this many AI reads in a month an agency's new layouts are queued for the CoreX team instead. Cached and learned reads never count. 0 = no AI reads. Approving a layout resets the counter. Default 5.</span>
+            </label>
+            <label style="font-size: 0.6875rem; color: var(--text-muted);">AI reads per day, all agencies together
+                <input type="number" min="0" max="500" step="1" name="report_ai_platform_daily_cap" value="{{ old('report_ai_platform_daily_cap', $system['report_ai_platform_daily_cap']) }}" style="{{ $input }} width: 100%;">
+                <span>Once this many AI reads have happened today, every new layout is queued and the team gets one alert. Default 10.</span>
+            </label>
             <label style="font-size: 0.6875rem; color: var(--text-muted);">AI confidence cut-off (0–1)
                 <input type="number" min="0" max="1" step="0.01" name="report_ai_min_confidence" value="{{ old('report_ai_min_confidence', $system['report_ai_min_confidence']) }}" style="{{ $input }} width: 100%;">
                 <span>Below this the AI's reading is not used. Default 0.50.</span>

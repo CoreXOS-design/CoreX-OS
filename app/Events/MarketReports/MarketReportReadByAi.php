@@ -17,6 +17,8 @@ final class MarketReportReadByAi extends AbstractDomainEvent
     public function __construct(
         public readonly MarketReport $report,
         ?string $traceId = null,
+        /** true when the AI's earlier answer for this exact file was reused (no new AI cost). */
+        public readonly bool $fromCache = false,
     ) {
         parent::__construct($traceId);
     }
@@ -34,6 +36,7 @@ final class MarketReportReadByAi extends AbstractDomainEvent
         return [
             'read_method' => $this->report->read_method,
             'note'        => $this->report->ai_read_note,
+            'from_cache'  => $this->fromCache,
         ];
     }
 }

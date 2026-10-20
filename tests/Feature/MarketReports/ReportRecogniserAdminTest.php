@@ -228,7 +228,7 @@ final class ReportRecogniserAdminTest extends TestCase
     public function test_system_settings_save_and_validate(): void
     {
         $post = fn (array $d) => $this->actingAs($this->owner)->post(route('market-intelligence.reports.recogniser.settings'), $d);
-        $good = ['report_ai_max_pages' => 25, 'report_ai_min_confidence' => 0.65, 'report_layout_min_match' => 0.8, 'report_layout_selftest_min' => 0.95];
+        $good = ['report_ai_max_pages' => 25, 'report_ai_min_confidence' => 0.65, 'report_layout_min_match' => 0.8, 'report_layout_selftest_min' => 0.95, 'report_ai_monthly_cap' => 7, 'report_ai_platform_daily_cap' => 12];
 
         $post($good)->assertRedirect()->assertSessionHasNoErrors();
         $s = app(ReportReadSettings::class);
@@ -236,6 +236,14 @@ final class ReportRecogniserAdminTest extends TestCase
         $this->assertEqualsWithDelta(0.65, $s->minConfidence(), 0.0001);
         $this->assertEqualsWithDelta(0.8, $s->layoutMinMatch(), 0.0001);
         $this->assertEqualsWithDelta(0.95, $s->selftestMin(), 0.0001);
+        $this->assertSame(7, $s->monthlyCap());
+        $this->assertSame(12, $s->platformDailyCap());
+
+        $post(array_merge($good, ['report_ai_monthly_cap' => -1]))->assertSessionHasErrors('report_ai_monthly_cap');
+        $post(array_merge($good, ['report_ai_platform_daily_cap' => 501]))->assertSessionHasErrors('report_ai_platform_daily_cap');
+        $post(array_merge($good, ['report_ai_monthly_cap' => 0]))->assertSessionHasNoErrors();
+        $this->assertSame(0, $s->monthlyCap(), '0 is allowed: no AI reads at all');
+        $post($good);
 
         $post(array_merge($good, ['report_ai_min_confidence' => 1.5]))->assertSessionHasErrors('report_ai_min_confidence');
         $post(array_merge($good, ['report_ai_max_pages' => 0]))->assertSessionHasErrors('report_ai_max_pages');
@@ -244,8 +252,10 @@ final class ReportRecogniserAdminTest extends TestCase
 
     public function test_defaults_apply_when_nothing_is_set(): void
     {
-        DevSetting::query()->whereIn('key', [ReportReadSettings::KEY_MAX_PAGES, ReportReadSettings::KEY_MIN_CONFIDENCE, ReportReadSettings::KEY_LAYOUT_MATCH, ReportReadSettings::KEY_SELFTEST_MIN])->delete();
+        DevSetting::query()->whereIn('key', [ReportReadSettings::KEY_MAX_PAGES, ReportReadSettings::KEY_MIN_CONFIDENCE, ReportReadSettings::KEY_LAYOUT_MATCH, ReportReadSettings::KEY_SELFTEST_MIN, ReportReadSettings::KEY_MONTHLY_CAP, ReportReadSettings::KEY_PLATFORM_DAILY_CAP])->delete();
         $s = app(ReportReadSettings::class);
+        $this->assertSame(5, $s->monthlyCap(), "Johan's ruling: 5 AI reads per agency per month by default");
+        $this->assertSame(10, $s->platformDailyCap(), "Johan's ruling: 10 AI reads per day across all agencies by default");
         $this->assertSame(40, $s->maxPages());
         $this->assertEqualsWithDelta(0.5, $s->minConfidence(), 0.0001);
         $this->assertEqualsWithDelta(0.85, $s->layoutMinMatch(), 0.0001);

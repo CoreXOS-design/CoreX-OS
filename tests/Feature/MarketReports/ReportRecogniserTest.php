@@ -187,7 +187,7 @@ final class ReportRecogniserTest extends TestCase
         $this->assertSame('flagged', $report->spot_check_status);
         $this->assertTrue(is_file(Storage::disk('local')->path($report->file_path)), 'the file stays saved');
         Notification::assertSentTo(User::find($this->userId), PillarEventNotification::class,
-            fn ($n) => $n->body === "Couldn't read it. It's saved and in the CoreX admin queue.");
+            fn ($n) => $n->body === 'Your report could not be recognised. It has been sent to CoreX to fix. CoreX will report back to you as soon as possible.');
     }
 
     public function test_platform_switch_off_means_unread_and_no_ai_call(): void

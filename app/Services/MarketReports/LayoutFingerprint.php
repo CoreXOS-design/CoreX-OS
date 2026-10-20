@@ -59,6 +59,41 @@ final class LayoutFingerprint
     }
 
     /**
+     * Fingerprint of a layout nobody has described yet, taken from the PDF text alone —
+     * so it can be made BEFORE any AI call. The anchors are the fixed-looking lines: lines
+     * with no digits at all (headings, column headings, the publisher's footer line), two
+     * words or more, and not a "Label: value" line. Rows, amounts, dates and addresses all
+     * carry digits, so they never become anchors. Returns [] when there are fewer than
+     * MIN_ANCHORS (too little to tell one layout from another).
+     *
+     * @return array<int, string> normalised anchors, in document order
+     */
+    public static function unknownLayoutAnchors(string $text): array
+    {
+        $anchors = [];
+        foreach (preg_split('/\R/u', $text) ?: [] as $line) {
+            $line = trim($line);
+            if ($line === '' || mb_strlen($line) > 120 || preg_match('/\d/u', $line)) {
+                continue;
+            }
+            if (preg_match('/^[^:]{1,40}:\s*\S/u', $line)) {
+                continue; // "Suburb: Southport" — the value varies
+            }
+            $n = self::normalise($line);
+            if (mb_strlen(preg_replace('/[^\p{L}]+/u', '', $n) ?? '') < 6 || substr_count($n, ' ') < 1) {
+                continue;
+            }
+            $anchors[$n] = $n;
+        }
+        $anchors = array_values($anchors);
+        if (count($anchors) < self::MIN_ANCHORS) {
+            return [];
+        }
+
+        return array_slice($anchors, 0, 16);
+    }
+
+    /**
      * Pick the anchors for a new layout from the AI's own hints, keeping only phrases
      * that really are in the PDF's text and are specific enough to mean something.
      * Returns [] when the hints are too weak to identify a layout safely.

@@ -9,6 +9,7 @@ use App\Models\Agency;
 use App\Models\DevSetting;
 use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\MarketReportLearnedLayout;
+use App\Services\MarketReports\LayoutCaseResolver;
 use App\Services\MarketReports\MarketReportReprocessor;
 use App\Services\MarketReports\ReportReadSettings;
 use Illuminate\Http\RedirectResponse;
@@ -46,7 +47,10 @@ class MarketReportRecogniserController extends Controller
         'learned'   => 'created_at',
     ];
 
-    public function __construct(private readonly MarketReportReprocessor $reprocessor) {}
+    public function __construct(
+        private readonly MarketReportReprocessor $reprocessor,
+        private readonly LayoutCaseResolver $resolver,
+    ) {}
 
     // ── queue ────────────────────────────────────────────────────────────
 
@@ -57,7 +61,7 @@ class MarketReportRecogniserController extends Controller
         $sort = array_key_exists((string) $request->query('sort'), self::QUEUE_SORTS) ? (string) $request->query('sort') : 'uploaded';
         $dir  = $request->query('dir') === 'asc' ? 'asc' : 'desc';
         $status = in_array($request->query('status'), ['open', 'resolved', 'all'], true) ? (string) $request->query('status') : 'open';
-        $how    = in_array($request->query('how'), ['ai', 'unread', 'all'], true) ? (string) $request->query('how') : 'all';
+        $how    = in_array($request->query('how'), ['ai', 'unread', 'held', 'all'], true) ? (string) $request->query('how') : 'all';
 
         $base = MarketReport::query()
             ->withoutGlobalScopes()
@@ -67,14 +71,25 @@ class MarketReportRecogniserController extends Controller
         $query = (clone $base)
             ->leftJoin('agencies', 'agencies.id', '=', 'market_reports.agency_id')
             ->leftJoin('users', 'users.id', '=', 'market_reports.uploaded_by_user_id')
-            ->select('market_reports.*', 'agencies.name as agency_name', 'users.name as uploader_name', 'users.email as uploader_email');
+            ->select('market_reports.*', 'agencies.name as agency_name', 'users.name as uploader_name', 'users.email as uploader_email')
+            ->selectSub(
+                MarketReport::query()->withoutGlobalScopes()->from('market_reports as mrc')
+                    ->selectRaw('count(*)')
+                    ->whereColumn('mrc.layout_case_id', 'market_reports.layout_case_id')
+                    ->whereNull('mrc.deleted_at'),
+                'case_reports'
+            );
 
         if ($status === 'open') {
             $query->whereNull('market_reports.resolved_at');
         } elseif ($status === 'resolved') {
             $query->whereNotNull('market_reports.resolved_at');
         }
-        if ($how !== 'all') {
+        if ($how === 'held') {
+            // Queued without an AI read: a cap was reached, or the same layout is already with CoreX.
+            $query->where('market_reports.read_method', MarketReport::READ_UNREAD)
+                ->whereIn('market_reports.spot_check_results->reason_code', ['ai_monthly_cap', 'ai_platform_daily_cap', 'layout_case_open']);
+        } elseif ($how !== 'all') {
             $query->where('market_reports.read_method', $how);
         }
         if ($request->filled('agency')) {
@@ -138,12 +153,22 @@ class MarketReportRecogniserController extends Controller
         $report = $this->find($id);
         $force = $request->boolean('force_new_ai');
 
-        if (!$this->reprocessor->rerun($report, $force)) {
+        // A CoreX owner retrying: skips the "same layout already queued" block (the caps still apply).
+        if (!$this->reprocessor->rerun($report, $force, true, true)) {
             return redirect()->back()->with('error', 'The stored PDF is missing from disk — it cannot be re-run.');
         }
         $report->refresh();
 
-        return redirect()->back()->with('status', 'Re-run finished: ' . ($report->readBadge() ?? 'read by a built-in parser') . '.');
+        $message = 'Re-run finished: ' . ($report->readBadge() ?? 'read by a built-in parser') . '.';
+        // The team has just "added" the layout by getting a good AI read of it: close the case the same way an approval does.
+        $learned = $report->read_method === MarketReport::READ_AI
+            ? MarketReportLearnedLayout::query()->where('learned_from_report_id', $report->id)->latest('id')->first()
+            : null;
+        if ($learned !== null) {
+            $message .= ' ' . $this->resolutionText($this->resolver->resolveForLayout($learned, (int) $request->user()->id));
+        }
+
+        return redirect()->back()->with('status', $message);
     }
 
     public function resolve(Request $request, int $id): RedirectResponse
@@ -197,11 +222,16 @@ class MarketReportRecogniserController extends Controller
     public function layoutApprove(Request $request, int $id): RedirectResponse
     {
         $this->authoriseOwner($request);
-        MarketReportLearnedLayout::query()->findOrFail($id)->forceFill([
+        $layout = MarketReportLearnedLayout::query()->findOrFail($id);
+        $layout->forceFill([
             'status' => MarketReportLearnedLayout::STATUS_APPROVED, 'approved_at' => now(), 'approved_by_user_id' => $request->user()->id,
         ])->save();
 
-        return redirect()->back()->with('status', 'Layout approved.');
+        // Johan's ruling 20 Oct: approving a layout resets the affected agencies' AI counters, re-runs their
+        // queued reports on it (no AI) and tells the agents.
+        $summary = $this->resolver->resolveForLayout($layout, (int) $request->user()->id);
+
+        return redirect()->back()->with('status', trim('Layout approved. ' . $this->resolutionText($summary)));
     }
 
     public function layoutRename(Request $request, int $id): RedirectResponse
@@ -241,6 +271,8 @@ class MarketReportRecogniserController extends Controller
             ReportReadSettings::KEY_MIN_CONFIDENCE => ['required', 'numeric', 'min:0', 'max:1'],
             ReportReadSettings::KEY_LAYOUT_MATCH   => ['required', 'numeric', 'min:0.5', 'max:1'],
             ReportReadSettings::KEY_SELFTEST_MIN   => ['required', 'numeric', 'min:0.5', 'max:1'],
+            ReportReadSettings::KEY_MONTHLY_CAP    => ['required', 'integer', 'min:0', 'max:100'],
+            ReportReadSettings::KEY_PLATFORM_DAILY_CAP => ['required', 'integer', 'min:0', 'max:500'],
         ]);
         foreach ($data as $key => $value) {
             DevSetting::set($key, (string) $value);
@@ -250,6 +282,18 @@ class MarketReportRecogniserController extends Controller
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
+
+    /** @param array{cases:int, agencies_reset:int, reports:int, imported:int, still_queued:int} $s */
+    private function resolutionText(array $s): string
+    {
+        if ($s['cases'] === 0) {
+            return '';
+        }
+
+        return "{$s['cases']} queued layout case(s) closed: {$s['agencies_reset']} agency AI counter(s) reset, "
+            . "{$s['imported']} of {$s['reports']} queued report(s) now imported and their agents told"
+            . ($s['still_queued'] > 0 ? ", {$s['still_queued']} still in the queue." : '.');
+    }
 
     private function authoriseOwner(Request $request): void
     {

@@ -27,11 +27,17 @@ final class AiReadOutcome
         public readonly array $layoutHints = [],
         public readonly bool $fromCache = false,
         public readonly array $dropped = [],
+        /** Machine-readable reason for an unread outcome, e.g. 'ai_monthly_cap'. */
+        public readonly ?string $code = null,
+        /** The layout case the report was queued under (cap / failure / same layout already queued). */
+        public readonly ?int $caseId = null,
+        /** true when THIS report opened the case (the CoreX team is alerted once per case). */
+        public readonly bool $newCase = false,
     ) {}
 
-    public static function unread(string $reason, ?float $confidence = null, ?string $publisher = null): self
+    public static function unread(string $reason, ?float $confidence = null, ?string $publisher = null, ?string $code = null, ?int $caseId = null, bool $newCase = false): self
     {
-        return new self(status: 'unread', reason: $reason, confidence: $confidence, publisher: $publisher);
+        return new self(status: 'unread', reason: $reason, confidence: $confidence, publisher: $publisher, code: $code, caseId: $caseId, newCase: $newCase);
     }
 
     public function wasRead(): bool

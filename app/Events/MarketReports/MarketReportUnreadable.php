@@ -17,6 +17,10 @@ final class MarketReportUnreadable extends AbstractDomainEvent
     public function __construct(
         public readonly MarketReport $report,
         ?string $traceId = null,
+        /** Why the AI step did not read it: ai_monthly_cap | ai_platform_daily_cap | layout_case_open | ai_failed | … */
+        public readonly ?string $reasonCode = null,
+        /** true when this report opened a new layout case (the team is alerted once per case). */
+        public readonly bool $newCase = false,
     ) {
         parent::__construct($traceId);
     }
@@ -34,6 +38,8 @@ final class MarketReportUnreadable extends AbstractDomainEvent
         return [
             'read_method' => $this->report->read_method,
             'note'        => $this->report->ai_read_note,
+            'reason_code' => $this->reasonCode,
+            'new_case'    => $this->newCase,
         ];
     }
 }

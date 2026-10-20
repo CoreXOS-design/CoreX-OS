@@ -65,6 +65,7 @@
                 <option value="all" @selected($f['how'] === 'all')>All</option>
                 <option value="ai" @selected($f['how'] === 'ai')>Read by AI</option>
                 <option value="unread" @selected($f['how'] === 'unread')>Could not be read</option>
+                <option value="held" @selected($f['how'] === 'held')>Held – AI limit / layout already queued</option>
             </select>
         </label>
         <label style="font-size: 0.6875rem; color: var(--text-muted);">Agency<br>
@@ -127,11 +128,14 @@
                                 @if($r->ai_read_note)
                                     <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">{{ $r->ai_read_note }}</div>
                                 @endif
+                                @if($r->layout_case_id)
+                                    <div style="font-size: 0.6875rem; color: var(--text-muted); margin-top: 2px;">Layout case #{{ $r->layout_case_id }} · {{ $r->case_reports }} report{{ (int) $r->case_reports === 1 ? '' : 's' }} in this layout</div>
+                                @endif
                             </td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $r->agency_name ?? '—' }}</td>
                             <td style="padding: 8px 12px; color: var(--text-secondary);">{{ $r->read_publisher ?? '—' }}</td>
                             <td style="padding: 8px 12px; font-weight: 600; color: {{ $r->read_method === 'ai' ? 'var(--ds-amber, #d97706)' : 'var(--ds-crimson, #dc2626)' }};">
-                                {{ $r->read_method === 'ai' ? 'Read by AI' : 'Could not be read' }}
+                                {{ $r->read_method === 'ai' ? 'Read by AI' : ($r->heldLabel() ?? 'Could not be read') }}
                                 @if($r->resolved_at)<span style="font-weight: 400; color: var(--text-muted);"> · resolved</span>@endif
                             </td>
                             <td style="padding: 8px 12px; text-align: right;">{{ $r->ai_read_confidence !== null ? number_format((float) $r->ai_read_confidence, 2) : '—' }}</td>

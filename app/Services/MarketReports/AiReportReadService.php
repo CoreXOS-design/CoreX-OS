@@ -7,10 +7,15 @@ namespace App\Services\MarketReports;
 use App\Exceptions\AI\AiPausedException;
 use App\Models\AI\AiUsageEvent;
 use App\Models\MarketReports\MarketReport;
+use App\Models\MarketReports\MarketReportAiUsage;
+use App\Models\MarketReports\MarketReportLayoutCase;
 use App\Models\MarketReports\MarketReportAiRead;
 use App\Services\AI\AnthropicGateway;
 use App\Services\AI\DTOs\NarrativeRequest;
 use App\Services\MarketReports\DTOs\AiReadOutcome;
+use App\Services\MarketReports\Parsers\LearnedLayoutParser;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -19,7 +24,8 @@ use Illuminate\Support\Facades\Log;
  *
  * Everything that can stop the spend is checked BEFORE the gateway is called, in this order:
  * the agency's own switch, the platform's ANTHROPIC_ENABLED flag, the cached answer for
- * this exact file (free), the page limit. The gateway then applies AiSpendGuard (pause /
+ * this exact file (free), the same-layout-already-queued block, the page limit, the agency's
+ * monthly cap and the platform's daily cap. The gateway then applies AiSpendGuard (pause /
  * cut-out) and AiUsageRecorder (ledger) exactly as for every other AI surface.
  *
  * The AI's raw answer is cached by (file hash, prompt version) — the same file is never
@@ -27,65 +33,187 @@ use Illuminate\Support\Facades\Log;
  */
 class AiReportReadService
 {
+    /** AiReadOutcome::$code values that mean "queued for the CoreX team without an AI read". */
+    public const CODE_MONTHLY_CAP        = 'ai_monthly_cap';
+    public const CODE_PLATFORM_DAILY_CAP = 'ai_platform_daily_cap';
+    public const CODE_CASE_OPEN          = 'layout_case_open';
+
     public function __construct(
         private readonly AnthropicGateway $gateway,
         private readonly CanonicalReadMapper $mapper,
         private readonly ReportReadSettings $settings,
     ) {}
 
-    public function read(MarketReport $report, string $absolutePath, bool $forceNew = false): AiReadOutcome
+    /**
+     * @param bool $forceNew    pay for a fresh AI read even when this file's answer is cached
+     * @param bool $adminRetry  a CoreX owner re-running the report from the admin queue: the
+     *                          "same layout already queued" block is skipped (that is exactly
+     *                          what the team is trying to resolve). The caps still apply.
+     */
+    public function read(MarketReport $report, string $absolutePath, bool $forceNew = false, bool $adminRetry = false): AiReadOutcome
     {
         if (!$this->settings->aiEnabledForAgency((int) $report->agency_id)) {
-            return AiReadOutcome::unread('AI reading of unrecognised reports is switched off for this agency.');
+            return AiReadOutcome::unread('AI reading of unrecognised reports is switched off for this agency.', code: 'agency_off');
         }
         if (!(bool) config('services.anthropic.enabled', true)) {
-            return AiReadOutcome::unread('AI is switched off for the whole platform (ANTHROPIC_ENABLED).');
+            return AiReadOutcome::unread('AI is switched off for the whole platform (ANTHROPIC_ENABLED).', code: 'platform_off');
         }
         if (!is_file($absolutePath) || !is_readable($absolutePath)) {
-            return AiReadOutcome::unread('The stored PDF could not be found.');
+            return AiReadOutcome::unread('The stored PDF could not be found.', code: 'file_missing');
         }
 
-        $hash   = hash_file('sha256', $absolutePath);
-        $prompt = ReportReadSettings::PROMPT_VERSION;
+        $hash = hash_file('sha256', $absolutePath);
 
-        $payload   = null;
-        $fromCache = false;
+        // A cached answer for this exact file is free: no case check, no cap, no gateway.
         if (!$forceNew) {
             $cached = MarketReportAiRead::query()
                 ->where('file_hash', $hash)
-                ->where('prompt_version', $prompt)
+                ->where('prompt_version', ReportReadSettings::PROMPT_VERSION)
                 ->first();
             if ($cached && is_array($cached->payload)) {
-                $payload   = $cached->payload;
-                $fromCache = true;
+                $outcome = $this->evaluate($report, $cached->payload, true);
+
+                return $outcome->wasRead() ? $outcome : $this->hold($report, $this->anchorsFor($absolutePath), 'ai_unusable', $outcome->reason ?? 'The AI reading could not be used.', false, $outcome);
             }
         }
 
+        // From here a paid call may happen. Serialise platform-wide: AI reads are rare, and
+        // this is what makes "one layout problem = one AI attempt" true even when many
+        // agencies upload the same new layout at the same moment.
+        try {
+            return Cache::lock('market-report-ai-read', 240)->block(240, fn () => $this->readPaid($report, $absolutePath, $hash, $adminRetry));
+        } catch (LockTimeoutException) {
+            return AiReadOutcome::unread('The AI reader was busy with another report; try again shortly.', code: 'ai_busy');
+        }
+    }
+
+    private function readPaid(MarketReport $report, string $absolutePath, string $hash, bool $adminRetry): AiReadOutcome
+    {
+        // 1. Fingerprint the unknown layout BEFORE any AI call. If the same layout is already
+        //    queued or already failed (any agency), do not call the AI again.
+        $anchors = $this->anchorsFor($absolutePath);
+        if (!$adminRetry && $anchors !== []) {
+            $case = $this->matchOpenCase($anchors);
+            if ($case !== null) {
+                $report->forceFill(['layout_case_id' => $case->id])->save();
+
+                return AiReadOutcome::unread(
+                    "This layout is already with the CoreX team (layout case #{$case->id}); it was queued without a new AI read.",
+                    code: self::CODE_CASE_OPEN,
+                    caseId: (int) $case->id,
+                );
+            }
+        }
+
+        // 2. Page limit (a property of this file, not of the layout).
+        $pages = $this->pageCount($absolutePath);
+        $max   = $this->settings->maxPages();
+        if ($pages !== null && $pages > $max) {
+            return AiReadOutcome::unread("The report has {$pages} pages; the limit for AI reading is {$max}.", code: 'too_many_pages');
+        }
+
+        // 3. Caps (Johan's ruling 20 Oct): the agency's monthly allowance, then the platform's
+        //    daily one. Slots are taken atomically BEFORE the call. AiSpendGuard stays the last net.
+        $agencyId = (int) $report->agency_id;
+        $monthly  = $this->settings->monthlyCap();
+        if (!MarketReportAiUsage::reserveAgencyMonth($agencyId, $monthly)) {
+            return $this->hold($report, $anchors, self::CODE_MONTHLY_CAP,
+                "This agency has used its {$monthly} AI reads for the month; the report is queued for the CoreX team to add the layout.", false);
+        }
+        $daily = $this->settings->platformDailyCap();
+        if (!MarketReportAiUsage::reservePlatformDay($daily)) {
+            MarketReportAiUsage::releaseAgencyMonth($agencyId);
+
+            return $this->hold($report, $anchors, self::CODE_PLATFORM_DAILY_CAP,
+                "The platform's daily limit of {$daily} AI reads has been reached; the report is queued for the CoreX team.", false);
+        }
+
+        // 4. The call.
+        try {
+            $payload = $this->callGateway($report, $absolutePath, $hash);
+        } catch (AiPausedException $e) {
+            // Refused before anything was sent: nothing was spent, give both slots back.
+            MarketReportAiUsage::releaseBoth($agencyId);
+
+            return $this->hold($report, $anchors, 'ai_paused', 'AI is paused for this agency (spend limit reached).', false);
+        } catch (\Throwable $e) {
+            Log::warning('AiReportReadService: AI call failed', [
+                'report_id' => $report->id,
+                'error'     => mb_substr($e->getMessage(), 0, 300),
+            ]);
+
+            // A call that was sent still counts (it may have been charged).
+            return $this->hold($report, $anchors, 'ai_failed', 'The AI read failed: ' . mb_substr($e->getMessage(), 0, 160), true);
+        }
         if ($payload === null) {
-            $pages = $this->pageCount($absolutePath);
-            $max   = $this->settings->maxPages();
-            if ($pages !== null && $pages > $max) {
-                return AiReadOutcome::unread("The report has {$pages} pages; the limit for AI reading is {$max}.");
-            }
+            return $this->hold($report, $anchors, 'ai_failed', 'The AI answered, but its answer could not be understood.', true);
+        }
 
-            try {
-                $payload = $this->callGateway($report, $absolutePath, $hash);
-            } catch (AiPausedException $e) {
-                return AiReadOutcome::unread('AI is paused for this agency (spend limit reached).');
-            } catch (\Throwable $e) {
-                Log::warning('AiReportReadService: AI call failed', [
-                    'report_id' => $report->id,
-                    'error'     => mb_substr($e->getMessage(), 0, 300),
-                ]);
+        $outcome = $this->evaluate($report, $payload, false);
 
-                return AiReadOutcome::unread('The AI read failed: ' . mb_substr($e->getMessage(), 0, 160));
-            }
-            if ($payload === null) {
-                return AiReadOutcome::unread('The AI answered, but its answer could not be understood.');
+        return $outcome->wasRead() ? $outcome : $this->hold($report, $anchors, 'ai_unusable', $outcome->reason ?? 'The AI reading could not be used.', true, $outcome);
+    }
+
+    /**
+     * The report could not be read. Open (or join) the layout case so the next report in this
+     * layout, from any agency, queues instead of paying for another attempt.
+     *
+     * @param array<int, string> $anchors
+     */
+    private function hold(MarketReport $report, array $anchors, string $code, string $reason, bool $aiWasCalled, ?AiReadOutcome $from = null): AiReadOutcome
+    {
+        $case    = null;
+        $newCase = false;
+
+        if ($report->layout_case_id) {
+            $case = MarketReportLayoutCase::query()->find($report->layout_case_id);
+        }
+        if ($case === null && $anchors !== []) {
+            $case = MarketReportLayoutCase::query()->create([
+                'fingerprint'     => LayoutFingerprint::hash($anchors),
+                'anchors'         => $anchors,
+                'status'          => MarketReportLayoutCase::STATUS_OPEN,
+                'first_report_id' => $report->id,
+                'first_agency_id' => $report->agency_id,
+                'ai_attempts'     => 0,
+            ]);
+            $newCase = true;
+        }
+        if ($case !== null) {
+            $case->forceFill([
+                'ai_attempts' => $case->ai_attempts + ($aiWasCalled ? 1 : 0),
+                'last_code'   => $code,
+                'last_note'   => mb_substr($reason, 0, 500),
+                'status'      => $case->status === MarketReportLayoutCase::STATUS_LEARNED ? $case->status : MarketReportLayoutCase::STATUS_OPEN,
+            ])->save();
+            $report->forceFill(['layout_case_id' => $case->id])->save();
+        }
+
+        return AiReadOutcome::unread($reason, $from?->confidence, $from?->publisher, $code, $case?->id !== null ? (int) $case->id : null, $newCase);
+    }
+
+    /** @return array<int, string> */
+    private function anchorsFor(string $absolutePath): array
+    {
+        try {
+            return LayoutFingerprint::unknownLayoutAnchors(app(LearnedLayoutParser::class)->textFor($absolutePath));
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /** An OPEN case whose fixed headings are (nearly) all on this page. */
+    private function matchOpenCase(array $anchors): ?MarketReportLayoutCase
+    {
+        $min  = $this->settings->layoutMinMatch();
+        $text = implode("\n", $anchors); // already normalised; presentShare normalises again harmlessly
+        foreach (MarketReportLayoutCase::query()->where('status', MarketReportLayoutCase::STATUS_OPEN)->orderBy('id')->get() as $case) {
+            if (LayoutFingerprint::presentShare((array) $case->anchors, $text) >= $min) {
+                return $case;
             }
         }
 
-        return $this->evaluate($report, $payload, $fromCache);
+        return null;
     }
 
     /**
