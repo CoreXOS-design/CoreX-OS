@@ -67,6 +67,13 @@ final class PortalLinkToHomeTest extends TestCase
             'source' => 'manual', 'created_by_user_id' => $this->staff->id,
         ]);
         LeaseTenant::create(['lease_id' => $this->lease->id, 'contact_id' => $this->tenant->id, 'is_primary' => true]);
+
+        // Audit 2026-10-19 D1: a tenancy party is never linked to a login by an emailed code alone - the AGENCY gives portal access (what lease
+        // signing does automatically, or the lease screen's "Set up portal access"). The person then opens the link, confirms the email with a
+        // code and chooses a password, exactly as before. The ungranted case is PortalSecurityFixesTest.
+        foreach ([$this->tenant, $this->owner] as $party) {
+            app(RentalPortalAccessService::class)->attach($party);
+        }
     }
 
     /**
@@ -142,10 +149,8 @@ final class PortalLinkToHomeTest extends TestCase
     public static function people(): array
     {
         return [
-            'tenant, new login' => ['tenant', false],
-            'tenant, existing login' => ['tenant', true],
-            'owner, new login' => ['owner', false],
-            'owner, existing login' => ['owner', true],
+            'tenant' => ['tenant'],
+            'owner' => ['owner'],
         ];
     }
 
@@ -156,13 +161,10 @@ final class PortalLinkToHomeTest extends TestCase
 
     /** @dataProvider people */
     #[\PHPUnit\Framework\Attributes\DataProvider('people')]
-    public function test_clean_browser_link_to_code_to_password_to_portal_home(string $role, bool $existingLogin): void
+    public function test_clean_browser_link_to_code_to_password_to_portal_home(string $role): void
     {
         $contact = $this->contactFor($role);
-        if ($existingLogin) {
-            app(RentalPortalAccessService::class)->attach($contact);
-            $this->assertNotNull($contact->fresh()->client_user_id);
-        }
+        $this->assertNotNull($contact->fresh()->client_user_id, 'the agency gave this person portal access');
 
         $this->walkLinkToPassword($contact->email)->assertOk()->assertJsonMissingPath('token');
 
@@ -175,12 +177,9 @@ final class PortalLinkToHomeTest extends TestCase
 
     /** @dataProvider people */
     #[\PHPUnit\Framework\Attributes\DataProvider('people')]
-    public function test_the_same_path_in_a_browser_where_a_staff_user_is_already_signed_in(string $role, bool $existingLogin): void
+    public function test_the_same_path_in_a_browser_where_a_staff_user_is_already_signed_in(string $role): void
     {
         $contact = $this->contactFor($role);
-        if ($existingLogin) {
-            app(RentalPortalAccessService::class)->attach($contact);
-        }
 
         $this->staffBrowser();
 

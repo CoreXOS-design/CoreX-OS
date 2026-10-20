@@ -8,10 +8,11 @@
     <div>
         <label class="text-xs font-medium" for="wp-cause">Cause (required)</label>
         <select id="wp-cause" name="cause_id" class="w-full rounded-md px-3 py-2 text-sm mt-1" style="border: 1px solid var(--border);">
+            <option value="" @selected($workOrder->cause_id === null && ! $workOrder->cause_note && ! old('cause_note'))>Choose&hellip;</option>
             @foreach($wpOptions as $o)
                 <option value="{{ $o->id }}" @selected((int) old('cause_id', $workOrder->cause_id) === $o->id)>{{ $o->label }}</option>
             @endforeach
-            <option value="" @selected($workOrder->cause_id === null && ($workOrder->cause_note || old('cause_note')))>Something else (describe it)</option>
+            <option value="">Something else (describe it)</option>
         </select>
     </div>
     <div>

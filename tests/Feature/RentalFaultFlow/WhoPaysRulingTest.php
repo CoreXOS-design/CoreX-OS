@@ -326,13 +326,13 @@ final class WhoPaysRulingTest extends TestCase
         $this->assertStringNotContainsString('Paid by</dt>', $html, 'the old line is gone on a job from a fault');
         $this->assertStringNotContainsString('Not yet paid', $html);
 
-        // the completion form no longer asks twice: paid_by follows the ruling (owner / tenant), else not yet paid
+        // the completion form does not post paid_by for a job from a fault at all (section 28.7); the server follows the ruling (owner / tenant), else not yet paid
         $open = $this->found($this->workOrder($this->fault(), ['status' => RentalWorkOrder::STATUS_IN_PROGRESS]));
         $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $open))->assertOk()->getContent();
-        $this->assertStringContainsString('<input type="hidden" name="paid_by" value="not_yet_paid">', $page);
+        $this->assertStringNotContainsString('name="paid_by"', $page);
         $this->svc()->rule($open, $this->agent, 'tenant', null, 'Toy in drain');
         $page = $this->actingAs($this->agent)->get(route('corex.rental-work-orders.show', $open->fresh()))->getContent();
-        $this->assertStringContainsString('<input type="hidden" name="paid_by" value="tenant">', $page);
+        $this->assertStringNotContainsString('name="paid_by"', $page);
 
         // a work order that did NOT come from a fault is exactly as before
         $plain = $this->workOrder(null, ['reported_fault_report_id' => null, 'status' => RentalWorkOrder::STATUS_COMPLETED, 'completed_at' => now(), 'paid_by' => 'owner']);

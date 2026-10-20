@@ -169,6 +169,14 @@ class RentalApplication extends Model
     public const HAND_OFF_STATUSES = ['returned', 'under_assessment'];
 
     /**
+     * Audit fix A3 (2026-10-19): files the applicant has not (yet) submitted - or has been sent back to edit - that the agent
+     * can nevertheless close off: the applicant went quiet or walked away. They used to have no exit except Archive. Same
+     * recorded, noted, audited withdrawal as every other status (RentalApplicationController::updateStatus()); it kills the
+     * applicant's link.
+     */
+    public const WITHDRAWABLE_BEFORE_SUBMIT_STATUSES = ['sent', 'in_progress', 'reopened'];
+
+    /**
      * Reopen/resubmit, 2026-09-08 — the agent's OWN edit form
      * (RentalApplicationController::update()) must stay blocked while an
      * application is 'reopened', same as it's blocked once returned — the
@@ -1197,6 +1205,24 @@ class RentalApplication extends Model
         }
 
         return ! Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('rental_application_id', $this->id)->exists();
+    }
+
+    /**
+     * Audit fix A10 (2026-10-19): why this application may NOT be archived right now (null = it may). Archiving a file that
+     * is waiting in the authoriser's queue silently emptied the queue of it, and archiving an approved file with a live
+     * lease left the lease pointing at a hidden application. The way out of both is to finish the work first.
+     */
+    public function archiveBlockedReason(): ?string
+    {
+        if ($this->isPendingAuthorisation()) {
+            return 'This application is waiting for an approver to decide it, so it cannot be archived. Ask the approver to decide it or send it back to the agent first.';
+        }
+
+        if (Lease::withoutGlobalScopes()->whereNull('deleted_at')->where('rental_application_id', $this->id)->exists()) {
+            return 'A lease was made from this application, so it cannot be archived while that lease exists. Archive the lease first if it was created by mistake.';
+        }
+
+        return null;
     }
 
     public function recipientEmail(): ?string

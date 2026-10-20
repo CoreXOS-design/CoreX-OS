@@ -4,7 +4,7 @@
     AT-442 — the agency's own parts & labour catalogue consumed by internal
     job cards. CRUD/list-screen floor (BUILD_STANDARD §1a-§1d): search
     (code, description), sort (sort_order default; code, description,
-    default_price), filter (type, active/archived), pagination, real empty
+    selling_excl, and cost_excl for anyone who may see costs), filter (type, active/archived), pagination, real empty
     state, agency scoping via BelongsToAgency + AgencyScope on the model.
 
     2026-10-05 (Johan QA1 finding) — split the old single `name` column
@@ -14,8 +14,9 @@
 
     Pastel-style enhancement, 2026-10-05: type/unit are now agency-
     configurable lists; the price column splits into excl/VAT type/incl
-    (RentalJobCardVatService::catalogueItemPrices()) since default_price is
+    (RentalJobCardVatService::catalogueItemPrices()) since the price is
     always stored excl-VAT regardless of capture mode.
+    §17.38: the single price column became Cost excl (view_costs only) + Selling excl, both sortable.
 --}}
 
 @section('corex-content')
@@ -95,10 +96,13 @@
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'description'])) }}">Description</a></th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Type</th>
                     <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Unit</th>
-                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'default_price'])) }}">Excl VAT</a></th>
+                    @if($canViewCosts)
+                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'cost_excl'])) }}">Cost excl</a></th>
+                    @endif
+                    <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap"><a class="no-underline transition-colors duration-150" style="color:inherit;" href="{{ route('corex.rental-catalogue-items.index', array_merge(request()->except('page'), ['sort' => 'selling_excl'])) }}">Selling excl</a></th>
                     @if($agency?->vat_registered)
                         <th class="text-left px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">VAT type</th>
-                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Incl VAT</th>
+                        <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Selling incl</th>
                     @endif
                     <th class="text-right px-4 py-3 text-xs font-semibold uppercase tracking-wide whitespace-nowrap">Actions</th>
                 </tr>
@@ -111,6 +115,22 @@
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $item->description }}</td>
                         <td class="px-4 py-3"><span class="ds-badge {{ $badge($item->kind() === 'labour' ? '--brand-icon' : '--text-muted') }}">{{ $item->catalogueItemType->name ?? '—' }}</span></td>
                         <td class="px-4 py-3">{{ $item->catalogueUnit->name ?? '—' }}</td>
+                        @if($canViewCosts)
+                            <td class="px-4 py-3 text-right">
+                                @if($item->cost_excl !== null)
+                                    {{ 'R' . number_format((float) $item->cost_excl, 2) }}
+                                @elseif($item->kind() === 'labour' && $status !== 'archived')
+                                    {{-- A labour line costs crew hours x the rate: an empty rate breaks the line, so say so and link straight to the fix. --}}
+                                    @permission('rental_catalogue.manage')
+                                        <a href="{{ route('corex.rental-catalogue-items.edit', $item) }}" class="underline" style="color: var(--ds-crimson);">— set cost</a>
+                                    @else
+                                        <span style="color: var(--ds-crimson);">— set cost</span>
+                                    @endpermission
+                                @else
+                                    —
+                                @endif
+                            </td>
+                        @endif
                         <td class="px-4 py-3 text-right">{{ $prices['excl'] !== null ? 'R' . number_format($prices['excl'], 2) : '—' }}</td>
                         @if($agency?->vat_registered)
                             <td class="px-4 py-3">{{ $prices['label'] ?? '—' }}</td>
@@ -135,7 +155,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="{{ $agency?->vat_registered ? 8 : 6 }}" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
+                        <td colspan="{{ 6 + ($agency?->vat_registered ? 2 : 0) + ($canViewCosts ? 1 : 0) }}" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);">
                             @if(request('q') || request('type'))
                                 No catalogue items match this filter.
                             @else

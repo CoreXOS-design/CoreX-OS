@@ -12,6 +12,7 @@
     $arrow = fn (string $col) => $sort === $col ? ($dir === 'asc' ? ' ↑' : ' ↓') : '';
 @endphp
 <div class="w-full space-y-5">
+    @include('corex.notices._tabs', ['active' => 'breaches'])
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -21,6 +22,7 @@
                 <p class="text-xs" style="color: var(--text-muted);">Every breach notice and notice to vacate issued on a lease, and where each stands.</p>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
+                @include('corex.breaches._templates-link')
                 @permission('rental_breaches.manage')
 @feature('rental-leases')
                 <a href="{{ route('corex.leases.index', ['status' => 'active']) }}" class="corex-btn-primary text-xs">Choose leases for a breach notice</a>
@@ -30,21 +32,39 @@
         </div>
     </div>
 
+    {{-- rental-notices.md §7b - status tiles, the rentals command centre's pattern: click to filter, click again to clear. The number on a tile is the
+         number of rows the list shows when it is clicked (same query, same own / branch / agency scope, with the search and filters below). --}}
+    {{-- The tiles are the SHARED rentals list component (<x-rental-list-controls>: Leases, Inspections, Fault Reports, Work Orders), not a restyle: the
+         same markup, size, count styling and active highlight, a Total tile first, the same per-page and Show archived controls. --}}
+    @php
+        $tileList = collect(['total' => 'Total'] + $tiles)->map(fn ($label, $key) => [
+            'key' => $key, 'label' => $label, 'count' => $tileCounts[$key],
+            'href' => route('corex.breaches.index', array_merge(request()->except(['tile', 'page']), ($key === 'total' || $tile === $key) ? [] : ['tile' => $key])),
+            'active' => $key === 'total' ? $tile === '' : $tile === $key,
+        ])->values()->all();
+    @endphp
+    <div data-qa="breach-tiles" class="space-y-2">
+        <x-rental-list-controls
+            :tiles="$tileList"
+            route-name="corex.breaches.index"
+            :per-page="$perPage"
+            :per-page-options="$perPageOptions"
+            :archivable="true"
+            :archived="$showArchived"
+        />
+    </div>
+
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.breaches.index') }}" class="flex flex-wrap items-end gap-3" data-qa="breach-filters">
+        @if($tile)<input type="hidden" name="tile" value="{{ $tile }}">@endif
+        @if($showArchived)<input type="hidden" name="archived" value="1">@endif
+        @if(request('per_page'))<input type="hidden" name="per_page" value="{{ (int) request('per_page') }}">@endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Search</label>
             <input type="text" name="q" value="{{ request('q') }}" placeholder="Name, address, clause or reason" class="list-header-filter text-sm {{ filled(request('q')) ? 'is-active' : '' }}">
         </div>
-        <div class="flex flex-col gap-1">
-            <label class="text-xs font-medium" style="color: var(--text-secondary);">Status</label>
-            <select name="status" class="list-header-filter text-sm {{ filled(request('status')) ? 'is-active' : '' }}">
-                <option value="">All statuses</option>
-                @foreach(\App\Models\LeaseBreach::STATUS_LABELS as $key => $label)
-                    <option value="{{ $key }}" @selected(request('status') === $key)>{{ $label }}</option>
-                @endforeach
-            </select>
-        </div>
+        {{-- the Status dropdown is replaced by the tiles above; a legacy ?status= link still filters --}}
+        @if(in_array(request('status'), \App\Models\LeaseBreach::STATUSES, true))<input type="hidden" name="status" value="{{ request('status') }}">@endif
         <div class="flex flex-col gap-1">
             <label class="text-xs font-medium" style="color: var(--text-secondary);">Kind</label>
             <select name="kind" class="list-header-filter text-sm {{ filled(request('kind')) ? 'is-active' : '' }}">
@@ -69,7 +89,6 @@
             <label class="text-xs font-medium" style="color: var(--text-secondary);">to</label>
             <input type="date" name="date_to" value="{{ request('date_to') }}" class="list-header-filter text-sm {{ filled(request('date_to')) ? 'is-active' : '' }}">
         </div>
-        <label class="flex items-center gap-2 text-xs" style="height:2.25rem; color: var(--text-secondary);"><input type="checkbox" name="archived" value="1" @checked(request()->boolean('archived'))> Archived</label>
         <button type="submit" class="corex-btn-primary text-sm" style="height:2.25rem;">Filter</button>
         <a href="{{ route('corex.breaches.index') }}" class="corex-btn-outline text-sm" style="height:2.25rem;">Reset</a>
         <div class="flex-1"></div>
@@ -96,13 +115,17 @@
             </thead>
             <tbody>
                 @forelse($breaches as $b)
-                    <tr style="border-top: 1px solid var(--border); color: var(--text-secondary);" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'" data-breach-row="{{ $b->id }}">
+                    {{-- rental-notices.md §7b - an open breach whose remedy-by date has passed with no remedy recorded (ready for a notice to vacate) is a red row --}}
+                    @php $rowBg = $b->isOverdue() ? 'color-mix(in srgb, #dc2626 9%, transparent)' : 'transparent'; @endphp
+                    <tr style="border-top: 1px solid var(--border); color: {{ $b->isOverdue() ? '#991b1b' : 'var(--text-secondary)' }}; background: {{ $rowBg }};" class="transition-colors duration-150" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='{{ $rowBg }}'" data-breach-row="{{ $b->id }}" @if($b->isOverdue()) data-overdue="1" @endif>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $b->issued_on->format('j M Y') }}</td>
                         <td class="px-4 py-3 font-medium" style="color: var(--text-primary);">{{ $b->lease?->property?->buildDisplayAddress() ?: ('Lease #' . $b->lease_id) }}{{ $b->lease?->property?->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3">{{ $b->partyLabel() }}{{ $b->breach_party === 'tenant' ? ' - ' . ($b->lease?->tenantNames() ?? '') : '' }}</td>
                         <td class="px-4 py-3">{{ $b->kindLabel() }}{{ $b->reason ? ': ' . \Illuminate\Support\Str::limit($b->reason, 50) : '' }}</td>
                         <td class="px-4 py-3 text-right">{{ $b->amount !== null ? \App\Services\Rentals\RentalNoticeService::money((float) $b->amount) : '—' }}</td>
-                        <td class="px-4 py-3">{{ $b->remedy_deadline?->format('j M Y') ?? '—' }}</td>
+                        <td class="px-4 py-3">{{ $b->remedy_deadline?->format('j M Y') ?? '—' }}
+                            @if($b->daysLeftText())<br><span class="text-xs {{ $b->isOverdue() ? 'font-semibold' : '' }}" style="color: {{ $b->isOverdue() ? '#b91c1c' : ($b->daysToRemedy() === 0 ? '#b45309' : 'var(--text-muted)') }};" data-qa="days-left">{{ $b->daysLeftText() }}</span>@endif
+                        </td>
                         <td class="px-4 py-3">@php $tone = $b->status === 'issued' ? '--ds-amber' : ($b->status === 'remedied' ? '--ds-green' : '--ds-crimson'); @endphp
                             <span class="text-xs px-2 py-0.5 rounded-md font-medium whitespace-nowrap" style="background:color-mix(in srgb, var({{ $tone }}) 12%, transparent); color:var({{ $tone }}); border:1px solid color-mix(in srgb, var({{ $tone }}) 25%, transparent);">{{ $b->statusLabel() }}</span>{{ $b->trashed() ? ' (archived)' : '' }}</td>
                         <td class="px-4 py-3 text-right"><a href="{{ route('corex.breaches.show', $b->id) }}" class="corex-btn-outline text-xs">Open</a></td>
@@ -110,7 +133,7 @@
                 @empty
                     <tr>
                         <td colspan="8" class="px-6 py-12 text-center text-sm" style="color: var(--text-muted);" data-qa="breach-empty">
-                            @if(request()->hasAny(['q', 'status', 'kind', 'party', 'date_from', 'date_to', 'archived']))
+                            @if(request()->hasAny(['q', 'status', 'kind', 'party', 'date_from', 'date_to', 'archived', 'tile']))
                                 No breach notices match these filters.
                             @else
                                 No breach notices have been issued yet. Tick leases on the Leases list and choose "Breach notice", or open a lease and use its Breach notice button.

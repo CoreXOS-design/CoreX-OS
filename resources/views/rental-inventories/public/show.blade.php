@@ -65,7 +65,7 @@
                                 <div class="flex flex-wrap gap-2 mt-2">
                                     @foreach($line->moveInPhotos as $photo)
                                         <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener">
-                                            <img src="{{ $photo->storage_path }}" alt="" class="w-20 h-20 object-cover rounded-md border border-slate-200">
+                                            <img src="{{ $photo->storage_path }}" alt="{{ $photo->isReference() ? 'Photo from the inspection' : '' }}" class="w-20 h-20 object-cover rounded-md border border-slate-200">
                                         </a>
                                     @endforeach
                                 </div>

@@ -19,6 +19,7 @@
     };
 @endphp
 <div class="w-full space-y-5">
+    @include('corex.notices._tabs', ['active' => 'received'])
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">

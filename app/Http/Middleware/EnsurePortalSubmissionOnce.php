@@ -93,7 +93,7 @@ class EnsurePortalSubmissionOnce
         for ($i = 0; $i < self::WAIT_STEPS; $i++) {
             try {
                 return (int) DB::table('portal_submissions')->insertGetId($where + [
-                    'agency_id' => $client->current_agency_id,
+                    'agency_id' => $client->activeAgencyId(),
                     'status' => 'processing',
                     'created_at' => now(),
                     'updated_at' => now(),

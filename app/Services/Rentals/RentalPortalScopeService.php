@@ -105,19 +105,87 @@ class RentalPortalScopeService
         return LeaseTenant::query()->whereIn('contact_id', $this->personContactIds($contact))->exists();
     }
 
+    /**
+     * The properties this person may act on as an owner: those they are linked to as landlord / lessor, EXCEPT any that has been sold away
+     * from them. A property is sold away from a person once a registered sale deal on it (not declined, not archived) lists them as a seller
+     * and the link to the property is not newer than that registration - so ownership that was granted again AFTER the sale (a fresh link)
+     * still counts. From the registration date forward the previous owner no longer sees that property's faults, work orders, inspections,
+     * documents or tenancy, and cannot decide anything on it (audit 2026-10-19 D16 - the portal used to keep the old link until an agent
+     * removed it by hand).
+     */
     public function landlordPropertyIds(Contact $contact): array
     {
-        return $this->personContacts($contact)
-            ->flatMap(fn (Contact $c) => $c->properties()->wherePivotIn('role', ['landlord', 'lessor'])->pluck('properties.id'))
-            ->unique()
+        $contactIds = $this->personContactIds($contact);
+
+        $linked = $this->personContacts($contact)
+            ->flatMap(fn (Contact $c) => $c->properties()->wherePivotIn('role', ['landlord', 'lessor'])->get())
+            ->unique('id')
+            ->values();
+        if ($linked->isEmpty()) {
+            return [];
+        }
+
+        $soldAt = $this->registeredSaleDates($contact->agency_id ? (int) $contact->agency_id : null, $contactIds, $linked->pluck('id')->all());
+
+        return $linked
+            ->filter(function ($property) use ($soldAt) {
+                $registered = $soldAt[(int) $property->id] ?? null;
+                if ($registered === null) {
+                    return true;
+                }
+                $linkedAt = $property->pivot?->created_at ? \Illuminate\Support\Carbon::parse($property->pivot->created_at) : null;
+
+                // linked again after the sale = a new ownership, in scope
+                return $linkedAt !== null && $linkedAt->gt(\Illuminate\Support\Carbon::parse($registered)->endOfDay());
+            })
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
             ->values()
             ->all();
     }
 
+    /**
+     * Latest registration date of a registered, not-declined, not-archived sale deal on each of these properties that lists one of these
+     * contacts as a seller. Empty when none.
+     *
+     * @param  array<int,int>  $contactIds
+     * @param  array<int,int>  $propertyIds
+     * @return array<int,string>  property id => registration date (Y-m-d)
+     */
+    private function registeredSaleDates(?int $agencyId, array $contactIds, array $propertyIds): array
+    {
+        if ($contactIds === [] || $propertyIds === []) {
+            return [];
+        }
+
+        $rows = \Illuminate\Support\Facades\DB::table('deals')
+            ->join('deal_properties', 'deal_properties.deal_id', '=', 'deals.id')
+            ->join('deal_contacts', function ($j) {
+                $j->on('deal_contacts.deal_id', '=', 'deals.id')->where('deal_contacts.role', 'seller');
+            })
+            ->whereIn('deal_contacts.contact_id', $contactIds)
+            ->whereIn('deal_properties.property_id', $propertyIds)
+            ->whereNull('deal_properties.deleted_at')
+            ->whereNull('deals.deleted_at')
+            ->whereNotNull('deals.registration_date')
+            ->where(fn ($q) => $q->whereNull('deals.accepted_status')->orWhere('deals.accepted_status', '!=', 'D'))
+            ->when($agencyId, fn ($q) => $q->where('deals.agency_id', $agencyId))
+            ->get(['deal_properties.property_id', 'deals.registration_date']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $date = (string) $row->registration_date;
+            if (! isset($out[(int) $row->property_id]) || $date > $out[(int) $row->property_id]) {
+                $out[(int) $row->property_id] = $date;
+            }
+        }
+
+        return $out;
+    }
+
     public function isLandlord(Contact $contact): bool
     {
-        return $this->personContacts($contact)
-            ->contains(fn (Contact $c) => $c->properties()->wherePivotIn('role', ['landlord', 'lessor'])->exists());
+        return $this->landlordPropertyIds($contact) !== [];
     }
 
     /** @return \Illuminate\Support\Collection<int,Contact> */
@@ -229,13 +297,35 @@ class RentalPortalScopeService
             ->get();
     }
 
-    public function tenantWorkOrder(Contact $contact, int $workOrderId): ?RentalWorkOrder
+    /**
+     * The tenant's work orders on the given leases. A work order that came from a fault the OWNER raised is the owner's, not the tenant's to
+     * see - the same rule the two fault lookups above apply (A-L3), which the work-order lookups missed (audit 2026-10-19 D13).
+     */
+    private function tenantWorkOrdersQuery(Contact $contact, array $leaseIds)
     {
         return RentalWorkOrder::withoutGlobalScopes()
             ->where('agency_id', $contact->agency_id)
             ->whereNull('deleted_at')
-            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
-            ->find($workOrderId);
+            ->whereIn('lease_id', $leaseIds)
+            ->whereNotIn('id', RentalFaultReport::withoutGlobalScopes()
+                ->whereNotNull('rental_work_order_id')
+                ->where('reported_by_type', RentalFaultReport::REPORTED_BY_LANDLORD)
+                ->select('rental_work_order_id'));
+    }
+
+    /** Read access: a work order on any of the tenant's leases, past included (owner-raised ones excluded). */
+    public function tenantWorkOrder(Contact $contact, int $workOrderId): ?RentalWorkOrder
+    {
+        return $this->tenantWorkOrdersQuery($contact, $this->tenantLeaseIds($contact))->find($workOrderId);
+    }
+
+    /**
+     * Write access: the same work order, but only on a lease still IN FORCE. A tenant whose lease has ended keeps read-only access to their
+     * own history and may no longer answer or progress a job (audit 2026-10-18 A-L2, applied to work orders by 2026-10-19 D17).
+     */
+    public function tenantActionableWorkOrder(Contact $contact, int $workOrderId): ?RentalWorkOrder
+    {
+        return $this->tenantWorkOrdersQuery($contact, $this->tenantActiveLeaseIds($contact))->find($workOrderId);
     }
 
     /**
@@ -487,18 +577,18 @@ class RentalPortalScopeService
 
     public function tenantWorkOrders(Contact $contact)
     {
-        return RentalWorkOrder::withoutGlobalScopes()
-            ->where('agency_id', $contact->agency_id)
-            ->whereNull('deleted_at')
-            ->whereIn('lease_id', $this->tenantLeaseIds($contact))
+        return $this->tenantWorkOrdersQuery($contact, $this->tenantLeaseIds($contact))
             ->orderByDesc('id')
             ->get();
     }
 
-    /** The round this tenant may answer: the work order must be theirs, and the round must be its newest. */
-    public function tenantCompletionRound(Contact $contact, int $workOrderId, ?int $roundId = null): ?\App\Models\RentalWorkCompletionRound
+    /**
+     * The round this tenant may answer: the work order must be theirs AND on a lease still in force, and the round must be its newest.
+     * $readOnly = true (the page that merely shows the round) uses the wider read scope.
+     */
+    public function tenantCompletionRound(Contact $contact, int $workOrderId, ?int $roundId = null, bool $readOnly = false): ?\App\Models\RentalWorkCompletionRound
     {
-        $workOrder = $this->tenantWorkOrder($contact, $workOrderId);
+        $workOrder = $readOnly ? $this->tenantWorkOrder($contact, $workOrderId) : $this->tenantActionableWorkOrder($contact, $workOrderId);
         if (! $workOrder) {
             return null;
         }

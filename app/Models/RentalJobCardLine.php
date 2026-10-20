@@ -44,10 +44,14 @@ class RentalJobCardLine extends Model
     public const BASIS_LINE_MARKUP = 'line_markup';
     public const BASIS_JOB_MARKUP = 'job_markup';
     public const BASIS_CATALOGUE_PRICE = 'catalogue_price';
+    /** §17.39 — the catalogue item is priced by markup: selling = the LINE's cost + the item's markup. */
+    public const BASIS_CATALOGUE_MARKUP = 'catalogue_markup';
     public const BASIS_AGENCY_DEFAULT = 'agency_default';
 
     /** §17.5.1 — rental_work_order_photos.photo_type of a photo that explains ONE crew line; never shown to a tenant/landlord and not in the job gallery. */
     public const PHOTO_TYPE = 'crew_line';
+    /** AT-459 — rental_work_order_photos.photo_type of the receipt for a crew PART line: office-only, never a client, tenant or gallery photo. */
+    public const RECEIPT_PHOTO_TYPE = 'crew_receipt';
 
     public const MARKUP_PERCENT = 'percent';
     public const MARKUP_AMOUNT = 'amount';
@@ -90,6 +94,7 @@ class RentalJobCardLine extends Model
         'reject_reason',
         'rental_job_card_price_request_id',
         'rental_work_order_variation_id',
+        'client_key',
     ];
 
     protected $casts = [

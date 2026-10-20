@@ -149,7 +149,15 @@ class RentalApplicationMailer
         }
 
         $isSubjectToFica = $application->status === 'approved' && $application->ficaOutstanding();
-        $ficaContinueUrl = $isSubjectToFica && ! $application->ficaGateOpen() ? $this->ficaContinueUrlFor($application) : null;
+        $ficaContinueUrl = null;
+        if ($isSubjectToFica && ! $application->ficaGateOpen() && $application->contact_id) {
+            try {
+                $ficaContinueUrl = app(ApplicantFicaLink::class)->urlFor($application);
+            } catch (\Throwable $e) {
+                // The approval mail still goes, just without the FICA button (the applicant can use the link on their application page).
+                Log::warning('AT-392 rental application approval mail: FICA link could not be made', ['rental_application_id' => $application->id, 'error' => $e->getMessage()]);
+            }
+        }
 
         try {
             // FICA already SUBMITTED (compliance still verifying) is not the same as FICA still to do: the email must not ask
@@ -166,51 +174,5 @@ class RentalApplicationMailer
 
             return false;
         }
-    }
-
-    /**
-     * Same find-or-create shape RentalApplicationSigningController's own
-     * FICA hand-off already uses (that controller is a sibling lane's
-     * active build — this is a read-only, self-contained copy of the
-     * QUERY pattern, not a call into their file) — reuses an existing
-     * draft/in-progress submission for this contact if one exists (minting
-     * a token if it's missing one), otherwise starts a fresh one. Never
-     * returns null: an applicant told "subject to FICA verification" must
-     * always get a real, working link.
-     */
-    private function ficaContinueUrlFor(RentalApplication $application): ?string
-    {
-        if (! $application->contact_id) {
-            return null;
-        }
-
-        $existing = FicaSubmission::where('contact_id', $application->contact_id)
-            ->whereIn('status', ['draft', 'submitted', 'under_review', 'agent_approved', 'approved'])
-            ->orderByDesc('created_at')
-            ->orderByDesc('id')
-            ->first();
-
-        if ($existing) {
-            // 2026-10-11 hotfix — a lapsed link is renewed too, not only a
-            // missing one, so a reused draft never hands out a dead link.
-            $existing->keepLinkAliveUntil(now()->addDays(14));
-            if ($existing->isDirty()) {
-                $existing->save();
-            }
-
-            return route('fica.form', $existing->token);
-        }
-
-        $submission = FicaSubmission::create([
-            'contact_id' => $application->contact_id,
-            'agency_id' => $application->agency_id,
-            'branch_id' => $application->branch_id,
-            'requested_by' => $application->created_by_user_id,
-            'token' => Str::random(64),
-            'token_expires_at' => now()->addDays(14),
-            'status' => 'draft',
-        ]);
-
-        return route('fica.form', $submission->token);
     }
 }

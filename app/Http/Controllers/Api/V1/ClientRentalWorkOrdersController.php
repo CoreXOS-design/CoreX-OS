@@ -58,7 +58,8 @@ class ClientRentalWorkOrdersController extends Controller
             return $contact;
         }
 
-        $order = $this->scope->tenantWorkOrder($contact, $workOrder);
+        // A write: only on a lease still in force (audit 2026-10-19 D17).
+        $order = $this->scope->tenantActionableWorkOrder($contact, $workOrder);
         $round = $order ? $this->scope->tenantCompletionRound($contact, $workOrder) : null;
         if (! $order || ! $round) {
             return response()->json(['message' => 'Work order not found.'], 404);
@@ -68,7 +69,7 @@ class ClientRentalWorkOrdersController extends Controller
             'fixed' => ['required', 'boolean'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ]);
 
         return $this->answer($order, $round, (bool) $data['fixed'], $data['note'] ?? null, $request->file('photos', []), $contact, $request);
@@ -84,7 +85,8 @@ class ClientRentalWorkOrdersController extends Controller
         if ($contact instanceof JsonResponse) {
             return $contact;
         }
-        $order = $this->scope->tenantWorkOrder($contact, $workOrder);
+        // A write: only on a lease still in force (audit 2026-10-19 D17).
+        $order = $this->scope->tenantActionableWorkOrder($contact, $workOrder);
         if (! $order) {
             return response()->json(['message' => 'Work order not found.'], 404);
         }
@@ -92,7 +94,7 @@ class ClientRentalWorkOrdersController extends Controller
             'action' => ['required', 'in:started,finished,not_fixed'],
             'note' => ['nullable', 'string', 'max:2000'],
             'photos' => ['nullable', 'array', 'max:' . RentalCompletionService::MAX_DISPUTE_PHOTOS],
-            'photos.*' => ['file', 'image', 'max:15360'],
+            'photos.*' => ['file', 'mimes:' . \App\Services\Images\HeicConverter::UPLOAD_MIMES, 'max:15360'],
         ]);
 
         try {

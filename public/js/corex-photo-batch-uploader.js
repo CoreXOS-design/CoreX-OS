@@ -40,6 +40,19 @@
  * calling convention.
  */
 (function () {
+    // Audit B16 - a real RFC 4122 v4 UUID on every browser/WebView, including ones without crypto.randomUUID (the old fallback,
+    // Date.now()+Math.random(), was not a UUID and failed the server's `uuid` validation for the whole batch).
+    window.cpuNewUuid = window.cpuNewUuid || function () {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') return window.crypto.randomUUID();
+        const b = new Uint8Array(16);
+        if (window.crypto && window.crypto.getRandomValues) window.crypto.getRandomValues(b);
+        else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+        b[6] = (b[6] & 0x0f) | 0x40;
+        b[8] = (b[8] & 0x3f) | 0x80;
+        const h = Array.from(b, x => x.toString(16).padStart(2, '0'));
+        return h.slice(0, 4).join('') + '-' + h.slice(4, 6).join('') + '-' + h.slice(6, 8).join('') + '-' + h.slice(8, 10).join('') + '-' + h.slice(10).join('');
+    };
+
     window.planUploadBatches = window.planUploadBatches || function (files, maxCount, maxBytes) {
         const batches = [];
         let cur = [], curBytes = 0;
@@ -144,13 +157,14 @@
             _cpu_uploadBatch(entry) {
                 return new Promise((resolve) => {
                     const fd = new FormData();
-                    const keys = [];
-                    entry.files.forEach(f => {
-                        const key = (crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random()));
-                        keys.push(key);
-                        fd.append('photos[]', f);
-                    });
-                    keys.forEach(k => fd.append('client_idempotency_keys[]', k));
+                    // Audit B16 - the retry keys are made ONCE per batch and kept on the entry: a retry (Retry button, or a response that was lost
+                    // after the server had stored the photos) sends the SAME keys, so the server answers from what it holds instead of storing the
+                    // photos a second time. The keys are always real UUIDs (the server validates them as such).
+                    if (!Array.isArray(entry.keys) || entry.keys.length !== entry.files.length) {
+                        entry.keys = entry.files.map(() => window.cpuNewUuid());
+                    }
+                    entry.files.forEach(f => fd.append('photos[]', f));
+                    entry.keys.forEach(k => fd.append('client_idempotency_keys[]', k));
                     Object.entries(entry.extraFields || {}).forEach(([k, v]) => {
                         if (v !== null && v !== undefined && v !== '') fd.append(k, v);
                     });

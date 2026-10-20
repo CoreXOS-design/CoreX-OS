@@ -3,6 +3,7 @@ import './nexus-charts';
 import './corex-api';
 import './corex-date-picker';
 import './property-share';
+import './corex-signature-pad-mixin';
 import './rental-inspection-signing';
 
 // Alpine.js — synchronous import from local bundle.

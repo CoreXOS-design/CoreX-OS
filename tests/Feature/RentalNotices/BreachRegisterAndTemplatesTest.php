@@ -113,7 +113,7 @@ final class BreachRegisterAndTemplatesTest extends TestCase
     public function test_a_template_can_be_typed_edited_archived_and_restored_and_the_three_types_are_offered(): void
     {
         $form = $this->actingAs($this->agent)->get(route('corex.rental-notice-templates.create', ['notice_type' => 'breach_other']))->assertOk()->getContent();
-        foreach (['Breach notice (payment)', 'Breach notice (other)', 'Notice to vacate'] as $label) {
+        foreach (['Breach notice (payment)', 'Breach notice (ad hoc)', 'Notice to vacate'] as $label) {
             $this->assertStringContainsString($label, $form);
         }
         $this->assertStringContainsString('type="file" name="document"', $form);

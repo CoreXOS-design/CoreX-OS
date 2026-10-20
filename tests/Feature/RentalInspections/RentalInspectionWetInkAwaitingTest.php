@@ -98,6 +98,7 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'type' => $type,
             'created_by_user_id' => $this->agent->id,
         ]);
+        $this->recordAttendanceForEveryParty($inspection);
         $inspection->startAwaitingSignature();
 
         return $inspection;
@@ -203,10 +204,11 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
+            'signing_method' => 'drawn',
         ])->assertStatus(201);
         $this->recordAttendanceForEveryParty($inspection);
 
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $inspection->fresh()->status);
     }
 
@@ -242,6 +244,7 @@ final class RentalInspectionWetInkAwaitingTest extends TestCase
             'party_role' => RentalInspectionSignature::PARTY_AGENT,
             'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
             'signature_image' => self::TEST_SIGNATURE_IMAGE,
+            'signing_method' => 'drawn',
         ])->assertStatus(422);
     }
 

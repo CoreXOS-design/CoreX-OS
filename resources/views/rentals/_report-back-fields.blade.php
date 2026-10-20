@@ -12,7 +12,8 @@
 @if($rbShow)
     <div data-report-back>
         <label for="rb-found" style="{{ $rbLabel }}">What did you find?</label>
-        <textarea id="rb-found" name="found_text" rows="3" required minlength="3" maxlength="2000" style="{{ $rbField }}">{{ old('found_text', $workOrder->found_text) }}</textarea>
+        <textarea id="rb-found" name="found_text" rows="3" required minlength="3" maxlength="2000" style="{{ $rbField }}">{{ old('found_text', $rbSvc->carriedFindings($workOrder)) }}</textarea>
+        @if(! old('found_text') && ! trim((string) $workOrder->found_text) && $rbSvc->carriedFindings($workOrder))<p data-findings-carried style="font-size:12px;color:#5a6472;margin:4px 0 0;">Filled in from what you already told the office - change it if needed.</p>@endif
         <label for="rb-cause" style="{{ $rbLabel }}">What caused it?</label>
         <select id="rb-cause" name="cause_id" style="{{ $rbField }}">
             @foreach($rbOptions as $o)

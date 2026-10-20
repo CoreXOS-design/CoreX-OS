@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\DocumentType;
 use App\Models\PropertyRoom;
+use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryLineDisposition;
@@ -13,7 +14,8 @@ use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventoryRoomMark;
 use App\Models\RentalInventorySignature;
 use App\Services\Distribution\SignedDocumentDistributionService;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageStore;
+use App\Services\Rentals\RentalRoomPhotoSet;
 use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,6 +42,9 @@ class RentalInventoryRecordingController extends Controller
     private function assertMoveOutRecordable(RentalInventory $rentalInventory): void
     {
         if ($rentalInventory->status === RentalInventory::STATUS_COMPLETED) {
+            // Audit B5 - once the move-out check is completed it is final.
+            abort_if($rentalInventory->isMoveOutCompleted(), 409, 'The move-out check is already completed - no more findings or photos can be added to it.');
+
             return;
         }
         if ($rentalInventory->status === RentalInventory::STATUS_CANCELLED) {
@@ -172,17 +177,19 @@ class RentalInventoryRecordingController extends Controller
         abort_if((int) $room->property_id !== (int) $rentalInventory->property_id, 404);
         $rentalInventory->assertEditable();
 
-        $mark = RentalInventoryRoomMark::updateOrCreate(
-            [
-                'rental_inventory_id' => $rentalInventory->id,
-                'property_room_id' => $room->id,
-            ],
-            [
-                'agency_id' => $rentalInventory->agency_id,
-                'marked_empty_by_user_id' => $request->user()->id,
-                'marked_empty_at' => now(),
-            ]
-        );
+        // Audit B28 - an "Undo" archives the mark; marking again brings the same row back (the unique index is one row per inventory room).
+        $mark = RentalInventoryRoomMark::withTrashed()->firstOrNew([
+            'rental_inventory_id' => $rentalInventory->id,
+            'property_room_id' => $room->id,
+        ]);
+        $mark->fill([
+            'agency_id' => $rentalInventory->agency_id,
+            'marked_empty_by_user_id' => $request->user()->id,
+            'marked_empty_at' => now(),
+            'unmarked_by_user_id' => null,
+        ]);
+        $mark->deleted_at = null;
+        $mark->save();
 
         return response()->json($mark, 201);
     }
@@ -191,11 +198,9 @@ class RentalInventoryRecordingController extends Controller
      * DELETE /corex/rental-inventories/{inventory}/rooms/{room}/mark-empty —
      * Johan, 2026-09-28 — the "Undo" half of markRoomEmpty() above: a mark
      * is a mutable "is this room currently considered checked-and-empty"
-     * STATE, not an append-only evidence record like a line/photo/signature
-     * (non-negotiable #1's soft-delete rule protects evidence, not a
-     * reversible checkbox) — hard-deleting the mark row itself is the
-     * correct un-mark, exactly mirroring how markRoomEmpty() itself writes
-     * via updateOrCreate rather than an append-only history table.
+     * STATE. Audit B28 (non-negotiable #1): the un-mark ARCHIVES the row
+     * (who and when kept) instead of deleting it; markRoomEmpty() restores
+     * the same row if the agent marks the room again.
      * Idempotent: unmarking an already-unmarked (or never-marked) room is a
      * no-op, not an error — there's nothing wrong with clicking Undo twice.
      */
@@ -207,7 +212,10 @@ class RentalInventoryRecordingController extends Controller
 
         RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
             ->where('property_room_id', $room->id)
-            ->delete();
+            ->update(['unmarked_by_user_id' => $request->user()->id]);
+        RentalInventoryRoomMark::where('rental_inventory_id', $rentalInventory->id)
+            ->where('property_room_id', $room->id)
+            ->delete(); // SoftDeletes: archives
 
         return response()->json(['message' => 'Mark removed.']);
     }
@@ -264,7 +272,9 @@ class RentalInventoryRecordingController extends Controller
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
         ]);
 
-        $storer = app(PropertyImageStorer::class);
+        // Audit B32 - the private inspection store (signed, expiring link, GPS stripped), not the public gallery disk.
+        $storer = app(PrivateImageStore::class);
+        $directory = 'rental-inventories/' . $rentalInventory->agency_id . '/' . $rentalInventory->id;
         $created = [];
 
         foreach ($validated['photos'] as $i => $file) {
@@ -278,7 +288,7 @@ class RentalInventoryRecordingController extends Controller
                 }
             }
 
-            $url = $storer->store($file, $rentalInventory->property_id);
+            $url = $storer->store($file, $directory);
 
             $photo = RentalInventoryPhoto::create([
                 'agency_id' => $rentalInventory->agency_id,
@@ -302,6 +312,50 @@ class RentalInventoryRecordingController extends Controller
                 'storage_path' => $p->storage_path,
             ])->values(),
         ], 201);
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/lines/{line}/move-out-inspection-photos - audit 2026-10-19 B32. The move-out inspection's photos
+     * of this line's room that can be used as the line's move-out evidence instead of photographing it again.
+     */
+    public function moveOutInspectionPhotos(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+        $this->assertMoveOutRecordable($rentalInventory);
+
+        $set = app(RentalRoomPhotoSet::class);
+
+        return response()->json([
+            'photos' => $line->property_room_id === null ? [] : $set
+                ->candidates($rentalInventory, RentalInventoryPhoto::SIDE_MOVE_OUT, (int) $line->property_room_id, $request->user())
+                ->map(fn ($p) => $set->candidatePayload($p))->values(),
+        ]);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines/{line}/move-out-inspection-photos/{inspectionPhoto} - share a move-out inspection photo
+     * as this line's move-out evidence (the same row again if it is already shared).
+     */
+    public function shareMoveOutInspectionPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, int $inspectionPhoto): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+        $this->assertMoveOutRecordable($rentalInventory);
+
+        $source = RentalInspectionPhoto::query()->find($inspectionPhoto);
+        abort_if($source === null || (int) $source->property_room_id !== (int) $line->property_room_id, 404);
+
+        $set = app(RentalRoomPhotoSet::class);
+        try {
+            $reference = $set->share($rentalInventory, $source, $request->user(), RentalInventoryPhoto::SIDE_MOVE_OUT, $line, $request->user());
+        } catch (\InvalidArgumentException $e) {
+            abort(404);
+        }
+
+        return response()->json(['photo' => $set->payload($reference->load('lines', 'sourceInspectionPhoto'))], 201);
     }
 
     /**

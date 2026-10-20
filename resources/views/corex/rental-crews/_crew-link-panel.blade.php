@@ -15,7 +15,7 @@
         default => 'ds-badge-danger',
     };
     $eventLabels = [
-        'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'revoked' => 'Link revoked',
+        'issued' => 'Link created', 'regenerated' => 'Link regenerated', 'emailed' => 'Link emailed', 'whatsapp' => 'Link sent on WhatsApp', 'revoked' => 'Link revoked',
         'opened' => 'Crew page opened', 'job_opened' => 'Job opened', 'action' => 'Crew action',
     ];
     $crewLinksOn = \App\Models\RentalPortalSetting::crewLinksEnabledFor($crew->agency_id);
@@ -35,6 +35,8 @@
     @if(! $crew->is_active)
         <p class="text-xs" style="color:var(--ds-crimson);">This crew is switched off — a link only works for an active crew.</p>
     @endif
+
+    <div class="text-xs" data-crew-link-home-line>@include('corex.rental-crews._home-link-line', ['crew' => $crew, 'ls' => $panel, 'withRegenerate' => false])</div>
 
     @if($panel['state'] !== 'never')
         <div class="text-xs space-y-0.5" style="color: var(--text-muted);" data-crew-link-status>

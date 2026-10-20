@@ -95,6 +95,8 @@
         not an edit of the applicant's answers — it stays exactly as it
         was on the editable screen.
     --}}
+    @include('corex.rental-applications._applicant-link-actions', ['application' => $rentalApplication])
+
     @permission('rental_applications.create')
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <h2 class="text-sm font-semibold mb-3" style="color: var(--text-primary);">Application Status</h2>

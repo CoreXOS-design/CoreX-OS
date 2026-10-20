@@ -40,13 +40,14 @@ class RentalAuthorisation extends Model
     protected $fillable = [
         'agency_id', 'rental_fault_report_id', 'rental_work_order_id', 'point', 'outcome', 'basis', 'stage', 'amount_up_to', 'limit_amount',
         'is_emergency', 'emergency_reason', 'owner_contact_id', 'told_via', 'told_at', 'note', 'proof_path', 'by_user_id', 'by_contact_id',
-        'inspector_label', 'agency_service_provider_id', 'callout_fee', 'owner_told_at', 'superseded_at', 'superseded_by_id', 'created_at',
+        'inspector_label', 'agency_service_provider_id', 'callout_fee', 'also_cost_up_to', 'owner_told_at', 'superseded_at', 'superseded_by_id', 'created_at',
     ];
 
     protected $casts = [
         'amount_up_to' => 'decimal:2',
         'limit_amount' => 'decimal:2',
         'callout_fee' => 'decimal:2',
+        'also_cost_up_to' => 'decimal:2',
         'is_emergency' => 'boolean',
         'told_at' => 'datetime',
         'owner_told_at' => 'datetime',

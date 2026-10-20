@@ -7,7 +7,7 @@
     </div>
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $recipientName }},</p>
-        <p>Please find attached a <strong>{{ strtolower($noticeLabel) }}</strong> regarding {{ $propertyAddress }}. You will also find it in your portal, under Documents.</p>
+        <p>Please find attached our <strong>{{ $noticeLabel }}</strong> regarding {{ $propertyAddress }}. You will also find it in your portal, under Documents.</p>
         @if($breach->kind === 'payment' && $breach->amount !== null && $notice->notice_type !== 'notice_to_vacate')
             <p>The amount outstanding is <strong>{{ \App\Services\Rentals\RentalNoticeService::money((float) $breach->amount) }}</strong>.</p>
         @endif

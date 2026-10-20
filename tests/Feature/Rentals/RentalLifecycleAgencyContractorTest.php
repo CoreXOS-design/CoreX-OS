@@ -88,7 +88,7 @@ final class RentalLifecycleAgencyContractorTest extends TestCase
 
         $this->step('9.4', 'the owner authorises the quote on the portal', 'cc6', function () use ($wo) {
             $this->asPortal($this->landlord);
-            $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'], ['X-Submission-Key' => 'e2e-' . uniqid()])->assertOk();
+            $this->postJson("/api/v1/client/rentals/landlord/work-orders/{$wo->id}/decision", ['decision' => 'approve'] + \Tests\Support\OwnerQuoteSnapshot::for($wo), ['X-Submission-Key' => 'e2e-' . uniqid()])->assertOk();
             $this->assertSame(RentalWorkOrder::APPROVAL_APPROVED, $wo->fresh()->owner_approval_status);
         }, ['9.1']);
 

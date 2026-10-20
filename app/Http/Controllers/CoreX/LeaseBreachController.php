@@ -21,6 +21,15 @@ use Illuminate\View\View;
 class LeaseBreachController extends Controller
 {
     private const SORTS = ['issued_on', 'remedy_deadline', 'amount', 'status', 'property'];
+    private const PER_PAGE_OPTIONS = [10, 25, 50, 100];
+
+    /** The register's status tiles (rental-notices.md §7b): the breach's real states, with "issued" split by whether its remedy-by date is reached. */
+    private const TILES = [
+        'open' => 'Open',
+        'reached' => 'Remedy date reached',
+        'remedied' => 'Remedied',
+        'vacate_sent' => 'Notice to vacate sent',
+    ];
 
     public function __construct(private readonly LeaseBreachService $breaches, private readonly RentalNoticeService $notices)
     {
@@ -63,6 +72,18 @@ class LeaseBreachController extends Controller
             });
         }
 
+        // rental-notices.md §7b - status tiles. Each count is the SAME query the list runs (same own / branch / agency scope, search and filters)
+        // plus that tile's own condition, so a tile's number is exactly the rows it shows when clicked. Clicking the active tile clears it.
+        $counts = ['total' => (clone $query)->count()];
+        foreach (array_keys(self::TILES) as $key) {
+            $counts[$key] = $this->applyTile(clone $query, $key)->count();
+        }
+        $tile = (string) $request->get('tile', '');
+        $tile = isset(self::TILES[$tile]) ? $tile : '';
+        if ($tile !== '') {
+            $this->applyTile($query, $tile);
+        }
+
         $sort = in_array($request->get('sort'), self::SORTS, true) ? $request->get('sort') : 'issued_on';
         $dir = $request->get('dir') === 'asc' ? 'asc' : 'desc';
         if ($sort === 'property') {
@@ -72,7 +93,31 @@ class LeaseBreachController extends Controller
         }
         $query->orderByDesc('id');
 
-        return view('corex.breaches.index', ['breaches' => $query->paginate(25)->withQueryString(), 'sort' => $sort, 'dir' => $dir]);
+        // the shared rental list controls offer the same per-page choices as the other rentals lists
+        $perPage = (int) $request->get('per_page', 25);
+        if (! in_array($perPage, self::PER_PAGE_OPTIONS, true)) {
+            $perPage = 25;
+        }
+
+        return view('corex.breaches.index', [
+            'breaches' => $query->paginate($perPage)->withQueryString(), 'sort' => $sort, 'dir' => $dir,
+            'tiles' => self::TILES, 'tileCounts' => $counts, 'tile' => $tile,
+            'perPage' => $perPage, 'perPageOptions' => self::PER_PAGE_OPTIONS, 'showArchived' => $request->boolean('archived'),
+        ]);
+    }
+
+    /** One tile's own condition, on top of whatever the list already filters by. */
+    private function applyTile($query, string $tile)
+    {
+        $today = \Carbon\Carbon::today()->toDateString();
+
+        return match ($tile) {
+            'open' => $query->where('status', LeaseBreach::STATUS_ISSUED)->where(fn ($w) => $w->whereNull('remedy_deadline')->orWhereDate('remedy_deadline', '>', $today)),
+            'reached' => $query->where('status', LeaseBreach::STATUS_ISSUED)->whereDate('remedy_deadline', '<=', $today),
+            'remedied' => $query->where('status', LeaseBreach::STATUS_REMEDIED),
+            'vacate_sent' => $query->where('status', LeaseBreach::STATUS_ESCALATED),
+            default => $query,
+        };
     }
 
     public function show(Request $request, int $id): View
@@ -85,6 +130,11 @@ class LeaseBreachController extends Controller
         return view('corex.breaches.show', [
             'breach' => $breach, 'lease' => $lease, 'vacateTemplates' => $vacateTemplates, 'canVacate' => $breach->canIssueVacate(),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
+            // the notice to vacate form starts from the agency's usual time and the breach notices on file (the agent can change both)
+            'vacateTimeDefault' => \App\Models\LeaseSetting::vacateTimeFor((int) $breach->agency_id),
+            'vacateDateDefault' => $this->breaches->defaultVacateDate((int) $breach->agency_id)->toDateString(),
+            'vacateNoticeDays' => \App\Models\LeaseSetting::vacateNoticeDaysFor((int) $breach->agency_id),
+            'breachSummaryDefault' => $this->notices->breachSummary($lease),
         ]);
     }
 
@@ -102,6 +152,7 @@ class LeaseBreachController extends Controller
         return view('corex.breaches.bulk', [
             'leases' => $leases, 'dropped' => $dropped, 'templates' => $this->breaches->templatesFor((int) $request->user()->effectiveAgencyId(), 'payment'),
             'remedyDays' => $this->breaches->remedyDays((int) $request->user()->effectiveAgencyId()),
+            'remedyWindow' => $this->breaches->remedyWindowText((int) $request->user()->effectiveAgencyId()),
             'placeholders' => RentalNoticeService::PLACEHOLDERS,
         ]);
     }
@@ -145,9 +196,15 @@ class LeaseBreachController extends Controller
     {
         $this->authoriseLease($lease, $request);
 
+        $agencyId = (int) $lease->agency_id;
+        $templates = $this->breaches->templatesFor($agencyId, 'breach');
+
         return view('corex.breaches.create', [
-            'lease' => $lease, 'templates' => $this->breaches->templatesFor((int) $lease->agency_id, 'other'),
-            'remedyDays' => $this->breaches->remedyDays((int) $lease->agency_id),
+            'lease' => $lease, 'templates' => $templates,
+            'remedyDays' => $this->breaches->remedyDays($agencyId),
+            'remedyWindow' => $this->breaches->remedyWindowText($agencyId),
+            // each template's own remedy period, so the screen can say how long the chosen one allows
+            'windowByTemplate' => $templates->mapWithKeys(fn ($t) => [$t->id => $this->breaches->remedyWindowText($agencyId, $this->breaches->remedyDaysFor($t, $agencyId))])->all(),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
         ]);
     }
@@ -156,28 +213,59 @@ class LeaseBreachController extends Controller
     {
         $this->authoriseLease($lease, $request);
         $data = $request->validate([
-            'breach_party' => ['required', 'in:' . Lease::NOTICE_BY_TENANT . ',' . Lease::NOTICE_BY_LANDLORD],
-            'clause' => ['required', 'string', 'max:3000'],
-            'reason' => ['required', 'string', 'max:3000'],
             'rental_notice_template_id' => ['required', 'integer'],
+            'breach_party' => ['nullable', 'in:' . Lease::NOTICE_BY_TENANT . ',' . Lease::NOTICE_BY_LANDLORD],
+            'amount' => ['nullable', 'string', 'max:30'],
+            'clause' => ['nullable', 'string', 'max:3000'],
+            'reason' => ['nullable', 'string', 'max:3000'],
             'figures_raw' => ['nullable', 'string', 'max:5000'],
             'intent' => ['required', 'in:preview,send'],
-        ], ['clause.required' => 'Quote the lease clause that was breached.', 'reason.required' => 'Say what the breach is.', 'rental_notice_template_id.required' => 'Choose the breach notice template.']);
+        ], ['rental_notice_template_id.required' => 'Choose the breach notice template.']);
 
-        $template = $this->breaches->templatesFor((int) $lease->agency_id, 'other')->firstWhere('id', (int) $data['rental_notice_template_id']);
+        $template = $this->breaches->templatesFor((int) $lease->agency_id, 'breach')->firstWhere('id', (int) $data['rental_notice_template_id']);
         if (! $template) {
             return back()->withInput()->withErrors(['rental_notice_template_id' => 'Choose one of your agency\'s breach templates.']);
         }
         $figures = $this->parseFigures((string) ($data['figures_raw'] ?? ''));
+        $isPayment = $template->notice_type === RentalNoticeTemplate::TYPE_BREACH_PAYMENT;
+        $clause = trim((string) ($data['clause'] ?? ''));
+        $reason = trim((string) ($data['reason'] ?? ''));
+
+        // a payment template asks for the amount outstanding (always the tenant); an ad hoc one for who, the clause and the reason
+        if ($isPayment) {
+            $amount = $this->breaches->parseAmount($data['amount'] ?? null);
+            if ($amount === null || $amount <= 0) {
+                return back()->withInput()->withErrors(['amount' => 'Enter the amount outstanding (more than R 0).']);
+            }
+            $party = Lease::NOTICE_BY_TENANT;
+        } else {
+            $amount = null;
+            $party = (string) ($data['breach_party'] ?? '');
+            $errors = [];
+            if (! in_array($party, [Lease::NOTICE_BY_TENANT, Lease::NOTICE_BY_LANDLORD], true)) {
+                $errors['breach_party'] = 'Choose who is in breach.';
+            }
+            if ($clause === '') {
+                $errors['clause'] = 'Quote the lease clause that was breached.';
+            }
+            if ($reason === '') {
+                $errors['reason'] = 'Say what the breach is.';
+            }
+            if ($errors) {
+                return back()->withInput()->withErrors($errors);
+            }
+        }
 
         if ($data['intent'] === 'preview') {
-            $preview = $this->breaches->previewOther($lease, $data['breach_party'], $data['clause'], $data['reason'], $template, $request->user(), $figures);
+            $preview = $this->breaches->previewBreach($lease, $isPayment ? LeaseBreach::KIND_PAYMENT : LeaseBreach::KIND_OTHER, $party, $amount, $clause, $reason, $template, $request->user(), $figures);
 
             return back()->withInput()->with('breach_preview', $preview + ['template' => $template->name]);
         }
 
         try {
-            $breach = $this->breaches->issueOther($lease, $data['breach_party'], $data['clause'], $data['reason'], $template, $request->user(), $figures);
+            $breach = $isPayment
+                ? $this->breaches->issuePayment($lease, (float) $amount, $template, $request->user(), null, $figures, $clause)
+                : $this->breaches->issueOther($lease, $party, $clause, $reason, $template, $request->user(), $figures);
         } catch (ValidationException $e) {
             return back()->withInput()->withErrors($e->errors());
         }
@@ -190,11 +278,16 @@ class LeaseBreachController extends Controller
     public function remedy(Request $request, int $id): RedirectResponse
     {
         $breach = $this->find($request, $id);
-        $data = $request->validate(['note' => ['nullable', 'string', 'max:1000']]);
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:1000'], 'remedied_on' => ['nullable', 'date'], 'return' => ['nullable', 'in:lease']]);
         try {
-            $this->breaches->remedy($breach, $request->user(), $data['note'] ?? null);
+            $this->breaches->remedy($breach, $request->user(), $data['note'] ?? null, $data['remedied_on'] ?? null);
         } catch (ValidationException $e) {
             return back()->withErrors($e->errors());
+        }
+
+        // from the lease screen's Next bar the agent goes back to the lease
+        if (($data['return'] ?? null) === 'lease') {
+            return redirect()->route('corex.leases.show', $breach->lease_id)->with('success', 'Breach marked as remedied.');
         }
 
         return redirect()->route('corex.breaches.show', $breach->id)->with('success', 'Marked as remedied.');
@@ -205,15 +298,25 @@ class LeaseBreachController extends Controller
         $breach = $this->find($request, $id);
         $data = $request->validate([
             'rental_notice_template_id' => ['required', 'integer'],
+            'vacate_date' => ['nullable', 'date'],
+            'vacate_time' => ['nullable', 'date_format:H:i'],
+            'breach_summary' => ['nullable', 'string', 'max:3000'],
             'figures_raw' => ['nullable', 'string', 'max:5000'],
             'intent' => ['required', 'in:preview,send'],
-        ], ['rental_notice_template_id.required' => 'Choose the notice to vacate template.']);
+        ], ['rental_notice_template_id.required' => 'Choose the notice to vacate template.', 'vacate_date.date' => 'That is not a date.', 'vacate_time.date_format' => 'Give the time as hours and minutes, e.g. 12:00.']);
 
         $template = $this->breaches->templatesFor((int) $breach->agency_id, 'vacate')->firstWhere('id', (int) $data['rental_notice_template_id']);
         if (! $template) {
             return back()->withErrors(['rental_notice_template_id' => 'Choose one of your agency\'s notice to vacate templates.']);
         }
         $figures = $this->parseFigures((string) ($data['figures_raw'] ?? ''));
+        // the vacate date / time and the breach summary the agent confirmed on the form (a typed name=value line still wins)
+        if (! empty($data['vacate_date'])) {
+            $figures += $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id);
+        }
+        if (trim((string) ($data['breach_summary'] ?? '')) !== '') {
+            $figures += ['breach_summary' => trim($data['breach_summary'])];
+        }
 
         if ($data['intent'] === 'preview') {
             $html = $this->notices->preview($template, $figures, $breach->lease, $breach, $request->user());
@@ -222,7 +325,7 @@ class LeaseBreachController extends Controller
         }
 
         try {
-            $this->breaches->issueVacate($breach, $template, $request->user(), $figures);
+            $this->breaches->issueVacate($breach, $template, $request->user(), $figures, $data['vacate_date'] ?? null, $data['vacate_time'] ?? null);
         } catch (ValidationException $e) {
             return back()->withInput()->withErrors($e->errors());
         }

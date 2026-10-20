@@ -56,6 +56,43 @@ class RentalWorkOrderPricingSettingsController extends Controller
     }
 
     /**
+     * §17.38 — what a NEW catalogue item starts with: the markup unit (rand | percent) and amount. Each key is has()-guarded
+     * (the Setup Wizard posts a subset); a blank amount goes back to the neutral default (NULL = 0).
+     */
+    public function updateCatalogueMarkup(Request $request): RedirectResponse
+    {
+        $this->authorise($request);
+        $agencyId = $request->user()->effectiveAgencyId();
+
+        if (! $request->has('catalogue_default_markup_type') && ! $request->has('catalogue_default_markup_value')) {
+            return redirect()->route('corex.settings.rental-work-orders.edit')
+                ->withErrors(['catalogue_default_markup_value' => 'That did not save — please try again.']);
+        }
+
+        $validated = $request->validate([
+            'catalogue_default_markup_type' => ['nullable', 'in:rand,percent'],
+            'catalogue_default_markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+        ], [
+            'catalogue_default_markup_type.in' => 'Choose rand or percent.',
+            'catalogue_default_markup_value.numeric' => 'A markup must be a number, like 20 or 12.5.',
+            'catalogue_default_markup_value.min' => 'A markup cannot be negative.',
+            'catalogue_default_markup_value.max' => 'That markup is too large.',
+        ]);
+
+        $data = [];
+        if ($request->has('catalogue_default_markup_type')) {
+            $data['catalogue_default_markup_type'] = $validated['catalogue_default_markup_type'] ?? null;
+        }
+        if ($request->has('catalogue_default_markup_value')) {
+            $v = $validated['catalogue_default_markup_value'] ?? null;
+            $data['catalogue_default_markup_value'] = ($v === null || $v === '') ? null : round((float) $v, 4);
+        }
+        RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agencyId], $data);
+
+        return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Default catalogue markup saved.');
+    }
+
+    /**
      * The estimate wording on every owner quote (R6). A blank box — or "Restore default" — stores NULL, which reads as the
      * built-in wording; a text identical to the built-in wording is also stored as NULL, so an agency that never changed it keeps
      * following the built-in text rather than freezing a copy of it.

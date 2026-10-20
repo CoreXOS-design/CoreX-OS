@@ -75,6 +75,8 @@ class RentalJobCard extends Model
         'scheduled_at',
         'due_at',
         'access_notes',
+        'access_contact_name',
+        'access_contact_phone',
         'total_amount',
         // §17.4 — the agency's own cost (sum of accepted cost_total) and the card-level markups.
         'total_cost',
@@ -275,6 +277,12 @@ class RentalJobCard extends Model
     public function priceRequests(): HasMany
     {
         return $this->hasMany(RentalJobCardPriceRequest::class)->orderByDesc('requested_at')->orderByDesc('id');
+    }
+
+    /** §17.41 (AT-465) — what the crew reported on each "Send to office", newest first. */
+    public function crewReports(): HasMany
+    {
+        return $this->hasMany(RentalJobCardCrewReport::class)->orderByDesc('id');
     }
 
     /** §17.12 — an OPEN dispute reopened this card (§17.10). */
@@ -609,7 +617,7 @@ class RentalJobCard extends Model
         if (! in_array($field, ['scheduled_at', 'due_at'], true) || ! $this->{$field}) {
             return null;
         }
-        $tz = $this->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($this->agency);
 
         return $this->{$field}->copy()->setTimezone($tz)->format('Y-m-d\TH:i');
     }

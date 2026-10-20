@@ -136,6 +136,15 @@
     </div>
     @endif
 
+    @include('corex.rental-applications._applicant-link-actions', ['application' => $rentalApplication])
+
+    {{-- Audit fix A3 (2026-10-19): a sent / in-progress file the applicant has gone quiet on can be closed off here. --}}
+    @permission('rental_applications.create')
+    @if(in_array($rentalApplication->status, \App\Models\RentalApplication::WITHDRAWABLE_BEFORE_SUBMIT_STATUSES, true))
+        <div>@include('corex.rental-applications._record-withdrawn', ['application' => $rentalApplication])</div>
+    @endif
+    @endpermission
+
     {{--
         Johan, QA1 — "on returned applications theres statuses at the top,
         but theres no way to mark application status to what it is?" Only

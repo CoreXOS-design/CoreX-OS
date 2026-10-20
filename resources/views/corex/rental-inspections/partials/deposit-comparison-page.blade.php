@@ -11,8 +11,9 @@
       - Differences are worked out when the page loads (never stored): Worse / Different / Same (already present) / Better /
         New item / Not at move-out.
       - Photos open in a paired viewer (move-in beside move-out, linked photos first), with their capture times.
-      - The agent classifies a marked row (append-only, a note is required). Nothing on this page is money — a "charge to
-        tenant" classification is the agent's recorded judgement and the future source of deduction lines (parked finance build).
+      - The agent classifies a marked row (append-only, a note is required). A "charge to tenant" classification carries its AMOUNT
+        (audit 2026-10-19 B1) and rolls up to the lease's Deposit deductions summary. CoreX only records it - the money is settled
+        in the agency's accounting system.
 --}}
 
 @php
@@ -27,6 +28,7 @@
 @endphp
 
 @section('content')
+@php $recordAmounts = \App\Models\RentalInspectionSetting::recordDeductionAmountsFor($inspection->agency_id); @endphp
 <div class="p-6 max-w-6xl mx-auto space-y-4"
      x-data="{
         viewer: {{ Js::from($comparison['viewer']) }},
@@ -233,17 +235,23 @@
                     @if($finding)
                         <div class="text-xs rounded px-2 py-1" style="background: var(--surface-2);" data-qa="mo-finding-{{ $row['key'] }}">
                             Classified <strong>{{ $dispositionLabels[$finding->disposition] ?? $finding->disposition }}</strong>
-                            by {{ $finding->recordedBy?->name }} — {{ $finding->note }}
+                            by {{ $finding->recordedBy?->name }}@if($recordAmounts && $finding->amount !== null) — <strong>R {{ number_format((float) $finding->amount, 2) }}</strong>@endif — {{ $finding->note }}
                         </div>
                     @endif
                     @permission('rental_inspections.review_deposit_comparison')
-                        <form method="POST" action="{{ route('corex.rental-inspections.deposit-comparison.finding', [$inspection, $item->id]) }}" class="flex flex-wrap items-center gap-2" data-qa="mo-classify-{{ $row['key'] }}">
+                        <form method="POST" action="{{ route('corex.rental-inspections.deposit-comparison.finding', [$inspection, $item->id]) }}" class="flex flex-wrap items-center gap-2" data-qa="mo-classify-{{ $row['key'] }}"
+                              x-data="{ disposition: @js($finding->disposition ?? array_key_first($dispositionLabels)) }">
                             @csrf
-                            <select name="disposition" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);">
+                            <select name="disposition" x-model="disposition" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);">
                                 @foreach($dispositionLabels as $key => $label)
                                     <option value="{{ $key }}" @selected(($finding->disposition ?? null) === $key)>{{ $label }}</option>
                                 @endforeach
                             </select>
+                            @if($recordAmounts)
+                            {{-- A charge to the tenant REQUIRES its amount (audit B1); for any other judgement it is optional (audit A24). --}}
+                            <input type="number" name="amount" step="0.01" min="0" max="99999999.99" :required="disposition === 'charge_tenant'"
+                                   value="{{ $finding?->amount }}" :placeholder="disposition === 'charge_tenant' ? 'Amount R (required)' : 'Amount R (optional)'" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border); width: 9rem;" aria-label="Amount in rand" data-qa="mo-amount-{{ $row['key'] }}">
+                            @endif
                             <input type="text" name="note" required maxlength="2000" placeholder="Reasoning (required)" class="text-xs rounded px-2 py-1 flex-1" style="border: 1px solid var(--border); min-width: 12rem;">
                             <button type="submit" class="corex-btn-outline text-xs">{{ $finding ? 'Update' : 'Record' }}</button>
                         </form>
@@ -266,7 +274,7 @@
     @endforelse
 
     <p class="text-xs" style="color: var(--text-muted);">
-        This is a record of what was found, for review — no amount has been calculated or applied against any deposit.
+        This is a record of what was found, for review — no amount has been calculated or applied against any deposit.@if($recordAmounts) An amount you type on a finding is only recorded.@endif
     </p>
 
     {{-- Paired photo viewer: move-in beside move-out, linked photos first. Left/right arrows or the buttons step through

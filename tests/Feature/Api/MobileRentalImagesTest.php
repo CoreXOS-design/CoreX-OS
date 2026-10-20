@@ -33,6 +33,7 @@ class MobileRentalImagesTest extends TestCase
 
         config(['app.url' => 'https://corex.test']);
         Storage::fake('public');
+        Storage::fake('local');
 
         $this->agency = Agency::create(['name' => 'Coastal Realty', 'slug' => 'coastal-realty']);
         $branch = Branch::create(['agency_id' => $this->agency->id, 'name' => 'Main']);
@@ -59,6 +60,20 @@ class MobileRentalImagesTest extends TestCase
             'status'        => 'active',
             'rental_amount' => 12500,
         ], $overrides));
+    }
+
+    /** Audit B7: In/Out uploads land on the inspection under way, so the tests that upload there start one. */
+    private function startInspection(Property $property, string $type = 'in'): \App\Models\RentalInspection
+    {
+        $lease = \App\Models\Lease::create([
+            'agency_id' => $this->agency->id, 'branch_id' => $this->user->branch_id, 'property_id' => $property->id,
+            'status' => \App\Models\Lease::STATUS_ACTIVE, 'rental_amount' => 12500, 'start_date' => now()->subMonth(),
+            'created_by_user_id' => $this->user->id,
+        ]);
+
+        return \App\Models\RentalInspection::create([
+            'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'type' => $type, 'created_by_user_id' => $this->user->id,
+        ]);
     }
 
     /** A live rental advertises the feature on its property payload. */
@@ -136,6 +151,7 @@ class MobileRentalImagesTest extends TestCase
     public function test_upload_appends_and_absolutises(): void
     {
         $property = $this->makeProperty();
+        $inspection = $this->startInspection($property);
 
         $res = $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
@@ -148,22 +164,23 @@ class MobileRentalImagesTest extends TestCase
 
         $res->assertStatus(201);
 
+        // Audit B7: the photos are the inspection's own (private, signed links - already absolute), not the old flat list.
         $images = $res->json('rental_images.in_inspection.images');
         $this->assertCount(2, $images);
         foreach ($images as $url) {
-            $this->assertStringStartsWith('https://corex.test/storage/properties/', $url);
+            $this->assertStringStartsWith('http', $url); // signed links are built absolute
+            $this->assertStringContainsString('/private-image/', $url);
         }
-
-        // Persisted on the model (stored relative; absolutised only on the way out).
-        $stored = $property->fresh()->rentalImagesStructure();
-        $this->assertCount(2, $stored['in_inspection']['images']);
-        $this->assertStringStartsWith('/storage/properties/', $stored['in_inspection']['images'][0]);
+        $this->assertSame(2, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+        $this->assertSame([], $property->fresh()->rentalImagesStructure()['in_inspection']['images']);
+        $this->assertSame([], Storage::disk('public')->allFiles());
     }
 
     /** A single per-photo upload (image + client_upload_id) appends one image. */
     public function test_per_photo_upload_appends_single(): void
     {
         $property = $this->makeProperty();
+        $this->startInspection($property);
 
         $res = $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
@@ -185,6 +202,7 @@ class MobileRentalImagesTest extends TestCase
     public function test_per_photo_upload_is_idempotent_on_retry(): void
     {
         $property = $this->makeProperty();
+        $inspection = $this->startInspection($property);
 
         $first = $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
@@ -202,10 +220,9 @@ class MobileRentalImagesTest extends TestCase
             ]);
         $retry->assertStatus(200)->assertJson(['duplicate' => true]);
 
-        // One image in the section, one file on disk — the retry duplicated nothing.
-        $stored = $property->fresh()->rentalImagesStructure();
-        $this->assertCount(1, $stored['in_inspection']['images']);
-        $this->assertCount(1, Storage::disk('public')->files("properties/{$property->id}"));
+        // One photo, one file on disk — the retry duplicated nothing.
+        $this->assertSame(1, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+        $this->assertCount(1, Storage::disk('local')->allFiles("private-images/rental-inspections/{$this->agency->id}/{$inspection->id}"));
     }
 
     /** Set a date, add a custom section (server mints id), then upload into it. */
@@ -244,23 +261,16 @@ class MobileRentalImagesTest extends TestCase
             ->assertJsonPath('rental_images.custom.0.images', fn ($imgs) => count($imgs) === 1);
     }
 
-    /** Deleting an image removes exactly that entry and its file. */
+    /** Audit B27: deleting an image takes exactly that entry off the list - ARCHIVED, the file stays (no hard deletes). */
     public function test_delete_image(): void
     {
         $property = $this->makeProperty();
-
-        $this->actingAs($this->user)
-            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
-                'section' => 'in_inspection',
-                'images'  => [
-                    UploadedFile::fake()->image('a.jpg'),
-                    UploadedFile::fake()->image('b.jpg'),
-                ],
-            ])->assertStatus(201);
-
-        $before  = $property->fresh()->rentalImagesStructure()['in_inspection']['images'];
-        $relPath = str_replace('/storage/', '', $before[0]);
-        Storage::disk('public')->assertExists($relPath);
+        Storage::disk('public')->put("properties/{$property->id}/a.jpg", 'x');
+        Storage::disk('public')->put("properties/{$property->id}/b.jpg", 'y');
+        $property->forceFill(['rental_images_json' => [
+            'in_inspection' => ['date' => null, 'images' => ["/storage/properties/{$property->id}/a.jpg", "/storage/properties/{$property->id}/b.jpg"]],
+            'out_inspection' => ['date' => null, 'images' => []], 'custom' => [],
+        ]])->save();
 
         $res = $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/delete", [
@@ -270,13 +280,42 @@ class MobileRentalImagesTest extends TestCase
 
         $res->assertOk();
         $this->assertCount(1, $res->json('rental_images.in_inspection.images'));
-        Storage::disk('public')->assertMissing($relPath);
+        Storage::disk('public')->assertExists("properties/{$property->id}/a.jpg");
+        $archived = $property->fresh()->rentalImagesStructure()['archived'];
+        $this->assertSame("/storage/properties/{$property->id}/a.jpg", $archived[0]['url']);
+    }
+
+    /** Audit B7: an upload with no inspection under way is refused plainly, not stored in a list nothing reads. */
+    public function test_in_upload_with_no_inspection_under_way_is_refused(): void
+    {
+        $property = $this->makeProperty();
+
+        $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section' => 'in_inspection', 'image' => UploadedFile::fake()->image('a.jpg'),
+            ])->assertStatus(409)->assertJsonPath('code', 'no_inspection_under_way');
+    }
+
+    /** Audit B7: a LET property (off-market, but exactly when its inspections happen) is eligible. */
+    public function test_a_let_property_is_eligible_and_its_photos_reach_the_inspection(): void
+    {
+        $property = $this->makeProperty(['status' => 'let_out']);
+        $inspection = $this->startInspection($property);
+
+        $this->actingAs($this->user)->getJson("/api/v1/mobile/properties/{$property->id}")->assertOk()
+            ->assertJsonPath('property.rental_inspections_available', true);
+        $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section' => 'in_inspection', 'image' => UploadedFile::fake()->image('a.jpg'),
+            ])->assertStatus(201);
+        $this->assertSame(1, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
     }
 
     /** HEIC (phone camera default) is accepted, not rejected by the image rule. */
     public function test_heic_upload_is_accepted(): void
     {
         $property = $this->makeProperty();
+        $this->startInspection($property);
 
         $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [

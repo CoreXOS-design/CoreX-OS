@@ -32,6 +32,7 @@ use Tests\TestCase;
  */
 final class RentalInspectionI1EvidenceTest extends TestCase
 {
+    use \Tests\Feature\RentalInspections\Concerns\RecordsAttendance;
     use RefreshDatabase;
 
     private Agency $agency;
@@ -88,10 +89,13 @@ final class RentalInspectionI1EvidenceTest extends TestCase
 
     private function inspection(string $type = RentalInspection::TYPE_IN, array $extra = []): RentalInspection
     {
-        return RentalInspection::create(array_merge([
+        $inspection = RentalInspection::create(array_merge([
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'type' => $type,
             'created_by_user_id' => $this->agent->id,
         ], $extra));
+        $this->recordAttendanceForEveryParty($inspection); // audit B12: attendance is asked before signing
+
+        return $inspection;
     }
 
     private function grade(RentalInspection $inspection, RentalInspectionItem $item, string $condition = 'good'): void
@@ -369,6 +373,7 @@ final class RentalInspectionI1EvidenceTest extends TestCase
         $this->grade($inspection, $a, 'good');
         $this->grade($inspection, $b, 'n_a');
 
+        $this->recordAttendanceForEveryParty($inspection);
         $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))->assertOk();
         $this->assertSame(RentalInspection::STATUS_AWAITING_SIGNATURE, $inspection->fresh()->status);
     }
@@ -409,7 +414,7 @@ final class RentalInspectionI1EvidenceTest extends TestCase
 
         // Ad hoc: never gated, whatever the setting.
         $adHoc = $this->inspection(RentalInspection::TYPE_AD_HOC);
-        $this->postJson(route('corex.rental-inspections.complete', $adHoc))->assertOk();
+        $this->postJson(route('corex.rental-inspections.complete', $adHoc), ['acknowledge_warnings' => 1])->assertOk();
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $adHoc->fresh()->status);
 
         // Setting off: an in-inspection is no longer stopped for ungraded items (it then meets the next,
@@ -427,6 +432,7 @@ final class RentalInspectionI1EvidenceTest extends TestCase
     {
         $inspection = $this->inspection();
 
+        $this->recordAttendanceForEveryParty($inspection);
         $this->postJson(route('corex.rental-inspections.start-awaiting-signature', $inspection))->assertOk();
     }
 

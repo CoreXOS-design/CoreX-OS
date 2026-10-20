@@ -97,7 +97,7 @@ class RentalJobCardVatService
     /**
      * Pastel-style enhancement, 2026-10-05 — a catalogue item's own
      * excl/VAT/incl breakdown for the catalogue list/form, given its
-     * ALWAYS-excl `default_price` (see RentalCatalogueItem's own docblock)
+     * ALWAYS-excl `selling_excl` (see RentalCatalogueItem's own docblock)
      * and its default VAT type/custom rate. Null when the item has no
      * default price at all — nothing to break down.
      *
@@ -105,11 +105,11 @@ class RentalJobCardVatService
      */
     public function catalogueItemPrices(RentalCatalogueItem $item, Agency $agency): array
     {
-        if ($item->default_price === null) {
+        if ($item->selling_excl === null) {
             return ['rate' => null, 'label' => null, 'excl' => null, 'vat' => null, 'incl' => null];
         }
 
-        $excl = (float) $item->default_price;
+        $excl = (float) $item->selling_excl;
 
         if (! $agency->vat_registered) {
             return ['rate' => null, 'label' => null, 'excl' => $excl, 'vat' => null, 'incl' => $excl];
@@ -127,18 +127,19 @@ class RentalJobCardVatService
 
     /**
      * The amount a job card line should pre-fill when it picks this
-     * catalogue item — the item's always-excl default_price, converted to
+     * catalogue item — the item's always-excl selling_excl, converted to
      * whatever the agency currently captures on job card lines. Not
      * registered, or the item has no default price: passed through
      * unchanged (identical to the pre-VAT behaviour).
      */
     public function catalogueDefaultPriceForLine(RentalCatalogueItem $item, Agency $agency): ?float
     {
-        if ($item->default_price === null) {
+        // §17.39 — a markup-priced item has no fixed catalogue selling: the line's own cost + the markup make the price.
+        if ($item->selling_excl === null || $item->pricedByMarkup()) {
             return null;
         }
 
-        $excl = (float) $item->default_price;
+        $excl = (float) $item->selling_excl;
 
         if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
             return $excl;
@@ -148,6 +149,27 @@ class RentalJobCardVatService
         $rate = $this->rateFor($type, $item->default_custom_vat_rate);
 
         return round($excl * (1 + $rate / 100), 2);
+    }
+
+    /**
+     * §17.39 — a markup-priced item whose markup is a rand amount: that amount (stored excl) converted to the agency's capture mode
+     * on lines, exactly as catalogueDefaultPriceForLine() converts a price. Null when the item is not rand-markup priced.
+     */
+    public function catalogueMarkupAmountForLine(RentalCatalogueItem $item, Agency $agency): ?float
+    {
+        if (! $item->pricedByMarkup() || $item->markup_type !== 'rand') {
+            return null;
+        }
+
+        $excl = (float) $item->markup_value;
+
+        if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
+            return $excl;
+        }
+
+        $type = $item->default_rental_vat_type_id ? ($item->defaultVatType ?? RentalVatType::find($item->default_rental_vat_type_id)) : null;
+
+        return round($excl * (1 + $this->rateFor($type, $item->default_custom_vat_rate) / 100), 2);
     }
 
     /** @return array{excl: float, vat: float, incl: float} */
@@ -350,15 +372,15 @@ class RentalJobCardVatService
 
     /**
      * §17.4 / §17.19 — a catalogue item's default COST, converted to the agency's capture mode exactly as
-     * catalogueDefaultPriceForLine() does for the selling default (default_cost, like default_price, is stored excl VAT).
+     * catalogueDefaultPriceForLine() does for the selling default (cost_excl, like selling_excl, is stored excl VAT).
      */
     public function catalogueDefaultCostForLine(RentalCatalogueItem $item, Agency $agency): ?float
     {
-        if ($item->default_cost === null) {
+        if ($item->cost_excl === null) {
             return null;
         }
 
-        $excl = (float) $item->default_cost;
+        $excl = (float) $item->cost_excl;
 
         if (! $agency->vat_registered || $agency->vat_capture_mode !== Agency::VAT_CAPTURE_INCL) {
             return $excl;

@@ -69,6 +69,20 @@
                    class="w-32 px-3 py-2 text-sm rounded-md" style="background:var(--surface-2); border:1px solid var(--border); color:var(--text-primary);">
             <p class="text-xs mt-1" style="color:var(--text-muted);">A shorter window hides listings an agent simply hasn't re-searched lately. Suggested: 90 — a mandate normally runs 90 days.</p>
         </div>
+        {{-- Report recogniser (mic-complete-spec §8.9) — per-agency switch. Also a Setup Wizard control (Market Intelligence step). --}}
+        <div class="pt-4 mt-2" style="border-top:1px solid var(--border);">
+            <h2 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Reading unrecognised reports</h2>
+            <p class="text-xs mb-3" style="color:var(--text-muted);">
+                When you upload a market report in a layout CoreX does not know, CoreX can read it with AI and then
+                remember that layout for next time. AI-read reports are marked "Read by AI – check figures". With this off,
+                an unrecognised report is saved but not read, and CoreX is told so it can add the format.
+            </p>
+            <input type="hidden" name="report_ai_read_enabled" value="0">
+            <label class="inline-flex items-center gap-2 text-sm" style="color:var(--text-secondary);">
+                <input type="checkbox" name="report_ai_read_enabled" value="1" @checked((string) old('report_ai_read_enabled', $reportAiRead ? '1' : '0') === '1')>
+                Read unrecognised reports with AI
+            </label>
+        </div>
         <div>
             <button type="submit" class="text-sm font-semibold px-5 py-2 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Save rules</button>
         </div>

@@ -63,8 +63,8 @@ class RentalFaultPhotoAnnotationService
             : collect();
         $images = app(PortalImageService::class);
 
-        return $photos->values()->map(function (RentalFaultReportPhoto $p, int $i) use ($with, $marks, $notes, $names, $images, $audience, $sharedIds) {
-            $urls = $images->urls($p->storage_path);
+        return $photos->values()->map(function (RentalFaultReportPhoto $p, int $i) use ($with, $marks, $notes, $names, $images, $audience, $sharedIds, $fault) {
+            $urls = $images->urls($p->storage_path, $p->imageGuards(), (int) $fault->agency_id);   // D14: signed + expiring, dies when the photo or the fault is archived
             $row = [
                 'id' => $p->id,
                 'url' => $urls['url'],
@@ -128,8 +128,8 @@ class RentalFaultPhotoAnnotationService
         $annotated = $fault && $matched->isNotEmpty() ? collect($this->payload($fault, $matched, $audience))->keyBy('id') : collect();
         $images = app(PortalImageService::class);
 
-        return $woPhotos->values()->map(function ($p, int $i) use ($faultPhotos, $annotated, $images) {
-            $urls = $images->urls($p->storage_path);
+        return $woPhotos->values()->map(function ($p, int $i) use ($faultPhotos, $annotated, $images, $workOrder) {
+            $urls = $images->urls($p->storage_path, $p->imageGuards(), (int) $workOrder->agency_id);   // D14: signed + expiring, dies when the photo or the work order is archived
             $fp = $p->photo_type === \App\Models\RentalWorkOrder::PHOTO_REPORTED ? $faultPhotos->get($p->storage_path) : null;
             $a = $fp ? $annotated->get($fp->id) : null;
 

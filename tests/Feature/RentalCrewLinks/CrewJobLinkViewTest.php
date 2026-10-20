@@ -84,10 +84,11 @@ final class CrewJobLinkViewTest extends TestCase
         $card = $this->makeJobCard();
         $this->attachTenant($card->fresh(), 'Tina', 'Tenant', '0831112222');
 
-        $this->open($card->fresh())->assertOk()->assertDontSee('Tina Tenant')->assertDontSee('0831112222');
-
-        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => true]);
+        // on by default (AT-459, Johan 15 Oct 2026); an agency can switch it off
         $this->open($card->fresh())->assertOk()->assertSee('Tina Tenant')->assertSee('0831112222');
+
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['crew_link_show_tenant_contact' => false]);
+        $this->open($card->fresh())->assertOk()->assertDontSee('Tina Tenant')->assertDontSee('0831112222');
     }
 
     public function test_never_the_landlord_quote_or_history(): void

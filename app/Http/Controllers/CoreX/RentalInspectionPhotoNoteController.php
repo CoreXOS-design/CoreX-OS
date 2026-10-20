@@ -37,6 +37,13 @@ class RentalInspectionPhotoNoteController extends Controller
         abort_if((int) $photo->rental_inspection_id !== (int) $rentalInspection->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Audit B17 - a retried note (same key, same inspection) is answered with the row already stored (200), not a 409/422.
+        $key = $request->input('client_idempotency_key');
+        if (is_string($key) && $key !== ''
+            && ($existing = RentalInspectionPhotoNote::withoutGlobalScopes()->withTrashed()->where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $key)->first())) {
+            return response()->json($existing, 200);
+        }
+
         try {
             RentalInspectionPhotoNote::assertMutable($rentalInspection);
         } catch (\LogicException $e) {
@@ -51,6 +58,7 @@ class RentalInspectionPhotoNoteController extends Controller
         $validated = $request->validate([
             'classification_key' => ['required', 'string', Rule::in(array_column($classifications, 'key'))],
             'note' => ['required', 'string', 'max:4000'],
+            'client_idempotency_key' => ['nullable', 'uuid'],
         ]);
 
         $note = RentalInspectionPhotoNote::create([
@@ -60,6 +68,7 @@ class RentalInspectionPhotoNoteController extends Controller
             'classification_key' => $validated['classification_key'],
             'note' => $validated['note'],
             'created_by_user_id' => $request->user()->id,
+            'client_idempotency_key' => $validated['client_idempotency_key'] ?? null,
         ]);
 
         return response()->json($note, 201);

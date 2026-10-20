@@ -91,13 +91,10 @@ class LeaseNoticeController extends Controller
     public function store(Request $request, Lease $lease, LeaseNoticeService $service): RedirectResponse
     {
         $this->authoriseLease($lease, $request);
-        $data = $request->validate([
-            'given_by' => ['required', 'in:' . Lease::NOTICE_BY_TENANT . ',' . Lease::NOTICE_BY_LANDLORD],
-            'notice_date' => ['required', 'date', 'before_or_equal:today'],
-            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
-            'reason' => ['nullable', 'string', 'max:2000'],
-            'attachment' => ['nullable', 'file', 'max:' . LeaseNoticeService::ATTACHMENT_MAX_KB, 'mimes:' . LeaseNoticeService::ATTACHMENT_MIMES],
-        ]);
+        $request->validate(['given_by' => ['required', 'in:' . Lease::NOTICE_BY_TENANT . ',' . Lease::NOTICE_BY_LANDLORD]]);
+        // audit 2026-10-19 (A17/A28): the ONE entry rule set, shared with the lease screen's dialogs and the mobile API
+        $data = $service->validateAgentEntry($request->all(), $request->file('attachment'));
+        $data['given_by'] = $request->input('given_by');
 
         try {
             $notice = $service->give($lease, $data['given_by'], $data, LeaseNotice::VIA_AGENT, null, $request->user(), $request->file('attachment'));
@@ -111,11 +108,7 @@ class LeaseNoticeController extends Controller
     public function update(Request $request, int $id, LeaseNoticeService $service): RedirectResponse
     {
         $notice = $this->find($request, $id);
-        $data = $request->validate([
-            'notice_date' => ['required', 'date', 'before_or_equal:today'],
-            'intended_end_date' => ['required', 'date', 'before_or_equal:' . now()->addYears(2)->toDateString()],
-            'reason' => ['nullable', 'string', 'max:2000'],
-        ]);
+        $data = $request->validate(LeaseNoticeService::dateRules() + ['reason' => ['nullable', 'string', 'max:2000']], LeaseNoticeService::dateMessages());
         try {
             $service->update($notice, $data, $request->user());
         } catch (ValidationException $e) {

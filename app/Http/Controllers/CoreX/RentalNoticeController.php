@@ -95,7 +95,7 @@ class RentalNoticeController extends Controller
     {
         $this->authoriseLease($lease, $request);
         $data = $request->validate([
-            'rental_notice_template_id' => ['required', 'exists:rental_notice_templates,id'],
+            'rental_notice_template_id' => ['required', \App\Rules\FoundInAgency::in('rental_notice_templates')],
             'figures_raw' => ['nullable', 'string', 'max:5000'],
             'send_to_tenant' => ['nullable', 'boolean'],
             'send_to_landlord' => ['nullable', 'boolean'],

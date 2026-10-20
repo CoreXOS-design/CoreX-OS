@@ -89,7 +89,7 @@ instruction, "CoreX never sends a lease by itself."
 ## 7. On signing — outcomes
 - **Renewal signed:** new lease term row created (or the draft from §5(a)/(b) activated), linked via
   `previous_lease_id`; escalation recorded on the new row (reusing `LeaseEscalation`, already built);
-  the old term's `status` set to `ended`/`renewed` and it stays on the property's occupancy history
+  the old term's `status` set to `expired` with `renewed_lease_id` pointing at the new term (shown to people as **"Renewed"** - audit fix A19, see §23; the spec first said `ended`/`renewed`) and it stays on the property's occupancy history
   (`leases.md` §12.6) — never deleted, per CLAUDE.md non-negotiable #1.
 - **One-click outcomes** (no e-sign cycle required for these three):
   - **Month-to-month** — lease's `end_date` cleared, a flag set marking it month-to-month (reuses
@@ -111,8 +111,11 @@ on that screen.
 - **No new top-level nav entry** — renewals are actions reached from the Lease Hub and the Command
   Centre, not a separate list screen of their own (a "renewals in progress" tile/filter already
   exists on the Command Centre, `rental-command-centre.md` §3.1).
-- **New routes:** `corex.leases.{lease}.renewal.{draft,send,sign,one-click}` (action endpoints off
-  the existing Lease resource, not a new resource).
+- **Routes (as built - audit fix A18, see §23; the first draft listed `draft,send,sign,one-click`):**
+  `corex.leases.renewal.{create,store,draft,draft-from-template,upload,cancel-draft}` for the renewal itself,
+  and the one-click outcomes `corex.leases.renewal.{month-to-month,month-to-month.reverse,tenant-notice,landlord-notice,notice.reverse,notice.change-outcome}`
+  (all under `corex/leases/{lease}/renewal/`, gated by `leases.renew`; the two notice routes also need `rental_notices.review` - lease-notices.md).
+  There is no `send` or `sign` route: sending and signing are the e-sign engine's (leases.md §15.6.1).
 - **Template settings CRUD:** `corex.rental-lease-templates.{index,create,store,edit,update,archive,restore}`
   under Rentals → Settings — full list-screen floor (search by name, sort by name/active, filter by
   active/archived, pagination, empty state) per BUILD_STANDARD §1b, same as every other settings list
@@ -122,8 +125,9 @@ on that screen.
   (gates §6's template-mapping CRUD).
 
 ## 10. API
-`POST /api/v1/leases/{lease}/renewal/draft`, `/send`, `/sign`, `/one-click` (body: outcome type) —
-same scope guard as every lease action, named/versioned/cataloged per CLAUDE.md non-negotiable #7.
+As built (audit fix A18): `POST /api/v1/leases/{lease}/renewal/{draft,draft-from-template,upload,month-to-month,month-to-month/reverse,tenant-notice,landlord-notice,notice/reverse,notice/change-outcome}`
+(names `v1.leases.renewal.*`), plus `GET /api/v1/leases/{lease}/signing` and `POST .../signing/confirm` for the signed agreement. The first draft's `/send`, `/sign` and `/one-click` (one endpoint taking an outcome type) do not exist - see §23 for why.
+Same scope guard as every lease action, named/versioned/cataloged per CLAUDE.md non-negotiable #7.
 
 ## 11. Multi-agency
 No template, no default rent/escalation wording, no renewal-notice copy may assume HFC's own lease
@@ -849,6 +853,8 @@ mechanism and removing it was not asked for.
 
 Tests: `tests/Feature/Leases/RenewalWalkFixesTest.php` (14). Older tests that signed a renewal starting in the future and expected it live at once (LeaseFromSignedDocumentPromotionTest, LeaseRenewalTest, LeaseSigningReconcileTest, LeaseCaptureTest paper copy, LeasePropertyStatusTest row 6) now use a start / end date that has come.
 
+**Audit fix 2026-10-19 (A5, AT-470):** the out-inspection is no longer required once a notice has been accepted. With the agency setting `end_tenancy_on_move_out_date` on (default on; Settings -> Leases and the Setup Wizard), an accepted notice's move-out date ends the tenancy on that date even with no completed out-inspection. A lease past its end date with no notice is still not ended by this. See leases.md "Audit fixes 2026-10-19 - lease side".
+
 ### 22.1 "Run today's lease date checks now" - seeing R and S happen on a box with no scheduler (Johan, 14 Oct 2026)
 
 QA1 has no scheduler, and the Staging checkout's cron has been switched off since 21 Aug 2026 (`crontab -l`: "staging cron OFF, re-enable deliberately"), so `leases:advance-terms` never runs on either: a signed renewal never goes active on its start date and a tenancy never ends on its move-out date. (The brief called this section "leases.md §22"; §22 is here, in rental-renewals.md.)
@@ -860,3 +866,13 @@ QA1 has no scheduler, and the Staging checkout's cron has been switched off sinc
 * **Scheduler.** The real entry is in `routes/console.php` (this Laravel version has no `app/Console/Kernel.php`): `Schedule::command('leases:advance-terms')->dailyAt('00:35')->withoutOverlapping()`, pinned by `LeaseDateChecksNowTest::test_the_nightly_job_is_scheduled_for_00_35`. Where a cron runs the scheduler (checked on this box 14 Oct 2026): `/corex` (live-testing, every minute), the demo checkout, a www-data entry for `/hfc-staging` (that path does not exist) - and **not** `/corex-staging` (disabled), **not** `/corex-qa1`. The 62.238.31.82 production scheduler is a different host and was not reachable from here: confirm it there. The deploy checklist (`.ai/staging-deploy-checklist-2026-06.md` H3) and BUILD_STANDARD §8 now name the job and say that a Staging without a scheduler needs the button.
 
 Tests: `tests/Feature/Leases/LeaseDateChecksNowTest.php`.
+
+## 23. Audit fixes 2026-10-19 - spec reconciled to the code (A18, A19)
+
+**A18 - renewal `send` / `sign` / `one-click` routes: not built, spec corrected.** I checked what each would do.
+* **`send`** would mean "mail the prepared renewal to the signers". CoreX does not send agreements itself: the renewal draft is prepared in the lease capture screen and `LeaseSigningLauncher` hands it to the DocuPerfect e-sign wizard, which sends it (leases.md §15.6.1 - this supersedes §9/§10 here). A second send endpoint would be a duplicate of the e-sign engine's own, with its own token, reminders and audit trail to keep in step.
+* **`sign`** is the e-sign engine (`signatures.external` and the review/approve screens); the finished signing reaches the lease through `LeaseSigningStateService` (`GET/POST /api/v1/leases/{lease}/signing[/confirm]` for the app). Nothing for CoreX to add.
+* **`one-click`** (one endpoint, body = outcome) is the three outcomes that already have their own routes (month-to-month and its reverse, tenant notice, landlord notice, plus reverse/change-outcome). One endpoint that dispatches on a field would only rename them and break the app's existing calls.
+What is genuinely not there for a phone: *sending a prepared renewal for signature from the API*. That is a mobile-app question for the e-sign launcher, not a renewals route; sizing it belongs to the app spec (it needs the launcher's recipient-confirmation step exposed over the API - more than a day, and a design decision about who may start an e-sign envelope from a phone).
+
+**A19 - the old term's status after a renewal.** The spec said `ended`/`renewed`; the code sets `expired` plus `renewed_lease_id` (`LeaseActivationService`/`LeaseRenewalService::activateRenewalTerm`). A new stored status was not added: `Lease::STATUSES` is read by validators, list filters, the portal, the command centre, reports and the nightly jobs (every "expired" query would have to learn a second spelling for the same thing, and existing rows would need a back-fill). The spec's real intent - the old term stays in history, clearly shown as replaced - is met, and one display rule closes the rest: `Lease::displayStatus()` shows **"Renewed"** for an expired term with `renewed_lease_id` set (lease list, lease screen, print list). A term that expired without a renewal still reads "Expired".

@@ -166,10 +166,11 @@ final class RentalImagesTest extends TestCase
         $this->assertCount(1, $after);
         $this->assertSame($kept, $after[0]);
 
-        // Deleted file is gone from disk.
+        // Audit B27 (no hard deletes): the file is KEPT and the reference is archived.
         $deletedRel = ltrim((string) parse_url($before[0], PHP_URL_PATH), '/');
         $deletedRel = str_starts_with($deletedRel, 'storage/') ? substr($deletedRel, strlen('storage/')) : $deletedRel;
-        $this->assertFalse(Storage::disk('public')->exists($deletedRel));
+        $this->assertTrue(Storage::disk('public')->exists($deletedRel));
+        $this->assertSame($before[0], $p->fresh()->rentalImagesStructure()['archived'][0]['url']);
     }
 
     public function test_cannot_touch_another_agencys_property(): void

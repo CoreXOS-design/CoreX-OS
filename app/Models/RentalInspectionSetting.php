@@ -324,12 +324,36 @@ class RentalInspectionSetting extends Model
     /**
      * .ai/specs/rental-inspection-form.md §13 (OMR scan reader) — the
      * fraction of a tick-box's interior that must read as dark ink for the
-     * reader to count it marked. 0.35 is deliberately forgiving of a
-     * slightly light photocopy or a phone photo's uneven lighting while
-     * still well clear of paper-texture/scan noise; an agency scanning on
-     * worse equipment can raise or lower it without a code change.
+     * reader to count it marked. AT-463 / §62: 0.04, because a HAND TICK covers
+     * 5-20 % of a box (measured on real Ricoh scans: ticks 0.05-0.19, empty
+     * boxes 0.00) - the old 0.35 was for a box filled in solid and read no real
+     * tick at all. An agency scanning on worse equipment can raise or lower it.
      */
-    public const DEFAULT_OMR_MARK_THRESHOLD = 0.35;
+    public const DEFAULT_OMR_MARK_THRESHOLD = 0.04;
+
+    /** AT-472 / form spec §13.15 - a tick under this confidence (0-1) is 'picked up but unsure' and the agent must confirm it. */
+    public const DEFAULT_OMR_UNSURE_BELOW = 0.50;
+
+    /** AT-472 / form spec §13.15 - an AI-read note under this confidence (0-1) is not filled in; the agent is told to type it. */
+    public const DEFAULT_NOTE_READ_MIN_CONFIDENCE = 0.50;
+
+    /**
+     * AT-463 / rental-inspections.md §60 — the paper the printed site form is laid out for.
+     * Width x height in PDF points (1/72 in), portrait. A4 is the default.
+     */
+    public const FORM_PAPER_SIZES = [
+        'a4' => ['label' => 'A4', 'width_pt' => 595.28, 'height_pt' => 841.89],
+        'letter' => ['label' => 'US Letter', 'width_pt' => 612.0, 'height_pt' => 792.0],
+    ];
+    public const DEFAULT_FORM_PAPER_SIZE = 'a4';
+
+    /**
+     * AT-463 / rental-inspections.md §63 - how far in from every paper edge (mm) the printed site form keeps all of its content.
+     * A copier or scanner clips the outer few millimetres of a sheet; the corner marks and the QR must survive that.
+     */
+    public const DEFAULT_FORM_SAFE_MARGIN_MM = 15;
+    public const MIN_FORM_SAFE_MARGIN_MM = 5;
+    public const MAX_FORM_SAFE_MARGIN_MM = 25;
 
     /**
      * AT-433 Part C, Johan's approved default for the photo note's
@@ -355,8 +379,14 @@ class RentalInspectionSetting extends Model
      */
     public const DEFAULT_PUBLIC_LINK_EXPIRY_DAYS = 90;
 
+    /** Audit B21 - minutes a signed inspection-photo link keeps working (the photos themselves are private). */
+    public const DEFAULT_PHOTO_LINK_MINUTES = 480;
+
     /** §46 — signing an inspection by a personal link: on, and live for 30 days from when it is issued. */
     public const DEFAULT_SIGNING_LINK_ENABLED = true;
+
+    /** Johan's ruling 20 Oct 2026: money is not tracked in CoreX, so deduction amounts are NOT recorded unless the agency turns this on. */
+    public const DEFAULT_RECORD_DEDUCTION_AMOUNTS = false;
     public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
 
     /**
@@ -455,9 +485,15 @@ class RentalInspectionSetting extends Model
         'attended_as_labels',
         'move_out_classification_labels',
         'omr_mark_threshold',
+        'omr_unsure_below',
+        'note_read_min_confidence',
+        'form_paper_size',
+        'form_safe_margin_mm',
         'public_link_expiry_days',
+        'photo_link_minutes',
         // §46 — signing by personal link.
         'signing_link_enabled',
+        'record_deduction_amounts',
         'signing_link_expiry_days',
         // §52 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
         'signing_window_reminders_enabled', 'signing_reminder_lead_days', 'calendar_include_lease_agents', 'cancel_signed_requires_edit',
@@ -505,8 +541,12 @@ class RentalInspectionSetting extends Model
         'attended_as_labels' => 'array',
         'move_out_classification_labels' => 'array',
         'omr_mark_threshold' => 'float',
+        'omr_unsure_below' => 'float',
+        'note_read_min_confidence' => 'float',
         'public_link_expiry_days' => 'integer',
+        'photo_link_minutes' => 'integer',
         'signing_link_enabled' => 'boolean',
+        'record_deduction_amounts' => 'boolean',
         'signing_link_expiry_days' => 'integer',
         'signing_window_reminders_enabled' => 'boolean', 'signing_reminder_lead_days' => 'integer', 'calendar_include_lease_agents' => 'boolean',
         'cancel_signed_requires_edit' => 'boolean', 'photos_required_to_sign' => 'boolean', 'empty_checklist_blocks_signing' => 'boolean',
@@ -711,6 +751,20 @@ class RentalInspectionSetting extends Model
         return $value !== null ? (int) $value : self::DEFAULT_SIGNING_WINDOW_DAYS;
     }
 
+    /** Audit B21 - minutes a signed photo link stays live; memoised on the per-request array cache (a payload signs hundreds of photos). */
+    public static function photoLinkMinutesFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_PHOTO_LINK_MINUTES;
+        }
+
+        return (int) \Illuminate\Support\Facades\Cache::store('array')->rememberForever("rental-inspection-photo-link-minutes:{$agencyId}", function () use ($agencyId) {
+            $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('photo_link_minutes');
+
+            return $value !== null ? max(1, (int) $value) : self::DEFAULT_PHOTO_LINK_MINUTES;
+        });
+    }
+
     public static function publicLinkExpiryDaysFor(?int $agencyId): int
     {
         if (! $agencyId) {
@@ -719,6 +773,20 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+    }
+
+    /**
+     * Does this agency record AMOUNTS against move-out charges? Read-time default: off (the money is settled in the accounting system).
+     * Off: a charge to the tenant needs no amount, no amount field is shown and no totals or deposit figures are shown.
+     */
+    public static function recordDeductionAmountsFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_RECORD_DEDUCTION_AMOUNTS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('record_deduction_amounts');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_RECORD_DEDUCTION_AMOUNTS;
     }
 
     /** §46 — whether this agency lets parties sign an inspection from a personal link. Read-time default: on. */
@@ -1695,6 +1763,36 @@ class RentalInspectionSetting extends Model
         return $noReasonNeeded['key'] ?? ($states[0]['key'] ?? self::DEFAULT_BASELINE_CONDITION_KEY);
     }
 
+    /** AT-463 — the paper the agency prints the site form on; anything unrecognised reads as the default (A4). */
+    public static function formPaperSizeFor(?int $agencyId): string
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_FORM_PAPER_SIZE;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('form_paper_size');
+
+        return is_string($value) && isset(self::FORM_PAPER_SIZES[$value]) ? $value : self::DEFAULT_FORM_PAPER_SIZE;
+    }
+
+    /** AT-463 / §63 - the safe margin of the printed site form in mm; unset or out of range reads as the default (15). */
+    public static function formSafeMarginMmFor(?int $agencyId): int
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_FORM_SAFE_MARGIN_MM;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('form_safe_margin_mm');
+
+        return is_numeric($value) && (int) $value >= self::MIN_FORM_SAFE_MARGIN_MM && (int) $value <= self::MAX_FORM_SAFE_MARGIN_MM
+            ? (int) $value
+            : self::DEFAULT_FORM_SAFE_MARGIN_MM;
+    }
+
+    /** @return array<string, string> key => label, for the settings select and the wizard control. */
+    public static function formPaperSizeOptions(): array
+    {
+        return array_map(fn (array $p) => $p['label'], self::FORM_PAPER_SIZES);
+    }
+
     /** .ai/specs/rental-inspection-form.md §13 — read-time default, same pattern as every other column here. */
     public static function omrMarkThresholdFor(?int $agencyId): float
     {
@@ -1704,6 +1802,22 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_mark_threshold');
 
         return $value !== null ? (float) $value : self::DEFAULT_OMR_MARK_THRESHOLD;
+    }
+
+    /** AT-472 / form spec §13.15 - read-time default, same pattern as omrMarkThresholdFor(). */
+    public static function omrUnsureBelowFor(?int $agencyId): float
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('omr_unsure_below') : null;
+
+        return $value !== null ? (float) $value : self::DEFAULT_OMR_UNSURE_BELOW;
+    }
+
+    /** AT-472 / form spec §13.15 - read-time default, same pattern as omrMarkThresholdFor(). */
+    public static function noteReadMinConfidenceFor(?int $agencyId): float
+    {
+        $value = $agencyId ? static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('note_read_min_confidence') : null;
+
+        return $value !== null ? (float) $value : self::DEFAULT_NOTE_READ_MIN_CONFIDENCE;
     }
 
     /**

@@ -79,6 +79,10 @@ class RentalWorkOrderClientViewService
         if ($this->appointmentAt($workOrder, $audience === 'agent')) {
             return 'appointment_set';
         }
+        // AT-452 quote-first: a contractor was authorised to look and quote, and no quote has landed yet (owner and agent only: D1/Q2 - the tenant is never told about quotes, so the tenant keeps the plain stage)
+        if ($audience !== self::AUDIENCE_TENANT && $this->awaitingContractorQuote($workOrder)) {
+            return 'awaiting_contractor_quote';
+        }
 
         // The OFFICE's and the OWNER's badges follow the real position (the tenant keeps the plain 'created'): once approved it is ready to send, once
         // sent it is with the contractor - it must never keep saying "Created" after the work order has gone out.
@@ -92,6 +96,11 @@ class RentalWorkOrderClientViewService
             if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $authorised) {
                 return 'approved_to_send';
             }
+            // AT-460: the same position on the internal-crew route - approved, not booked yet. It read "Created" until the crew was booked.
+            if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_INTERNAL
+                && ($authorised || ($card && $card->status === RentalJobCard::STATUS_APPROVED))) {
+                return 'approved_to_book';
+            }
             // P3: no quote chosen yet on the agency-contractor route
             if ($workOrder->status === RentalWorkOrder::STATUS_REPORTED && $workOrder->assignment_type === RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && ! $workOrder->isOwnerContractor()
                 && $audience === self::AUDIENCE_LANDLORD && ! $this->ownerVisibleQuote($workOrder)) {
@@ -100,6 +109,32 @@ class RentalWorkOrderClientViewService
         }
 
         return 'created';
+    }
+
+    /**
+     * AT-452 quote-first (Johan, 12 Oct 2026): the owner authorised a contractor to look and QUOTE only - never the work. Until that contractor's quote lands
+     * the job is "waiting for the contractor's quote"; once it lands (or the cost is authorised) the ordinary cost-authority flow takes over. True only for an
+     * outside contractor's job, SENT to the contractor, that has a standing, authorised "who goes to look" record, no cost authority yet, and no live (undeclined, current) quote.
+     */
+    public function awaitingContractorQuote(RentalWorkOrder $workOrder): bool
+    {
+        if ($workOrder->assignment_type !== RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER || $workOrder->isOwnerContractor()
+            || $workOrder->status !== RentalWorkOrder::STATUS_ORDERED) {   // only once the contractor actually holds the job; before that it is still "Created
+            return false;
+        }
+        $auth = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        if ($auth->hasCostAuthority($workOrder)) {
+            return false;
+        }
+        $fault = $workOrder->reported_fault_report_id ? \App\Models\RentalFaultReport::withoutGlobalScopes()->find($workOrder->reported_fault_report_id) : null;
+        $visit = $auth->activeFor($workOrder, \App\Models\RentalAuthorisation::POINT_INSPECT) ?? ($fault ? $auth->activeFor($fault, \App\Models\RentalAuthorisation::POINT_INSPECT) : null);
+        if (! $visit || ! $visit->isAuthorised()) {
+            return false;
+        }
+
+        return ! RentalWorkOrderQuote::withoutGlobalScopes()
+            ->where('agency_id', $workOrder->agency_id)->where('rental_work_order_id', $workOrder->id)
+            ->whereNull('deleted_at')->whereNull('superseded_at')->whereNull('declined_at')->exists();
     }
 
     /** T1: the work was reported finished and nobody has closed it yet (and it is not sent back). */
@@ -249,6 +284,25 @@ class RentalWorkOrderClientViewService
     }
 
     /**
+     * AT-465 - the OWNER's quote already shows the work order's description; when the crew reported what they found and what is
+     * needed, that text follows it, so the owner reads why the work is quoted. Tenants never see it.
+     */
+    private function descriptionFor(RentalWorkOrder $workOrder, ?\App\Models\RentalJobCard $card, string $audience): ?string
+    {
+        $description = $workOrder->description;
+        if ($audience !== self::AUDIENCE_LANDLORD || ! $card) {
+            return $description;
+        }
+        $found = \App\Models\RentalJobCardCrewReport::withoutGlobalScopes()->where('rental_job_card_id', $card->id)
+            ->whereNotNull('findings')->orderBy('id')->pluck('findings')->map(fn ($f) => trim((string) $f))->filter()->all();
+        if ($found === []) {
+            return $description;
+        }
+
+        return trim((string) $description . "\n\nWhat our maintenance team found: " . implode("\n", $found));
+    }
+
+    /**
      * One work order as a client sees it.
      *
      * @return array<string, mixed>
@@ -266,7 +320,7 @@ class RentalWorkOrderClientViewService
         $payload = [
             'id' => $workOrder->id,
             'title' => $workOrder->title,
-            'description' => $workOrder->description,
+            'description' => $this->descriptionFor($workOrder, $card, $audience),
             'property_id' => $workOrder->property_id,
             'property_address' => $property?->buildDisplayAddress(),
             'lease_id' => $workOrder->lease_id,
@@ -313,6 +367,8 @@ class RentalWorkOrderClientViewService
             // P2: what the quote covers, so the owner has something to judge the figure by - the quote's details text and (when no agency fee
             // sits on top of it) a link to the contractor's document. Never the contractor's own total when a fee applies.
             $payload['quote'] = $selected ? [
+                // Audit fixes (D26): what the owner is shown, as a snapshot the decision must carry back - a quote changed since is refused with a 409
+                'id' => $selected->id, 'revision' => (int) $selected->revision, 'amount' => round((float) $selected->ownerFacingAmount(), 2),
                 'details' => $selected->detail_text ?: null,
                 'document_url' => ($selected->document_storage_path && $selected->ownerMayOpenDocument())
                     ? route('client.rentals.landlord.work-orders.quote-file', ['workOrder' => $workOrder->id], false) : null,

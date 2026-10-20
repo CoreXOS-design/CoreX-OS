@@ -36,15 +36,16 @@
             @if($breach->clause)<dt style="color: var(--text-muted);">Lease clause</dt><dd class="col-span-2">{{ $breach->clause }}</dd>@endif
             @if($breach->reason)<dt style="color: var(--text-muted);">The breach</dt><dd class="col-span-2">{{ $breach->reason }}</dd>@endif
             <dt style="color: var(--text-muted);">Remedy by</dt>
-            <dd class="col-span-2" data-qa="remedy-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedy_business_days }} business days)
-                @if($breach->isIssued() && $breach->remedyWindowPassed()) - <strong style="color:#b91c1c;">passed</strong>@endif</dd>
+            <dd class="col-span-2" data-qa="remedy-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedyWindowLabel() }})
+                @if($breach->daysLeftText()) - <strong data-qa="days-left" style="color: {{ $breach->isOverdue() ? '#b91c1c' : ($breach->daysToRemedy() === 0 ? '#b45309' : 'inherit') }};">{{ $breach->daysLeftText() }}</strong>@endif
+                @if($breach->isIssued() && $breach->remedyWindowPassed()) - <strong style="color:#b91c1c;">date reached - was it fixed?</strong>@endif</dd>
             <dt style="color: var(--text-muted);">Documents</dt>
             <dd class="col-span-2">
                 @if($breach->notice?->document)<a href="{{ route('corex.breaches.document', [$breach->id, 'breach']) }}" style="color: var(--brand-icon, #0ea5e9);">Breach notice (PDF)</a>@endif
                 @if($breach->vacateNotice?->document) &middot; <a href="{{ route('corex.breaches.document', [$breach->id, 'vacate']) }}" style="color: var(--brand-icon, #0ea5e9);">Notice to vacate (PDF)</a>@endif
             </dd>
             @if($breach->status === 'remedied')<dt style="color: var(--text-muted);">Remedied</dt><dd class="col-span-2">{{ $breach->remedied_at?->format('j M Y') }} by {{ $breach->remediedBy?->name ?? 'an agent' }}{{ $breach->remedied_note ? ' - ' . $breach->remedied_note : '' }}</dd>@endif
-            @if($breach->vacate_issued_at)<dt style="color: var(--text-muted);">Notice to vacate</dt><dd class="col-span-2">Issued {{ $breach->vacate_issued_at->format('j F Y') }}</dd>@endif
+            @if($breach->vacate_issued_at)<dt style="color: var(--text-muted);">Notice to vacate</dt><dd class="col-span-2" data-qa="vacate-issued">Issued {{ $breach->vacate_issued_at->format('j F Y') }}@if($breach->vacate_date) - tenant to be out by {{ \App\Models\LeaseBreach::vacateTimeText($breach->vacate_time) }} on {{ $breach->vacate_date->format('j F Y') }}@endif</dd>@endif
         </dl>
         <p class="text-xs" style="color: var(--text-muted);">Both the tenant and the landlord can read the notice in their portal under Documents; the {{ $breach->otherParty() }} was told by email.</p>
     </div>
@@ -53,29 +54,48 @@
         @permission('rental_breaches.manage')
         @if($breach->isIssued())
             <div class="grid gap-4 md:grid-cols-2" data-qa="breach-actions">
-                <form method="POST" action="{{ route('corex.breaches.remedy', $breach->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
+                <form method="POST" action="{{ route('corex.breaches.remedy', $breach->id) }}" class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="remedy-form">
                     @csrf
-                    <h2 class="text-sm font-semibold">Mark remedied</h2>
+                    <h2 class="text-sm font-semibold">Breach remedied</h2>
                     <p class="text-xs" style="color: var(--text-muted);">The breach has been put right. It can then no longer be escalated to a notice to vacate.</p>
+                    <div>
+                        <label class="text-xs font-medium" for="remedied_on">Put right on</label>
+                        <input type="date" id="remedied_on" name="remedied_on" value="{{ old('remedied_on', now()->toDateString()) }}" min="{{ $breach->issued_on->toDateString() }}" max="{{ now()->toDateString() }}" class="prop-input mt-1" data-qa="remedied-on">
+                    </div>
                     <textarea name="note" rows="2" maxlength="1000" class="w-full rounded-md px-3 py-2 text-xs" style="border: 1px solid var(--border);" placeholder="Note (optional) - e.g. paid in full on 20 Oct"></textarea>
-                    <button type="submit" class="corex-btn-primary text-xs">Mark as remedied</button>
+                    <button type="submit" class="corex-btn-primary text-xs">Breach remedied</button>
                 </form>
 
-                <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="vacate-box">
+                <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" id="vacate-box" data-qa="vacate-box">
                     <h2 class="text-sm font-semibold">Notice to vacate</h2>
                     @if($breach->breach_party !== 'tenant')
                         <p class="text-xs" style="color: var(--text-muted);">A notice to vacate is only for a tenant who is in breach.</p>
                     @elseif(!$canVacate)
-                        <p class="text-xs" style="color: var(--text-muted);" data-qa="vacate-not-yet">Not yet available. The tenant has until <strong>{{ $breach->remedy_deadline?->format('j F Y') }}</strong> to put this right; a notice to vacate can be issued after that date if the breach is still not remedied.</p>
+                        <p class="text-xs" style="color: var(--text-muted);" data-qa="vacate-not-yet">Not yet available. The tenant has until <strong>{{ $breach->remedy_deadline?->format('j F Y') }}</strong> to put this right; a notice to vacate can be issued from that date if the breach is still not remedied.</p>
                     @elseif($vacateTemplates->isEmpty())
                         <p class="text-xs" data-qa="no-templates">Your agency has not added a notice to vacate template yet - upload yours under <a href="{{ route('corex.rental-notice-templates.create', ['notice_type' => 'notice_to_vacate']) }}" style="color: var(--brand-icon, #0ea5e9);">Settings &rarr; Rental Notice Templates</a>.</p>
                     @else
                         <form method="POST" action="{{ route('corex.breaches.vacate', $breach->id) }}" class="space-y-2" data-qa="vacate-form">
                             @csrf
-                            <p class="text-xs" style="color: var(--text-muted);">The remedy window has passed and the breach is not remedied. The notice is made from your template, sent from your mailbox to the tenant, and the landlord is told.</p>
+                            <p class="text-xs" style="color: var(--text-muted);">The remedy-by date has been reached and the breach is not remedied. The notice is made from your template, sent from your mailbox to the tenant, and the landlord is told. The date starts {{ $vacateNoticeDays }} days from today (your "Days for notice to vacate"); change it if this tenant is different.</p>
                             <select name="rental_notice_template_id" required class="prop-input" style="max-width: 24rem;">
                                 @foreach($vacateTemplates as $t)<option value="{{ $t->id }}" @selected((int) old('rental_notice_template_id') === $t->id)>{{ $t->name }}</option>@endforeach
                             </select>
+                            <div class="flex flex-wrap gap-3">
+                                <div>
+                                    <label class="text-xs font-medium" for="vacate_date">Tenant must be out by (date)</label>
+                                    <input type="date" id="vacate_date" name="vacate_date" value="{{ old('vacate_date', $vacateDateDefault) }}" min="{{ now()->toDateString() }}" required class="prop-input mt-1" data-qa="vacate-date">
+                                </div>
+                                <div>
+                                    <label class="text-xs font-medium" for="vacate_time">Time</label>
+                                    <input type="time" id="vacate_time" name="vacate_time" value="{{ old('vacate_time', $vacateTimeDefault) }}" required class="prop-input mt-1" data-qa="vacate-time">
+                                </div>
+                            </div>
+                            <div>
+                                <label class="text-xs font-medium" for="breach_summary">Breaches the cancellation is for</label>
+                                <textarea id="breach_summary" name="breach_summary" rows="2" maxlength="3000" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);" data-qa="vacate-summary">{{ old('breach_summary', $breachSummaryDefault) }}</textarea>
+                                <p class="text-xs" style="color: var(--text-muted);">Filled from the breach notices on this lease (date and reason). Change it if the letter should say something different.</p>
+                            </div>
                             <details class="text-xs" style="color: var(--text-muted);"><summary class="cursor-pointer">Extra figures (name=value per line) and placeholders</summary>
                                 <textarea name="figures_raw" rows="2" class="w-full rounded-md px-3 py-2 text-xs mt-1" style="border: 1px solid var(--border);">{{ old('figures_raw') }}</textarea>
                                 <ul class="list-disc list-inside mt-1">@foreach($placeholders as $k => $label)<li><code>&#123;&#123;{{ $k }}&#125;&#125;</code> - {{ $label }}</li>@endforeach</ul>

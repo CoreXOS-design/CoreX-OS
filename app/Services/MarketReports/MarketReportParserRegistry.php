@@ -12,6 +12,7 @@ use App\Services\MarketReports\Parsers\CmaInfoSchemeOwnersListParser;
 use App\Services\MarketReports\Parsers\CmaInfoSectionalTitleSalesParser;
 use App\Services\MarketReports\Parsers\CmaInfoVicinitySaleParser;
 use App\Services\MarketReports\Parsers\GenericFallbackParser;
+use App\Services\MarketReports\Parsers\LearnedLayoutParser;
 
 /**
  * Registry of every parser the upload pipeline considers. Used by:
@@ -35,6 +36,9 @@ final class MarketReportParserRegistry
         CmaInfoSectionalTitleSalesParser::class,
         CmaInfoVicinitySaleParser::class,
         CmaInfoSchemeOwnersListParser::class,
+        // A publisher's layout CoreX learned from an earlier AI read (mic-complete-spec §8.9).
+        // Before the generic fallback so a known layout never reaches the AI again.
+        LearnedLayoutParser::class,
         // GenericFallbackParser ALWAYS last — its 0.1 floor anchors the
         // tiebreaker so the upload pipeline always gets at least one match.
         GenericFallbackParser::class,

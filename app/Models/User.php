@@ -954,12 +954,39 @@ class User extends Authenticatable
         if ($this->isRentalApplicationOverrideTier($agencyId)) {
             return true;
         }
+        // No approver configured at all (a new agency): nobody else exists to hand the file to, so whoever reviewed it decides it.
+        if ($agencyId && ! \App\Models\RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId)) {
+            return true;
+        }
         if (! $agencyId || ! $this->isRentalApplicationAuthoriser($agencyId)) {
             return false;
         }
 
         return \App\Models\RentalApplicationQualifyingSetting::approvalModeFor($agencyId) === 'one_step'
             && \App\Models\RentalApplicationQualifyingSetting::isSoleAuthoriser($agencyId, (int) $this->id);
+    }
+
+    /**
+     * Audit fix A4/A27 + A11 (2026-10-19) - may this user make the approve / decline call on an application? A configured
+     * Reviewer or Override approver; an administrator (the override tier already could reopen, but was refused here); and
+     * anyone at all while the agency has NO approver configured, because a hand-off into an empty queue is a dead end and
+     * the agency falls back to one-step approval (see RentalApplicationQualifyingSetting::effectiveApprovalModeFor()).
+     * Which RECORDS the user may touch is a separate question (guardRentalApplication - own / branch / agency).
+     */
+    public function mayDecideRentalApplications(?int $agencyId = null): bool
+    {
+        $agencyId = $agencyId ?? $this->effectiveAgencyId();
+        if ($this->isRentalApplicationAuthoriser($agencyId) || $this->isRentalApplicationOverrideTier($agencyId)) {
+            return true;
+        }
+
+        return (bool) $agencyId && ! \App\Models\RentalApplicationQualifyingSetting::hasAuthoriserFor($agencyId);
+    }
+
+    /** May this user open the authoriser queue? Approvers and administrators; the no-approver fallback decides on the review screen, so it has no queue. */
+    public function seesRentalAuthorisationQueue(?int $agencyId = null): bool
+    {
+        return $this->isRentalApplicationAuthoriser($agencyId) || $this->isRentalApplicationOverrideTier($agencyId);
     }
 
     private function inRentalApplicationTier(string $column, ?int $agencyId): bool

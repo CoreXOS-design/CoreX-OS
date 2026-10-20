@@ -32,7 +32,7 @@ class LeaseBreachNoticeMail extends BaseSignatureMail
         $this->agencyName = Agency::displayNameFor($lease?->agency, 'Your agency');
         $this->senderName = (string) $agent->name;
         $this->propertyAddress = $lease?->property?->buildDisplayAddress() ?: ('Lease #' . $breach->lease_id);
-        $this->noticeLabel = RentalNoticeTemplate::labelFor($notice->notice_type);
+        $this->noticeLabel = $notice->documentTitle(); // the agency's own name for the document
         $this->fromAgent($agent);
     }
 

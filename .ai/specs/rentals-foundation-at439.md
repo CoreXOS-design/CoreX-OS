@@ -480,3 +480,118 @@ appears), own-scope narrowing (Leases), the archived-state split (Fault Reports)
 that the CREATE form's own picker still offers a property with zero records in that section
 (`RentalWorkOrderListStandardTest::test_create_forms_own_property_picker_still_offers_properties_with_no_work_order`),
 proving item 3 did not regress the thing it was told to leave alone.
+
+## 12. Rentals menu labels - no "Rental" prefix inside the Rentals section (AT-461, 2026-10-15)
+
+**Johan, 15 Oct:** "I prefer not marked as rental as we are in the rental menu." About half the items in the Rentals
+sidebar section carried a "Rental" prefix and half did not.
+
+**Ruling (labels only):** inside the Rentals section the visible labels are now
+Applications, Application Authorisation, Crews, Fault Reports, Fault Types, Inspections
+(were Rental Applications, Rental Application Authorisation, Rental Crews, Rental Fault Reports,
+Rental Fault Types, Rental Inspections). Routes, URLs, page titles/H1s, breadcrumbs, permissions, feature flags
+and every other menu section are unchanged.
+
+**Search keeps the old wording.** Each renamed link carries `data-nav-alias="<old label>"`
+(`layouts/corex-sidebar.blade.php`, Rentals panel). `window.CorexNavSearch.build()` reads it into the index item
+and `search()` matches it (rank 2.5: after a label match, before a heading match), so "rental crews" still finds
+Crews. The alias is search-only and never displayed. Any future link can take the same attribute.
+
+**Order:** unchanged mechanism - the panel's client-side alphabetical sort runs on the visible label, so the
+renamed items simply sort under their new names.
+
+**Favourites:** keyed by page path (`p:/corex/...`), and no path changed, so every existing favourite still
+resolves. The label stored at pin time is denormalised (sidebar-favourites.md section 5.1), so an existing
+favourite keeps its old wording until its owner next saves the picker.
+
+**Not renamed, deliberately (outside the ruling's list):** Rental Take-On Import, Rental Work Orders,
+Rental Notices, Rental Pipeline still carry the prefix in the Rentals section; the Role Manager permission group
+names (`RoleManagerController`) and `corex-feature-registry.md` feature descriptions keep "Rental ..." too.
+Reported to the conductor for a ruling.
+
+**Test:** `tests/Feature/Navigation/RentalsMenuLabelsTest.php` (visible labels, aliases, search reads the alias).
+
+## 13. Rentals menu grouped by action, Command Centre on top (AT-466, 15 Oct 2026, cc6, QA1)
+
+**Johan:** "the rental menu is quite large, we need to group by actions. Command centre at the top."
+
+**Order (supersedes the alphabetical order in section 12 - the panel is now `data-manual-order`, the same attribute the Command Center panel uses):**
+
+| Heading | Links, in this order |
+|---|---|
+| *(none)* | Command Centre |
+| Letting | Properties, Applications, Application Authorisation, Core Matches, Contacts, Rental Pipeline |
+| Leases | Leases, Inspections, **Notices** (one item with tabs - see section 14) |
+| Maintenance | Fault Reports, Job Cards, Crews, Parts & Labour Catalogue, Rental Work Orders, Suppliers & contractors |
+| Set-up | Fault Types, Rental Take-On Import |
+| Reports | Reports |
+
+Johan's ruling named the first five groups and the links in them. Six links he did not list are still in the panel (they carry permissions and
+feature flags of their own) and were placed by the lane by what the link is for: **Rental Pipeline** at the end of Letting; (Rental Notices went into
+the Notices tabs, section 14); **Rental Work Orders** and **Suppliers & contractors** at the end of Maintenance;
+**Rental Take-On Import** at the end of Set-up; **Reports** under its own one-link heading, last. Moving any of them is a one-block move in
+`corex-sidebar.blade.php`.
+
+**Mechanics.** Headings use the sidebar's existing sub-heading, `<div class="corex-nav-sublabel">` (Command Center, Settings, HR already use it;
+`resources/css/corex.css`), plus `data-nav-auto-group`. No new style. Every link keeps its route, `@permission`/`@feature` gate, active-state test,
+`data-nav-alias` and favourite key (favourites are stored by path, which did not change). The Rentals section's open/closed behaviour (`rental-applications`
+group key, `inStack`) is untouched. The only gate restructure: Crews now precedes Parts & Labour Catalogue inside the same `rental_catalogue.view`
+permission that already wrapped both.
+
+**Search.** Each link carries `data-nav-group="<heading>"`; `CorexNavSearch` indexes it and matches it (rank after the label and the old-name alias,
+before the section heading), and the result shows "Rentals · Maintenance". So typing "maintenance" lists Fault Reports, Job Cards, Crews, ... Only the
+Rentals links carry the tag, so no other section's search changes.
+
+**A heading with nothing under it hides itself** (`window.CorexNavHeadings`, client-side): permissions and feature flags remove links on the server and the
+demo-sidebar curation removes them in the browser, so a heading cannot be written unconditionally. It re-runs after the curation.
+
+**Tests:** `tests/Feature/Navigation/RentalsMenuGroupsTest.php` (exact order and headings; every link tagged with its heading; manual order + search + heading script
+present); `RentalsMenuLabelsTest` now ends its slice at the last link (Reports).
+
+## 14. One "Notices" menu item with tabs (AT-466 change, 16 Oct 2026, cc6, QA1)
+
+**Johan:** Breach Register, Notices Received and the rental notices / templates area collapse into ONE menu item, "Notices", under the Leases group after
+Inspections, opening a screen with tabs - Breaches (today's breach register, tiles + list), Notices received (today's lease notices list), Templates (the agency
+notice templates CRUD built under Settings: keep the settings page, surface it here as a tab, same permissions). Old routes keep working. Favourites and menu
+search match the old names to the new tab. The Leases group reads: **Leases, Inspections, Notices**.
+
+**What the tabs are.** Four tabs, in this order, each the EXISTING screen on its EXISTING route with its EXISTING permission (`App\Support\Rentals\NoticesTabs`):
+
+| Tab | Screen (route name) | Permission | Menu used to say |
+|---|---|---|---|
+| Breaches | the breach register, tiles + list (`corex.breaches.index`) | `rental_breaches.view` | Breach Register |
+| Notices received | notices the tenant / landlord gave (`corex.lease-notices.index`) | `rental_notices.review` | Notices Received |
+| Notices sent | the notices the agency sent (`corex.rental-notices.index`) | `rental_notices.create` | Rental Notices |
+| Templates | the agency notice templates (`corex.rental-notice-templates.index`, + create / edit) | `rental_notice_templates.manage_settings` | (Settings page only) |
+
+**"Notices sent" is a fourth tab the brief did not name.** Johan's brief lists three tabs, but also says the Leases group reads exactly Leases, Inspections,
+Notices - and "Rental Notices" (the list of notices the agency has sent, `rental-notices`) is a fourth menu item that had to go somewhere. It became a tab so
+nothing is lost; Johan to say if he would rather it live elsewhere.
+
+**How it is built (a technical choice, stated for the record).** Each tab is its own page; a shared tab bar (`corex/notices/_tabs.blade.php`) sits at the top of
+each, so the four read as one "Notices" screen and clicking a tab moves between them. Because the tabs ARE the old routes, **nothing needed redirecting** - every old
+URL, bookmark, email link and Favourite keeps opening the right screen, now with the tab bar, and the sidebar shows Rentals > Notices as the active item. The
+Templates pages (list, add, edit) carry the same tab bar; the Settings page link to them is unchanged. (The tab bar was chosen over embedding each screen inside a
+new page because the four screens have their own controllers, filters, tiles and forms - embedding would have meant rewriting them; Johan allowed linking a tab
+when an embed is not clean.)
+
+**The entry.** `GET /corex/notices` (`corex.notices.index`, middleware: any one of the four permissions) redirects to the tab asked for (`?tab=breaches|received|sent|templates`)
+or, failing that, the first tab the user may open. A user sees only the tabs their permissions open; a tab they cannot open is not drawn and its URL still
+answers 403, as before. The menu item shows when the user holds at least one of the four permissions (inside the `rental-notices` feature, as before).
+
+**Menu search and favourites.** The Notices link carries `data-nav-extra` - one search entry per old name the user may open (Breach Register, Notices Received,
+Rental Notices, Notice Templates), each pointing at its own tab. So typing "breach register" finds the Breaches tab. These entries are real pages, so the Favourites
+picker lists them too. Favourites already pinned (stored by page path, which did not change) keep working and keep their old label until their owner next saves the picker.
+The Rentals panel also opens on the template pages now.
+
+**Not changed.** Routes, permissions, controllers, the breach register's tiles and list, the notices lists, the template CRUD, show pages. The Settings -> notice
+templates link still opens the same screen.
+
+**Existing behaviour seen on the way (not changed, reported).** The breach register and notice lists are scoped through the user's lease access
+(`RentalDataScope`), so a role holding `rental_breaches.view` / `rental_notices.review` but not `leases.view` gets a 403 ("Your role does not have access to this part
+of Rentals") on them. Any real rentals role holds `leases.view`; an agency that trims a role to notices only would hit it.
+
+**Tests:** `tests/Feature/Navigation/NoticesHubTest.php` (entry lands on the right tab and respects permissions; every tab shows the tab bar with its own tab marked,
+the Rentals panel open and Notices active; a limited user sees only their tabs; old routes still open; one Notices link, old names as search entries pointing at their tab;
+menu item / entry route / tabs agree on the permissions). `NewScreensHaveTheirMenuPlaceTest`, `RentalsMenuGroupsTest` and the sidebar-nav allow-list were updated
+(the three template routes now resolve to the Rentals panel, so their allow-list entries were removed).

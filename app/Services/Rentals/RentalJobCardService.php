@@ -148,6 +148,15 @@ class RentalJobCardService
                 'access_notes' => $attributes['access_notes'] ?? null,
                 'created_by_user_id' => $by->id,
             ]);
+            // AT-459 - the access contact belongs to the work order (the card reads it from there). Only when the form carried one, so a work
+            // order that already has its own access details is never blanked by a card created with the boxes left empty.
+            if ($workOrder && (filled($attributes['access_contact_name'] ?? null) || filled($attributes['access_contact_phone'] ?? null) || filled($attributes['access_notes'] ?? null))) {
+                \App\Services\Rentals\JobSiteInfo::saveAccessContact($workOrder, $jobCard, [
+                    'access_contact_name' => filled($attributes['access_contact_name'] ?? null) ? $attributes['access_contact_name'] : $workOrder->access_contact_name,
+                    'access_contact_phone' => filled($attributes['access_contact_phone'] ?? null) ? $attributes['access_contact_phone'] : $workOrder->access_contact_phone,
+                    'access_note' => filled($attributes['access_notes'] ?? null) ? $attributes['access_notes'] : $workOrder->access_note,
+                ]);
+            }
 
             foreach ($attributes['tasks'] ?? [] as $i => $taskData) {
                 $description = trim((string) ($taskData['description'] ?? ''));
@@ -297,12 +306,16 @@ class RentalJobCardService
         $jobCard->logUpdate('task_renamed', $by, "{$old} \u{2192} {$description}");
     }
 
-    public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by): void
+    /** §17.43 (audit C-E5): with $done given the task is SET to that state (a retry changes nothing the second time); without it, it flips as before. */
+    public function toggleTask(RentalJobCard $jobCard, RentalJobCardTask $task, User $by, ?bool $done = null): void
     {
         $jobCard->assertContentEditable();
         abort_unless($task->rental_job_card_id === $jobCard->id, 404);
 
-        $isDone = ! $task->is_done;
+        $isDone = $done ?? ! $task->is_done;
+        if ((bool) $task->is_done === $isDone) {
+            return;
+        }
         $task->forceFill([
             'is_done' => $isDone,
             'done_by_user_id' => $isDone ? $by->id : null,
@@ -338,6 +351,20 @@ class RentalJobCardService
         $jobCard->logUpdate('task_added', $by, 'Restored: ' . $task->description);
 
         return $task;
+    }
+
+    /**
+     * §17.43 (audit C-E4/C-E5) - the line an earlier request with this retry key already made on this card, if any. Archived lines count:
+     * a replay of an add the person has since removed must not bring the line back. The ONE lookup both the office and the crew add use.
+     */
+    public function lineForClientKey(RentalJobCard $jobCard, ?string $clientKey): ?RentalJobCardLine
+    {
+        if ($clientKey === null || $clientKey === '') {
+            return null;
+        }
+
+        return RentalJobCardLine::withoutGlobalScopes()->withTrashed()
+            ->where('rental_job_card_id', $jobCard->id)->where('client_key', $clientKey)->first();
     }
 
     /**
@@ -415,7 +442,8 @@ class RentalJobCardService
             // explicitly posted type wins, same as description/unit/price
             // already work. See RentalJobCardAt442FollowUpTest's renamed
             // assertion for the behaviour this replaces.
-            'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_LABOUR,
+            // §17.43 (Johan, 19 Oct 2026): a free-typed line with no type and no catalogue item is a PART, not Labour.
+            'type' => $attributes['type'] ?? $catalogueItem?->kind() ?? RentalCatalogueItem::TYPE_PART,
             'description' => $attributes['description'] ?? $catalogueItem?->description ?? '',
             'unit' => $attributes['unit'] ?? $catalogueItem?->catalogueUnit?->name,
             'quantity' => $quantity,
@@ -436,6 +464,8 @@ class RentalJobCardService
             'custom_vat_rate' => $customVatRate,
             'sort_order' => (int) ($jobCard->lines()->max('sort_order') ?? 0) + 1,
             'created_by_user_id' => $by?->id,
+            // §17.43 - the retry key of the request that made this line (null for a caller without one)
+            'client_key' => $attributes['client_key'] ?? null,
         ]);
 
         // An office line is priced straight away by the one resolver; a crew line stays unpriced until the office accepts it.
@@ -611,6 +641,28 @@ class RentalJobCardService
         if ($jobCard->vat_snapshotted_at !== null && ! $jobCard->isClosed()) {
             $this->vat->refreshLineSnapshot($jobCard, $line);
         }
+    }
+
+    /**
+     * §17.43 / AT-459 - the receipt for a PART line (what was paid, proved): the ONE method the crew link, the crew page and the office
+     * job card all use. Stored like a line photo (against the line, not in the job gallery) with its own photo_type, so it never counts
+     * as one of a crew line's up-to-3 photos and never reaches anything the owner or tenant sees. A newer receipt supersedes an older
+     * one on screen (photo rows are immutable). Labour has no receipt - nothing is stored and false is returned.
+     */
+    public function attachLineReceipt(RentalJobCard $jobCard, RentalJobCardLine $line, ?UploadedFile $file, ?User $by = null, ?string $uploadedVia = null): bool
+    {
+        abort_unless((int) $line->rental_job_card_id === (int) $jobCard->id, 404);
+        if (! $file || $line->type !== RentalCatalogueItem::TYPE_PART) {
+            return false;
+        }
+
+        // the crew's own uploads pass no user and write one summary line per send elsewhere; an office receipt is one history line
+        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id);
+        if ($by) {
+            $jobCard->logUpdate('photo_added', $by, 'Receipt added: ' . $line->description);
+        }
+
+        return true;
     }
 
     public function archiveLine(RentalJobCard $jobCard, RentalJobCardLine $line, User $by): void
@@ -908,6 +960,35 @@ class RentalJobCardService
             $jobCard->refresh();
 
             throw $e;
+        }
+
+        $this->recordWhoPaysAtClose($jobCard->fresh(), $by, $paidBy ?: RentalWorkOrder::PAID_BY_OWNER);
+    }
+
+    /**
+     * AT-460 - "Who pays for this job?" at the close of an own-crew job IS the agent's answer to who pays for the repair, so the fault must say so too. On the
+     * contractor route that answer is made on the work order's "Who pays" panel (a formal ruling, which the fault page reads); the job card's close form never
+     * made one, so a card closed with "Owner" left the fault on "No ruling yet". Same writer (RentalWhoPaysService::rule), so the ruling carries its history, the
+     * fault's timeline line and the owner's portal / mail exactly as a ruling made on the work order does.
+     *
+     * Only "Owner" is recorded here: a ruling that charges the tenant tells the tenant (their portal and an email), and that is not something to send on the
+     * strength of a drop-down - it stays a deliberate ruling on the work order. Nothing is recorded when the job did not come from a fault, when what was found and
+     * the cause are not entered yet (the ruling needs them), or when a ruling already exists. It never stops the close.
+     */
+    private function recordWhoPaysAtClose(RentalJobCard $jobCard, User $by, string $paidBy): void
+    {
+        if ($paidBy !== RentalWorkOrder::PAID_BY_OWNER) {
+            return;
+        }
+        $workOrder = $jobCard->workOrder()->withoutGlobalScopes()->first();
+        $whoPays = app(\App\Services\Rentals\RentalWhoPaysService::class);
+        if (! $workOrder || ! $whoPays->isFaultJob($workOrder) || $whoPays->currentRuling($workOrder) || ! $whoPays->hasFindings($workOrder)) {
+            return;
+        }
+        try {
+            $whoPays->rule($workOrder, $by, \App\Models\RentalPayerRuling::PAYER_OWNER, null, 'Chosen by ' . $by->name . ' when the job card was completed (who pays: owner).');
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Who pays: could not record the ruling at job card close', ['job_card' => $jobCard->id, 'error' => $e->getMessage()]);
         }
     }
 }

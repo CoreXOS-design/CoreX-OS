@@ -46,6 +46,9 @@ class RentalWorkOrderSetting extends Model
     public const EXTERNAL_MARKUP_AMOUNT = 'amount';
     public const DEFAULT_EXTERNAL_QUOTE_MARKUP_TYPE = self::EXTERNAL_MARKUP_PERCENT;
     public const DEFAULT_EXTERNAL_QUOTE_MARKUP_VALUE = 0.0;
+    /** §17.38 — what a NEW parts & labour catalogue item starts with: percent, 0 (selling = cost until the agency sets its own numbers). */
+    public const DEFAULT_CATALOGUE_MARKUP_TYPE = 'percent';
+    public const DEFAULT_CATALOGUE_MARKUP_VALUE = 0.0;
     /** §17.10.6 — on a dispute, tell the crew straight away instead of waiting for the office's "Send back" (Decision 3). */
     public const DEFAULT_DISPUTE_NOTIFY_CREW_IMMEDIATELY = false;
 
@@ -88,6 +91,8 @@ class RentalWorkOrderSetting extends Model
         'invoice_max_file_mb',
         'invoice_allowed_file_types',
         'internal_team_label',
+        'catalogue_default_markup_type',
+        'catalogue_default_markup_value',
     ];
 
     protected $casts = [
@@ -106,6 +111,7 @@ class RentalWorkOrderSetting extends Model
         'external_quote_markup_value' => 'decimal:2',
         'dispute_notify_crew_immediately' => 'boolean',
         'invoice_max_file_mb' => 'integer',
+        'catalogue_default_markup_value' => 'decimal:4',
     ];
 
     /**
@@ -203,6 +209,20 @@ class RentalWorkOrderSetting extends Model
     public static function defaultLabourMarkupPercentFor(?int $agencyId): float
     {
         return self::floatFor($agencyId, 'default_labour_markup_percent', self::DEFAULT_LABOUR_MARKUP_PERCENT);
+    }
+
+    /** §17.38 — 'rand' | 'percent': the markup unit a new catalogue item starts with. */
+    public static function catalogueMarkupTypeFor(?int $agencyId): string
+    {
+        $value = self::rawFor($agencyId, 'catalogue_default_markup_type');
+
+        return in_array($value, ['rand', 'percent'], true) ? $value : self::DEFAULT_CATALOGUE_MARKUP_TYPE;
+    }
+
+    /** §17.38 — the markup amount (R or %, per the type above) a new catalogue item starts with. 0 = none. */
+    public static function catalogueMarkupValueFor(?int $agencyId): float
+    {
+        return self::floatFor($agencyId, 'catalogue_default_markup_value', self::DEFAULT_CATALOGUE_MARKUP_VALUE);
     }
 
     /** Did the agency actually set its own spend limit (vs the built-in constant)? Used to cite the term's source. */

@@ -54,6 +54,15 @@ class LeaseSetting extends Model
     // (the Consumer Protection Act's 20 business days). An agency setting; this is only the starting value.
     public const DEFAULT_BREACH_REMEDY_BUSINESS_DAYS = 20;
 
+    // .ai/specs/rental-notices.md §5 (AT-462) - whether the remedy window counts business days (weekends and public holidays skipped)
+    // or calendar days (a lease clause that says "within 7 days of written notice"), and the time of day a notice to vacate asks the
+    // tenant to be out by. Neutral starting values; both are agency settings.
+    public const REMEDY_BASES = ['business', 'calendar'];
+    public const DEFAULT_BREACH_REMEDY_DAY_BASIS = 'business';
+    public const DEFAULT_VACATE_TIME = '12:00';
+    /** rental-notices.md §7b - days from the day a notice to vacate is sent to the date the tenant must be out (editable on each notice). */
+    public const DEFAULT_VACATE_NOTICE_DAYS = 30;
+
     // .ai/specs/leases.md §18.2 — the agency's DEFAULT notice / early-cancellation terms, written onto a new lease (editable
     // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
     public const NOTICE_UNITS = ['days', 'weeks', 'months'];
@@ -83,6 +92,8 @@ class LeaseSetting extends Model
     // transition is independently toggle-able, default ON.
     public const DEFAULT_AUTO_READVERTISE_ON_NOTICE = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED = true;
+    /** Audit A5 (2026-10-19) - an accepted notice ends the tenancy on its move-out date; the out-inspection only confirms it. */
+    public const DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE = true;
     public const DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_CANCELLED = true;
     // "The agency's existing on-market rental status" (conductor's own
     // wording, GATE 2) — row 2 ALWAYS uses this value; rows 6/7 use it only
@@ -104,6 +115,10 @@ class LeaseSetting extends Model
         'tenant_notice_period_days',
         'cpa_early_cancel_business_days',
         'breach_remedy_business_days',
+        'breach_remedy_day_basis',
+        'vacate_time',
+        'vacate_notice_days',
+        'payment_proof_email',
         'tenant_notice_period_unit',
         'default_earliest_notice_months',
         'default_early_cancellation_allowed',
@@ -117,6 +132,7 @@ class LeaseSetting extends Model
         'allow_advance_as_of_date',
         'auto_readvertise_on_notice',
         'auto_restore_status_on_lease_ended',
+        'end_tenancy_on_move_out_date',
         'auto_restore_status_on_lease_cancelled',
         'default_pre_let_status',
         'active_rental_statuses',
@@ -137,6 +153,7 @@ class LeaseSetting extends Model
         'allow_advance_as_of_date' => 'boolean',
         'auto_readvertise_on_notice' => 'boolean',
         'auto_restore_status_on_lease_ended' => 'boolean',
+        'end_tenancy_on_move_out_date' => 'boolean',
         'auto_restore_status_on_lease_cancelled' => 'boolean',
         'active_rental_statuses' => 'array',
     ];
@@ -205,6 +222,61 @@ class LeaseSetting extends Model
         $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('breach_remedy_business_days');
 
         return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_BREACH_REMEDY_BUSINESS_DAYS;
+    }
+
+    /** 'business' | 'calendar' - how the breach remedy window counts (rental-notices.md §5). */
+    public static function breachRemedyDayBasisFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_BREACH_REMEDY_DAY_BASIS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('breach_remedy_day_basis');
+
+        return in_array($v, self::REMEDY_BASES, true) ? $v : self::DEFAULT_BREACH_REMEDY_DAY_BASIS;
+    }
+
+    /** 'HH:MM' - the time of day a notice to vacate asks the tenant to be out by (rental-notices.md §5). */
+    public static function vacateTimeFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_VACATE_TIME;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('vacate_time');
+
+        return is_string($v) && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $v) ? $v : self::DEFAULT_VACATE_TIME;
+    }
+
+    /** Days between sending a notice to vacate and the date the tenant must be out by (rental-notices.md §7b). */
+    public static function vacateNoticeDaysFor(?int $agencyId): int
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_VACATE_NOTICE_DAYS;
+        }
+        $v = self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('vacate_notice_days');
+
+        return is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_VACATE_NOTICE_DAYS;
+    }
+
+    /** The setting itself: what the agency typed, or null when it uses the default (its own email). */
+    public static function paymentProofEmailSettingFor(?int $agencyId): ?string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return null;
+        }
+        $v = trim((string) self::withoutGlobalScopes()->where('agency_id', $agencyId)->value('payment_proof_email'));
+
+        return $v !== '' ? $v : null;
+    }
+
+    /** Where a tenant sends proof of payment: the agency's "Rental payment proof email", else the agency's own email (never a constant). */
+    public static function paymentProofEmailFor(?int $agencyId): string
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return '';
+        }
+
+        return self::paymentProofEmailSettingFor($agencyId)
+            ?? trim((string) Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email'));
     }
 
     /** Days after a lease's end date before it goes month-to-month on its own (leases.md §5.3). */
@@ -285,6 +357,17 @@ class LeaseSetting extends Model
         $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
 
         return $row?->auto_restore_status_on_lease_ended ?? self::DEFAULT_AUTO_RESTORE_STATUS_ON_LEASE_ENDED;
+    }
+
+    public static function endTenancyOnMoveOutDateFor(?int $agencyId): bool
+    {
+        if (!$agencyId || $agencyId <= 0) {
+            return self::DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE;
+        }
+
+        $row = self::withoutGlobalScopes()->where('agency_id', $agencyId)->first();
+
+        return $row?->end_tenancy_on_move_out_date ?? self::DEFAULT_END_TENANCY_ON_MOVE_OUT_DATE;
     }
 
     public static function autoRestoreStatusOnLeaseCancelledFor(?int $agencyId): bool

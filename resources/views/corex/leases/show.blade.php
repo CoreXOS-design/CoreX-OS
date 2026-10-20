@@ -153,8 +153,10 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-change-notice-outcome')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Change notice outcome&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-reverse-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice&hellip;</button>
                                 @else
+                                    @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-tenant-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-landlord-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Landlord not renewing&hellip;</button>
+                                    @endpermission
                                 @endif
                             @endif
                             {{-- A draft chained to a previous (renewing) lease is a renewal
@@ -305,7 +307,7 @@
                 </x-modal>
             @endif
 
-            @if(!$lease->hasActiveNotice())
+            @if(!$lease->hasActiveNotice() && auth()->user()?->hasPermission('rental_notices.review'))
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
                     <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
@@ -465,7 +467,40 @@
             @endforeach
         </div>
     </div>
-            @if($nextStep)
+            @if($nextStep && !empty($nextStep['breach_followup']))
+                {{-- rental-notices.md §7b (AT-462) - the breach's remedy-by date is reached: was it fixed? Two answers, both on the bar. --}}
+                @php $bf = $nextStep['breach_followup']; @endphp
+                <div class="rounded-md p-3 space-y-2" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="next-breach-followup">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}<span class="block text-xs font-normal" style="color: var(--text-muted);">{{ $bf['detail'] }}</span></span>
+                        @if($bf['can_act'])
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" class="corex-btn-primary text-xs" data-qa="next-breach-remedied" onclick="document.getElementById('next-breach-remedy-form').classList.toggle('hidden')">Breach remedied</button>
+                                @if($bf['tenant'])
+                                    <a href="{{ route('corex.breaches.show', $bf['breach_id']) }}#vacate-box" class="corex-btn-outline text-xs" data-qa="next-breach-vacate">Send notice to vacate</a>
+                                @endif
+                            </div>
+                        @endif
+                    </div>
+                    @if($bf['can_act'])
+                        <form id="next-breach-remedy-form" method="POST" action="{{ route('corex.breaches.remedy', $bf['breach_id']) }}" class="hidden" data-qa="next-breach-remedy-form">
+                            @csrf
+                            <input type="hidden" name="return" value="lease">
+                            <div class="flex flex-wrap items-end gap-2">
+                            <div>
+                                <label class="text-xs" for="next-remedied-on" style="color: var(--text-muted);">Put right on</label><br>
+                                <input type="date" id="next-remedied-on" name="remedied_on" value="{{ now()->toDateString() }}" max="{{ now()->toDateString() }}" class="prop-input">
+                            </div>
+                            <div class="flex-1" style="min-width: 14rem;">
+                                <label class="text-xs" for="next-remedy-note" style="color: var(--text-muted);">Note</label><br>
+                                <input type="text" id="next-remedy-note" name="note" maxlength="1000" class="prop-input w-full" placeholder="e.g. paid in full on 20 Oct">
+                            </div>
+                            <button type="submit" class="corex-btn-primary text-xs">Record it and close the breach</button>
+                            </div>
+                        </form>
+                    @endif
+                </div>
+            @elseif($nextStep)
                 <div class="rounded-md p-3 flex items-center justify-between" style="background: color-mix(in srgb, var(--brand-button, #0ea5e9) 8%, var(--surface)); border: 1px solid var(--brand-button, #0ea5e9);">
                     <span class="text-sm font-medium">Next: {{ $nextStep['label'] }}</span>
                     {{-- leases.md §15.13 — a step with nothing to click is a statement; "Prepare again" is a form post. --}}
@@ -477,15 +512,21 @@
                             <button type="submit" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</button>
                         </form>
                     @else
-                        <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
+                        <a href="{{ route($nextStep['route_name'], $nextStep['route_param']) }}{{ !empty($nextStep['fragment']) ? '#' . $nextStep['fragment'] : '' }}" class="corex-btn-primary text-xs">{{ $nextStep['label'] }}</a>
                     @endif
                 </div>
+            @endif
+
+            @if(!empty($propertyStatusWarning))
+                {{-- Audit A26 (2026-10-19): the lease is active but the property could not be given a let status in this agency's vocabulary. --}}
+                <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="property-status-warning">{{ $propertyStatusWarning }}</div>
             @endif
 
             {{-- LEASE-AGREEMENT BEGIN (leases.md §15.13 — Build L3a) --}}
             @include('corex.leases._notice-panel')
             @include('corex.leases._breach-panel')
             @include('corex.leases._agreement-card')
+            @include('corex.leases._draft-follow-up')
             {{-- LEASE-AGREEMENT END --}}
 
             @feature('rental-job-cards')
@@ -800,6 +841,33 @@
                 @endfeature
             </div>
 
+            {{-- Audit 2026-10-19 B1/B4 - Move-out charges / Deposit deductions (named by the agency's "Record deduction amounts" setting): what the move-out inspection recorded as charged to the tenant; the deposit
+                 itself is settled in the agency's accounting system. The comparison is offered once the Out is completed. --}}
+            @if(!empty($depositDeductions))
+                <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" id="deposit-deductions" data-qa="hub-deposit-deductions">
+                    <h2 class="text-sm font-semibold">{{ $depositDeductions['title'] }}</h2>
+                    @if($depositDeductions['lines']->isEmpty())
+                        <p class="text-xs" style="color: var(--text-muted);">Nothing charged to the tenant at the move-out inspection{{ $depositDeductions['out_completed'] ? '' : ' so far' }}.</p>
+                    @else
+                        {{-- Johan's ruling 20 Oct 2026: with amounts off, no R figure anywhere - the items charged to the tenant only. --}}
+                        <div class="flex items-center justify-between"><span>{{ $depositDeductions['lines']->count() }} charge{{ $depositDeductions['lines']->count() === 1 ? '' : 's' }} recorded</span>@if($depositDeductions['record_amounts'])<strong>R{{ number_format($depositDeductions['total'], 2) }}</strong>@endif</div>
+                        <ul class="text-xs space-y-1" style="color: var(--text-secondary);" data-qa="hub-dd-items">
+                            @foreach($depositDeductions['lines'] as $charge)
+                                <li>{{ $charge['item'] }}@if($charge['room']) — {{ $charge['room'] }}@endif
+                                    @foreach($charge['work_orders'] as $wo) · <a href="{{ $wo['url'] }}" class="underline" style="color: var(--brand-icon, #2563eb);">{{ $wo['title'] }}</a>@endforeach
+                                </li>
+                            @endforeach
+                        </ul>
+                    @endif
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <a href="{{ route('corex.leases.deposit-deductions', $lease) }}" class="corex-btn-outline text-xs" data-qa="hub-dd-open">Open summary</a>
+                        @if($depositDeductions['comparison_url'])
+                            <a href="{{ $depositDeductions['comparison_url'] }}" class="corex-btn-outline text-xs" data-qa="hub-dd-comparison">Move-out comparison</a>
+                        @endif
+                    </div>
+                </div>
+            @endif
+
             <div id="lease-edit-panel" class="hidden rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
                 <h2 class="text-sm font-semibold">Edit lease</h2>
                 @permission('leases.create')
@@ -828,6 +896,7 @@
                         <label class="prop-label">End date</label>
                         <input type="date" name="end_date" min="{{ $lease->start_date?->format('Y-m-d') }}" value="{{ old('end_date', $lease->end_date?->format('Y-m-d')) }}" @disabled($leaseLocked) class="prop-input" style="color-scheme: light dark;">
                     </div>
+                    <input type="hidden" name="is_month_to_month" value="0" @disabled($leaseLocked)>
                     <label class="flex items-center gap-2 text-sm">
                         <input type="checkbox" name="is_month_to_month" value="1" @checked(old('is_month_to_month', $lease->is_month_to_month)) @disabled($leaseLocked)>
                         Month-to-month (no fixed end date)
@@ -861,10 +930,12 @@
                                 // before — activation itself never blocks on it
                                 // server-side.
                                 $propertyWithdrawn = strtolower(trim((string) ($lease->property?->status ?? ''))) === 'withdrawn';
+                                // Audit A1 (2026-10-19): a draft with no agreement behind it is activated as an explicit, labelled choice.
+                                $noAgreementYet = ! $lease->previous_lease_id && in_array((string) ($lease->signing_status ?: 'not_sent'), ['not_sent', 'declined', 'voided', 'expired'], true);
                             @endphp
                             <button type="submit" form="lease-activate-form"
-                                @if($propertyWithdrawn) data-confirm="This property is withdrawn. Are you sure you want to use it for this lease?" @endif
-                                class="corex-btn-primary text-xs">Activate</button>
+                                @if($propertyWithdrawn) data-confirm="This property is withdrawn. Are you sure you want to use it for this lease?" @elseif($noAgreementYet) data-confirm="Activate this lease without a signed agreement? This is recorded in the lease history." @endif
+                                class="corex-btn-primary text-xs">{{ $noAgreementYet ? 'Activate without a signed agreement' : 'Activate' }}</button>
                         @endif
                     </div>
                 </form>

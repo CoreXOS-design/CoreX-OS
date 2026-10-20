@@ -7,7 +7,7 @@
 @php
     $brand = $page['agency']['colors']['default'] ?? '#0b2a4a';
     $button = $page['agency']['colors']['button'] ?? '#00b4d8';
-    $total = count($page['to_price'] ?? []) + count($page['today']) + count($page['upcoming']) + count($page['unscheduled']);
+    $total = count($page['today']) + count($page['upcoming']) + count($page['waiting']) + count($page['in_progress']);
     $jobUrl = fn ($id) => route('rentals.crew-page.job', [$token, $id]);
 @endphp
 <!DOCTYPE html>
@@ -29,12 +29,19 @@
         .wrap { max-width: 520px; margin: 0 auto; padding: 14px 14px 56px; }
         h2.sec { font-size:13px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:20px 4px 8px; font-weight:800; display:flex; justify-content:space-between; align-items:center; }
         h2.sec .n { background:#e8edf2; color:#26435f; border-radius:999px; padding:1px 9px; font-size:12px; letter-spacing:0; }
-        a.job { display:block; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:13px 14px; margin-bottom:9px; color:inherit; text-decoration:none; min-height:56px; }
-        a.job:active { background:#eef3f8; }
-        a.job .when { font-size:13px; font-weight:800; color:var(--brand); }
-        a.job .ttl { font-size:16px; font-weight:700; margin:2px 0; line-height:1.3; }
-        a.job .addr { font-size:14px; color:var(--muted); }
-        a.job .acc { font-size:13px; margin-top:6px; padding:6px 9px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:8px; }
+        .job { display:block; background:var(--surface); border:1px solid var(--border); border-radius:14px; margin-bottom:9px; overflow:hidden; }
+        .job a.main { display:block; padding:13px 14px; color:inherit; text-decoration:none; min-height:56px; }
+        .job a.main:active { background:#eef3f8; }
+        .job .when { font-size:13px; font-weight:800; color:var(--brand); }
+        .job .ttl { font-size:16px; font-weight:700; margin:2px 0; line-height:1.3; }
+        .job .addr { font-size:14px; color:var(--muted); }
+        .job .contacts { border-top:1px solid var(--border); padding:8px 14px 12px; background:#fafbfd; }
+        .job .who { font-size:14px; padding:5px 0; display:flex; flex-wrap:wrap; gap:4px 10px; align-items:baseline; }
+        .job .who .lbl { font-size:11px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--muted); min-width:52px; }
+        .job .who .nm { font-weight:600; }
+        .job .who a.tel { color:var(--brand); font-weight:700; text-decoration:none; padding:8px 0; }
+        .job .note-line { flex-basis:100%; font-size:13px; padding:6px 9px; background:#fff8e6; border:1px solid #f1dfa6; border-radius:8px; }
+        .job a.maps { display:flex; align-items:center; justify-content:center; min-height:48px; margin-top:6px; border-radius:10px; background:var(--accent); color:#fff; font-weight:800; font-size:15px; text-decoration:none; }
         .chip { display:inline-block; font-size:11px; font-weight:800; padding:2px 9px; border-radius:999px; background:#eef3f8; color:#26435f; margin-right:4px; }
         .chip.warn { background:#fff1e0; color:var(--warn); }
         .chip.ok { background:#eafaf0; color:var(--ok); }
@@ -71,70 +78,21 @@
             </div>
         @endif
 
-        {{-- §17.5.4 — jobs the office has asked this crew to PRICE (Draft/Quoted: not booked work yet). Open one to add parts and labour with their cost, then "Send to office". --}}
-        @if(count($page['to_price'] ?? []))
-            <h2 class="sec">To price <span class="n">{{ count($page['to_price']) }}</span></h2>
-            @foreach($page['to_price'] as $j)
-                <a class="job" href="{{ $jobUrl($j['id']) }}" data-job-id="{{ $j['id'] }}" data-group="to-price">
-                    <div class="ttl">{{ $j['title'] }}</div>
-                    @if($j['address'] !== '')<div class="addr">{{ $j['address'] }}</div>@endif
-                    @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
-                    <div style="margin-top:7px;"><span class="chip warn">The office asked you to price this job</span></div>
-                </a>
-            @endforeach
-        @endif
+        {{-- Spec §17.42 — Today, Scheduled, Waiting for you, In progress (open work), then Done this month (read-only). --}}
+        @foreach([
+            ['today', 'Today', 'today'],
+            ['upcoming', 'Scheduled — next ' . $page['upcoming_days'] . ' days', 'upcoming'],
+            ['waiting', 'Waiting for you', 'waiting'],
+            ['in_progress', 'In progress', 'in_progress'],
+        ] as [$key, $heading, $group])
+            @if(count($page[$key]))
+                <h2 class="sec" data-group-heading="{{ $group }}">{{ $heading }} <span class="n">{{ count($page[$key]) }}</span></h2>
+                @foreach($page[$key] as $j)
+                    @include('rentals.crew-link._crew-job-row', ['j' => $j, 'group' => $group, 'jobUrl' => $jobUrl])
+                @endforeach
+            @endif
+        @endforeach
 
-        @if(count($page['today']))
-            <h2 class="sec">Today <span class="n">{{ count($page['today']) }}</span></h2>
-            @foreach($page['today'] as $j)
-                <a class="job" href="{{ $jobUrl($j['id']) }}" data-job-id="{{ $j['id'] }}" data-group="today">
-                    <div class="when">@if($j['overdue']){{ $j['date'] }} {{ $j['time'] }}@else{{ $j['time'] ?? '' }}@endif</div>
-                    <div class="ttl">{{ $j['title'] }}</div>
-                    @if($j['address'] !== '')<div class="addr">{{ $j['address'] }}</div>@endif
-                    @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
-                    <div style="margin-top:7px;">
-                        <span class="chip">{{ $j['status_label'] }}</span>
-                        @if(!empty($j['to_price']))<span class="chip warn">Price requested</span>@endif
-                        @if($j['overdue'])<span class="chip warn">Overdue</span>@endif
-                        @if($j['crew_completed'])<span class="chip ok">Work completed</span>@endif
-                        @if($j['due'])<span class="chip">Due {{ $j['due'] }}</span>@endif
-                    </div>
-                </a>
-            @endforeach
-        @endif
-
-        @if(count($page['upcoming']))
-            <h2 class="sec">Upcoming — next {{ $page['upcoming_days'] }} days <span class="n">{{ count($page['upcoming']) }}</span></h2>
-            @foreach($page['upcoming'] as $j)
-                <a class="job" href="{{ $jobUrl($j['id']) }}" data-job-id="{{ $j['id'] }}" data-group="upcoming">
-                    <div class="when">{{ $j['date'] }} · {{ $j['time'] }}</div>
-                    <div class="ttl">{{ $j['title'] }}</div>
-                    @if($j['address'] !== '')<div class="addr">{{ $j['address'] }}</div>@endif
-                    @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
-                    <div style="margin-top:7px;">
-                        <span class="chip">{{ $j['status_label'] }}</span>
-                        @if($j['crew_completed'])<span class="chip ok">Work completed</span>@endif
-                        @if($j['due'])<span class="chip">Due {{ $j['due'] }}</span>@endif
-                    </div>
-                </a>
-            @endforeach
-        @endif
-
-        @if(count($page['unscheduled']))
-            <h2 class="sec">Not scheduled yet <span class="n">{{ count($page['unscheduled']) }}</span></h2>
-            @foreach($page['unscheduled'] as $j)
-                <a class="job" href="{{ $jobUrl($j['id']) }}" data-job-id="{{ $j['id'] }}" data-group="unscheduled">
-                    <div class="ttl">{{ $j['title'] }}</div>
-                    @if($j['address'] !== '')<div class="addr">{{ $j['address'] }}</div>@endif
-                    @if($j['access_notes'])<div class="acc"><strong>Access:</strong> {{ $j['access_notes'] }}</div>@endif
-                    <div style="margin-top:7px;">
-                        <span class="chip">{{ $j['status_label'] }}</span>
-                        @if($j['crew_completed'])<span class="chip ok">Work completed</span>@endif
-                        @if($j['due'])<span class="chip">Due {{ $j['due'] }}</span>@endif
-                    </div>
-                </a>
-            @endforeach
-        @endif
 
         @if(count($page['materials']))
             <h2 class="sec" id="what-to-load">What to load <span class="n">{{ count($page['materials']) }}</span></h2>
@@ -167,10 +125,10 @@
             </div>
         @endif
 
-        @if(count($page['recent']))
-            <details class="card" style="margin-top:20px;" data-recent>
-                <summary>Recently completed (last {{ $page['recent_days'] }} {{ $page['recent_days'] === 1 ? 'day' : 'days' }}) <span class="chip">{{ count($page['recent']) }}</span></summary>
-                @foreach($page['recent'] as $r)
+        @if(count($page['done']))
+            <details class="card" style="margin-top:20px;" data-done>
+                <summary>Done this month <span class="chip">{{ count($page['done']) }}</span></summary>
+                @foreach($page['done'] as $r)
                     <div class="row">
                         <div class="desc">{{ $r['title'] }}</div>
                         @if($r['address'] !== '')<div class="muted">{{ $r['address'] }}</div>@endif

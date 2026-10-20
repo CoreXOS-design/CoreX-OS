@@ -326,7 +326,9 @@
                                 @if($row['signature']->signed_via === \App\Models\RentalInspectionSignature::SIGNED_VIA_LINK)
                                     &middot; signed from their own link as &ldquo;{{ $row['signature']->signed_typed_name }}&rdquo;
                                 @elseif($row['signature']->signed_via === \App\Models\RentalInspectionSignature::SIGNED_VIA_AGENT_DEVICE)
-                                    &middot; signed on the agent's device as &ldquo;{{ $row['signature']->signed_typed_name }}&rdquo;
+                                    &middot; signed {{ $row['signature']->signedViaPhrase() }} as &ldquo;{{ $row['signature']->signed_typed_name }}&rdquo;
+                                @elseif($row['signature']->signed_via === \App\Models\RentalInspectionSignature::SIGNED_VIA_AGENT_SCREEN)
+                                    &middot; signed {{ $row['signature']->signedViaPhrase() }}
                                 @endif
                             </p>
                             @if($row['signature']->signer_comment)

@@ -64,6 +64,7 @@ class RentalInspectionSignature extends Model
         'refusal_reason_preset',
         'refusal_reason_note',
         'recorded_by_user_id',
+        'client_idempotency_key',
         'disposition_recorded_at',
         'superseded_at',
         'superseded_by_signature_id',
@@ -88,6 +89,27 @@ class RentalInspectionSignature extends Model
 
     public const SIGNED_VIA_LINK = 'link';
     public const SIGNED_VIA_AGENT_DEVICE = 'agent_device';
+    /** AT-463 / §61 - the agent drew their own signature on screen ("Sign now"): identity, time, IP and device are recorded. */
+    public const SIGNED_VIA_AGENT_SCREEN = 'agent_screen';
+
+    /**
+     * How this signature was made, in words, for the screens and the audit trail. Null when it carries no such evidence
+     * (a paper signature, a refusal, an older row). A party who signed on the agent's device did so in the agent's presence
+     * - the signature row names that agent (signed_on_device_by_user_id).
+     */
+    public function signedViaPhrase(): ?string
+    {
+        $by = $this->signed_on_device_by_user_id
+            ? User::withoutGlobalScopes()->whereKey($this->signed_on_device_by_user_id)->value('name')
+            : null;
+
+        return match ($this->signed_via) {
+            self::SIGNED_VIA_LINK => 'from their own link',
+            self::SIGNED_VIA_AGENT_DEVICE => "on the agent's device" . ($by ? ", in {$by}'s presence" : ' in the agent\'s presence'),
+            self::SIGNED_VIA_AGENT_SCREEN => 'on screen by the agent' . ($by ? " ({$by})" : ''),
+            default => null,
+        };
+    }
 
     public function inspection(): BelongsTo
     {

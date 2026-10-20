@@ -97,8 +97,8 @@ final class RentalJobCardScheduleDatesTest extends TestCase
         $this->assertSame(RentalJobCard::STATUS_SCHEDULED, $fresh->status);
 
         $html = $this->actingAs($this->admin)->get(route('corex.rental-job-cards.show', $card))->assertOk()->getContent();
-        $this->assertStringContainsString('2026-10-12 09:00', $html);
-        $this->assertStringContainsString('2026-10-14 17:30', $html);
+        $this->assertStringContainsString('12 Oct 2026 09:00', $html);   // AT-460: the job facts read dates the way the work order screen does
+        $this->assertStringContainsString('14 Oct 2026 17:30', $html);
     }
 
     public function test_the_dates_are_read_in_the_agency_timezone_and_stored_in_the_app_timezone(): void

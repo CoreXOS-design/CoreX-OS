@@ -146,7 +146,13 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         // request.
         'public_token',
         'public_token_expires_at',
+        // Audit B3 - the agent has reviewed this Out's deposit-deductions summary (written only by RentalDepositDeductionsService).
+        'deductions_reviewed_at',
+        'deductions_reviewed_by_user_id',
     ];
+
+    /** Audit B22 - the hash and the ciphertext of the public link token never leave the server in a JSON payload. */
+    protected $hidden = ['public_token_hash', 'public_token_encrypted'];
 
     protected $casts = [
         'scheduled_for' => 'date',
@@ -159,6 +165,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         'remotes_count' => 'integer',
         'move_in_date_recorded' => 'date',
         'public_token_expires_at' => 'datetime',
+        'deductions_reviewed_at' => 'datetime',
         'checklist_wording_snapshot' => 'array',
         'checklist_wording_snapshot_at' => 'datetime',
     ];
@@ -754,6 +761,65 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             ->exists();
     }
 
+    /**
+     * Audit B31 - keys and remotes are COUNTED on the inspection (its header is the one place they are typed - never pre-filled, a stale
+     * default must not stand in for a real count). The inventory may also list them as lines ("4 x Remotes"); those lines are shown beside the
+     * header fields as a read-only reference so the agent neither retypes them nor has to open another screen to see what was listed.
+     *
+     * @return array<int, string>  e.g. ["4 x Gate remotes"]
+     */
+    public function inventoryKeyRemoteLines(): array
+    {
+        if (! $this->lease_id) {
+            return [];
+        }
+        $inventory = RentalInventory::where('lease_id', $this->lease_id)
+            ->whereIn('status', [RentalInventory::STATUS_COMPLETED, RentalInventory::STATUS_DRAFT])
+            ->latest('id')->first();
+        if (! $inventory) {
+            return [];
+        }
+
+        return $inventory->lines()->get()
+            ->filter(fn ($line) => preg_match('/\b(keys?|remotes?|fobs?)\b/i', (string) $line->description))
+            ->map(fn ($line) => trim(($line->quantity ? $line->quantity . ' x ' : '') . $line->description))
+            ->values()->all();
+    }
+
+    /**
+     * Audit B9 - the moment this report's content was locked: the earlier of its completion and its first live signature (signed or wet
+     * ink). Null while nothing has locked it.
+     */
+    public function contentLockedAt(): ?\Illuminate\Support\Carbon
+    {
+        $firstSignature = $this->signatures()
+            ->whereNull('superseded_at')
+            ->whereIn('disposition', [RentalInspectionSignature::DISPOSITION_SIGNED, RentalInspectionSignature::DISPOSITION_WET_INK])
+            ->min('disposition_recorded_at');
+        $times = collect([
+            $this->status === self::STATUS_COMPLETED ? $this->completed_at : null,
+            $firstSignature ? \Illuminate\Support\Carbon::parse($firstSignature) : null,
+        ])->filter();
+
+        return $times->isEmpty() ? null : $times->sortBy(fn ($t) => $t->getTimestamp())->first();
+    }
+
+    /**
+     * Audit B9 (spec 14.4 case 4) - may a write be taken in even though the report is locked (signed or completed)? Yes when it is OFFLINE
+     * evidence: it carries the app's own capture time and that moment is not after the lock - the fact happened before the report was
+     * locked, only the signal arrived late. A cancelled or archived inspection never takes it (nothing would ever show it), and a write
+     * with no capture time, or captured after the lock, is a live change to a locked report and stays refused.
+     */
+    public function acceptsLateEvidence(?\Carbon\CarbonInterface $capturedAt): bool
+    {
+        if ($capturedAt === null || $this->trashed() || $this->status === self::STATUS_CANCELLED) {
+            return false;
+        }
+        $lockedAt = $this->contentLockedAt();
+
+        return $lockedAt !== null && $capturedAt->lte($lockedAt);
+    }
+
     /** The one guard for changing a report's CONTENT (conditions, notes, photos, details): recordable AND not signed-locked. */
     public function assertContentEditable(): void
     {
@@ -874,6 +940,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public function isAddedAfterSent(RentalInspectionObservation $observation): bool
     {
+        // Audit B9 - late offline evidence stored after the report was signed or completed is flagged on the row itself.
+        if ($observation->added_after_signing_at !== null) {
+            return true;
+        }
+
         return $this->status === self::STATUS_COMPLETED
             && $this->completed_at !== null
             && $observation->source === RentalInspectionObservation::SOURCE_TENANT_FAULT_REPORT
@@ -1172,6 +1243,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         }
         $this->guardUngradedItems('start the signing window');
         $this->guardMissingRequiredNotes('start the signing window');
+        // Audit B12 - who was present is asked BEFORE anyone signs, not only at Complete after every signature is collected (a party who
+        // signs from their own link still needs an attendance row, so the question cannot wait until the end).
+        $this->guardAttendanceRecorded('start the signing window');
 
         // §52 — "photos on everything": the count is always shown at Ready to sign; the agency can make it a hard stop.
         if (RentalInspectionSetting::ruleFor($this->agency_id, 'photos_required_to_sign')) {
@@ -1233,7 +1307,13 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * disposition satisfying this guard cannot exist without the real
      * thing (a genuine signature image, or a genuine reason) behind it.
      */
-    public function markCompleted(): void
+    /**
+     * Audit B2 - every refusal to complete, on its own, so the controller can run them BEFORE it asks about the Out's
+     * warnings (a hard refusal is always shown first). markCompleted() runs exactly this.
+     *
+     * @throws \LogicException
+     */
+    public function assertCanComplete(): void
     {
         // Audit H2 — a completed or cancelled (or archived) inspection can
         // never be (re)completed: a second call would overwrite completed_at,
@@ -1289,6 +1369,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 throw new \LogicException('Cannot complete an inspection without the agent\'s own signature.');
             }
         }
+    }
+
+    public function markCompleted(): void
+    {
+        $this->assertCanComplete();
 
         $completedAt = now();
         $attributes = [
@@ -1879,6 +1964,36 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * immediately invalidating any previously-issued link — that IS the
      * revoke mechanism; there is no separate revoked flag to also check.
      */
+    /**
+     * The public link token is never stored in plain text (audit 2026-10-19 B22): setting it writes its SHA-256 hash (the lookup key) and a
+     * copy encrypted with the application key (so the agent's screen can show / print / resend the same link); the plain column stays empty.
+     * Reading it decrypts - null when the row has no ciphertext. Same pattern as RentalInspectionSigningLink::token.
+     */
+    public function setPublicTokenAttribute(?string $value): void
+    {
+        $this->attributes['public_token'] = null;
+        $this->attributes['public_token_hash'] = $value === null ? null : static::hashPublicToken($value);
+        $this->attributes['public_token_encrypted'] = $value === null ? null : \Illuminate\Support\Facades\Crypt::encryptString($value);
+    }
+
+    public function getPublicTokenAttribute(): ?string
+    {
+        $cipher = $this->attributes['public_token_encrypted'] ?? null;
+        if ($cipher === null || $cipher === '') {
+            return $this->attributes['public_token'] ?? null;
+        }
+        try {
+            return \Illuminate\Support\Facades\Crypt::decryptString($cipher);
+        } catch (\Illuminate\Contracts\Encryption\DecryptException) {
+            return null;
+        }
+    }
+
+    public static function hashPublicToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
     public function generatePublicLink(?int $expiryDays = null): string
     {
         $days = $expiryDays ?? RentalInspectionSetting::publicLinkExpiryDaysFor($this->agency_id);
@@ -1924,8 +2039,12 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      */
     public static function findByPublicToken(string $token): ?self
     {
+        if ($token === '' || strlen($token) > 64) {
+            return null;
+        }
+
         return self::withoutGlobalScopes()
-            ->where('public_token', $token)
+            ->where('public_token_hash', static::hashPublicToken($token))
             ->where('public_token_expires_at', '>', now())
             // 2026-10-06 (cc1, security) — withoutGlobalScopes() above also
             // strips SoftDeletes, so an ARCHIVED inspection used to keep
@@ -2277,8 +2396,11 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         // Stage 2 — 'room' is eager-loaded so the (still-flat, pre-Stage-3)
         // recording UI can show "Bedroom 1 — Ceiling" instead of a bare
         // "Ceiling" repeated once per room with nothing to tell them apart.
+        // Audit B25 (2026-10-19) - the observations are attached further down, bounded to the inspections this screen can
+        // actually show AND the caller may open; loading every observation ever recorded against every item made the payload
+        // grow with every inspection on the property and ignored the caller's own/branch scope.
         $items = RentalInspectionItem::where('property_id', $property->id)
-            ->with(['room', 'observations' => fn (HasMany $q) => $q->latest('created_at')])
+            ->with('room')
             ->get();
 
         // §15.4 — the per-tenant signing UI (Stage 2) needs to know WHO the
@@ -2343,6 +2465,8 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             $insp?->load(['observations.item', 'observations.photos.note', 'photos.note', 'discrepancies.item', 'discrepancies.observations', 'signatures', 'lease.tenants.contact', 'createdBy', 'roomNotes']);
             // §47 — the screen shows "Edit report" (and a locked banner) from this.
             $insp?->setAttribute('signed_locked', $insp->isSignedLocked());
+            // Audit B31 - what the inventory lists as keys / remotes, shown beside the header counts as a read-only reference.
+            $insp?->setAttribute('inventory_key_remote_lines', $insp?->inventoryKeyRemoteLines() ?? []);
             // §49 — the "Next inspection" picker greys out In (with the reason) once the tenancy already has one.
             $insp?->setAttribute('lease_in_inspection_id', $insp->leaseInInspection()?->id);
             // The "Ready to complete" pill follows the SAME per-type rules the server's Complete enforces (a Routine
@@ -2355,6 +2479,22 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // The "Resend report" popover must show exactly who the SERVER will send to (tenants, landlords, the agency's
             // copy addresses, the inspector, the creator) — never a list the browser rebuilds for itself.
             $insp?->setAttribute('report_recipients', $insp && $insp->status === self::STATUS_COMPLETED ? $insp->distributionRecipients() : []);
+            // AT-463 / §60 — the completed paper forms uploaded against this inspection (the panel lists them, opens the
+            // original, and links the review of what was read).
+            $insp?->setAttribute('site_form_scans', $insp ? \App\Models\RentalInspectionScan::where('rental_inspection_id', $insp->id)
+                ->latest('id')->limit(10)->get()->map(fn ($s) => [
+                    'id' => $s->id,
+                    'name' => $s->original_filename,
+                    'status' => $s->status,
+                    'status_label' => match ($s->status) {
+                        'needs_review' => 'Needs review', 'applied' => 'Applied', 'version_mismatch' => 'Form version mismatch',
+                        'failed' => 'Could not be read', default => 'Processing',
+                    },
+                    'uploaded_at' => $s->created_at?->format('Y-m-d H:i'),
+                    'review_url' => in_array($s->status, ['needs_review', 'applied', 'failed', 'version_mismatch'], true)
+                        ? route('corex.rental-inspections.scans.review', [$insp->id, $s->id]) : null,
+                    'view_url' => route('corex.rental-inspections.scans.download', [$insp->id, $s->id, 'view' => 1]),
+                ])->all() : []);
 
             return $insp;
         };
@@ -2383,10 +2523,35 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
         $compareDetail = fn (?self $insp) => $insp?->load(['observations.item', 'photos.note']);
         $compareLeft = $compareDetail($compareLeft);
         $compareRight = $compareDetail($compareRight);
+        $inInspection = $withDetail(self::TYPE_IN);
+
+        $photoMatchGroups = ($rawPredecessor && $rawChainTail)
+            ? \App\Models\RentalInspectionPhotoMatchGroup::with('members.photo')
+                ->whereHas(
+                    'members.photo',
+                    fn ($q) => $q->whereIn('rental_inspection_id', [$rawPredecessor->id, $rawChainTail->id]),
+                )
+                ->get()
+            : collect();
+
+        // Audit B25 - the item observations the screen reads (it looks a clicked photo's observation up by id) are only ever
+        // those of the inspections it renders plus the ones a match group pulls in; bound to those, and to the ones the
+        // caller's own/branch/agency scope lets them open.
+        $shownInspectionIds = collect([$inInspection, $outInspection, $chainTail, $chainPredecessor, $compareLeft, $compareRight])
+            ->filter()->pluck('id')
+            ->merge($photoMatchGroups->flatMap(fn ($g) => $g->members->map(fn ($m) => $m->photo?->rental_inspection_id)))
+            ->filter()->unique()->values();
+        $openableQuery = self::query()->whereIn('id', $shownInspectionIds);
+        $viewer = \Illuminate\Support\Facades\Auth::user();
+        if ($viewer instanceof User) {
+            $openableQuery->visibleTo($viewer);
+        }
+        $openableIds = $openableQuery->pluck('id')->all();
+        $items->load(['observations' => fn (HasMany $q) => $q->whereIn('rental_inspection_id', $openableIds ?: [0])->latest('created_at')]);
 
         return [
             'items' => $items,
-            'in_inspection' => $withDetail(self::TYPE_IN),
+            'in_inspection' => $inInspection,
             'out_inspection' => $outInspection,
             // Johan's ruling, 2026-09-23 — the tab's unified side-by-side
             // section reads these two, not in_inspection/out_inspection
@@ -2453,16 +2618,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
             // one of those members ships to the frontend too, not only the
             // ones on the current pair — the viewer's own carousel/group-
             // loading logic decides what to show from there.
-            'photo_matches' => ($rawPredecessor && $rawChainTail)
-                ? \App\Models\RentalInspectionPhotoMatchGroup::with('members.photo')
-                    ->whereHas(
-                        'members.photo',
-                        fn ($q) => $q->whereIn('rental_inspection_id', [$rawPredecessor->id, $rawChainTail->id]),
-                    )
-                    ->get()
-                    ->map(fn ($group) => $group->toComparePayload())
-                    ->values()
-                : collect(),
+            'photo_matches' => $photoMatchGroups
+                ->map(fn ($group) => $group->toComparePayload())
+                ->values(),
             // §24.5/§24.7 (AT-433 Part B) — whether the frontend should call
             // POST .../rental-inspection-photo-matches/auto-pair
             // automatically the first time an item's comparison is viewed,

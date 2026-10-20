@@ -402,7 +402,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
     public function test_classification_filter(): void
     {
         $x = $this->layout();
-        $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Burn from a cigarette.', $this->agent);
+        $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Burn from a cigarette.', $this->agent, 450.00);
 
         $labels = fn (array $c) => $this->rows($c)->pluck('item.label')->sort()->values()->all();
         $this->assertSame(['Floor'], $labels($this->cmp($x['out'], ['classification' => 'any'])));
@@ -604,7 +604,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
         $recorded = [];
         foreach (['wear_and_tear', 'flagged', 'pre_existing', 'landlord_cost', 'charge_tenant'] as $disposition) {
-            $recorded[] = $this->service->recordFinding($x['out'], $x['floor'], $disposition, "Because {$disposition}.", $this->agent);
+            $recorded[] = $this->service->recordFinding($x['out'], $x['floor'], $disposition, "Because {$disposition}.", $this->agent, $disposition === 'charge_tenant' ? 200.00 : null);
         }
 
         $all = RentalInspectionItemFinding::where('rental_inspection_item_id', $x['floor']->id)->orderBy('id')->get();
@@ -620,7 +620,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
 
         $this->service->recordFinding($x['out'], $x['meter'], 'landlord_cost', 'Meter was already replaced.', $this->agent);     // new item
-        $this->service->recordFinding($x['out'], $x['gone'], 'charge_tenant', 'Curtain removed by tenant.', $this->agent);       // not at move-out
+        $this->service->recordFinding($x['out'], $x['gone'], 'charge_tenant', 'Curtain removed by tenant.', $this->agent, 300.00);       // not at move-out
         $this->service->recordFinding($x['out'], $x['taps'], 'wear_and_tear', 'Fair vs good: normal.', $this->agent);            // different
         $this->assertSame(3, RentalInspectionItemFinding::count());
 
@@ -656,7 +656,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $x = $this->layout();
         $url = route('corex.rental-inspections.deposit-comparison.finding', [$x['out'], $x['floor']]);
 
-        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'Cigarette burn'])
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'Cigarette burn', 'amount' => '450'])
             ->assertRedirect(route('corex.rental-inspections.deposit-comparison', $x['out']))->assertSessionHasNoErrors();
         $this->assertDatabaseHas('rental_inspection_item_findings', ['rental_inspection_item_id' => $x['floor']->id, 'disposition' => 'charge_tenant', 'superseded_at' => null]);
 
@@ -665,6 +665,52 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
         $this->actingAs($this->agent)->post(route('corex.rental-inspections.deposit-comparison.finding', [$x['out'], $x['walls']]), ['disposition' => 'flagged', 'note' => 'x'])
             ->assertSessionHasErrors('finding');   // an unchanged row: refused with a message, never a 500
         $this->assertSame(1, RentalInspectionItemFinding::count());
+    }
+
+    // ── audit A24 (2026-10-19): a finding may record an amount - and nothing more is done with it ──
+
+    /** Johan's ruling 20 Oct 2026: amounts are recorded only when the agency turns "Record deduction amounts" on (default off). */
+    private function amountsOn(): void
+    {
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['record_deduction_amounts' => true]);
+    }
+
+    public function test_a_finding_can_record_an_amount_and_a_correction_supersedes_it_with_both_on_the_record(): void
+    {
+        $this->amountsOn();
+        $x = $this->layout();
+        $first = $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Cigarette burn.', $this->agent, 450.5);
+        $this->assertSame('450.50', (string) $first->fresh()->amount);
+
+        $second = $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Quote came in lower.', $this->agent, 380.0);
+
+        $this->assertSame('380.00', (string) $second->fresh()->amount);
+        $this->assertSame('450.50', (string) $first->fresh()->amount, 'the old figure is kept, not edited');
+        $this->assertNotNull($first->fresh()->superseded_at);
+        $created = \App\Models\RentalInspectionAuditLog::where('rental_inspection_id', $x['out']->id)->where('event', \App\Models\RentalInspectionAuditLog::EVENT_FINDING_RECORDED)->first();
+        $this->assertStringContainsString('R450.50', (string) $created->summary);
+        $replaced = \App\Models\RentalInspectionAuditLog::where('rental_inspection_id', $x['out']->id)->where('event', \App\Models\RentalInspectionAuditLog::EVENT_FINDING_SUPERSEDED)->first();
+        $this->assertStringContainsString('R450.50 to R380.00', (string) $replaced->summary);
+    }
+
+    public function test_the_amount_is_optional_and_the_endpoint_validates_it(): void
+    {
+        $this->amountsOn();
+        $x = $this->layout();
+        $url = route('corex.rental-inspections.deposit-comparison.finding', [$x['out'], $x['floor']]);
+
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'flagged', 'note' => 'No figure yet'])->assertSessionHasNoErrors();
+        $this->assertNull(RentalInspectionItemFinding::where('rental_inspection_item_id', $x['floor']->id)->whereNull('superseded_at')->first()->amount);
+
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'x', 'amount' => '-5'])->assertSessionHasErrors('amount');
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'x', 'amount' => 'lots'])->assertSessionHasErrors('amount');
+        $this->actingAs($this->agent)->post($url, ['disposition' => 'charge_tenant', 'note' => 'Burn', 'amount' => '1250.75'])->assertSessionHasNoErrors();
+
+        $live = RentalInspectionItemFinding::where('rental_inspection_item_id', $x['floor']->id)->whereNull('superseded_at')->first();
+        $this->assertSame('1250.75', (string) $live->amount);
+        $html = $this->actingAs($this->agent)->get(route('corex.rental-inspections.deposit-comparison', $x['out']))->assertOk()->getContent();
+        $this->assertStringContainsString('R 1,250.75', $html, 'the figure is shown with the finding');
+        $this->assertStringContainsString('name="amount"', $html);
     }
 
     // ── the page ────────────────────────────────────────────────────────

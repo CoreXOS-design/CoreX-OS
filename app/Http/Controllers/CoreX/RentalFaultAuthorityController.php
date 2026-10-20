@@ -48,13 +48,7 @@ class RentalFaultAuthorityController extends Controller
         if (! $request->has('owner_title') || $fault->sent_to_owner_at !== null) {
             return null;
         }
-        $v = $request->validate([
-            'owner_title' => ['required', 'string', 'max:191'],
-            'owner_description' => ['nullable', 'string', 'max:5000'],
-            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
-            'owner_photo_ids' => ['nullable', 'array'],
-            'owner_photo_ids.*' => ['integer'],
-        ], ['owner_title.required' => 'Write the title the owner will see first.']);
+        $v = $request->validate(RentalFaultReport::OWNER_VERSION_RULES);
         try {
             $fault->saveOwnerVersion($v, $request->user());
         } catch (\LogicException|\InvalidArgumentException $e) {
@@ -122,9 +116,17 @@ class RentalFaultAuthorityController extends Controller
             'told_at' => ['nullable', 'date'],
             'note' => ['required', 'string', 'max:4000'],
             'proof' => ['nullable', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:20480'],
+            // section 28.3 - "Same call: the owner also approved the cost up to R___"
+            'also_approve_cost' => ['nullable', 'boolean'],
+            'also_cost_up_to' => ['nullable', 'numeric', 'min:0.01', 'max:99999999'],
+            // section 28.2 - the contractor picked in "Who goes to look first?" travels with the decision
+            'assignment_type' => ['nullable', Rule::in([RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER, RentalWorkOrder::ASSIGNMENT_INTERNAL])],
+            'agency_service_provider_id' => ['nullable', 'integer'],
+            'rental_crew_id' => ['nullable', 'integer'],
         ], [
             'owner_contact_id.required' => 'Pick which owner told you.',
             'decision.required' => 'Choose what the owner decided.',
+            'also_cost_up_to.min' => 'The amount the owner also approved must be more than R0.',
             'told_via.required' => 'Say how the owner told you: phone call, WhatsApp or email.',
             'note.required' => 'Write down what the owner said - it is required.',
             'proof.mimes' => 'The proof must be a picture (a screenshot of the WhatsApp or email).',
@@ -189,16 +191,15 @@ class RentalFaultAuthorityController extends Controller
         $v = $request->validate([
             'via' => ['required', Rule::in(RentalFaultReport::CONFIRMED_VIAS)],
             'at' => ['required', 'date'],
-            'note' => ['required', 'string', 'max:2000'],
+            'note' => ['nullable', 'string', 'max:2000'],   // section 28.4 - how and when are enough; what the tenant said is optional
         ], [
             'via.required' => 'Say how you confirmed it with the tenant.',
             'at.required' => 'Say when you confirmed it.',
-            'note.required' => 'Write down what the tenant said.',
         ]);
         if (in_array($rentalFaultReport->status, [RentalFaultReport::STATUS_CANCELLED], true)) {
             return redirect($this->back($rentalFaultReport))->withErrors(['tenant_confirmation' => 'This fault was cancelled.']);
         }
-        $tz = $rentalFaultReport->agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        $tz = \App\Support\AppDate::agencyTimezone($rentalFaultReport->agency);
         try {
             $at = \App\Support\AppDate::parse($v['at'], $tz);   // stored in the app timezone (->utc() showed the time two hours early)
         } catch (\Throwable) {
@@ -208,12 +209,13 @@ class RentalFaultAuthorityController extends Controller
             return redirect($this->back($rentalFaultReport))->withErrors(['tenant_confirmation' => 'The time cannot be in the future.'])->withInput();
         }
 
+        $said = trim((string) ($v['note'] ?? ''));
         $rentalFaultReport->forceFill([
-            'tenant_confirmed_via' => $v['via'], 'tenant_confirmed_at' => $at, 'tenant_confirmed_note' => trim($v['note']),
+            'tenant_confirmed_via' => $v['via'], 'tenant_confirmed_at' => $at, 'tenant_confirmed_note' => $said,
             'tenant_confirmed_by_user_id' => $request->user()->id, 'tenant_confirmed_recorded_at' => now(),
         ])->save();
         $rentalFaultReport->recordHistory(RentalFaultReportUpdate::TYPE_TENANT_CONFIRMED, $request->user(),
-            'Confirmed with the tenant by ' . RentalFaultReport::confirmedViaLabel($v['via']) . ' on ' . $at->copy()->setTimezone($tz)->format('j M Y H:i') . ': "' . trim($v['note']) . '"');
+            'Confirmed with the tenant by ' . RentalFaultReport::confirmedViaLabel($v['via']) . ' on ' . $at->copy()->setTimezone($tz)->format('j M Y H:i') . ($said !== '' ? ': "' . $said . '"' : ''));
 
         return redirect($this->back($rentalFaultReport))->with('success', 'Saved: confirmed with the tenant.');
     }

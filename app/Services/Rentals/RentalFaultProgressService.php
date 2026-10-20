@@ -192,6 +192,12 @@ class RentalFaultProgressService
                 }
             }
         }
+        // AT-452 quote-first: the contractor was authorised to look and QUOTE (never the work) and no quote has landed - the current step says so for the owner and the agent (D1/Q2: the tenant is never told about quotes and keeps the plain line)
+        if ($ended === null && $last !== null && $wo && $aud !== self::AUDIENCE_TENANT && $steps[$last]['key'] === 'sent_to_contractor'
+            && app(RentalWorkOrderClientViewService::class)->awaitingContractorQuote($wo)) {
+            $steps[$last]['label'] = $this->label('awaiting_contractor_quote', $aud);
+            $steps[$last]['awaiting_quote'] = true;
+        }
         // section 22.7 - the owner pressed "Stop this": the CURRENT step reads "On hold" for everyone (the tenant is never told the owner's reason)
         $held = $ended === null && $last !== null && app(RentalOwnerHoldService::class)->activeFor($fault) !== null;
         if ($held) {
@@ -274,6 +280,6 @@ class RentalFaultProgressService
     {
         $agency = Agency::withoutGlobalScopes()->find($fault->agency_id);
 
-        return $agency?->outreachTimezone() ?: (config('app.timezone') ?: 'Africa/Johannesburg');
+        return \App\Support\AppDate::agencyTimezone($agency);
     }
 }

@@ -427,7 +427,9 @@
                                     <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'renew']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Renew</a>
                                     @endfeature
                                     @feature('rental-leases')
+                                    @permission('rental_notices.review')
                                     <a href="{{ route('corex.leases.show', ['lease' => $property->active_lease_id, 'action' => 'tenant-notice']) }}" class="block px-3 py-2 no-underline" style="color: var(--text-primary);">Record notice</a>
+                                    @endpermission
                                     @endfeature
                                     @if((int) $property->pending_renewal_draft_count > 0 && $property->pending_renewal_draft_lease_id)
                                     @feature('rental-leases')

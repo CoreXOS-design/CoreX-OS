@@ -4,7 +4,7 @@
 @php $ohSvcRec = app(\App\Services\Rentals\RentalOwnerHoldService::class); $ownerHolds = $ownerHolds ?? collect(); @endphp
 @if($authorisations->isNotEmpty() || $ownerHolds->isNotEmpty())
 <div class="rounded-md p-4 space-y-2" style="background: var(--surface); border: 1px solid var(--border);" data-authorisation-records>
-    <h2 class="text-sm font-semibold">Authorisation records</h2>
+    <h2 class="text-sm font-semibold wo-embedded-title">Authorisation records</h2>
     <ul class="space-y-2 text-xs">
         @foreach($authorisations as $ar)
             <li @if($ar->superseded_at) style="opacity:.65" @endif data-authorisation-row="{{ $ar->id }}" data-authorisation-basis="{{ $ar->basis }}">
@@ -14,7 +14,7 @@
                 @if($ar->proof_path)<a href="{{ $ar->proof_path }}" target="_blank" rel="noopener" class="underline">Proof</a>@endif
                 <span style="color: var(--text-muted);">
                     &middot; job was: {{ $arSvc->stageWords($ar) ?: '-' }}
-                    @if($ar->owner_told_at) &middot; owner told {{ $ar->owner_told_at->copy()->setTimezone($faultReport->agency?->outreachTimezone() ?: 'Africa/Johannesburg')->format('j M Y H:i') }}@endif
+                    @if($ar->owner_told_at) &middot; owner told {{ $ar->owner_told_at->copy()->setTimezone(\App\Support\AppDate::agencyTimezone($faultReport->agency))->format('j M Y H:i') }}@endif
                     @if($ar->superseded_at) &middot; <em>replaced by a newer record</em>@else &middot; <em>this is the one that stands</em>@endif
                 </span>
             </li>

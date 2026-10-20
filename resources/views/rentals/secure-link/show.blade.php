@@ -50,14 +50,20 @@
             <h2>{{ $workOrder->title }}</h2>
             <p class="muted">{{ $workOrder->property?->buildDisplayAddress() }} &middot; from {{ $agencyName }}</p>
             <p>{{ $workOrder->description }}</p>
-            @if ($accessNotes)
-                <p class="muted"><strong>Getting in:</strong> {{ $accessNotes }}</p>
+            @if (! empty($mapUrl))
+                <p><a href="{{ $mapUrl }}" target="_blank" rel="noopener" data-open-in-maps style="display:inline-block;padding:10px 16px;background:#eef3f8;color:#26435f;border-radius:10px;font-weight:700;text-decoration:none;">Open in Maps</a></p>
             @endif
+            @if (! empty($access['any']))
+                <p class="muted" data-access-contact><strong>Getting in:</strong>
+                    @if ($access['name'] || $access['phone']){{ $access['name'] }}@if ($access['phone'])@if ($access['name']) &middot; @endif<a href="tel:{{ $access['tel'] }}">{{ $access['phone'] }}</a>@endif @endif
+                    @if ($access['note'])<br>{{ $access['note'] }}@endif
+                </p>
+            @endif
+            @foreach (($tenants ?? []) as $t)
+                <p class="muted" data-tenant><strong>Tenant:</strong> {{ $t['name'] }}@if ($t['phone']) &middot; <a href="tel:{{ $t['tel'] }}">{{ $t['phone'] }}</a>@endif</p>
+            @endforeach
             @if (! empty($lookAndQuote) && empty($unlocked))
                 <p data-look-and-quote><strong>This is a visit to look at the problem and give a quote.</strong> Any repair work is agreed with the owner separately, before it starts.</p>
-            @endif
-            @if ($jobCard?->access_notes)
-                <p class="muted"><strong>Access notes:</strong> {{ $jobCard->access_notes }}</p>
             @endif
         </div>
 
@@ -108,7 +114,7 @@
                     @csrf
                     <input type="hidden" name="answer" value="decline">
                     <label>If you cannot take it, tell us why (required)</label>
-                    <textarea name="reason" rows="2" maxlength="1000"></textarea>
+                    <textarea name="reason" rows="2" maxlength="1000">{{ old('reason') }}</textarea>
                     <button class="btn" type="submit" style="background:#fff;border:1px solid var(--border);color:var(--text);" data-contractor-decline>Decline the job</button>
                 </form>
             @endif
@@ -147,11 +153,11 @@
             <form method="POST" action="{{ route('rentals.secure-link.quote', $token) }}" enctype="multipart/form-data">
                 @csrf
                 <label>Amount (R)</label>
-                <input type="number" step="0.01" min="0" name="amount" required>
+                <input type="number" step="0.01" min="0.01" name="amount" required value="{{ old('amount') }}">
                 <label>Quote date</label>
-                <input type="date" name="quote_date" required value="{{ now()->toDateString() }}">
+                <input type="date" name="quote_date" required value="{{ old('quote_date', now()->toDateString()) }}">
                 <label>Details of the quote <span class="muted">(needed if you do not attach a document)</span></label>
-                <textarea name="detail_text" rows="2"></textarea>
+                <textarea name="detail_text" rows="2">{{ old('detail_text') }}</textarea>
                 <label>Quote document <span class="muted">(needed if you do not write the details)</span></label>
                 <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
                 <button class="btn btn-primary" type="submit">Submit quote</button>
@@ -187,6 +193,19 @@
                 <p class="muted">No appointment has been set yet. The agency arranges it and will tell you.</p>
             @endif
         </div>
+
+        @if (! empty($canStart))
+        <div class="card" data-contractor-started>
+            <h2>Starting the work?</h2>
+            <p class="muted">Press this when you begin, so the agency, the owner and the tenant can see the job is under way. It is optional.</p>
+            <form method="POST" action="{{ route('rentals.secure-link.started', $token) }}">
+                @csrf
+                <button class="btn btn-primary" type="submit">I have started</button>
+            </form>
+        </div>
+        @elseif (! empty($hasStarted))
+        <p class="muted" data-contractor-started-done>The job is in progress.</p>
+        @endif
 
         <div class="card" data-contractor-photos>
             <h2>Photos</h2>
@@ -232,7 +251,8 @@
                 <label>Invoice date</label>
                 <input type="date" name="invoice_date" required value="{{ old('invoice_date', now()->toDateString()) }}">
                 <label>Invoice amount (R)</label>
-                <input type="number" step="0.01" min="0.01" name="amount" required value="{{ old('amount') }}">
+                <input type="number" step="0.01" min="0.01" name="amount" required value="{{ old('amount', $invoiceSuggested !== null ? number_format($invoiceSuggested, 2, '.', '') : '') }}" data-invoice-amount>
+                @if ($invoiceSuggested !== null)<p class="muted" data-invoice-suggested>Filled in from what was authorised for you, less what you have already invoiced - change it if your invoice is different.</p>@endif
                 <label>Invoice file</label>
                 <input type="file" name="document" required>
                 <p class="muted">{{ $invoiceLimits }}</p>

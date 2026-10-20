@@ -190,7 +190,7 @@ class RentalInventoryController extends Controller
     {
         $this->assertVisible($request, $rentalInventory);
 
-        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact']);
+        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos.sourceInspectionPhoto', 'signatures.partyContact']);
 
         // Read-only: this GET (view permission) no longer mints or rotates
         // the public link — that would invalidate a link already emailed
@@ -212,7 +212,7 @@ class RentalInventoryController extends Controller
     {
         $this->assertVisible($request, $rentalInventory);
 
-        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos', 'signatures.partyContact', 'createdBy']);
+        $rentalInventory->loadMissing(['property', 'lease.tenants.contact', 'lines.room', 'lines.moveInPhotos.sourceInspectionPhoto', 'signatures.partyContact', 'createdBy']);
 
         // Read-only, same as report(): this GET (view permission) no longer
         // mints or rotates the public link (audit A-H2) — that would also
@@ -246,7 +246,7 @@ class RentalInventoryController extends Controller
         // this comparison screen itself (§14, new) — eager-loaded here so
         // the comparison view can show both instead of leaving either
         // invisible on the one screen whose whole purpose is comparing them.
-        $rentalInventory->load(['property', 'lease.tenants.contact', 'lines.moveInPhotos', 'lines.moveOutPhotos']);
+        $rentalInventory->load(['property', 'lease.tenants.contact', 'lines.moveInPhotos.sourceInspectionPhoto', 'lines.moveOutPhotos.sourceInspectionPhoto']);
 
         return view('corex.rental-inventories.comparison', [
             'inventory' => $rentalInventory,

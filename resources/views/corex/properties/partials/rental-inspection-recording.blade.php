@@ -344,6 +344,38 @@
             is read-only, derived from the Property record (item 8: "the
             property already knows it").
         --}}
+        {{-- AT-463 / spec §60 — the printed form for site. "Print site form" is a PDF of THIS inspection's rooms and items with
+             one tick box per condition state; ticked in ink on site, it is scanned back with "Upload completed form", which
+             keeps the scan against the inspection and proposes the ticked columns for the agent to review and apply. --}}
+        <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);" data-qa="site-form">
+            <div class="flex items-center gap-2 flex-wrap">
+                <span class="text-xs font-semibold" style="color:var(--text-secondary);">Paper form for site</span>
+                <a :href="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/form'" target="_blank" rel="noopener" data-qa="print-site-form"
+                   class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">Print site form</a>
+                @permission('rental_inspections.create')
+                    <form method="POST" :action="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/scans'" enctype="multipart/form-data" class="inline-flex">
+                        @csrf
+                        <input type="file" name="scan" accept="application/pdf,image/jpeg,image/png,image/heic,image/heif" class="hidden" x-ref="siteFormFile" @change="$el.form.submit()">
+                        <button type="button" @click="$refs.siteFormFile.click()" data-qa="upload-site-form"
+                                class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Upload completed form</button>
+                    </form>
+                @endpermission
+            </div>
+            <template x-if="(currentInspection({{ $sectionJs }}).site_form_scans || []).length">
+                <ul class="text-xs space-y-1" style="color:var(--text-secondary);" data-qa="site-form-scans">
+                    <template x-for="sc in currentInspection({{ $sectionJs }}).site_form_scans" :key="sc.id">
+                        <li class="flex items-center gap-2 flex-wrap">
+                            <span x-text="sc.name"></span>
+                            <span class="font-semibold" x-text="sc.status_label"></span>
+                            <span style="color:var(--text-muted);" x-text="sc.uploaded_at"></span>
+                            <a :href="sc.view_url" target="_blank" rel="noopener" class="underline" style="color:var(--brand-icon,#0ea5e9);">Open scan</a>
+                            <template x-if="sc.review_url"><a :href="sc.review_url" class="underline" style="color:var(--brand-icon,#0ea5e9);">Review</a></template>
+                        </li>
+                    </template>
+                </ul>
+            </template>
+        </div>
+
         <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);">
             <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-xs" style="color:var(--text-secondary);">
                 <div><span style="color:var(--text-muted);">Landlord:</span> <span x-text="landlordContact ? (landlordContact.first_name + ' ' + landlordContact.last_name) : '—'"></span></div>
@@ -396,6 +428,10 @@
                         <input type="text" x-model="currentInspection({{ $sectionJs }}).remotes_description"
                                @input="autosaveDetails({{ $sectionJs }})" placeholder="e.g. gate remotes" class="prop-input w-full">
                     </div>
+                </div>
+                {{-- Audit B31 - keys and remotes are counted HERE (the one place they are typed); what the inventory lists is shown for reference. --}}
+                <div class="col-span-full text-xs" style="color:var(--text-muted);" x-show="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).length" x-cloak data-qa="inventory-key-remote-lines">
+                    Inventory lists: <span x-text="(currentInspection({{ $sectionJs }}).inventory_key_remote_lines || []).join(', ')"></span> — count them here; this is where keys and remotes are recorded.
                 </div>
                 {{-- 2026-09-23 — was a PHP-compile-time @if($section === 'out'),
                      baked into the compiled HTML at whatever type happened
@@ -490,6 +526,17 @@
                         class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary);"
                         x-text="markAllGoodBusy ? 'Marking…' : 'All Good — whole inspection'"></button>
             </div>
+        </div>
+        {{-- Spec §58 - the "All Good" question is asked here, in the page (a native confirm() freezes the tab until answered). --}}
+        <div x-show="markAllGoodAsk" x-cloak data-qa="mark-all-good-ask" class="rounded-md px-3 py-2 flex items-center justify-between gap-3 flex-wrap"
+             style="background:var(--surface-2); border:1px solid var(--border);">
+            <span class="text-xs" style="color:var(--text-secondary);" x-text="markAllGoodQuestion()"></span>
+            <span class="flex items-center gap-2">
+                <button type="button" data-qa="mark-all-good-confirm" @click="markAllGood({{ $sectionJs }}, true)"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Yes, mark them</button>
+                <button type="button" data-qa="mark-all-good-cancel" @click="markAllGoodAsk = false"
+                        class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">Cancel</button>
+            </span>
         </div>
 
         {{-- Item 3, 2026-09-22 — bulk upload straight to the whole
@@ -1509,9 +1556,33 @@
         {{-- .prop-section clips its overflow, which makes it the (non-scrolling) scrollport a sticky child sticks inside - the bar would sit
              at the end of the page. `clip` keeps the clipping without becoming a scroll container, so the bar sticks to the tab panel. --}}
         <style>.prop-section:has([data-qa="signoff-bar"]) { overflow: clip !important; }</style>
-        <div x-data="{ signOpen: false, openedOnce: false }"
-             x-effect="if (!openedOnce && currentInspection({{ $sectionJs }}).status === 'awaiting_signature') { signOpen = true; openedOnce = true; }"
-             @signing-open.window="signOpen = true"
+        {{-- 15 Oct 2026 (Johan, AT-463): the signing drawer is CLOSED until the agent presses "Ready to sign" (or the inspection is
+             already awaiting signature when the screen loads). The agent's own open/close choice is remembered for the browser
+             session, per inspection, so a reload does not undo it; pressing "Ready to sign" always opens it. Storage is a
+             convenience only - every read/write is guarded, and with it blocked the rule above still holds. --}}
+        <div x-data="{
+                 signOpen: false, signKey: null, signStatus: null,
+                 setSignOpen(v) {
+                     this.signOpen = v;
+                     if (!this.signKey) return;
+                     try { sessionStorage.setItem('corex.signoff.' + this.signKey, v ? '1' : '0'); } catch (e) {}
+                 },
+                 syncSign(insp) {
+                     if (!insp || !insp.id) return;
+                     const awaiting = insp.status === 'awaiting_signature';
+                     if (this.signKey !== insp.id) {
+                         this.signKey = insp.id;
+                         let saved = null;
+                         try { saved = sessionStorage.getItem('corex.signoff.' + insp.id); } catch (e) {}
+                         this.signOpen = saved === '1' ? true : (saved === '0' ? false : awaiting);
+                     } else if (awaiting && this.signStatus !== null && this.signStatus !== 'awaiting_signature') {
+                         this.setSignOpen(true);
+                     }
+                     this.signStatus = insp.status;
+                 }
+             }"
+             x-effect="syncSign(currentInspection({{ $sectionJs }}))"
+             @signing-open.window="setSignOpen(true)"
              data-qa="signoff-bar" class="sticky bottom-0 rounded-md" style="z-index:30; background:var(--surface); border:1px solid var(--border); box-shadow:0 -8px 20px rgba(0,0,0,.08);">
             <div x-show="signOpen" x-cloak class="px-3 pt-2 space-y-2" style="max-height:60vh; overflow-y:auto; border-bottom:1px solid var(--border);" data-qa="signoff-drawer">
         {{-- Conductor brief 2026-09-29 — "print for signature": the same
@@ -1527,6 +1598,13 @@
                    class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); text-decoration:none;">
                     Print for signature
                 </a>
+                {{-- Audit B20 - the QR on the printout needs a live public link; creating one is a POST behind its own permission. --}}
+                @if(auth()->user()->hasPermission('rental_inspections.public_link'))
+                    <form method="POST" :action="inspectionUrls.inspectionsBase + '/' + currentInspection({{ $sectionJs }}).id + '/print-for-signature'" target="_blank" class="inline-flex ml-2" x-show="!currentInspection({{ $sectionJs }}).public_token">
+                        @csrf
+                        <button type="submit" class="text-xs font-semibold px-3 py-1.5 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);">Print with link QR</button>
+                    </form>
+                @endif
             </div>
         </template>
 
@@ -1716,6 +1794,24 @@
 
         {{-- §45.3 (Build I-1) — the checklist of items still to record, shown when Complete (or Send for
              signature) was refused because items are ungraded. Each room name jumps to that room. --}}
+        {{-- Audit B2 - the move-out checklist: warnings before an Out is completed (never a block - "Complete anyway"). --}}
+        <div x-show="completionWarnings.length" x-cloak data-qa="completion-warnings-panel" class="text-xs space-y-1 rounded-md p-2"
+             style="border:1px solid #d97706; background:color-mix(in srgb, #d97706 8%, transparent); color:var(--text-primary);">
+            <div class="font-semibold" style="color:#b45309;">Before you complete this move-out inspection</div>
+            <template x-for="w in completionWarnings" :key="w.key">
+                <div class="flex items-center justify-between gap-2">
+                    <span x-text="w.label"></span>
+                    <a x-show="w.url" :href="w.url" class="underline font-semibold whitespace-nowrap" target="_blank" rel="noopener">Open</a>
+                </div>
+            </template>
+            <div class="pt-1">
+                <button type="button" class="px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--brand-button,#0ea5e9); color:#fff;"
+                        @click="completeInspection({{ $sectionJs }}, true)" data-qa="complete-anyway">Complete anyway</button>
+                <button type="button" class="px-3 py-1.5 rounded-md text-xs font-semibold" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                        @click="completionWarnings = []">Not yet</button>
+            </div>
+        </div>
+
         <div x-show="ungradedItems.length" x-cloak data-qa="ungraded-items-panel" class="text-xs space-y-1 rounded-md p-2"
              style="border:1px solid #ef4444; background:color-mix(in srgb, #ef4444 8%, transparent); color:var(--text-primary);">
             <div class="flex items-center justify-between gap-2">
@@ -1740,7 +1836,7 @@
                               class="text-xs font-semibold px-2 py-1 rounded-md" style="background:color-mix(in srgb, #059669 14%, transparent); color:#059669;">Ready to complete</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <button type="button" @click="signOpen = !signOpen" data-qa="signoff-toggle"
+                        <button type="button" @click="setSignOpen(!signOpen)" data-qa="signoff-toggle"
                                 class="px-4 py-2 rounded-md text-sm font-semibold" style="background:var(--surface-2); color:var(--text-primary); border:1px solid var(--border);"
                                 x-text="signOpen ? 'Hide signing' : 'Signing'"></button>
                         <template x-if="!['awaiting_signature', 'completed', 'cancelled'].includes(currentInspection({{ $sectionJs }}).status)">

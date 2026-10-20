@@ -181,6 +181,8 @@ class AgencySetupWizardController extends Controller
             // /corex/settings/rental-applications (the exact incident class
             // named in agency-onboarding-setup.md §6.1).
             'leases' => [
+                // Audit fix A4/A27 (2026-10-19): the live list of this agency's own people for the approver pickers (`user_multiselect`).
+                'agencyUsers' => \App\Models\User::where('agency_id', $agency->id)->where('is_active', true)->orderBy('name')->get(['id', 'name', 'email']),
                 // The "Tenant Profile Network Consent" SECTION LABEL (from the
                 // SUBMISSION_FIELD_SECTIONS constant, unchanged) is renamed here
                 // to the agency's own configured bureau — same technique
@@ -702,6 +704,10 @@ class AgencySetupWizardController extends Controller
                     'tenant_notice_period_days' => LeaseSetting::tenantNoticePeriodDaysFor($agency->id),
                     'cpa_early_cancel_business_days' => LeaseSetting::cpaEarlyCancelBusinessDaysFor($agency->id),
                     'breach_remedy_business_days' => LeaseSetting::breachRemedyBusinessDaysFor($agency->id),
+                    'breach_remedy_day_basis' => LeaseSetting::breachRemedyDayBasisFor($agency->id),
+                    'vacate_time' => LeaseSetting::vacateTimeFor($agency->id),
+                    'vacate_notice_days' => LeaseSetting::vacateNoticeDaysFor($agency->id),
+                    'payment_proof_email' => LeaseSetting::paymentProofEmailSettingFor($agency->id) ?? '',
                     // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
                     'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
                     'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),
@@ -717,6 +723,7 @@ class AgencySetupWizardController extends Controller
                     'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agency->id),
                     'auto_readvertise_on_notice' => LeaseSetting::autoReadvertiseOnNoticeFor($agency->id),
                     'auto_restore_status_on_lease_ended' => LeaseSetting::autoRestoreStatusOnLeaseEndedFor($agency->id),
+                    'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agency->id),
                     'auto_restore_status_on_lease_cancelled' => LeaseSetting::autoRestoreStatusOnLeaseCancelledFor($agency->id),
                     default => $control['default'] ?? null,
                 },
@@ -743,6 +750,8 @@ class AgencySetupWizardController extends Controller
                     'default_parts_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultPartsMarkupPercentFor($agency->id),
                     'default_labour_markup_percent' => \App\Models\RentalWorkOrderSetting::defaultLabourMarkupPercentFor($agency->id),
                     'quote_estimate_term' => \App\Models\RentalWorkOrderSetting::quoteEstimateTermFor($agency->id),
+                    'catalogue_default_markup_type' => \App\Models\RentalWorkOrderSetting::catalogueMarkupTypeFor($agency->id),
+                    'catalogue_default_markup_value' => \App\Models\RentalWorkOrderSetting::catalogueMarkupValueFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
                     'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
@@ -778,8 +787,7 @@ class AgencySetupWizardController extends Controller
                     'crew_link_show_tenant_contact' => \App\Models\RentalPortalSetting::crewLinkShowTenantContactFor($agency->id),
                     'notify_landlord_on_crew_completion' => \App\Models\RentalPortalSetting::notifyLandlordOnCrewCompletionFor($agency->id),
                     'crew_photos_visible_to_clients' => \App\Models\RentalPortalSetting::crewPhotosVisibleToClientsFor($agency->id),
-                    'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysFor($agency->id),
-                    'crew_page_recent_completed_days' => \App\Models\RentalPortalSetting::crewPageRecentCompletedDaysFor($agency->id),
+                    'crew_standing_link_expiry_days' => \App\Models\RentalPortalSetting::crewStandingLinkExpiryDaysSettingFor($agency->id),
                     'crew_page_upcoming_days' => \App\Models\RentalPortalSetting::crewPageUpcomingDaysFor($agency->id),
                     // rental-portal-access.md §22 — fault photos and the Home FAQ wording (each needs its own explicit arm, §6.2).
                     'fault_photo_max_count' => \App\Models\RentalPortalSetting::faultPhotoMaxCountFor($agency->id),
@@ -787,6 +795,16 @@ class AgencySetupWizardController extends Controller
                     'tenant_sees_agent_marks' => \App\Models\RentalPortalSetting::tenantSeesAgentMarksFor($agency->id),
                     'crew_link_auto_send_on_fault_job' => \App\Models\RentalPortalSetting::crewLinkAutoSendOnFaultJobFor($agency->id),
                     'fault_recurrence_window_days' => \App\Models\RentalPortalSetting::faultRecurrenceWindowDaysFor($agency->id),
+                    'portal_remember_days' => \App\Models\RentalPortalSetting::portalRememberDaysFor($agency->id),
+                    'portal_app_token_days' => \App\Models\RentalPortalSetting::portalAppTokenDaysFor($agency->id),
+                    'portal_api_per_minute' => \App\Models\RentalPortalSetting::portalApiPerMinuteFor($agency->id),
+                    'portal_photo_link_minutes' => \App\Models\RentalPortalSetting::portalPhotoLinkMinutesFor($agency->id),
+                    'portal_link_days' => \App\Models\RentalPortalSetting::portalLinkDaysFor($agency->id),
+                    'owner_reminder_hours' => \App\Models\RentalPortalSetting::ownerReminderHoursFor($agency->id),
+                    'owner_second_reminder_hours' => \App\Models\RentalPortalSetting::ownerSecondReminderHoursFor($agency->id),
+                    'owner_queue_after_hours' => \App\Models\RentalPortalSetting::ownerQueueAfterHoursFor($agency->id),
+                    'link_renew_on_use' => \App\Models\RentalPortalSetting::linkRenewOnUseFor($agency->id),
+                    'quote_max_amount' => \App\Models\RentalPortalSetting::quoteMaxAmountFor($agency->id),
                     'faq_tenant_notice_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_question'),
                     'faq_tenant_notice_answer' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_notice_answer'),
                     'faq_tenant_early_question' => \App\Models\RentalPortalSetting::faqTextFor($agency->id, 'faq_tenant_early_question'),
@@ -805,7 +823,9 @@ class AgencySetupWizardController extends Controller
                     'fault_report_window_days' => \App\Models\RentalInspectionSetting::faultReportWindowDaysFor($agency->id),
                     'out_inspection_signing_window_days' => \App\Models\RentalInspectionSetting::signingWindowDaysFor($agency->id),
                     'public_link_expiry_days' => \App\Models\RentalInspectionSetting::publicLinkExpiryDaysFor($agency->id),
+                    'photo_link_minutes' => \App\Models\RentalInspectionSetting::photoLinkMinutesFor($agency->id),
                     'signing_link_enabled' => \App\Models\RentalInspectionSetting::signingLinkEnabledFor($agency->id),
+                    'record_deduction_amounts' => \App\Models\RentalInspectionSetting::recordDeductionAmountsFor($agency->id),
                     'signing_link_expiry_days' => \App\Models\RentalInspectionSetting::signingLinkExpiryDaysFor($agency->id),
                     // §52 — the walk's rules and the reminder lead.
                     'signing_reminder_lead_days' => \App\Models\RentalInspectionSetting::signingReminderLeadDaysFor($agency->id),
@@ -823,6 +843,10 @@ class AgencySetupWizardController extends Controller
                     'require_notes_blocks_progression' => \App\Models\RentalInspectionSetting::requireNotesBlocksProgressionFor($agency->id),
                     'all_items_required_to_complete' => \App\Models\RentalInspectionSetting::allItemsRequiredToCompleteFor($agency->id),
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
+                    'omr_unsure_below' => \App\Models\RentalInspectionSetting::omrUnsureBelowFor($agency->id),
+                    'note_read_min_confidence' => \App\Models\RentalInspectionSetting::noteReadMinConfidenceFor($agency->id),
+                    'form_paper_size' => \App\Models\RentalInspectionSetting::formPaperSizeFor($agency->id),
+                    'form_safe_margin_mm' => \App\Models\RentalInspectionSetting::formSafeMarginMmFor($agency->id),
                     // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.
                     'notify_tenant_enabled' => \App\Models\RentalInspectionSetting::notifyTenantFor($agency->id),
                     'notify_landlord_enabled' => \App\Models\RentalInspectionSetting::notifyLandlordFor($agency->id),

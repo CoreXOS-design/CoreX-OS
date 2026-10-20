@@ -172,13 +172,14 @@ trait BuildsSigningFixture
             'party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG,
         ])->assertStatus(201);
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG,
+            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
         ])->assertStatus(201);
     }
 
     protected function complete(RentalInspection $inspection): void
     {
-        $this->postJson(route('corex.rental-inspections.complete', $inspection))->assertOk();
+        // audit B2: an Out shows warnings first; these fixtures are about something else, so they acknowledge them
+        $this->postJson(route('corex.rental-inspections.complete', $inspection), ['acknowledge_warnings' => 1])->assertOk();
     }
 
     protected function photoOn(RentalInspection $inspection): RentalInspectionPhoto

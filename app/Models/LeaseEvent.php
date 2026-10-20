@@ -73,6 +73,13 @@ class LeaseEvent extends Model
     public const TYPE_NOTICE_TERMS_CHANGED = 'lease_notice_terms_changed';
     /** leases.md §18.5 — an existing lease's notice terms filled from the agency defaults by `leases:backfill-notice-terms` (reversible). */
     public const TYPE_NOTICE_TERMS_BACKFILLED = 'lease_notice_terms_backfilled';
+    /** Audit A26 (2026-10-19) - the lease went active but the property's status could not be set to a "let" status for this agency. */
+    public const TYPE_PROPERTY_STATUS_NOT_UPDATED = 'property_status_not_updated';
+    /** Audit A1 (2026-10-19) - an agent deliberately activated a draft lease with no signed agreement behind it. */
+    public const TYPE_ACTIVATED_WITHOUT_AGREEMENT = 'activated_without_agreement';
+    /** Audit A1 (2026-10-19) - a signed paper copy was attached to a lease captured earlier as "lease only". */
+    public const TYPE_SIGNED_COPY_ATTACHED_LATER = 'signed_copy_attached_later';
+
     /** leases.md §18.7 — an agent confirmed the notice terms against the signed lease (who, when). */
     public const TYPE_NOTICE_TERMS_CONFIRMED = 'lease_notice_terms_confirmed';
 

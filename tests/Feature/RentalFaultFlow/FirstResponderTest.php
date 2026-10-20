@@ -300,8 +300,9 @@ final class FirstResponderTest extends TestCase
         $fault = $this->fault();
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->assertOk()->getContent();
-        $this->assertStringContainsString('data-first-look-block', $html);
-        $this->assertStringContainsString('First to look at this:', $html);
+        // section 28.1 (19 Oct 2026): the "First to look at this: X" sentence is gone - it repeated the pre-ticked row of the picker just under it
+        $this->assertStringNotContainsString('data-first-look-block', $html);
+        $this->assertStringNotContainsString('First to look at this:', $html);
         $this->assertStringContainsString('Pieter the caretaker', $html);
         $this->assertStringContainsString('Caretaker / complex manager', $html);
         // the shared block (cc4's partial) writes the first button's name in the browser, from the map it is given: the name is in that map, both buttons are there
@@ -309,8 +310,8 @@ final class FirstResponderTest extends TestCase
         $this->assertStringContainsString('Send to owner to authorise', $html);
         $this->assertSame(1, preg_match_all('/data-inspect-choice/', $html), 'ONE shared two-button block');
         $this->assertSame(1, preg_match_all('/data-send-to-inspect/', $html));
-        $this->assertSame(1, preg_match_all('/data-send-to-owner-to-authorise/', $html));
-        $this->assertStringContainsString(e("Owner's handyman (Owner's own maintenance team)"), $html); // "Then: ..."
+        $this->assertSame(1, preg_match_all('/\sdata-send-to-owner-to-authorise(?=[\s>])/', $html), 'the bar only POINTS at the button (data-wo-click); there is one real button');
+        $this->assertStringContainsString(e("Owner's handyman"), $html); // the second first-responder is a row of the picker
         // the two buttons are the same size: the same utility classes on both
         $this->assertSame(2, preg_match_all('/class="corex-btn-(?:primary|outline) text-xs w-full"[^>]*data-(?:send-to-inspect|send-to-owner-to-authorise)/', $html));
         $this->assertStringContainsString('decision-one-form', $html, 'section 22: the buttons act through Decision 1 (cc5\'s seam is replaced)');
@@ -320,11 +321,12 @@ final class FirstResponderTest extends TestCase
     {
         $fault = $this->fault();
         $html = $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent();
-        $this->assertStringNotContainsString('data-first-look-block', $html, 'the "First to look at this" line needs a first responder');
+        $this->assertStringNotContainsString('data-first-look-block', $html);
         $this->assertStringContainsString('data-decision-one', $html, 'but the agent can always pick who goes to look');
 
+        // a first responder is pre-ticked in the picker (no separate sentence any more)
         $this->svc()->save($this->property, [$this->row($this->caretaker)], $this->agent);
-        $this->assertStringContainsString('data-first-look-block', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
+        $this->assertStringContainsString('Pieter the caretaker', $this->actingAs($this->agent)->get(route('corex.rental-fault-reports.show', $fault))->getContent());
 
         // sent to the owner and waiting: Decision 1 stays (record their answer; send someone at no cost to them)
         $fault->forceFill(['status' => RentalFaultReport::STATUS_AWAITING_APPROVAL, 'owner_approval_status' => RentalFaultReport::APPROVAL_PENDING, 'sent_to_owner_at' => now()])->save();

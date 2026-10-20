@@ -38,6 +38,10 @@ Schedule::command('webinars:send-reminders')->hourly()->withoutOverlapping();
 // also flagged as overdue.
 Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverlapping();
 
+// .ai/specs/rental-notices.md §7b (AT-462) — a breach notice's remedy-by date has been reached and the breach is still open: tell the
+// lease's agents once ("was it fixed?"). The lease screen's Next bar asks the same question live.
+Schedule::command('breaches:check-remedy-dates')->dailyAt('06:15')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 
@@ -373,6 +377,8 @@ Schedule::command('notifications:scan-deals')->everyThirtyMinutes()->withoutOver
 Schedule::command('notifications:scan-rental-work-orders')->everyThirtyMinutes()->withoutOverlapping();
 // .ai/specs/rental-work-orders.md §17.10.8 (BUILD 3) — silence = accepted: a tenant completion check nobody answered inside its window is settled daily.
 Schedule::command('rentals:settle-completion-rounds')->daily()->withoutOverlapping();
+// Audit C-A1 (19 Oct 2026) - an owner who has not answered a fault is reminded twice, then the fault goes on the agent's queue; every timing is an agency setting.
+Schedule::command('rentals:chase-owner-decisions')->everyThirtyMinutes()->withoutOverlapping();
 // Contact birthdays are no longer scanned per-contact — they are delivered as a
 // single "Birthdays today" section in the 06:30 daily digest below (one email
 // per user, never one email per birthday). See SendCalendarDigests.

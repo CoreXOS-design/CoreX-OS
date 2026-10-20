@@ -9,51 +9,37 @@ namespace App\Support;
  * one-line fit at 1366/1536 (Johan, 2026-10-05 round 2) stays true no
  * matter which of the three files gets touched next.
  *
- * Column order, fixed: Item, Description, Type, Unit, Qty, [Cost,] Unit price
- * (the SELLING price), VAT, [Margin,] (blank for the +/archive action).
- * Unit/Qty/Unit price/VAT only exist at all when $pricesOn; VAT only when the
- * agency is $vatRegistered on top of that. Cost and Margin (§17.4.5) exist only
- * when $showCost — the viewer holds `rental_job_cards.view_costs` — and are then
- * absent from the markup entirely for everyone else (server-side, not CSS).
+ * Column order, fixed: Description, [Qty, [Cost,] Unit price (the SELLING price), Total,] actions.
+ * Qty/Price/Total only exist at all when $pricesOn. Cost (§17.4.5) exists only when $showCost -
+ * the viewer holds `rental_job_cards.view_costs` - and is then absent from the markup entirely
+ * for everyone else (server-side, not CSS). Item, Type, Unit, VAT and Margin are not columns
+ * (19 Oct 2026): a saved line shows them in a small line under the description.
  */
 class RentalJobCardLineGrid
 {
-    /** @return array<int, string> grid-template-columns track list */
+    /**
+     * The MAIN row's tracks: Description, [Qty,] [Cost,] [Selling, Total,] actions.
+     *
+     * 19 Oct 2026 (Johan, QA1): the old ten-column grid (Item, Description, Type, Unit, Qty, Cost, Selling, VAT, Margin, actions)
+     * needed ~980px and scrolled sideways on a laptop. The low-value columns (item code, type, unit, VAT, margin) now sit in a small
+     * line UNDER the description on a saved line, and in a second row of fields (see pickColumns()) on the add / edit row, so the
+     * main row is only what the office reads and types every time: Description, Qty, Cost, Selling and the line Total. Every money
+     * track is still wide enough for R99,999.99 (66px of text + 18px padding). Description takes every spare pixel.
+     *
+     * @return array<int, string> grid-template-columns track list
+     */
     public static function columns(bool $pricesOn, bool $vatRegistered, bool $showCost = false): array
     {
-        // Item capped lower (100px, not 130px) and Description given a real
-        // floor (70px, not 0) — 2026-10-05 round 3 (Johan browser check at
-        // 1366px): with the old minmax(0,1fr) Description had NO floor, so
-        // at 1366 the grid's auto-sizing gave it ~18px (effectively
-        // invisible/unusable) once Type/Unit/Qty/Price/VAT's fixed widths
-        // ate the row. Those fixed columns are also trimmed here (still
-        // comfortably wide enough for their longest realistic value) so the
-        // combined floor-respecting budget fits inside the ~604px actually
-        // available at 1366px alongside the crew/sign-off right panel.
-        // §17.4.5 — with Cost and Margin added the row would be ~76 px wider than the 1366 px left panel (measured in a real
-        // browser on QA1), so the cost-viewing grid uses a COMPACT set of widths and a 4 px gap: every figure still fits on one
-        // line at 1366, and a value too wide for its column is truncated with its full text in the tooltip, as it always was.
-        if ($showCost && $pricesOn) {
-            $cols = ['minmax(0,70px)', 'minmax(60px,1fr)', '72px', '52px', '44px', '62px', '70px'];
-            if ($vatRegistered) {
-                $cols[] = '66px';
-            }
-            $cols[] = '62px'; // Margin
-            $cols[] = '28px';
-
-            return $cols;
-        }
-
-        $cols = ['minmax(0,100px)', 'minmax(70px,1fr)', '90px'];
+        $cols = ['minmax(120px,1fr)'];
         if ($pricesOn) {
-            $cols[] = '64px';
-            $cols[] = '50px';
-            $cols[] = '84px';
-            if ($vatRegistered) {
-                $cols[] = '84px';
+            $cols[] = '56px';  // Qty
+            if ($showCost) {
+                $cols[] = '88px'; // Cost
             }
+            $cols[] = '88px';  // Selling
+            $cols[] = '92px';  // Total
         }
-        $cols[] = '36px';
+        $cols[] = '40px';      // end-of-row controls (edit, archive)
 
         return $cols;
     }
@@ -62,38 +48,71 @@ class RentalJobCardLineGrid
     {
         $cols = implode(' ', self::columns($pricesOn, $vatRegistered, $showCost));
 
-        $gap = $showCost && $pricesOn ? '4px' : '6px';
+        $gap = '6px';
 
         return "display:grid; grid-template-columns: {$cols}; gap: {$gap}; align-items:center; min-width:0;";
+    }
+
+    /**
+     * The add / edit row's FIRST line - the fields that do not earn a column of their own: the item picker, Type, [Unit,] [VAT type].
+     * Item takes the spare width; the rest are fixed. (Not used on a saved line - there they are the small line under the description.)
+     *
+     * @return array<int, string>
+     */
+    public static function pickColumns(bool $pricesOn, bool $vatRegistered): array
+    {
+        $cols = ['minmax(130px,1fr)', '104px'];
+        if ($pricesOn) {
+            $cols[] = '84px';       // Unit
+            if ($vatRegistered) {
+                $cols[] = '104px';  // VAT type
+            }
+        }
+
+        return $cols;
+    }
+
+    public static function pickGridStyle(bool $pricesOn, bool $vatRegistered): string
+    {
+        $cols = implode(' ', self::pickColumns($pricesOn, $vatRegistered));
+
+        return "display:grid; grid-template-columns: {$cols}; gap: 6px; align-items:center; min-width:0; margin-bottom:6px;";
     }
 
     /** Every control inside a row track also needs min-width:0 explicitly — a <select>'s own intrinsic min-content width (driven by its longest option text) otherwise forces the track wider than assigned regardless of the track size itself (every grid item defaults to min-width:auto). The actual fix for the one-line-fit, not the column widths alone. */
     public static function fieldStyle(): string
     {
-        return 'border: 1px solid var(--border); min-width:0;';
+        // one control height for every input / select in the row (AT-466)
+        return 'border: 1px solid var(--border); min-width:0; height:30px; box-sizing:border-box;';
     }
 
-    /** The header row's own labels, in the same fixed order as columns() -- callers slice this to match whichever optional columns are actually rendered. */
+    /** The header row's own labels, in the same fixed order as columns() - one per track. */
     public static function labels(bool $pricesOn, bool $vatRegistered, bool $showCost = false): array
     {
-        $labels = ['Item', 'Description', 'Type'];
+        $labels = ['Description'];
         if ($pricesOn) {
-            $labels[] = 'Unit';
             $labels[] = 'Qty';
             if ($showCost) {
                 $labels[] = 'Cost';
             }
             $labels[] = $showCost ? 'Selling' : 'Unit price';
-            if ($vatRegistered) {
-                $labels[] = 'VAT';
-            }
-            if ($showCost) {
-                $labels[] = 'Margin';
-            }
+            $labels[] = 'Total';
         }
         $labels[] = '';
 
         return $labels;
+    }
+
+    /** AT-466 - the money / count columns: their header label, saved value and input are all right-aligned. */
+    public static function isNumericLabel(string $label): bool
+    {
+        return in_array($label, ['Qty', 'Cost', 'Selling', 'Unit price', 'Total'], true);
+    }
+
+    /** AT-466 - right-aligned input text for the amount boxes (same 9px inset as cellStyle(), on the right). */
+    public static function amountFieldStyle(): string
+    {
+        return self::fieldStyle() . ' text-align:right; font-variant-numeric: tabular-nums;';
     }
 
     /**

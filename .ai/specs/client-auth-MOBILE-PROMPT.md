@@ -10,7 +10,9 @@
 
 Add a brand-new **Client side** to the CoreX mobile app, alongside the existing User/Agent side. Clients (buyers/sellers/tenants/landlords stored as `Contact` rows in CoreX) sign in with their email, get one OTP for activation, set a password, and from then on log in with email + password. Once signed in they see their **Core Matches** for the agency they pick.
 
-Backend base URL: `https://corex.hfcoastal.co.za`. Spec on the web side: `.ai/specs/client-auth.md`.
+Backend base URL: `https://corexos.co.za`. Spec on the web side: `.ai/specs/client-auth.md`.
+
+> Base URL is configurable per environment (QA1/Staging/live) and must never be hard-coded in the app - read it from build config.
 
 ### Login screen redesign
 

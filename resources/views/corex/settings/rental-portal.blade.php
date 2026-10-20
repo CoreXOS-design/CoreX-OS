@@ -119,7 +119,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                     <input type="hidden" name="crew_link_show_tenant_contact" value="0">
                     <input type="checkbox" name="crew_link_show_tenant_contact" value="1" onchange="this.form.submit()" @checked($crewLinkShowTenantContact)>
-                    Show the tenant's name and phone to the crew
+                    Show the tenant's name and phone to the crew and contractors
                 </label>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-link-auto-send-on-fault-job') }}">
@@ -135,7 +135,7 @@
                 <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
                     <input type="hidden" name="notify_landlord_on_crew_completion" value="0">
                     <input type="checkbox" name="notify_landlord_on_crew_completion" value="1" onchange="this.form.submit()" @checked($notifyLandlordOnCrewCompletion)>
-                    Email the landlord when the crew marks the work completed
+                    Email the owner as soon as the work is reported finished (crew or contractor)
                 </label>
             </form>
         </div>
@@ -183,10 +183,10 @@
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-standing-link-expiry-days') }}" class="space-y-2">
                 @csrf
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew page link lasts (days)</label>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Crew home link lasts (days)</label>
                 <input type="number" name="crew_standing_link_expiry_days" value="{{ old('crew_standing_link_expiry_days', $crewStandingLinkExpiryDays) }}"
-                       min="1" max="365" placeholder="No expiry" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                <p class="text-xs" style="color: var(--text-muted);">Leave blank and a crew's page link keeps working until you revoke or regenerate it (the default). Fill it in to make every new crew link stop after that many days.</p>
+                       min="0" max="365" placeholder="{{ $defaultCrewStandingLinkExpiryDays }}" class="w-full max-w-[140px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Each crew has one home link that lists all its jobs. A new link stops working after this many days (the standard is {{ $defaultCrewStandingLinkExpiryDays }}); enter 0 to keep every new link until you revoke or regenerate it. Links already out keep the date they were made with.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-upcoming-days') }}" class="space-y-2">
@@ -197,12 +197,53 @@
                 <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageUpcomingDays }} days. Jobs booked further ahead than this are not on the crew page yet, and their parts are not in the &ldquo;what to load&rdquo; list.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
-            <form method="POST" action="{{ route('corex.settings.rental-portal.crew-page-recent-completed-days') }}" class="space-y-2">
+        </div>
+    </div>
+
+    {{-- Sign-in and security (audit 2026-10-19). --}}
+    <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; overflow:hidden;">
+        <div class="px-5 py-3" style="border-bottom:1px solid var(--border); background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 5%, transparent);">
+            <h3 class="text-sm font-bold" style="color:var(--text-primary);">Portal sign-in and security</h3>
+        </div>
+        <div class="p-5 space-y-5">
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-remember-days') }}" class="space-y-2">
                 @csrf
-                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Show completed jobs on the crew page for (days)</label>
-                <input type="number" name="crew_page_recent_completed_days" value="{{ old('crew_page_recent_completed_days', $crewPageRecentCompletedDays) }}"
-                       min="0" max="30" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                <p class="text-xs" style="color: var(--text-muted);">Default is {{ $defaultCrewPageRecentCompletedDays }} days. A finished job stays listed (read-only) for this long. Set 0 to hide the list.</p>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Remember a sign-in on a browser (days)</label>
+                <input type="number" name="portal_remember_days" value="{{ old('portal_remember_days', $portalRememberDays) }}"
+                       min="1" max="30" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">After a tenant or owner signs in on a browser, that browser opens their portal again without a password for this many days. Counted from the real sign-in, so using the portal does not extend it. Default 7.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-app-token-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Phone app stays signed in (days)</label>
+                <input type="number" name="portal_app_token_days" value="{{ old('portal_app_token_days', $portalAppTokenDays) }}"
+                       min="1" max="90" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The phone app signs a person out after this many days without being used. Each use renews it. Default 30.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-api-per-minute') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Portal requests per minute</label>
+                <input type="number" name="portal_api_per_minute" value="{{ old('portal_api_per_minute', $portalApiPerMinute) }}"
+                       min="30" max="1000" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The most requests one signed-in tenant or owner can make in a minute, in total across the portal and the phone app. It protects the system from a runaway page or a script. Default 120.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-photo-link-minutes') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Picture links last (minutes)</label>
+                <input type="number" name="portal_photo_link_minutes" value="{{ old('portal_photo_link_minutes', $portalPhotoLinkMinutes) }}"
+                       min="5" max="1440" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">Pictures in the portal are shown through links that stop working after this long and the moment the report is archived. The portal fetches fresh links every time a page loads. Default 120.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.portal-link-days') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Email links stay recognised (days)</label>
+                <input type="number" name="portal_link_days" value="{{ old('portal_link_days', $portalLinkDays) }}"
+                       min="1" max="365" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">The personal link in a portal email carries a sealed reference that pre-fills the sign-in and shows your agency&rsquo;s header. After this many days the link still opens the portal, but the person simply signs in as normal. Default 60.</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
         </div>
@@ -236,6 +277,31 @@
                 <input type="number" name="fault_recurrence_window_days" value="{{ old('fault_recurrence_window_days', $faultRecurrenceWindowDays) }}"
                        min="1" max="730" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                 <p class="text-xs" style="color: var(--text-muted);">When a tenant fixes a fault themselves and the same kind of fault is reported again on that property within this many days, the agent and the owner are shown &ldquo;Reported before &hellip; the tenant resolved it then&rdquo;. Default 90.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            {{-- Audit fixes 19 Oct 2026 (spec section 29): chasing an owner who has not answered, link renewal, the largest quote --}}
+            @foreach([['owner-reminder-hours', 'owner_reminder_hours', $ownerReminderHours, 'First reminder to the owner (hours with no answer)', 'When a fault has been with the owner this many hours and they have not answered, they are sent a reminder.'], ['owner-second-reminder-hours', 'owner_second_reminder_hours', $ownerSecondReminderHours, 'Second reminder (hours after the first)', 'If there is still no answer this many hours after the first reminder, they are reminded once more.'], ['owner-queue-after-hours', 'owner_queue_after_hours', $ownerQueueAfterHours, 'Put it on my queue (hours after the second reminder)', 'After this many more hours the fault shows on the Command Centre as "owner has not answered", for an agent to phone them.']] as [$route, $field, $val, $label, $help])
+            <form method="POST" action="{{ route('corex.settings.rental-portal.' . $route) }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">{{ $label }}</label>
+                <input type="number" name="{{ $field }}" value="{{ old($field, $val) }}" min="1" max="720" required class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">{{ $help }}</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            @endforeach
+            <form method="POST" action="{{ route('corex.settings.rental-portal.link-renew-on-use') }}" class="space-y-2">
+                @csrf
+                <label class="flex items-center gap-2 text-sm" style="color: var(--text-primary);">
+                    <input type="checkbox" name="link_renew_on_use" value="1" @checked($linkRenewOnUse)> Contractor and crew links renew each time they are used
+                </label>
+                <p class="text-xs" style="color: var(--text-muted);">A job that runs longer than the link's life (parts on order) keeps working as long as the contractor or crew keep using it.</p>
+                <button type="submit" class="corex-btn-primary text-xs">Save</button>
+            </form>
+            <form method="POST" action="{{ route('corex.settings.rental-portal.quote-max-amount') }}" class="space-y-2">
+                @csrf
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Largest quote a contractor may enter (R)</label>
+                <input type="number" name="quote_max_amount" value="{{ old('quote_max_amount', $quoteMaxAmount) }}" min="1" max="99999999" required class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                <p class="text-xs" style="color: var(--text-muted);">A quote of R0, or above this, is refused on the contractor's link (it is usually a typing slip).</p>
                 <button type="submit" class="corex-btn-primary text-xs">Save</button>
             </form>
             <form method="POST" action="{{ route('corex.settings.rental-portal.tenant-sees-agent-marks') }}" class="space-y-2">

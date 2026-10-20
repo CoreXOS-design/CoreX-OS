@@ -118,7 +118,7 @@ trait BuildsPricingFixtures
     {
         $ctx = $this->crewCtx($card);
         $line = $this->crewDraft($card, $data, $ctx);
-        app(CrewJobService::class)->sendToOffice($card, $ctx);
+        app(CrewJobService::class)->sendToOffice($card, $ctx, 'Found a fault; needs parts.');
 
         return $line->fresh();
     }

@@ -44,6 +44,70 @@
 
     <div x-show="lifecycleError" x-cloak class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 10%, transparent); color: var(--ds-crimson);" x-text="lifecycleError"></div>
 
+    {{-- Audit 2026-10-19 B5 - the MOVE-OUT check: completing it, and who signed it off. --}}
+    @php
+        $moveOutState = $inventory->moveOutSignOffState();
+        $missingMoveOut = $inventory->isMoveOutCompleted() ? collect() : $inventory->linesWithoutMoveOutFinding();
+    @endphp
+    <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);" data-qa="move-out-check">
+        @if(session('success'))
+            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); color: var(--ds-green);">{{ session('success') }}</div>
+        @endif
+        @if($errors->has('move_out'))
+            <div class="text-xs p-2 rounded" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); color: var(--ds-crimson);" data-qa="move-out-error">{{ $errors->first('move_out') }}</div>
+        @endif
+        <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+                <h2 class="text-sm font-semibold">Move-out check</h2>
+                @if($inventory->isMoveOutCompleted())
+                    <p class="text-xs" style="color: var(--text-muted);" data-qa="move-out-completed">Completed {{ $inventory->move_out_completed_at->format('j M Y H:i') }}. {{ $moveOutState['signed_off'] ? 'Signed off by everyone.' : 'Waiting for sign-off.' }}</p>
+                @else
+                    <p class="text-xs" style="color: var(--text-muted);">Every item needs a finding ("present" counts) before the check can be completed. {{ $missingMoveOut->count() }} still to record.</p>
+                @endif
+            </div>
+            @if(!$inventory->isMoveOutCompleted())
+                @permission('rental_inventories.create')
+                    <form method="POST" action="{{ route('corex.rental-inventories.move-out.complete', $inventory) }}">
+                        @csrf
+                        <button type="submit" class="corex-btn-primary text-xs" data-qa="move-out-complete" @disabled($missingMoveOut->isNotEmpty())>Complete move-out check</button>
+                    </form>
+                @endpermission
+            @endif
+        </div>
+
+        @if($inventory->isMoveOutCompleted())
+            <div class="space-y-2" data-qa="move-out-signoffs">
+                @foreach($moveOutState['parties'] as $party)
+                    <div class="flex items-start justify-between gap-3 flex-wrap text-sm" style="border-top: 1px solid var(--border); padding-top: .5rem;">
+                        <div>
+                            <div class="font-medium">{{ $party['role'] === 'agent' ? 'Agent' : ucfirst($party['role']) }}@if($party['role'] !== 'agent') — {{ $party['name'] }}@endif</div>
+                            @if($party['sign_off'])
+                                <div class="text-xs" style="color: var(--text-muted);">
+                                    {{ $party['sign_off']->disposition === 'signed' ? 'Signed' : 'Refused' }} by {{ $party['sign_off']->signed_name }} · {{ $party['sign_off']->recorded_at->format('j M Y H:i') }}
+                                    @if($party['sign_off']->refusal_reason) — {{ $party['sign_off']->refusal_reason }} @endif
+                                </div>
+                            @endif
+                        </div>
+                        @permission('rental_inventories.create')
+                            <form method="POST" action="{{ route('corex.rental-inventories.move-out.sign-off', $inventory) }}" class="flex flex-wrap items-center gap-2">
+                                @csrf
+                                <input type="hidden" name="party_role" value="{{ $party['role'] }}">
+                                @if($party['contact_id'])<input type="hidden" name="party_contact_id" value="{{ $party['contact_id'] }}">@endif
+                                <input type="text" name="signed_name" required maxlength="191" value="{{ $party['sign_off']->signed_name ?? ($party['role'] === 'agent' ? auth()->user()->name : $party['name']) }}" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);" placeholder="Name">
+                                <select name="disposition" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);">
+                                    <option value="signed">Signed</option>
+                                    @if($party['role'] !== 'agent')<option value="refused">Refused to sign</option>@endif
+                                </select>
+                                @if($party['role'] !== 'agent')<input type="text" name="refusal_reason" maxlength="500" class="text-xs rounded px-2 py-1" style="border: 1px solid var(--border);" placeholder="Reason, if refused">@endif
+                                <button type="submit" class="corex-btn-outline text-xs">{{ $party['sign_off'] ? 'Replace' : 'Record' }}</button>
+                            </form>
+                        @endpermission
+                    </div>
+                @endforeach
+            </div>
+        @endif
+    </div>
+
     <div class="rounded-md" style="background: var(--surface); border: 1px solid var(--border); overflow:hidden;">
         @forelse($rows as $row)
             @php
@@ -174,6 +238,26 @@
                                            @change="uploadMoveOutPhoto({{ $row['line_id'] }}, $event.target.files); $event.target.value=''">
                                 </label>
                                 @endpermission
+                                {{-- Audit 2026-10-19 B32 - one photo set per room: the room was already photographed in the move-out inspection,
+                                     so use that photo here rather than photographing it again. --}}
+                                @permission('rental_inventories.create')
+                                @permission('rental_inspections.view')
+                                <button type="button" class="text-xs font-semibold mt-1 inline-flex items-center gap-1 px-2 py-1 rounded-md" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border);"
+                                        @click="openInspectionPhotos({{ $row['line_id'] }})">
+                                    <span>From the move-out inspection</span>
+                                </button>
+                                <div x-show="pickerLine === {{ $row['line_id'] }}" x-cloak class="pt-1">
+                                    <div class="flex items-center gap-1 flex-wrap">
+                                        <template x-for="p in pickerPhotos" :key="p.id">
+                                            <button type="button" @click="useInspectionPhoto({{ $row['line_id'] }}, p)" :title="p.taken_caption_short">
+                                                <img :src="p.storage_path" alt="Inspection photo" class="rounded-md object-cover" style="width:44px; height:44px; border:1px solid var(--border);">
+                                            </button>
+                                        </template>
+                                    </div>
+                                    <p x-show="pickerLoaded && !pickerPhotos.length" x-cloak class="text-xs pt-1" style="color: var(--text-muted);">The move-out inspection has no photo of this room that is not already used here.</p>
+                                </div>
+                                @endpermission
+                                @endpermission
                             </div>
                         </div>
                     </div>
@@ -217,6 +301,10 @@ function rentalInventoryComparison(inventoryId) {
         // §14 — "that is the view an agent hands a tenant."
         onlyDifferences: false,
         photoBusy: {},
+        // Audit B32 - the move-out inspection's photos of a line's room, offered as that line's evidence.
+        pickerLine: null,
+        pickerPhotos: [],
+        pickerLoaded: false,
         field(lineId) { return this.forms[lineId] || (this.forms[lineId] = { disposition_key: '', quantity_found: null, notes: '' }); },
         openFor(lineId) { this.activeLine = this.activeLine === lineId ? null : lineId; },
         async save(lineId) {
@@ -242,6 +330,30 @@ function rentalInventoryComparison(inventoryId) {
         // warning) reflect reality immediately — the SAME pattern save()
         // above already uses on this exact page, not a second mechanism
         // built for photos specifically.
+        async openInspectionPhotos(lineId) {
+            if (this.pickerLine === lineId) { this.pickerLine = null; return; }
+            this.pickerLine = lineId;
+            this.pickerPhotos = [];
+            this.pickerLoaded = false;
+            this.lifecycleError = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/lines/${lineId}/move-out-inspection-photos`, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Could not load the inspection photos (${res.status}).`); }
+                this.pickerPhotos = (await res.json()).photos || [];
+            } catch (e) { this.lifecycleError = e.message; }
+            this.pickerLoaded = true;
+        },
+        async useInspectionPhoto(lineId, photo) {
+            this.lifecycleError = '';
+            try {
+                const res = await fetch(`${this.baseUrl}/lines/${lineId}/move-out-inspection-photos/${photo.id}`, {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': this.csrf, 'Accept': 'application/json' },
+                });
+                if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.message || `Request failed (${res.status}).`); }
+                window.location.reload();
+            } catch (e) { this.lifecycleError = e.message; }
+        },
         async uploadMoveOutPhoto(lineId, files) {
             const fileList = Array.from(files || []);
             if (!fileList.length) return;

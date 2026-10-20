@@ -80,6 +80,30 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Minutes an inspection or inventory photo link stays live</label>
+                    <input type="number" name="photo_link_minutes" value="{{ old('photo_link_minutes', $photoLinkMinutes) }}"
+                           min="5" max="10080"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is {{ $defaultPhotoLinkMinutes }} minutes. Inspection and inventory photos are private: every picture on screen
+                        (and on the public report) is shown through a link that stops working after this long, so a copied picture
+                        address does not stay live. Reload the page to get fresh ones.
+                    </p>
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="record_deduction_amounts" value="0">
+                        <input type="checkbox" name="record_deduction_amounts" value="1" @checked(old('record_deduction_amounts', $recordDeductionAmounts))>
+                        Record deduction amounts
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Off (the default): money is not tracked in CoreX - your accounting system handles it. Charging something to the tenant at the
+                        move-out inspection needs no amount, and the lease's "Move-out charges" card lists the charged items only (no totals, no deposit figure).
+                        On: each charge to the tenant carries an amount, and the lease shows the total recorded and the deposit held (the money itself is still
+                        settled in your accounting system).
+                    </p>
+                </div>
+                <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="signing_link_enabled" value="0">
                         <input type="checkbox" name="signing_link_enabled" value="1" @checked(old('signing_link_enabled', $signingLinkEnabled))>
@@ -165,14 +189,61 @@
                     </p>
                 </div>
                 <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Paper for the printed site form</label>
+                    <select name="form_paper_size" class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="form-paper-size">
+                        @foreach($formPaperSizeOptions as $key => $label)
+                            <option value="{{ $key }}" @selected(old('form_paper_size', $formPaperSize) === $key)>{{ $label }}</option>
+                        @endforeach
+                    </select>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        The paper size the "Print site form" button lays the inspection form out for. A4 is the
+                        default. Change it only if your office prints on US Letter. A form already printed on the
+                        old size is no longer accepted when scanned back in once this changes; print a fresh one.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Printed site form: safe margin (mm)</label>
+                    <input type="number" name="form_safe_margin_mm" value="{{ old('form_safe_margin_mm', $formSafeMarginMm) }}"
+                           min="{{ \App\Models\RentalInspectionSetting::MIN_FORM_SAFE_MARGIN_MM }}" max="{{ \App\Models\RentalInspectionSetting::MAX_FORM_SAFE_MARGIN_MM }}" step="1"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" data-qa="form-safe-margin">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 15. How far in from every edge of the paper the "Print site form" button keeps
+                        everything - the corner marks, the QR code, the rows and the tick boxes. A copier or scanner
+                        clips the outer few millimetres of a sheet; the larger this is, the more clipping a scan
+                        survives (and the smaller the printed form). A form printed with a different margin still
+                        scans back in.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned-form tick-box sensitivity</label>
                     <input type="number" name="omr_mark_threshold" value="{{ old('omr_mark_threshold', $omrMarkThreshold) }}"
-                           min="0.05" max="0.95" step="0.05"
+                           min="0.01" max="0.5" step="0.01"
                            class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
                     <p class="text-xs mt-2" style="color: var(--text-muted);">
-                        Default is 0.35. The share of a tick box that must be dark before a scanned paper
-                        inspection form reads it as marked. Lower it for faint or light scans; raise it if
-                        stray marks are being read as ticks.
+                        Default is 0.04. The share of the inside of a tick box that must carry ink before a
+                        scanned paper inspection form reads it as ticked (a hand tick covers about 5 to 20 percent
+                        of a box). Lower it for faint pens or light scans; raise it if stray specks are being read
+                        as ticks.
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned form: ticks to check below this confidence</label>
+                    <input type="number" name="omr_unsure_below" value="{{ old('omr_unsure_below', $omrUnsureBelow) }}"
+                           min="0.1" max="0.95" step="0.05"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 0.50 (0 to 1). A tick read from a scanned form with less confidence than this is
+                        shown as "to check" and the agent must confirm it; two ticked boxes are always "to check".
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned form: handwritten notes to type in below this confidence</label>
+                    <input type="number" name="note_read_min_confidence" value="{{ old('note_read_min_confidence', $noteReadMinConfidence) }}"
+                           min="0.1" max="0.95" step="0.05"
+                           class="w-full max-w-[160px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Default is 0.50 (0 to 1). A handwritten note read from a scanned form with less confidence than
+                        this is not filled in; the agent is told to type it in.
                     </p>
                 </div>
             </div>

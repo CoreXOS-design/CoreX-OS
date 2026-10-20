@@ -92,6 +92,13 @@ class RentalFaultReportController extends Controller
         } else {
             $query->orderBy("rental_fault_reports.{$sort}", $direction);
         }
+        // section 6.5 (C-C2): an OPEN emergency-type fault sorts above routine ones whatever the column sort (the type's urgency is the agency's own catalogue setting)
+        $query->reorder()->orderByRaw("(rental_fault_reports.status NOT IN ('resolved','cancelled','declined') AND EXISTS (SELECT 1 FROM rental_fault_types ft WHERE ft.id = rental_fault_reports.rental_fault_type_id AND ft.urgency = 'emergency')) DESC");
+        if ($sort === 'property') {
+            $query->orderBy('properties.title', $direction);
+        } else {
+            $query->orderBy("rental_fault_reports.{$sort}", $direction);
+        }
 
         $hasAnyFaultReports = RentalFaultReport::query()
             ->when($showArchived, fn ($q) => $q->onlyTrashed())
@@ -166,7 +173,7 @@ class RentalFaultReportController extends Controller
         $query = RentalFaultReport::query()
             ->when($onlyArchived, fn ($q) => $q->onlyTrashed())
             ->visibleTo($user, $request->get('scope'))
-            ->with(['property', 'lease.tenants.contact', 'createdByUser']);
+            ->with(['property', 'lease.tenants.contact', 'createdByUser', 'faultType']);
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
@@ -378,6 +385,12 @@ class RentalFaultReportController extends Controller
         $agencyId = $request->user()->effectiveAgencyId();
         $propertyId = $request->input('property_id');
 
+        // AT-452 - "Other - not on the list" is the form's last choice: no catalogue type, the report is marked Other until the agent re-classifies it.
+        $isOther = $request->input('rental_fault_type_id') === 'other';
+        if ($isOther) {
+            $request->merge(['rental_fault_type_id' => null]);
+        }
+
         $validated = $request->validate([
             'property_id' => ['required', 'exists:properties,id'],
             // Lease / inspection item must belong to THIS property (audit L2).
@@ -417,6 +430,9 @@ class RentalFaultReportController extends Controller
 
         $attributes = $validated;
         unset($attributes['property_id']);
+        if ($isOther) {
+            $attributes['fault_type_other'] = true;
+        }
 
         // §3.2a — every row is agent-captured today; the reporter (contact/
         // user) is a separate fact from who typed it in.
@@ -446,8 +462,26 @@ class RentalFaultReportController extends Controller
         ]);
 
         $contractors = app(\App\Services\Rentals\RentalFaultContractorService::class)->optionsFor($rentalFaultReport);
+        $user = $request->user();
+        $authSvc = app(\App\Services\Rentals\RentalAuthorisationService::class);
+        $holdSvc = app(\App\Services\Rentals\RentalOwnerHoldService::class);
+        $inspectBlock = app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true);
+        $recordBlock = $authSvc->recordBlockReason($rentalFaultReport);
+        $ownerHold = $holdSvc->activeFor($rentalFaultReport);
+        $ownerQueries = $holdSvc->queriesFor($rentalFaultReport);
+        // section 28 - the stage strip, the Returned | Next bar and each folded panel's one-line summary: one pure read
+        $screen = app(\App\Services\Rentals\RentalFaultScreen::class)->build($rentalFaultReport, [
+            'can' => [
+                'send_to_owner' => $user->hasPermission('rental_fault_reports.send_to_owner'),
+                'record_approval' => $user->hasPermission('rental_fault_reports.record_approval'),
+                'raise_work_order' => $user->hasPermission('rental_fault_reports.raise_work_order'),
+            ],
+            'inspectBlock' => $inspectBlock, 'recordBlock' => $recordBlock, 'ownerHold' => $ownerHold, 'ownerQueries' => $ownerQueries,
+            'canOpenWorkOrder' => $user->hasFeature('rental-work-orders'),
+        ]);
 
         return view('corex.rental-fault-reports.show', [
+            'screen' => $screen,
             'faultReport' => $rentalFaultReport,
             // AT-452 - the viewer's photo list (marks + notes for staff) and who may edit them.
             'viewerPhotos' => app(RentalFaultPhotoAnnotationService::class)->payload(
@@ -476,14 +510,14 @@ class RentalFaultReportController extends Controller
             'inspectNotices' => app(\App\Services\Rentals\FaultInspectionService::class)->noticeMapFor(
                 $rentalFaultReport, app(\App\Services\Rentals\RentalFaultContractorService::class)->pickerFor($rentalFaultReport)
             ),
-            'inspectBlock' => app(\App\Services\Rentals\FaultInspectionService::class)->blockReason($rentalFaultReport, true),
+            'inspectBlock' => $inspectBlock,
             'authorisations' => app(\App\Services\Rentals\RentalAuthorisationService::class)->rowsFor($rentalFaultReport),
             'authorityOwners' => app(\App\Services\Rentals\RentalAuthorisationService::class)->ownersFor($rentalFaultReport),
-            'recordBlock' => app(\App\Services\Rentals\RentalAuthorisationService::class)->recordBlockReason($rentalFaultReport),
+            'recordBlock' => $recordBlock,
             // section 22.7 - PAUSED BY OWNER, every stop / resume so far, and the owner's questions with the agents' answers
-            'ownerHold' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->activeFor($rentalFaultReport),
-            'ownerHolds' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->historyFor($rentalFaultReport),
-            'ownerQueries' => app(\App\Services\Rentals\RentalOwnerHoldService::class)->queriesFor($rentalFaultReport),
+            'ownerHold' => $ownerHold,
+            'ownerHolds' => $holdSvc->historyFor($rentalFaultReport),
+            'ownerQueries' => $ownerQueries,
         ]);
     }
 
@@ -530,6 +564,31 @@ class RentalFaultReportController extends Controller
     }
 
     /**
+     * AT-452 - an "Other" fault is re-classified by the agent to a proper type of the agency's own catalogue. The tenant's words stay exactly as
+     * they wrote them; only the type changes, and the change is written to the history (who, from what, to what). Not once the fault is closed.
+     */
+    public function reclassify(Request $request, RentalFaultReport $rentalFaultReport): RedirectResponse
+    {
+        $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
+        abort_unless($rentalFaultReport->isOtherType(), 409, 'Only a fault marked "Other" is re-classified here.');
+        abort_if($rentalFaultReport->isClosedState(), 409, 'This fault is closed.');
+
+        $validated = $request->validate([
+            'rental_fault_type_id' => ['required', \Illuminate\Validation\Rule::exists('rental_fault_types', 'id')->where('agency_id', $request->user()->effectiveAgencyId())->whereNull('deleted_at')->where('is_active', true)],
+        ]);
+        $type = \App\Models\RentalFaultType::findOrFail($validated['rental_fault_type_id']);
+
+        $rentalFaultReport->update(['rental_fault_type_id' => $type->id, 'fault_type_other' => false]);
+        $rentalFaultReport->recordHistory(
+            RentalFaultReportUpdate::TYPE_TYPE_CHANGED,
+            $request->user(),
+            'Type changed from "Other" to "' . $type->name . '".'
+        );
+
+        return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Type changed to ' . $type->name . '.');
+    }
+
+    /**
      * §3a.1 — purely a status marker, no evidence. See
      * RentalFaultReport::requestApproval()'s own note on why this is
      * optional, not a required gate before recordApproval() below.
@@ -545,10 +604,11 @@ class RentalFaultReportController extends Controller
 
         // AT-452 item 9 - no active contractor covers this type of work: sending stays allowed (the page asks "Send without a contractor for
         // <type>?" in its own dialog, which posts send_without_contractor=1), and the decision is written to the history either way.
-        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);
+        $noContractor = ! app(RentalFaultContractorService::class)->hasContractorFor($rentalFaultReport);   // never true for an "Other" fault: the agent picks the contractor when sending
 
+        // section 29 (C-C3) - ONE way to the owner: this old endpoint is the "Send to owner to authorise" action with nobody proposed, through the same service (same gates, same history).
         try {
-            $rentalFaultReport->requestApproval($request->user());
+            app(\App\Services\Rentals\FaultInspectionService::class)->sendToOwnerToAuthorise($rentalFaultReport, $request->user(), []);
         } catch (\LogicException $e) {
             return back()->withErrors(['rental_fault_report' => $e->getMessage()]);
         }
@@ -572,13 +632,7 @@ class RentalFaultReportController extends Controller
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
-        $validated = $request->validate([
-            'owner_title' => ['required', 'string', 'max:191'],
-            'owner_description' => ['nullable', 'string', 'max:5000'],
-            'owner_agent_note' => ['nullable', 'string', 'max:3000'],
-            'owner_photo_ids' => ['nullable', 'array'],
-            'owner_photo_ids.*' => ['integer'],
-        ]);
+        $validated = $request->validate(RentalFaultReport::OWNER_VERSION_RULES);
 
         try {
             $rentalFaultReport->saveOwnerVersion($validated, $request->user());
@@ -586,13 +640,7 @@ class RentalFaultReportController extends Controller
             return back()->withErrors(['rental_fault_report' => $e->getMessage()])->withInput();
         }
 
-        // "Save and send" posts send_now=1: same two steps, one click, and the send step keeps its own permission.
-        if ($request->boolean('send_now')) {
-            abort_unless($request->user()->hasPermission('rental_fault_reports.send_to_owner'), 403);
-
-            return $this->requestApproval($request, $rentalFaultReport->fresh());
-        }
-
+        // section 29 (C-C3): there is no "save and send" - Save only saves; the one way to the owner is "Send to owner to authorise".
         return redirect()->route('corex.rental-fault-reports.show', $rentalFaultReport)->with('success', 'Owner version saved. Nothing has been sent to the owner yet.');
     }
 
@@ -798,8 +846,8 @@ class RentalFaultReportController extends Controller
     {
         $this->guardRentalRecordScope($rentalFaultReport, 'rental_fault_reports', $rentalFaultReport->property?->branch_id);
 
-        if (!$rentalFaultReport->isDeletable()) {
-            return back()->withErrors(['rental_fault_report' => 'This fault report has photos or a linked work order and cannot be deleted — cancel it instead.']);
+        if ($reason = $rentalFaultReport->archiveBlockReason()) {
+            return back()->withErrors(['rental_fault_report' => $reason]);
         }
 
         $rentalFaultReport->archive($request->user());

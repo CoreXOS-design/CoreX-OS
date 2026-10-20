@@ -19,6 +19,7 @@ class RentalOwnerFinalStatementMail extends RentalMaintenanceMail
         string $pdfFilename,
         public ?string $emergencyBanner = null,
         ?User $agent = null,
+        public ?string $rulingLine = null,   // audit C-F2: set when this is the UPDATED statement sent after a Who-pays ruling
     ) {
         $this->pdfContents = $pdfContents;
         $this->pdfFilename = $pdfFilename;
@@ -34,7 +35,7 @@ class RentalOwnerFinalStatementMail extends RentalMaintenanceMail
 
     protected function subjectText(): string
     {
-        return 'Work completed — final statement — ' . $this->address();
+        return ($this->rulingLine ? 'Updated final statement — who pays ruled — ' : 'Work completed — final statement — ') . $this->address();
     }
 
     protected function viewName(): string
@@ -49,6 +50,7 @@ class RentalOwnerFinalStatementMail extends RentalMaintenanceMail
             'title' => $this->workOrder->title,
             'amount' => $this->workOrder->cost_amount !== null ? number_format((float) $this->workOrder->cost_amount, 2) : null,
             'emergencyBanner' => $this->emergencyBanner,
+            'rulingLine' => $this->rulingLine,
         ];
     }
 }

@@ -620,10 +620,19 @@ see §12 for what was built 2026-09-22.
 
 ## 12. The printable OMR tick-box form (built 2026-09-22) — part 1 of a two-part job
 
+> **Changed 15 Oct 2026 (AT-463, full account in `rental-inspections.md` §60).** The form now also carries: a **QR code on every page**
+> (bottom-centre; `CXI1|inspection|page|pages|version`) beside the corner marks and the bit-grid of §12.5 - §12.2's "no QR library" is
+> superseded (`endroid/qr-code` was already a dependency; the form's QR is generated locally); a running **row number** per item
+> (`row_no` on every manifest box); a header with meter / furnished / keys / remotes fields; items **already recorded on screen printed
+> as light grey boxes** (render-time only - same version, never read as ink); and an **agency paper size** (A4 default, US Letter;
+> `manifest.page_size.key/width_pt/height_pt` - the page is no longer a constant). `LAYOUT_VERSION` 2 / `MANIFEST_VERSION` 2: the
+> manifest gains `layout_version` and `qr_codes[]`. Rows stop `QR_BOTTOM_RESERVE` (72 pt) above the bottom edge.
+
 Johan's requirement, verbatim in substance: an agent downloads a physical form, takes it to the
 property, marks it in wet ink, gets it signed, scans it back in. **"We read the form back by OMR —
 COLUMN MARKING ONLY. We do NOT read handwriting, ever. Free written text can be retyped, or the scanned
-copy stays on file."** Every item gets a row; condition ratings sit in tick-box COLUMNS on the right.
+copy stays on file."** **[REVERSED for the notes column - Johan, 20 Oct 2026, §13.14: the handwritten note on each row is now read by AI and
+pre-fills the note box on the review screen; the agent confirms or edits it. The tick columns stay OMR.]** Every item gets a row; condition ratings sit in tick-box COLUMNS on the right.
 A separate lane builds the scan reader against exactly what this section specifies — this build's output
 contract matters as much as the form itself, so it is stated here in full, not left implicit in code.
 
@@ -850,11 +859,24 @@ plus the download route and its cross-agency 404.
 
 ## 13. The OMR scan reader — part 2 of the two-part job (built 2026-09-22)
 
+> **Changed 15 Oct 2026 (AT-463, `rental-inspections.md` §60).** §13.2's pipeline is now: load the inspection's current form first (its manifest
+> gives paper size, corner marks, QR position); per uploaded page, find the corner marks, narrow orientation to two candidates, then decode the
+> **QR on a straightened crop** under each (exactly one decodes - that is the orientation AND the inspection/page/version), falling back to the
+> OMR bit-grid when the QR cannot be read; refuse the whole upload if any page names another inspection; place each page by its OWN page number
+> (not file order); name missing pages; propose nothing for a row already recorded on screen unless ticked differently; flag low-confidence
+> rows (< 1.5 x the tick-box sensitivity) and leave them blank. §13.8's "one PDF or one image per upload" is superseded: a multi-page PDF is read
+> page by page (the 22 Sep code read a multi-page PDF as its last page repeated - fixed). `rental_inspection_scans.read_notes` holds the notes.
+
+> **Changed 19 Oct 2026 (AT-463, `rental-inspections.md` §62).** The corner marks are now found with a dither-tolerant matched filter, any two to four place the page (the QR alone if fewer), every row is located from its own printed boxes (a scanner stretches a page 1-2 %), ink is measured inside the box at a default sensitivity of 0.04 (a hand tick is 5-20 % of a box, not 35 %), each page gets a plain-words result, and `rental-inspections:reread-scan` re-reads a stored scan. Where this section's thresholds (0.35 etc.) differ, §62 governs.
+
+> **Changed 19 Oct 2026 (AT-463, `rental-inspections.md` §63).** The printed form is laid out inside a safe area (agency setting, default 15 mm): corner marks and QR at the margin, content inset 24 pt from the marks, vertical pitches scaled so no row is dropped (layout version 3, manifest `safe_margin_mm`); the reader reads each page against the layout it was printed with (earlier forms still scan back), takes the page-identifier grid from that layout's manifest, fits the row lattice to the nearest lattice only, and proposes nothing from a page on which fewer than half the rows could be found.
+
 Built against §12's manifest exactly as specified — no geometry re-derived from
 `RentalInspectionFormPdfService`'s layout code. Johan, restated: **"we read the form back by OMR —
-COLUMN MARKING ONLY. We do NOT read handwriting, ever."** This service never runs OCR and never samples
-outside a rectangle the manifest names — it is structurally incapable of reading the notes columns,
-because it only ever looks at `boxes[]` and `page_identifiers[].bits[]` positions.
+COLUMN MARKING ONLY. We do NOT read handwriting, ever."** **[REVERSED for the notes column - Johan, 20 Oct 2026, §13.14. The tick
+read below is unchanged: it never runs OCR and never samples outside a rectangle the manifest names - it only ever looks at `boxes[]` and
+`page_identifiers[].bits[]` positions. The handwriting is read by a SEPARATE step, `RentalInspectionNoteReadService`, which crops the note area
+of each row and sends it to the AI gateway; it never touches the tick columns.]**
 
 ### 13.1 One additive change to cc5's own file
 
@@ -984,7 +1006,7 @@ route group's own `.view` gate — matching cancel/destroy vs form/show's existi
   §8's promotion-flow note) — a queued job would be genuinely untestable on the first environment Johan
   actually looks at. A few pages' rasterize-and-sample pass is a few seconds' work, well within a normal
   request.
-- **Partial apply is allowed.** An agent can confirm some rows on the review screen and leave the rest for
+- **Partial apply is allowed.** *(On the review screen this is superseded by §13.16 - Apply waits until every open row has a condition; the server still accepts a partial post.)* An agent can confirm some rows on the review screen and leave the rest for
   a later visit; the scan's own status only flips to `applied` once every mark on it has an
   `applied_observation_id`.
 - **No multi-match/multi-page reconciliation UI beyond the plain per-scan review screen** — if an agent
@@ -1021,8 +1043,8 @@ No browser harness, no dev server (Standard −1s) — a file-level PHPUnit test
 
 ### 13.10 Found, not built here
 
-- OCR/handwriting reading of the free-text notes column — explicitly and permanently out of scope, per
-  Johan's own instruction, not a deferred item.
+- ~~OCR/handwriting reading of the free-text notes column — explicitly and permanently out of scope, per
+  Johan's own instruction, not a deferred item.~~ **Reversed - Johan, 20 Oct 2026; built as §13.14.**
 - A UI to reconcile two independent scans of the same physical page (§13.8).
 - Queued/background processing, should QA ever gain a queue worker.
 
@@ -1115,3 +1137,102 @@ expensive place to discover a missing extension; checking first is not.
 - `app/Models/RentalInspectionSetting.php` (`omr_mark_threshold` column support added)
 - `app/Services/Rentals/RentalInspectionFormPdfService.php` (`pageIdentifierGridLayout()` added — §13.1)
 - `tests/Feature/RentalInspections/RentalInspectionScanReaderServiceTest.php`
+
+### 13.14 The review screen takes notes and photos; the AI reads the handwritten note (AT-472, 20 Oct 2026; Johan's rulings R1-R3; QA1 only)
+
+**R1 - the handwriting ruling is reversed (Johan, 20 Oct 2026).** The AI reads the handwritten note on each row and pre-fills the note box on the
+review screen; the agent confirms or edits it. This supersedes the "we do NOT read handwriting, ever" lines in §12/§13 (marked above) and the
+"permanently out of scope" line in §13.10.
+
+- **Data.** `rental_inspection_scan_marks.detected_note` (text, null = nothing legible / not read) and `detected_note_confidence` (0-1, like
+  `detected_confidence`). Migration `2026_11_24_120000`. A detected note is never a recorded note: only what the agent confirms reaches the
+  inspection, as an ordinary observation's `notes`.
+- **The read step** (`RentalInspectionNoteReadService`, called from `RentalInspectionScanReaderService::process()` after the tick read):
+  it crops each row's note area - from the end of the row's last tick box to the right edge of the page (the writing overflows the printed box),
+  with the corner marks, the QR and the page-identifier grid whited out - and only a crop with ink in it (dark share >= 0.015, measured on a real
+  Ricoh scan: writing 0.047-0.10, empty rows <= 0.015) is sent anywhere. Sent through `AnthropicGateway::generateMany()`: Haiku first, then Sonnet
+  for any answer below 0.80 confidence. Every call is on the AI usage ledger (`AiUsageRecorder`) as `image_analysis`. Only rows with a proposed
+  mark are read (a row that matches what is already recorded has no mark). An AI that is off, paused, failing or unreadable never fails the scan:
+  the marks simply carry no detected note.
+- **Release switch.** `services.anthropic.inspection_note_reading` (env `RENTAL_INSPECTION_NOTE_READING`), default OFF. While off no scan upload makes
+  an AI call. Johan turns it on when the Anthropic key is good. (A platform release switch, not an agency setting - no wizard entry, §10a.)
+- **Tested with a canned answer.** The test binds a fake `RentalInspectionNoteReadService`; the gateway path is tested against `Http::fake`.
+
+**R2 - the agent can change the condition on every row.** The condition dropdown is on every row, including rows the reader flagged "no clear
+mark" (two boxes ticked) and rows already applied (the import got it wrong). An applied row is corrected by a NEW observation (observations stay
+append-only); the same condition and note again records nothing.
+
+**R3 - notes and photos save as they are captured, not on Apply.** Per row, on the review screen (`corex-scan-review.js`, plain DOM):
+- the **note** posts to the capture screen's own `POST /observations` (`storeObservation`) 800 ms after the last keystroke, with one
+  `client_idempotency_key` per save; the **photos** post to `storePhotos` through `corex-photo-batch-uploader.js` (one key per file), tagged to the item.
+  No new route, no new endpoint: the existing `rental_inspections.create` gate and `guardRentalRecordScope` apply unchanged.
+- the row shows what is already there: the recorded condition and note, and the item's photos (private, signed links).
+- **No placeholder observations.** A row with no condition has its note and photo controls closed; picking a condition opens them. A photo on a row
+  whose picked condition is not the recorded one first records that condition (with the note typed so far); a condition that needs a note refuses
+  to record without one, exactly as the capture endpoint does.
+- The note box starts on the AI-read note when the row has one (else the recorded note). Apply posts `notes[markId]` with `condition_keys[markId]`,
+  so an AI pre-filled note the agent never touched is saved on Apply - the agent saw it and pressed Apply.
+- **"Damaged needs a note" on Apply** (the gap closed): `apply()` refuses a row whose condition needs a note (`conditionRequiresNotesFor`, the
+  agency's own vocabulary) when its note is blank, with the same rule `storeObservation` uses; the other rows of the page still apply.
+- **Safe repeats.** `apply()` carries an `apply_key`; each mark's observation gets a key derived from it, so the same press sent twice replays instead
+  of recording twice. `applyMark($mark, $key, $user, $source, $notes, $replayKey)` records nothing new when the item's latest recorded observation
+  already holds the same condition and note (the note box has been saving as it is typed) - the mark is just linked to it.
+- **Signed or completed = read-only.** `assertContentEditable()` (the guard `apply()` and the capture endpoints use) decides: the screen then shows
+  every row's condition, note and photos with no controls, no script and no Apply button.
+
+Files: `RentalInspectionNoteReadService.php`, `RentalInspectionScanReaderService.php` (read hook, `readHandwrittenNotes()`, `applyMark()`),
+`RentalInspectionScanController.php` (`review()`, `apply()`), `scan-review.blade.php`, `public/js/corex-scan-review.js`,
+`RentalInspectionScanMark.php`, `config/services.php`, migration `2026_11_24_120000`, `RentalInspectionScanReviewNotesPhotosTest.php` (16).
+
+### 13.15 Review of scan #25 (inspection #173): three tick states, the note always visible, the unreadable note (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan counted 7 notes on the review screen where the page held 9. Cause: a note on a row with no condition picked (Floors, two boxes ticked) sat inside the
+row's closed controls, so the AI-read note was hidden. On scan #25's data exactly one noted row was hidden that way (Floors); the second row he could not
+see could not be identified from the data. Rulings and what was built:
+
+- **A detected note is ALWAYS visible**, whatever the row's condition. Only SAVING waits for a condition: the photo controls still open when a condition is
+  picked (nothing is recorded without one), and a note the agent typed while no condition was picked is saved the moment one is. An untouched AI note
+  waits for Apply, as before. The note box starts on the note already recorded when there is one (never overwritten), else on the AI-read note.
+- **"Read from scan (95%)"** (existing `ds-badge-info`) marks an AI-read note sitting on the box; the agent's first edit removes it, and a note
+  already recorded is never marked. This replaces the small "Note read (87%)" text.
+- **Unreadable note.** A note area that had handwriting in it (`note_ink`, set by the reader while the AI read is on, dark share >= 0.015) but has no
+  usable reading - an empty AI answer, or a confidence under `note_read_min_confidence` - says **"Couldn't read the handwritten note. Type it in."** at
+  the note box (amber), and a reading under the line is not filled in.
+- **Three tick states per row** (`RentalInspectionScanMark::tickState()`), each an existing CoreX badge: **Read** with confidence (`ds-badge-success`,
+  "Read: Fair (100%)"), **Check** - picked up but unsure: two boxes, a faint tick, or confidence under `omr_unsure_below` (`ds-badge-warning`, "Check: two
+  boxes ticked" / "Check: read Fair (35%)" / "Check: unclear"), and **Not picked up** - nothing over the sensitivity on the row (`ds-badge-danger`). Check and Not
+  picked up start with the condition select blank: the agent must confirm or set it. `scan_marks.tick_boxes` (how many boxes read as marked) tells "two
+  boxes" from "nothing"; a mark read before the column existed is told apart by its confidence (under 0.4 = nothing picked up, because confidence =
+  strongest box / (2.5 x sensitivity)).
+- **One count line** on top replaces the old summary paragraph and the "Only conditions wait for Apply" sentence: "X read, Y to check, Z not picked up"
+  (rows still to apply). No other helper text.
+- **Two new agency settings** (read-time defaults, on Settings -> Rental Inspections AND in the Setup Wizard Rentals step, §10a): `omr_unsure_below` (default
+  0.50 - the constant the reader and the screen used to hard-code) and `note_read_min_confidence` (default 0.50). Migration
+  `2026_11_24_130000` (those two columns, `tick_boxes`, `note_ink`).
+- A scan read before this change has no `note_ink`: its rows show no "couldn't read" message until it is re-read.
+
+Files: `RentalInspectionScanMark.php`, `RentalInspectionSetting.php`, `RentalInspectionScanReaderService.php`, `RentalInspectionScanController.php`,
+`scan-review.blade.php`, `corex-scan-review.js`, `RentalInspectionSettingsController.php`, `settings/rental-inspections.blade.php`,
+`AgencySetupWizardController.php`, `config/agency-onboarding-copy.php`, migration `2026_11_24_130000`; tests in `RentalInspectionScanReviewNotesPhotosTest`
+(24), `RentalInspectionSiteFormTest`, `RentalsStepRuledInSettingsTest`.
+
+### 13.16 The review screen's sticky header: actions, live status, blockers, error links (AT-472, 20 Oct 2026; Johan; QA1 only)
+
+Johan's rule: the response and the next action come first and stay visible. The review screen has ONE sticky header (`position: sticky; top: 0`) holding, in
+order: the server's response (success / refusals), the title, the process actions - **Open original**, **Back to inspection** and **Apply proposed marks**
+(the three the same size, `corex-btn-outline text-xs`, one aligned row) - and the status line. **Nothing sits at the bottom of the page**; the old bottom Apply
+button is gone.
+
+- **Live status line:** the count "X read, Y to check, Z not picked up" (a row the agent has set counts as read) and what still blocks Apply, both
+  recomputed in the browser as rows are fixed - no reload (`corex-scan-review.js`, `refreshStatus()`). The server renders the same line on load.
+- **Blockers:** an open row with no condition ("2 rows need a condition"); a condition that needs a note (the agency's own vocabulary, `data-notes-required`)
+  with none ("1 Damaged row needs a note", one blocker per condition).
+- **Every blocker and every error is a link.** A blocker is a "next" link that steps through its rows (each press goes to the next offending row, then wraps);
+  it scrolls to the row (`id="scan-row-{mark}"`), focuses its control (the condition select, or the note box for a note blocker) and outlines the row briefly. After
+  Apply, each server refusal is flashed as `scan_refused` (mark id, what to focus, text) and shown in the header as a link to its row; `errors.scan` keeps the plain
+  sentence for anything else (e.g. the inspection is locked).
+- **Apply is disabled, with the reason shown** (the blockers beside it), while any blocker remains; the form also refuses to submit disabled. The server's own
+  rules (`apply()` skips blank rows, refuses a note-needing condition with no note) are unchanged.
+- Files: `scan-review.blade.php` (header, `$rowView` closure shared by the header's blockers and the rows), `corex-scan-review.js`,
+  `RentalInspectionScanController.php` (`notesRequiredKeys`, `scan_refused`), `RentalInspectionScanReviewNotesPhotosTest` (4 new tests).
+

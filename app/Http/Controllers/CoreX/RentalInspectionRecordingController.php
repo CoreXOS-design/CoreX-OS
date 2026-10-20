@@ -19,7 +19,7 @@ use App\Models\RentalInspectionSetting;
 use App\Models\RentalInspectionSignature;
 use App\Models\User;
 use App\Services\Distribution\SignedDocumentDistributionService;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageStore;
 use App\Services\RentalInspectionPhotoAutoPairService;
 use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
@@ -662,13 +662,35 @@ class RentalInspectionRecordingController extends Controller
                 RentalInspectionObservation::SOURCE_AD_HOC,
             ])],
             'client_idempotency_key' => ['nullable', 'uuid'],
+            // Audit B8 - the app's own capture time (ISO-8601). Deliberately NOT format-validated: a malformed value is absorbed (no claim),
+            // never a 422 on evidence - see RentalInspectionPhotoCaptureTime::clientTime().
+            'captured_at' => ['nullable'],
         ]);
+
+        // Audit B15 - a retry with a key already stored is a REPLAY: answer with the row that is there (also after the inspection has since
+        // closed), never a second row and never a unique-violation 500.
+        if (($validated['client_idempotency_key'] ?? null) && ($replay = $this->observationReplay($rentalInspection, $validated['client_idempotency_key']))) {
+            return $replay;
+        }
+
+        // Audit B11 - a RETIRED item takes no new observation (spec 3.3: retired = a new one can no longer be recorded against it).
+        if (RentalInspectionItem::where('id', $validated['rental_inspection_item_id'])->where('is_retired', true)->exists()) {
+            return response()->json(['message' => 'That checklist item has been retired - nothing new can be recorded against it.'], 422);
+        }
+
+        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
+        $capturedAt = $captureTime->clientTime($this->scalarOrNull($validated['captured_at'] ?? null), ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id]);
 
         // Audit H1 — the one carve-out: a tenant fault report is legitimately
         // filed AFTER an in-inspection completes, inside its fault-report window.
+        $late = false;
         if (! $this->isTenantFaultReportInWindow($rentalInspection, $validated['source'])
             && ($refused = $this->refuseIfNotRecordable($rentalInspection))) {
-            return $refused;
+            // Audit B9 (spec 14.4 case 4) - offline evidence captured BEFORE the report was signed / completed is stored, flagged, not refused.
+            if (! $rentalInspection->acceptsLateEvidence($capturedAt)) {
+                return $refused;
+            }
+            $late = true;
         }
 
         // §0.3 — a state that needs a reason (per the agency's OWN
@@ -678,13 +700,44 @@ class RentalInspectionRecordingController extends Controller
             return response()->json(['message' => 'Notes are required for this condition.'], 422);
         }
 
-        $observation = RentalInspectionObservation::record(array_merge($validated, [
+        $attributes = array_merge(\Illuminate\Support\Arr::except($validated, ['captured_at']), [
             'agency_id' => $rentalInspection->agency_id,
             'rental_inspection_id' => $rentalInspection->id,
             'observed_by_user_id' => $request->user()->id,
-        ]));
+        ]);
+        if ($capturedAt !== null) {
+            // Audit B8 - `created_at` IS the captured time (ordering and discrepancy detection read it); `received_at` keeps when it arrived.
+            $attributes['created_at'] = $capturedAt;
+            $attributes['received_at'] = now();
+        }
+
+        if ($late) {
+            // Evidence on file for a report that is already signed / completed: never the item's current condition, so no discrepancy detection.
+            $observation = RentalInspectionObservation::create($attributes + ['added_after_signing_at' => now(), 'received_at' => $attributes['received_at'] ?? now()]);
+
+            return response()->json($observation->load('item')->toArray() + [
+                'added_after_signing' => true,
+                'message' => 'Recorded, but this inspection was already ' . ($rentalInspection->status === RentalInspection::STATUS_COMPLETED ? 'completed' : 'signed') . ' - it is on file as added after signing.',
+            ], 201);
+        }
+
+        $observation = RentalInspectionObservation::record($attributes);
 
         return response()->json($observation->load('item'));
+    }
+
+    /** Audit B15 - the row a retried observation write already created, as a 200; 422 when the key belongs to another inspection. */
+    private function observationReplay(RentalInspection $rentalInspection, string $key): ?JsonResponse
+    {
+        $existing = RentalInspectionObservation::withoutGlobalScopes()->where('client_idempotency_key', $key)->first();
+        if (! $existing) {
+            return null;
+        }
+        if ((int) $existing->rental_inspection_id !== (int) $rentalInspection->id) {
+            return response()->json(['message' => 'That retry key was already used for a different inspection.'], 422);
+        }
+
+        return response()->json($existing->load('item'), 200);
     }
 
     /**
@@ -720,18 +773,41 @@ class RentalInspectionRecordingController extends Controller
             default => RentalInspectionObservation::SOURCE_AD_HOC,
         };
 
+        $validated = $request->validate(['client_idempotency_key' => ['nullable', 'uuid']]);
+
         $items = RentalInspectionItem::where('property_room_id', $room->id)->notRetired()->get();
 
-        $observations = $items->map(fn (RentalInspectionItem $item) => RentalInspectionObservation::record([
-            'agency_id' => $rentalInspection->agency_id,
-            'rental_inspection_id' => $rentalInspection->id,
-            'rental_inspection_item_id' => $item->id,
-            'observed_by_user_id' => $request->user()->id,
-            'condition' => RentalInspectionObservation::CONDITION_NA,
-            'source' => $source,
-        ])->load('item'));
+        // Audit B17 - pressing it twice (or a retried request) must not stack a second N/A on every item: an item whose latest recorded
+        // condition on THIS inspection is already N/A is left as it is, and a retry key makes each per-item write replayable.
+        $latestByItem = RentalInspectionObservation::recorded()
+            ->where('rental_inspection_id', $rentalInspection->id)
+            ->whereIn('rental_inspection_item_id', $items->pluck('id'))
+            ->orderBy('id')->get()->groupBy('rental_inspection_item_id')->map(fn ($rows) => $rows->last());
+
+        $observations = $items->map(function (RentalInspectionItem $item) use ($rentalInspection, $request, $source, $latestByItem, $validated) {
+            $current = $latestByItem->get($item->id);
+            if ($current && $current->condition === RentalInspectionObservation::CONDITION_NA) {
+                return $current->load('item');
+            }
+
+            return RentalInspectionObservation::record(array_filter([
+                'agency_id' => $rentalInspection->agency_id,
+                'rental_inspection_id' => $rentalInspection->id,
+                'rental_inspection_item_id' => $item->id,
+                'observed_by_user_id' => $request->user()->id,
+                'condition' => RentalInspectionObservation::CONDITION_NA,
+                'source' => $source,
+                'client_idempotency_key' => $this->derivedKey($validated['client_idempotency_key'] ?? null, $item->id),
+            ], fn ($v) => $v !== null))->load('item');
+        });
 
         return response()->json(['observations' => $observations->values()]);
+    }
+
+    /** Audit B17 - one stable uuid per (request key, item): a bulk write retried with the same key reproduces the same per-item keys. */
+    private function derivedKey(?string $requestKey, int $itemId): ?string
+    {
+        return $requestKey ? \Ramsey\Uuid\Uuid::uuid5($requestKey, 'item-' . $itemId)->toString() : null;
     }
 
     /**
@@ -840,14 +916,20 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeRoomNote(Request $request, RentalInspection $rentalInspection, PropertyRoom $room): JsonResponse
     {
+        abort_if($room->property_id !== $rentalInspection->property_id, 404);
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        // Audit B17 - a retried note (same key, same inspection) is answered with the row that is already there, also once the inspection closed.
+        if (($key = $request->input('client_idempotency_key')) && is_string($key)
+            && ($existing = RentalInspectionRoomNote::withoutGlobalScopes()->where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $key)->first())) {
+            return response()->json($existing, 200);
+        }
+
         if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
             return $refused;
         }
 
-        abort_if($room->property_id !== $rentalInspection->property_id, 404);
-        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
-
-        $validated = $request->validate(['note' => ['required', 'string', 'max:4000']]);
+        $validated = $request->validate(['note' => ['required', 'string', 'max:4000'], 'client_idempotency_key' => ['nullable', 'uuid']]);
 
         $note = RentalInspectionRoomNote::create([
             'agency_id' => $rentalInspection->agency_id,
@@ -855,6 +937,7 @@ class RentalInspectionRecordingController extends Controller
             'property_room_id' => $room->id,
             'note' => $validated['note'],
             'created_by_user_id' => $request->user()->id,
+            'client_idempotency_key' => $validated['client_idempotency_key'] ?? null,
         ]);
 
         return response()->json($note, 201);
@@ -883,7 +966,7 @@ class RentalInspectionRecordingController extends Controller
 
     /**
      * POST /corex/rental-inspections/{inspection}/observations/{observation}/photos
-     * — §14.5, reuses PropertyImageStorer, never a second pipeline. Kept
+     * — §14.5, stores through PrivateImageStore (audit B21: private disk, metadata stripped). Kept
      * exactly as it was (single file, one observation) for backward
      * compatibility — a future mobile caller can still use it — but the web
      * UI no longer calls it (see storePhotos() below, which the rebuilt
@@ -893,10 +976,6 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhoto(Request $request, RentalInspection $rentalInspection, RentalInspectionObservation $observation): JsonResponse
     {
-        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
-            return $refused;
-        }
-
         abort_if($observation->rental_inspection_id !== $rentalInspection->id, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
@@ -911,9 +990,12 @@ class RentalInspectionRecordingController extends Controller
 
         $clientKey = $request->input('client_idempotency_key');
         if ($clientKey) {
-            $existing = RentalInspectionPhoto::where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $clientKey)->first();
+            // Audit B15 - looked up GLOBALLY (the unique index is global, trashed rows included): our own row replays, another inspection's is a 422.
+            $existing = RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()->where('client_idempotency_key', $clientKey)->first();
             if ($existing) {
-                return response()->json($existing, 200);
+                return (int) $existing->rental_inspection_id === (int) $rentalInspection->id
+                    ? response()->json($existing, 200)
+                    : response()->json(['message' => 'That retry key was already used for a different inspection.'], 422);
             }
         }
 
@@ -924,7 +1006,16 @@ class RentalInspectionRecordingController extends Controller
             ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
         );
 
-        $url = app(PropertyImageStorer::class)->store($request->file('photo'), $rentalInspection->property_id);
+        // Audit B9 - late offline evidence (captured before the report was signed / completed) is stored and flagged, not refused.
+        $late = false;
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            if (! $this->isRealCaptureTime($capture) || ! $rentalInspection->acceptsLateEvidence($capture['taken_at'])) {
+                return $refused;
+            }
+            $late = true;
+        }
+
+        $url = app(PrivateImageStore::class)->store($request->file('photo'), $this->photoDirectoryFor($rentalInspection));
 
         $photo = RentalInspectionPhoto::create([
             'agency_id' => $rentalInspection->agency_id,
@@ -939,9 +1030,10 @@ class RentalInspectionRecordingController extends Controller
             'file_size_bytes' => $request->file('photo')->getSize(),
             'taken_at' => $capture['taken_at'],
             'taken_at_source' => $capture['taken_at_source'],
+            'added_after_signing_at' => $late ? now() : null,
         ]);
 
-        return response()->json($photo, 201);
+        return response()->json($late ? $photo->toArray() + ['added_after_signing' => true, 'message' => $this->lateEvidenceMessage($rentalInspection)] : $photo, 201);
     }
 
     /**
@@ -973,15 +1065,12 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storePhotos(Request $request, RentalInspection $rentalInspection): JsonResponse
     {
-        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
-            return $refused;
-        }
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
-            'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
-            'rental_inspection_item_id' => ['nullable', 'integer', 'exists:rental_inspection_items,id'],
+            'property_room_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
+            'rental_inspection_observation_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
+            'rental_inspection_item_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_items')],
             'photos' => ['required', 'array', 'min:1', 'max:10'],
             'photos.*' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,heic,heif', 'max:51200'],
             'client_idempotency_keys' => ['nullable', 'array'],
@@ -991,9 +1080,52 @@ class RentalInspectionRecordingController extends Controller
             'captured_at' => ['nullable', 'array'],
         ]);
 
+        // Audit B16/B15 - a batch that is entirely a replay (every key already stored on THIS inspection) is answered from what is stored,
+        // also after the inspection has closed: a retry must never turn into a 409 or a duplicate.
+        $keys = array_values(array_filter($validated['client_idempotency_keys'] ?? []));
+        if ($keys) {
+            $stored = RentalInspectionPhoto::withoutGlobalScopes()->withTrashed()->whereIn('client_idempotency_key', $keys)->get();
+            if ($stored->contains(fn ($p) => (int) $p->rental_inspection_id !== (int) $rentalInspection->id)) {
+                return response()->json(['message' => 'A retry key in this batch was already used for a different inspection.'], 422);
+            }
+        }
+
         $roomId = isset($validated['property_room_id']) ? (int) $validated['property_room_id'] : null;
         $observationId = $validated['rental_inspection_observation_id'] ?? null;
         $itemId = $validated['rental_inspection_item_id'] ?? null;
+
+        // Audit B11 - a retired item takes no new photo either (its anchoring observation would be a new record against it).
+        if ($itemId && RentalInspectionItem::where('id', $itemId)->where('is_retired', true)->exists()) {
+            return response()->json(['message' => 'That checklist item has been retired - nothing new can be recorded against it.'], 422);
+        }
+
+        // §45.3 - decide every file's capture time up front, from the ORIGINAL upload (the storer re-encodes and drops its metadata).
+        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
+        $captures = [];
+        foreach ($validated['photos'] as $i => $file) {
+            $captures[$i] = $captureTime->resolve(
+                $file,
+                $this->scalarOrNull($validated['captured_at'][$i] ?? null),
+                ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
+            );
+        }
+
+        // Audit B9 (spec 14.4 case 4) - on a signed / completed report the batch is taken in, flagged, when EVERY file already stored on this
+        // inspection is a replay or is offline evidence captured before the lock; a live upload to a locked report stays a 409.
+        $late = false;
+        if ($refused = $this->refuseIfNotRecordable($rentalInspection)) {
+            $storedKeys = isset($stored) ? $stored->pluck('client_idempotency_key')->all() : [];
+            foreach ($validated['photos'] as $i => $file) {
+                $key = $validated['client_idempotency_keys'][$i] ?? null;
+                if ($key && in_array($key, $storedKeys, true)) {
+                    continue; // a replay of a photo already on file
+                }
+                if (! $this->isRealCaptureTime($captures[$i]) || ! $rentalInspection->acceptsLateEvidence($captures[$i]['taken_at'])) {
+                    return $refused;
+                }
+                $late = true;
+            }
+        }
         // AT-436, 2026-09-27 — returned in the response below whenever this
         // request resolved or created one, so the client can merge it into
         // its own insp.observations without a full page reload: a BRAND NEW
@@ -1022,29 +1154,24 @@ class RentalInspectionRecordingController extends Controller
             );
         }
 
-        $storer = app(PropertyImageStorer::class);
-        $captureTime = app(\App\Services\Rentals\RentalInspectionPhotoCaptureTime::class);
+        $storer = app(PrivateImageStore::class);
+        $photoDirectory = $this->photoDirectoryFor($rentalInspection);
         $now = now();
         $created = [];
 
         foreach ($validated['photos'] as $i => $file) {
             $clientKey = $validated['client_idempotency_keys'][$i] ?? null;
             if ($clientKey) {
-                $existing = RentalInspectionPhoto::where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $clientKey)->first();
+                $existing = isset($stored) ? $stored->firstWhere('client_idempotency_key', $clientKey) : null;
                 if ($existing) {
                     $created[] = $existing;
                     continue;
                 }
             }
 
-            // §45.3 — before store(): the storer re-encodes the image and drops its metadata.
-            $capture = $captureTime->resolve(
-                $file,
-                $this->scalarOrNull($validated['captured_at'][$i] ?? null),
-                ['rental_inspection_id' => $rentalInspection->id, 'user_id' => $request->user()->id],
-            );
+            $capture = $captures[$i];
 
-            $url = $storer->store($file, $rentalInspection->property_id);
+            $url = $storer->store($file, $photoDirectory);
 
             $created[] = RentalInspectionPhoto::create([
                 'agency_id' => $rentalInspection->agency_id,
@@ -1059,10 +1186,28 @@ class RentalInspectionRecordingController extends Controller
                 'file_size_bytes' => $file->getSize(),
                 'taken_at' => $capture['taken_at'],
                 'taken_at_source' => $capture['taken_at_source'],
+                'added_after_signing_at' => $late ? now() : null,
             ]);
         }
 
-        return response()->json(['photos' => $created, 'observation' => $observation], 201);
+        return response()->json(['photos' => $created, 'observation' => $observation] + ($late ? ['added_after_signing' => true, 'message' => $this->lateEvidenceMessage($rentalInspection)] : []), 201);
+    }
+
+    /** Audit B9 - a capture time the app (or the file's own EXIF) really supplied, as opposed to "the server received it just now". */
+    private function isRealCaptureTime(array $capture): bool
+    {
+        return ($capture['taken_at_source'] ?? RentalInspectionPhoto::TAKEN_AT_SERVER) !== RentalInspectionPhoto::TAKEN_AT_SERVER;
+    }
+
+    private function lateEvidenceMessage(RentalInspection $rentalInspection): string
+    {
+        return 'Recorded, but this inspection was already ' . ($rentalInspection->status === RentalInspection::STATUS_COMPLETED ? 'completed' : 'signed') . ' - it is on file as added after signing.';
+    }
+
+    /** Audit B21 - inspection photos live on the private disk, one folder per agency and inspection. */
+    private function photoDirectoryFor(RentalInspection $rentalInspection): string
+    {
+        return "rental-inspections/{$rentalInspection->agency_id}/{$rentalInspection->id}";
     }
 
     /** §45.3 — a client-supplied capture time is only ever a string; anything else is "no claim". */
@@ -1183,8 +1328,8 @@ class RentalInspectionRecordingController extends Controller
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
-            'property_room_id' => ['nullable', 'integer', 'exists:property_rooms,id'],
-            'rental_inspection_observation_id' => ['nullable', 'integer', 'exists:rental_inspection_observations,id'],
+            'property_room_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
+            'rental_inspection_observation_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
         ]);
 
         $roomId = $validated['property_room_id'] ?? null;
@@ -1225,7 +1370,7 @@ class RentalInspectionRecordingController extends Controller
         $validated = $request->validate([
             'photo_ids' => ['required', 'array', 'min:1'],
             'photo_ids.*' => ['integer'],
-            'property_room_id' => ['required', 'integer', 'exists:property_rooms,id'],
+            'property_room_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('property_rooms')],
         ]);
 
         abort_unless(
@@ -1473,7 +1618,7 @@ class RentalInspectionRecordingController extends Controller
         }
 
         $validated = $request->validate([
-            'accepted_observation_id' => ['required', 'integer', 'exists:rental_inspection_observations,id'],
+            'accepted_observation_id' => ['required', 'integer', \App\Rules\FoundInAgency::in('rental_inspection_observations')],
             'resolution_note' => ['nullable', 'string', 'max:2000'],
         ]);
 
@@ -1509,10 +1654,18 @@ class RentalInspectionRecordingController extends Controller
      */
     public function storeSignature(Request $request, RentalInspection $rentalInspection, SignedDocumentDistributionService $distributionService): JsonResponse
     {
+        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        // Audit B17 - a retried signature (same key, same inspection) is answered with the row that is already there (200), not the
+        // "already has a disposition" 422 - and also once the inspection has since closed.
+        if (($key = $request->input('client_idempotency_key')) && is_string($key)
+            && ($existing = RentalInspectionSignature::withoutGlobalScopes()->where('rental_inspection_id', $rentalInspection->id)->where('client_idempotency_key', $key)->first())) {
+            return response()->json($existing, 200);
+        }
+
         if ($refused = $this->refuseIfNotRecordable($rentalInspection, false)) {
             return $refused;
         }
-        $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
         $validated = $request->validate([
             'party_role' => ['required', 'string', 'in:' . implode(',', [
@@ -1529,7 +1682,7 @@ class RentalInspectionRecordingController extends Controller
                 // arrives later via supersedeWetInkSignature() below.
                 RentalInspectionSignature::DISPOSITION_AWAITING_WET_INK,
             ])],
-            'party_contact_id' => ['nullable', 'integer', 'exists:contacts,id'],
+            'party_contact_id' => ['nullable', 'integer', \App\Rules\FoundInAgency::in('contacts')],
             // Audit M5 — ~1.4M base64 chars ≈ the 1MB decoded cap enforced in storeCanvasImage().
             'signature_image' => ['nullable', 'string', 'max:1450000'],
             // §16 — a photo/scan of a signed paper page. image or pdf; 10MB
@@ -1541,6 +1694,10 @@ class RentalInspectionRecordingController extends Controller
             // §45.5 (Build I-3) — a representative signing on the party's own row. Checked against the
             // attendance record in RentalInspectionSignature::capture().
             'signed_by_name' => ['nullable', 'string', 'max:191'],
+            // AT-463 / §61 - "Sign now": the agent drew their own signature on screen (as opposed to the saved PIN signature).
+            'signing_method' => ['nullable', 'string', 'in:drawn'],
+            // Audit B17 - the app's retry key for this write.
+            'client_idempotency_key' => ['nullable', 'uuid'],
         ]);
 
         if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_REFUSED) {
@@ -1568,9 +1725,28 @@ class RentalInspectionRecordingController extends Controller
                 'refusal_reason_note' => $validated['refusal_reason_note'] ?? null,
                 'signed_by_name' => $validated['signed_by_name'] ?? null,
                 'recorded_by_user_id' => $request->user()->id,
+                'client_idempotency_key' => $validated['client_idempotency_key'] ?? null,
             ];
         } else {
-            $attributes = ['recorded_by_user_id' => $request->user()->id];
+            // Audit B23 - the saved-signature (PIN) path is enforced HERE, not only in the browser.
+            if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED
+                && ($validated['signing_method'] ?? null) !== 'drawn'
+                && ($denied = $this->refuseUnlessSavedSignatureUnlocked($request, $rentalInspection, $validated['signature_image'] ?? null))) {
+                return $denied;
+            }
+            $attributes = ['recorded_by_user_id' => $request->user()->id, 'client_idempotency_key' => $validated['client_idempotency_key'] ?? null];
+            // §61 - a signature the logged-in agent drew on screen carries who (the agent's identity), when (the row's own
+            // recorded-at), and where (IP and the device's user agent), and the report content it was given against.
+            if (($validated['signing_method'] ?? null) === 'drawn' && $validated['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED) {
+                $attributes += [
+                    'signed_via' => RentalInspectionSignature::SIGNED_VIA_AGENT_SCREEN,
+                    'signed_on_device_by_user_id' => $request->user()->id,
+                    'signed_typed_name' => mb_substr((string) $request->user()->name, 0, 191),
+                    'signed_ip' => $request->ip() ? mb_substr((string) $request->ip(), 0, 45) : null,
+                    'signed_user_agent' => $request->userAgent() ? mb_substr((string) $request->userAgent(), 0, 500) : null,
+                    'signed_report_fingerprint' => $rentalInspection->reportFingerprint(),
+                ];
+            }
         }
 
         try {
@@ -1593,6 +1769,35 @@ class RentalInspectionRecordingController extends Controller
         }
 
         return response()->json($signature, 201);
+    }
+
+    /**
+     * Audit 2026-10-19 B23 - the agent's own signature row, by the saved-signature (PIN) route, is only accepted when (a) the signer IS the
+     * inspection's inspector (the report prints that agent's name under the signature), (b) their saved signature is unlocked for THIS inspection
+     * in this session (the PIN was entered - AgentSignatureService, never under impersonation), and (c) the image posted is exactly their saved
+     * one. Before, any in-scope user holding `rental_inspections.create` could post any PNG as "the agent". A hand-drawn "Sign now" signature
+     * (signing_method=drawn) is a different, honest act - it carries the signer's own identity, IP and device - and is not held to this.
+     * Returns a JSON refusal, or null when the signature may be recorded.
+     */
+    private function refuseUnlessSavedSignatureUnlocked(Request $request, RentalInspection $rentalInspection, ?string $submittedImage): ?JsonResponse
+    {
+        $user = $request->user();
+        $inspectorId = $rentalInspection->inspector_user_id ?: $rentalInspection->created_by_user_id;
+        if ($inspectorId && (int) $inspectorId !== (int) $user->id) {
+            return response()->json(['message' => 'Only the agent who is doing this inspection can sign for the agent with their saved signature.'], 403);
+        }
+
+        $signatures = app(\App\Services\AgentSignatureService::class);
+        if (! $signatures->isUnlocked($user, 'rental-inspection:' . $rentalInspection->id)) {
+            return response()->json(['message' => 'Enter your signing PIN to unlock your signature first.'], 403);
+        }
+
+        $saved = (string) ($signatures->forUser((int) $user->id)?->signature_image ?? '');
+        if ($saved === '' || $submittedImage === null || ! hash_equals(trim($saved), trim($submittedImage))) {
+            return response()->json(['message' => 'That is not your saved signature. Unlock your saved signature and try again.'], 422);
+        }
+
+        return null;
     }
 
     /**
@@ -1807,6 +2012,31 @@ class RentalInspectionRecordingController extends Controller
         \App\Services\Distribution\SignedDocumentDistributionService $distributionService,
     ): JsonResponse {
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
+
+        // Audit B2 - completing an OUT runs a checklist: open findings, open repairs, a move-out inventory check not done. They are
+        // WARNINGS, never a block - the agent sees them and completes anyway by acknowledging (`acknowledge_warnings`). Asked only once every
+        // hard refusal has passed (assertCanComplete below), so "Cannot complete: ..." always comes first.
+        try {
+            $rentalInspection->assertCanComplete();
+        } catch (\App\Exceptions\RentalInspectionItemsUngradedException $e) {
+            return response()->json(['message' => $e->getMessage(), 'ungraded_items' => $e->ungradedItems], 409);
+        } catch (\App\Exceptions\RentalInspectionAttendanceMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_attendance' => $e->missingParties], 409);
+        } catch (\App\Exceptions\RentalInspectionRequiredNotesMissingException $e) {
+            return response()->json(['message' => $e->getMessage(), 'missing_required_notes' => $e->missingNotes], 409);
+        } catch (\LogicException $e) {
+            return response()->json(['message' => $e->getMessage()], 409);
+        }
+        if ($rentalInspection->type === RentalInspection::TYPE_OUT && ! request()->boolean('acknowledge_warnings')) {
+            $warnings = app(\App\Services\Rentals\RentalDepositDeductionsService::class)->outCompletionWarnings($rentalInspection->loadMissing('lease'));
+            if ($warnings !== []) {
+                return response()->json([
+                    'message' => 'Before completing this move-out inspection: ' . collect($warnings)->pluck('label')->implode(' '),
+                    'requires_acknowledgement' => true,
+                    'warnings' => $warnings,
+                ], 409);
+            }
+        }
 
         try {
             $rentalInspection->markCompleted();

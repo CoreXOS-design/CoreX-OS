@@ -136,7 +136,8 @@ final class ClientWorkOrderViewTest extends TestCase
 
         $this->workOrder->forceFill(['owner_approval_status' => 'approved'])->save();
         $this->card->forceFill(['status' => 'approved'])->save();
-        $table['approved'] = [$this->stageFor('landlord'), 'Created'];
+        $table['approved'] = [$this->stageFor('landlord'), 'Approved - being booked'];   // AT-460: it read "Created" until the crew was booked
+        $table['approved, tenant'] = [$this->stageFor('tenant'), 'Created'];
 
         $round = app(RentalCompletionService::class)->openRound($this->workOrder->fresh(), ['reported_by_label' => 'Team 1', 'reported_via' => 'crew_link']);
         $table['reported done (T1: waiting for the agent to close, no tenant hold)'] = [$this->stageFor(), 'Work reported finished - your agent is closing it off'];
@@ -243,7 +244,10 @@ final class ClientWorkOrderViewTest extends TestCase
             $this->assertSame('disputed', $order['rounds'][0]['outcome']);
             $this->assertSame('Reported not complete', $order['rounds'][0]['outcome_label']);
             $this->assertSame('Still wet under the sink', $order['rounds'][0]['response_note']);
-            $this->assertSame([$disputePhoto->storage_path], array_column($order['rounds'][0]['photos'], 'url'), $who);
+            $roundUrls = array_column($order['rounds'][0]['photos'], 'url');
+            $this->assertCount(1, $roundUrls, $who);
+            $this->assertStringContainsString('/private-image/', $roundUrls[0], $who . ': D14 - a signed, expiring address, never the permanent file');
+            $this->assertStringNotContainsString($disputePhoto->storage_path, $roundUrls[0], $who);
             $this->assertSame('Not complete — reopened', $order['stage_label']);
         }
     }

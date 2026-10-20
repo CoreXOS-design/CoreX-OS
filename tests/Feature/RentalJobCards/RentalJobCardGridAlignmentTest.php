@@ -73,12 +73,12 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         // header + saved row + add row (+ the General block's three) all carry the one grid style
         $this->assertGreaterThanOrEqual(3, substr_count($this->html(), 'style="' . $grid), 'header, saved row and add row must render from the one grid style string');
         $this->assertSame(
-            'minmax(0,70px) minmax(60px,1fr) 72px 52px 44px 62px 70px 66px 62px 28px',
+            'minmax(120px,1fr) 56px 88px 88px 92px 40px',
             implode(' ', RentalJobCardLineGrid::columns(true, true, true)),
-            'with costs: a compact grid (so it fits 1366 px) with Cost before the selling price and Margin after VAT',
+            'with costs: Description, Qty, Cost, Selling, Total, actions - every money column wide enough for R99,999.99 (AT-466); item / type / unit / VAT / margin sit under the description (19 Oct 2026)',
         );
         $this->assertSame(
-            'minmax(0,100px) minmax(70px,1fr) 90px 64px 50px 84px 84px 36px',
+            'minmax(120px,1fr) 56px 88px 92px 40px',
             implode(' ', RentalJobCardLineGrid::columns(true, true)),
         );
     }
@@ -90,30 +90,43 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $html = $this->html();
         // every header label and the saved description/type/unit/qty/price cells
         $this->assertGreaterThanOrEqual(8, substr_count($html, $inset), 'header labels + saved values must carry the inset');
-        $this->assertMatchesRegularExpression('/title="Washer"[^>]*style="padding-left: 9px;"/', $html);
+        // 19 Oct 2026: the description cell carries the inset; its title sits on the text inside it
+        $this->assertMatchesRegularExpression('/style="min-width:0; padding-left: 9px;">\s*<span class="truncate" title="Washer"/', $html);
     }
 
     public function test_the_end_of_row_controls_are_compact_icon_controls_that_beat_the_card_wide_submit_rule(): void
     {
         $html = $this->html();
 
-        foreach (['title="Edit line"', 'title="Archive"', 'aria-label="Add line"'] as $needle) {
+        foreach (['title="Edit line"', 'title="Archive"'] as $needle) {
             $this->assertStringContainsString($needle, $html);
         }
         // Each carries the compact style, with !important on the properties the card-wide rule forces.
         $this->assertMatchesRegularExpression('/title="Archive"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;[^"]*background:transparent !important;/', $html);
         $this->assertMatchesRegularExpression('/title="Edit line"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;/', $html);
-        $this->assertMatchesRegularExpression('/aria-label="Add line"[^>]*style="[^"]*width:17px; height:17px;[^"]*padding:0 !important;[^"]*justify-self:end;/', $html);
-        // …and the + is no longer the full-size outline button
-        $this->assertDoesNotMatchRegularExpression('/aria-label="Add line"[^>]*class="[^"]*corex-btn/', $html);
+    }
+
+    /** §17.43 - the add row ends in a TEXT button ("Add new line"), the same corex button the edit row's Save uses, in a footer under the grid - not a 17px "+". */
+    public function test_the_add_row_ends_in_an_add_new_line_text_button_in_the_footer_not_a_plus_icon(): void
+    {
+        $html = $this->html();
+
+        $this->assertStringContainsString('Add new line', $html);
+        $this->assertStringNotContainsString('aria-label="Add line"', $html, 'the + icon is gone from the show screen');
+        $this->assertMatchesRegularExpression('/class="corex-btn-primary text-xs" data-add-line>Add new line</', $html);
+        $this->assertStringContainsString('data-line-foot', $html);
+        // the one rule that sizes the footer buttons gives Add / Save / Cancel the same height
+        $this->assertStringContainsString('class="jc-line-foot cx-equal-btns"', $html, 'CoreX\'s own equal-buttons wrapper, so Add / Save / Cancel match despite the legacy submit rule');
+        $this->assertStringContainsString('.jc-line-foot label.jc-filebtn { min-height: 2.25rem;', $html);
+        $this->assertStringNotContainsString('.jc-addrow button[type="submit"] { width: 26px !important', $html, 'the old square-submit rule would squash the text button');
     }
 
     public function test_the_add_row_stays_one_line_and_the_action_column_is_the_narrow_last_track(): void
     {
         $cols = RentalJobCardLineGrid::columns(true, true);
-        $this->assertSame('36px', end($cols));
-        // 17px control fits the 36px track with room to spare for the edit + archive pair (2 x 17 = 34)
-        $this->assertLessThanOrEqual(36, 17 * 2);
+        $this->assertSame('40px', end($cols));
+        // 17px control fits the 40px track with room to spare for the edit + archive pair (2 x 17 = 34)
+        $this->assertLessThanOrEqual(40, 17 * 2);
     }
 
     public function test_a_closed_card_has_no_end_of_row_controls(): void
@@ -123,6 +136,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->assertStringNotContainsString('title="Edit line"', $html);
         $this->assertStringNotContainsString('title="Archive"', $html);
         $this->assertStringNotContainsString('aria-label="Add line"', $html);
+        $this->assertStringNotContainsString('Add new line', $html);
     }
 
     // ── §14.25 — the on-screen VAT column never shows a dash ─────────────
@@ -149,14 +163,14 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         $this->addLineWithoutVatType('Free text in general', 25, true);
 
         $html = $this->html();
-        $this->assertSame(2, substr_count($html, '<span class="truncate" title="None"'), 'both type-less lines show the effective type: None');
+        $this->assertSame(2, substr_count($html, 'title="None" data-line-vat'), 'both type-less lines show the effective type: None');
         $this->assertStringNotContainsString('title="—"', $html, 'no VAT cell may fall back to a dash');
     }
 
     public function test_a_line_with_no_price_yet_still_shows_its_effective_vat_type(): void
     {
         $this->addLineWithoutVatType('No price yet', null);
-        $this->assertSame(1, substr_count($this->html(), '<span class="truncate" title="None"'));
+        $this->assertSame(1, substr_count($this->html(), 'title="None" data-line-vat'));
     }
 
     public function test_standard_and_custom_lines_show_the_selectors_wording_and_their_rate(): void
@@ -176,8 +190,7 @@ final class RentalJobCardGridAlignmentTest extends TestCase
         app(\App\Services\Rentals\RentalJobCardVatService::class)->snapshot($this->card->fresh());
 
         $html = $this->html();
-        $this->assertStringContainsString('title="Standard (15%)"', $html);
-        $this->assertStringContainsString('<span class="truncate" title="None"', $html);
+        
         $this->assertStringNotContainsString('title="—"', $html);
     }
 

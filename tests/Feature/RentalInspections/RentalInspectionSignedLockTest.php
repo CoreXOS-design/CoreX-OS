@@ -252,7 +252,7 @@ final class RentalInspectionSignedLockTest extends TestCase
         $this->assertSame('good', $reopen->report_snapshot['items'][0]['condition']);
         $this->assertCount(4, $reopen->voided_signatures);
         $this->assertEqualsCanonicalizing(['tenant', 'tenant', 'landlord', 'agent'], array_column($reopen->voided_signatures, 'party_role'));
-        $this->assertEqualsCanonicalizing(['link', 'agent_device', null, null], array_column($reopen->voided_signatures, 'signed_via'));
+        $this->assertEqualsCanonicalizing(['link', 'agent_device', 'agent_screen', null], array_column($reopen->voided_signatures, 'signed_via'));
         $this->assertContains('Naledi Dlamini', array_column($reopen->voided_signatures, 'name'));
         // every signature carries a fingerprint of the report it was given on, whatever route recorded it
         $this->assertSame([$fingerprint], array_values(array_unique(array_column($reopen->voided_signatures, 'signed_report_fingerprint'))));
@@ -391,7 +391,7 @@ final class RentalInspectionSignedLockTest extends TestCase
         $this->signByLink($i, 'tenant', $this->tenant, 'Naledi Dlamini');
         $this->signByLink($i, 'tenant', $this->tenant2, 'Sipho Khumalo');
         $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG])->assertStatus(201);
+        $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn'])->assertStatus(201);
         $this->complete($i);
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $i->fresh()->status);

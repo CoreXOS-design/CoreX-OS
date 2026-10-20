@@ -107,9 +107,18 @@ class RentalApplicationAuthorisationController extends Controller
         $user = auth()->user();
         abort_unless($user !== null, 403);
 
-        $isRO = $user->isRentalApplicationRO((int) $rentalApplication->agency_id);
-        $isCO = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
-        abort_unless($isRO || $isCO, 403, 'Only a configured Reviewer or Override user may act on this application.');
+        $agencyId = (int) $rentalApplication->agency_id;
+        $isRO = $user->isRentalApplicationRO($agencyId);
+        $isCO = $user->isRentalApplicationCO($agencyId);
+        // Audit fix A11 (2026-10-19): an administrator is the override tier everywhere else (reopen, self-approval), so
+        // an unconfigured admin is no longer refused here. Audit fix A4/A27: with NO approver configured for the agency
+        // the call falls to whoever reviews the file (one-step approval) - see mayDecideRentalApplications().
+        $isOverrideTier = $user->isRentalApplicationOverrideTier($agencyId);
+        abort_unless(
+            $user->mayDecideRentalApplications($agencyId),
+            403,
+            'Only a configured Reviewer or Override user may act on this application.',
+        );
 
         // AT-392 — own/branch/agency, Johan's design standard, enforced at
         // the query layer here too — genuinely different question from the
@@ -125,9 +134,9 @@ class RentalApplicationAuthorisationController extends Controller
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
 
         if ($alreadyDecided) {
-            abort_unless($isCO, 403, 'This application already has a decision — only an Override (CO) user may change it.');
+            abort_unless($isOverrideTier, 403, 'This application already has a decision — only an Override (CO) user or an administrator may change it.');
 
-            return ['tier' => 'co', 'is_override' => true];
+            return ['tier' => $isCO ? 'co' : 'admin', 'is_override' => true];
         }
 
         // AT-430 Part A, 2026-09-24 — one-step approval. Johan, via Sherry
@@ -135,29 +144,36 @@ class RentalApplicationAuthorisationController extends Controller
         // approves applications" — the hand-off (isPendingAuthorisation())
         // is skipped entirely, not faked, so a one-step agency never writes
         // a pending_authorisation-equivalent row it immediately overwrites.
-        // The RO/CO tier check above already establishes this user could
-        // have approved anyway (see this setting's own docblock on
-        // RentalApplicationQualifyingSetting::DEFAULT_APPROVAL_MODE) — this
-        // only widens WHEN they may decide, mirroring the exact same
+        // This only widens WHEN they may decide, mirroring the exact same
         // pre-hand-off statuses RentalApplicationReviewController::
         // submitForApproval() itself accepts. Nothing below this gate
-        // (approve()/decline() themselves) branches on the mode.
-        $oneStepEligible = RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id) === 'one_step'
+        // (approve()/decline() themselves) branches on the mode. The mode in
+        // force is the EFFECTIVE one: with no approver configured it is always one step.
+        $oneStepEligible = RentalApplicationQualifyingSetting::effectiveApprovalModeFor($agencyId) === 'one_step'
             && in_array($rentalApplication->status, RentalApplication::HAND_OFF_STATUSES, true);
 
         abort_unless($rentalApplication->isPendingAuthorisation() || $oneStepEligible, 422, 'This application is not currently awaiting authorisation.');
 
-        return ['tier' => $isCO ? 'co' : 'ro', 'is_override' => false];
+        return ['tier' => $isCO ? 'co' : ($isRO ? 'ro' : ($isOverrideTier ? 'admin' : 'reviewer')), 'is_override' => false];
+    }
+
+    /**
+     * Where to go after a decision. Approvers and administrators land back in the queue; the no-approver fallback (a new
+     * agency deciding on the review screen) has no queue to land in - sending them there would be a 403 right after a
+     * successful decision - so they stay on the application.
+     */
+    private function afterDecisionRedirect(Request $request, RentalApplication $rentalApplication): \Illuminate\Http\RedirectResponse
+    {
+        return $request->user()->seesRentalAuthorisationQueue((int) $rentalApplication->agency_id)
+            ? redirect()->route('corex.rental-applications.authorisation.index')
+            : redirect()->route('corex.rental-applications.review', $rentalApplication);
     }
 
     private function guardCanView(RentalApplication $rentalApplication): void
     {
         $user = auth()->user();
         abort_unless($user !== null, 403);
-        abort_unless(
-            $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
-            403,
-        );
+        abort_unless($user->seesRentalAuthorisationQueue((int) $rentalApplication->agency_id), 403);
 
         // AT-392 — own/branch/agency, Johan's design standard, at the query
         // layer: RO/CO tier is agency-wide role ELIGIBILITY (a deliberate,
@@ -186,7 +202,7 @@ class RentalApplicationAuthorisationController extends Controller
     public function index(Request $request): View
     {
         $user = $request->user();
-        abort_unless($user->isRentalApplicationRO() || $user->isRentalApplicationCO(), 403,
+        abort_unless($user->seesRentalAuthorisationQueue(), 403,
             'You are not configured as a rental application Reviewer or Override user. Ask an admin to add you in Settings.');
 
         // 2026-09-09 (cc5 regression pass) — this was the one place the
@@ -283,7 +299,7 @@ class RentalApplicationAuthorisationController extends Controller
         $auditLog = $rentalApplication->auditLog()->with('user')->latest('created_at')->limit(200)->get();
 
         $user = $request->user();
-        $canOverride = $user->isRentalApplicationCO((int) $rentalApplication->agency_id);
+        $canOverride = $user->isRentalApplicationOverrideTier((int) $rentalApplication->agency_id);
         $alreadyDecided = in_array($rentalApplication->status, ['approved', 'declined'], true);
 
         // Johan, 2026-09-09 — self-approval block (see guardNotSelfApproving()
@@ -494,37 +510,42 @@ class RentalApplicationAuthorisationController extends Controller
         // at the top of this screen already does) — never a stale snapshot.
         $isSubjectToFica = $rentalApplication->ficaOutstanding();
 
-        $rentalApplication->status = 'approved';
-        // A new decision always needs telling: a decision flipped after the applicant was notified (declined, sent,
-        // reopened, approved) must not leave "Send approval" permanently refused by the old applicant_notified_at.
-        $rentalApplication->applicant_notified_at = null;
-        $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
-        $rentalApplication->approved_deposit_amount = $validated['approved_deposit_amount'] ?? null;
-        $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
-        $rentalApplication->save();
+        // Audit fix A14 (2026-10-19): the status, its history row and its audit row land together or not at all - a failure
+        // between them used to leave an approved file with no history and no event (so the Tenant tag and the contact's
+        // cached rental status never followed). The notice and the domain event fire only after the commit, below.
+        \Illuminate\Support\Facades\DB::transaction(function () use ($rentalApplication, $validated, $isSubjectToFica, $fromStatus, $oldAmount, $oldDepositAmount, $decision, $request, $audit) {
+            $rentalApplication->status = 'approved';
+            // A new decision always needs telling: a decision flipped after the applicant was notified (declined, sent,
+            // reopened, approved) must not leave "Send approval" permanently refused by the old applicant_notified_at.
+            $rentalApplication->applicant_notified_at = null;
+            $rentalApplication->approved_rental_amount = $validated['approved_rental_amount'];
+            $rentalApplication->approved_deposit_amount = $validated['approved_deposit_amount'] ?? null;
+            $rentalApplication->approved_subject_to_fica_at = $isSubjectToFica ? now() : null;
+            $rentalApplication->save();
 
-        RentalApplicationStatusHistory::record(
-            $rentalApplication, $fromStatus, 'approved', $request->user(), $validated['reason'] ?? null,
-        );
+            RentalApplicationStatusHistory::record(
+                $rentalApplication, $fromStatus, 'approved', $request->user(), $validated['reason'] ?? null,
+            );
 
-        $audit->log(
-            $rentalApplication,
-            eventCategory: 'authorisation',
-            eventType: $decision['is_override'] ? 'approved_override' : 'approved',
-            user: $request->user(),
-            isOverride: $decision['is_override'],
-            reason: $validated['reason'] ?? null,
-            oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount, 'approved_deposit_amount' => $oldDepositAmount],
-            newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_deposit_amount' => $validated['approved_deposit_amount'] ?? null, 'approved_subject_to_fica' => $isSubjectToFica],
-            // AT-430 Part A — the mode IN EFFECT AT THE TIME OF THIS DECISION,
-            // read fresh and stored immutably on this row, so a later mode
-            // change never makes this history unreadable.
-            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
-            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
-                . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
-                . (($validated['approved_deposit_amount'] ?? null) !== null ? ", deposit R" . number_format((float) $validated['approved_deposit_amount'], 2) : '')
-                . ($isSubjectToFica ? ', subject to FICA verification' : ''),
-        );
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'authorisation',
+                eventType: $decision['is_override'] ? 'approved_override' : 'approved',
+                user: $request->user(),
+                isOverride: $decision['is_override'],
+                reason: $validated['reason'] ?? null,
+                oldValues: ['status' => $fromStatus, 'approved_rental_amount' => $oldAmount, 'approved_deposit_amount' => $oldDepositAmount],
+                newValues: ['status' => 'approved', 'approved_rental_amount' => $validated['approved_rental_amount'], 'approved_deposit_amount' => $validated['approved_deposit_amount'] ?? null, 'approved_subject_to_fica' => $isSubjectToFica],
+                // AT-430 Part A — the mode IN EFFECT AT THE TIME OF THIS DECISION,
+                // read fresh and stored immutably on this row, so a later mode
+                // change never makes this history unreadable.
+                metadata: ['approval_mode' => RentalApplicationQualifyingSetting::effectiveApprovalModeFor((int) $rentalApplication->agency_id), 'decided_by_tier' => $decision['tier']],
+                humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to approve' : 'Approved')
+                    . " for R" . number_format((float) $validated['approved_rental_amount'], 2) . " ({$decision['tier']})"
+                    . (($validated['approved_deposit_amount'] ?? null) !== null ? ", deposit R" . number_format((float) $validated['approved_deposit_amount'], 2) : '')
+                    . ($isSubjectToFica ? ', subject to FICA verification' : ''),
+            );
+        });
 
         // AT-392 — Johan changed the flow: approval no longer auto-emails
         // the applicant. "no, agent gets back and upon them being happy it
@@ -544,7 +565,7 @@ class RentalApplicationAuthorisationController extends Controller
         // about the authoriser's own decision (cc2 separately surfaces the
         // amount on the agent's own read-only screen). Same shape as
         // decline()'s own message below: "{Decision} — {contact} …".
-        return redirect()->route('corex.rental-applications.authorisation.index')
+        return $this->afterDecisionRedirect($request, $rentalApplication)
             ->with('success', 'Approved — ' . ($rentalApplication->contact?->full_name ?: 'the applicant') . ' for R'
                 . number_format((float) $validated['approved_rental_amount'], 2)
                 . ($isSubjectToFica ? ', subject to FICA verification' : '') . '. Saved.');
@@ -596,43 +617,46 @@ class RentalApplicationAuthorisationController extends Controller
         $draft = RentalApplicationDeclineEmailSetting::draftFor($rentalApplication, $template->reason, $template->guidance);
 
         $fromStatus = $rentalApplication->status;
-        $rentalApplication->status = 'declined';
-        // A new decision always needs telling (see approve()).
-        $rentalApplication->applicant_notified_at = null;
-        $rentalApplication->decline_reason_template_id = $template->id;
-        $rentalApplication->decline_email_subject = $draft['subject'];
-        $rentalApplication->decline_email_body = $draft['body'];
-        // Applicant link lifetime, 2026-09-14 — Johan, final version after
-        // two rejected designs (a 7-day grace window, then a revive link in
-        // the decline email): "the link dies. done. declined is declined.
-        // if the applicant wants to do anything it will be from the
-        // agent's side sending a new link to reopen the application."
-        // Unconditional, no setting, no exposure window. The existing
-        // token_expires_at->isPast() check show()/pdf()/viewDocument()
-        // already run on every request is the only enforcement needed —
-        // reopen() (already unconditional on this column, already extends
-        // the SAME token) remains the one way back in, exactly as today.
-        $rentalApplication->token_expires_at = now();
-        $rentalApplication->save();
+        // Audit fix A14 (2026-10-19): status, history and audit row land together or not at all (see approve()).
+        \Illuminate\Support\Facades\DB::transaction(function () use ($rentalApplication, $template, $draft, $validated, $fromStatus, $decision, $request, $audit) {
+            $rentalApplication->status = 'declined';
+            // A new decision always needs telling (see approve()).
+            $rentalApplication->applicant_notified_at = null;
+            $rentalApplication->decline_reason_template_id = $template->id;
+            $rentalApplication->decline_email_subject = $draft['subject'];
+            $rentalApplication->decline_email_body = $draft['body'];
+            // Applicant link lifetime, 2026-09-14 — Johan, final version after
+            // two rejected designs (a 7-day grace window, then a revive link in
+            // the decline email): "the link dies. done. declined is declined.
+            // if the applicant wants to do anything it will be from the
+            // agent's side sending a new link to reopen the application."
+            // Unconditional, no setting, no exposure window. The existing
+            // token_expires_at->isPast() check show()/pdf()/viewDocument()
+            // already run on every request is the only enforcement needed —
+            // reopen() (already unconditional on this column, already extends
+            // the SAME token) remains the one way back in, exactly as today.
+            $rentalApplication->token_expires_at = now();
+            $rentalApplication->save();
 
-        RentalApplicationStatusHistory::record(
-            $rentalApplication, $fromStatus, 'declined', $request->user(), $validated['reason'] ?? null,
-        );
+            RentalApplicationStatusHistory::record(
+                $rentalApplication, $fromStatus, 'declined', $request->user(), $validated['reason'] ?? null,
+            );
 
-        $audit->log(
-            $rentalApplication,
-            eventCategory: 'authorisation',
-            eventType: $decision['is_override'] ? 'declined_override' : 'declined',
-            user: $request->user(),
-            isOverride: $decision['is_override'],
-            reason: $validated['reason'] ?? null,
-            newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
-            oldValues: ['status' => $fromStatus],
-            // AT-430 Part A — see approve()'s own comment on this same field.
-            metadata: ['approval_mode' => RentalApplicationQualifyingSetting::approvalModeFor((int) $rentalApplication->agency_id)],
-            humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
-                . " ({$decision['tier']}), reason template: {$template->reason}",
-        );
+            $audit->log(
+                $rentalApplication,
+                eventCategory: 'authorisation',
+                eventType: $decision['is_override'] ? 'declined_override' : 'declined',
+                user: $request->user(),
+                isOverride: $decision['is_override'],
+                reason: $validated['reason'] ?? null,
+                newValues: ['status' => 'declined', 'decline_reason_template_id' => $template->id, 'decline_reason_template' => $template->reason],
+                oldValues: ['status' => $fromStatus],
+                // AT-430 Part A — see approve()'s own comment on this same field.
+                metadata: ['approval_mode' => RentalApplicationQualifyingSetting::effectiveApprovalModeFor((int) $rentalApplication->agency_id), 'decided_by_tier' => $decision['tier']],
+                humanSummary: ($decision['is_override'] ? 'Overrode a prior decision to decline' : 'Declined')
+                    . " ({$decision['tier']}), reason template: {$template->reason}",
+            );
+        });
 
         $notifier->notifyAgentOfDecision($rentalApplication, 'declined', $validated['reason'] ?? null, $decision['is_override']);
         // AT-410b, 2026-09-15 — Johan: "the auth sends back to agent who
@@ -662,7 +686,7 @@ class RentalApplicationAuthorisationController extends Controller
         // No amount on a decline (there isn't one), so this reads slightly
         // shorter than approve's — the SHAPE is what has to match, not the
         // field count; an amount-shaped placeholder here would be a lie.
-        return redirect()->route('corex.rental-applications.authorisation.index')
+        return $this->afterDecisionRedirect($request, $rentalApplication)
             ->with('success', 'Declined — ' . ($rentalApplication->contact?->full_name ?: 'the applicant') . '. Saved.');
     }
 
@@ -688,10 +712,7 @@ class RentalApplicationAuthorisationController extends Controller
         // the non-override gate directly.
         $user = auth()->user();
         abort_unless($user !== null, 403);
-        abort_unless(
-            $user->isRentalApplicationRO((int) $rentalApplication->agency_id) || $user->isRentalApplicationCO((int) $rentalApplication->agency_id),
-            403,
-        );
+        abort_unless($user->seesRentalAuthorisationQueue((int) $rentalApplication->agency_id), 403);
         // WHICH records, not only WHO may act (own / branch / agency) - guardCanDecide() does this for approve/decline.
         $this->guardRentalApplication($rentalApplication);
         $this->guardNotSelfApproving($rentalApplication, $user);

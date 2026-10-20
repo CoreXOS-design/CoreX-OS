@@ -28,6 +28,7 @@ class RentalInventoryPhoto extends Model
         'agency_id',
         'rental_inventory_id',
         'property_room_id',
+        'rental_inspection_photo_id',
         'side',
         'storage_path',
         'file_size_bytes',
@@ -39,6 +40,69 @@ class RentalInventoryPhoto extends Model
     protected $casts = [
         'file_size_bytes' => 'integer',
     ];
+
+    /**
+     * Audit 2026-10-19 B32 - a photo this inventory SHARES with the inspection: no file of its own, it shows the inspection photo named by
+     * `rental_inspection_photo_id`. The address a screen reads is the source photo's (a signed, expiring link); a source that has been archived
+     * leaves the reference with no picture, and {@see scopeUsable()} keeps such a reference out of every list.
+     */
+    public function isReference(): bool
+    {
+        return $this->rental_inspection_photo_id !== null;
+    }
+
+    public function sourceInspectionPhoto(): BelongsTo
+    {
+        return $this->belongsTo(RentalInspectionPhoto::class, 'rental_inspection_photo_id');
+    }
+
+    /**
+     * What a screen puts in an `<img src>`. An own file stored on the private disk (a new upload) reads as a signed, expiring URL, like an
+     * inspection photo; a legacy row still holding a public /storage URL reads as it always did; a reference reads as its source photo's address.
+     */
+    public function getStoragePathAttribute($value): ?string
+    {
+        if (($this->attributes['rental_inspection_photo_id'] ?? null) !== null) {
+            return $this->sourceInspectionPhoto?->storage_path;
+        }
+
+        $images = app(\App\Services\Images\PrivateImageService::class);
+        if (! $images->isPrivate($value)) {
+            return $value;
+        }
+
+        return $images->signedUrl(
+            $value,
+            $this->agency_id,
+            [['rental_inventory_photos', (int) $this->id], ['rental_inventories', (int) $this->rental_inventory_id]],
+            RentalInspectionSetting::photoLinkMinutesFor($this->agency_id),
+        );
+    }
+
+    /** The stored value - the private reference, the legacy public URL, or nothing for a shared photo. */
+    public function rawStoragePath(): ?string
+    {
+        return $this->attributes['storage_path'] ?? null;
+    }
+
+    /**
+     * Every photo a screen may show: an own photo, or a shared one whose inspection photo is still live. A shared photo whose source was
+     * archived (or whose inspection was archived) drops out, so a tile with no picture is never drawn.
+     */
+    public function scopeUsable($query)
+    {
+        $table = $query->getModel()->getTable();
+
+        return $query->where(function ($q) use ($table) {
+            $q->whereNull($table . '.rental_inspection_photo_id')
+                ->orWhereIn($table . '.rental_inspection_photo_id', function ($sub) {
+                    $sub->select('rental_inspection_photos.id')->from('rental_inspection_photos')
+                        ->join('rental_inspections', 'rental_inspections.id', '=', 'rental_inspection_photos.rental_inspection_id')
+                        ->whereNull('rental_inspection_photos.deleted_at')
+                        ->whereNull('rental_inspections.deleted_at');
+                });
+        });
+    }
 
     public function inventory(): BelongsTo
     {

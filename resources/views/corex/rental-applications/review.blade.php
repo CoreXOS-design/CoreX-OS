@@ -444,6 +444,13 @@
         </div>
     @endif
 
+    {{-- Audit fix A4/A27 (2026-10-19): no approver is configured, so approval falls back to one step. Say so, every time. --}}
+    @if(!empty($noAuthoriserWarning ?? null))
+        <div class="rounded-md px-4 py-3 text-sm mt-4" data-qa="no-authoriser-warning" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #92400e); border: 1px solid var(--ds-amber, #f59e0b);">
+            {{ $noAuthoriserWarning }}
+        </div>
+    @endif
+
     @if($viewerRole === 'agent' && $declineInfo)
         {{-- Johan, 2026-09-09, verbatim: "yes they should see it. the auth
              needs to report back to the agent why the application has been

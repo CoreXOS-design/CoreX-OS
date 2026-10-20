@@ -41,6 +41,11 @@ class RentalFaultContractorService
      */
     public function hasContractorFor(RentalFaultReport $fault): bool
     {
+        // "Other - not on the list" has no trade yet: the agent picks the contractor when sending, so this is never a "no contractor for this type" case
+        if ($fault->isOtherType()) {
+            return true;
+        }
+
         return $this->classify($fault)['suits']->isNotEmpty();
     }
 
@@ -192,6 +197,40 @@ class RentalFaultContractorService
         }
 
         return $first->concat($rows->reject(fn ($r) => $first->contains('id', $r['id'])))->values();
+    }
+
+    /**
+     * THE one rule for which contractor a picker loads by default ("Who goes to look first?" and "Create work order") - Johan, 20 Oct 2026, spec 29.R3:
+     * (1) the contractor the OWNER picked (their decision names an agency contractor) - or, when the AGENT recorded the owner's decision, the contractor
+     * the agent chose in that same step (spec 28.2: it travels with the decision); (2) otherwise the property's default contractor, the first of the
+     * section 21 "first responders" for this fault's type; (3) otherwise NOTHING - the agent picks. The owner's own contractor loads no supplier at all.
+     * The contractor the agent proposed when sending the fault to the owner is NOT a pick by itself: when the owner decided on their own link it counts
+     * only if their decision names it ("you arrange it" does not). No first-in-list and no single-option guess for contractors.
+     * The id is returned only when it is one of the picker's rows.
+     *
+     * @param Collection<int, array<string, mixed>>|null $picker rows of {@see self::pickerFor()} when the caller already has them
+     */
+    public function defaultSupplierId(RentalFaultReport $fault, ?Collection $picker = null): ?int
+    {
+        $decision = $fault->decision();
+        $approved = $decision && $decision->decision === \App\Models\RentalApproval::DECISION_APPROVED;
+        if ($approved && $decision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_OWN) {
+            return null;
+        }
+
+        $id = null;
+        if ($approved && $decision->contractor_source === \App\Models\RentalApproval::CONTRACTOR_AGENCY && $decision->agency_service_provider_id) {
+            $id = (int) $decision->agency_service_provider_id;
+        } elseif ($approved && $decision->recorded_by_user_id && $fault->proposed_assignment === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER && $fault->proposed_supplier_id) {
+            $id = (int) $fault->proposed_supplier_id;   // an agent recorded the owner's decision and chose this contractor with it
+        } elseif ($fault->property) {
+            $id = (int) ($fault->property->firstRespondersFor($fault->rental_fault_type_id)->first()['supplier_id'] ?? 0) ?: null;
+        }
+        if ($id === null) {
+            return null;
+        }
+
+        return ($picker ?? $this->pickerFor($fault))->contains('id', $id) ? $id : null;
     }
 
     /** Is this supplier one of the options for this fault? (server-side guard for both decision routes) */

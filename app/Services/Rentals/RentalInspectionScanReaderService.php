@@ -58,10 +58,11 @@ class RentalInspectionScanReaderService
     /** Print/detectability note only, matching cc5's own RECOMMENDED_MIN_SCAN_DPI — the DPI actually used to rasterize an uploaded scan for analysis. */
     private const RASTER_DPI = 200;
 
-    private const BLOB_FILL_MIN = 0.30;
-
-    public function __construct(private RentalInspectionFormPdfService $formPdfService)
-    {
+    public function __construct(
+        private RentalInspectionFormPdfService $formPdfService,
+        private RentalInspectionScanGeometry $geometry,
+        private RentalInspectionNoteReadService $noteReader,
+    ) {
     }
 
     // ── Orchestration ───────────────────────────────────────────────────
@@ -72,8 +73,11 @@ class RentalInspectionScanReaderService
      * RentalInspectionScanMark per item. Never applies anything to the
      * inspection itself — that only happens once a human confirms
      * (applyMark()/applyAll() below).
+     *
+     * @param list<string> $leadNotes plain-words notes shown first on the review screen (e.g. that the upload was filed here
+     *                                because its own form code says so, §64)
      */
-    public function process(RentalInspectionScan $scan): void
+    public function process(RentalInspectionScan $scan, array $leadNotes = []): void
     {
         // 2026-09-22, Johan — checked ONCE, here, at the entry point, not
         // scattered through rasterize()'s internals. Without this, a missing
@@ -115,109 +119,574 @@ class RentalInspectionScanReaderService
 
         $scan->forceFill(['page_count' => count($pages)])->save();
 
-        // Decode the first page's identifier to learn which inspection/
-        // version this scan claims to be — the grid's position is a fixed
-        // constant, read without needing any manifest yet.
-        $firstPage = $pages[1];
-        $transform = $this->calibratePage($firstPage, $scan->rental_inspection_id, 1);
-        if ($transform === null) {
-            $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'Could not locate the four registration marks on page 1 — the scan may be too skewed, cropped, or low quality.'])->save();
-
-            return;
-        }
-
-        $identifier = $this->decodePageIdentifier($firstPage, $transform);
-        $scan->forceFill([
-            'decoded_inspection_id' => $identifier['rental_inspection_id'],
-            'decoded_form_version' => $identifier['form_version'],
-        ])->save();
-
-        if ($identifier['rental_inspection_id'] !== $scan->rental_inspection_id) {
-            $scan->forceFill([
-                'status' => RentalInspectionScan::STATUS_FAILED,
-                'failure_reason' => "This scan's own page identifier says inspection #{$identifier['rental_inspection_id']}, not #{$scan->rental_inspection_id} — wrong form uploaded here.",
-            ])->save();
-
-            return;
-        }
-
-        $currentForm = RentalInspectionForm::currentFor($scan->rental_inspection_id)->first();
+        // The inspection's CURRENT printed form is the contract everything below is read against (its manifest gives
+        // the paper size, the registration marks, the QR position and every box). Without one there is nothing to read.
+        $allForms = RentalInspectionForm::currentFor($scan->rental_inspection_id)->get();
+        $currentForm = $allForms->first();
         if (! $currentForm) {
-            $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'No printable form has ever been generated for this inspection to match against.'])->save();
+            $scan->forceFill(['status' => RentalInspectionScan::STATUS_FAILED, 'failure_reason' => 'The site form has not been printed from this inspection, and no page code (QR) on this scan could be read to say which inspection it belongs to. Print the site form from this inspection and mark that one, or upload the scan on the inspection the form was printed from.'])->save();
 
             return;
         }
 
-        // Never apply marks against a stale layout — an agency reprinting
-        // after adding an item must never have an old scan silently write
-        // onto the new one (Johan's explicit instruction).
-        if ($identifier['form_version'] !== $currentForm->version) {
-            $scan->forceFill([
-                'status' => RentalInspectionScan::STATUS_VERSION_MISMATCH,
-                'failure_reason' => "This scan is of form version {$identifier['form_version']}; the inspection's current form is version {$currentForm->version}. The form has changed since this was printed — a human needs to reconcile this by hand.",
-            ])->save();
+        // Every printed LAYOUT this inspection has had for the current set of rooms and items. A form printed before the safe
+        // margin existed (or with another margin) is still in an agent's hands and still scans back: a page is read against
+        // whichever layout it was printed with, which its own QR / page grid then confirms. A form whose rooms or items have
+        // since changed is a different form and is refused below, exactly as before.
+        $layouts = $this->layoutsFor($allForms, $currentForm);
+        $formPages = (int) ($currentForm->manifest_json['page_count'] ?? 1);
 
-            return;
-        }
+        // Place and identify every uploaded page. The corner marks (any two to four of them) place it; the page's QR code
+        // settles which way up it is and says which inspection and page it is; a page whose QR cannot be read falls back to
+        // the printed OMR grid. Every page gets a plain-words result - what was found, or exactly why it could not be read -
+        // which the review screen shows.
+        $notes = $leadNotes;
+        $results = [];   // file page => result row (spec §62)
+        $read = [];      // form page number => ['canvas' => Imagick, 'file_page' => int, 'layout' => array]
+        $firstIdentity = null;
+        $firstLayout = null;
+        foreach ($pages as $fileIndex => $page) {
+            $found = null;
+            $firstFail = null;
+            $staleIdentity = null;
+            $otherInspection = null;
+            foreach ($layouts as $li => $layout) {
+                $qr = null;
+                $why = null;
+                $info = [];
+                $transform = $this->calibratePage($page, $layout['geo'], $scan->rental_inspection_id, null, $qr, $why, $info);
+                if ($transform === null) {
+                    $firstFail ??= ['reason' => $why ?: 'The page could not be placed - no corner marks or QR code were found on it.', 'info' => $info];
 
-        $scan->forceFill(['rental_inspection_form_id' => $currentForm->id])->save();
-
-        $manifest = $currentForm->manifest_json;
-        $threshold = RentalInspectionSetting::omrMarkThresholdFor($scan->agency_id);
-
-        $boxesByPage = [];
-        foreach ($manifest['boxes'] as $box) {
-            $boxesByPage[(int) $box['page']][] = $box;
-        }
-
-        DB::transaction(function () use ($scan, $pages, $boxesByPage, $threshold, $transform) {
-            foreach ($pages as $pageNumber => $page) {
-                $pageTransform = $pageNumber === 1 ? $transform : $this->calibratePage($page, $scan->rental_inspection_id, $pageNumber);
-                if ($pageTransform === null) {
-                    continue; // this page's boxes simply can't be read; left unmarked/ambiguous below for review.
+                    continue;
                 }
-                $boxes = $boxesByPage[$pageNumber] ?? [];
-                $this->readBoxesOnPage($scan, $page, $pageTransform, $boxes, $threshold, $pageNumber);
+                if ($qr !== null) {
+                    $identity = $qr;
+                    $via = 'qr';
+                } else {
+                    $identity = $this->decodePageIdentifier($page, $transform, $layout['geo'], $scan->rental_inspection_id);
+                    $via = 'grid';
+                    if ($identity === null) {
+                        $firstFail ??= ['reason' => "Page {$fileIndex}: the page was placed on the form, but neither its QR code nor its page-number grid could be read, so it is not known which page of the form this is. Scan it again at 300 dpi in black and white or greyscale (not 'photo'), with the whole sheet flat on the glass.", 'info' => $info];
+
+                        continue;
+                    }
+                }
+                // A page that belongs to another inspection. A QR read is proof; a bare grid read through a layout the page may
+                // not have been printed with is only a hint, so with several layouts to try it is not yet a verdict.
+                if ($identity['rental_inspection_id'] !== $scan->rental_inspection_id) {
+                    $otherInspection = ['identity' => $identity, 'via' => $via];
+                    if ($via === 'qr' || count($layouts) === 1) {
+                        break;
+                    }
+
+                    continue;
+                }
+                if (! in_array($identity['form_version'], $layout['versions'], true)) {
+                    $staleIdentity ??= $identity;
+
+                    continue;
+                }
+                $found = ['layout' => $layout, 'transform' => $transform, 'identity' => $identity, 'via' => $via, 'info' => $info];
+
+                break;
             }
 
-            $scan->forceFill(['status' => RentalInspectionScan::STATUS_NEEDS_REVIEW])->save();
+            // Wrong form uploaded here: ANY page that belongs to another inspection refuses the whole upload.
+            if ($found === null && $otherInspection !== null) {
+                $other = $otherInspection['identity'];
+                $scan->forceFill([
+                    'decoded_inspection_id' => $other['rental_inspection_id'],
+                    'decoded_form_version' => $other['form_version'],
+                    'status' => RentalInspectionScan::STATUS_FAILED,
+                    'failure_reason' => "This scan's own page code says inspection #{$other['rental_inspection_id']}, not #{$scan->rental_inspection_id} - wrong form uploaded here.",
+                ])->save();
+
+                return;
+            }
+
+            // Never apply marks against a stale layout - an agency reprinting after adding an item must never have an
+            // old scan silently write onto the new one (Johan's explicit instruction).
+            if ($found === null && $staleIdentity !== null) {
+                $scan->forceFill([
+                    'decoded_inspection_id' => $staleIdentity['rental_inspection_id'],
+                    'decoded_form_version' => $staleIdentity['form_version'],
+                    'status' => RentalInspectionScan::STATUS_VERSION_MISMATCH,
+                    'failure_reason' => "This scan is of form version {$staleIdentity['form_version']}; the inspection's current form is version {$currentForm->version}. The form has changed since this was printed - print the current form and mark that one.",
+                ])->save();
+
+                return;
+            }
+
+            if ($found === null) {
+                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => $firstFail['reason'] ?? 'The page could not be placed - no corner marks or QR code were found on it.'] + ($firstFail['info'] ?? []);
+
+                continue;
+            }
+
+            $layout = $found['layout'];
+            $identity = $found['identity'];
+            $info = $found['info'];
+            $via = $found['via'];
+            $firstIdentity ??= $identity;
+            $firstLayout ??= $layout;
+
+            $layoutPages = (int) ($layout['manifest']['page_count'] ?? 1);
+            $formPage = $identity['page_number'];
+            if ($formPage < 1 || $formPage > $layoutPages) {
+                $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => null, 'status' => 'not_read', 'reason' => "Page {$fileIndex} of the upload says it is page {$formPage}, but this form has {$layoutPages} pages - it was not read."] + $info;
+
+                continue;
+            }
+            if (isset($read[$formPage])) {
+                $scan->forceFill([
+                    'status' => RentalInspectionScan::STATUS_FAILED,
+                    'failure_reason' => "Page {$formPage} of the form is in this upload twice - upload each page once.",
+                    'page_results' => array_values($results),
+                ])->save();
+
+                return;
+            }
+
+            $canvas = $this->geometry->straightenPage($page, $found['transform'], $layout['geo']['width'], $layout['geo']['height']);
+            $read[$formPage] = ['canvas' => $canvas, 'file_page' => $fileIndex, 'layout' => $layout];
+            $results[$fileIndex] = ['page' => $fileIndex, 'form_page' => $formPage, 'status' => 'read', 'reason' => null, 'identified_by' => $via] + $info;
+            if ($via === 'grid') {
+                $notes[] = "Page {$fileIndex} was identified by its printed page grid - its QR code could not be read.";
+            }
+        }
+
+        if ($read === []) {
+            $reasons = array_values(array_filter(array_column($results, 'reason')));
+            $scan->forceFill([
+                'status' => RentalInspectionScan::STATUS_FAILED,
+                'failure_reason' => $reasons !== [] ? implode(' ', $reasons) : 'None of the pages could be read.',
+                'read_notes' => $notes,
+                'page_results' => array_values($results),
+            ])->save();
+
+            return;
+        }
+
+        $formPages = (int) ($firstLayout['manifest']['page_count'] ?? $formPages);
+
+        $scan->forceFill([
+            'decoded_inspection_id' => $firstIdentity['rental_inspection_id'],
+            'decoded_form_version' => $firstIdentity['form_version'],
+            'rental_inspection_form_id' => $currentForm->id,
+        ])->save();
+
+        $missing = array_values(array_diff(range(1, max(1, $formPages)), array_keys($read)));
+        if ($missing !== [] && $formPages > 1) {
+            $notes[] = 'Pages not read from this scan: ' . implode(', ', $missing) . ' of ' . $formPages . '. Items on those pages have nothing proposed.';
+        }
+
+        $threshold = RentalInspectionSetting::omrMarkThresholdFor($scan->agency_id);
+
+        $recorded = $this->recordedConditions($scan->rental_inspection_id);
+
+        $noteCrops = [];   // mark id => ['png', 'label', 'agency_id'] - the note areas with handwriting in them (AT-472), read after the transaction
+
+        DB::transaction(function () use ($scan, $read, $threshold, $recorded, &$notes, &$results, &$noteCrops) {
+            $unchanged = 0;
+            ksort($read);
+            foreach ($read as $formPage => $info) {
+                $counts = $this->readBoxesOnPage($scan, $info['canvas'], $info['layout']['boxesByPage'][$formPage] ?? [], $threshold, $formPage, $recorded, $info['layout']['geo'], $noteCrops);
+                $unchanged += $counts['unchanged'];
+                $results[$info['file_page']]['rows'] = $counts['rows'];
+                $results[$info['file_page']]['proposed'] = $counts['proposed'];
+                $results[$info['file_page']]['flagged'] = $counts['flagged'];
+                $results[$info['file_page']]['rows_located'] = $counts['located'];
+                if ($counts['untrusted']) {
+                    $notes[] = 'Page ' . $info['file_page'] . ': only ' . $counts['located'] . ' of ' . $counts['rows'] . ' rows could be found on the page, so none of its ticks were proposed. Scan it again with the whole sheet flat on the glass (corners not cut off).';
+                } elseif ($counts['located'] < $counts['rows']) {
+                    $notes[] = 'Page ' . $info['file_page'] . ': ' . ($counts['rows'] - $counts['located']) . ' of ' . $counts['rows'] . ' rows were placed from the rows around them because their printed boxes could not be seen clearly.';
+                }
+            }
+            if ($unchanged > 0) {
+                $notes[] = $unchanged . ($unchanged === 1 ? ' row matches' : ' rows match') . ' what is already recorded on screen, so nothing is proposed for ' . ($unchanged === 1 ? 'it' : 'them') . '.';
+            }
+
+            $scan->forceFill(['status' => RentalInspectionScan::STATUS_NEEDS_REVIEW, 'read_notes' => $notes, 'page_results' => array_values($results)])->save();
         });
+
+        $this->readHandwrittenNotes($noteCrops);
     }
 
-    /** One RentalInspectionScanMark per item whose boxes live on this page. */
-    private function readBoxesOnPage(RentalInspectionScan $scan, Imagick $page, array $transform, array $boxes, float $threshold, int $pageNumber): void
+    /**
+     * AT-472 - the AI read of the handwritten note on each row that has one, stored as the mark's `detected_note` (+ confidence) so the review
+     * screen can pre-fill the note box. Never part of the scan's own success: an AI that is off, paused, failing or unreadable leaves the marks
+     * exactly as the tick read made them. Nothing here touches the inspection.
+     *
+     * @param array<int, array{png: string, label: string, agency_id: int}> $crops mark id => the row's note area
+     */
+    public function readHandwrittenNotes(array $crops): void
+    {
+        if ($crops === [] || ! $this->noteReader->enabled()) {
+            return;
+        }
+
+        try {
+            foreach ($this->noteReader->transcribe($crops) as $markId => $answer) {
+                if ($answer['text'] === '') {
+                    continue; // nothing legible: no detected note
+                }
+                RentalInspectionScanMark::query()->whereKey($markId)->whereNull('applied_observation_id')->update([
+                    'detected_note' => $answer['text'],
+                    'detected_note_confidence' => $answer['confidence'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Scan note read failed - the marks carry no detected note', ['error' => $e->getMessage()]);
+        }
+    }
+
+    /**
+     * Read an already-stored scan again with the current reader. Proposals not yet applied are replaced (soft-deleted, never
+     * a hard delete); anything an agent already applied is left exactly as it is. Nothing is applied by this.
+     */
+    public function reread(RentalInspectionScan $scan): void
+    {
+        $scan->marks()->whereNull('applied_observation_id')->delete();
+        $scan->forceFill([
+            'status' => RentalInspectionScan::STATUS_PROCESSING,
+            'failure_reason' => null,
+            'read_notes' => null,
+            'page_results' => null,
+        ])->save();
+
+        $this->process($scan->fresh());
+    }
+
+    /**
+     * Which inspection does this upload's own QR code say it belongs to? (spec §64 - uploads route by the form's code, not by
+     * the page they were uploaded on.) Needs no printed form on the inspection it was uploaded to: the QR sits at the same
+     * place on every form of a layout, so the page is placed with the geometry of this inspection's forms and, failing that,
+     * the agency's most recent distinct layouts. Only a QR that actually decodes counts - the printed page grid is never a
+     * reason to move a scan.
+     *
+     * @return array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int}|null the first page's code that reads, or null
+     */
+    public function qrOwner(RentalInspectionScan $scan): ?array
+    {
+        if (! extension_loaded('imagick')) {
+            return null;
+        }
+        try {
+            $pages = $this->rasterize(Storage::disk('local')->path($scan->storage_path), $scan->mime_type);
+        } catch (\Throwable) {
+            return null;
+        }
+        $geos = $this->templateGeometries($scan);
+        foreach (array_slice($pages, 0, 4, true) as $page) {
+            foreach ($geos as $geo) {
+                $qr = null;
+                $why = null;
+                $info = [];
+                $this->calibratePage($page, $geo, null, null, $qr, $why, $info);
+                if ($qr !== null && $qr['rental_inspection_id'] > 0) {
+                    return $qr;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Geometries to look for a QR with when the uploaded-to inspection's own form cannot be relied on: this inspection's
+     * printed layouts first, then the agency's newest distinct ones (at most four in all).
+     *
+     * @return list<array>
+     */
+    private function templateGeometries(RentalInspectionScan $scan): array
+    {
+        $forms = RentalInspectionForm::withoutGlobalScopes()->whereNull('deleted_at')
+            ->where('agency_id', $scan->agency_id)
+            ->orderByRaw('rental_inspection_id = ? desc', [$scan->rental_inspection_id])
+            ->orderByDesc('id')->limit(40)->get();
+        $geos = [];
+        $seen = [];
+        foreach ($forms as $form) {
+            $m = $form->manifest_json;
+            if (! is_array($m) || empty($m['qr_codes'][0])) {
+                continue;
+            }
+            $sig = md5(json_encode([$m['page_size']['key'] ?? null, $m['layout_version'] ?? 1, $m['safe_margin_mm'] ?? null, $m['fiducials'][0] ?? null, $m['qr_codes'][0]['x'] ?? null, $m['qr_codes'][0]['y'] ?? null]));
+            if (isset($seen[$sig])) {
+                continue;
+            }
+            $seen[$sig] = true;
+            $geos[] = $this->geometryFor($m);
+            if (count($geos) >= 4) {
+                break;
+            }
+        }
+
+        return $geos;
+    }
+
+    /** @return array<int, string> item id => the condition key currently recorded on the web inspection (append-only: the last one wins) */
+    private function recordedConditions(int $inspectionId): array
+    {
+        $out = [];
+        $rows = \App\Models\RentalInspectionObservation::withoutGlobalScopes()
+            ->where('rental_inspection_id', $inspectionId)->recorded()->orderBy('id')
+            ->get(['rental_inspection_item_id', 'condition']);
+        foreach ($rows as $row) {
+            $out[(int) $row->rental_inspection_item_id] = (string) $row->condition;
+        }
+
+        return $out;
+    }
+
+    /**
+     * Everything the reader needs to know about the printed page, taken from the form's own manifest (never from
+     * constants, so an agency on Letter paper reads exactly like one on A4).
+     *
+     * @return array{width: float, height: float, fiducial_size: float, fiducial_points: array<string, array{0: float, 1: float}>, qr: ?array{x: float, y: float, size: float, modules: ?int}}
+     */
+    private function geometryFor(array $manifest): array
+    {
+        $width = (float) ($manifest['page_size']['width_pt'] ?? RentalInspectionFormPdfService::PAGE_WIDTH);
+        $height = (float) ($manifest['page_size']['height_pt'] ?? RentalInspectionFormPdfService::PAGE_HEIGHT);
+
+        $points = [];
+        $size = 10.0;
+        foreach ($manifest['fiducials'] ?? [] as $f) {
+            if ((int) $f['page'] === 1) {
+                $size = (float) $f['size'];
+                // Manifest coordinates are each mark's TOP-LEFT; the detected blob centroid is its CENTER.
+                $points[$f['corner']] = [(float) $f['x'] + $size / 2, (float) $f['y'] + $size / 2];
+            }
+        }
+        if (count($points) !== 4) {
+            $points = [
+                'top_left' => [12.0 + 5.0, 12.0 + 5.0],
+                'top_right' => [$width - 12.0 - 10.0 + 5.0, 12.0 + 5.0],
+                'bottom_left' => [12.0 + 5.0, $height - 12.0 - 10.0 + 5.0],
+                'bottom_right' => [$width - 12.0 - 10.0 + 5.0, $height - 12.0 - 10.0 + 5.0],
+            ];
+        }
+
+        $qr = null;
+        if (! empty($manifest['qr_codes'][0])) {
+            $q = $manifest['qr_codes'][0];
+            // The symbol's module count: recorded by newer forms; otherwise worked out from the payload's length (the QR version
+            // follows from it: byte capacity at error-correction level Q is 11 / 20 / 32 / 46 characters for versions 1-4).
+            $modules = isset($q['modules']) ? (int) $q['modules'] : null;
+            if ($modules === null && ! empty($q['payload'])) {
+                $len = strlen((string) $q['payload']);
+                $modules = 17 + 4 * ($len <= 11 ? 1 : ($len <= 20 ? 2 : ($len <= 32 ? 3 : 4)));
+            }
+            $qr = ['x' => (float) $q['x'], 'y' => (float) $q['y'], 'size' => (float) $q['size'], 'modules' => $modules];
+        }
+
+        return ['width' => $width, 'height' => $height, 'fiducial_size' => $size, 'fiducial_points' => $points, 'qr' => $qr, 'page_count' => (int) ($manifest['page_count'] ?? 1), 'grid' => $this->gridFrom($manifest, $width)];
+    }
+
+    /**
+     * Where this form's page-identifier grid sits, taken from ITS manifest (the layout moves with the safe margin, §63); a
+     * manifest without it falls back to the original fixed layout.
+     */
+    private function gridFrom(array $manifest, float $width): array
+    {
+        $fallback = RentalInspectionFormPdfService::pageIdentifierGridLayout($width);
+        $pid = $manifest['page_identifiers'][0] ?? null;
+        if (! $pid || empty($pid['grid']['x']) || empty($pid['bits'][0]['width'])) {
+            return $fallback;
+        }
+        $bits = $pid['bits'];
+        $size = (float) $bits[0]['width'];
+        $gap = isset($bits[1]) && (float) $bits[1]['y'] === (float) $bits[0]['y'] ? (float) $bits[1]['x'] - (float) $bits[0]['x'] - $size : $fallback['bit_gap'];
+        $lengths = [];
+        foreach ($pid['fields'] ?? [] as $f) {
+            $lengths[$f['name']] = (int) $f['bit_length'];
+        }
+
+        return [
+            'x' => (float) $pid['grid']['x'], 'y' => (float) $pid['grid']['y'],
+            'cols' => (int) $pid['grid']['cols'], 'rows' => (int) $pid['grid']['rows'],
+            'bit_size' => $size, 'bit_gap' => $gap,
+            'bits_inspection' => $lengths['rental_inspection_id'] ?? $fallback['bits_inspection'],
+            'bits_page' => $lengths['page_number'] ?? $fallback['bits_page'],
+            'bits_version' => $lengths['form_version'] ?? $fallback['bits_version'],
+        ];
+    }
+
+    /**
+     * The form's "shape": the paper, the condition columns and which items are on it - everything an answer depends on,
+     * and nothing about where it is printed. Two forms of one inspection with the same shape differ only in layout.
+     */
+    private function shapeOf(array $manifest): string
+    {
+        $items = [];
+        foreach ($manifest['boxes'] ?? [] as $b) {
+            $items[(int) $b['rental_inspection_item_id']] = true;
+        }
+        ksort($items);
+
+        return md5(json_encode([
+            $manifest['page_size']['key'] ?? null,
+            array_column($manifest['condition_states'] ?? [], 'key'),
+            array_keys($items),
+        ]));
+    }
+
+    /**
+     * The printed layouts this scan may have been made from, newest first: one per distinct geometry among the inspection's
+     * forms that have the current form's shape. Each carries the form versions that share it.
+     *
+     * @return list<array{manifest: array, geo: array, versions: list<int>, boxesByPage: array<int, list<array>>}>
+     */
+    private function layoutsFor(\Illuminate\Support\Collection $forms, RentalInspectionForm $current): array
+    {
+        $shape = $this->shapeOf($current->manifest_json);
+        $layouts = [];
+        $bySignature = [];
+        foreach ($forms as $form) {
+            $m = $form->manifest_json;
+            if ($this->shapeOf($m) !== $shape) {
+                continue;
+            }
+            $sig = md5(json_encode([$m['layout_version'] ?? 1, $m['safe_margin_mm'] ?? null, $m['page_count'] ?? 1, $m['fiducials'][0] ?? null, $m['qr_codes'][0]['y'] ?? null, $m['boxes'][0]['x'] ?? null, $m['boxes'][0]['y'] ?? null]));
+            if (isset($bySignature[$sig])) {
+                $layouts[$bySignature[$sig]]['versions'][] = (int) $form->version;
+
+                continue;
+            }
+            $boxesByPage = [];
+            foreach ($m['boxes'] ?? [] as $box) {
+                $boxesByPage[(int) $box['page']][] = $box;
+            }
+            $bySignature[$sig] = count($layouts);
+            $layouts[] = ['manifest' => $m, 'geo' => $this->geometryFor($m), 'versions' => [(int) $form->version], 'boxesByPage' => $boxesByPage];
+        }
+
+        return $layouts;
+    }
+
+    /**
+     * One RentalInspectionScanMark per item whose boxes live on this page, read on the page's straightened canvas.
+     *
+     * Each row is first LOCATED from its own printed box outlines (RentalInspectionScanGeometry::alignRows), then the ink
+     * inside each of its boxes is measured away from the outline. A box is ticked when its ink reaches the agency's
+     * sensitivity (`omr_mark_threshold`, the share of the box's inside that must carry ink - default 4 %, because a hand
+     * tick covers 5-20 % of a box). Exactly one ticked box per row is a proposal; none, or more than one, is flagged for the
+     * agent (never guessed). Confidence is how far above the sensitivity the tick is (1.0 = a clear tick).
+     *
+     * @return array{unchanged: int, rows: int, proposed: int, flagged: int, located: int}
+     */
+    private function readBoxesOnPage(RentalInspectionScan $scan, Imagick $canvas, array $boxes, float $threshold, int $pageNumber, array $recorded = [], ?array $geo = null, array &$noteCrops = []): array
     {
         $byItem = [];
         foreach ($boxes as $box) {
             $byItem[(int) $box['rental_inspection_item_id']][] = $box;
         }
+        foreach ($byItem as $itemId => $itemBoxes) {
+            usort($itemBoxes, fn ($a, $b) => (float) $a['x'] <=> (float) $b['x']);
+            $byItem[$itemId] = $itemBoxes;
+        }
+
+        $offsets = $this->geometry->alignRows($canvas, $byItem);
+        $rowHeight = $this->rowHeightOf($byItem);
+        $readNotes = $geo !== null && $this->noteReader->enabled();
+        $unsureBelow = RentalInspectionSetting::omrUnsureBelowFor($scan->agency_id);
+        $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0, 'untrusted' => false];
+
+        // A page on which fewer than half the rows could be found from their own printed boxes was not placed reliably (marks
+        // clipped or misjudged): a tick read at a guessed position can land on the neighbouring row or column and look
+        // perfectly plausible. Nothing on such a page is proposed - every row is flagged for the agent instead.
+        $locatedRows = count(array_filter($offsets, fn ($o) => $o['measured']));
+        $untrusted = count($byItem) >= 4 && $locatedRows * 2 < count($byItem);
+        $counts['untrusted'] = $untrusted;
 
         foreach ($byItem as $itemId => $itemBoxes) {
-            $ratios = [];
-            foreach ($itemBoxes as $box) {
-                [$px, $py] = $this->applyAffine($transform, (float) $box['x'] + (float) $box['width'] / 2, (float) $box['y'] + (float) $box['height'] / 2);
-                $scalePx = $this->affineScale($transform);
-                $halfW = ((float) $box['width'] / 2) * $scalePx * 0.85; // sample slightly inside the printed box, never its border
-                $halfH = ((float) $box['height'] / 2) * $scalePx * 0.85;
-                $ratios[$box['condition_key']] = $this->sampleFillRatio($page, $px, $py, $halfW, $halfH);
+            $off = $offsets[$itemId] ?? ['dx' => 0.0, 'dy' => 0.0, 'measured' => false];
+            if ($off['measured']) {
+                $counts['located']++;
             }
 
-            $marked = array_filter($ratios, fn ($r) => $r >= $threshold);
-            $ambiguous = count($marked) !== 1;
-            $detectedKey = $ambiguous ? null : array_key_first($marked);
-            $confidence = $ratios ? max($ratios) : null;
+            $ink = [];
+            foreach ($itemBoxes as $box) {
+                $ink[$box['condition_key']] = $this->geometry->inkShare($canvas, (float) $box['x'] + $off['dx'], (float) $box['y'] + $off['dy']);
+            }
 
-            RentalInspectionScanMark::updateOrCreate(
-                ['rental_inspection_scan_id' => $scan->id, 'rental_inspection_item_id' => $itemId],
-                [
-                    'agency_id' => $scan->agency_id,
-                    'page_number' => $pageNumber,
-                    'detected_condition_key' => $detectedKey,
-                    'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
-                    'ambiguous' => $ambiguous,
-                ]
-            );
+            // Every box of a row sits on the same scan noise, so each is judged against the ROW's own baseline (its median
+            // box - a row has one tick at most), not against zero: a noisy page does not turn every box into a "mark". A
+            // ticked box must stand out from that baseline by the sensitivity AND be comparable with the row's strongest box
+            // (two real ticks are about as dark as each other; a speck beside a heavy tick is not a second tick).
+            $sorted = array_values($ink);
+            sort($sorted);
+            $baseline = $sorted ? $sorted[intdiv(count($sorted), 2)] : 0.0;
+            $net = array_map(fn ($v) => max(0.0, $v - $baseline), $ink);
+            $strongest = $net ? max($net) : 0.0;
+            $marked = array_filter($net, fn ($v) => $v >= $threshold && $v >= 0.4 * $strongest);
+            $ambiguous = $untrusted || count($marked) !== 1;
+            $detectedKey = $ambiguous ? null : array_key_first($marked);
+            $best = $strongest;
+            $confidence = $threshold > 0 ? min(1.0, $best / (2.5 * $threshold)) : null;
+
+            // An item already recorded on screen (it printed greyed): a row left alone, or ticked the same as the screen,
+            // proposes nothing. Only a different tick - or a doubtful one - reaches the agent.
+            $onScreen = $recorded[$itemId] ?? null;
+            if ($onScreen !== null && (count($marked) === 0 || (! $ambiguous && $detectedKey === $onScreen))) {
+                $counts['unchanged']++;
+
+                continue;
+            }
+
+            // One row per (scan, item) - the table's unique key counts archived rows too, so a re-read brings the archived
+            // proposal back and rewrites it. A mark the agent already applied is never touched.
+            $mark = RentalInspectionScanMark::withTrashed()->firstOrNew(['rental_inspection_scan_id' => $scan->id, 'rental_inspection_item_id' => $itemId]);
+            if ($mark->applied_observation_id !== null) {
+                continue;
+            }
+            if ($mark->exists && $mark->trashed()) {
+                $mark->restore();
+            }
+            // AT-472 - the row's handwritten note, when there is any ink in its note area (never sent anywhere otherwise).
+            $noteCrop = null;
+            if ($readNotes) {
+                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
+                $noteCrop = $crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN ? $crop : null;
+            }
+            $mark->fill([
+                'agency_id' => $scan->agency_id,
+                'page_number' => $pageNumber,
+                'detected_condition_key' => $detectedKey,
+                'detected_confidence' => $confidence !== null ? round($confidence, 2) : null,
+                'ambiguous' => $ambiguous,
+                'tick_boxes' => count($marked),
+            ] + ($readNotes ? ['note_ink' => $noteCrop !== null, 'detected_note' => null, 'detected_note_confidence' => null] : []))->save();
+            $counts[$ambiguous || ($confidence !== null && $confidence < $unsureBelow) ? 'flagged' : 'proposed']++;
+
+            if ($noteCrop !== null) {
+                $noteCrops[$mark->id] = [
+                    'png' => $noteCrop['png'],
+                    'label' => trim(($itemBoxes[0]['room_label'] ?? '') . ' - ' . ($itemBoxes[0]['item_label'] ?? ''), ' -'),
+                    'agency_id' => (int) $scan->agency_id,
+                ];
+            }
         }
+
+        return $counts;
+    }
+
+    /** The height of one printed row, in points: the smallest real step between consecutive rows' tick boxes on the page. */
+    private function rowHeightOf(array $byItem): float
+    {
+        $ys = array_values(array_unique(array_map(fn ($boxes) => round((float) $boxes[0]['y'], 2), $byItem)));
+        sort($ys);
+        $steps = [];
+        for ($i = 1; $i < count($ys); $i++) {
+            $step = round($ys[$i] - $ys[$i - 1], 2);
+            if ($step > 5) {
+                $steps[] = $step;
+            }
+        }
+
+        return $steps !== [] ? min($steps) : 20.0;
     }
 
     // ── Applying a confirmed review ─────────────────────────────────────
@@ -228,18 +697,43 @@ class RentalInspectionScanReaderService
      * the exact same entry point onConditionTap() (rental-inspections.md
      * §14.1) uses. `applied_observation_id` on the mark is the audit trail
      * — the observation itself carries no new column.
+     *
+     * AT-472 (Johan, 20 Oct 2026): the CONFIRMED note travels with the condition (a note the agent never touched but the AI pre-filled is saved
+     * here, because the agent saw it and pressed Apply), and the row is idempotent:
+     *   - a retry carrying the same `$replayKey` returns the observation that key already wrote;
+     *   - when the item's latest recorded observation already says the same condition and note (the note box saves as it is typed, through the
+     *     capture screen's own /observations endpoint), nothing new is recorded - the mark is simply linked to that observation.
+     * "Damaged needs a note" is enforced by the caller (RentalInspectionScanController::apply) with the same rule the capture endpoint uses.
      */
-    public function applyMark(RentalInspectionScanMark $mark, string $conditionKey, User $confirmedBy, string $source): RentalInspectionObservation
+    public function applyMark(RentalInspectionScanMark $mark, string $conditionKey, User $confirmedBy, string $source, ?string $notes = null, ?string $replayKey = null): RentalInspectionObservation
     {
-        $observation = RentalInspectionObservation::record([
+        $inspectionId = (int) $mark->scan->rental_inspection_id;
+        $notes = ($notes !== null && trim($notes) !== '') ? trim($notes) : null;
+
+        $observation = null;
+        if ($replayKey) {
+            $observation = RentalInspectionObservation::withoutGlobalScopes()
+                ->where('client_idempotency_key', $replayKey)->where('rental_inspection_id', $inspectionId)->first();
+        }
+        if (! $observation) {
+            $latest = RentalInspectionObservation::query()->recorded()
+                ->where('rental_inspection_id', $inspectionId)
+                ->where('rental_inspection_item_id', $mark->rental_inspection_item_id)
+                ->orderByDesc('id')->first();
+            if ($latest && $latest->condition === $conditionKey && (($latest->notes !== null && trim($latest->notes) !== '') ? trim($latest->notes) : null) === $notes) {
+                $observation = $latest;
+            }
+        }
+        $observation ??= RentalInspectionObservation::record(array_filter([
             'agency_id' => $mark->agency_id,
-            'rental_inspection_id' => $mark->scan->rental_inspection_id,
+            'rental_inspection_id' => $inspectionId,
             'rental_inspection_item_id' => $mark->rental_inspection_item_id,
             'observed_by_user_id' => $confirmedBy->id,
             'condition' => $conditionKey,
-            'notes' => null,
+            'notes' => $notes,
             'source' => $source,
-        ]);
+            'client_idempotency_key' => $replayKey,
+        ], fn ($v) => $v !== null));
 
         $mark->forceFill([
             'confirmed_condition_key' => $conditionKey,
@@ -261,11 +755,17 @@ class RentalInspectionScanReaderService
             $imagick->setResolution(self::RASTER_DPI, self::RASTER_DPI);
             $imagick->readImage($absolutePath);
             $pages = [];
-            foreach ($imagick as $index => $frame) {
+            // Each page must be its OWN Imagick. Iterating `foreach ($imagick as $frame)` hands back the SAME object
+            // every time (repositioned), so storing $frame made every page of a multi-page PDF the last page - a
+            // 3-page scan was read as page 3 three times. getImage() copies the current frame out on its own.
+            $frames = $imagick->getNumberImages();
+            for ($i = 0; $i < $frames; $i++) {
+                $imagick->setIteratorIndex($i);
+                $frame = $imagick->getImage();
                 $this->flattenToOpaqueWhite($frame);
                 $frame->setImageColorspace(Imagick::COLORSPACE_GRAY);
                 $frame->setImageFormat('png');
-                $pages[$index + 1] = $frame;
+                $pages[$i + 1] = $frame;
             }
 
             return $pages;
@@ -327,89 +827,97 @@ class RentalInspectionScanReaderService
     {
         $image->setImageBackgroundColor(new ImagickPixel('white'));
         $image->setImageAlphaChannel(Imagick::ALPHACHANNEL_REMOVE);
+        // A rotated or cropped picture can carry a "virtual canvas" offset (PNG oFFs, TIFF position). cropImage() works on
+        // that canvas, not on the pixels, so every corner/QR/row crop below would otherwise look in the wrong place.
+        $image->setImagePage(0, 0, 0, 0);
     }
 
     // ── Fiducial detection + calibration ────────────────────────────────
 
     /**
+     * Place one scanned page on the printed form: find the transform from the form's own points (printed positions in
+     * points) to this picture's pixels.
+     *
+     * The corner marks are found with a dither-tolerant matched filter (RentalInspectionScanGeometry::findMarkNearCorner) -
+     * a solid black square comes out of an office scanner as a halftone patch. ANY two to four marks place the page: four
+     * give an affine fit; two or three give a similarity (scale + rotation + shift) from the pair that fits the page. A form
+     * printed on the wrong paper, or scaled by the printer, loses its bottom marks and QR - the page is still placed from the
+     * top ones. If fewer than two marks survive, the QR code alone places it (its three finder squares give position, scale
+     * and rotation); if that too fails the page is reported with the reason, never skipped silently.
+     *
+     * Which way up the page is comes from the QR (decoded on a straightened crop under each orientation the marks allow),
+     * else the printed page grid, else the one circular mark.
+     *
      * @param int|null $expectedInspectionId this scan's own known target
-     *   (always available — set at upload time) — used to disambiguate a
-     *   180-degree orientation ambiguity via the printed page identifier
-     *   rather than blob shape (Johan, 2026-09-22).
-     * @param int|null $expectedPageNumber known once page 1 has already
-     *   been decoded; strengthens the same disambiguation for pages 2+.
+     * @param array|null $qr  out: the decoded QR identity when it was read
+     * @param string|null $why out: plain words for why the page could not be placed (null when it was)
+     * @param array $info    out: what was found (marks, printed scale, how it was anchored)
      * @return array{a: float, b: float, c: float, d: float, e: float, f: float}|null
-     *   pixelX = a*mx + b*my + c; pixelY = d*mx + e*my + f. Null if the four
-     *   fiducials couldn't be confidently located on this page.
+     *   pixelX = a*mx + b*my + c; pixelY = d*mx + e*my + f.
      */
-    private function calibratePage(Imagick $page, ?int $expectedInspectionId = null, ?int $expectedPageNumber = null): ?array
+    private function calibratePage(Imagick $page, array $geo, ?int $expectedInspectionId = null, ?int $expectedPageNumber = null, ?array &$qr = null, ?string &$why = null, array &$info = []): ?array
     {
+        $qr = null;
+        $why = null;
+        $info = [];
         $width = $page->getImageWidth();
         $height = $page->getImageHeight();
-        // A fixed small window pinned to the exact image edge only works
-        // when the page fills the frame with near-zero margin. A real
-        // photographed/scanned form virtually never does, and a skewed
-        // page's canvas is expanded by rotateImage() to exactly bound the
-        // rotated rectangle — so a fiducial's own corner sits somewhere
-        // along an EDGE of that bounding canvas, not at a CORNER of it.
-        // Instead, search a generous quadrant near each corner for every
-        // dark connected blob, and pick whichever qualifying blob sits
-        // CLOSEST to the true page corner — this tolerates arbitrary
-        // margin/skew without needing to know it in advance, while the
-        // size filter (via the image's own implied scale) and the
-        // corner-proximity ranking together keep it from picking up the
-        // header block's printed text (found by direct measurement against
-        // a real generated form: header text starts at MARGIN=36pt, well
-        // outside the fiducial's own 12-22pt inset, so it always loses the
-        // proximity ranking against the true fiducial blob).
-        $impliedScale = (
-            $width / RentalInspectionFormPdfService::PAGE_WIDTH
-            + $height / RentalInspectionFormPdfService::PAGE_HEIGHT
-        ) / 2;
-        $expectedFiducialSize = $impliedScale * 10.0;
-        // 40% of each dimension — generous enough to tolerate a realistically
-        // framed phone photo (the page occupying as little as ~60% of the
-        // frame on a given axis) while staying bounded.
-        $quadW = max((int) round($width * 0.4), (int) round($expectedFiducialSize * 4));
-        $quadH = max((int) round($height * 0.4), (int) round($expectedFiducialSize * 4));
+        $impliedScale = (($width / $geo['width']) + ($height / $geo['height'])) / 2;
+        $expectedPx = $impliedScale * $geo['fiducial_size'];
 
-        // A page corner is a page corner regardless of rotation — search
-        // near each of the four PIXEL corners for a blob, without yet
-        // assuming which manifest fiducial (top_left/top_right/bottom_left/
-        // bottom_right) it corresponds to. Correspondence is resolved AFTER,
-        // by which one is the circle (the fill-ratio outlier, below) plus
-        // geometry relative to it.
-        $corners = [
-            'px_top_left' => $this->findFiducialNearCorner($page, 0, 0, $quadW, $quadH, 0, 0, $expectedFiducialSize),
-            'px_top_right' => $this->findFiducialNearCorner($page, $width - $quadW, 0, $quadW, $quadH, (float) $width, 0, $expectedFiducialSize),
-            'px_bottom_left' => $this->findFiducialNearCorner($page, 0, $height - $quadH, $quadW, $quadH, 0, (float) $height, $expectedFiducialSize),
-            'px_bottom_right' => $this->findFiducialNearCorner($page, $width - $quadW, $height - $quadH, $quadW, $quadH, (float) $width, (float) $height, $expectedFiducialSize),
-        ];
+        $marks = [];
+        foreach (['tl' => 'top left', 'tr' => 'top right', 'bl' => 'bottom left', 'br' => 'bottom right'] as $key => $label) {
+            $mark = $this->geometry->findMarkNearCorner($page, $key, $expectedPx);
+            if ($mark !== null) {
+                $marks[$key] = $mark;
+            }
+        }
+        $info['marks_found'] = array_keys($marks);
 
-        foreach ($corners as $blob) {
-            if ($blob === null) {
-                return null;
+        $candidates = [];
+        if (count($marks) === 4) {
+            $candidates = $this->candidatesFromFourMarks($marks, $geo);
+        }
+        if ($candidates === [] && count($marks) >= 2) {
+            $candidates = $this->candidatesFromFewMarks($marks, $geo, $width, $height, $impliedScale);
+        }
+        if ($candidates !== []) {
+            $picked = $this->pickCandidate($page, $geo, $candidates, $expectedInspectionId, $expectedPageNumber, $qr);
+            if ($picked !== null) {
+                $info['printed_scale'] = round($this->affineScale($picked) / $impliedScale, 3);
+                $info['anchored_by'] = 'marks';
+
+                return $picked;
             }
         }
 
-        // Correspondence is really two separate questions, and only one of
-        // them needs the circle (Johan, 2026-09-22): an A4 page is not
-        // square, so the fiducial rectangle's own edge-length structure
-        // answers "portrait or sideways" at ANY rotation angle, purely from
-        // position — no shape/fill-ratio involved, so no rotation-angle
-        // blind spot. That narrows the four rotational possibilities down
-        // to exactly two, differing only in "right way up or upside down"
-        // — the one binary question the circle actually exists to answer.
-        //
-        // Sort the four corners by angle around their own centroid: for
-        // any convex quadrilateral this recovers the TRUE physical
-        // perimeter order (never a shuffled one), in some consistent
-        // traversal direction. Both possible directions (clockwise and
-        // counter-clockwise) are tried below rather than hand-derived from
-        // atan2's sign convention, since a wrong-chirality guess would
-        // silently mirror the page — the determinant check in
-        // isPlausibleSimilarity() rejects whichever direction is wrong,
-        // regardless of which one that turns out to be.
+        // Not enough marks to place the page: the QR code alone can.
+        $viaQr = $this->calibrateFromQrOnly($page, $geo, $qr);
+        if ($viaQr !== null) {
+            $info['printed_scale'] = round($this->affineScale($viaQr) / $impliedScale, 3);
+            $info['anchored_by'] = 'qr';
+
+            return $viaQr;
+        }
+
+        $why = $this->explainUnplaceable(array_keys($marks), $geo, $marks, $impliedScale, $candidates !== []);
+
+        return null;
+    }
+
+    /** @return list<array{transform: array, bottom_right_fill_ratio: ?float}> */
+    private function candidatesFromFourMarks(array $marks, array $geo): array
+    {
+        $corners = [
+            'px_top_left' => ['x' => $marks['tl']['x'], 'y' => $marks['tl']['y'], 'fill_ratio' => $marks['tl']['share']],
+            'px_top_right' => ['x' => $marks['tr']['x'], 'y' => $marks['tr']['y'], 'fill_ratio' => $marks['tr']['share']],
+            'px_bottom_left' => ['x' => $marks['bl']['x'], 'y' => $marks['bl']['y'], 'fill_ratio' => $marks['bl']['share']],
+            'px_bottom_right' => ['x' => $marks['br']['x'], 'y' => $marks['br']['y'], 'fill_ratio' => $marks['br']['share']],
+        ];
+
+        // Correspondence is really two separate questions, and only one of them needs the circle: an A4 page is not square,
+        // so the marks' own edge-length structure answers "portrait or sideways" at ANY rotation angle, from position alone.
+        // That narrows four rotational possibilities to two, differing only in "right way up or upside down".
         $centroidX = array_sum(array_column($corners, 'x')) / 4;
         $centroidY = array_sum(array_column($corners, 'y')) / 4;
         $keys = array_keys($corners);
@@ -417,20 +925,9 @@ class RentalInspectionScanReaderService
             <=> atan2($corners[$b]['y'] - $centroidY, $corners[$b]['x'] - $centroidX));
         [$q0, $q1, $q2, $q3] = $keys;
 
-        $manifestPoints = [
-            'top_left' => [12.0, 12.0],
-            'top_right' => [RentalInspectionFormPdfService::PAGE_WIDTH - 12.0 - 10.0, 12.0],
-            'bottom_left' => [12.0, RentalInspectionFormPdfService::PAGE_HEIGHT - 12.0 - 10.0],
-            'bottom_right' => [RentalInspectionFormPdfService::PAGE_WIDTH - 12.0 - 10.0, RentalInspectionFormPdfService::PAGE_HEIGHT - 12.0 - 10.0],
-        ];
-        // Manifest fiducial coordinates are the TOP-LEFT of each 10x10pt
-        // mark; the blob centroid detected above is the mark's CENTER — use
-        // each fiducial's own center consistently on both sides.
-        foreach ($manifestPoints as $key => [$mx, $my]) {
-            $manifestPoints[$key] = [$mx + 5.0, $my + 5.0];
-        }
+        $manifestPoints = $geo['fiducial_points'];
 
-        $validCandidates = [];
+        $valid = [];
         foreach ([[$q0, $q1, $q2, $q3], [$q0, $q3, $q2, $q1]] as $qOrder) {
             foreach ($this->rectangleLabelCandidates($corners, $qOrder) as $labels) {
                 $pixelPoints = array_combine($labels, array_map(fn ($k) => $corners[$k], $qOrder));
@@ -442,31 +939,182 @@ class RentalInspectionScanReaderService
                     continue;
                 }
                 $bottomRightKey = $qOrder[array_search('bottom_right', $labels, true)];
-                $validCandidates[] = ['transform' => $transform, 'bottom_right_fill_ratio' => $corners[$bottomRightKey]['fill_ratio']];
+                $valid[] = ['transform' => $transform, 'bottom_right_fill_ratio' => $corners[$bottomRightKey]['fill_ratio']];
             }
         }
 
-        if ($validCandidates === []) {
-            return null;
+        return $valid;
+    }
+
+    /**
+     * Two or three marks found (the others clipped or never printed): every similarity (scale + rotation + shift) that puts a
+     * pair of the marks on a pair of the form's corner marks, kept when the page then sits inside the picture and any
+     * further mark lands on a form corner.
+     *
+     * @param array<string, array{x: float, y: float}> $marks
+     * @return list<array{transform: array, bottom_right_fill_ratio: ?float}>
+     */
+    private function candidatesFromFewMarks(array $marks, array $geo, int $width, int $height, float $prior): array
+    {
+        $manifest = $geo['fiducial_points'];
+        $out = [];
+        $seen = [];
+        foreach ($marks as $ki => $A) {
+            foreach ($marks as $kj => $B) {
+                if ($ki === $kj) {
+                    continue;
+                }
+                foreach ($manifest as $u => [$ux, $uy]) {
+                    foreach ($manifest as $v => [$vx, $vy]) {
+                        if ($u === $v) {
+                            continue;
+                        }
+                        $dm = hypot($vx - $ux, $vy - $uy);
+                        $dp = hypot($B['x'] - $A['x'], $B['y'] - $A['y']);
+                        if ($dm <= 0 || $dp <= 0) {
+                            continue;
+                        }
+                        $scale = $dp / $dm;
+                        // a page the printer shrank to fit (Letter paper: ~94 %) or a scan a little over/under size - not
+                        // a placement that would need the page far bigger than the picture it came out of. The floor is low on
+                        // purpose: the picture's size is only a rough guide to the scale when the page was photographed at
+                        // an angle (the picture then holds the page's bounding box, 25 % bigger at 20 degrees, 45 % at 45).
+                        if ($scale < 0.62 * $prior || $scale > 1.2 * $prior) {
+                            continue;
+                        }
+                        $theta = atan2($B['y'] - $A['y'], $B['x'] - $A['x']) - atan2($vy - $uy, $vx - $ux);
+                        $a = $scale * cos($theta);
+                        $b = -$scale * sin($theta);
+                        $d = $scale * sin($theta);
+                        $t = ['a' => $a, 'b' => $b, 'c' => $A['x'] - ($a * $ux + $b * $uy), 'd' => $d, 'e' => $a, 'f' => $A['y'] - ($d * $ux + $a * $uy)];
+
+                        if (! $this->pageSitsInPicture($t, $geo, $width, $height)) {
+                            continue;
+                        }
+                        // a further mark that lands on one of the form's corner marks under this placement SUPPORTS it. (A false
+                        // mark - a table corner, a stray speck - supports nothing, so it costs a placement no marks, only its rank.)
+                        $support = 2;
+                        $manifestPts = [$u => [$ux, $uy], $v => [$vx, $vy]];
+                        $pixelPts = [$u => ['x' => $A['x'], 'y' => $A['y']], $v => ['x' => $B['x'], 'y' => $B['y']]];
+                        foreach ($marks as $kk => $C) {
+                            if ($kk === $ki || $kk === $kj) {
+                                continue;
+                            }
+                            [$mx, $my] = $this->invertAffine($t, $C['x'], $C['y']);
+                            $dist = [];
+                            foreach ($manifest as $name => $p) {
+                                $dist[$name] = hypot($p[0] - $mx, $p[1] - $my);
+                            }
+                            asort($dist);
+                            $nearest = array_key_first($dist);
+                            if ($dist[$nearest] <= 2.5 * $geo['fiducial_size'] && ! isset($manifestPts[$nearest])) {
+                                $support++;
+                                $manifestPts[$nearest] = $manifest[$nearest];
+                                $pixelPts[$nearest] = ['x' => $C['x'], 'y' => $C['y']];
+                            }
+                        }
+                        // Three marks or more pin down a full AFFINE placement - the scale of each axis separately. Real scanners
+                        // stretch one axis by 1-2 % (10 pt across a page), which no two-mark similarity can represent.
+                        $similarity = $t;
+                        $affine = null;
+                        if (count($manifestPts) >= 3) {
+                            $fit = $this->solveAffine($manifestPts, $pixelPts);
+                            if ($this->isPlausibleSimilarity($fit, 0.965, 0.03) && $this->affineResidual($fit, $manifestPts, $pixelPts) <= 12.0 && $this->pageSitsInPicture($fit, $geo, $width, $height)) {
+                                $affine = $fit;
+                            }
+                        }
+                        // the affine (three or more marks agree) is tried first; the plain two-mark placement stays beside it
+                        // because a third "mark" can be a letter that merely sits near a corner
+                        foreach ([$affine, $similarity] as $variant => $t) {
+                            if ($t === null) {
+                                continue;
+                            }
+                            $key = round($t['a'], 3) . '|' . round($t['b'], 3) . '|' . round($t['c']) . '|' . round($t['f']);
+                            if (isset($seen[$key])) {
+                                continue;
+                            }
+                            $seen[$key] = true;
+                            $out[] = ['transform' => $t, 'bottom_right_fill_ratio' => null, 'support' => $support * 2 - $variant];
+                        }
+                    }
+                }
+            }
         }
+
+        // Most-supported placements first, but ALL plausible ones go on to the orientation choice: a stray letter that
+        // happens to sit near a corner can lift a wrong placement's support above the right one's. The QR (or the page grid)
+        // decides - it only reads through the right placement.
+        usort($out, fn ($a, $b) => $b['support'] <=> $a['support']);
+        $out = array_slice($out, 0, 16);
+
+        return $out;
+    }
+
+    /** The printed page's four corners, placed by `$t`, must lie (within 15 %) inside the picture. */
+    private function pageSitsInPicture(array $t, array $geo, int $width, int $height): bool
+    {
+        foreach ([[0.0, 0.0], [$geo['width'], 0.0], [$geo['width'], $geo['height']], [0.0, $geo['height']]] as [$mx, $my]) {
+            [$px, $py] = $this->applyAffine($t, $mx, $my);
+            if ($px < -0.15 * $width || $px > 1.15 * $width || $py < -0.15 * $height || $py > 1.15 * $height) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** @return array{0: float, 1: float} the printed position (points) that lands on picture pixel (px, py) */
+    private function invertAffine(array $t, float $px, float $py): array
+    {
+        $det = $t['a'] * $t['e'] - $t['b'] * $t['d'];
+
+        return [
+            ($t['e'] * ($px - $t['c']) - $t['b'] * ($py - $t['f'])) / $det,
+            (-$t['d'] * ($px - $t['c']) + $t['a'] * ($py - $t['f'])) / $det,
+        ];
+    }
+
+    /**
+     * Which of the surviving orientations is right. The QR first (read through each candidate; exactly one decodes - and
+     * that read also tells us the inspection and page), then the printed page grid decoded under each, then the one circular
+     * mark's fill. A lone candidate is returned as is.
+     *
+     * @param list<array{transform: array, bottom_right_fill_ratio: ?float}> $validCandidates
+     */
+    private function pickCandidate(Imagick $page, array $geo, array $validCandidates, ?int $expectedInspectionId, ?int $expectedPageNumber, ?array &$qr): ?array
+    {
+        if ($geo['qr'] !== null) {
+            // A QR only decodes through the right placement (wrong ones are the wrong part of the page, or upside down), so
+            // the first that decodes is the answer - best-supported placements first.
+            usort($validCandidates, fn ($a, $b) => ($b['support'] ?? 0) <=> ($a['support'] ?? 0));
+            foreach ($validCandidates as $candidate) {
+                $found = $this->readQr($page, $candidate['transform'], $geo);
+                if ($found !== null) {
+                    $qr = $found;
+
+                    return $candidate['transform'];
+                }
+            }
+        }
+
         if (count($validCandidates) === 1) {
             return $validCandidates[0]['transform'];
         }
 
-        // More than one geometrically-plausible orientation survives — the
-        // residual right-way-up-or-upside-down ambiguity. Disambiguate with
-        // the strongest available signal first: the printed page
-        // identifier, decoded under each candidate. A wrong orientation
-        // samples essentially random bit positions and will not decode to
-        // THIS scan's own known target; the correct one decodes exactly.
-        // This doesn't depend on blob shape at all, so — unlike fill ratio
-        // — it has no rotation-angle blind spot.
+        // More than one geometrically plausible orientation survives. The printed page grid, decoded under each, settles it
+        // when it can.
         if ($expectedInspectionId !== null) {
             $matches = [];
             foreach ($validCandidates as $candidate) {
-                $identifier = $this->decodePageIdentifier($page, $candidate['transform']);
+                $identifier = $this->decodePageIdentifier($page, $candidate['transform'], $geo, $expectedInspectionId);
+                if ($identifier === null) {
+                    continue;
+                }
                 $idMatches = $identifier['rental_inspection_id'] === $expectedInspectionId;
-                $pageMatches = $expectedPageNumber === null || $identifier['page_number'] === $expectedPageNumber;
+                // a real page of THIS form - page 0, or past the last page, is the grid read off the wrong place
+                $pageMatches = $identifier['page_number'] >= 1 && $identifier['page_number'] <= $geo['page_count']
+                    && ($expectedPageNumber === null || $identifier['page_number'] === $expectedPageNumber)
+                    && $identifier['form_version'] >= 1;
                 if ($idMatches && $pageMatches) {
                     $matches[] = $candidate;
                 }
@@ -476,18 +1124,116 @@ class RentalInspectionScanReaderService
             }
         }
 
-        // No expected identifier to check against, or it didn't uniquely
-        // resolve it — fall back to whichever candidate's bottom-right
-        // corner is the clearer circle. Only the circle's fill ratio is
-        // rotation-invariant, so the candidate where it reads furthest
-        // below the other candidate's is the more likely circle — but
-        // still refuse to guess if the two are too close to call.
-        usort($validCandidates, fn ($a, $b) => $a['bottom_right_fill_ratio'] <=> $b['bottom_right_fill_ratio']);
-        if (($validCandidates[1]['bottom_right_fill_ratio'] - $validCandidates[0]['bottom_right_fill_ratio']) < 0.03) {
+        // Last resort: whichever candidate's bottom-right corner is the clearer circle - only when those were measured.
+        $withRatio = array_values(array_filter($validCandidates, fn ($c) => $c['bottom_right_fill_ratio'] !== null));
+        if (count($withRatio) < 2) {
+            return null;
+        }
+        usort($withRatio, fn ($a, $b) => $a['bottom_right_fill_ratio'] <=> $b['bottom_right_fill_ratio']);
+        if (($withRatio[1]['bottom_right_fill_ratio'] - $withRatio[0]['bottom_right_fill_ratio']) < 0.03) {
             return null;
         }
 
-        return $validCandidates[0]['transform'];
+        return $withRatio[0]['transform'];
+    }
+
+    /**
+     * Place a page from its QR code alone (fewer than two corner marks survived). The code is searched for in overlapping
+     * windows of the picture; its three finder squares - read by the decoder in the symbol's own bottom-left, top-left,
+     * top-right order - give the page's position, scale AND rotation in one go, so there is no orientation to guess.
+     */
+    private function calibrateFromQrOnly(Imagick $page, array $geo, ?array &$identity): ?array
+    {
+        if ($geo['qr'] === null) {
+            return null;
+        }
+        $W = $page->getImageWidth();
+        $H = $page->getImageHeight();
+        $tw = (int) round($W * 0.5);
+        $th = (int) round($H * 0.4);
+        foreach ([[0.25, 0.60], [0.0, 0.60], [0.5, 0.60], [0.25, 0.0], [0.0, 0.0], [0.5, 0.0], [0.25, 0.30], [0.0, 0.30], [0.5, 0.30]] as [$fx, $fy]) {
+            $x = (int) round($fx * $W);
+            $y = (int) round($fy * $H);
+            try {
+                $win = clone $page;
+                $win->cropImage($tw, $th, $x, $y);
+                $win->setImagePage(0, 0, 0, 0);
+                $win->setImageFormat('png');
+                $reader = new \Zxing\QrReader($win->getImageBlob(), \Zxing\QrReader::SOURCE_TYPE_BLOB);
+                $text = $reader->text();
+                $result = $reader->getResult();
+                $win->clear();
+            } catch (\Throwable) {
+                continue;
+            }
+            if (! is_string($text) || $text === '' || ! $result || ! method_exists($result, 'getResultPoints')) {
+                continue;
+            }
+            $parsed = RentalInspectionFormPdfService::parseQrPayload($text);
+            $pts = $result->getResultPoints();
+            if ($parsed === null || count($pts) < 3) {
+                continue;
+            }
+
+            $q = $geo['qr'];
+            $modules = $q['modules'] ?? null;
+            if (! $modules) {
+                $len = strlen($text);
+                $modules = 17 + 4 * ($len <= 11 ? 1 : ($len <= 20 ? 2 : 3)); // byte capacity at level Q: 11 / 20 / 32
+            }
+            $m = $q['size'] / $modules;
+            $manifestPoints = [
+                'bl' => [$q['x'] + 3.5 * $m, $q['y'] + $q['size'] - 3.5 * $m],
+                'tl' => [$q['x'] + 3.5 * $m, $q['y'] + 3.5 * $m],
+                'tr' => [$q['x'] + $q['size'] - 3.5 * $m, $q['y'] + 3.5 * $m],
+            ];
+            $pixelPoints = [];
+            foreach (['bl', 'tl', 'tr'] as $i => $name) {
+                $pixelPoints[$name] = ['x' => $x + $pts[$i]->getX(), 'y' => $y + $pts[$i]->getY()];
+            }
+            $t = $this->solveAffine($manifestPoints, $pixelPoints);
+            if (! $this->isPlausibleSimilarity($t) || ! $this->pageSitsInPicture($t, $geo, $W, $H)) {
+                continue;
+            }
+            $identity = $parsed;
+
+            return $t;
+        }
+
+        return null;
+    }
+
+    /**
+     * Plain words for why a page could not be placed - what was found, what that usually means, and what to do.
+     *
+     * @param list<string> $found image-corner keys of the marks that were found (tl/tr/bl/br)
+     * @param array<string, array{x: float, y: float}> $marks
+     */
+    private function explainUnplaceable(array $found, array $geo, array $marks, float $impliedScale, bool $hadCandidates): string
+    {
+        $top = array_intersect(['tl', 'tr'], $found);
+        $bottom = array_intersect(['bl', 'br'], $found);
+        $paper = $geo['width'] > 600 ? 'Letter' : 'A4';
+        $other = $paper === 'A4' ? 'Letter' : 'A4';
+
+        if (count($found) === 0) {
+            $what = 'none of the corner marks were found and the QR code could not be read';
+        } elseif (count($top) < 2 && count($bottom) < 2) {
+            $what = 'only ' . count($found) . ' of the 4 corner marks were found and the QR code could not be read';
+        } elseif (count($top) === 2 && count($bottom) === 0) {
+            $what = 'the top corner marks were found but the bottom ones and the QR code were not';
+        } elseif (count($top) === 0 && count($bottom) === 2) {
+            $what = 'the top corner marks were not found (the bottom ones were) and the QR code could not be read';
+        } elseif ($hadCandidates) {
+            $what = 'the corner marks found could not be told apart from page content, and the QR code could not be read';
+        } else {
+            $what = 'the corner marks that were found do not fit this form, and the QR code could not be read';
+        }
+
+        return ucfirst($what) . '. That usually means the form was printed on ' . $other . ' paper, or scaled or cropped by the printer or the scanner - '
+            . 'print it on ' . $paper . ' at 100% (actual size, not "fit to page") and scan the whole sheet flat, '
+            . 'or set the form paper size under Settings -> Rental Inspections to the paper you print on. '
+            . 'A very light or blurred scan, or a page that was cut off, can do the same.';
     }
 
     /**
@@ -534,7 +1280,7 @@ class RentalInspectionScanReaderService
      * than rejected before this existed — the failure mode that must never
      * reach a human as a trustworthy read.
      */
-    private function isPlausibleSimilarity(array $transform): bool
+    private function isPlausibleSimilarity(array $transform, float $minRatio = 0.9, float $maxDot = 0.15): bool
     {
         $col1Len = sqrt($transform['a'] ** 2 + $transform['d'] ** 2);
         $col2Len = sqrt($transform['b'] ** 2 + $transform['e'] ** 2);
@@ -548,149 +1294,7 @@ class RentalInspectionScanReaderService
         $scaleRatio = min($col1Len, $col2Len) / max($col1Len, $col2Len);
         $normalizedDot = abs($transform['a'] * $transform['b'] + $transform['d'] * $transform['e']) / ($col1Len * $col2Len);
 
-        return $scaleRatio >= 0.9 && $normalizedDot <= 0.15;
-    }
-
-    /**
-     * Every separate dark connected blob within a rectangular region, via
-     * 4-connected flood fill on a thresholded pixel grid — NOT a single
-     * whole-window centroid, because a generous corner quadrant can contain
-     * both the true fiducial AND unrelated printed content (e.g. the header
-     * block), and those must be told apart as distinct candidates rather
-     * than blended into one wrong centroid.
-     *
-     * @return list<array{x: float, y: float, bbox_w: int, bbox_h: int, shape: string, fill_ratio: float}>
-     */
-    private function extractBlobs(Imagick $page, int $x, int $y, int $w, int $h): array
-    {
-        $x = max(0, $x);
-        $y = max(0, $y);
-        $w = min($w, $page->getImageWidth() - $x);
-        $h = min($h, $page->getImageHeight() - $y);
-        if ($w <= 0 || $h <= 0) {
-            return [];
-        }
-
-        $pixels = $page->exportImagePixels($x, $y, $w, $h, 'I', Imagick::PIXEL_CHAR);
-        $total = $w * $h;
-        $dark = [];
-        for ($i = 0; $i < $total; $i++) {
-            // exportImagePixels() with PIXEL_CHAR returns a plain PHP array
-            // of already-decoded 0-255 integers, NOT a packed byte string —
-            // ord() on an already-int value silently corrupts it (PHP casts
-            // the int to a string first, e.g. 255 -> "255" -> ord('2') =
-            // 50), which is why every sample once read as uniformly "dark"
-            // until this was found and fixed by direct measurement against
-            // a real generated form, not guessed.
-            $dark[$i] = ($pixels[$i] & 0xFF) < 128;
-        }
-
-        $visited = array_fill(0, $total, false);
-        $blobs = [];
-        for ($start = 0; $start < $total; $start++) {
-            if (! $dark[$start] || $visited[$start]) {
-                continue;
-            }
-
-            $stack = [$start];
-            $visited[$start] = true;
-            $sumCol = 0;
-            $sumRow = 0;
-            $count = 0;
-            $minCol = $w;
-            $maxCol = 0;
-            $minRow = $h;
-            $maxRow = 0;
-            while ($stack !== []) {
-                $idx = array_pop($stack);
-                $row = intdiv($idx, $w);
-                $col = $idx % $w;
-                $sumCol += $col;
-                $sumRow += $row;
-                $count++;
-                $minCol = min($minCol, $col);
-                $maxCol = max($maxCol, $col);
-                $minRow = min($minRow, $row);
-                $maxRow = max($maxRow, $row);
-
-                if ($col > 0 && $dark[$idx - 1] && ! $visited[$idx - 1]) {
-                    $visited[$idx - 1] = true;
-                    $stack[] = $idx - 1;
-                }
-                if ($col < $w - 1 && $dark[$idx + 1] && ! $visited[$idx + 1]) {
-                    $visited[$idx + 1] = true;
-                    $stack[] = $idx + 1;
-                }
-                if ($row > 0 && $dark[$idx - $w] && ! $visited[$idx - $w]) {
-                    $visited[$idx - $w] = true;
-                    $stack[] = $idx - $w;
-                }
-                if ($row < $h - 1 && $dark[$idx + $w] && ! $visited[$idx + $w]) {
-                    $visited[$idx + $w] = true;
-                    $stack[] = $idx + $w;
-                }
-            }
-
-            $bboxW = $maxCol - $minCol + 1;
-            $bboxH = $maxRow - $minRow + 1;
-            $bboxArea = $bboxW * $bboxH;
-            if ($bboxArea <= 0) {
-                continue;
-            }
-            $fillRatio = $count / $bboxArea;
-            if ($fillRatio < self::BLOB_FILL_MIN) {
-                continue; // too sparse to be a real fiducial mark, likely noise or thin text strokes
-            }
-
-            $blobs[] = [
-                'x' => $x + $sumCol / $count,
-                'y' => $y + $sumRow / $count,
-                'bbox_w' => $bboxW,
-                'bbox_h' => $bboxH,
-                'fill_ratio' => $fillRatio,
-            ];
-        }
-
-        return $blobs;
-    }
-
-    /**
-     * Among every dark blob in a corner quadrant, keep only the ones whose
-     * bounding box is close to the fiducial's own expected size, then
-     * return whichever survivor sits closest to the true page corner — the
-     * fiducial itself, by construction, sits far closer to that corner than
-     * any printed body content (header text starts at the page's 36pt
-     * content margin; the fiducial sits at a 12-22pt inset).
-     */
-    private function findFiducialNearCorner(Imagick $page, int $qx, int $qy, int $qw, int $qh, float $cornerX, float $cornerY, float $expectedSize): ?array
-    {
-        $minSize = $expectedSize * 0.4;
-        $maxSize = $expectedSize * 3.0;
-        $best = null;
-        $bestDistSq = null;
-        foreach ($this->extractBlobs($page, $qx, $qy, $qw, $qh) as $blob) {
-            if ($blob['bbox_w'] < $minSize || $blob['bbox_w'] > $maxSize) {
-                continue;
-            }
-            if ($blob['bbox_h'] < $minSize || $blob['bbox_h'] > $maxSize) {
-                continue;
-            }
-            $distSq = ($blob['x'] - $cornerX) ** 2 + ($blob['y'] - $cornerY) ** 2;
-            if ($bestDistSq === null || $distSq < $bestDistSq) {
-                $bestDistSq = $distSq;
-                $best = $blob;
-            }
-        }
-
-        if ($best === null) {
-            return null;
-        }
-
-        return [
-            'x' => $best['x'],
-            'y' => $best['y'],
-            'fill_ratio' => $best['fill_ratio'],
-        ];
+        return $scaleRatio >= $minRatio && $normalizedDot <= $maxDot;
     }
 
     /**
@@ -730,35 +1334,286 @@ class RentalInspectionScanReaderService
 
     // ── Page identifier decoding ─────────────────────────────────────────
 
-    /** @return array{rental_inspection_id: int, page_number: int, form_version: int} */
-    private function decodePageIdentifier(Imagick $page, array $transform): array
+    /**
+     * The printed page-identifier grid (8 x 5 small boxes, filled = 1), read through a candidate placement.
+     *
+     * A filled box comes out of an office scanner as a halftone patch only 0.2-0.4 dark against 0.0-0.2 for an empty one, so
+     * a blind threshold misreads bits. The reader KNOWS which inspection it expects, so the grid is scored against that
+     * inspection's own id pattern: when the id bits match (the filled ones clearly darker than the empty ones) the grid is
+     * this inspection's, and the levels the id bits just showed - filled and empty - calibrate the page-number and version
+     * bits. Wrong orientation or a page that is not this form's gives no such separation and returns null.
+     *
+     * With no expected inspection (or no match) a crisp grid is still decoded blind, so a form of ANOTHER inspection can be
+     * recognised and refused; a grid too faint to trust returns null - "could not tell", never a made-up id.
+     *
+     * @return array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int}|null
+     */
+    private function decodePageIdentifier(Imagick $page, array $transform, array $geo, ?int $expectedInspectionId = null): ?array
     {
-        $grid = RentalInspectionFormPdfService::pageIdentifierGridLayout();
-        $threshold = 0.5; // the identifier grid is print-perfect, generated by us — a plain midpoint threshold is deliberately not the agency-configurable OMR setting, which is about wet-ink variability the identifier bits never have.
+        $grid = $geo['grid'] ?? RentalInspectionFormPdfService::pageIdentifierGridLayout($geo['width']);
+        $S = 6.0;
+        $pad = 10.0; // room to slide the grid about: it sits far from the corner marks that place the page
+        $gw = $grid['cols'] * $grid['bit_size'] + ($grid['cols'] - 1) * $grid['bit_gap'];
+        $gh = $grid['rows'] * $grid['bit_size'] + ($grid['rows'] - 1) * $grid['bit_gap'];
+        $crop = $this->straightenRegion($page, $transform, $grid['x'] - $pad, $grid['y'] - $pad, $gw + 2 * $pad, $gh + 2 * $pad, $S);
+        $cw = $crop->getImageWidth();
+        $ch = $crop->getImageHeight();
+        $px = $crop->exportImagePixels(0, 0, $cw, $ch, 'I', Imagick::PIXEL_CHAR);
+        $crop->clear();
 
-        $bits = [];
         $totalBits = $grid['bits_inspection'] + $grid['bits_page'] + $grid['bits_version'];
-        for ($index = 0; $index < $totalBits; $index++) {
-            $col = $index % $grid['cols'];
-            $row = intdiv($index, $grid['cols']);
-            $mx = $grid['x'] + $col * ($grid['bit_size'] + $grid['bit_gap']) + $grid['bit_size'] / 2;
-            $my = $grid['y'] + $row * ($grid['bit_size'] + $grid['bit_gap']) + $grid['bit_size'] / 2;
-            [$px, $py] = $this->applyAffine($transform, $mx, $my);
-            $scalePx = $this->affineScale($transform);
-            $half = ($grid['bit_size'] / 2) * $scalePx * 0.85;
-            $ratio = $this->sampleFillRatio($page, $px, $py, $half, $half);
-            $bits[] = $ratio >= $threshold ? 1 : 0;
+        $measure = function (float $offX, float $offY) use ($grid, $S, $pad, $px, $cw, $ch, $totalBits): array {
+            $means = [];
+            for ($index = 0; $index < $totalBits; $index++) {
+                $col = $index % $grid['cols'];
+                $row = intdiv($index, $grid['cols']);
+                // the middle of each box only: its printed outline and the scan's edge noise stay out of the measurement
+                $x0 = (int) round(($pad + $offX + $col * ($grid['bit_size'] + $grid['bit_gap']) + $grid['bit_size'] * 0.3) * $S);
+                $y0 = (int) round(($pad + $offY + $row * ($grid['bit_size'] + $grid['bit_gap']) + $grid['bit_size'] * 0.3) * $S);
+                $side = max(2, (int) round($grid['bit_size'] * 0.4 * $S));
+                $sum = 0;
+                $n = 0;
+                for ($y = max(0, $y0); $y < min($ch, $y0 + $side); $y++) {
+                    for ($x = max(0, $x0); $x < min($cw, $x0 + $side); $x++) {
+                        $sum += 255 - ($px[$y * $cw + $x] & 0xFF);
+                        $n++;
+                    }
+                }
+                $means[$index] = $n > 0 ? $sum / ($n * 255) : 0.0;
+            }
+
+            return $means;
+        };
+
+        $nI = $grid['bits_inspection'];
+        $nP = $grid['bits_page'];
+        $means = $measure(0.0, 0.0);
+        $decode = function (float $threshold) use ($means, $nI, $nP, $totalBits): array {
+            $bits = [];
+            for ($i = 0; $i < $totalBits; $i++) {
+                $bits[$i] = $means[$i] >= $threshold ? 1 : 0;
+            }
+
+            return [
+                'rental_inspection_id' => $this->bitsToInt(array_slice($bits, 0, $nI)),
+                'page_number' => $this->bitsToInt(array_slice($bits, $nI, $nP)),
+                'page_count' => 0, // the OMR grid does not carry it
+                'form_version' => $this->bitsToInt(array_slice($bits, $nI + $nP, $totalBits - $nI - $nP)),
+            ];
+        };
+
+        if ($expectedInspectionId !== null) {
+            // How well does a set of box measurements show THIS inspection's id? (filled boxes clearly darker than empty ones)
+            $fit = function (array $m) use ($expectedInspectionId, $nI): ?array {
+                $on = [];
+                $off = [];
+                for ($i = 0; $i < $nI; $i++) {
+                    if (($expectedInspectionId >> ($nI - 1 - $i)) & 1) {
+                        $on[] = $m[$i];
+                    } else {
+                        $off[] = $m[$i];
+                    }
+                }
+                if ($on === [] || $off === []) {
+                    return null;
+                }
+                $onLevel = array_sum($on) / count($on);
+                $offLevel = array_sum($off) / count($off);
+                // EVERY filled box must be above the empty level, and plainly so on average
+                if ($onLevel - $offLevel < 0.10 || min($on) <= $offLevel + 0.03) {
+                    return null;
+                }
+
+                return ['sep' => $onLevel - $offLevel, 'threshold' => ($onLevel + $offLevel) / 2];
+            };
+
+            // Try the grid where the placement says it is, then slid about (the far corner of a stretched or sheared page is
+            // several points off): take the position that shows the expected id best.
+            $best = null;
+            $bestMeans = null;
+            $first = $fit($means);
+            if ($first !== null) {
+                $best = $first;
+                $bestMeans = $means;
+            } else {
+                foreach ([-6, -4, -2, 0, 2, 4, 6] as $oy) {
+                    foreach ([-6, -4, -2, 0, 2, 4, 6] as $ox) {
+                        if ($ox === 0 && $oy === 0) {
+                            continue;
+                        }
+                        $m = $measure((float) $ox, (float) $oy);
+                        $f = $fit($m);
+                        if ($f !== null && ($best === null || $f['sep'] > $best['sep'])) {
+                            $best = $f;
+                            $bestMeans = $m;
+                        }
+                    }
+                }
+            }
+            if ($best !== null) {
+                $means = $bestMeans;
+                $identity = $decode($best['threshold']);
+                $identity['rental_inspection_id'] = $expectedInspectionId;
+
+                return $identity;
+            }
         }
 
-        $inspectionBits = array_slice($bits, 0, $grid['bits_inspection']);
-        $pageBits = array_slice($bits, $grid['bits_inspection'], $grid['bits_page']);
-        $versionBits = array_slice($bits, $grid['bits_inspection'] + $grid['bits_page'], $grid['bits_version']);
+        // blind: only a crisp grid is trusted (a printed grid read straight off a good scan)
+        $sorted = $means;
+        sort($sorted);
+        $low = $sorted[intdiv(count($sorted), 2)];
+        $high = array_sum(array_slice($sorted, -3)) / 3;
+        if ($high - $low >= 0.35) {
+            return $decode($low + 0.5 * ($high - $low));
+        }
 
-        return [
-            'rental_inspection_id' => $this->bitsToInt($inspectionBits),
-            'page_number' => $this->bitsToInt($pageBits),
-            'form_version' => $this->bitsToInt($versionBits),
-        ];
+        return null;
+    }
+
+    // ── QR code ───────────────────────────────────────────────────────────
+
+    /** Pixels per printed point in the straightened QR crop. */
+    private const QR_CROP_PX_PER_PT = 6.0;
+    /** Quiet zone (points) kept around the symbol in the crop. */
+    private const QR_CROP_MARGIN_PT = 8.0;
+
+    /**
+     * Quick structural test that a QR is where this placement says: at the three finder positions the middle of the finder
+     * is dark and the white ring around it is light (searched +-1 module, whatever the scanner did to the modules). A wrong
+     * placement - blank paper, text, the QR upside down - fails this in milliseconds instead of costing a full decode.
+     */
+    private function qrFindersPlausible(Imagick $crop, array $qr): bool
+    {
+        $S = self::QR_CROP_PX_PER_PT;
+        $origin = self::QR_CROP_MARGIN_PT * $S;
+        $size = $qr['size'] * $S;
+        $n = ! empty($qr['modules']) ? (int) $qr['modules'] : 25;
+        $mp = $size / $n;
+        $w = $crop->getImageWidth();
+        $h = $crop->getImageHeight();
+        $px = $crop->exportImagePixels(0, 0, $w, $h, 'I', Imagick::PIXEL_CHAR);
+        $mean = function (float $cx, float $cy, float $r0, float $r1) use ($px, $w, $h): float {
+            $sum = 0.0;
+            $k = 0;
+            for ($y = (int) floor($cy - $r1); $y <= (int) ceil($cy + $r1); $y += 2) {
+                for ($x = (int) floor($cx - $r1); $x <= (int) ceil($cx + $r1); $x += 2) {
+                    $d = max(abs($x - $cx), abs($y - $cy));
+                    if ($d < $r0 || $d > $r1 || $x < 0 || $y < 0 || $x >= $w || $y >= $h) {
+                        continue;
+                    }
+                    $sum += (255 - ($px[$y * $w + $x] & 0xFF)) / 255;
+                    $k++;
+                }
+            }
+
+            return $k ? $sum / $k : 0.0;
+        };
+        $centres = [[$origin + 3.5 * $mp, $origin + 3.5 * $mp], [$origin + $size - 3.5 * $mp, $origin + 3.5 * $mp], [$origin + 3.5 * $mp, $origin + $size - 3.5 * $mp]];
+        $best = -1.0;
+        foreach ([-12, -8, -4, 0, 4, 8, 12] as $dy) {
+            foreach ([-12, -8, -4, 0, 4, 8, 12] as $dx) {
+                $score = 0.0;
+                foreach ($centres as [$cx, $cy]) {
+                    $score += $mean($cx + $dx, $cy + $dy, 0.0, 1.1 * $mp) - $mean($cx + $dx, $cy + $dy, 1.7 * $mp, 2.2 * $mp);
+                }
+                $best = max($best, $score / 3);
+            }
+        }
+
+        return $best >= 0.12;
+    }
+
+    /**
+     * Read the page's QR code through a candidate orientation: the region the manifest says the QR occupies is warped
+     * out of the scan into an upright, fixed-scale crop and decoded there. Wrong orientation = the crop is the wrong
+     * part of the page and nothing decodes - which is exactly what lets the caller tell the orientations apart. Pure PHP
+     * (khanamiryan/qrcode-detector-decoder); no extension beyond Imagick.
+     *
+     * @return array{rental_inspection_id: int, page_number: int, page_count: int, form_version: int}|null
+     */
+    private function readQr(Imagick $page, array $transform, array $geo): ?array
+    {
+        $qr = $geo['qr'];
+        if ($qr === null) {
+            return null;
+        }
+
+        try {
+            $crop = $this->straightenRegion(
+                $page,
+                $transform,
+                $qr['x'] - self::QR_CROP_MARGIN_PT,
+                $qr['y'] - self::QR_CROP_MARGIN_PT,
+                $qr['size'] + 2 * self::QR_CROP_MARGIN_PT,
+                $qr['size'] + 2 * self::QR_CROP_MARGIN_PT,
+                self::QR_CROP_PX_PER_PT
+            );
+
+            // Cheap prefilter: a QR is a dense mix of black and white (roughly 20-75 % dark in its square). Blank paper, a
+            // line of text or the wrong end of the page is not - skip the slow decoding for those placements.
+            $probe = clone $crop;
+            $probe->resizeImage(40, 40, Imagick::FILTER_BOX, 1);
+            $p = $probe->exportImagePixels(0, 0, 40, 40, 'I', Imagick::PIXEL_CHAR);
+            $probe->clear();
+            $mean = 0.0;
+            foreach ($p as $v) {
+                $mean += (255 - ($v & 0xFF)) / 255;
+            }
+            $mean /= max(1, count($p));
+            if ($mean < 0.08 || $mean > 0.8 || ! $this->qrFindersPlausible($crop, $qr)) {
+                $crop->clear();
+
+                return null;
+            }
+
+            foreach ([false, true] as $enhance) {
+                $img = clone $crop;
+                if ($enhance) {
+                    $img->normalizeImage();
+                    $img->sharpenImage(0, 1.2);
+                    $img->thresholdImage(0.55 * Imagick::getQuantum());
+                }
+                $img->setImageFormat('png');
+                $reader = new \Zxing\QrReader($img->getImageBlob(), \Zxing\QrReader::SOURCE_TYPE_BLOB);
+                $text = $reader->text();
+                $img->clear();
+                if (is_string($text) && $text !== '') {
+                    $parsed = RentalInspectionFormPdfService::parseQrPayload($text);
+                    if ($parsed !== null) {
+                        $crop->clear();
+
+                        return $parsed;
+                    }
+                }
+            }
+
+            // The ordinary decode could not lock on (an edge-enhancing scanner hollows every black module): sample the module
+            // grid directly. The code's place and size on the page are known, so this needs no finder detection.
+            $counts = ! empty($qr['modules']) ? [(int) $qr['modules']] : [25, 29, 21];
+            $text = (new RentalInspectionQrModuleReader())->decode(
+                $crop,
+                self::QR_CROP_MARGIN_PT * self::QR_CROP_PX_PER_PT,
+                $qr['size'] * self::QR_CROP_PX_PER_PT,
+                $counts
+            );
+            $crop->clear();
+            if ($text !== null) {
+                $parsed = RentalInspectionFormPdfService::parseQrPayload($text);
+                if ($parsed !== null) {
+                    return $parsed;
+                }
+            }
+        } catch (\Throwable $e) {
+            // A crop that cannot be built or decoded is "no QR here", never an error to the agent.
+        }
+
+        return null;
+    }
+
+    private function straightenRegion(Imagick $page, array $t, float $x, float $y, float $w, float $h, float $scale): Imagick
+    {
+        return $this->geometry->straightenRegion($page, $t, $x, $y, $w, $h, $scale);
     }
 
     /** MSB-first — the exact inverse of RentalInspectionFormPdfService::toBits(). */
