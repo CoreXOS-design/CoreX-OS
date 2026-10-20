@@ -495,7 +495,7 @@ final class RoadToSoldEventsTest extends TestCase
         $property = $this->property();
         Event::fake([PropertyWentLiveOnPortal::class]);
 
-        $property->update(['p24_ref' => '115544332', 'p24_syndication_status' => 'active', 'p24_activated_at' => now()]);
+        $property->update(['p24_ref' => '115544332', 'p24_syndication_status' => 'active', 'p24_last_submitted_at' => now(), 'p24_activated_at' => now()]);
         Event::assertDispatchedTimes(PropertyWentLiveOnPortal::class, 1);
         Event::assertDispatched(PropertyWentLiveOnPortal::class, fn ($e) => $e->portal === 'p24'
             && $e->property->id === $property->id && $e->agencyId() === $this->agency->id);
@@ -510,13 +510,53 @@ final class RoadToSoldEventsTest extends TestCase
         $property = $this->property();
         Event::fake([PropertyWentLiveOnPortal::class]);
 
-        $property->update(['pp_ref' => 'PP-88123', 'pp_syndication_status' => 'active', 'pp_activated_at' => now()]);
+        $property->update(['pp_ref' => 'PP-88123', 'pp_syndication_status' => 'active', 'pp_last_submitted_at' => now(), 'pp_activated_at' => now()]);
         Event::assertDispatchedTimes(PropertyWentLiveOnPortal::class, 1);
         Event::assertDispatched(PropertyWentLiveOnPortal::class, fn ($e) => $e->portal === 'pp');
 
         $other = $this->property();
-        $other->update(['p24_activated_at' => now(), 'pp_activated_at' => now()]);
+        $other->update(['p24_last_submitted_at' => now(), 'p24_activated_at' => now(), 'pp_last_submitted_at' => now(), 'pp_activated_at' => now()]);
         Event::assertDispatchedTimes(PropertyWentLiveOnPortal::class, 3);
+    }
+
+    public function test_stock_an_import_brings_in_is_not_a_go_live(): void
+    {
+        $imported = $this->property();
+        Event::fake([PropertyWentLiveOnPortal::class]);
+
+        // what P24ListingNumberReconciler does for a listing already live on P24: ref + active + activated stamp,
+        // and NO last-submitted stamp, because CoreX never submitted it
+        $imported->fill(['p24_listing_number' => '115599001', 'p24_ref' => '115599001', 'p24_syndication_status' => 'active', 'p24_activated_at' => now()])->save();
+        // the same for a listing found live on Private Property by the activation sync
+        $imported->update(['pp_ref' => 'PP-77001', 'pp_syndication_status' => 'active', 'pp_activated_at' => now()]);
+
+        Event::assertNotDispatched(PropertyWentLiveOnPortal::class);
+        $this->assertNotNull($imported->fresh()->p24_activated_at, 'the import itself is unchanged');
+        $this->assertSame(0, $this->logRows(PropertyWentLiveOnPortal::class));
+    }
+
+    public function test_imported_stock_that_corex_later_refreshes_is_still_not_a_go_live(): void
+    {
+        $imported = $this->property();
+        $imported->update(['p24_ref' => '115599002', 'p24_syndication_status' => 'active', 'p24_activated_at' => now()]);
+        Event::fake([PropertyWentLiveOnPortal::class]);
+
+        // the agent's first CoreX submit re-stamps the existing activated_at and records the submit
+        $imported->update(['p24_last_submitted_at' => now(), 'p24_activated_at' => now()->addMinute()]);
+
+        Event::assertNotDispatched(PropertyWentLiveOnPortal::class);
+    }
+
+    public function test_a_corex_listing_confirmed_live_by_the_activation_sync_still_counts(): void
+    {
+        $property = $this->property();
+        $property->update(['p24_syndication_status' => 'submitted', 'p24_last_submitted_at' => now()]);   // submit, no ref back yet
+        Event::fake([PropertyWentLiveOnPortal::class]);
+
+        // Property24SyndicationService::syncActivationStatus - P24 now reports the listing active
+        $property->update(['p24_syndication_status' => 'active', 'p24_activated_at' => now()]);
+
+        Event::assertDispatchedTimes(PropertyWentLiveOnPortal::class, 1);
     }
 
     public function test_saving_a_property_that_never_went_live_raises_nothing(): void
@@ -531,7 +571,7 @@ final class RoadToSoldEventsTest extends TestCase
 
     public function test_the_live_event_is_written_to_the_event_log(): void
     {
-        $this->property()->update(['pp_activated_at' => now()]);
+        $this->property()->update(['pp_last_submitted_at' => now(), 'pp_activated_at' => now()]);
 
         $this->assertSame(1, $this->logRows(PropertyWentLiveOnPortal::class));
     }
@@ -549,7 +589,7 @@ final class RoadToSoldEventsTest extends TestCase
 
         $this->assertNotNull($this->evaluationEvent()->id);
         $this->tp()->update(['owner_contact_id' => $this->contact()->id]);
-        $property->update(['p24_activated_at' => now()]);
+        $property->update(['p24_last_submitted_at' => now(), 'p24_activated_at' => now()]);
         $this->doc('mandate')->properties()->attach($property->id);
 
         $this->assertNotNull($property->fresh()->p24_activated_at);
