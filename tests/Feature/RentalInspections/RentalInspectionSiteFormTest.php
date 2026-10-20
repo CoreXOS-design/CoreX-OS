@@ -718,7 +718,7 @@ final class RentalInspectionSiteFormTest extends TestCase
         $this->assertStringContainsString('data-qa="row-low-confidence"', $html);
         $this->assertStringContainsString('data-qa="row-unclear"', $html); // the third row was left blank
         $this->assertStringContainsString('Open original', $html);
-        $this->assertStringContainsString('Nothing changes on the inspection until you press', $html);
+        $this->assertStringContainsString('Only conditions wait for', $html);
     }
 
     // ── AT-463 / §62: what an office scanner and a hand actually produce ──────────────────────────

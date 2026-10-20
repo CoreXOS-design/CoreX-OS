@@ -115,7 +115,7 @@
                 <p class="text-xs" style="color: var(--text-secondary);" data-qa="scan-summary">
                     {{ $open->count() }} {{ $open->count() === 1 ? 'row' : 'rows' }} proposed from the ticked columns.
                     @if($needAttention > 0) <strong>{{ $needAttention }} {{ $needAttention === 1 ? 'needs' : 'need' }} your attention</strong> (left blank below).@endif
-                    Nothing changes on the inspection until you press "Apply proposed marks".
+                    Only conditions wait for "Apply proposed marks".
                 </p>
             @endif
             <div class="rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);">
