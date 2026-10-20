@@ -29,6 +29,8 @@ class RentalInspectionScanMark extends Model
         'detected_condition_key',
         'detected_confidence',
         'ambiguous',
+        'detected_note',
+        'detected_note_confidence',
         'confirmed_condition_key',
         'confirmed_by_user_id',
         'confirmed_at',
@@ -39,6 +41,7 @@ class RentalInspectionScanMark extends Model
         'page_number' => 'integer',
         'detected_confidence' => 'float',
         'ambiguous' => 'boolean',
+        'detected_note_confidence' => 'float',
         'confirmed_at' => 'datetime',
     ];
 

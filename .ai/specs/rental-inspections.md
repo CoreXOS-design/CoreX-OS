@@ -8231,3 +8231,25 @@ Migrations `2026_11_19_100000` .. `100400`. After deploying to an environment ru
 - **Work order on a charge.** A finding is tied to a work order through the existing follow-up link: a work order raised from the Out inspection's observation of that item (`rental_work_orders.reported_inspection_observation_id`, the inspection's own "raise a work order" flow). The card and page list those work orders as links (`RentalDepositDeductionsService::workOrdersByItem()`). There is NO separate action to attach an arbitrary existing work order to a finding; that would be a nullable `rental_work_order_id` on `rental_inspection_item_findings`, a picker on the comparison row (work orders of the same lease) and the same link on the card - roughly half a day with tests. Not built, per the ruling.
 - Tests: `RentalInspectionMoveOutChargesTest` (8); `RentalInspectionAudit1019OutgoingTest` and `RentalInspectionMoveOutComparisonTest` enable the setting where they test the amounts.
 
+## 68. The scan review screen: notes and photos per row, the AI-read handwritten note pre-filled (20 Oct 2026; Johan's rulings R1-R3; QA1 only; AT-472)
+
+Full detail in `rental-inspection-form.md` §13.14. What an agent sees and the rules behind it:
+
+- **Review screen** (`/corex/rental-inspections/{id}/scans/{scan}/review`): every row has the condition dropdown (including rows flagged "No clear
+  mark" and rows already applied, so a wrong import can be corrected), an editable note box and a photo strip with **Add photo**. The row also shows what
+  is recorded on screen now: condition, note and photos.
+- **The note box starts on the AI-read handwriting** ("Note read (87%)" beside it) when the scan row has one, else on the note already recorded.
+  The agent confirms or edits it. The AI read is OFF until Johan says the key is good (`RENTAL_INSPECTION_NOTE_READING`).
+- **Notes and photos save as they are captured**, not on Apply: the note 800 ms after typing stops (`POST /observations`), photos on pick (`POST /photos`,
+  `corex-photo-batch-uploader.js`), both with retry keys. A row with no condition keeps these controls closed until one is picked; nothing is recorded
+  without a condition.
+- **Apply** sends the confirmed note with the confirmed condition (an AI note the agent never touched is saved), refuses a condition that needs a note
+  ("Damaged needs a note") when the note is blank - the same rule as the capture screen - and is safe to repeat (`apply_key`; an observation already
+  holding the same condition and note is linked, not recorded again). Marks already applied can be corrected by a different condition or note.
+- **Signed or completed inspection:** the whole screen is read-only.
+- **Scoping/permissions unchanged:** no new route; `rental_inspections.create` and `guardRentalRecordScope` on every call, as on the capture screen.
+- **Not built:** a row whose tick matches what is already recorded has no scan mark, so its handwriting is not read; the review screen offers no photo
+  archive/tagging (those stay on the capture screen).
+- **Tests.** `RentalInspectionScanReviewNotesPhotosTest` (16); `RentalInspectionScanReaderServiceTest`, `RentalInspectionSiteFormTest`,
+  `RentalInspectionSignedLockTest`, `RentalInspectionScopeGuardTest` still green.
+

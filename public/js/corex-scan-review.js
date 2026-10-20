@@ -1,0 +1,145 @@
+/**
+ * corex-scan-review.js - AT-472 / .ai/specs/rental-inspection-form.md §13.14.
+ *
+ * The scan review screen (scan-review.blade.php): on every row the agent can capture the item's note and add photos, saved AS THEY ARE
+ * CAPTURED, not on Apply - the same way the capture screen does it, through the capture screen's own endpoints:
+ *   - note: POST /observations (RentalInspectionRecordingController::storeObservation), 800 ms after the last keystroke, one retry key
+ *     (client_idempotency_key) per save so a retried request is answered from the row that is already there;
+ *   - photos: POST /photos (storePhotos) through public/js/corex-photo-batch-uploader.js (one key per file), tagged to the item.
+ * Plain DOM, no Alpine. Rules this file keeps:
+ *   - a row with no condition picked has its note and photo controls closed (the Blade starts them hidden; picking a condition opens them);
+ *   - nothing is ever recorded without a condition - no placeholder observations: a photo on a row whose picked condition is not what is
+ *     recorded yet first records that condition (with the note typed so far), and a condition that needs a note refuses to record without
+ *     one (the server's own 422, shown in the row) so the photo waits for the note;
+ *   - the note box always posts with the form too, so Apply sends the confirmed note (an AI pre-filled one the agent never touched included).
+ */
+(function () {
+    var root = document.getElementById('scan-review');
+    if (!root || root.dataset.readonly === '1') return;
+
+    var DEBOUNCE_MS = 800;
+    var csrf = root.dataset.csrf;
+    var uploader = typeof window.corexPhotoBatchUploader === 'function'
+        ? window.corexPhotoBatchUploader({ csrf: csrf, uploadUrl: root.dataset.photosUrl, photos: [] })
+        : null;
+    var newKey = window.cpuNewUuid || function () {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+            var r = Math.random() * 16 | 0;
+            return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+        });
+    };
+
+    root.querySelectorAll('[data-scan-row]').forEach(initRow);
+
+    function initRow(row) {
+        var select = row.querySelector('[data-scan-condition]');
+        var controls = row.querySelector('[data-scan-controls]');
+        var note = row.querySelector('[data-scan-note]');
+        var status = row.querySelector('[data-scan-status]');
+        var strip = row.querySelector('[data-scan-photos]');
+        var addButton = row.querySelector('[data-scan-add-photo]');
+        var fileInput = row.querySelector('[data-scan-photo-input]');
+        if (!select || !controls || !note) return;
+
+        var itemId = row.dataset.itemId;
+        // What the inspection already holds for this item on screen: the condition (empty = nothing recorded yet) and its note.
+        var saved = { condition: row.dataset.recordedCondition || '', note: (row.dataset.recordedNote || '').trim() };
+        var pendingKey = null;   // the retry key of the save in flight / last failed by network - reused until the server answers
+        var busy = false;
+        var again = false;
+        var timer = null;
+
+        function say(text) { if (status) status.textContent = text || ''; }
+
+        select.addEventListener('change', function () {
+            controls.style.display = select.value ? '' : 'none';
+            say('');
+        });
+
+        note.addEventListener('input', function () {
+            clearTimeout(timer);
+            timer = setTimeout(saveNote, DEBOUNCE_MS);
+        });
+        note.addEventListener('blur', function () {
+            if (timer) { clearTimeout(timer); timer = null; saveNote(); }
+        });
+
+        // Records the picked condition + typed note as an ordinary observation. Resolves true when the inspection holds exactly that now.
+        async function saveNote() {
+            clearTimeout(timer);
+            timer = null;
+            var condition = select.value;
+            if (!condition) return false;
+            var text = note.value.trim();
+            if (condition === saved.condition && text === saved.note) return true;
+            if (busy) { again = true; return false; }
+
+            busy = true;
+            say('Saving…');
+            pendingKey = pendingKey || newKey();
+            var ok = false;
+            try {
+                var res = await fetch(root.dataset.observationsUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({
+                        rental_inspection_item_id: itemId,
+                        condition: condition,
+                        notes: text === '' ? null : text,
+                        source: root.dataset.source,
+                        client_idempotency_key: pendingKey,
+                    }),
+                });
+                var body = {};
+                try { body = await res.json(); } catch (e) { /* not JSON */ }
+                if (res.ok) {
+                    saved = { condition: condition, note: text };
+                    pendingKey = null;
+                    ok = true;
+                    say('Saved');
+                } else {
+                    // A refusal (validation, locked) is final for this attempt: the next save is a new one. A server error keeps the key so a retry replays.
+                    if (res.status < 500) pendingKey = null;
+                    say(body.message || (res.status === 419 || res.status === 401
+                        ? 'Your session has ended. Sign in again in a new tab, then edit the note again.'
+                        : 'Could not save (HTTP ' + res.status + ').'));
+                }
+            } catch (e) {
+                say('Network error - will retry when you edit again.');
+            }
+            busy = false;
+            if (again) { again = false; return saveNote(); }
+
+            return ok;
+        }
+
+        if (addButton && fileInput) {
+            addButton.addEventListener('click', function () { fileInput.click(); });
+            fileInput.addEventListener('change', async function () {
+                var files = Array.from(fileInput.files || []);
+                fileInput.value = '';
+                if (!files.length || !uploader) return;
+                if (!select.value) return;
+                // No placeholder observations: the picked condition (and the note typed so far) is recorded first when the inspection does not hold it yet.
+                if (select.value !== saved.condition || note.value.trim() !== saved.note) {
+                    if (!(await saveNote())) return;
+                }
+                var before = uploader.uploadBatches.length;
+                say('Uploading…');
+                await uploader.uploadFiles(files, { rental_inspection_item_id: itemId }, function (body) {
+                    (body.photos || []).forEach(function (p) {
+                        if (!strip || !p.storage_path) return;
+                        var img = document.createElement('img');
+                        img.src = p.storage_path;
+                        img.alt = '';
+                        img.className = 'rounded-md';
+                        img.style.cssText = 'width: 56px; height: 56px; object-fit: cover; border: 1px solid var(--border);';
+                        strip.appendChild(img);
+                    });
+                });
+                var failed = uploader.uploadBatches.slice(before).filter(function (b) { return b.status === 'failed'; });
+                say(failed.length ? (failed[0].error || 'Upload failed.') : 'Saved');
+            });
+        }
+    }
+})();

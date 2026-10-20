@@ -61,6 +61,7 @@ class RentalInspectionScanReaderService
     public function __construct(
         private RentalInspectionFormPdfService $formPdfService,
         private RentalInspectionScanGeometry $geometry,
+        private RentalInspectionNoteReadService $noteReader,
     ) {
     }
 
@@ -284,11 +285,13 @@ class RentalInspectionScanReaderService
 
         $recorded = $this->recordedConditions($scan->rental_inspection_id);
 
-        DB::transaction(function () use ($scan, $read, $threshold, $recorded, &$notes, &$results) {
+        $noteCrops = [];   // mark id => ['png', 'label', 'agency_id'] - the note areas with handwriting in them (AT-472), read after the transaction
+
+        DB::transaction(function () use ($scan, $read, $threshold, $recorded, &$notes, &$results, &$noteCrops) {
             $unchanged = 0;
             ksort($read);
             foreach ($read as $formPage => $info) {
-                $counts = $this->readBoxesOnPage($scan, $info['canvas'], $info['layout']['boxesByPage'][$formPage] ?? [], $threshold, $formPage, $recorded);
+                $counts = $this->readBoxesOnPage($scan, $info['canvas'], $info['layout']['boxesByPage'][$formPage] ?? [], $threshold, $formPage, $recorded, $info['layout']['geo'], $noteCrops);
                 $unchanged += $counts['unchanged'];
                 $results[$info['file_page']]['rows'] = $counts['rows'];
                 $results[$info['file_page']]['proposed'] = $counts['proposed'];
@@ -306,6 +309,36 @@ class RentalInspectionScanReaderService
 
             $scan->forceFill(['status' => RentalInspectionScan::STATUS_NEEDS_REVIEW, 'read_notes' => $notes, 'page_results' => array_values($results)])->save();
         });
+
+        $this->readHandwrittenNotes($noteCrops);
+    }
+
+    /**
+     * AT-472 - the AI read of the handwritten note on each row that has one, stored as the mark's `detected_note` (+ confidence) so the review
+     * screen can pre-fill the note box. Never part of the scan's own success: an AI that is off, paused, failing or unreadable leaves the marks
+     * exactly as the tick read made them. Nothing here touches the inspection.
+     *
+     * @param array<int, array{png: string, label: string, agency_id: int}> $crops mark id => the row's note area
+     */
+    public function readHandwrittenNotes(array $crops): void
+    {
+        if ($crops === [] || ! $this->noteReader->enabled()) {
+            return;
+        }
+
+        try {
+            foreach ($this->noteReader->transcribe($crops) as $markId => $answer) {
+                if ($answer['text'] === '') {
+                    continue; // nothing legible: no detected note
+                }
+                RentalInspectionScanMark::query()->whereKey($markId)->whereNull('applied_observation_id')->update([
+                    'detected_note' => $answer['text'],
+                    'detected_note_confidence' => $answer['confidence'],
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('Scan note read failed - the marks carry no detected note', ['error' => $e->getMessage()]);
+        }
     }
 
     /**
@@ -544,7 +577,7 @@ class RentalInspectionScanReaderService
      *
      * @return array{unchanged: int, rows: int, proposed: int, flagged: int, located: int}
      */
-    private function readBoxesOnPage(RentalInspectionScan $scan, Imagick $canvas, array $boxes, float $threshold, int $pageNumber, array $recorded = []): array
+    private function readBoxesOnPage(RentalInspectionScan $scan, Imagick $canvas, array $boxes, float $threshold, int $pageNumber, array $recorded = [], ?array $geo = null, array &$noteCrops = []): array
     {
         $byItem = [];
         foreach ($boxes as $box) {
@@ -556,6 +589,8 @@ class RentalInspectionScanReaderService
         }
 
         $offsets = $this->geometry->alignRows($canvas, $byItem);
+        $rowHeight = $this->rowHeightOf($byItem);
+        $readNotes = $geo !== null && $this->noteReader->enabled();
         $counts = ['unchanged' => 0, 'rows' => count($byItem), 'proposed' => 0, 'flagged' => 0, 'located' => 0, 'untrusted' => false];
 
         // A page on which fewer than half the rows could be found from their own printed boxes was not placed reliably (marks
@@ -617,9 +652,37 @@ class RentalInspectionScanReaderService
                 'ambiguous' => $ambiguous,
             ])->save();
             $counts[$ambiguous || ($confidence !== null && $confidence < 0.5) ? 'flagged' : 'proposed']++;
+
+            // AT-472 - the row's handwritten note, when there is any ink in its note area (never sent anywhere otherwise).
+            if ($readNotes) {
+                $crop = $this->noteReader->cropNoteArea($canvas, $itemBoxes, $off, $geo, $rowHeight);
+                if ($crop !== null && $crop['ink'] >= RentalInspectionNoteReadService::INK_MIN) {
+                    $noteCrops[$mark->id] = [
+                        'png' => $crop['png'],
+                        'label' => trim(($itemBoxes[0]['room_label'] ?? '') . ' - ' . ($itemBoxes[0]['item_label'] ?? ''), ' -'),
+                        'agency_id' => (int) $scan->agency_id,
+                    ];
+                }
+            }
         }
 
         return $counts;
+    }
+
+    /** The height of one printed row, in points: the smallest real step between consecutive rows' tick boxes on the page. */
+    private function rowHeightOf(array $byItem): float
+    {
+        $ys = array_values(array_unique(array_map(fn ($boxes) => round((float) $boxes[0]['y'], 2), $byItem)));
+        sort($ys);
+        $steps = [];
+        for ($i = 1; $i < count($ys); $i++) {
+            $step = round($ys[$i] - $ys[$i - 1], 2);
+            if ($step > 5) {
+                $steps[] = $step;
+            }
+        }
+
+        return $steps !== [] ? min($steps) : 20.0;
     }
 
     // ── Applying a confirmed review ─────────────────────────────────────
@@ -630,18 +693,43 @@ class RentalInspectionScanReaderService
      * the exact same entry point onConditionTap() (rental-inspections.md
      * §14.1) uses. `applied_observation_id` on the mark is the audit trail
      * — the observation itself carries no new column.
+     *
+     * AT-472 (Johan, 20 Oct 2026): the CONFIRMED note travels with the condition (a note the agent never touched but the AI pre-filled is saved
+     * here, because the agent saw it and pressed Apply), and the row is idempotent:
+     *   - a retry carrying the same `$replayKey` returns the observation that key already wrote;
+     *   - when the item's latest recorded observation already says the same condition and note (the note box saves as it is typed, through the
+     *     capture screen's own /observations endpoint), nothing new is recorded - the mark is simply linked to that observation.
+     * "Damaged needs a note" is enforced by the caller (RentalInspectionScanController::apply) with the same rule the capture endpoint uses.
      */
-    public function applyMark(RentalInspectionScanMark $mark, string $conditionKey, User $confirmedBy, string $source): RentalInspectionObservation
+    public function applyMark(RentalInspectionScanMark $mark, string $conditionKey, User $confirmedBy, string $source, ?string $notes = null, ?string $replayKey = null): RentalInspectionObservation
     {
-        $observation = RentalInspectionObservation::record([
+        $inspectionId = (int) $mark->scan->rental_inspection_id;
+        $notes = ($notes !== null && trim($notes) !== '') ? trim($notes) : null;
+
+        $observation = null;
+        if ($replayKey) {
+            $observation = RentalInspectionObservation::withoutGlobalScopes()
+                ->where('client_idempotency_key', $replayKey)->where('rental_inspection_id', $inspectionId)->first();
+        }
+        if (! $observation) {
+            $latest = RentalInspectionObservation::query()->recorded()
+                ->where('rental_inspection_id', $inspectionId)
+                ->where('rental_inspection_item_id', $mark->rental_inspection_item_id)
+                ->orderByDesc('id')->first();
+            if ($latest && $latest->condition === $conditionKey && (($latest->notes !== null && trim($latest->notes) !== '') ? trim($latest->notes) : null) === $notes) {
+                $observation = $latest;
+            }
+        }
+        $observation ??= RentalInspectionObservation::record(array_filter([
             'agency_id' => $mark->agency_id,
-            'rental_inspection_id' => $mark->scan->rental_inspection_id,
+            'rental_inspection_id' => $inspectionId,
             'rental_inspection_item_id' => $mark->rental_inspection_item_id,
             'observed_by_user_id' => $confirmedBy->id,
             'condition' => $conditionKey,
-            'notes' => null,
+            'notes' => $notes,
             'source' => $source,
-        ]);
+            'client_idempotency_key' => $replayKey,
+        ], fn ($v) => $v !== null));
 
         $mark->forceFill([
             'confirmed_condition_key' => $conditionKey,

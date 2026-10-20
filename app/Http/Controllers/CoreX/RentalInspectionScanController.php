@@ -17,10 +17,13 @@ use Illuminate\View\View;
 /**
  * .ai/specs/rental-inspection-form.md §13 — upload, review, confirm, apply
  * a scanned/photographed wet-ink form against cc5's own printable-form
- * contract (§12). "We read the form back by OMR — COLUMN MARKING ONLY. We
- * do NOT read handwriting, ever" (Johan). Nothing writes to the inspection
+ * contract (§12). The tick columns are read by OMR; since Johan's ruling of
+ * 20 Oct 2026 (§13.14) the handwritten note on each row is also read, by AI,
+ * and only ever PRE-FILLS the note box. Nothing writes to the inspection
  * until a human confirms on the review screen (apply()) — store() only
- * ever produces a reviewable RentalInspectionScanMark set.
+ * ever produces a reviewable RentalInspectionScanMark set. On the review
+ * screen the agent can also capture notes and photos per row, saved as they
+ * are captured through the capture screen's own endpoints (§13.14).
  */
 class RentalInspectionScanController extends Controller
 {
@@ -176,14 +179,35 @@ class RentalInspectionScanController extends Controller
 
         $scan->load(['marks.item.room']);
         $conditionStates = RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id);
+        $itemIds = $scan->marks->pluck('rental_inspection_item_id')->unique()->values()->all();
 
-        // What the web inspection says right now for each item (append-only: the last recorded one), so the agent sees
-        // each proposal next to what it would replace.
+        // What the web inspection says right now for each item (append-only: the last recorded one), so the agent sees each proposal next
+        // to what it would replace - its condition AND its note.
         $onScreen = [];
+        $onScreenNotes = [];
         $rows = \App\Models\RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
-            ->recorded()->orderBy('id')->get(['rental_inspection_item_id', 'condition']);
+            ->recorded()->orderBy('id')->get(['rental_inspection_item_id', 'condition', 'notes']);
         foreach ($rows as $row) {
             $onScreen[(int) $row->rental_inspection_item_id] = (string) $row->condition;
+            $onScreenNotes[(int) $row->rental_inspection_item_id] = $row->notes !== null && trim($row->notes) !== '' ? trim($row->notes) : null;
+        }
+
+        // The photos already on each of these items (through the item's observations on THIS inspection; archived ones are out of the
+        // default scope). The model hands back signed, expiring links - the same ones the capture screen shows.
+        $obsItem = \App\Models\RentalInspectionObservation::where('rental_inspection_id', $rentalInspection->id)
+            ->whereIn('rental_inspection_item_id', $itemIds)->pluck('rental_inspection_item_id', 'id');
+        $photos = [];
+        foreach (\App\Models\RentalInspectionPhoto::where('rental_inspection_id', $rentalInspection->id)
+            ->whereIn('rental_inspection_observation_id', $obsItem->keys())->orderBy('id')->get() as $photo) {
+            $photos[(int) $obsItem[$photo->rental_inspection_observation_id]][] = $photo->storage_path;
+        }
+
+        // Signed or completed (or cancelled): the whole screen is read-only - the same guard apply() and the capture endpoints use.
+        $readOnly = false;
+        try {
+            $rentalInspection->assertContentEditable();
+        } catch (\App\Exceptions\RentalInspectionNotRecordableException) {
+            $readOnly = true;
         }
 
         return view('corex.rental-inspections.scan-review', [
@@ -191,6 +215,13 @@ class RentalInspectionScanController extends Controller
             'scan' => $scan,
             'conditionStates' => $conditionStates,
             'onScreen' => $onScreen,
+            'onScreenNotes' => $onScreenNotes,
+            'photos' => $photos,
+            'readOnly' => $readOnly,
+            'applyKey' => (string) \Illuminate\Support\Str::uuid(),
+            'source' => $rentalInspection->type === RentalInspection::TYPE_OUT
+                ? \App\Models\RentalInspectionObservation::SOURCE_OUT_INSPECTION
+                : \App\Models\RentalInspectionObservation::SOURCE_IN_INSPECTION,
             // Confidence runs 0-1 (1 = a clear tick); a tick that only just cleared the sensitivity is doubtful: flagged, never pre-selected.
             'lowConfidenceBelow' => 0.5,
         ]);
@@ -218,30 +249,55 @@ class RentalInspectionScanController extends Controller
                 ->withErrors(['scan' => $e->getMessage()]);
         }
 
+        // AT-472 - the confirmed NOTE rides with each confirmed condition (`notes[markId]`); `apply_key` makes a repeat of the same press safe.
         $validated = $request->validate([
             'condition_keys' => ['required', 'array'],
             'condition_keys.*' => ['nullable', 'string', 'max:60'],
+            'notes' => ['nullable', 'array'],
+            'notes.*' => ['nullable', 'string', 'max:4000'],
+            'apply_key' => ['nullable', 'uuid'],
         ]);
 
-        $validKeys = collect(RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id))->pluck('key')->all();
+        $states = collect(RentalInspectionSetting::conditionStatesFor($rentalInspection->agency_id));
+        $validKeys = $states->pluck('key')->all();
         $source = $rentalInspection->type === \App\Models\RentalInspection::TYPE_OUT
             ? \App\Models\RentalInspectionObservation::SOURCE_OUT_INSPECTION
             : \App\Models\RentalInspectionObservation::SOURCE_IN_INSPECTION;
 
-        $marks = $scan->marks()->whereIn('id', array_keys($validated['condition_keys']))->get();
+        $marks = $scan->marks()->with('item')->whereIn('id', array_keys($validated['condition_keys']))->get();
+        $latest = \App\Models\RentalInspectionObservation::query()->recorded()
+            ->where('rental_inspection_id', $rentalInspection->id)
+            ->whereIn('rental_inspection_item_id', $marks->pluck('rental_inspection_item_id'))
+            ->orderBy('id')->get()->groupBy('rental_inspection_item_id')->map(fn ($rows) => $rows->last());
+
+        $refused = [];
         foreach ($marks as $mark) {
-            if ($mark->applied_observation_id !== null) {
-                continue; // already applied earlier — never double-record the same mark
-            }
             $key = $validated['condition_keys'][$mark->id] ?? null;
             if (! $key || ! in_array($key, $validKeys, true)) {
                 continue; // left blank / not confirmed this round — stays for a later visit
             }
-            $this->reader->applyMark($mark, $key, $request->user(), $source);
+            $note = isset($validated['notes'][$mark->id]) && trim((string) $validated['notes'][$mark->id]) !== '' ? trim($validated['notes'][$mark->id]) : null;
+
+            // An applied row can still be corrected (the import got it wrong), but only by a different condition or note than what is
+            // recorded now; the same thing again changes nothing (never double-record).
+            $current = $latest->get($mark->rental_inspection_item_id);
+            if ($mark->applied_observation_id !== null && $current
+                && $current->condition === $key && (($current->notes !== null && trim($current->notes) !== '') ? trim($current->notes) : null) === $note) {
+                continue;
+            }
+
+            // "Damaged needs a note" - the very rule the capture endpoint (storeObservation) enforces, from the agency's own vocabulary.
+            if ($note === null && RentalInspectionSetting::conditionRequiresNotesFor($rentalInspection->agency_id, $key)) {
+                $refused[] = ($mark->item?->label ?? 'A row') . ': a note is required for ' . ($states->firstWhere('key', $key)['label'] ?? $key) . '.';
+
+                continue;
+            }
+
+            $this->reader->applyMark($mark, $key, $request->user(), $source, $note, $this->replayKeyFor($validated['apply_key'] ?? null, $mark->id));
         }
 
         $allApplied = $scan->marks()->whereNull('applied_observation_id')->doesntExist();
-        if ($allApplied) {
+        if ($allApplied && $scan->status !== RentalInspectionScan::STATUS_APPLIED) {
             $scan->forceFill([
                 'status' => RentalInspectionScan::STATUS_APPLIED,
                 'applied_by_user_id' => $request->user()->id,
@@ -249,9 +305,22 @@ class RentalInspectionScanController extends Controller
             ])->save();
         }
 
-        return redirect()
+        $redirect = redirect()
             ->route('corex.rental-inspections.scans.review', [$rentalInspection, $scan])
             ->with('success', $allApplied ? 'All rows applied.' : 'Confirmed rows applied — some rows still need review.');
+
+        return $refused !== [] ? $redirect->withErrors(['scan' => implode(' ', $refused)]) : $redirect;
+    }
+
+    /** One stable, valid UUID per (this apply press, mark): the same press sent twice replays instead of recording twice. */
+    private function replayKeyFor(?string $applyKey, int $markId): ?string
+    {
+        if (! $applyKey) {
+            return null;
+        }
+        $h = sha1($applyKey . '|' . $markId);
+
+        return sprintf('%s-%s-5%s-%s%s-%s', substr($h, 0, 8), substr($h, 8, 4), substr($h, 13, 3), dechex((hexdec(substr($h, 16, 2)) & 0x3f) | 0x80), substr($h, 18, 2), substr($h, 20, 12));
     }
 
     /** Gated download of the retained original — same pattern as PropertyFileController::download(). */
