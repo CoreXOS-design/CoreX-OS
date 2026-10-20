@@ -37,6 +37,8 @@ class RentalInspectionSettingsController extends Controller
             'defaultPhotoLinkMinutes' => RentalInspectionSetting::DEFAULT_PHOTO_LINK_MINUTES,
             // §46 — signing by personal link.
             'signingLinkEnabled' => RentalInspectionSetting::signingLinkEnabledFor($agencyId),
+            // Johan's ruling 20 Oct 2026 - record amounts against move-out charges (default off).
+            'recordDeductionAmounts' => RentalInspectionSetting::recordDeductionAmountsFor($agencyId),
             'signingLinkExpiryDays' => RentalInspectionSetting::signingLinkExpiryDaysFor($agencyId),
             'defaultSigningLinkExpiryDays' => RentalInspectionSetting::DEFAULT_SIGNING_LINK_EXPIRY_DAYS,
             // §49 — are the three signatures required to complete an inspection of each type? (keyed by stored type)
@@ -168,6 +170,8 @@ class RentalInspectionSettingsController extends Controller
             'all_items_required_to_complete' => ['nullable', 'boolean'],
             // §46 — signing by personal link; both has()-guarded below so a wizard step that renders only one is safe.
             'signing_link_enabled' => ['nullable', 'boolean'],
+            // has()-guarded below: a wizard step that does not render it must not reset it.
+            'record_deduction_amounts' => ['nullable', 'boolean'],
             'signing_link_expiry_days' => ['nullable', 'integer', 'min:1', 'max:365'],
             // §49 — signatures required to complete, per type; each has()-guarded below (a wizard step renders only some).
             'signatures_required_in' => ['nullable', 'boolean'],
@@ -205,6 +209,9 @@ class RentalInspectionSettingsController extends Controller
         // §46 — same hidden-0-then-checkbox control and the same has() guard; the expiry saves only when filled.
         if ($request->has('signing_link_enabled')) {
             $attributes['signing_link_enabled'] = $request->boolean('signing_link_enabled');
+        }
+        if ($request->has('record_deduction_amounts')) {
+            $attributes['record_deduction_amounts'] = $request->boolean('record_deduction_amounts');
         }
         // §49 — same hidden-0-then-checkbox control and the same has() guard, one per inspection type.
         foreach (RentalInspectionSetting::SIGNATURE_REQUIREMENT_COLUMNS as $column) {

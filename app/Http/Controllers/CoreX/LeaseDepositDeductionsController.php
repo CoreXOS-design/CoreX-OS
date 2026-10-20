@@ -46,6 +46,6 @@ class LeaseDepositDeductionsController extends Controller
         abort_if($out === null || $out->status !== RentalInspection::STATUS_COMPLETED, 409, 'The move-out inspection has to be completed before its deductions are reviewed.');
         $this->deductions->markReviewed($out, $request->user());
 
-        return redirect()->route('corex.leases.deposit-deductions', $lease)->with('success', 'Deposit deductions marked as reviewed.');
+        return redirect()->route('corex.leases.deposit-deductions', $lease)->with('success', RentalDepositDeductionsService::titleForAgency($lease->agency_id) . ' marked as reviewed.');
     }
 }

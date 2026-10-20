@@ -92,6 +92,19 @@
                 </div>
                 <div>
                     <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="record_deduction_amounts" value="0">
+                        <input type="checkbox" name="record_deduction_amounts" value="1" @checked(old('record_deduction_amounts', $recordDeductionAmounts))>
+                        Record deduction amounts
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        Off (the default): money is not tracked in CoreX - your accounting system handles it. Charging something to the tenant at the
+                        move-out inspection needs no amount, and the lease's "Move-out charges" card lists the charged items only (no totals, no deposit figure).
+                        On: each charge to the tenant carries an amount, and the lease shows the total recorded and the deposit held (the money itself is still
+                        settled in your accounting system).
+                    </p>
+                </div>
+                <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
                         <input type="hidden" name="signing_link_enabled" value="0">
                         <input type="checkbox" name="signing_link_enabled" value="1" @checked(old('signing_link_enabled', $signingLinkEnabled))>
                         Let tenants and landlords sign an inspection from a personal link

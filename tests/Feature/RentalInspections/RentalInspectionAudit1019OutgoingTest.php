@@ -73,6 +73,12 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
         $this->actingAs($this->agent);
     }
 
+    /** Johan's ruling 20 Oct 2026: amounts are recorded only when the agency turns "Record deduction amounts" on (default off). */
+    private function amountsOn(): void
+    {
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['record_deduction_amounts' => true]);
+    }
+
     private function inspection(string $type, string $status = RentalInspection::STATUS_COMPLETED): RentalInspection
     {
         return RentalInspection::create([
@@ -115,6 +121,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
 
     public function test_a_charge_to_the_tenant_needs_an_amount(): void
     {
+        $this->amountsOn();
         [, $out, $item] = $this->declinedItemOnAnOut();
 
         $this->post(route('corex.rental-inspections.deposit-comparison.finding', [$out, $item]), ['disposition' => 'charge_tenant', 'note' => 'Burn mark'])
@@ -128,6 +135,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
 
     public function test_another_judgement_may_carry_an_optional_amount_but_it_is_never_a_deduction(): void
     {
+        $this->amountsOn();
         [, $out, $item] = $this->declinedItemOnAnOut();
 
         $this->post(route('corex.rental-inspections.deposit-comparison.finding', [$out, $item]), ['disposition' => 'wear_and_tear', 'note' => 'Normal use', 'amount' => '999'])
@@ -141,6 +149,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
 
     public function test_the_lease_summary_adds_up_only_live_charges(): void
     {
+        $this->amountsOn();
         [$in, $out, $item] = $this->declinedItemOnAnOut();
         $second = $this->item('Bath mat');
         $this->observe($in, $second, 'good');
@@ -165,6 +174,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
 
     public function test_the_deductions_page_shows_amounts_and_the_money_note(): void
     {
+        $this->amountsOn();
         [, $out, $item] = $this->declinedItemOnAnOut();
         $out->update(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()]);
         RentalInspectionItemFinding::record($out, $item, 'charge_tenant', 'Burn mark', $this->agent, 1250.50);
@@ -259,7 +269,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
         $out = $this->inspection('out');
 
         $step = app(LeaseHubService::class)->nextStep($this->lease->fresh(), $this->agent);
-        $this->assertSame('Review the deposit deductions', $step['label']);
+        $this->assertSame('Review the move-out charges', $step['label'], 'amounts are off by default (Johan, 20 Oct)');
         $this->assertSame('corex.leases.deposit-deductions', $step['route_name']);
 
         $this->post(route('corex.leases.deposit-deductions.reviewed', $this->lease))->assertRedirect(route('corex.leases.deposit-deductions', $this->lease));
@@ -286,6 +296,7 @@ final class RentalInspectionAudit1019OutgoingTest extends TestCase
 
     public function test_the_lease_hub_shows_the_deposit_deductions_card(): void
     {
+        $this->amountsOn();
         [, $out, $item] = $this->declinedItemOnAnOut();
         $out->update(['status' => RentalInspection::STATUS_COMPLETED, 'completed_at' => now()]);
         RentalInspectionItemFinding::record($out, $item, 'charge_tenant', 'Burn mark', $this->agent, 300);

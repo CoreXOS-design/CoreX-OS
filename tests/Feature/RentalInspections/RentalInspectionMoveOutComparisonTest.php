@@ -669,8 +669,15 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
 
     // ── audit A24 (2026-10-19): a finding may record an amount - and nothing more is done with it ──
 
+    /** Johan's ruling 20 Oct 2026: amounts are recorded only when the agency turns "Record deduction amounts" on (default off). */
+    private function amountsOn(): void
+    {
+        \App\Models\RentalInspectionSetting::updateOrCreate(['agency_id' => $this->agency->id], ['record_deduction_amounts' => true]);
+    }
+
     public function test_a_finding_can_record_an_amount_and_a_correction_supersedes_it_with_both_on_the_record(): void
     {
+        $this->amountsOn();
         $x = $this->layout();
         $first = $this->service->recordFinding($x['out'], $x['floor'], 'charge_tenant', 'Cigarette burn.', $this->agent, 450.5);
         $this->assertSame('450.50', (string) $first->fresh()->amount);
@@ -688,6 +695,7 @@ final class RentalInspectionMoveOutComparisonTest extends TestCase
 
     public function test_the_amount_is_optional_and_the_endpoint_validates_it(): void
     {
+        $this->amountsOn();
         $x = $this->layout();
         $url = route('corex.rental-inspections.deposit-comparison.finding', [$x['out'], $x['floor']]);
 

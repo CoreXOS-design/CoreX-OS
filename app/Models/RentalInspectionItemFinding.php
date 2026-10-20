@@ -105,8 +105,14 @@ class RentalInspectionItemFinding extends Model
         if (trim($note) === '') {
             throw new \InvalidArgumentException('A finding requires a note — the agent\'s reasoning is the record.');
         }
-        // Audit B1 - a charge to the tenant is a deposit deduction: it REQUIRES an amount above zero.
-        if ($disposition === self::DISPOSITION_CHARGE_TENANT && ($amount === null || $amount <= 0)) {
+        // Johan's ruling 20 Oct 2026: money is not tracked unless the agency turns "Record deduction amounts" on. Off: no amount is required
+        // and none is stored (a submitted one is dropped, not kept out of sight).
+        $recordAmounts = \App\Models\RentalInspectionSetting::recordDeductionAmountsFor($outInspection->agency_id);
+        if (! $recordAmounts) {
+            $amount = null;
+        }
+        // Audit B1 - with amounts on, a charge to the tenant is a deposit deduction: it REQUIRES an amount above zero.
+        if ($recordAmounts && $disposition === self::DISPOSITION_CHARGE_TENANT && ($amount === null || $amount <= 0)) {
             throw new \InvalidArgumentException('A charge to the tenant needs an amount greater than zero.');
         }
         if ($amount !== null && ($amount < 0 || $amount > 99999999.99)) {

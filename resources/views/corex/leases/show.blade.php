@@ -841,15 +841,23 @@
                 @endfeature
             </div>
 
-            {{-- Audit 2026-10-19 B1/B4 - Deposit deductions: what the move-out inspection recorded as charged to the tenant. Amounts only; the deposit
+            {{-- Audit 2026-10-19 B1/B4 - Move-out charges / Deposit deductions (named by the agency's "Record deduction amounts" setting): what the move-out inspection recorded as charged to the tenant; the deposit
                  itself is settled in the agency's accounting system. The comparison is offered once the Out is completed. --}}
             @if(!empty($depositDeductions))
                 <div class="rounded-md p-4 space-y-2 text-sm" style="background: var(--surface); border: 1px solid var(--border);" id="deposit-deductions" data-qa="hub-deposit-deductions">
-                    <h2 class="text-sm font-semibold">Deposit deductions</h2>
+                    <h2 class="text-sm font-semibold">{{ $depositDeductions['title'] }}</h2>
                     @if($depositDeductions['lines']->isEmpty())
                         <p class="text-xs" style="color: var(--text-muted);">Nothing charged to the tenant at the move-out inspection{{ $depositDeductions['out_completed'] ? '' : ' so far' }}.</p>
                     @else
-                        <div class="flex items-center justify-between"><span>{{ $depositDeductions['lines']->count() }} charge{{ $depositDeductions['lines']->count() === 1 ? '' : 's' }} recorded</span><strong>R{{ number_format($depositDeductions['total'], 2) }}</strong></div>
+                        {{-- Johan's ruling 20 Oct 2026: with amounts off, no R figure anywhere - the items charged to the tenant only. --}}
+                        <div class="flex items-center justify-between"><span>{{ $depositDeductions['lines']->count() }} charge{{ $depositDeductions['lines']->count() === 1 ? '' : 's' }} recorded</span>@if($depositDeductions['record_amounts'])<strong>R{{ number_format($depositDeductions['total'], 2) }}</strong>@endif</div>
+                        <ul class="text-xs space-y-1" style="color: var(--text-secondary);" data-qa="hub-dd-items">
+                            @foreach($depositDeductions['lines'] as $charge)
+                                <li>{{ $charge['item'] }}@if($charge['room']) — {{ $charge['room'] }}@endif
+                                    @foreach($charge['work_orders'] as $wo) · <a href="{{ $wo['url'] }}" class="underline" style="color: var(--brand-icon, #2563eb);">{{ $wo['title'] }}</a>@endforeach
+                                </li>
+                            @endforeach
+                        </ul>
                     @endif
                     <div class="flex items-center gap-2 flex-wrap">
                         <a href="{{ route('corex.leases.deposit-deductions', $lease) }}" class="corex-btn-outline text-xs" data-qa="hub-dd-open">Open summary</a>

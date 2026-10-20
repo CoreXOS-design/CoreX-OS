@@ -79,12 +79,16 @@ class RentalInspectionComparisonController extends Controller
         abort_unless($rentalInspection->type === RentalInspection::TYPE_OUT, 404);
         $this->guardRentalRecordScope($rentalInspection, 'rental_inspections', $rentalInspection->property?->branch_id);
 
+        // Johan's ruling 20 Oct 2026: the amount is only asked for (and kept) when the agency records deduction amounts.
+        $recordAmounts = \App\Models\RentalInspectionSetting::recordDeductionAmountsFor($rentalInspection->agency_id);
         $validated = $request->validate([
             'disposition' => ['required', 'in:' . implode(',', array_keys(\App\Models\RentalInspectionItemFinding::DISPOSITION_LABELS))],
             'note' => ['required', 'string', 'max:2000'],
             // Audit A24 - the amount (rand) the agent has in mind for this item. Recorded only; CoreX does no money here. Audit B1 - REQUIRED
             // (and above zero) when the judgement is a charge to the tenant: that is a deposit deduction.
-            'amount' => ['nullable', 'required_if:disposition,' . \App\Models\RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT, 'numeric', 'min:0', 'max:99999999.99'],
+            'amount' => $recordAmounts
+                ? ['nullable', 'required_if:disposition,' . \App\Models\RentalInspectionItemFinding::DISPOSITION_CHARGE_TENANT, 'numeric', 'min:0', 'max:99999999.99']
+                : ['nullable'], // dropped by the model when amounts are off
         ]);
 
         try {

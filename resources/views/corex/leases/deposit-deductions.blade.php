@@ -1,8 +1,8 @@
 @extends('layouts.corex')
 
 {{--
-    Audit 2026-10-19 B1/B3/B4 - the lease's Deposit deductions summary. What the move-out inspection recorded as charged to the tenant, with
-    amounts. CoreX only RECORDS these (Johan's ruling): the deposit itself is held, deducted and paid out in the agency's accounting system.
+    Audit 2026-10-19 B1/B3/B4 - the lease's Move-out charges / Deposit deductions summary (titled by the agency setting). What the move-out inspection recorded as charged to the tenant, with
+    amounts only when the agency records them. CoreX only RECORDS these (Johan's ruling): the deposit itself is held, deducted and paid out in the agency's accounting system.
 --}}
 @section('content')
 <div class="p-6 max-w-4xl mx-auto space-y-4">
@@ -12,20 +12,25 @@
 
     <div class="flex items-center justify-between gap-3 flex-wrap">
         <div>
-            <h1 class="text-lg font-semibold">Deposit deductions</h1>
+            <h1 class="text-lg font-semibold">{{ $summary['title'] }}</h1>
             <span class="text-xs" style="color: var(--text-muted);">{{ $lease->property?->buildDisplayAddress() ?? 'Unknown property' }} — {{ $lease->tenantNames() ?? 'Unknown tenant' }}</span>
         </div>
         <a href="{{ route('corex.leases.show', $lease) }}" class="corex-btn-outline text-xs">&larr; Lease</a>
     </div>
 
     <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-note">
-        These are the amounts recorded against the tenant at the move-out inspection. CoreX only records them - the deposit itself is held, deducted
-        and paid out in your accounting system, so carry these figures across there.
+        @if($summary['record_amounts'])
+            These are the amounts recorded against the tenant at the move-out inspection. CoreX only records them - the deposit itself is held, deducted
+            and paid out in your accounting system, so carry these figures across there.
+        @else
+            These are the items charged to the tenant at the move-out inspection. CoreX does not track the money - the deposit is handled in your
+            accounting system.
+        @endif
     </p>
 
     @unless($summary['out_completed'])
         <div class="rounded-md p-3 text-xs" style="background: color-mix(in srgb, #d97706 10%, transparent); color:#b45309;" data-qa="dd-out-open">
-            The move-out inspection is not completed yet, so these figures can still change.
+            The move-out inspection is not completed yet, so @if($summary['record_amounts'])these figures @else this list @endif can still change.
             <a href="{{ route('corex.rental-inspections.show', $summary['out']) }}" class="underline font-semibold">Open the move-out inspection</a>
         </div>
     @endunless
@@ -36,15 +41,20 @@
                 <div class="min-w-0">
                     <div class="font-medium">{{ $line['item'] }}@if($line['room']) <span style="color: var(--text-muted);">— {{ $line['room'] }}</span>@endif</div>
                     <div class="text-xs" style="color: var(--text-muted);">{{ $line['note'] }} @if($line['by']) · {{ $line['by'] }} @endif @if($line['at']) · {{ $line['at']->format('j M Y') }} @endif</div>
+                    @foreach($line['work_orders'] as $wo)
+                        <div class="text-xs"><a href="{{ $wo['url'] }}" class="underline" style="color: var(--brand-icon, #2563eb);" data-qa="dd-work-order">Work order: {{ $wo['title'] }}</a></div>
+                    @endforeach
                 </div>
+                @if($summary['record_amounts'])
                 <div class="font-semibold whitespace-nowrap">
                     @if($line['amount'] !== null) R{{ number_format($line['amount'], 2) }} @else <span class="text-xs" style="color:#b45309;">no amount recorded</span> @endif
                 </div>
+                @endif
             </div>
         @empty
             <div class="px-4 py-6 text-sm text-center" style="color: var(--text-muted);" data-qa="dd-empty">Nothing was charged to the tenant at the move-out inspection.</div>
         @endforelse
-        @if($summary['lines']->isNotEmpty())
+        @if($summary['record_amounts'] && $summary['lines']->isNotEmpty())
             <div class="flex items-center justify-between gap-3 px-4 py-3 text-sm font-semibold" data-qa="dd-total">
                 <span>Total recorded</span>
                 <span>R{{ number_format($summary['total'], 2) }}</span>
@@ -52,10 +62,10 @@
         @endif
     </div>
 
-    @if($summary['unpriced'] > 0)
+    @if($summary['record_amounts'] && $summary['unpriced'] > 0)
         <p class="text-xs" style="color:#b45309;" data-qa="dd-unpriced">{{ $summary['unpriced'] }} charge{{ $summary['unpriced'] === 1 ? ' has' : 's have' }} no amount recorded (classified before amounts were captured) - open the comparison to add one.</p>
     @endif
-    @if($summary['deposit'] !== null)
+    @if($summary['record_amounts'] && $summary['deposit'] !== null)
         <p class="text-xs" style="color: var(--text-muted);" data-qa="dd-deposit">Deposit held on this lease: R{{ number_format($summary['deposit'], 2) }}.</p>
     @endif
 

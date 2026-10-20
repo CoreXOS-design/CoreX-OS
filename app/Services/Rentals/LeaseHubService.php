@@ -188,7 +188,7 @@ class LeaseHubService
         if ($hasCompletedOut && ($user === null || $user->hasPermission('rental_inspections.view'))) {
             $out = app(RentalDepositDeductionsService::class)->outFor($lease);
             if ($out && $out->status === RentalInspection::STATUS_COMPLETED && $out->deductions_reviewed_at === null) {
-                return ['label' => 'Review the deposit deductions', 'route_name' => 'corex.leases.deposit-deductions', 'route_param' => $lease->id];
+                return ['label' => 'Review the ' . strtolower(RentalDepositDeductionsService::titleForAgency($lease->agency_id)), 'route_name' => 'corex.leases.deposit-deductions', 'route_param' => $lease->id];
             }
         }
 

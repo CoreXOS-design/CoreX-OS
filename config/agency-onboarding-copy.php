@@ -716,6 +716,11 @@ return [
              'label' => 'Minutes an inspection or inventory photo link stays live',
              'explain' => 'Inspection and inventory photos are kept private. Every picture on the recording screen, the inventory and the public report is shown through a link that stops working after this many minutes, so a copied picture address cannot be opened later.',
              'affects' => 'How long a photo stays visible on a page that has been open for a while - after this the page needs a reload to show the pictures again. 480 minutes (8 hours) covers a working day.'],
+            // Johan's ruling 20 Oct 2026 - same saver (RentalInspectionSettingsController::update()), has()-guarded there.
+            ['key' => 'record_deduction_amounts', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Record deduction amounts',
+             'explain' => 'When something is charged to the tenant at the move-out inspection, CoreX can also record the rand amount. Most agencies settle the deposit in their accounting system and leave this off, so CoreX only lists what was charged and why.',
+             'affects' => 'Off (the default): charging an item to the tenant needs no amount, and the lease\'s "Move-out charges" card shows the charged items only - no totals and no deposit figure. On: each charge carries an amount and the lease shows the total recorded and the deposit held.'],
             // §46 — signing an inspection by a personal link. Same saver as the controls above
             // (RentalInspectionSettingsController::update(), registered once) — both has()-guarded there.
             ['key' => 'signing_link_enabled', 'source' => 'rental_inspections', 'type' => 'toggle', 'default' => 1,

@@ -378,6 +378,9 @@ class RentalInspectionSetting extends Model
 
     /** §46 — signing an inspection by a personal link: on, and live for 30 days from when it is issued. */
     public const DEFAULT_SIGNING_LINK_ENABLED = true;
+
+    /** Johan's ruling 20 Oct 2026: money is not tracked in CoreX, so deduction amounts are NOT recorded unless the agency turns this on. */
+    public const DEFAULT_RECORD_DEDUCTION_AMOUNTS = false;
     public const DEFAULT_SIGNING_LINK_EXPIRY_DAYS = 30;
 
     /**
@@ -482,6 +485,7 @@ class RentalInspectionSetting extends Model
         'photo_link_minutes',
         // §46 — signing by personal link.
         'signing_link_enabled',
+        'record_deduction_amounts',
         'signing_link_expiry_days',
         // §52 — the walk's rules (INSPECTION_RULES) and the first-reminder lead.
         'signing_window_reminders_enabled', 'signing_reminder_lead_days', 'calendar_include_lease_agents', 'cancel_signed_requires_edit',
@@ -532,6 +536,7 @@ class RentalInspectionSetting extends Model
         'public_link_expiry_days' => 'integer',
         'photo_link_minutes' => 'integer',
         'signing_link_enabled' => 'boolean',
+        'record_deduction_amounts' => 'boolean',
         'signing_link_expiry_days' => 'integer',
         'signing_window_reminders_enabled' => 'boolean', 'signing_reminder_lead_days' => 'integer', 'calendar_include_lease_agents' => 'boolean',
         'cancel_signed_requires_edit' => 'boolean', 'photos_required_to_sign' => 'boolean', 'empty_checklist_blocks_signing' => 'boolean',
@@ -758,6 +763,20 @@ class RentalInspectionSetting extends Model
         $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('public_link_expiry_days');
 
         return $value !== null ? (int) $value : self::DEFAULT_PUBLIC_LINK_EXPIRY_DAYS;
+    }
+
+    /**
+     * Does this agency record AMOUNTS against move-out charges? Read-time default: off (the money is settled in the accounting system).
+     * Off: a charge to the tenant needs no amount, no amount field is shown and no totals or deposit figures are shown.
+     */
+    public static function recordDeductionAmountsFor(?int $agencyId): bool
+    {
+        if (! $agencyId) {
+            return self::DEFAULT_RECORD_DEDUCTION_AMOUNTS;
+        }
+        $value = static::withoutGlobalScopes()->where('agency_id', $agencyId)->value('record_deduction_amounts');
+
+        return $value !== null ? (bool) $value : self::DEFAULT_RECORD_DEDUCTION_AMOUNTS;
     }
 
     /** §46 — whether this agency lets parties sign an inspection from a personal link. Read-time default: on. */

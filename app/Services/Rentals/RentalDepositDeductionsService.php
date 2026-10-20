@@ -5,7 +5,10 @@ namespace App\Services\Rentals;
 use App\Models\Lease;
 use App\Models\RentalInspection;
 use App\Models\RentalInspectionItemFinding;
+use App\Models\RentalInspectionObservation;
+use App\Models\RentalInspectionSetting;
 use App\Models\RentalInventory;
+use App\Models\RentalWorkOrder;
 use App\Models\User;
 use App\Services\RentalInspectionComparisonService;
 use Illuminate\Support\Collection;
@@ -18,6 +21,9 @@ use Illuminate\Support\Collection;
  *    amount, the total, and what is still unpriced or unreviewed. Computes nothing else: no balance, no refund, no interest.
  *  - outCompletionWarnings(): the checklist shown when an Out is completed - open findings, open repairs, an inventory check not done.
  *    WARNINGS, never a block: the agent may complete anyway (acknowledging them).
+ *  - Johan's ruling 20 Oct 2026: money is NOT tracked in CoreX unless the agency turns on "Record deduction amounts" (default off). Off: the card and
+ *    page are "Move-out charges" - the list of charged items only (item, room, note, who, when, any linked work order) - and summaryFor() carries NO
+ *    money at all (no amounts, total, unpriced count or deposit). On: today's behaviour, titled "Deposit deductions".
  *  - markReviewed(): the agent has reviewed the summary (clears the lease hub's "Review the deposit deductions" next step).
  */
 class RentalDepositDeductionsService
@@ -51,33 +57,74 @@ class RentalDepositDeductionsService
             ->with(['item.room', 'recordedBy'])
             ->orderBy('id')->get();
 
+        $recordAmounts = RentalInspectionSetting::recordDeductionAmountsFor($out->agency_id);
+        $workOrders = $this->workOrdersByItem($out);
+
         $lines = $findings->map(fn (RentalInspectionItemFinding $f) => [
             'finding' => $f,
             'item' => $f->item?->label ?? 'Item',
             'room' => $f->item?->room?->label,
             'note' => $f->note,
-            'amount' => $f->amount !== null ? (float) $f->amount : null,
+            'amount' => $recordAmounts && $f->amount !== null ? (float) $f->amount : null,
             'by' => $f->recordedBy?->name,
             'at' => $f->recorded_at,
+            // a work order raised from this item's move-out observation (the existing follow-up link), shown as a link
+            'work_orders' => ($workOrders->get($f->rental_inspection_item_id) ?? collect())->map(fn (RentalWorkOrder $w) => [
+                'title' => $w->title ?: ('Work order #' . $w->id),
+                'url' => route('corex.rental-work-orders.show', $w),
+            ])->values(),
         ])->values();
 
         $inventory = RentalInventory::where('lease_id', $lease->id)->where('status', RentalInventory::STATUS_COMPLETED)->latest('id')->first();
 
         return [
+            'record_amounts' => $recordAmounts,
+            'title' => self::titleFor($recordAmounts),
             'out' => $out,
             'out_completed' => $out->status === RentalInspection::STATUS_COMPLETED,
             'lines' => $lines,
-            'total' => round((float) $lines->sum(fn ($l) => $l['amount'] ?? 0), 2),
-            'unpriced' => $lines->filter(fn ($l) => $l['amount'] === null)->count(),
+            'total' => $recordAmounts ? round((float) $lines->sum(fn ($l) => $l['amount'] ?? 0), 2) : null,
+            'unpriced' => $recordAmounts ? $lines->filter(fn ($l) => $l['amount'] === null)->count() : 0,
             'reviewed_at' => $out->deductions_reviewed_at,
             'reviewed_by' => $out->deductions_reviewed_by_user_id
                 ? User::withoutGlobalScopes()->whereKey($out->deductions_reviewed_by_user_id)->value('name')
                 : null,
-            'deposit' => $lease->deposit_amount !== null ? (float) $lease->deposit_amount : null,
+            'deposit' => $recordAmounts && $lease->deposit_amount !== null ? (float) $lease->deposit_amount : null,
             // B4 - the comparison is offered from the hub once the Out is COMPLETED.
             'comparison_url' => $out->status === RentalInspection::STATUS_COMPLETED ? route('corex.rental-inspections.deposit-comparison', $out) : null,
             'inventory_comparison_url' => $inventory ? route('corex.rental-inventories.comparison', $inventory) : null,
         ];
+    }
+
+    /** The name of the card / page / next step: "Move-out charges" when amounts are not recorded, "Deposit deductions" when they are. */
+    public static function titleFor(bool $recordAmounts): string
+    {
+        return $recordAmounts ? 'Deposit deductions' : 'Move-out charges';
+    }
+
+    public static function titleForAgency(?int $agencyId): string
+    {
+        return self::titleFor(RentalInspectionSetting::recordDeductionAmountsFor($agencyId));
+    }
+
+    /**
+     * Work orders already raised from the Out inspection's observations (the follow-up flow), grouped by the inspection item they were raised
+     * for - the link between a move-out finding and its repair.
+     *
+     * @return Collection<int, Collection<int, RentalWorkOrder>>
+     */
+    private function workOrdersByItem(RentalInspection $out): Collection
+    {
+        $observations = RentalInspectionObservation::where('rental_inspection_id', $out->id)->get(['id', 'rental_inspection_item_id']);
+        if ($observations->isEmpty()) {
+            return collect();
+        }
+        $itemByObservation = $observations->pluck('rental_inspection_item_id', 'id');
+
+        return RentalWorkOrder::whereIn('reported_inspection_observation_id', $observations->pluck('id'))
+            ->orderBy('id')->get()
+            ->groupBy(fn (RentalWorkOrder $w) => $itemByObservation->get($w->reported_inspection_observation_id))
+            ->map(fn (Collection $group) => $group->unique('id')->values());
     }
 
     /**
