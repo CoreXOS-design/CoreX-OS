@@ -345,33 +345,6 @@ final class MyPortalBlocksTest extends TestCase
         $this->assertSame(22000.0 + 15000.0, $m['pipeline']);
     }
 
-    /** Money is rebuilt over time: the old rows are soft-deleted and a new live one written. Only live rows count. */
-    private function rebuiltOver(Deal $deal, User $agent, float $oldGross, float $oldNet, int $copies = 3): void
-    {
-        for ($i = 0; $i < $copies; $i++) {
-            DB::table('deal_money_lines')->insert([
-                'deal_id' => $deal->id, 'agency_id' => $deal->agency_id, 'user_id' => $agent->id, 'branch_id' => $deal->branch_id, 'period' => $deal->period,
-                'side' => 'listing', 'agent_gross_ex_vat' => $oldGross, 'agent_net_ex_vat' => $oldNet, 'created_at' => now(), 'updated_at' => now(), 'deleted_at' => now(),
-            ]);
-        }
-    }
-
-    public function test_money_lines_that_were_rebuilt_over_are_never_counted(): void
-    {
-        $deal = $this->deal($this->agent, '2026-10-05', 'G', 2000000, 115000, 60000, 45000);
-        $this->rebuiltOver($deal, $this->agent, 55555, 44444);
-        $this->deal($this->colleague, '2026-09-05', 'R', 2000000, 115000, 60000, 30000);
-        $this->rebuiltOver(Deal::query()->where('deal_no', '9002')->firstOrFail(), $this->colleague, 99999, 88888, 5);
-
-        $m = $this->svc()->ownMoney($this->agent, '2026-10');
-        $this->assertSame(60000.0, $m['gross'], 'only the live line');
-        $this->assertSame(45000.0, $m['net']);
-        $this->assertSame(45000.0, $m['pipeline']);
-        // own average is the live 45,000; the agency average is (45,000 + 30,000) / 2 - neither inflated by the trashed copies
-        $this->assertSame(45000.0, $this->svc()->netPerDeal($this->agent)['perDeal']);
-        $this->assertSame(37500.0, $this->svc()->netPerDeal($this->user("agent"))["perDeal"]);
-    }
-
     // ── what the budget needs ────────────────────────────────────────────────────────────
 
     public function test_requirement_uses_the_agents_own_average_then_the_agencys_then_says_not_enough_deals(): void

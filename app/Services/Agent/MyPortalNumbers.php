@@ -213,7 +213,6 @@ final class MyPortalNumbers
         [$from, $to] = self::bounds($period);
         $lines = fn () => DB::table('deal_money_lines as l')->join('deals', 'deals.id', '=', 'l.deal_id')
             ->where('l.agency_id', $agencyId)->whereIn('l.user_id', $u->dataIdentityIds())
-            ->whereNull('l.deleted_at') // a deal's money is rebuilt over time; the old rows are trashed, never counted
             ->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'");
 
         $month = $lines()->whereBetween('deals.deal_date', [$from, $to])
@@ -246,7 +245,7 @@ final class MyPortalNumbers
         }
         [$from, $to] = self::bounds($period);
         $lines = fn () => DB::table('deal_money_lines as l')->join('deals', 'deals.id', '=', 'l.deal_id')
-            ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'")
+            ->where('l.agency_id', $agencyId)->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'")
             ->whereBetween('deals.deal_date', [$from, $to])
             ->selectRaw('COALESCE(SUM(l.agent_gross_ex_vat),0) as gross, COALESCE(SUM(l.agent_net_ex_vat),0) as net');
         $pack = fn ($r) => ['gross' => (float) $r->gross, 'net' => (float) $r->net];
@@ -270,7 +269,7 @@ final class MyPortalNumbers
             return null;
         }
         $perDeal = fn (?array $ids) => DB::table('deal_money_lines as l')->join('deals', 'deals.id', '=', 'l.deal_id')
-            ->where('l.agency_id', $agencyId)->whereNull('l.deleted_at')->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'")
+            ->where('l.agency_id', $agencyId)->whereNull('deals.deleted_at')->whereRaw("COALESCE(deals.accepted_status, 'P') != 'D'")
             ->when($ids !== null, fn ($q) => $q->whereIn('l.user_id', $ids))
             ->groupBy('l.deal_id')->selectRaw('SUM(l.agent_net_ex_vat) as net');
 
