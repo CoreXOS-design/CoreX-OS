@@ -485,4 +485,142 @@ final class PrivateImageTest extends TestCase
         $this->assertStringStartsWith('private:', $a->fresh()->storage_path);
         $this->assertStringStartsWith('/storage/', $b->fresh()->storage_path, 'b is shared with a completed-photo row, so it stays');
     }
+
+    // ── audit 2026-10-20: every picture a tenant / the crew sends is private ───────────────────────────────
+
+    private function noPublicFiles(): void
+    {
+        $this->assertSame([], Storage::disk('public')->allFiles(), 'nothing was written to the public disk');
+    }
+
+    public function test_a_photo_the_tenant_adds_to_an_open_fault_is_private_not_a_public_storage_address(): void
+    {
+        $out = app(\App\Services\Rentals\RentalFaultReportService::class)->tenantAddsToFault($this->fault, $this->tenant, 'It is worse now', [UploadedFile::fake()->image('more.jpg', 300, 200)]);
+
+        $this->assertSame(1, $out['photos']);
+        $photo = $this->fault->photos()->first();
+        $this->assertStringStartsWith('private:private-images/properties/' . $this->property->id . '/', $photo->storage_path);
+        $this->assertTrue(app(PrivateImageService::class)->exists($photo->storage_path), 'the file is on the private disk');
+        $this->noPublicFiles();
+        $this->get($this->signed($photo))->assertOk();   // and it still opens through a signed URL
+    }
+
+    public function test_the_tenants_not_fixed_photos_and_progress_photos_are_private_and_still_show_for_the_office_and_the_portal(): void
+    {
+        $wo = $this->workOrder();
+        $wo->forceFill(['status' => RentalWorkOrder::STATUS_IN_PROGRESS, 'owner_approval_status' => RentalWorkOrder::APPROVAL_APPROVED])->save();
+        $completion = app(\App\Services\Rentals\RentalCompletionService::class);
+        $round = $completion->openRound($wo, ['reported_via' => \App\Models\RentalWorkCompletionRound::VIA_TENANT_PORTAL, 'reported_by_label' => 'Tina (tenant)', 'reported_note' => null, 'tenant_is_reporter' => true]);
+        $completion->respond($round->fresh(), false, 'It is still leaking under the sink, please come back.', [UploadedFile::fake()->image('d.jpg', 300, 200)], ['contact' => $this->tenant]);
+
+        $dispute = RentalWorkOrderPhoto::withoutGlobalScopes()->where('photo_type', RentalWorkOrder::PHOTO_DISPUTE)->firstOrFail();
+        $this->assertStringStartsWith('private:', $dispute->getRawOriginal('storage_path'));
+        $this->assertSame('tenant', $dispute->uploaded_via);
+
+        // the tenant's progress photos (the "finished" / "not fixed" answers on the progress route) go through the same private door
+        $m = new \ReflectionMethod(\App\Services\Rentals\RentalWorkOrderService::class, 'storeTenantPhotos');
+        $m->setAccessible(true);
+        $m->invoke(app(\App\Services\Rentals\RentalWorkOrderService::class), $wo, [UploadedFile::fake()->image('p.jpg', 300, 200)]);
+        $progress = RentalWorkOrderPhoto::withoutGlobalScopes()->where('photo_type', RentalWorkOrder::PHOTO_COMPLETED)->firstOrFail();
+        $this->assertStringStartsWith('private:', $progress->getRawOriginal('storage_path'));
+        $this->assertSame('tenant', $progress->uploaded_via);
+        $this->noPublicFiles();
+
+        // every reader still shows them: the office screen (a signed URL), the portal payload, the crew's dispute block, the mail link
+        $this->assertStringContainsString('/private-image/', $dispute->displayUrl());
+        $this->get($dispute->displayUrl())->assertOk();
+        $payload = app(\App\Services\Rentals\RentalJobCardClientViewService::class)->photoPayload($dispute);
+        $this->get($payload['url'])->assertOk();
+        $this->assertStringContainsString('/private-image/', (string) $dispute->mailUrl());
+        $this->assertStringStartsWith('http', (string) $dispute->mailUrl());
+        $this->get($dispute->mailUrl())->assertOk();
+        $this->assertNotNull($dispute->absolutePath(), 'a PDF / attachment can read the file');
+    }
+
+    public function test_the_mail_link_of_a_public_picture_is_its_absolute_address_and_a_private_one_outlives_the_screen_link(): void
+    {
+        $wo = $this->workOrder();
+        $legacy = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'completed', 'storage_path' => '/storage/properties/1/x.jpg']);
+        $this->assertSame(url('/storage/properties/1/x.jpg'), $legacy->mailUrl());
+
+        $ref = app(PrivateImageService::class)->storeUpload(UploadedFile::fake()->image('m.jpg', 300, 200), $this->property->id);
+        $private = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'dispute', 'storage_path' => $ref]);
+        $mail = $private->mailUrl();
+        $screen = $private->displayUrl();
+        $this->travel(RentalPortalSetting::DEFAULT_PORTAL_PHOTO_LINK_MINUTES + 30)->minutes();
+        $this->get($mail)->assertOk();   // an email read hours later still opens
+        $this->get($screen)->assertNotFound();   // the on-screen link has lapsed by then
+    }
+
+    public function test_a_crew_receipt_is_private_and_shows_on_the_office_card_and_the_crew_page(): void
+    {
+        $svc = app(\App\Services\Rentals\RentalJobCardService::class);
+        $card = $svc->createForProperty($this->property, ['title' => 'Replace tap'], $this->agent);
+        $line = $svc->addLine($card, ['type' => 'part', 'description' => 'Tap', 'quantity' => 1, 'unit' => 'each', 'unit_price' => 500], $this->agent);
+        $this->assertTrue($svc->attachLineReceipt($card->fresh(), $line, UploadedFile::fake()->image('r.jpg', 300, 200), null, RentalWorkOrderPhoto::VIA_CREW_LINK));
+
+        $receipt = RentalWorkOrderPhoto::withoutGlobalScopes()->where('photo_type', \App\Models\RentalJobCardLine::RECEIPT_PHOTO_TYPE)->firstOrFail();
+        $this->assertStringStartsWith('private:', $receipt->getRawOriginal('storage_path'));
+        $this->noPublicFiles();
+
+        $row = \App\Services\Rentals\CrewPricingBlock::rowFor($line->fresh());
+        $this->assertStringContainsString('/private-image/', $row['receipt_url'], 'the crew page links the receipt through a signed URL');
+        $this->get($row['receipt_url'])->assertOk();
+
+        $html = view('corex.rental-job-cards._receipt-thumb', ['receipt' => $receipt, 'label' => 'Tap'])->render();
+        $this->assertStringContainsString('/private-image/', $html);
+        $this->assertStringNotContainsString('private:', $html);
+    }
+
+    public function test_an_inspection_photo_raised_to_a_fault_stays_private_and_is_referenced_not_copied(): void
+    {
+        $ref = app(PrivateImageService::class)->storeUpload(UploadedFile::fake()->image('i.jpg', 300, 200), $this->property->id);
+        $photo = new \App\Models\RentalInspectionPhoto();
+        $photo->forceFill(['agency_id' => $this->agency->id, 'storage_path' => $ref, 'uploaded_by_user_id' => $this->agent->id, 'file_size_bytes' => 1234]);
+        $obs = new \App\Models\RentalInspectionObservation();
+        $obs->setRelation('photos', collect([$photo]));
+        $missing = new \App\Models\RentalInspectionPhoto();
+        $missing->forceFill(['agency_id' => $this->agency->id, 'storage_path' => 'private:private-images/properties/1/gone.jpg']);
+        $obs->setRelation('photos', collect([$photo, $missing]));
+
+        $m = new \ReflectionMethod(\App\Services\Rentals\RentalInspectionFollowUpService::class, 'linkObservationPhotosToFaultReport');
+        $m->setAccessible(true);
+        $m->invoke(app(\App\Services\Rentals\RentalInspectionFollowUpService::class), $obs, $this->fault, $this->agent);
+
+        $this->assertSame(1, $this->fault->photos()->count(), 'a photo whose file is gone is not linked');
+        $fp = $this->fault->photos()->first();
+        $this->assertSame($ref, $fp->getRawOriginal('storage_path'), 'the same private reference, no copy');
+        $this->noPublicFiles();
+        $this->assertCount(1, Storage::disk('local')->allFiles(), 'exactly one stored file: nothing was duplicated');
+        $this->get($this->signed($fp))->assertOk();
+    }
+
+    public function test_the_move_command_also_moves_dispute_photos_receipts_and_tenant_progress_photos_but_not_a_contractors_upload(): void
+    {
+        $wo = $this->workOrder();
+        $put = function (string $name) {
+            Storage::disk('public')->put("properties/{$this->property->id}/{$name}", $this->jpegBytes());
+
+            return "/storage/properties/{$this->property->id}/{$name}";
+        };
+        $dispute = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'dispute', 'uploaded_via' => 'tenant', 'storage_path' => $put('dis.jpg')]);
+        $receipt = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'crew_receipt', 'storage_path' => $put('rec.jpg')]);
+        $tenantProgress = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'completed', 'uploaded_via' => 'tenant', 'storage_path' => $put('tp.jpg')]);
+        $contractor = $wo->photos()->create(['agency_id' => $this->agency->id, 'photo_type' => 'completed', 'storage_path' => $put('con.jpg')]);
+
+        Artisan::call('rentals:privatise-fault-photos');   // preview
+        $this->assertStringStartsWith('/storage/', $dispute->fresh()->storage_path);
+        $this->assertStringContainsString('would move', Artisan::output());
+
+        Artisan::call('rentals:privatise-fault-photos', ['--force' => true]);
+
+        foreach ([$dispute, $receipt, $tenantProgress] as $row) {
+            $this->assertStringStartsWith('private:private-images/properties/', $row->fresh()->getRawOriginal('storage_path'));
+        }
+        $this->assertSame('/storage/properties/' . $this->property->id . '/con.jpg', $contractor->fresh()->storage_path, 'a contractor upload is not ours to move');
+        Storage::disk('public')->assertExists('properties/' . $this->property->id . '/con.jpg');
+        Storage::disk('public')->assertMissing('properties/' . $this->property->id . '/dis.jpg');
+        $this->assertSame(4, DB::table('rental_work_order_photos')->count(), 'no record was removed');
+        $this->get($dispute->fresh()->displayUrl())->assertOk();
+    }
 }

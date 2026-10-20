@@ -7,6 +7,7 @@ namespace Tests\Feature\RentalMaintenanceFlow;
 use App\Mail\Rentals\RentalJobCardCrewCompletedLandlordMail;
 use App\Mail\Rentals\RentalTenantCompletionCheckMail;
 use App\Models\LeaseTenant;
+use App\Models\RentalPortalSetting;
 use App\Models\RentalSecureAccessToken;
 use App\Models\RentalWorkCompletionRound;
 use App\Models\RentalWorkOrder;
@@ -292,6 +293,8 @@ final class CompletionRoundTest extends TestCase
 
     public function test_the_landlords_crew_completed_mail_is_unchanged_and_the_two_mails_do_not_cross(): void
     {
+        // Audit C-C4 (19 Oct 2026): the setting now defaults OFF (the owner hears at the agent's close); this test is about the agency that chose to tell the owner at completion
+        RentalPortalSetting::updateOrCreate(['agency_id' => $this->agency->id], ['notify_landlord_on_crew_completion' => true]);
         [, $card] = $this->internalJob();
         $raw = app(RentalSecureAccessTokenService::class)->issueForJobCard($card, $this->admin)['raw_token'];
 

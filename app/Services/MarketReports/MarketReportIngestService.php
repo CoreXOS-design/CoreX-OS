@@ -25,6 +25,9 @@ use Illuminate\Support\Str;
  * Synchronous by design: the generate flow must have the report's rows in
  * market_report_comp_rows BEFORE MicSnapshotHydrator runs, so the uploaded
  * report feeds the presentation being generated (no MIC round-trip — AT-19).
+ * The one exception is the paid AI read of an UNRECOGNISED report: it never runs
+ * inside the web request (it is queued, the report is left "being read"), so such a
+ * report does not feed the presentation being generated now.
  */
 class MarketReportIngestService
 {
@@ -63,7 +66,7 @@ class MarketReportIngestService
                     'spot_check_status' => MarketReport::SPOT_PENDING,
                     'data_points_count' => 0,
                 ])->save();
-                ParseMarketReportJob::dispatchSync($existing->id);
+                ParseMarketReportJob::dispatchSync($existing->id, deferAi: true);
             }
             return $existing->refresh();
         }
@@ -98,7 +101,7 @@ class MarketReportIngestService
         ]);
 
         // Synchronous parse — blocks until market_report_comp_rows are written.
-        ParseMarketReportJob::dispatchSync($report->id);
+        ParseMarketReportJob::dispatchSync($report->id, deferAi: true);
 
         return $report->refresh();
     }

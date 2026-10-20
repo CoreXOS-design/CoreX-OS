@@ -657,7 +657,7 @@ class RentalJobCardService
         }
 
         // the crew's own uploads pass no user and write one summary line per send elsewhere; an office receipt is one history line
-        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id);
+        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id, true);
         if ($by) {
             $jobCard->logUpdate('photo_added', $by, 'Receipt added: ' . $line->description);
         }
@@ -888,8 +888,12 @@ class RentalJobCardService
         ?string $uploadedVia = null,
         bool $log = true,
         ?int $lineId = null,
+        bool $private = false,
     ): RentalWorkOrderPhoto {
-        $url = app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
+        // D14 (audit 2026-10-20 L5): a crew receipt is office evidence of a payment - private reference, never a permanent /storage address
+        $url = $private
+            ? app(\App\Services\Images\PrivateImageService::class)->storeUpload($file, (int) $jobCard->property_id)
+            : app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
 
         $photo = RentalWorkOrderPhoto::create([
             'agency_id' => $jobCard->agency_id,
@@ -938,6 +942,11 @@ class RentalJobCardService
         // blocks the cost) is no longer swallowed: a silently half-closed job (card closed, work order
         // open) cannot coexist with the reopen-on-dispute rule. The transaction rolls the card's own close
         // back, and the caller (controller / mobile) shows the message.
+        // Audit 2026-10-20 (M5): what the work order ALREADY says about who paid, before this close touches it. A work order completed earlier (the contractor / office
+        // route) has its own settled answer; the close form's pre-selected "Owner" must never overwrite or contradict it with a ruling.
+        $workOrderBefore = $jobCard->workOrder()->withoutGlobalScopes()->first();
+        $settledPaidBy = $workOrderBefore && $workOrderBefore->status === RentalWorkOrder::STATUS_COMPLETED ? (string) $workOrderBefore->paid_by : null;
+
         try {
             DB::transaction(function () use ($jobCard, $by, $paidBy) {
                 $jobCard->complete($by);
@@ -962,7 +971,7 @@ class RentalJobCardService
             throw $e;
         }
 
-        $this->recordWhoPaysAtClose($jobCard->fresh(), $by, $paidBy ?: RentalWorkOrder::PAID_BY_OWNER);
+        $this->recordWhoPaysAtClose($jobCard->fresh(), $by, $paidBy ?: RentalWorkOrder::PAID_BY_OWNER, $settledPaidBy);
     }
 
     /**
@@ -973,11 +982,15 @@ class RentalJobCardService
      *
      * Only "Owner" is recorded here: a ruling that charges the tenant tells the tenant (their portal and an email), and that is not something to send on the
      * strength of a drop-down - it stays a deliberate ruling on the work order. Nothing is recorded when the job did not come from a fault, when what was found and
-     * the cause are not entered yet (the ruling needs them), or when a ruling already exists. It never stops the close.
+     * the cause are not entered yet (the ruling needs them), when a ruling already exists, or (audit 2026-10-20) when the work order was ALREADY completed with a payer
+     * of its own that is not the owner (`$settledPaidBy`: tenant, deposit deduction, not yet paid) - the untouched drop-down must not contradict it. It never stops the close.
      */
-    private function recordWhoPaysAtClose(RentalJobCard $jobCard, User $by, string $paidBy): void
+    private function recordWhoPaysAtClose(RentalJobCard $jobCard, User $by, string $paidBy, ?string $settledPaidBy = null): void
     {
         if ($paidBy !== RentalWorkOrder::PAID_BY_OWNER) {
+            return;
+        }
+        if ($settledPaidBy !== null && $settledPaidBy !== RentalWorkOrder::PAID_BY_OWNER) {
             return;
         }
         $workOrder = $jobCard->workOrder()->withoutGlobalScopes()->first();

@@ -216,11 +216,18 @@ class AgencyApiKeyController extends Controller
             ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
             try {
-                $response = \Illuminate\Support\Facades\Http::withHeaders([
-                    'Content-Type'      => 'application/json',
-                    'X-CoreX-Signature' => hash_hmac('sha256', $body, $apiKey->webhook_secret),
-                    'X-CoreX-Event'     => 'connection.test',
-                ])->timeout(10)->withBody($body, 'application/json')->post($apiKey->webhook_url);
+                // SafeWebhookUrl: public hosts only (loopback / private / link-local / reserved refused), the
+                // connection pinned to the checked address, redirects NOT followed.
+                $response = app(\App\Support\Net\SafeWebhookUrl::class)->post(
+                    $apiKey->webhook_url,
+                    $body,
+                    [
+                        'Content-Type'      => 'application/json',
+                        'X-CoreX-Signature' => hash_hmac('sha256', $body, $apiKey->webhook_secret),
+                        'X-CoreX-Event'     => 'connection.test',
+                    ],
+                    10,
+                );
 
                 $code = $response->status();
                 if ($response->successful()) {
@@ -229,11 +236,20 @@ class AgencyApiKeyController extends Controller
                     $add('CoreX → website', 'fail', "The website was reached but rejected the update (HTTP {$code}). The webhook signing secret on the website probably doesn't match — copy it again from “Reveal webhook signing secret”.");
                 } elseif ($code === 404) {
                     $add('CoreX → website', 'fail', 'The website was reached but the webhook URL was not found (HTTP 404). Check the webhook URL.');
+                } elseif ($code >= 300 && $code < 400) {
+                    $add('CoreX → website', 'fail', "The webhook URL redirects somewhere else (HTTP {$code}). CoreX does not follow redirects — enter the final address.");
                 } else {
                     $add('CoreX → website', 'warn', "The website was reached but answered HTTP {$code}. The address works; the website may not recognise test messages, or it has an error.");
                 }
+            } catch (\App\Support\Net\UnsafeWebhookUrlException $e) {
+                // A plain-words reason from the address guard (safe to show).
+                $add('CoreX → website', 'fail', $e->getMessage());
             } catch (\Throwable $e) {
-                $add('CoreX → website', 'fail', 'Could not reach the website: ' . \Illuminate\Support\Str::limit($e->getMessage(), 200));
+                // Never echo the raw connection error: it would tell a caller what is listening on an address.
+                \Illuminate\Support\Facades\Log::info('Agency API key test connection failed', [
+                    'agency_id' => $agency->id, 'api_key_id' => $apiKey->id, 'error' => \Illuminate\Support\Str::limit($e->getMessage(), 300),
+                ]);
+                $add('CoreX → website', 'fail', 'Could not reach the website. Check the webhook URL is correct and the website is online.');
             }
         }
 
@@ -267,7 +283,12 @@ class AgencyApiKeyController extends Controller
             'name'               => 'required|string|max:100',
             'scopes'             => 'nullable|array',
             'scopes.*'           => ['string', Rule::in(array_keys(AgencyApiKey::SCOPES))],
-            'webhook_url'        => 'nullable|url|max:255',
+            'webhook_url'        => ['nullable', 'url', 'max:255', function (string $attribute, mixed $value, \Closure $fail): void {
+                // SSRF guard: a public http(s) address only (the same rules apply again every time CoreX posts to it).
+                if (is_string($value) && $value !== '' && ($why = app(\App\Support\Net\SafeWebhookUrl::class)->error($value)) !== null) {
+                    $fail($why);
+                }
+            }],
             'rate_limit_per_min' => 'nullable|integer|min:1|max:6000',
             'expires_at'         => 'nullable|date',
         ], [

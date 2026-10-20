@@ -54,6 +54,7 @@ final class RentalInspectionSignNowTest extends TestCase
     public function test_agent_sign_now_records_the_drawn_signature_with_identity_time_and_device(): void
     {
         $inspection = $this->ready();
+        $inspection->update(['inspector_user_id' => $this->admin->id]); // audit M2: only the inspection's own agent signs as the agent
         $this->everyoneButTheAgentSigns($inspection);
 
         $this->withServerVariables(['REMOTE_ADDR' => '198.51.100.9'])
@@ -85,6 +86,7 @@ final class RentalInspectionSignNowTest extends TestCase
     public function test_the_agent_still_signs_last_nothing_is_stored_while_someone_is_outstanding(): void
     {
         $inspection = $this->ready();
+        $inspection->update(['inspector_user_id' => $this->admin->id]); // audit M2: only the inspection's own agent signs as the agent
         $this->signByLink($inspection, 'tenant', $this->tenant, 'Naledi Dlamini'); // tenant 2 and the landlord are still outstanding
 
         $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [

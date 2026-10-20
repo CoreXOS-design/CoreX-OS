@@ -311,6 +311,11 @@ class RentalInventory extends Model implements SignedDocumentDistributable
         if ($role === RentalInventoryMoveOutSignOff::PARTY_AGENT && $disposition === RentalInventoryMoveOutSignOff::DISPOSITION_REFUSED) {
             throw new \InvalidArgumentException('The agent has no refusal option - the agent signs, or the check is not signed off.');
         }
+        // Audit L4 - the AGENT's row is tied to the logged-in user: it carries that user's own name, whatever was typed. (A tenant's or landlord's
+        // row is the agent's record of that person's sign-off and keeps the name given; recorded_by_user_id, IP and device say who recorded it.)
+        if ($role === RentalInventoryMoveOutSignOff::PARTY_AGENT) {
+            $signedName = (string) $by->name;
+        }
         if (trim($signedName) === '') {
             throw new \InvalidArgumentException('A name is needed - who is signing.');
         }

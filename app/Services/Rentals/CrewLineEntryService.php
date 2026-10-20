@@ -77,6 +77,10 @@ final class CrewLineEntryService
             // a retried tap, or a phone replaying a queued add hours later: the first try got through, only the answer was lost - hand back
             // that line, never a second one. The key is stored on the line itself (no expiry, survives a deploy).
             $existing = $jobCards->lineForClientKey($card, $key);
+            if ($existing && $existing->trashed() && $this->isCrewLine($existing)) {
+                // audit 2026-10-20 (L2): the line was added, then removed (Undo / Remove). A replay must not bring it back, and must not answer "Added" for a line that is archived.
+                throw new \InvalidArgumentException('That line was added and then removed from your list, so it was not added again. Refresh the page and add it again if you still need it.');
+            }
             if ($existing && $this->isCrewLine($existing)) {
                 return $this->result($card, $existing, 'Added to your list.', '', true);
             }
@@ -109,7 +113,12 @@ final class CrewLineEntryService
         };
 
         // two taps at once with the same key queue here, so the second finds the first one's line
-        return $key ? Cache::lock("crew-line-key:{$card->id}:{$key}:lock", 15)->block(10, $create) : $create();
+        try {
+            return $key ? Cache::lock("crew-line-key:{$card->id}:{$key}:lock", 15)->block(10, $create) : $create();
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            // audit 2026-10-20 (L1): a slow first save with the same key is still running - a plain message, not a 500. Pressing it again replays the same line, never a second.
+            throw new \InvalidArgumentException('That is still being saved. Wait a few seconds, then press it again - it will not be added twice.');
+        }
     }
 
     /** Only the crew's own lines are handed back for a key (an office line can never be returned to a public link, whatever key is sent). */

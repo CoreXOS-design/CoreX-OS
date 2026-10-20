@@ -243,4 +243,20 @@ final class JobCardAt460FixesTest extends TestCase
         $this->authoriseCostOf($wo->fresh());
         $this->assertSame('Approved - being booked', $view->stageLabel($wo->fresh(), $view::AUDIENCE_LANDLORD));
     }
+
+    /** Audit 2026-10-20 (M5): the close form's untouched "Owner" must not contradict a payer the work order already settled. */
+    public function test_closing_the_card_does_not_record_an_owner_ruling_over_a_payer_the_work_order_already_settled(): void
+    {
+        [$card, $wo, $fault] = $this->faultJob();
+        $svc = app(RentalWhoPaysService::class);
+        $this->readyToComplete($card, $wo);
+        // the work order was completed earlier with the tenant as the payer (the contractor / office route)
+        $wo->fresh()->forceFill(['status' => RentalWorkOrder::STATUS_COMPLETED, 'completed_at' => now(), 'paid_by' => 'tenant', 'cost_amount' => 345])->save();
+
+        $this->complete($card, 'owner');   // the pre-selected default
+
+        $this->assertNull($svc->rulingForFault($fault->fresh()), 'no Owner ruling that contradicts the recorded payer');
+        $this->assertSame(0, RentalPayerRuling::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->count());
+        $this->assertSame('tenant', $wo->fresh()->paid_by, 'and the settled payer is untouched');
+    }
 }

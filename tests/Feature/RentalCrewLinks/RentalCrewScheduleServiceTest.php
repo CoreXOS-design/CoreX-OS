@@ -431,4 +431,42 @@ class RentalCrewScheduleServiceTest extends TestCase
         $s = $this->service->linkStatusesFor([$crew->id])[$crew->id];
         $this->assertSame([0, null], [$s['open_count'], $s['sent_at']]);
     }
+
+    /** Audit 2026-10-20 (L4): the crew page used to run one work-order query (and property loads) per card. The query count must not grow with the number of cards. */
+    public function test_the_schedule_runs_the_same_number_of_queries_however_many_cards_the_crew_has(): void
+    {
+        [$agency, $agent, $property, $crew] = $this->world();
+        $makeCard = function (int $n) use ($agency, $property, $crew) {
+            $wo = \App\Models\RentalWorkOrder::withoutGlobalScopes()->create([
+                'agency_id' => $agency->id, 'branch_id' => $property->branch_id, 'property_id' => $property->id, 'assignment_type' => \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL,
+                'title' => "Job {$n}", 'description' => 'x', 'status' => \App\Models\RentalWorkOrder::STATUS_ORDERED, 'reported_by_type' => \App\Models\RentalWorkOrder::REPORTED_BY_AGENT_NOTICED, 'reported_at' => now(),
+                'access_note' => "Gate code {$n}",
+            ]);
+
+            return $this->card($agency, $property, $crew, "Job {$n}", '2026-10-14 14:00:00', 'scheduled', ['rental_work_order_id' => $wo->id]);
+        };
+        $count = function () use ($agency, $crew) {
+            \Illuminate\Support\Facades\DB::flushQueryLog();
+            \Illuminate\Support\Facades\DB::enableQueryLog();
+            $out = $this->service->schedule($agency->id, $crew->id);
+            $n = count(\Illuminate\Support\Facades\DB::getQueryLog());
+            \Illuminate\Support\Facades\DB::disableQueryLog();
+
+            return [$n, $out];
+        };
+
+        foreach (range(1, 3) as $n) {
+            $makeCard($n);
+        }
+        [$few, $outFew] = $count();
+        foreach (range(4, 12) as $n) {
+            $makeCard($n);
+        }
+        [$many, $outMany] = $count();
+
+        $this->assertCount(3, $outFew['today']);
+        $this->assertCount(12, $outMany['today']);
+        $this->assertSame($few, $many, 'no query per card');
+        $this->assertSame('Gate code 7', collect($outMany['today'])->firstWhere('title', 'Job 7')['access_notes'], 'the work order\'s note still reaches the row');
+    }
 }

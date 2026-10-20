@@ -151,8 +151,10 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-m2m')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Goes month-to-month&hellip;</button>
                                 @endif
                                 @if($lease->hasActiveNotice())
+                                    @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-change-notice-outcome')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Change notice outcome&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-reverse-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice&hellip;</button>
+                                    @endpermission
                                 @else
                                     @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-tenant-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
@@ -477,7 +479,7 @@
                         @if($bf['can_act'])
                             <div class="flex flex-wrap items-center gap-2">
                                 <button type="button" class="corex-btn-primary text-xs" data-qa="next-breach-remedied" onclick="document.getElementById('next-breach-remedy-form').classList.toggle('hidden')">Breach remedied</button>
-                                @if($bf['tenant'])
+                                @if($bf['tenant'] && !empty($bf['can_vacate']))
                                     <a href="{{ route('corex.breaches.show', $bf['breach_id']) }}#vacate-box" class="corex-btn-outline text-xs" data-qa="next-breach-vacate">Send notice to vacate</a>
                                 @endif
                             </div>

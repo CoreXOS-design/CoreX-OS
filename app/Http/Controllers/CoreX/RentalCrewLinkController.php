@@ -88,8 +88,10 @@ class RentalCrewLinkController extends Controller
 
     /**
      * Resend the home link (§17.42) — "the crew lost the message". Only a hash is stored, so the original URL cannot be
-     * read back; this mints a FURTHER live link for the same crew (the one the crew already holds keeps working — exactly
-     * like the contractor links' WhatsApp) and sends that. Regenerate is the button that kills the old link.
+     * read back; this mints a NEW live link for the same crew and sends that - and (audit 2026-10-20, L6) RETIRES every earlier live
+     * home link of the crew once the new one has gone out, so repeated Resends never leave a trail of live links (with "renew on use" any one
+     * of them would otherwise stay alive for as long as it was used). If the email cannot be sent, nothing is retired: the link the crew
+     * already holds keeps working and the new one is discarded.
      * `channel` = email (to the crew's address, or one typed) | whatsapp (opens WhatsApp on the crew's mobile with the text ready).
      */
     public function resend(Request $request, RentalCrew $rentalCrew): RedirectResponse
@@ -123,13 +125,24 @@ class RentalCrewLinkController extends Controller
             return $back->withErrors(['crew_link' => 'There is no usable mobile number on file for this crew — add one on the crew first.']);
         }
 
+        $previousIds = RentalSecureAccessToken::withoutGlobalScopes()
+            ->where('rental_crew_id', $rentalCrew->id)->where('purpose', RentalSecureAccessToken::PURPOSE_CREW_STANDING)
+            ->whereNull('revoked_at')->pluck('id')->all();
         $issued = $this->tokens->issueExtra($rentalCrew, RentalSecureAccessToken::PURPOSE_CREW_STANDING, $request->user(), RentalPortalSetting::crewStandingLinkExpiryDaysFor($rentalCrew->agency_id));
         $url = route('rentals.crew-page.show', $issued['raw_token']);
 
         if ($data['channel'] === 'email') {
-            return $this->send($back, $rentalCrew, $issued['token'], $url, $to, $request);
+            if (! $this->mailLink($rentalCrew, $issued['token'], $url, $to, $request)) {
+                $issued['token']->forceFill(['revoked_at' => now()])->save();   // never sent: it is not a link anybody holds, and the crew's own keeps working
+
+                return $back->withErrors(['crew_link' => 'The email could not be sent, so nothing was changed - the link the crew already has still works. Try again, or use WhatsApp.']);
+            }
+            $this->retire($rentalCrew, $previousIds, $request);
+
+            return $back->with('success', "New link emailed to {$to}. The earlier link no longer works.");
         }
 
+        $this->retire($rentalCrew, $previousIds, $request);
         RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_WHATSAPP, (int) $rentalCrew->agency_id, (int) $rentalCrew->id, (int) $issued['token']->id, null, 'WhatsApp opened with the home link for ' . $rentalCrew->phone, $request->user());
         $agency = \App\Models\Agency::publicBrandingFor((int) $rentalCrew->agency_id)['name'];
 
@@ -169,6 +182,16 @@ class RentalCrewLinkController extends Controller
 
     private function send(RedirectResponse $back, RentalCrew $crew, RentalSecureAccessToken $token, string $url, string $to, Request $request): RedirectResponse
     {
+        if (! $this->mailLink($crew, $token, $url, $to, $request)) {
+            return $back->withErrors(['crew_link' => 'The link was created, but the email could not be sent. Copy the link and send it another way.']);
+        }
+
+        return $back->with('success', "Link emailed to {$to}.");
+    }
+
+    /** Email the link and log it; false when the mail could not be sent. */
+    private function mailLink(RentalCrew $crew, RentalSecureAccessToken $token, string $url, string $to, Request $request): bool
+    {
         $expiryText = $token->expires_at ? 'This link works until ' . $token->expires_at->format('j F Y') . '.' : null;
 
         try {
@@ -176,12 +199,25 @@ class RentalCrewLinkController extends Controller
         } catch (\Throwable $e) {
             report($e);
 
-            return $back->withErrors(['crew_link' => 'The link was created, but the email could not be sent. Copy the link and send it another way.']);
+            return false;
         }
 
         RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_EMAILED, (int) $crew->agency_id, (int) $crew->id, (int) $token->id, null, 'Link emailed to ' . $to, $request->user());
 
-        return $back->with('success', "Link emailed to {$to}.");
+        return true;
+    }
+
+    /** Retire the crew's earlier live home links (the ids noted before the new one was minted), each one logged. */
+    private function retire(RentalCrew $crew, array $tokenIds, Request $request): void
+    {
+        if ($tokenIds === []) {
+            return;
+        }
+        $live = RentalSecureAccessToken::withoutGlobalScopes()->whereIn('id', $tokenIds)->where('rental_crew_id', $crew->id)->whereNull('revoked_at')->get();
+        foreach ($live as $old) {
+            $old->forceFill(['revoked_at' => now()])->save();
+            RentalCrewLinkEvent::record(RentalCrewLinkEvent::EVENT_REVOKED, (int) $crew->agency_id, (int) $crew->id, (int) $old->id, null, 'Earlier link retired - a new link was sent', $request->user());
+        }
     }
 
     private function rawTokenFromUrl(string $url): ?string

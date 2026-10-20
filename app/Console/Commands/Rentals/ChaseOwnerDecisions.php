@@ -18,7 +18,7 @@ class ChaseOwnerDecisions extends Command
     public function handle(RentalOwnerChaseService $chase): int
     {
         $r = $chase->run(null, (bool) $this->option('dry-run'));
-        $this->info(($this->option('dry-run') ? '[dry run] ' : '') . "First reminders: {$r['reminded_1']}, second reminders: {$r['reminded_2']}, put on the queue: {$r['queued']}, skipped (paused by owner): {$r['skipped_hold']}.");
+        $this->info(($this->option('dry-run') ? '[dry run] ' : '') . "First reminders: {$r['reminded_1']}, second reminders: {$r['reminded_2']}, put on the queue: {$r['queued']}, skipped (paused by owner): {$r['skipped_hold']}, could not be sent (will retry): {$r['failed']}.");
 
         return self::SUCCESS;
     }

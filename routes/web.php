@@ -63,7 +63,7 @@ Route::match(['get', 'post'], '/owner/job/{kind}/{id}/{contact}/{action}', [\App
     ->middleware(['signed', 'throttle:20,1'])->whereNumber(['id', 'contact'])->whereIn('kind', ['fault', 'work-order'])->whereIn('action', ['stop', 'query'])->name('rentals.owner-notice');
 
 // ── Contractor Secure Link (public, no auth) — AT-445, .ai/specs/rental-portal-access.md §4/§9 ──
-Route::prefix('secure/work-orders/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->group(function () {
+Route::prefix('secure/work-orders/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->group(function () {
     Route::get('/', [\App\Http\Controllers\ContractorSecureLinkController::class, 'show'])->name('rentals.secure-link.show');
     Route::post('/respond', [\App\Http\Controllers\ContractorSecureLinkController::class, 'respond'])->name('rentals.secure-link.respond');
     Route::post('/quote', [\App\Http\Controllers\ContractorSecureLinkController::class, 'storeQuote'])->name('rentals.secure-link.quote');
@@ -77,7 +77,7 @@ Route::prefix('secure/work-orders/{token}')->middleware(['throttle:rental-link',
 });
 
 // ── Crew per-job secure link (public, no auth) — .ai/specs/rental-work-orders.md §14.28 ──
-Route::prefix('secure/job-cards/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->group(function () {
+Route::prefix('secure/job-cards/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->group(function () {
     Route::get('/', [\App\Http\Controllers\CrewJobLinkController::class, 'show'])->name('rentals.crew-job.show');
     Route::post('/tasks/{task}/tick', [\App\Http\Controllers\CrewJobLinkController::class, 'tick'])->whereNumber('task')->name('rentals.crew-job.tick');
     Route::post('/photos', [\App\Http\Controllers\CrewJobLinkController::class, 'photos'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-job.photos');
@@ -86,7 +86,7 @@ Route::prefix('secure/job-cards/{token}')->middleware(['throttle:rental-link', '
 
 // BUILD 3 BEGIN — tenant completion response link (public, no auth) — .ai/specs/rental-work-orders.md §17.10.3/§17.10.4.
 // ONE live link per completion round; the token IS the round. Same throttle doctrine as the crew links above.
-Route::prefix('secure/completion/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->group(function () {
+Route::prefix('secure/completion/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->group(function () {
     Route::get('/', [\App\Http\Controllers\CompletionResponseController::class, 'show'])->name('rentals.completion.show');
     Route::post('/', [\App\Http\Controllers\CompletionResponseController::class, 'respond'])->name('rentals.completion.respond');
 });
@@ -95,7 +95,7 @@ Route::prefix('secure/completion/{token}')->middleware(['throttle:rental-link', 
 // ── Private / portal pictures (public, no login) — security audit D14. The signed, expiring, encrypted token IS the capability; it dies when the picture's
 // fault / work order / job card is archived. Signature + token + guards are all checked in the controller so every failure is the same 404. ──
 Route::get('/private-image/{token}', [\App\Http\Controllers\PrivateImageController::class, 'show'])
-    ->middleware('throttle:120,1')->where('token', '[A-Za-z0-9_-]+')
+    ->middleware('throttle:private-image')->where('token', '[A-Za-z0-9_-]+')
     // Cookie- and session-free (same recipe as the agent-card image above): a picture request starts no session row and sets no cookie,
     // so a browser may cache it and a screen full of photos costs no database round-trips for sessions.
     ->withoutMiddleware([
@@ -116,7 +116,7 @@ Route::get('/portal/{any?}', [\App\Http\Controllers\RentalPortalShellController:
 
 // ── Crew page (public, no auth, no session) — rental-work-orders.md §14.29. ONE standing link per crew; the
 //    token IS the crew. Cards are never route-model-bound: each is resolved through RentalCrewScheduleService.
-Route::prefix('secure/crews/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->whereNumber(['card', 'task'])->group(function () {
+Route::prefix('secure/crews/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->whereNumber(['card', 'task'])->group(function () {
     Route::get('/', [\App\Http\Controllers\CrewPageController::class, 'show'])->name('rentals.crew-page.show');
     Route::get('/job-cards/{card}', [\App\Http\Controllers\CrewPageController::class, 'job'])->name('rentals.crew-page.job');
     Route::post('/job-cards/{card}/tasks/{task}/tick', [\App\Http\Controllers\CrewPageController::class, 'tick'])->name('rentals.crew-page.tick');
@@ -125,14 +125,14 @@ Route::prefix('secure/crews/{token}')->middleware(['throttle:rental-link', 'rent
 });
 
 // BUILD 1 BEGIN — §17.5 the crew's Parts & labour (public, token IS the credential; same throttles as the sibling crew routes)
-Route::prefix('secure/job-cards/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->whereNumber('line')->group(function () {
+Route::prefix('secure/job-cards/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->whereNumber('line')->group(function () {
     Route::post('/lines', [\App\Http\Controllers\CrewJobLinkController::class, 'addLine'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-job.lines.store');
     Route::post('/lines/send', [\App\Http\Controllers\CrewJobLinkController::class, 'sendLines'])->name('rentals.crew-job.lines.send');
     Route::post('/lines/{line}', [\App\Http\Controllers\CrewJobLinkController::class, 'updateLine'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-job.lines.update');
     Route::post('/lines/{line}/archive', [\App\Http\Controllers\CrewJobLinkController::class, 'archiveLine'])->name('rentals.crew-job.lines.archive');
     Route::post('/lines/{line}/restore', [\App\Http\Controllers\CrewJobLinkController::class, 'restoreLine'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-job.lines.restore');
 });
-Route::prefix('secure/crews/{token}')->middleware(['throttle:rental-link', 'rental.link.hold'])->whereNumber(['card', 'line'])->group(function () {
+Route::prefix('secure/crews/{token}')->middleware(['throttle:rental-link', 'rental.link.misses', 'rental.link.hold'])->whereNumber(['card', 'line'])->group(function () {
     Route::post('/job-cards/{card}/lines', [\App\Http\Controllers\CrewPageController::class, 'addLine'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-page.lines.store');
     Route::post('/job-cards/{card}/lines/send', [\App\Http\Controllers\CrewPageController::class, 'sendLines'])->name('rentals.crew-page.lines.send');
     Route::post('/job-cards/{card}/lines/{line}', [\App\Http\Controllers\CrewPageController::class, 'updateLine'])->withoutMiddleware('throttle:rental-link')->middleware('throttle:rental-link-heavy')->name('rentals.crew-page.lines.update');
@@ -3753,7 +3753,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // that wildcard would otherwise greedily swallow "/authorisation" as if
     // it were an application ID and 404 on route-model-binding; caught by
     // a real dispatch test, not assumed).
-    Route::prefix('rental-applications/authorisation')->group(function () {
+    Route::prefix('rental-applications/authorisation')->middleware('permission:rental_applications.authorise')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'index'])->name('corex.rental-applications.authorisation.index');
         Route::get('/{rentalApplication}', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'show'])->name('corex.rental-applications.authorisation.show');
         Route::get('/{rentalApplication}/documents/{document}/view', [\App\Http\Controllers\CoreX\RentalApplicationAuthorisationController::class, 'viewDocumentInline'])->name('corex.rental-applications.authorisation.documents.view');
@@ -3979,8 +3979,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseMonthToMonth'])->name('corex.leases.renewal.month-to-month.reverse');
             Route::post('/tenant-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'tenantNotice'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'landlordNotice'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.landlord-notice');
-            Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->name('corex.leases.renewal.notice.reverse');
-            Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->name('corex.leases.renewal.notice.change-outcome');
+            Route::post('/notice/reverse', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'reverseNotice'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'changeNoticeOutcome'])->middleware('permission:rental_notices.review')->name('corex.leases.renewal.notice.change-outcome');
             // Renewal-draft cancellation — {lease} here is the DRAFT itself.
             Route::post('/cancel-draft', [\App\Http\Controllers\CoreX\LeaseRenewalController::class, 'cancelDraft'])->name('corex.leases.renewal.cancel-draft');
         });
@@ -4011,7 +4011,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
 
     // AT-466 - the "Notices" menu item: lands on the first notices tab the user may open (?tab=breaches|received|sent|templates). The tabs are the four screens below.
     Route::get('notices', [\App\Http\Controllers\CoreX\NoticesHubController::class, 'index'])
-        ->middleware('permission:rental_breaches.view,rental_notices.review,rental_notices.view,rental_notices.create,rental_notice_templates.manage_settings')->name('corex.notices.index');
+        ->middleware('permission:' . implode(',', \App\Support\Rentals\NoticesTabs::permissions()))->name('corex.notices.index');
 
     // .ai/specs/lease-notices.md — a notice given by the tenant / landlord: list, review, decide, send to the other party.
     Route::prefix('lease-notices')->middleware('permission:rental_notices.review')->group(function () {
@@ -5703,7 +5703,7 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{agency}/api-keys/{apiKey}/regenerate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'regenerate'])->name('api-keys.regenerate');
             Route::post('/{agency}/api-keys/{apiKey}/revoke',  [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'revoke'])->name('api-keys.revoke');
             Route::post('/{agency}/api-keys/{apiKey}/bulk-activate', [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'bulkActivate'])->name('api-keys.bulk-activate');
-            Route::post('/{agency}/api-keys/{apiKey}/test',    [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'testConnection'])->name('api-keys.test');
+            Route::post('/{agency}/api-keys/{apiKey}/test',    [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'testConnection'])->middleware('throttle:10,1')->name('api-keys.test');
             Route::delete('/{agency}/api-keys/{apiKey}',       [\App\Http\Controllers\Admin\AgencyApiKeyController::class, 'destroy'])->name('api-keys.destroy');
         });
     });

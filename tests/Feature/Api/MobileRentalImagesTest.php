@@ -311,21 +311,111 @@ class MobileRentalImagesTest extends TestCase
         $this->assertSame(1, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
     }
 
-    /** HEIC (phone camera default) is accepted, not rejected by the image rule. */
-    public function test_heic_upload_is_accepted(): void
+    /**
+     * HEIC (phone camera default) is accepted by the upload rule, but audit L3: one this server cannot re-encode to JPEG could never be shown
+     * (the picture route serves only JPEG/PNG/WebP/GIF), so it is refused with a clear message instead of stored as a broken tile.
+     */
+    public function test_an_unreadable_heic_upload_is_refused_with_a_clear_message_and_stores_nothing(): void
     {
         $property = $this->makeProperty();
-        $this->startInspection($property);
+        $inspection = $this->startInspection($property);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section' => 'in_inspection',
+                // Real bytes, not create(): that only REPORTS a size over an empty temp file. (Not NUL-led: PHP would misread those as a WBMP.)
+                'images'  => [UploadedFile::fake()->createWithContent('move-in.heic', str_repeat('not-a-real-HEIC-', 128))],
+            ])
+            ->assertStatus(422)
+            ->assertJsonPath('code', 'unreadable_image');
+
+        $this->assertStringContainsString('HEIC', (string) $response->json('message'));
+        $this->assertSame(0, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count(), 'no file was stored');
+    }
+
+    /** Audit L1 - offline evidence for a COMPLETED inspection goes down the same flagged late-evidence path as the web. */
+    public function test_offline_photos_for_a_completed_inspection_are_stored_flagged_not_refused(): void
+    {
+        $property = $this->makeProperty();
+        $inspection = $this->startInspection($property);
+        $inspection->forceFill(['status' => \App\Models\RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
 
         $this->actingAs($this->user)
             ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
                 'section' => 'in_inspection',
-                // Real bytes, not create(): that only REPORTS a size over an empty temp file, which
-                // PropertyImageStorer (rightly, since 2026-09-27) refuses as "empty on disk".
-                'images'  => [UploadedFile::fake()->createWithContent('move-in.heic', str_repeat("\0HEIC-test-bytes", 128))],
+                'image' => UploadedFile::fake()->image('late.jpg'),
+                'captured_at' => now()->subHour()->toIso8601String(),
             ])
             ->assertStatus(201)
-            ->assertJsonPath('rental_images.in_inspection.images', fn ($imgs) => count($imgs) === 1);
+            ->assertJsonPath('added_after_signing', true);
+
+        $photo = \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->firstOrFail();
+        $this->assertNotNull($photo->added_after_signing_at);
+    }
+
+    /** ...but a LIVE photo (no real capture time, or one taken after completion) still gets the old "nothing under way" answer. */
+    public function test_a_live_photo_for_a_property_whose_inspection_is_completed_still_gets_nothing_under_way(): void
+    {
+        $property = $this->makeProperty();
+        $inspection = $this->startInspection($property);
+        $inspection->forceFill(['status' => \App\Models\RentalInspection::STATUS_COMPLETED, 'completed_at' => now()])->save();
+
+        $this->actingAs($this->user)
+            ->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section' => 'in_inspection', 'image' => UploadedFile::fake()->image('live.jpg'),
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath('code', 'no_inspection_under_way');
+        $this->assertSame(0, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+    }
+
+    /** Audit L2 - a delete names the photo by its stable id, so a list that shifted cannot archive a different one. */
+    public function test_delete_by_photo_id_archives_that_photo_even_when_the_list_has_shifted(): void
+    {
+        $property = $this->makeProperty();
+        $inspection = $this->startInspection($property);
+        foreach (['a', 'b'] as $name) {
+            $this->actingAs($this->user)->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/upload", [
+                'section' => 'in_inspection', 'image' => UploadedFile::fake()->image("{$name}.jpg"),
+            ])->assertStatus(201);
+        }
+        [$first, $second] = \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->orderBy('id')->pluck('id')->all();
+
+        $list = $this->actingAs($this->user)->getJson("/api/v1/mobile/properties/{$property->id}/rental-images")->assertOk()
+            ->assertJsonPath('rental_images.in_inspection.image_ids', [$first, $second]);
+
+        // a third photo arrives from another device before the delete lands: an index would now be ambiguous, the id is not
+        \App\Models\RentalInspectionPhoto::create(['agency_id' => $this->agency->id, 'rental_inspection_id' => $inspection->id, 'storage_path' => 'private:private-images/x/' . uniqid() . '.jpg', 'uploaded_by_user_id' => $this->user->id]);
+
+        $this->actingAs($this->user)->postJson("/api/v1/mobile/properties/{$property->id}/rental-images/delete", [
+            'section' => 'in_inspection', 'photo_id' => $second,
+        ])->assertOk();
+
+        $this->assertNull(\App\Models\RentalInspectionPhoto::find($second), 'the named photo is archived');
+        $this->assertNotNull(\App\Models\RentalInspectionPhoto::withTrashed()->find($second), 'archived, never deleted');
+        $this->assertNotNull(\App\Models\RentalInspectionPhoto::find($first), 'the other photos are untouched');
+        $this->assertSame(2, \App\Models\RentalInspectionPhoto::where('rental_inspection_id', $inspection->id)->count());
+    }
+
+    /** A photo id from ANOTHER property (or the wrong section) archives nothing. */
+    public function test_delete_by_photo_id_never_reaches_another_propertys_photo(): void
+    {
+        $mine = $this->makeProperty();
+        $this->startInspection($mine);
+        $theirs = $this->makeProperty(['title' => 'Other']);
+        $otherInspection = $this->startInspection($theirs);
+        $photo = \App\Models\RentalInspectionPhoto::create(['agency_id' => $this->agency->id, 'rental_inspection_id' => $otherInspection->id, 'storage_path' => 'private:private-images/y/' . uniqid() . '.jpg', 'uploaded_by_user_id' => $this->user->id]);
+
+        $this->actingAs($this->user)->postJson("/api/v1/mobile/properties/{$mine->id}/rental-images/delete", [
+            'section' => 'in_inspection', 'photo_id' => $photo->id,
+        ])->assertOk();
+        $this->assertNotNull(\App\Models\RentalInspectionPhoto::find($photo->id));
+
+        // and the by-position path (kept for older builds) still works
+        $this->actingAs($this->user)->postJson("/api/v1/mobile/properties/{$theirs->id}/rental-images/delete", [
+            'section' => 'in_inspection', 'index' => 0,
+        ])->assertOk();
+        $this->assertNull(\App\Models\RentalInspectionPhoto::find($photo->id));
     }
 
     /** A date in any parseable format comes back canonicalised to Y-m-d. */
