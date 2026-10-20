@@ -391,7 +391,7 @@ final class RentalInspectionSignedLockTest extends TestCase
         $this->signByLink($i, 'tenant', $this->tenant, 'Naledi Dlamini');
         $this->signByLink($i, 'tenant', $this->tenant2, 'Sipho Khumalo');
         $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'landlord', 'disposition' => 'signed', 'party_contact_id' => $this->landlord->id, 'signature_image' => self::PNG])->assertStatus(201);
-        $this->postJson(route('corex.rental-inspections.signatures.store', $i), ['party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn'])->assertStatus(201);
+        $this->agentSignsNow($i);
         $this->complete($i);
 
         $this->assertSame(RentalInspection::STATUS_COMPLETED, $i->fresh()->status);

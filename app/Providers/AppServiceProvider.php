@@ -1141,6 +1141,19 @@ class AppServiceProvider extends ServiceProvider
             \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
         ]);
 
+        // Rental-inspection audit H1: the private-picture route serves whole galleries, so it has its own limiter (per token, per signed-in browser
+        // or public viewer, per address - numbers and reasons in config/private-images.php) instead of the flat 120-per-address throttle.
+        \Illuminate\Support\Facades\RateLimiter::for('private-image', function (\Illuminate\Http\Request $r) {
+            $session = (string) $r->cookies->get((string) config('session.cookie'), '');
+
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_token_per_minute', 60))->by('pimg-tok:' . substr(hash('sha256', (string) $r->route('token')), 0, 32)),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_browser_per_minute', 1500))
+                    ->by($session !== '' ? 'pimg-ses:' . substr(hash('sha256', $session), 0, 32) : 'pimg-ip:' . $r->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_address_per_minute', 4000))->by('pimg-addr:' . $r->ip()),
+            ];
+        });
+
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();
             $perMinute = ($key instanceof \App\Models\AgencyApiKey) ? max(1, (int) $key->rate_limit_per_min) : 120;

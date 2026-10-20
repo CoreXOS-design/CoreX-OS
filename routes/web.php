@@ -95,7 +95,7 @@ Route::prefix('secure/completion/{token}')->middleware(['throttle:rental-link', 
 // ── Private / portal pictures (public, no login) — security audit D14. The signed, expiring, encrypted token IS the capability; it dies when the picture's
 // fault / work order / job card is archived. Signature + token + guards are all checked in the controller so every failure is the same 404. ──
 Route::get('/private-image/{token}', [\App\Http\Controllers\PrivateImageController::class, 'show'])
-    ->middleware('throttle:120,1')->where('token', '[A-Za-z0-9_-]+')
+    ->middleware('throttle:private-image')->where('token', '[A-Za-z0-9_-]+')
     // Cookie- and session-free (same recipe as the agent-card image above): a picture request starts no session row and sets no cookie,
     // so a browser may cache it and a screen full of photos costs no database round-trips for sessions.
     ->withoutMiddleware([
