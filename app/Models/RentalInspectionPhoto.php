@@ -147,6 +147,15 @@ class RentalInspectionPhoto extends Model
         return $this->belongsTo(PropertyRoom::class, 'property_room_id');
     }
 
+    /**
+     * Audit 2026-10-19 B32 - the inventory photos that SHARE this photo (the inventory keeps a reference, not a second file). Archiving this
+     * photo takes it out of the inventory too; the reference rows themselves are left as they are and come back if this photo is restored.
+     */
+    public function inventoryReferences(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(RentalInventoryPhoto::class, 'rental_inspection_photo_id');
+    }
+
     public function uploadedBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by_user_id');

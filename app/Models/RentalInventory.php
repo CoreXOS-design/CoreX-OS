@@ -213,7 +213,7 @@ class RentalInventory extends Model implements SignedDocumentDistributable
 
     public function photos(): HasMany
     {
-        return $this->hasMany(RentalInventoryPhoto::class);
+        return $this->hasMany(RentalInventoryPhoto::class)->usable();
     }
 
     // ═══ Audit 2026-10-19 B5 - the MOVE-OUT check: completion and sign-off ═══════════════════════

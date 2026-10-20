@@ -4375,6 +4375,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // DELETE .../photos/{photo} exactly.
         Route::delete('/{rentalInventory}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'archivePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.photos.destroy');
+        // Audit 2026-10-19 B32 - one photo set per room: share the move-in inspection's photos of a room instead of photographing it again.
+        Route::get('/{rentalInventory}/inspection-photos', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'inspectionPhotos'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.inspection-photos.index');
+        Route::post('/{rentalInventory}/inspection-photos/{inspectionPhoto}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'shareInspectionPhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.inspection-photos.share');
         Route::post('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'attachLinePhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.photos.attach');
         Route::delete('/{rentalInventory}/lines/{line}/photos/{photo}', [\App\Http\Controllers\CoreX\RentalInventoryCaptureController::class, 'detachLinePhoto'])
@@ -4397,6 +4402,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         // comparison screen. Uploads AND tags to this line in ONE request.
         Route::post('/{rentalInventory}/lines/{line}/move-out-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'storeLineMoveOutPhoto'])
             ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-photos.store');
+        // Audit 2026-10-19 B32 - one photo set per room: the move-out side shares the Out inspection's photos of the line's room.
+        Route::get('/{rentalInventory}/lines/{line}/move-out-inspection-photos', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'moveOutInspectionPhotos'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-inspection-photos.index');
+        Route::post('/{rentalInventory}/lines/{line}/move-out-inspection-photos/{inspectionPhoto}', [\App\Http\Controllers\CoreX\RentalInventoryRecordingController::class, 'shareMoveOutInspectionPhoto'])
+            ->middleware('permission:rental_inventories.create')->name('corex.rental-inventories.lines.move-out-inspection-photos.share');
     });
 
     // .ai/specs/rentals-faults-work-orders.md §2/§8.1 — the agency's own

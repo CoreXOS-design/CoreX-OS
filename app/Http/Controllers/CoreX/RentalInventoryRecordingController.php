@@ -6,6 +6,7 @@ use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
 use App\Http\Controllers\Controller;
 use App\Models\DocumentType;
 use App\Models\PropertyRoom;
+use App\Models\RentalInspectionPhoto;
 use App\Models\RentalInventory;
 use App\Models\RentalInventoryLine;
 use App\Models\RentalInventoryLineDisposition;
@@ -13,7 +14,8 @@ use App\Models\RentalInventoryPhoto;
 use App\Models\RentalInventoryRoomMark;
 use App\Models\RentalInventorySignature;
 use App\Services\Distribution\SignedDocumentDistributionService;
-use App\Services\Images\PropertyImageStorer;
+use App\Services\Images\PrivateImageStore;
+use App\Services\Rentals\RentalRoomPhotoSet;
 use App\Support\Distribution\FileableDocumentAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -270,7 +272,9 @@ class RentalInventoryRecordingController extends Controller
             'client_idempotency_keys.*' => ['nullable', 'uuid'],
         ]);
 
-        $storer = app(PropertyImageStorer::class);
+        // Audit B32 - the private inspection store (signed, expiring link, GPS stripped), not the public gallery disk.
+        $storer = app(PrivateImageStore::class);
+        $directory = 'rental-inventories/' . $rentalInventory->agency_id . '/' . $rentalInventory->id;
         $created = [];
 
         foreach ($validated['photos'] as $i => $file) {
@@ -284,7 +288,7 @@ class RentalInventoryRecordingController extends Controller
                 }
             }
 
-            $url = $storer->store($file, $rentalInventory->property_id);
+            $url = $storer->store($file, $directory);
 
             $photo = RentalInventoryPhoto::create([
                 'agency_id' => $rentalInventory->agency_id,
@@ -308,6 +312,50 @@ class RentalInventoryRecordingController extends Controller
                 'storage_path' => $p->storage_path,
             ])->values(),
         ], 201);
+    }
+
+    /**
+     * GET /corex/rental-inventories/{inventory}/lines/{line}/move-out-inspection-photos - audit 2026-10-19 B32. The move-out inspection's photos
+     * of this line's room that can be used as the line's move-out evidence instead of photographing it again.
+     */
+    public function moveOutInspectionPhotos(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+        $this->assertMoveOutRecordable($rentalInventory);
+
+        $set = app(RentalRoomPhotoSet::class);
+
+        return response()->json([
+            'photos' => $line->property_room_id === null ? [] : $set
+                ->candidates($rentalInventory, RentalInventoryPhoto::SIDE_MOVE_OUT, (int) $line->property_room_id, $request->user())
+                ->map(fn ($p) => $set->candidatePayload($p))->values(),
+        ]);
+    }
+
+    /**
+     * POST /corex/rental-inventories/{inventory}/lines/{line}/move-out-inspection-photos/{inspectionPhoto} - share a move-out inspection photo
+     * as this line's move-out evidence (the same row again if it is already shared).
+     */
+    public function shareMoveOutInspectionPhoto(Request $request, RentalInventory $rentalInventory, RentalInventoryLine $line, int $inspectionPhoto): JsonResponse
+    {
+        $this->assertVisible($request, $rentalInventory);
+        abort_unless((int) $line->rental_inventory_id === (int) $rentalInventory->id, 404);
+        abort_unless($request->user()->hasPermission('rental_inspections.view'), 403);
+        $this->assertMoveOutRecordable($rentalInventory);
+
+        $source = RentalInspectionPhoto::query()->find($inspectionPhoto);
+        abort_if($source === null || (int) $source->property_room_id !== (int) $line->property_room_id, 404);
+
+        $set = app(RentalRoomPhotoSet::class);
+        try {
+            $reference = $set->share($rentalInventory, $source, $request->user(), RentalInventoryPhoto::SIDE_MOVE_OUT, $line, $request->user());
+        } catch (\InvalidArgumentException $e) {
+            abort(404);
+        }
+
+        return response()->json(['photo' => $set->payload($reference->load('lines', 'sourceInspectionPhoto'))], 201);
     }
 
     /**

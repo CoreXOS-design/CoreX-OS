@@ -713,8 +713,8 @@ return [
              'affects' => 'How long a shared inspection-report link keeps working. 90 days suits most agencies — an agent can always issue a fresh link later from the inspection\'s own screen.'],
             // Audit 2026-10-19 B21 - same saver (RentalInspectionSettingsController::update()); filled()-guarded there.
             ['key' => 'photo_link_minutes', 'source' => 'rental_inspections', 'type' => 'number', 'default' => 480, 'min' => 5, 'max' => 10080,
-             'label' => 'Minutes an inspection photo link stays live',
-             'explain' => 'Inspection photos are kept private. Every picture on the recording screen and on the public report is shown through a link that stops working after this many minutes, so a copied picture address cannot be opened later.',
+             'label' => 'Minutes an inspection or inventory photo link stays live',
+             'explain' => 'Inspection and inventory photos are kept private. Every picture on the recording screen, the inventory and the public report is shown through a link that stops working after this many minutes, so a copied picture address cannot be opened later.',
              'affects' => 'How long a photo stays visible on a page that has been open for a while - after this the page needs a reload to show the pictures again. 480 minutes (8 hours) covers a working day.'],
             // §46 — signing an inspection by a personal link. Same saver as the controls above
             // (RentalInspectionSettingsController::update(), registered once) — both has()-guarded there.

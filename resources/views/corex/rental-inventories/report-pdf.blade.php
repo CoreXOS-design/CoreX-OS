@@ -24,8 +24,9 @@
     table.lines th { text-align: left; font-size: 7.5pt; text-transform: uppercase; color: #666; border-bottom: 0.5pt solid #ccc; padding: 3pt 4pt; }
     table.lines td { font-size: 8.5pt; border-bottom: 0.5pt solid #eee; padding: 3pt 4pt; vertical-align: top; }
     .qty-col { width: 10%; }
-    .desc-col { width: 60%; }
-    .cond-col { width: 30%; }
+    .desc-col { width: 50%; }
+    .cond-col { width: 28%; }
+    .photo-col { width: 12%; }
     .sig-table { width: 100%; margin-top: 16pt; border-collapse: collapse; }
     .sig-table td { font-size: 8pt; padding: 3pt 4pt; border-top: 0.5pt solid #ccc; }
     {{-- Johan, 2026-09-28 — "the PDF is the signed record that gets
@@ -79,6 +80,7 @@
                         <th class="qty-col">Qty</th>
                         <th class="desc-col">Description</th>
                         <th class="cond-col">Condition</th>
+                        <th class="photo-col">Photos</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -87,6 +89,8 @@
                             <td>{{ $line->quantity }}</td>
                             <td>{{ $line->description }}</td>
                             <td>{{ $line->condition_key ? ucfirst($line->condition_key) : '—' }}</td>
+                            {{-- Audit B32 - how many photos back this line (its own plus the inspection photos it shares); the pictures themselves are on the linked page. --}}
+                            <td>{{ $line->moveInPhotos->count() ?: '—' }}</td>
                         </tr>
                     @endforeach
                 </tbody>
