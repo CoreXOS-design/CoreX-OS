@@ -291,6 +291,43 @@ final class AuditP2LinksTest extends TestCase
         $this->get('/secure/work-orders/' . $b)->assertOk();
     }
 
+    public function test_guessing_made_up_tokens_from_one_address_is_stopped_while_real_links_keep_working(): void
+    {
+        // audit 2026-10-20 finding 9: the per-address ceiling stays wide (a shared office / mobile network), so GUESSING is counted where it shows - as "not found" answers
+        config(['rental-public-links.per_token_per_minute' => 100, 'rental-public-links.per_address_per_minute' => 1000, 'rental-public-links.misses_per_address_per_minute' => 3]);
+        $real = $this->link($this->workOrder());
+
+        $this->get('/secure/work-orders/' . $real)->assertOk();   // a real link is never a miss
+        foreach (range(1, 3) as $i) {
+            $this->get('/secure/work-orders/not-a-real-token-' . $i)->assertOk();   // the page itself never says why a link is dead
+        }
+        $this->get('/secure/work-orders/not-a-real-token-4')->assertStatus(429);
+        // the address is held for the rest of the minute
+        $this->get('/secure/work-orders/' . $real)->assertStatus(429);
+    }
+
+    public function test_an_expired_or_revoked_link_is_not_a_miss(): void
+    {
+        config(['rental-public-links.per_token_per_minute' => 100, 'rental-public-links.per_address_per_minute' => 1000, 'rental-public-links.misses_per_address_per_minute' => 2]);
+        $wo = $this->workOrder();
+        $raw = $this->link($wo);
+        RentalSecureAccessToken::withoutGlobalScopes()->where('rental_work_order_id', $wo->id)->update(['expires_at' => now()->subDay()]);
+
+        foreach (range(1, 5) as $i) {
+            $this->get('/secure/work-orders/' . $raw)->assertOk();   // the dead-link page, every time - a real link that has run out is never "guessing"
+        }
+    }
+
+    public function test_real_links_never_use_up_the_miss_allowance(): void
+    {
+        config(['rental-public-links.per_token_per_minute' => 100, 'rental-public-links.per_address_per_minute' => 1000, 'rental-public-links.misses_per_address_per_minute' => 2]);
+        $real = $this->link($this->workOrder());
+
+        foreach (range(1, 6) as $i) {
+            $this->get('/secure/work-orders/' . $real)->assertOk();
+        }
+    }
+
     // ── C-D3 ──────────────────────────────────────────────────────────────────────────────────────────────────
 
     public function test_a_link_renews_its_expiry_each_time_it_is_used_when_the_agency_setting_is_on_and_never_otherwise(): void
