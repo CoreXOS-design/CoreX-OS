@@ -134,7 +134,7 @@ final class LineEntryServiceTest extends TestCase
         $line = RentalJobCardLine::findOrFail($res->json('line.id'));
         $receipts = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->get();
         $this->assertCount(1, $receipts);
-        $this->assertSame($receipts->first()->storage_path, $res->json('line.receipt_url'));
+        $this->assertSame($receipts->first()->storage_path, $this->refOfSignedUrl($res->json('line.receipt_url')), 'the crew sees the receipt through a signed link to the private file');
         $this->assertCount(0, RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $line->id)->where('photo_type', RentalJobCardLine::PHOTO_TYPE)->get(), 'a receipt is not one of the up-to-3 photos');
 
         $labour = $this->add(['type' => 'labour', 'description' => 'Fit it', 'quantity' => 1], ['receipt_camera' => UploadedFile::fake()->image('r.jpg')])->assertOk();
@@ -147,7 +147,7 @@ final class LineEntryServiceTest extends TestCase
         $second = $this->ajax(route('rentals.crew-job.lines.update', [$this->raw, $id]), $this->part(['description' => 'Element', 'unit_cost' => '48.50']), ['receipt_file' => UploadedFile::fake()->image('two.png')])->assertOk();
 
         $newest = RentalWorkOrderPhoto::withoutGlobalScopes()->where('rental_job_card_line_id', $id)->where('photo_type', RentalJobCardLine::RECEIPT_PHOTO_TYPE)->latest('id')->firstOrFail();
-        $this->assertSame($newest->storage_path, $second->json('line.receipt_url'));
+        $this->assertSame($newest->storage_path, $this->refOfSignedUrl($second->json('line.receipt_url')));
     }
 
     // ── change, remove, undo ────────────────────────────────────────────────────────────

@@ -78,7 +78,7 @@
             @if($cpDisputedRound->photos->isNotEmpty())
                 <div class="grid grid-cols-4 gap-2">
                     @foreach($cpDisputedRound->photos as $photo)
-                        <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener"><img src="{{ $photo->storage_path }}" alt="Photo from the tenant" class="rounded-md w-full h-24 object-cover"></a>
+                        <a href="{{ $photo->displayUrl() }}" target="_blank" rel="noopener"><img src="{{ $photo->displayUrl() }}" alt="Photo from the tenant" class="rounded-md w-full h-24 object-cover"></a>
                     @endforeach
                 </div>
             @endif
@@ -199,7 +199,7 @@
                                 @if($round->photos->isNotEmpty())
                                     <div class="flex gap-1 mt-1">
                                         @foreach($round->photos as $photo)
-                                            <a href="{{ $photo->storage_path }}" target="_blank" rel="noopener"><img src="{{ $photo->storage_path }}" alt="" class="rounded w-10 h-10 object-cover"></a>
+                                            <a href="{{ $photo->displayUrl() }}" target="_blank" rel="noopener"><img src="{{ $photo->displayUrl() }}" alt="" class="rounded w-10 h-10 object-cover"></a>
                                         @endforeach
                                     </div>
                                 @endif

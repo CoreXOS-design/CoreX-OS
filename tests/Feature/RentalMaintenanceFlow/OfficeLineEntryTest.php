@@ -119,8 +119,11 @@ final class OfficeLineEntryTest extends TestCase
         $receipts = $this->receiptsOf($line)->sortBy('id')->values();
         $this->assertCount(2, $receipts, 'photo rows are immutable: the newer one supersedes on screen');
         $html = $this->actingAs($this->user)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();
-        $this->assertStringContainsString('data-open-receipt="' . $receipts->last()->storage_path . '"', $html);
-        $this->assertStringNotContainsString('data-open-receipt="' . $receipts->first()->storage_path . '"', $html);
+        // the thumb is a signed link to the private file (a new URL on every render): read the file it opens back out of the link
+        preg_match_all('/data-open-receipt="([^"]+)"/', $html, $shown);
+        $shownRefs = array_map(fn ($u) => $this->refOfSignedUrl(html_entity_decode($u)), $shown[1]);
+        $this->assertContains($receipts->last()->storage_path, $shownRefs);
+        $this->assertNotContains($receipts->first()->storage_path, $shownRefs);
     }
 
     // ── change, archive, undo ───────────────────────────────────────────────────────────

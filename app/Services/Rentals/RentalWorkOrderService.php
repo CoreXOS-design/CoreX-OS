@@ -246,13 +246,18 @@ class RentalWorkOrderService
      * contractor uploading "after" photos through their no-login secure
      * link has no User actor at all.
      */
-    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null): \App\Models\RentalWorkOrderPhoto
+    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null, bool $private = false, ?string $uploadedVia = null): \App\Models\RentalWorkOrderPhoto
     {
-        $url = app(PropertyImageStorer::class)->store($file, $workOrder->property_id);
+        // D14 (audit 2026-10-20): a picture a TENANT sent is stored on the private disk (a `private:` reference, read through a signed expiring URL),
+        // never at a permanent /storage address. Contractor / office uploads keep the public pipeline.
+        $url = $private
+            ? app(\App\Services\Images\PrivateImageService::class)->storeUpload($file, (int) $workOrder->property_id)
+            : app(PropertyImageStorer::class)->store($file, $workOrder->property_id);
 
         return $workOrder->photos()->create([
             'agency_id' => $workOrder->agency_id,
             'photo_type' => $photoType,
+            'uploaded_via' => $uploadedVia,
             'storage_path' => $url,
             'uploaded_by_user_id' => $uploadedBy?->id,
             'client_idempotency_key' => $clientKey,
@@ -640,7 +645,7 @@ class RentalWorkOrderService
     private function storeTenantPhotos(RentalWorkOrder $workOrder, array $photos): void
     {
         foreach (array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile)) as $file) {
-            $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null);
+            $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null, true, \App\Models\RentalWorkOrderPhoto::VIA_TENANT);
         }
     }
 

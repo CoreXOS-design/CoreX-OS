@@ -657,7 +657,7 @@ class RentalJobCardService
         }
 
         // the crew's own uploads pass no user and write one summary line per send elsewhere; an office receipt is one history line
-        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id);
+        $this->storePhoto($jobCard, $file, RentalJobCardLine::RECEIPT_PHOTO_TYPE, $by, null, null, $uploadedVia, false, $line->id, true);
         if ($by) {
             $jobCard->logUpdate('photo_added', $by, 'Receipt added: ' . $line->description);
         }
@@ -888,8 +888,12 @@ class RentalJobCardService
         ?string $uploadedVia = null,
         bool $log = true,
         ?int $lineId = null,
+        bool $private = false,
     ): RentalWorkOrderPhoto {
-        $url = app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
+        // D14 (audit 2026-10-20 L5): a crew receipt is office evidence of a payment - private reference, never a permanent /storage address
+        $url = $private
+            ? app(\App\Services\Images\PrivateImageService::class)->storeUpload($file, (int) $jobCard->property_id)
+            : app(PropertyImageStorer::class)->store($file, $jobCard->property_id);
 
         $photo = RentalWorkOrderPhoto::create([
             'agency_id' => $jobCard->agency_id,
