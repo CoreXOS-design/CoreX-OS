@@ -55,6 +55,7 @@
                 'label' => 'Agency onboarding',
                 'items' => [
                     ['key'=>'timeline-defaults', 'label'=>'Agency timeline defaults', 'type'=>'link', 'href'=>route('admin.timeline-defaults.index'), 'keywords'=>'agency timeline onboarding plan default milestones days take-on go live training steps'],
+                    ['key'=>'feature-rollout', 'label'=>'Feature rollout', 'type'=>'link', 'href'=>route('admin.feature-rollout-defaults.index'), 'keywords'=>'gradual rollout waves features switch on new agency every day 2 days weekdays weekends public holidays release time tours gap overwhelm'],
                 ],
             ],
             [

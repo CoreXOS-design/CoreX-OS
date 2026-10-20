@@ -627,3 +627,6 @@ Schedule::command('article-library:run')->dailyAt('02:30')->onOneServer()->witho
 Schedule::command('marketing:publish-due')->everyMinute()->onOneServer()->withoutOverlapping(10)->runInBackground();
 // Scheduled-post pictures: kept until published + 30 days; unused uploads removed after 2 days.
 Schedule::command('marketing:purge-scheduled-images')->dailyAt('03:20')->onOneServer()->withoutOverlapping();
+// AT-478 — gradual feature rollout: release waves whose day and release time have come (weekdays /
+// holidays handled per plan by RolloutCalendar). Idempotent; spec .ai/specs/agency-feature-rollout.md §3.5.
+Schedule::command('rollout:release')->everyFifteenMinutes()->onOneServer()->withoutOverlapping(10);

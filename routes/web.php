@@ -5439,6 +5439,19 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::post('/{item}/restore',  [$c, 'restore'])->whereNumber('item')->name('restore');
         });
 
+        // Dev Settings → Feature rollout (AT-478): the default wave order + pace for gradual rollout.
+        // Same owner-only reasoning as timeline defaults; spec .ai/specs/agency-feature-rollout.md §5.1.
+        Route::prefix('admin/dev-settings/feature-rollout')->name('admin.feature-rollout-defaults.')->group(function () {
+            $c = \App\Http\Controllers\Admin\FeatureRolloutDefaultsController::class;
+            Route::get('/',                 [$c, 'index'])->name('index');
+            Route::put('/pace',             [$c, 'savePacing'])->name('pace');
+            Route::post('/',                [$c, 'store'])->name('store');
+            Route::put('/{wave}',           [$c, 'update'])->whereNumber('wave')->name('update');
+            Route::post('/{wave}/move',     [$c, 'move'])->whereNumber('wave')->name('move');
+            Route::delete('/{wave}',        [$c, 'destroy'])->whereNumber('wave')->name('destroy');
+            Route::post('/{wave}/restore',  [$c, 'restore'])->whereNumber('wave')->name('restore');
+        });
+
         // Agency Timeline
         Route::prefix('admin/agency-timelines')->name('admin.agency-timelines.')->group(function () {
             $c = \App\Http\Controllers\Admin\AgencyTimelineController::class;
