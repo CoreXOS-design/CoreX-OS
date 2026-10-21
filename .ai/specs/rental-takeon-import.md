@@ -648,6 +648,36 @@ is **one** contact linked to all five. Contacts the user linked by hand are used
   all are used for matching.
 - Owner → linked to the property as `landlord` (`ContactPropertyLinker`); tenant → `lease_tenants`.
 
+**R6a. People for a company owner / tenant (Johan, 21 Oct 2026).** A company contact is linked to its natural people through
+the **existing** relation `contact_representatives` (`Contact::representatives()` / `representedEntities()`,
+`app/Models/Contact.php:942-975`; pivot model `ContactRepresentative`, whose role vocabulary is
+`ContactRepresentative::CAPACITIES` = Director, Executor, Trustee, Member, Other; written today by
+`ContactRepresentativeController`, `:86-150` and `attachRepresentative` `:235-282`). No new table. *(Correction to the
+brief's premise: FICA TFS screening does **not** use this relation — `TfsScreeningService::` `:237-246` screens a company by its
+name only, from the FICA form's own data; the directors/beneficial owners there are typed on the FICA form.)* The import reuses
+the relation and ONE new write helper, `App\Services\Contacts\ContactRepresentativeLinker`, which applies the same rules as
+`attachRepresentative` (restore-a-soft-deleted-link rather than re-insert, one primary / one proxy, new person goes to the end of
+the list) so the reOS import does not depend on a private controller method; the controller itself is unchanged.
+- **On the review screen**, every owner or tenant that is, or will be, a company contact (reOS name is a company and the choice is
+  "create", or the row links an entity contact) gets **"People for this company"**: the people already linked in CoreX (read from
+  `Contact::representatives()`), the people added for this import (each with a role selector and *remove*), and **Add person**:
+  search existing contacts (a natural person only) or type a new one — first name, last name, phone, e-mail, role (the existing
+  capacity list; default Director). The choices are saved as `decisions_json[owner|tenant].people[]`.
+- **One click for a company that matched a person** (`Wildevy Properties Pty Ltd` → Arne Nel by shared phone): the cell offers
+  **"Create the company and link Arne Nel as its contact person"**. It switches the party to "create a new contact" and adds
+  that person (reused, never duplicated) with the role **Other** — CoreX has no "contact person" capacity, and Johan's
+  instruction was to use the existing list; "Other" is its free-form entry. The "Name differs" warning is settled by it.
+- **Import**, in the same per-row transaction as the lease: create or link the company; for each person, an existing one is used
+  as chosen and a new one is looked for first by phone / e-mail (a natural person only), then by the same name already brought
+  in by this batch, and only then created (`contact_kind = natural_person`); then each company↔person link is written. So **one
+  person on two companies in one batch is one contact with two links**. A company is never "satisfied" at import by a person who
+  merely shares its phone / e-mail (the old re-match would have reused Arne as the owner). Nothing is sent to anyone.
+- **Guards:** people can only be added to a company party (a person party, a left-out party, or a link to a non-company contact
+  refuses it, and changing a party so it is no longer a company drops its people); the role must be in the list; an entity is
+  refused as a "person"; at most 10 people per company here. A lease that is being UPDATED (re-import) touches terms only — no people.
+- **Archive:** the people this import created are recorded (`decisions_json.created_people`) and archived / restored with the
+  batch (if unedited since), like the owners and tenants it creates; people it only reused are left alone.
+
 **Property.** Facts from `AddressParser` over the address text (street number, street name, unit, complex) +
 the chosen suburb/town/province → `matchOrCreate` then `promoteToStock(listing_type = rental, branch, agent)`. The
 Universal Match-or-Create Rule holds. **Imported properties skip the new-listing automation and activity points**:

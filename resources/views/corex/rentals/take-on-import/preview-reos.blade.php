@@ -300,6 +300,43 @@
             }
         }, 250));
 
+        // People for a company (spec R6a): add / remove / change role / the one-click "create the company and link the matched person".
+        function personCtx(el) {
+            var box = el.closest('[data-people-party]');
+            return { tr: el.closest('tr[data-row-id]'), party: box ? box.getAttribute('data-people-party') : null, box: box };
+        }
+        table.addEventListener('change', function (e) {
+            var cap = e.target.closest('[data-person-capacity]');
+            if (!cap) { return; }
+            var c = personCtx(cap);
+            saveRow(c.tr, { person: { party: c.party, op: 'set_capacity', key: cap.getAttribute('data-person-capacity'), capacity: cap.value } });
+        });
+        table.addEventListener('click', function (e) {
+            var t;
+            if ((t = e.target.closest('[data-person-toggle]'))) { var pn = personCtx(t).box.querySelector('[data-person-panel]'); pn.classList.toggle('hidden'); return; }
+            if ((t = e.target.closest('[data-person-remove]'))) { var c1 = personCtx(t); saveRow(c1.tr, { person: { party: c1.party, op: 'remove', key: t.getAttribute('data-person-remove') } }); return; }
+            if ((t = e.target.closest('[data-person-convert]'))) { var c2 = personCtx(t); saveRow(c2.tr, { person: { party: c2.party, op: 'convert' } }); return; }
+            if ((t = e.target.closest('[data-person-add-new]'))) {
+                var c3 = personCtx(t), b = c3.box;
+                saveRow(c3.tr, { person: {
+                    party: c3.party, op: 'add',
+                    first_name: b.querySelector('[data-person-first]').value, last_name: b.querySelector('[data-person-last]').value,
+                    phone: b.querySelector('[data-person-phone]').value, email: b.querySelector('[data-person-email]').value,
+                    capacity: b.querySelector('[data-person-new-capacity]').value
+                } });
+            }
+        });
+        table.addEventListener('input', debounce(function (e) {
+            var ps = e.target.closest('[data-person-search]');
+            if (!ps) { return; }
+            var c = personCtx(ps), box = c.box.querySelector('[data-person-results]');
+            api('GET', root.getAttribute('data-url-contacts') + '?q=' + encodeURIComponent(ps.value)).then(function (r) {
+                renderResults(box, (r.data && r.data.data) || [], function (i) { return i.label + (i.detail ? ' — ' + i.detail : ''); }, function (i) {
+                    saveRow(c.tr, { person: { party: c.party, op: 'add', contact_id: i.id, capacity: c.box.querySelector('[data-person-new-capacity]').value } });
+                });
+            });
+        }, 250));
+
         table.addEventListener('click', function (e) {
             var clear = e.target.closest('[data-clear-suburb]');
             if (clear) { saveRow(clear.closest('tr[data-row-id]'), { suburb_id: null }); return; }
