@@ -434,8 +434,10 @@
                 @if($fieldConfig['current_rental_from']['shown'])
                 <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text']" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($rentalApplication->current_rental_from)->format('Y-m-d')" />
                 @endif
-                <div x-data="{ stillLiving: {{ old('current_rental_still_living', $rentalApplication->current_rental_still_living) ? 'true' : 'false' }} }">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
+                {{-- AT-487 - same fix as the applicant's form: the end date carried no `order`, so it came before "From". --}}
+                @if($fieldConfig['current_rental_to']['shown'])
+                <div x-data="{ stillLiving: {{ old('current_rental_still_living', $rentalApplication->current_rental_still_living) ? 'true' : 'false' }} }" style="order: {{ $fieldConfig['current_rental_to']['order'] }}">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_rental_to']['label'] }}</label>
                     <input type="date" name="current_rental_to" x-ref="currentRentalTo"
                            :disabled="stillLiving"
                            value="{{ old('current_rental_to', optional($rentalApplication->current_rental_to)->format('Y-m-d')) }}"
@@ -450,6 +452,7 @@
                         Still living here — no end date
                     </label>
                 </div>
+                @endif
             </div>
 
             @if($fieldConfig['current_living_situation_notes']['shown'])

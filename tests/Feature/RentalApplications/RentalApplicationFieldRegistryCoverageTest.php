@@ -18,7 +18,7 @@ use Tests\TestCase;
  *
  * Deliberately excluded from the registry, and therefore from this
  * coverage check, with reasons on record (see submissionFieldRegistry()'s
- * own docblock): current_rental_to, current_rental_still_living
+ * own docblock): current_rental_still_living
  * (a flat tick can't express "required unless the box is checked"),
  * property_address_override (read-only, disabled, never applicant-
  * editable), and rental_terms (legacy column, not rendered on the
@@ -27,7 +27,6 @@ use Tests\TestCase;
 final class RentalApplicationFieldRegistryCoverageTest extends TestCase
 {
     private const DELIBERATELY_EXCLUDED = [
-        'current_rental_to',
         'current_rental_still_living',
         'property_address_override',
         'rental_terms',
