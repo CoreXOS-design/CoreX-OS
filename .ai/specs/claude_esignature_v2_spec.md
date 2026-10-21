@@ -786,3 +786,26 @@ lease on lease flows (verified on flows 28, 32, 34, 35); nothing to fill. Lease 
 
 **Tests:** `tests/Feature/Docuperfect/PropertyFieldsFromRecordTest.php` (sectional record fill on both paper routes,
 snapshot never overwritten, freehold blank and no bleed from another property, electronic route typed District + record fill).
+
+---
+
+## 23. Stand-alone Mandatory Disclosure carries the property header — HOTFIX 2026-10-21
+
+**Symptom (Johan):** the sales Mandatory Disclosure (#81) opens with "…the immovable property situated at <address>";
+the stand-alone Mandatory Disclosure (#74, a CDS import) had no property address anywhere, on any route.
+
+**Fix:** `php artisan esign:add-property-header {template} [--apply]` (`AddPropertyHeaderToTemplate`) adds that clause
+straight after the title as a BOUND Property Address tag — the CDS builder's own shape (a `doc-tag` span, `sf:property`
+mapping to the Property Address named field), not typed text — in both `editor_state` and `field_mappings`, then rebuilds
+the generated blade through `WebTemplateBladeEnsurer::regenerate()`. A template is data and its id differs per
+environment, so this is a command, not a migration: dry-run by default, idempotent (marker
+`data-corex-property-header`), refuses anything that is not a CDS "…Disclosure". It resolves like any property field, so
+it shows on electronic, download-and-sign and wet-ink, stand-alone and inside a pack, and appears in Fill & Review.
+
+**Run it on each environment** against that environment's stand-alone MDF id (QA1: #74).
+
+**Report only (not changed):** #76 "ADDENDUM B" (CDS import, no document type) and #80 "Addendum B" (sales, reference
+Addendum B) both record facts about "the property" (building plans, compliance certificates) and carry no property
+address header — they are property documents without one.
+
+**Tests:** `tests/Feature/Docuperfect/MandatoryDisclosurePropertyHeaderTest.php`.
