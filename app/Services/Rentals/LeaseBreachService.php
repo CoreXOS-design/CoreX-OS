@@ -340,6 +340,24 @@ class LeaseBreachService
         return $breach->fresh();
     }
 
+    /**
+     * AT-495 - email a breach notice / notice to vacate again to the party in breach (addresses read afresh). The other party is not
+     * told a second time. Every attempt is written down per person and on the lease log, the same as the first send.
+     *
+     * @return Collection<int, RentalNoticeDelivery> this attempt's rows
+     */
+    public function resendNotice(RentalNotice $notice, User $agent, string $pdf, string $filename): Collection
+    {
+        $breach = LeaseBreach::withoutGlobalScopes()->withTrashed()->with('lease')->findOrFail($notice->lease_breach_id);
+        $lastId = (int) RentalNoticeDelivery::query()->where('rental_notice_id', $notice->id)->max('id');
+
+        $told = $this->tell($breach, $notice, $pdf, $filename, $agent, 'breach', true);
+        $this->logEvent($breach->lease, LeaseEvent::TYPE_BREACH_EDITED, RentalNoticeTemplate::labelFor($notice->notice_type) . ' resent - ' . $told, $agent,
+            ['lease_breach_id' => $breach->id, 'rental_notice_id' => $notice->id, 'resend' => true]);
+
+        return RentalNoticeDelivery::query()->where('rental_notice_id', $notice->id)->where('id', '>', $lastId)->get();
+    }
+
     public function archive(LeaseBreach $breach, User $agent): void
     {
         $breach->delete();
@@ -397,14 +415,15 @@ class LeaseBreachService
      *
      * @return string "who was told" for the lease log
      */
-    private function tell(LeaseBreach $breach, RentalNotice $notice, string $pdf, string $filename, User $agent, string $event): string
+    private function tell(LeaseBreach $breach, RentalNotice $notice, string $pdf, string $filename, User $agent, string $event, bool $noticePartyOnly = false): string
     {
         $lease = $breach->lease;
         $inBreach = $breach->breach_party === Lease::NOTICE_BY_LANDLORD ? $lease->landlordContacts() : $lease->tenantContacts();
         $other = $breach->breach_party === Lease::NOTICE_BY_LANDLORD ? $lease->tenantContacts() : $lease->landlordContacts();
         $parts = [];
 
-        foreach ([[$inBreach, 'notice'], [$other, 'told']] as [$contacts, $role]) {
+        $passes = $noticePartyOnly ? [[$inBreach, 'notice']] : [[$inBreach, 'notice'], [$other, 'told']];
+        foreach ($passes as [$contacts, $role]) {
             $sent = [];
             $noEmail = [];
             $failed = [];

@@ -102,26 +102,26 @@
                             @if($notice->sent_to_landlord)<span class="ds-badge ds-badge-pill ds-badge-muted">Landlord</span>@endif
                         </td>
                         <td class="px-4 py-3" data-qa="notice-delivery"><span class="ds-badge {{ $deliveryTone($notice->delivery_status) }}">{{ $notice->deliveryLabel() }}</span></td>
-                        <td class="px-4 py-3 text-right whitespace-nowrap space-x-1">
+                        <td class="px-4 py-3 text-right whitespace-nowrap"><div class="inline-flex items-center justify-end gap-2" data-qa="notice-actions">
                             <a href="{{ route('corex.rental-notices.show', $notice) }}" class="corex-btn-outline text-xs">View</a>
                             @if($notice->document_id)
                                 <a href="{{ route('corex.rental-notices.download-document', $notice) }}" class="corex-btn-outline text-xs" data-qa="notice-download">Download</a>
                             @endif
                             @permission('rental_notices.create')
                                 @if(! $notice->trashed() && $notice->isResendable())
-                                    <form method="POST" action="{{ route('corex.rental-notices.resend', $notice) }}" class="inline" data-confirm="Email this notice again to the people it was addressed to?" data-confirm-label="Resend">
+                                    <form method="POST" action="{{ route('corex.rental-notices.resend', $notice) }}" class="inline-flex" data-confirm="Email this notice again to the people it was addressed to?" data-confirm-label="Resend">
                                         @csrf
                                         <button type="submit" class="corex-btn-outline text-xs" data-qa="notice-resend">Resend</button>
                                     </form>
                                 @endif
                                 @if($notice->trashed())
-                                    <form method="POST" action="{{ route('corex.rental-notices.restore', $notice->id) }}" class="inline">
+                                    <form method="POST" action="{{ route('corex.rental-notices.restore', $notice->id) }}" class="inline-flex">
                                         @csrf
                                         <button type="submit" class="corex-btn-outline text-xs">Restore</button>
                                     </form>
                                 @endif
                             @endpermission
-                        </td>
+                        </div></td>
                     </tr>
                 @empty
                     <tr>

@@ -96,35 +96,39 @@
                         <td class="px-4 py-3">{{ \App\Models\RentalNoticeTemplate::labelFor($template->notice_type) }}</td>
                         <td class="px-4 py-3" data-qa="template-remedy-days-cell">{{ $template->remedy_days ? $template->remedy_days . ' days' : '—' }}</td>
                         <td class="px-4 py-3 whitespace-nowrap">{{ $template->created_at?->format('j M Y') }}</td>
-                        <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
+                        <td class="px-4 py-3 text-right whitespace-nowrap">
+                            {{-- One row of identical buttons (same size, same order on every row). A button that cannot be used says why on hover. --}}
+                            <div class="inline-flex items-center justify-end gap-2" data-qa="template-actions">
                             @permission('rental_notice_templates.manage_settings')
-                                @if($status === 'archived')
-                                    @if($template->source_file_path)
-                                        <a href="{{ route('corex.rental-notice-templates.download-original', $template->id) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);" data-qa="template-download-original">Download original</a>
-                                    @endif
-                                    <form method="POST" action="{{ route('corex.rental-notice-templates.restore', $template->id) }}" class="inline">
-                                        @csrf
-                                        <button type="submit" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Restore</button>
-                                    </form>
-                                @else
+                                @if($status !== 'archived')
                                     @if($template->notice_type === \App\Models\RentalNoticeTemplate::TYPE_NOTICE_TO_VACATE)
                                         {{-- a notice to vacate is issued from a breach whose remedy-by date has been reached --}}
                                         @permission('rental_breaches.view')
-                                            <a href="{{ route('corex.breaches.index', ['tile' => 'reached']) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);" data-qa="template-use" title="A notice to vacate is issued from a breach whose remedy-by date has been reached">Use this template</a>
+                                            <a href="{{ route('corex.breaches.index', ['tile' => 'reached']) }}" class="corex-btn-outline text-xs whitespace-nowrap" data-qa="template-use" title="A notice to vacate is issued from a breach whose remedy-by date has been reached">Use this template</a>
                                         @endpermission
                                     @else
-                                        @include('corex.notices._pick-lease-button', ['purpose' => 'breach', 'label' => 'Use this template', 'title' => 'Use "' . $template->name . '" - which lease?', 'template' => $template->id, 'class' => 'text-xs', 'qa' => 'template-use'])
+                                        @include('corex.notices._pick-lease-button', ['purpose' => 'breach', 'label' => 'Use this template', 'title' => 'Use "' . $template->name . '" - which lease?', 'template' => $template->id, 'class' => 'corex-btn-outline text-xs whitespace-nowrap', 'qa' => 'template-use'])
                                     @endif
-                                    @if($template->source_file_path)
-                                        <a href="{{ route('corex.rental-notice-templates.download-original', $template->id) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);" data-qa="template-download-original">Download original</a>
-                                    @endif
-                                    <a href="{{ route('corex.rental-notice-templates.edit', $template) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">Edit</a>
-                                    <form method="POST" action="{{ route('corex.rental-notice-templates.archive', $template) }}" class="inline" data-confirm="Archive this template?" data-confirm-danger data-confirm-label="Archive">
+                                @endif
+                                @if($template->source_file_path)
+                                    <a href="{{ route('corex.rental-notice-templates.download-original', $template->id) }}" class="corex-btn-outline text-xs whitespace-nowrap" data-qa="template-download-original">Download original</a>
+                                @else
+                                    <span class="corex-btn-outline text-xs whitespace-nowrap" style="opacity:.5; cursor:not-allowed;" aria-disabled="true" data-qa="template-download-original-unavailable" title="No Word file was uploaded for this template - its wording was typed in. Edit the template to see or change it.">Download original</span>
+                                @endif
+                                @if($status === 'archived')
+                                    <form method="POST" action="{{ route('corex.rental-notice-templates.restore', $template->id) }}" class="inline-flex">
                                         @csrf
-                                        <button type="submit" class="text-xs" style="color: #991b1b;">Archive</button>
+                                        <button type="submit" class="corex-btn-outline text-xs whitespace-nowrap">Restore</button>
+                                    </form>
+                                @else
+                                    <a href="{{ route('corex.rental-notice-templates.edit', $template) }}" class="corex-btn-outline text-xs whitespace-nowrap">Edit</a>
+                                    <form method="POST" action="{{ route('corex.rental-notice-templates.archive', $template) }}" class="inline-flex" data-confirm="Archive this template?" data-confirm-danger data-confirm-label="Archive">
+                                        @csrf
+                                        <button type="submit" class="corex-btn-outline text-xs whitespace-nowrap" style="color: #991b1b;">Archive</button>
                                     </form>
                                 @endif
                             @endpermission
+                            </div>
                         </td>
                     </tr>
                 @empty
