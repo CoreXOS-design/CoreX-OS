@@ -145,6 +145,30 @@ final class LeaseBreachFlowTest extends TestCase
         $this->assertSame(\App\Models\RentalNoticeDelivery::NOT_SENT_NO_EMAIL, $delivery->status);
     }
 
+    public function test_a_breach_notice_can_be_resent_to_the_party_in_breach_only_and_every_attempt_is_kept(): void
+    {
+        // AT-495 gap: Notices sent showed no Resend on breach notices. It resends to the party in breach, never re-tells the other party.
+        \App\Models\Contact::withoutGlobalScopes()->whereKey($this->tenant->id)->update(['email' => null]);
+        $tpl = $this->template('breach_payment');
+        $this->actingAs($this->agent)->post(route('corex.breaches.bulk.store'), ['rental_notice_template_id' => $tpl->id, 'amount' => [$this->lease->id => '1500.50']])->assertOk();
+        $notice = RentalNotice::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame(RentalNotice::DELIVERY_NOT_SENT, $notice->fresh()->delivery_status);
+        $this->actingAs($this->agent)->get(route('corex.rental-notices.index'))->assertOk()->assertSee('data-qa="notice-resend"', false);
+
+        // the tenant's address is added, then the notice is resent
+        \App\Models\Contact::withoutGlobalScopes()->whereKey($this->tenant->id)->update(['email' => 'tina@example.test']);
+        Mail::fake();
+        $this->actingAs($this->agent)->post(route('corex.rental-notices.resend', $notice))->assertSessionHas('success');
+
+        Mail::assertSent(LeaseBreachNoticeMail::class, 1);
+        Mail::assertSent(LeaseBreachNoticeMail::class, fn ($m) => $m->hasTo('tina@example.test'));
+        Mail::assertNotSent(LeaseBreachOtherPartyMail::class);
+        $this->assertSame(RentalNotice::DELIVERY_SENT, $notice->fresh()->delivery_status, 'the latest answer decides');
+        $this->assertSame(2, \App\Models\RentalNoticeDelivery::withoutGlobalScopes()->where('rental_notice_id', $notice->id)->count(), 'both attempts are kept');
+        $line = \App\Models\LeaseEvent::where('lease_id', $this->lease->id)->where('event_type', \App\Models\LeaseEvent::TYPE_BREACH_EDITED)->latest('id')->value('description');
+        $this->assertStringContainsString('resent - sent to Tina Tenant', (string) $line);
+    }
+
     public function test_a_one_off_breach_with_no_party_email_tells_the_agent_on_screen_that_it_was_not_emailed(): void
     {
         \App\Models\Contact::withoutGlobalScopes()->whereKey($this->tenant->id)->update(['email' => null]);

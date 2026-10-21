@@ -103,10 +103,13 @@ class RentalNotice extends Model
         return $this->deliveries->unique(fn (RentalNoticeDelivery $d) => $d->recipient_role . '|' . ($d->contact_id ?? 'x' . $d->id))->reverse()->values();
     }
 
-    /** A notice made by the breach flow is told and resent from the breach screen, not here. */
+    /**
+     * Any notice with a filed document can be emailed again. A breach notice / notice to vacate goes again to the party in breach only
+     * (the other party was told of the event, it was not sent the notice); every other notice goes to the side(s) it was addressed to.
+     */
     public function isResendable(): bool
     {
-        return $this->lease_breach_id === null && ($this->sent_to_tenant || $this->sent_to_landlord);
+        return $this->document_id !== null && ($this->lease_breach_id !== null || $this->sent_to_tenant || $this->sent_to_landlord);
     }
 
     public function sentByUser(): BelongsTo

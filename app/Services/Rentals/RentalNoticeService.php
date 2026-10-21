@@ -235,7 +235,7 @@ class RentalNoticeService
      *
      * @return Collection<int, RentalNoticeDelivery> this attempt's rows
      *
-     * @throws ValidationException the notice has no filed document to attach, or it is a breach notice (resent from the breach screen)
+     * @throws ValidationException the notice has no filed document to attach
      */
     public function resend(RentalNotice $notice, User $by): Collection
     {
@@ -245,6 +245,10 @@ class RentalNoticeService
         $document = $notice->document;
         if (! $document || ! Storage::disk($document->disk)->exists($document->storage_path)) {
             throw ValidationException::withMessages(['notice' => 'The notice document could not be found, so it cannot be resent.']);
+        }
+        if ($notice->lease_breach_id !== null) {
+            // a breach notice / notice to vacate: goes again to the party in breach only
+            return app(LeaseBreachService::class)->resendNotice($notice, $by, Storage::disk($document->disk)->get($document->storage_path), $document->original_name);
         }
         $lease = $notice->lease()->withoutGlobalScopes()->withTrashed()->firstOrFail();
 
