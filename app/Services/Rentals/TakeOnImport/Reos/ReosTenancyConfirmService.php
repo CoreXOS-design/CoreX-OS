@@ -12,6 +12,7 @@ use App\Models\RentalTakeOnImportRow;
 use App\Models\RentalTakeOnImportRun;
 use App\Models\User;
 use App\Services\ContactDuplicateService;
+use App\Services\Contacts\ContactRepresentativeLinker;
 use App\Services\Property\ContactPropertyLinker;
 use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
 use App\Services\Rentals\LeaseActivationService;
@@ -161,6 +162,13 @@ class ReosTenancyConfirmService
         }
         $tenantId = $this->resolveParty('tenant', $row, $run, (int) $branchId, $actor);
 
+        // The people of a company owner / tenant, chosen on the review screen: created or reused, then linked to the company
+        // (contact_representatives) — in this same transaction. Nothing is sent to anyone.
+        $createdPeople = array_merge(
+            $this->linkPeople('owner', $ownerId, $row, $run, (int) $branchId, $actor),
+            $this->linkPeople('tenant', $tenantId, $row, $run, (int) $branchId, $actor),
+        );
+
         $end = $p['lease_end_date'] ?? null;
         $lease = Lease::create([
             'agency_id' => $agencyId,
@@ -195,7 +203,7 @@ class ReosTenancyConfirmService
         $note = $this->activateIfWanted($lease, $p);
 
         $this->finishRow($row, $property, $lease, RentalTakeOnImportRow::RESULT_CREATED, $note, $actor, null,
-            $ownerId !== null ? [$ownerId] : [], $tenantId !== null ? [$tenantId] : []);
+            $ownerId !== null ? [$ownerId] : [], $tenantId !== null ? [$tenantId] : [], $createdPeople);
 
         return RentalTakeOnImportRow::RESULT_CREATED;
     }
@@ -277,6 +285,11 @@ class ReosTenancyConfirmService
             // Re-match NOW, not only at preview: anything created since — including by an earlier row of this very batch —
             // is found by its phone / e-mail.
             $found = $this->contacts->findDuplicatesForIdentifiers($phones, $emails, null, $agencyId)->first();
+            // A company is never "satisfied" by a person who merely shares its phone / e-mail (Johan: Wildevy Properties Pty Ltd →
+            // Arne Nel): the review screen offered to create the company and link that person to it, and that is what happens.
+            if ($found && ReosContactNames::isCompany($name) && ! $found->isEntity()) {
+                $found = null;
+            }
             if ($found) {
                 $contactId = (int) $found->id;
                 $outcome = 'match';
@@ -295,6 +308,66 @@ class ReosTenancyConfirmService
         $row->{$matchColumn} = $match;
 
         return $contactId;
+    }
+
+    /**
+     * Create or reuse each person chosen for this company and write the company ↔ person links. A new person is looked for first by
+     * phone / e-mail (a natural person only), then by the same name already brought in by this batch (so one person on two companies
+     * is ONE contact with two links), and only then created.
+     *
+     * @return list<int>  ids of the person contacts this call CREATED
+     */
+    private function linkPeople(string $party, ?int $companyId, RentalTakeOnImportRow $row, RentalTakeOnImportRun $run, int $branchId, User $actor): array
+    {
+        $people = (($row->decisions_json ?? [])[$party] ?? [])['people'] ?? [];
+        if ($people === [] || $companyId === null) {
+            return [];
+        }
+        $company = Contact::withoutGlobalScopes()->find($companyId);
+        if (! $company || ! $company->isEntity()) {
+            throw new \DomainException('The ' . $party . ' is no longer a company, so the people chosen for it cannot be linked — choose again.');
+        }
+
+        $agencyId = (int) $run->agency_id;
+        $created = [];
+        foreach ($people as $entry) {
+            if (! empty($entry['contact_id'])) {
+                $person = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $entry['contact_id']);
+                if (! $person) {
+                    throw new \DomainException('A person chosen for the ' . $party . '\'s company can no longer be found — choose again.');
+                }
+            } else {
+                $name = trim(($entry['first_name'] ?? '') . ' ' . ($entry['last_name'] ?? ''));
+                $key = ReosContactNames::key($name);
+                $emails = ReosContactNames::splitValues($entry['email'] ?? null, true);
+                $phones = ReosContactNames::splitValues($entry['phone'] ?? null, false);
+
+                $person = $this->contacts->findDuplicatesForIdentifiers($phones, $emails, null, $agencyId)
+                    ->first(fn (Contact $c) => ! $c->isEntity());
+                if (! $person && ($reuse = $this->batchContact($run, $key, $emails, $phones)) !== null) {
+                    $person = Contact::withoutGlobalScopes()->find($reuse);
+                    $person = $person && ! $person->isEntity() ? $person : null;
+                }
+                if (! $person) {
+                    $person = Contact::create([
+                        'agency_id' => $agencyId,
+                        'branch_id' => $branchId,
+                        'contact_kind' => Contact::TYPE_NATURAL_PERSON,
+                        'first_name' => $entry['first_name'],
+                        'last_name' => (string) ($entry['last_name'] ?? ''),
+                        'phone' => $phones[0] ?? null,
+                        'email' => $emails[0] ?? null,
+                        'created_by_user_id' => $actor->id,
+                    ]);
+                    $created[] = (int) $person->id;
+                }
+                $this->batchContacts[$run->id][$key] = (int) $person->id;
+            }
+
+            ContactRepresentativeLinker::link($company, $person, false, $entry['capacity'] ?? null, false, $actor->id);
+        }
+
+        return $created;
     }
 
     /** A contact an earlier row of this batch already used for the same name, when nothing contradicts it. */
@@ -326,9 +399,9 @@ class ReosTenancyConfirmService
 
         $ids = [];
         RentalTakeOnImportRow::query()->where('run_id', $run->id)->where('status', RentalTakeOnImportRow::STATUS_CONFIRMED)
-            ->get(['target_landlord_contact_ids_json', 'target_tenant_contact_ids_json'])
+            ->get(['target_landlord_contact_ids_json', 'target_tenant_contact_ids_json', 'decisions_json'])
             ->each(function ($r) use (&$ids) {
-                foreach (array_merge($r->target_landlord_contact_ids_json ?? [], $r->target_tenant_contact_ids_json ?? []) as $id) {
+                foreach (array_merge($r->target_landlord_contact_ids_json ?? [], $r->target_tenant_contact_ids_json ?? [], ($r->decisions_json['created_people'] ?? [])) as $id) {
                     $ids[(int) $id] = true;
                 }
             });
@@ -469,9 +542,17 @@ class ReosTenancyConfirmService
     /**
      * @param list<int> $landlordIds
      * @param list<int> $tenantIds
+     * @param list<int> $createdPeople
      */
-    private function finishRow(RentalTakeOnImportRow $row, ?Property $property, Lease $lease, string $result, ?string $note, User $actor, ?string $info = null, array $landlordIds = [], array $tenantIds = []): void
+    private function finishRow(RentalTakeOnImportRow $row, ?Property $property, Lease $lease, string $result, ?string $note, User $actor, ?string $info = null, array $landlordIds = [], array $tenantIds = [], array $createdPeople = []): void
     {
+        // The people THIS import created for a company (not ones it reused) — so archiving the batch can take them back out.
+        if ($createdPeople !== []) {
+            $d = $row->decisions_json ?? [];
+            $d['created_people'] = array_values(array_unique(array_merge($d['created_people'] ?? [], $createdPeople)));
+            $row->decisions_json = $d;
+        }
+
         $warnings = $row->warnings_json ?? [];
         foreach ([$note, $info] as $extra) {
             if ($extra) {
