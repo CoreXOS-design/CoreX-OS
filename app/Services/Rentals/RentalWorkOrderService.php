@@ -734,16 +734,31 @@ class RentalWorkOrderService
      * owner-side agent, else the property's agent (the rule the portal's "who to call" uses) - gets the in-app alert and
      * the email, through the one NotificationDispatcher, so each person's own settings (event on/off, channels, open hours)
      * decide. $hitAt is the fact's own moment: the dispatcher will not tell the same agent the same fact twice.
+     *
+     * AT-492: every caller is a PERSON acting (owner, tenant or contractor on a link), so the alert is 'person_triggered' -
+     * open hours hold back only the email, never the in-app alert. $occurrence (the quote id, the completion round id, ...)
+     * says WHICH occurrence this is, so a revised quote or a second finish report is not swallowed by the cooldown.
+     * Nothing here is allowed to vanish quietly: no recipients and a failing dispatch are both logged with what was lost.
      */
-    public function notifyAgentOfOwnerAction(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $hitAt): void
+    public function notifyAgentOfOwnerAction(RentalWorkOrder $workOrder, string $eventKey, string $title, string $body, $hitAt, ?string $occurrence = null): void
     {
         $property = $workOrder->property()->withoutGlobalScopes()->first();
         if (! $property) {
+            \Illuminate\Support\Facades\Log::warning('Agent alert not sent: the work order has no property', ['work_order' => $workOrder->id, 'event' => $eventKey]);
+
             return;
         }
         // AT-451 round 2: BOTH lease agents hear what the owner did (it used to be the owner-side agent only), not the staff member
         // who did it. Each person's own settings still decide whether and how it reaches them.
-        $recipients = app(LeaseAgentService::class)->recipientsForEvent($workOrder->lease, $property, (int) $workOrder->agency_id);
+        // AT-492: read the lease without the logged-in viewer's agency/branch scopes - a link has no viewer, and a tester who is signed in
+        // as an agent in the same browser must not blank the lease (and with it the lease agents).
+        $lease = $workOrder->lease()->withoutGlobalScopes()->first();
+        $recipients = app(LeaseAgentService::class)->recipientsForEvent($lease, $property, (int) $workOrder->agency_id);
+        if ($recipients->isEmpty()) {
+            \Illuminate\Support\Facades\Log::warning('Agent alert not sent: nobody to tell', ['work_order' => $workOrder->id, 'event' => $eventKey, 'agency' => $workOrder->agency_id]);
+
+            return;
+        }
 
         foreach ($recipients as $agent) {
             app(NotificationDispatcher::class)->fire($agent, $eventKey, $workOrder, [
@@ -752,6 +767,8 @@ class RentalWorkOrderService
                 'action_url' => route('corex.rental-work-orders.show', $workOrder->id),
                 'severity' => 'info',
                 'threshold_hit_at' => $hitAt,
+                'person_triggered' => true,
+                'dedupe_key' => $occurrence,
             ]);
         }
     }

@@ -127,15 +127,20 @@ class ContractorSecureLinkController extends Controller
     }
 
     /** The agents hear about everything the contractor does on their link (one event, one rule for who they are). */
-    private function tellAgents(RentalWorkOrder $workOrder, string $title, string $body, string $event): void
+    private function tellAgents(RentalWorkOrder $workOrder, string $title, string $body, string $event, ?string $occurrence = null): void
     {
         try {
-            $address = $workOrder->property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
+            // withoutGlobalScopes: a link has no viewer, and a tester signed in as an agent in the same browser must not blank the address (AT-492)
+            $property = $workOrder->property()->withoutGlobalScopes()->first();
+            $address = $property?->buildDisplayAddress() ?: ('Property #' . $workOrder->property_id);
             app(\App\Services\Rentals\RentalWorkOrderService::class)->notifyAgentOfOwnerAction(
-                $workOrder, $event, $title . ' - ' . $address, $body, now()
+                $workOrder, $event, $title . ' - ' . $address, $body, now(), $occurrence
             );
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('Contractor link: agents not told', ['work_order' => $workOrder->id, 'error' => $e->getMessage()]);
+            \Illuminate\Support\Facades\Log::error('Contractor link: the agent was NOT told', [
+                'work_order' => $workOrder->id, 'event' => $event, 'title' => $title, 'exception' => get_class($e),
+                'error' => $e->getMessage(), 'at' => basename($e->getFile()) . ':' . $e->getLine(),
+            ]);
         }
     }
 
@@ -408,7 +413,7 @@ class ContractorSecureLinkController extends Controller
         // one message to the agent per report - a second press while the first still waits opens no new round and says nothing more
         if ($round->wasRecentlyCreated) {
             app(\App\Services\Rentals\OwnerFinishNotice::class)->contractorReportedFinished($record->workOrder, $this->contractorName($record->workOrder));
-            $this->tellAgents($record->workOrder, 'Finished - awaiting your check', $this->contractorName($record->workOrder) . ' says the work is finished: ' . $record->workOrder->title . '. Check it and close the job.', \App\Services\Rentals\RentalContractorJobService::EV_FINISHED);
+            $this->tellAgents($record->workOrder, 'Finished - awaiting your check', $this->contractorName($record->workOrder) . ' says the work is finished: ' . $record->workOrder->title . '. Check it and close the job.', \App\Services\Rentals\RentalContractorJobService::EV_FINISHED, 'round:' . $round->id);
         }
 
         return redirect()->route('rentals.secure-link.show', $token)->with('success', 'Thank you - the agency has been told the work is finished. They will check it and close the job.');
