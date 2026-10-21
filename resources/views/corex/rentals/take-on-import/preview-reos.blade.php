@@ -20,6 +20,7 @@
 @section('content')
 <div class="p-6 space-y-4" id="reos-review" data-run-id="{{ $run->id }}"
      data-url-defaults="{{ route('api.v1.rentals.take-on-import.defaults', $run) }}"
+     data-url-csrf="{{ route('api.v1.csrf-token') }}"
      data-url-suburbs="{{ route('api.v1.rentals.take-on-import.suburbs') }}"
      data-url-contacts="{{ route('api.v1.rentals.take-on-import.contacts') }}"
      data-url-decisions="{{ url('/api/v1/rentals/take-on-import/rows') }}"
@@ -75,6 +76,7 @@
                 <div data-default-suburb-results class="hidden absolute z-20 corex-card p-1 w-full"></div>
             @endif
         </div>
+        <span id="reos-defaults-msg" class="text-sm" role="status" aria-live="polite" data-test="reos-defaults-msg"></span>
     </div>
     @endif
 
@@ -123,12 +125,21 @@
     var currentShow = root.getAttribute('data-current-show') || 'all';
     var canManage = root.getAttribute('data-can-manage') === '1';
 
-    function api(method, url, body) {
+    function send(method, url, body) {
         return fetch(url, {
             method: method, credentials: 'same-origin',
             headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf, 'X-Requested-With': 'XMLHttpRequest' },
             body: body ? JSON.stringify(body) : undefined
-        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }, function () { return { ok: r.ok, data: {} }; }); });
+        }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, status: r.status, data: j }; }, function () { return { ok: r.ok, status: r.status, data: {} }; }); });
+    }
+    // A page left open can hold a token the server has since rotated (419): fetch a fresh one and send the same request once more.
+    function api(method, url, body) {
+        return send(method, url, body).then(function (res) {
+            if (res.status !== 419) { return res; }
+            return fetch(root.getAttribute('data-url-csrf'), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function (r) { return r.json(); })
+                .then(function (j) { if (j && j.token) { csrf = j.token; } return send(method, url, body); });
+        });
     }
     function debounce(fn, ms) { var t; return function () { var a = arguments, c = this; clearTimeout(t); t = setTimeout(function () { fn.apply(c, a); }, ms); }; }
     function say(msg) {
@@ -313,12 +324,19 @@
                 if (canManage) { openNextNeeding(null); }
             });
     }
+    function sayDefaults(msg, bad) {
+        var m = document.getElementById('reos-defaults-msg');
+        if (!m) { return; }
+        m.textContent = msg || '';
+        m.classList.toggle('text-red-600', !!bad);
+    }
     function saveDefaults(body) {
         say('');
+        sayDefaults('Saving…');
         return api('POST', root.getAttribute('data-url-defaults'), body).then(function (res) {
-            if (!res.ok) { say((res.data && res.data.message) || 'That could not be saved.'); return; }
+            if (!res.ok) { sayDefaults((res.data && res.data.message) || 'That could not be saved — reload the page and try again.', true); return; }
             return refreshView().catch(function () { window.location.reload(); });
-        }, function () { say('The connection was lost — nothing was saved. Try again.'); });
+        }, function () { sayDefaults('The connection was lost — nothing was saved. Try again.', true); });
     }
     root.addEventListener('click', function (e) {
         if (e.target.closest('[data-default-suburb-clear]')) { saveDefaults({ suburb_id: null }); }

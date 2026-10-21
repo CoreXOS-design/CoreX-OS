@@ -307,6 +307,36 @@ final class ReosReviewQueueTest extends TestCase
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.defaults', $run), ['suburb_id' => 999999999])->assertStatus(422);
     }
 
+    public function test_opening_the_page_gives_the_saved_defaults_to_any_lease_they_never_reached(): void
+    {
+        [$agency, $branch, $admin, $agent] = $this->reosAgency();
+        $other = User::factory()->create(['agency_id' => $agency->id, 'branch_id' => $branch->id, 'role' => 'agent', 'is_active' => true, 'name' => 'ZZ Second Agent']);
+        $sub = $this->p24Suburb();
+        $run = $this->makeRun($admin, [
+            $this->reosRow(['uuid' => self::UUID_A, 'Property Address' => '1 ZZ Nowhere Road', 'Agent' => 'Home Finders Coastal (100%)']),
+            $this->reosRow(['uuid' => self::UUID_B, 'Property Address' => '2 ZZ Nowhere Road', 'Agent' => 'Home Finders Coastal (100%)']),
+        ]);
+        $a = $this->rowOf($run, self::UUID_A);
+        $b = $this->rowOf($run, self::UUID_B);
+        self::assertSame(['suburb', 'agent'], ReosQuestions::needs($a));
+
+        // The defaults are on the batch (the dropdown shows them) but the leases never received them — the state a user can be left in.
+        \App\Services\Rentals\TakeOnImport\Reos\ReosRunDefaults::store($run, ['agent_user_id' => $other->id, 'suburb_id' => $sub->id, 'suburb_label' => 'ZZ Testville']);
+        self::assertNull($a->fresh()->decisions_json['agent_user_id'] ?? null);
+
+        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
+
+        self::assertSame($other->id, (int) $a->fresh()->decisions_json['agent_user_id']);
+        self::assertSame($other->id, (int) $b->fresh()->decisions_json['agent_user_id']);
+        self::assertSame([], ReosQuestions::needs($a->fresh()));
+        self::assertStringContainsString('2 ready', $html);
+        self::assertStringContainsString('0 need you', $html);
+        self::assertStringContainsString('id="reos-defaults-msg"', $html, 'the defaults bar says for itself when a save is running or failed');
+
+        // Repeated opens change nothing more.
+        self::assertSame(0, app(\App\Services\Rentals\TakeOnImport\Reos\ReosDecisionService::class)->reconcileDefaults($run->fresh()));
+    }
+
     public function test_the_defaults_reach_a_property_that_was_answered_none_of_these_afterwards(): void
     {
         [$agency, $branch, $admin, $agent] = $this->reosAgency();
