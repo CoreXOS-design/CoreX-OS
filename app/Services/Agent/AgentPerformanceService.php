@@ -185,11 +185,14 @@ class AgentPerformanceService
         // The one points rule and the one "what counts" filter live in
         // ActivityPointsService (count x weight; confirmed/overridden entries
         // from manual/auto sources; no filter on the activity definition).
-        $pointsActual = ActivityPointsService::sum(
+        // Split into manual (captured by the agent) and automatic (credited by CoreX work): the same rows, the same
+        // rule; the combined figure is manual + automatic.
+        $pointsSplit = ActivityPointsService::sumSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->id)
                 ->where('e.period', $period)
         );
+        $pointsActual = $pointsSplit['total'];
 
         // Points target comes from targets.points_target (V2)
         $pointsTarget = (float) (DB::table('targets')
@@ -200,11 +203,12 @@ class AgentPerformanceService
         $pointsPct = $pointsTarget > 0 ? round(($pointsActual / $pointsTarget) * 100, 1) : null;
 
         // --- Points by date (V2) for Momentum strip ---
-        $pointsByDate = ActivityPointsService::sumByDate(
+        $pointsByDateSplit = ActivityPointsService::sumByDateSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->id)
                 ->where('e.period', $period)
         );
+        $pointsByDate = array_map(fn ($d) => $d['total'], $pointsByDateSplit);
 
         // --- Progress calculations (safe) ---
         $progress = [
@@ -244,15 +248,18 @@ class AgentPerformanceService
         $dailyMap = [];
         $dailyMapCounts = [];
 
-        $rowsByDate = ActivityPointsService::entryRowsByDate(
+        $rowsByDate = ActivityPointsService::entryRowsByDateSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->id)
                 ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
         );
 
-        foreach ($rowsByDate as $date => $rowsCount) {
+        foreach ($rowsByDate as $date => $rows) {
+            $rowsCount = $rows['manual'] + $rows['automatic'];
             $dailyMap[$date] = [
                 'daily_rows' => $rowsCount,
+                'manual_rows' => $rows['manual'],
+                'auto_rows' => $rows['automatic'],
                 'deals' => 0,
                 'value' => 0,
             ];
@@ -300,6 +307,8 @@ return [
 'daily_map' => $dailyMap,
             'daily_map_counts' => $dailyMapCounts,
             'points_by_date' => $pointsByDate,
+            'points_split' => $pointsSplit,
+            'points_by_date_split' => $pointsByDateSplit,
         ];
     }
 }

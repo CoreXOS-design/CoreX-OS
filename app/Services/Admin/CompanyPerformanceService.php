@@ -87,7 +87,9 @@ class CompanyPerformanceService
             ->whereIn('dae.user_id', $agentIds)
             ->where('dae.period', $period)
             ->groupBy('dae.user_id')
-            ->selectRaw('dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(' . ActivityPointsService::sqlPoints('dae', 'ad') . '),0) as points_sum')
+            ->selectRaw('dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(' . ActivityPointsService::sqlPoints('dae', 'ad') . '),0) as points_sum'
+                . ', COALESCE(SUM(' . ActivityPointsService::splitExpressions('dae', 'ad')[0] . '),0) as points_manual'
+                . ', COALESCE(SUM(' . ActivityPointsService::splitExpressions('dae', 'ad')[1] . '),0) as points_auto')
             ->get()
             ->keyBy('user_id');
 $branches = DB::table('branches')
@@ -126,6 +128,9 @@ $branches = DB::table('branches')
                 'company_retained' => 0,
                     'daily_rows' => (int)($da->rows_count ?? 0),
                     'points' => (float)($da->points_sum ?? 0),
+                    // manual (captured by the agent) / automatic (credited by CoreX work): same rows, same rule
+                    'points_manual' => (float)($da->points_manual ?? 0),
+                    'points_auto' => (float)($da->points_auto ?? 0),
                 ],
             ];
         }
@@ -305,6 +310,8 @@ foreach ($rows as &$r) {
                 'value' => array_sum(array_map(fn($r)=>$r['actuals']['sales_value'], $rows)),
                 'daily_rows' => array_sum(array_map(fn($r)=>$r['actuals']['daily_rows'], $rows)),
                 'points' => array_sum(array_map(fn($r)=>$r['actuals']['points'], $rows)),
+                'points_manual' => array_sum(array_map(fn($r)=>$r['actuals']['points_manual'] ?? 0, $rows)),
+                'points_auto' => array_sum(array_map(fn($r)=>$r['actuals']['points_auto'] ?? 0, $rows)),
             ],
         ];
 
@@ -344,7 +351,9 @@ foreach ($rows as &$r) {
                           'team_agent_income'=>0,
                           'team_company_retained'=>0,
                           'daily_rows'=>0,
-                          'points'=>0
+                          'points'=>0,
+                          'points_manual'=>0,
+                          'points_auto'=>0
                       ],
                     'progress' => ['deals_pct'=>0,'value_pct'=>0,'points_pct'=>0],
                 ];
@@ -359,6 +368,8 @@ foreach ($rows as &$r) {
             $branchTotals[$bid]['actuals']['value'] += (float)$row['actuals']['sales_value'];
             $branchTotals[$bid]['actuals']['daily_rows'] += (int)$row['actuals']['daily_rows'];
             $branchTotals[$bid]['actuals']['points'] += (float)$row['actuals']['points'];
+            $branchTotals[$bid]['actuals']['points_manual'] += (float)($row['actuals']['points_manual'] ?? 0);
+            $branchTotals[$bid]['actuals']['points_auto'] += (float)($row['actuals']['points_auto'] ?? 0);
             // TEAM money totals (sum of agent allocations by agent branch)
             $branchTotals[$bid]['actuals']['team_company_income'] += (float)($row['actuals']['company_income'] ?? 0);
             $branchTotals[$bid]['actuals']['team_agent_income'] += (float)($row['actuals']['agent_income'] ?? 0);
@@ -380,6 +391,8 @@ foreach ($rows as &$r) {
                     'sales_value' => (float)($b['actuals']['sales_value'] ?? 0),
                     'value'       => (float)($b['actuals']['value'] ?? ($b['actuals']['sales_value'] ?? 0)),
                     'points'      => (float)($b['actuals']['points'] ?? 0),
+                    'points_manual' => (float)($b['actuals']['points_manual'] ?? 0),
+                    'points_auto'   => (float)($b['actuals']['points_auto'] ?? 0),
                 ],
                 'progress' => $b['progress'] ?? [],
             ];
@@ -518,6 +531,8 @@ foreach ($rows as &$r) {
                 'value' => array_sum(array_map(fn($r)=>$r['actuals']['sales_value'], $rows)),
                 'daily_rows' => array_sum(array_map(fn($r)=>$r['actuals']['daily_rows'], $rows)),
                 'points' => array_sum(array_map(fn($r)=>$r['actuals']['points'], $rows)),
+                'points_manual' => array_sum(array_map(fn($r)=>$r['actuals']['points_manual'] ?? 0, $rows)),
+                'points_auto' => array_sum(array_map(fn($r)=>$r['actuals']['points_auto'] ?? 0, $rows)),
             ],
         ];
         $tot['progress'] = [
@@ -725,7 +740,7 @@ foreach ($rows as &$r) {
         $m = [];
         $todayBreakdown = [];
         if (!empty($agentIds)) {
-            $m = ActivityPointsService::sumByDate(
+            $m = ActivityPointsService::sumByDateSplit(
                 ActivityPointsService::counted($agencyId)
                     ->whereIn('e.user_id', $agentIds)
                     ->whereBetween('e.activity_date', [$from, $to])
@@ -742,7 +757,7 @@ foreach ($rows as &$r) {
         $momentum7 = [];
         for ($i=0; $i<7; $i++) {
             $d = (clone $today)->subDays(6-$i)->toDateString();
-            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d] ?? 0)];
+            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d]['total'] ?? 0), 'manual' => (float) ($m[$d]['manual'] ?? 0), 'automatic' => (float) ($m[$d]['automatic'] ?? 0)];
         }
 
         $rollup['rows'] = $rows;
@@ -759,6 +774,9 @@ foreach ($rows as &$r) {
             'today_points' => $todayPoints,
             'days_left' => $daysLeft,
             'days_elapsed' => $daysElapsed,
+            // manual / automatic split of the month's actual (manual + automatic = actual)
+            'manual' => (float)($tot['actuals']['points_manual'] ?? 0),
+            'automatic' => (float)($tot['actuals']['points_auto'] ?? 0),
         ];
 
         $rollup['momentum_7d'] = $momentum7;
@@ -802,6 +820,9 @@ foreach ($rows as &$r) {
             'today_points' => $todayPoints,
             'days_left' => $daysLeft,
             'days_elapsed' => $daysElapsed,
+            // manual / automatic split of the month's actual (manual + automatic = actual)
+            'manual' => (float)($tot['actuals']['points_manual'] ?? 0),
+            'automatic' => (float)($tot['actuals']['points_auto'] ?? 0),
         ];
         /* ADMIN_V2_POINTS_PATCH_END */
 
@@ -832,7 +853,7 @@ foreach ($rows as &$r) {
         $from = (clone $today)->subDays(6)->toDateString();
         $to   = $today->toDateString();
 
-        $m = ActivityPointsService::sumByDate(
+        $m = ActivityPointsService::sumByDateSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $userId)
                 ->whereBetween('e.activity_date', [$from, $to])
@@ -841,7 +862,7 @@ foreach ($rows as &$r) {
         $momentum7 = [];
         for ($i = 0; $i < 7; $i++) {
             $d = (clone $today)->subDays(6 - $i)->toDateString();
-            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d] ?? 0)];
+            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d]['total'] ?? 0), 'manual' => (float) ($m[$d]['manual'] ?? 0), 'automatic' => (float) ($m[$d]['automatic'] ?? 0)];
         }
 
         // Today breakdown (activity name => count)

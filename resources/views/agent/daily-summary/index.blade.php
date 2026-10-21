@@ -93,15 +93,15 @@
                 <div>
                     <span class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Counted activities</span>
                     <p class="text-[11px]" style="color: var(--text-muted);">Click an activity name to drill down to your dates list.</p>
+                    <x-points-legend class="mt-1" />
                 </div>
                 <div class="ml-auto flex items-center gap-6">
                     <div>
                         <div class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Total count</div>
                         <div class="text-base font-bold leading-tight" style="color: var(--text-primary);">{{ number_format((int)$grandCount) }}</div>
                     </div>
-                    <div>
-                        <div class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Total points</div>
-                        <div class="text-base font-bold leading-tight" style="color: var(--brand-icon, #0ea5e9);">{{ number_format((float)$grandPoints, 0) }}</div>
+                    <div data-testid="grand-split">
+                        <x-points-split-total :split="$grandSplit" label="Total points" size="sm" />
                     </div>
                     <div>
                         <div class="text-[11px] font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activities tracked</div>
@@ -116,7 +116,7 @@
                         <tr style="background: var(--surface-2);">
                             <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">Activity</th>
                             <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">Count</th>
-                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">Manual / Auto</th>
+                            <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">Manual / Automatic points</th>
                             <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">Points</th>
                             <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted); background: var(--surface-2);">% (Points)</th>
                         </tr>

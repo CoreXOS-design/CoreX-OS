@@ -428,6 +428,7 @@
 
                                     <td class="px-4 py-3 text-right font-semibold ds-value">
                                         {{ number_format($pointsActualRow, 0) }} / {{ number_format($pointsTargetRow, 0) }}
+                                        <x-points-split-total :split="['manual' => (float)($row['actuals']['points_manual'] ?? 0), 'automatic' => (float)($row['actuals']['points_auto'] ?? 0)]" split-only class="mt-1 font-normal" />
                                         <div class="ds-progress-track mt-1">
                                             <div class="ds-progress-bar {{ $rowBar }}"
                                                  style="width: {{ min(100, max(0, $pct)) }}%"></div>
