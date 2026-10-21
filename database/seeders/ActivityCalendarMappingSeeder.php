@@ -31,8 +31,9 @@ use Illuminate\Support\Facades\DB;
  *     existence check and the seeder skips, preserving intent;
  *   - overwrites admin edits: value_per_event / is_active / cap fields
  *     are NEVER updated on existing rows — only set on first insert
- *     from the activity_definition's current weight as an editable
- *     starting default (Johan's decision: "do not invent numbers").
+ *     as a count of 1 per event (points = count x the
+ *     activity's weight, ActivityPointsService - seeding the weight here
+ *     scored every calendar event at weight squared).
  *
  * Out-of-scope by design:
  *   - property_showday: no 1:1 activity_definition exists in HFC's
@@ -92,7 +93,7 @@ final class ActivityCalendarMappingSeeder extends Seeder
                 'agency_id'               => $agencyId,
                 'event_class'             => $eventClass,
                 'activity_definition_id'  => (int) $def->id,
-                'value_per_event'         => (int) round((float) $def->weight),
+                'value_per_event'         => 1, // a COUNT per event; points = count x the activity's weight (ActivityPointsService)
                 'requires_feedback'       => $requiresFeedback,
                 'auto_revoke_after_hours' => 24,
                 'daily_cap'               => null,

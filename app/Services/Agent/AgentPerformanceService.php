@@ -3,6 +3,7 @@
 namespace App\Services\Agent;
 
 use App\Models\User;
+use App\Services\Activity\ActivityPointsService;
 use App\Models\PerformanceSetting;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -183,28 +184,14 @@ class AgentPerformanceService
         $agencyId = $user->effectiveAgencyId();
 
         // --- Points (weighted activity scoring) (V2) ---
-        // Sum(value * weight) for enabled definitions visible to this user's branch.
-        // M6.5 — achievement-total filter.
-        $pointsActual = (float) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)
-            ->where('e.period', $period)
-            ->where('d.is_enabled', 1)
-            ->where(function($q) use ($user) {
-                $q->where('d.scope', 'system');
-                if ($user->branch_id) {
-                    $q->orWhere(function($q2) use ($user) {
-                        $q2->where('d.scope', 'branch')
-                           ->where('d.branch_id', (int)$user->branch_id);
-                    });
-                }
-            })
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->sum(DB::raw('e.value * d.weight'));
+        // The one points rule and the one "what counts" filter live in
+        // ActivityPointsService (count x weight; confirmed/overridden entries
+        // from manual/auto sources; no filter on the activity definition).
+        $pointsActual = ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->id)
+                ->where('e.period', $period)
+        );
 
         // Points target comes from targets.points_target (V2)
         $pointsTarget = (float) (DB::table('targets')
@@ -215,37 +202,11 @@ class AgentPerformanceService
         $pointsPct = $pointsTarget > 0 ? round(($pointsActual / $pointsTarget) * 100, 1) : null;
 
         // --- Points by date (V2) for Momentum strip ---
-        // M6.5 — achievement-total filter.
-        $pointsByDate = DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)
-            ->where('e.period', $period)
-            ->where('d.is_enabled', 1)
-            ->where(function ($q) use ($user) {
-                $q->where('d.scope', 'system');
-                if ($user->branch_id) {
-                    $q->orWhere(function ($q2) use ($user) {
-                        $q2->where('d.scope', 'branch')
-                           ->where('d.branch_id', (int)$user->branch_id);
-                    });
-                }
-            })
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->groupBy('e.activity_date')
-            ->selectRaw("e.activity_date as d, SUM(e.value * d.weight) as pts")
-            ->pluck('pts', 'd')
-            ->toArray();
-
-        // Legacy momentum strip uses these; keep safe defaults to avoid crashes.
-        $weights = $weights ?? [];
-        $dailyCols = $dailyCols ?? [];
-
-
-        // Keep legacy weights/daily maps untouched for now (agent points display uses V2 fields above).
+        $pointsByDate = ActivityPointsService::sumByDate(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->id)
+                ->where('e.period', $period)
+        );
 
         // --- Progress calculations (safe) ---
         $progress = [
@@ -280,54 +241,26 @@ class AgentPerformanceService
         }
 
         // --- Daily breakdown (per day map) ---
+        // Days on which this agent has counted activity, from the live entries table
+        // (the old `daily_activities` table is abandoned and holds no rows).
         $dailyMap = [];
-        $dailyRaw = DB::table('daily_activities')
-            ->where('user_id', $user->id)
-            ->whereBetween('activity_date', [$start->toDateString(), $end->toDateString()])
-            ->selectRaw("activity_date, COUNT(*) as rows_count")
-            ->groupBy('activity_date')
-            ->get();
-
         $dailyMapCounts = [];
 
-        foreach ($dailyRaw as $d) {
-            $dailyMap[$d->activity_date] = [
-                'daily_rows' => (int)$d->rows_count,
+        $rowsByDate = ActivityPointsService::entryRowsByDate(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->id)
+                ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
+        );
+
+        foreach ($rowsByDate as $date => $rowsCount) {
+            $dailyMap[$date] = [
+                'daily_rows' => $rowsCount,
                 'deals' => 0,
                 'value' => 0,
             ];
 
-            $dailyMapCounts[$d->activity_date] = (int)$d->rows_count;
+            $dailyMapCounts[$date] = $rowsCount;
         }
-        // --- Daily rows by date (for Momentum strip) ---
-        // Build per-day sums only for weighted columns that exist in daily_activities.
-        $dailyRowsByDate = [];
-
-        $sumCols = [];
-        foreach ($weights as $key => $w) {
-            if (!in_array($key, $dailyCols, true)) continue;
-            $col = '"' . str_replace('"', '""', $key) . '"';
-            $sumCols[] = "COALESCE(SUM($col),0) AS $key";
-        }
-
-        if (!empty($sumCols)) {
-            $dailySums = DB::table('daily_activities')
-                ->where('user_id', $user->id)
-                ->whereBetween('activity_date', [$start->toDateString(), $end->toDateString()])
-                ->selectRaw("activity_date, " . implode(', ', $sumCols))
-                ->groupBy('activity_date')
-                ->get();
-
-            foreach ($dailySums as $row) {
-                $d = $row->activity_date;
-                $dailyRowsByDate[$d] = [];
-                foreach ($weights as $key => $w) {
-                    if (!in_array($key, $dailyCols, true)) continue;
-                    $dailyRowsByDate[$d][$key] = (float)($row->$key ?? 0);
-                }
-            }
-        }
-
 
 return [
             'month_label' => $month->format('F Y'),

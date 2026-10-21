@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Services\Activity\ActivityPointsService;
 use App\Services\Admin\CompanyPerformanceService;
 use App\Services\Agent\AgentPerformanceService;
 use App\Services\Finance\CommissionCalculator;
@@ -147,9 +148,10 @@ class AgentPerformanceController extends Controller
             });
 
         // Daily rows count for this period
-        $dailyRowsCount = (int) DB::table('daily_activities')
-            ->where('user_id', $agent->id)
-            ->where('period', $period)
+        // Counted entries from the live table (the old `daily_activities` table is abandoned and empty).
+        $dailyRowsCount = (int) ActivityPointsService::counted((int) $targetUser->agency_id)
+            ->where('e.user_id', $agent->id)
+            ->where('e.period', $period)
             ->count();
 
         // Money tiles: deal_money_lines settlement truth (already joined above, declined excluded)

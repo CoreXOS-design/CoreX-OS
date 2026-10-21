@@ -9,6 +9,7 @@ use App\Models\CommandCenter\CommandTask;
 use App\Models\CommandCenter\PropertyHealthScore;
 use App\Models\CommandCenter\UserDashboardSetting;
 use App\Models\Docuperfect\SignatureTemplate;
+use App\Services\Activity\ActivityPointsService;
 use App\Services\CandidatePractitionerService;
 use App\Services\CommandCenter\Calendar\CalendarEventCreator;
 use App\Services\CommandCenter\CalendarEventService;
@@ -99,26 +100,16 @@ class CommandCenterApiController extends Controller
         $period = now()->format('Y-m');
 
         // Activity points
-        $defIds = DB::table('activity_definitions')
-            ->where('is_enabled', 1)->where('scope', 'system')->pluck('id');
-
-        // daily_activity_entries has agency_id but no automatic tenant scope on
-        // this raw query-builder path. user_id is self-scoped here, but the
-        // agency_id filter is added as defense in depth, matching every other
-        // daily_activity_entries call site fixed in this pass.
+        // The one shared points rule (ActivityPointsService): count x weight over every
+        // counted entry. The agency filter is explicit because the raw query builder
+        // bypasses the BelongsToAgency scope.
         $agencyId = $user->effectiveAgencyId();
 
-        // M6.5 — achievement-total filter.
-        $mtdPoints = (int) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)->where('e.period', $period)
-            ->whereIn('e.activity_definition_id', $defIds)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->sum(DB::raw('e.value * d.weight'));
+        $mtdPoints = (int) round(ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->id)
+                ->where('e.period', $period)
+        ));
 
         $monthlyTarget = (int) (DB::table('targets')
             ->where('user_id', $user->id)->where('period', $period)

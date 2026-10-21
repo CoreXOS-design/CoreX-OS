@@ -180,18 +180,6 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
-  "agent.daily": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'My Daily Activity' and 'Daily Activity Capture' are two distinct links that both resolve via overlapping patterns to the same route. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
-  },
-  "agent.daily.print": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
   "agent.dashboard": {
     "flags": [
       "NO_ITEM"

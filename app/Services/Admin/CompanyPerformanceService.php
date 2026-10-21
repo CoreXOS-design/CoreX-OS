@@ -3,61 +3,13 @@
 namespace App\Services\Admin;
 
 use Carbon\Carbon;
+use App\Services\Activity\ActivityPointsService;
 use Illuminate\Support\Facades\DB;
 use App\Services\Finance\CommissionCalculator;
 use App\Services\Finance\FinanceReadModel;
 
 class CompanyPerformanceService
 {
-    /**
-     * Points weights (edit these anytime).
-     * These are intentionally simple + readable for now.
-     */
-    private function weights(): array
-    {
-
-        // === PERIOD TOTALS (single source of truth: sum of branch cards) ===
-        $tot['actuals']['ledger_company_income'] = 0.0;
-        $tot['actuals']['ledger_agent_income'] = 0.0;
-        $tot['actuals']['ledger_company_retained'] = 0.0;
-
-        $tot['actuals']['team_company_income'] = 0.0;
-        $tot['actuals']['team_agent_income'] = 0.0;
-        $tot['actuals']['team_company_retained'] = 0.0;
-return [
-            'calls_made'            => 1,
-            'doors_knocked'         => 2,
-            'whatsapps_sent'        => 1,
-            'referrals_asked'       => 3,
-            'flyers_dropped'        => 1,
-            'presentations_booked'  => 5,
-            'presentations_done'    => 8,
-            'oats_signed'           => 12,
-            'eats_signed'           => 12,
-            'buyer_leads'           => 2,
-            'seller_leads'          => 3,
-            'portal_leads'          => 1,
-            'referral_leads'        => 3,
-            'buyer_appointments'    => 8,
-            'otps_written'          => 10,
-            'otps_accepted'         => 15,
-            'otps_collapsed'        => -5,
-        ];
-    }
-
-    private function dailyPointsExpr(): string
-    {
-        // Build SQL expression: COALESCE(col,0)*weight + ...
-        $parts = [];
-        foreach ($this->weights() as $col => $w) {
-            $w = (float)$w;
-            if ($w === 0.0) continue;
-            $parts[] = "(COALESCE($col,0) * " . $w . ")";
-        }
-        if (count($parts) === 0) return "0";
-        return implode(" + ", $parts);
-    }
-
     public function getPeriodRollup(string $period, ?int $agencyId = null): array
     {
         // Safety: ensure no leaked branch-scope vars ever trigger warnings
@@ -130,25 +82,12 @@ return [
               ->selectRaw('COALESCE(SUM(deals.total_commission), 0) as gross_commission')
               ->get()
               ->keyBy('user_id');
-            $pointsExpr = "(
-                SELECT COALESCE(SUM(dae.value * ad.weight),0)
-                FROM daily_activity_entries dae
-                JOIN activity_definitions ad ON ad.id = dae.activity_definition_id
-                WHERE dae.user_id = daily_activities.user_id
-                  AND dae.activity_date = daily_activities.activity_date
-                  AND ad.is_enabled = 1
-            )";
-        // M6.5 — achievement-total filter.
-        $daily = DB::table('daily_activity_entries as dae')
-            ->join('activity_definitions as ad', 'ad.id', '=', 'dae.activity_definition_id')
+        // The one shared points rule (ActivityPointsService): count x weight over every counted entry.
+        $daily = ActivityPointsService::counted($agencyId, 'dae', 'ad')
             ->whereIn('dae.user_id', $agentIds)
             ->where('dae.period', $period)
-            ->where('ad.is_enabled', 1)
-            ->whereIn('dae.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('dae.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId !== null, fn($q) => $q->where('dae.agency_id', $agencyId))
             ->groupBy('dae.user_id')
-            ->selectRaw("dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(dae.value * ad.weight),0) as points_sum")
+            ->selectRaw('dae.user_id as user_id, COUNT(*) as rows_count, COALESCE(SUM(' . ActivityPointsService::sqlPoints('dae', 'ad') . '),0) as points_sum')
             ->get()
             ->keyBy('user_id');
 $branches = DB::table('branches')
@@ -627,26 +566,15 @@ foreach ($rows as &$r) {
         /* BM_TEAM_INCOME_ALLOCATIONS_END */
 
         /* BM_V2_POINTS_PATCH */
-        // BM points must match Agent dashboard (V2): sum(value * weight) from daily_activity_entries joined to activity_definitions,
-        // filtered by: period, user branch membership, enabled definitions, and scope visibility (global + branch-specific for this branch).
-        // M6.5 — achievement-total filter.
-        $pointsActual = (float) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
+        // BM points must match the Agent dashboard: both use ActivityPointsService (count x weight over every
+        // counted entry), here for the agents of this branch who count toward the branch split.
+        $branchCounted = fn () => ActivityPointsService::counted($agencyId)
             ->join('users as u', 'u.id', '=', 'e.user_id')
             ->where('e.period', $period)
             ->where('u.branch_id', $branchId)
-              ->where('u.counts_for_branch_split', 1)
-            ->where('d.is_enabled', 1)
-            ->where(function ($q) use ($branchId) {
-                $q->where('d.scope', 'system')
-                  ->orWhere(function ($q2) use ($branchId) {
-                      $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
-                  });
-            })
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
-            ->sum(DB::raw('e.value * d.weight'));
+            ->where('u.counts_for_branch_split', 1);
+
+        $pointsActual = ActivityPointsService::sum($branchCounted());
 
         $pointsTarget = (float) DB::table('targets')
             ->where('period', $period)
@@ -674,25 +602,9 @@ foreach ($rows as &$r) {
             else $pointsStatus = 'Behind';
         }
 
-        // M6.5 — achievement-total filter.
-        $todayPoints = (float) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->join('users as u', 'u.id', '=', 'e.user_id')
-            ->where('e.period', $period)
-            ->where('u.branch_id', $branchId)
-              ->where('u.counts_for_branch_split', 1)
-            ->where('e.activity_date', $today->toDateString())
-            ->where('d.is_enabled', 1)
-            ->where(function ($q) use ($branchId) {
-                $q->where('d.scope', 'system')
-                  ->orWhere(function ($q2) use ($branchId) {
-                      $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
-                  });
-            })
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
-            ->sum(DB::raw('e.value * d.weight'));
+        $todayPoints = ActivityPointsService::sum(
+            $branchCounted()->where('e.activity_date', $today->toDateString())
+        );
         /* BM_V2_POINTS_PATCH_END */
 
 
@@ -805,69 +717,32 @@ foreach ($rows as &$r) {
             elseif ($pointsActual >= $expectedByNow * 0.95) $status = 'On pace';
             else $status = 'Behind';
         }
-        // Momentum 7d + today breakdown
-        $pointsExpr = $this->dailyPointsExpr();
-
+        // Momentum 7d + today breakdown — from the live entries table through the one shared
+        // points rule (the old `daily_activities` table is abandoned and holds no rows).
         $from = (clone $today)->subDays(6)->toDateString();
         $to   = $today->toDateString();
 
         $m = [];
+        $todayBreakdown = [];
         if (!empty($agentIds)) {
-            // M6.5 — achievement-total filter.
-            $m = DB::table('daily_activity_entries as e')
-                  ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-                  ->whereIn('e.user_id', $agentIds)
-                  ->whereBetween('e.activity_date', [$from, $to])
-                  ->where('d.is_enabled', 1)
-                  ->where(function ($q) use ($branchId) {
-                      $q->where('d.scope', 'system')
-                        ->orWhere(function ($q2) use ($branchId) {
-                            $q2->where('d.scope', 'branch')->where('d.branch_id', (int)$branchId);
-                        });
-                  })
-                  ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-                  ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-                  ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
-                  ->groupBy(DB::raw('date(e.activity_date)'))
-                  ->orderBy(DB::raw('date(e.activity_date)'))
-                  ->selectRaw('date(e.activity_date) as d, COALESCE(SUM(e.value * d.weight),0) as pts')
-                  ->get()
-                  ->keyBy('d')
-                  ->all();
-}
+            $m = ActivityPointsService::sumByDate(
+                ActivityPointsService::counted($agencyId)
+                    ->whereIn('e.user_id', $agentIds)
+                    ->whereBetween('e.activity_date', [$from, $to])
+            );
+
+            // Breakdown of today's counted activity (name => count) across the branch.
+            $todayBreakdown = ActivityPointsService::countsByActivityName(
+                ActivityPointsService::counted($agencyId)
+                    ->whereIn('e.user_id', $agentIds)
+                    ->where('e.activity_date', $to)
+            );
+        }
 
         $momentum7 = [];
         for ($i=0; $i<7; $i++) {
             $d = (clone $today)->subDays(6-$i)->toDateString();
-            $momentum7[] = ['date' => $d, 'points' => isset($m[$d]) ? (float)$m[$d]->pts : 0];
-        }
-
-        $todayPoints = 0.0;
-        $todayBreakdown = [];
-        if (!empty($agentIds)) {
-            $todayPoints = (float) (DB::table('daily_activities')
-                ->whereIn('user_id', $agentIds)
-                ->where(DB::raw('date(activity_date)'), $today->toDateString())
-                ->selectRaw('COALESCE(SUM(' . $pointsExpr . '),0) as pts')
-                ->value('pts') ?? 0);
-
-            // Breakdown of real activity columns (sum counts across the branch for today)
-            $cols = array_keys($this->weights());
-            $select = [];
-            foreach ($cols as $c) $select[] = "COALESCE(SUM($c),0) as $c";
-
-            $row = DB::table('daily_activities')
-                ->whereIn('user_id', $agentIds)
-                ->where(DB::raw('date(activity_date)'), $today->toDateString())
-                ->selectRaw(implode(', ', $select))
-                ->first();
-
-            if ($row) {
-                foreach ($cols as $c) {
-                    $v = (int)($row->$c ?? 0);
-                    if ($v > 0) $todayBreakdown[$c] = $v;
-                }
-            }
+            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d] ?? 0)];
         }
 
         $rollup['rows'] = $rows;
@@ -907,19 +782,15 @@ foreach ($rows as &$r) {
             else $pointsStatus = 'Behind';
         }
 
-        // Today points (company-wide, V2 truth) — M6.5 achievement-total filter.
-        $todayPoints = (float) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->join('users as u', 'u.id', '=', 'e.user_id')
-            ->where('e.period', $period)
-            ->whereDate('e.activity_date', $today->toDateString())
-            ->where('u.is_active', 1)
-            ->whereIn('u.role', ['agent','branch_manager','admin'])
-            ->where('d.is_enabled', 1)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
-            ->sum(DB::raw('e.value * d.weight'));
+        // Today points (company-wide, V2 truth) — the one shared points rule.
+        $todayPoints = ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->join('users as u', 'u.id', '=', 'e.user_id')
+                ->where('e.period', $period)
+                ->whereDate('e.activity_date', $today->toDateString())
+                ->where('u.is_active', 1)
+                ->whereIn('u.role', ['agent','branch_manager','admin'])
+        );
 
         $rollup['points'] = [
             'actual' => $pointsActual,
@@ -954,47 +825,32 @@ foreach ($rows as &$r) {
             abort(404, 'Agent not found in this branch for this period');
         }
 
-        // Agent-only momentum + today breakdown (uses same weights system, but scoped to this agent)
+        // Agent-only momentum + today breakdown, from the live entries table through the one shared
+        // points rule (the old `daily_activities` table is abandoned and holds no rows).
         $today = Carbon::today();
-        $pointsExpr = $this->dailyPointsExpr();
 
         $from = (clone $today)->subDays(6)->toDateString();
         $to   = $today->toDateString();
 
-        $m = DB::table('daily_activities')
-            ->where('user_id', $userId)
-            ->whereBetween(DB::raw('date(activity_date)'), [$from, $to])
-            ->groupBy(DB::raw('date(activity_date)'))
-            ->orderBy(DB::raw('date(activity_date)'))
-            ->selectRaw('date(activity_date) as d, COALESCE(SUM(' . $pointsExpr . '),0) as pts')
-            ->get()
-            ->keyBy('d')
-            ->all();
+        $m = ActivityPointsService::sumByDate(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $userId)
+                ->whereBetween('e.activity_date', [$from, $to])
+        );
 
         $momentum7 = [];
         for ($i = 0; $i < 7; $i++) {
             $d = (clone $today)->subDays(6 - $i)->toDateString();
-            $momentum7[] = ['date' => $d, 'points' => isset($m[$d]) ? (float)$m[$d]->pts : 0];
+            $momentum7[] = ['date' => $d, 'points' => (float) ($m[$d] ?? 0)];
         }
 
-        // Today breakdown (per activity column)
-        $todayBreakdown = [];
-        $cols = array_keys($this->weights());
-        $select = [];
-        foreach ($cols as $c) $select[] = "COALESCE(SUM($c),0) as $c";
+        // Today breakdown (activity name => count)
+        $todayBreakdown = ActivityPointsService::countsByActivityName(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $userId)
+                ->where('e.activity_date', $to)
+        );
 
-        $row = DB::table('daily_activities')
-            ->where('user_id', $userId)
-            ->where(DB::raw('date(activity_date)'), $today->toDateString())
-            ->selectRaw(implode(', ', $select))
-            ->first();
-
-        if ($row) {
-            foreach ($cols as $c) {
-                $v = (int)($row->$c ?? 0);
-                if ($v > 0) $todayBreakdown[$c] = $v;
-            }
-        }
 return [
             'agent' => $agent,
             // keep the same meta block structure used elsewhere (contains pace/status/per_day_needed etc.)

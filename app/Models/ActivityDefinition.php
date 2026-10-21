@@ -39,7 +39,7 @@ final class ActivityDefinition extends Model
     ];
 
     protected $casts = [
-        'weight'     => 'integer',
+        'weight'     => 'decimal:2',
         'sort_order' => 'integer',
         'is_enabled' => 'boolean',
     ];

@@ -237,7 +237,7 @@ final class DemoAgentDailyActivitySeeder
                 'slug' => null,
                 'activity_definition_id' => $defId,
                 'subject_type' => null,
-                'value_per_event' => (int) round((float) $weight),
+                'value_per_event' => 1, // a COUNT per event; points = count x weight (ActivityPointsService)
                 'requires_feedback' => $requiresFeedback,
                 'auto_revoke_after_hours' => 24,
                 'daily_cap' => null,
