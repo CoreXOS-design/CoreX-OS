@@ -472,7 +472,8 @@ class ReosTenancyConfirmService
 
         $new = [
             'rental_amount' => $p['rent'],
-            'deposit_amount' => $p['deposit'] ?? null,
+            // reOS saying nothing (or 0) about the deposit never wipes the one CoreX already holds.
+            'deposit_amount' => $p['deposit'] ?? $lease->deposit_amount,
             'start_date' => $p['lease_start_date'],
             'end_date' => $end,
             'is_month_to_month' => $end === null,

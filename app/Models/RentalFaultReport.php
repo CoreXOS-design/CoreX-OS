@@ -157,6 +157,8 @@ class RentalFaultReport extends Model
         'owner_reminder_1_at' => 'datetime',
         'owner_reminder_2_at' => 'datetime',
         'owner_queue_flagged_at' => 'datetime',
+        'owner_chase_from' => 'datetime',
+        'owner_chase_failed_at' => 'datetime',
         'reported_at' => 'datetime',
         'resolved_at' => 'datetime',
         'cancelled_at' => 'datetime',

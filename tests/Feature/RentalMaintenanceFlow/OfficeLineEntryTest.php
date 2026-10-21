@@ -119,8 +119,11 @@ final class OfficeLineEntryTest extends TestCase
         $receipts = $this->receiptsOf($line)->sortBy('id')->values();
         $this->assertCount(2, $receipts, 'photo rows are immutable: the newer one supersedes on screen');
         $html = $this->actingAs($this->user)->get(route('corex.rental-job-cards.show', $this->card))->assertOk()->getContent();
-        $this->assertStringContainsString('data-open-receipt="' . $receipts->last()->storage_path . '"', $html);
-        $this->assertStringNotContainsString('data-open-receipt="' . $receipts->first()->storage_path . '"', $html);
+        // the thumb is a signed link to the private file (a new URL on every render): read the file it opens back out of the link
+        preg_match_all('/data-open-receipt="([^"]+)"/', $html, $shown);
+        $shownRefs = array_map(fn ($u) => $this->refOfSignedUrl(html_entity_decode($u)), $shown[1]);
+        $this->assertContains($receipts->last()->storage_path, $shownRefs);
+        $this->assertNotContains($receipts->first()->storage_path, $shownRefs);
     }
 
     // ── change, archive, undo ───────────────────────────────────────────────────────────
@@ -184,5 +187,28 @@ final class OfficeLineEntryTest extends TestCase
         $this->assertStringContainsString('name="receipt_file"', $html);
         $this->assertStringContainsString('<span>Take photo</span>', $html);
         $this->assertStringContainsString('<span>Choose from phone</span>', $html);
+    }
+
+    /** Audit 2026-10-20 (L1 / L2) on the office add. */
+    public function test_the_office_add_replay_of_an_archived_line_and_a_lock_timeout_are_messages_not_a_success_or_a_500(): void
+    {
+        $key = 'office-key-1234-abcd';
+        $first = $this->store(['description' => 'Washer', 'quantity' => 1, 'unit_cost' => '3.50', 'client_key' => $key])->assertOk();
+        RentalJobCardLine::findOrFail($first->json('line_id'))->delete();
+
+        $again = $this->store(['description' => 'Washer', 'quantity' => 1, 'unit_cost' => '3.50', 'client_key' => $key]);
+        $this->assertNotSame(200, $again->status());
+        $this->assertStringContainsString('archived', $again->getContent());
+        $this->assertSame(0, RentalJobCardLine::count(), 'the replay did not bring it back or report it added');
+
+        $lock = \Illuminate\Support\Facades\Cache::lock("office-line-key:{$this->card->id}:other-key-1234-abcd:lock", 30);
+        $this->assertTrue($lock->get());
+        try {
+            $busy = $this->store(['description' => 'Tap', 'quantity' => 1, 'unit_cost' => '3.50', 'client_key' => 'other-key-1234-abcd']);
+        } finally {
+            $lock->release();
+        }
+        $this->assertNotSame(500, $busy->status());
+        $this->assertStringContainsString('still being saved', $busy->getContent());
     }
 }

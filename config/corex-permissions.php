@@ -142,6 +142,11 @@ return [
         // archive/restore pair, same as every sibling module. See the
         // role_permissions migration alongside this for who was migrated onto it.
         ['key' => 'rental_applications.archive',         'label' => 'Archive',                             'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 5],
+        // 2026-10-20 (audit fix, finding 2) - the authorisation screens (queue, review, approve / decline / ask for more
+        // information) had NO permission key at all, only the per-user approver tick. This is the route / role gate in
+        // front of that tick: it lets a role be switched off from the screens, and it is never a substitute for being
+        // an approver (User::mayDecideRentalApplications() still decides who may make the call).
+        ['key' => 'rental_applications.authorise',      'label' => 'Open the Authorisation Screens (Approve / Decline)', 'section' => 'agency-tracker', 'type' => 'action', 'module' => 'rental_applications', 'sort_order' => 6],
 
         // AT-392 — Contact rental-history visibility, its own scope independent of
         // rental_applications.view's own ceiling (a plain agent's list-screen scope
@@ -1171,7 +1176,7 @@ return [
                 // (admin-only, matching manage_finance_definitions / outreach_templates.manage).
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
-                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive', 'rental_applications.authorise',
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all
                 // should have access but agencies can set who can use inventory" —
                 // a sensible broad default, agency-configurable via Role Manager,
@@ -1187,6 +1192,9 @@ return [
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
                 'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_notices.view', 'rental_breaches.view', 'rental_breaches.manage',
+                // AT-495 - the Notices tabs work out of the box: a branch manager sends notices and keeps the agency's notice templates (Johan's ticket;
+                // the exception to "manage_settings stays admin-only" - the templates ARE the agency's working documents).
+                'rental_notices.create', 'rental_notice_templates.manage_settings',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
@@ -1372,7 +1380,7 @@ return [
                 // manage_settings is deliberately not granted here (admin-only).
                 // .archive (2026-09-12) — Archive/Restore were gated on .create by mistake;
                 // granted here to preserve this role's existing effective access unchanged.
-                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive',
+                'rental_applications.view', 'rental_applications.create', 'rental_applications.view_returned', 'rental_applications.archive', 'rental_applications.authorise',
                 // 2026-09-22, Johan's ruling: "it should be a role setting but all
                 // should have access but agencies can set who can use inventory" —
                 // a sensible broad default, agency-configurable via Role Manager,
@@ -1388,6 +1396,7 @@ return [
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
                 'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_notices.view', 'rental_breaches.view', 'rental_breaches.manage',
+                'rental_notices.create', // AT-495 - an agent sends (and resends) notices on their own leases
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
@@ -1642,7 +1651,7 @@ return [
                 'packs.create', 'packs.edit', 'presentations.create', 'presentations.edit',
                 'proforma.generate', 'proforma.view', 'properties.ad_templates.manage', 'properties.archive',
                 'properties.create', 'properties.edit', 'properties.share', 'publish_properties',
-                'rental_applications.archive', 'rental_applications.create', 'rental_applications.view', 'rental_applications.view_returned',
+                'rental_applications.archive', 'rental_applications.authorise', 'rental_applications.create', 'rental_applications.view', 'rental_applications.view_returned',
                 'rentals.archive', 'rentals.create', 'rentals.edit', 'roles.view',
                 'run_analysis', 'sales_docs.archive', 'sales_docs.create', 'sales_docs.edit',
                 'send_messages', 'shared_drive.files.delete', 'shared_drive.folders.create', 'shared_drive.folders.delete',

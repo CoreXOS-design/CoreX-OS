@@ -179,8 +179,10 @@ final class ReportAiCapsAndLayoutCasesTest extends TestCase
         $again = $this->upload();
         ParseMarketReportJob::dispatchSync($again->id);
         Http::assertSentCount(2);
-        $this->assertSame('layout_case_open', $again->refresh()->spot_check_results['reason_code']);
-        $this->assertSame($held->refresh()->layout_case_id, $again->layout_case_id);
+        // Johan, 20 Oct 2026 (paraphrase): an agency over its limit holds only its own report. The case it joined made no AI
+        // attempt, so it does not stop an AI read; this agency is still over its limit, so this report is held too.
+        $this->assertSame('ai_monthly_cap', $again->refresh()->spot_check_results['reason_code']);
+        $this->assertSame($held->refresh()->layout_case_id, $again->layout_case_id, 'one case per layout');
         Notification::assertNotSentTo($this->owner, PillarEventNotification::class);
         Notification::assertSentTo(User::find($this->userId), PillarEventNotification::class, fn ($n) => $n->body === self::NOT_RECOGNISED);
     }
@@ -299,7 +301,10 @@ final class ReportAiCapsAndLayoutCasesTest extends TestCase
         $this->actingAs($this->owner)
             ->post(route('market-intelligence.reports.recogniser.rerun', $r1->id), ['force_new_ai' => 1])
             ->assertRedirect()
-            ->assertSessionHas('status', fn ($s) => str_contains($s, '1 queued layout case(s) closed') && str_contains($s, '2 of 2 queued report(s) now imported'));
+            ->assertSessionHas('status');
+        // the owner is told how the re-run ended (the queue runs inline in tests; on the server it is a worker)
+        Notification::assertSentTo($this->owner, PillarEventNotification::class, fn ($n) => $n->eventKey === 'market_report.rerun_finished'
+            && str_contains($n->body, '1 queued layout case(s) closed') && str_contains($n->body, '2 of 2 queued report(s) now imported'));
 
         Http::assertSentCount(2); // the failed one + the team's own retry — the queued reports cost nothing
         $this->assertSame('ai', $r1->refresh()->read_method);
@@ -352,7 +357,9 @@ final class ReportAiCapsAndLayoutCasesTest extends TestCase
         $this->actingAs($this->owner)
             ->post(route('market-intelligence.reports.recogniser.layouts.approve', $layout->id))
             ->assertRedirect()
-            ->assertSessionHas('status', fn ($s) => str_contains($s, 'Layout approved.') && str_contains($s, '1 of 1 queued report(s) now imported'));
+            ->assertSessionHas('status', fn ($s) => str_contains($s, 'Layout approved.'));
+        Notification::assertSentTo($this->owner, PillarEventNotification::class, fn ($n) => $n->eventKey === 'market_report.layout_resolved'
+            && str_contains($n->body, '1 of 1 queued report(s) now imported'));
 
         $this->assertCount($callsBefore, Http::recorded(), 'approval and the automatic re-run make no AI call');
         $this->assertSame('approved', $layout->refresh()->status);

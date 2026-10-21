@@ -11,7 +11,7 @@
     <div style="padding: 30px 20px; background-color: #ffffff; border: 1px solid #e0e0e0; border-top: none;">
         <p>Dear {{ $recipientName }},</p>
         <p>Please find attached a notice ({{ strtolower($noticeLabel) }}) regarding {{ $propertyAddress }}. You will also find it in your portal, under Documents.</p>
-        <p>Regards,<br>{{ $agencyName }}</p>
+        <p>Regards,<br>@if($senderName !== ''){{ $senderName }}<br>@endif{{ $agencyName }}</p>
     </div>
 </body>
 </html>

@@ -3,13 +3,14 @@
 namespace App\Jobs;
 
 use App\Models\AgencyWebhookDelivery;
+use App\Support\Net\SafeWebhookUrl;
+use App\Support\Net\UnsafeWebhookUrlException;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -73,11 +74,17 @@ class DeliverAgencyWebhook implements ShouldQueue
         $signature = hash_hmac('sha256', $body, $key->webhook_secret);
 
         try {
-            $response = Http::withHeaders([
-                'Content-Type'     => 'application/json',
-                'X-CoreX-Signature' => $signature,
-                'X-CoreX-Event'     => $delivery->event_name,
-            ])->timeout($this->timeout)->withBody($body, 'application/json')->post($key->webhook_url);
+            // SafeWebhookUrl: public hosts only, connection pinned to the checked address, no redirects followed.
+            $response = app(SafeWebhookUrl::class)->post(
+                $key->webhook_url,
+                $body,
+                [
+                    'Content-Type'      => 'application/json',
+                    'X-CoreX-Signature' => $signature,
+                    'X-CoreX-Event'     => $delivery->event_name,
+                ],
+                $this->timeout,
+            );
 
             $delivery->forceFill([
                 'attempts'        => $delivery->attempts + 1,
@@ -91,6 +98,22 @@ class DeliverAgencyWebhook implements ShouldQueue
 
             $delivery->last_error = 'HTTP ' . $response->status();
             $this->scheduleRetryOrFail($delivery);
+        } catch (UnsafeWebhookUrlException $e) {
+            if (! $e->permanent) {
+                // Host did not resolve right now: an ordinary failed attempt, retried on the usual schedule.
+                $delivery->forceFill(['attempts' => $delivery->attempts + 1, 'last_error' => mb_substr($e->getMessage(), 0, 250)]);
+                $this->scheduleRetryOrFail($delivery);
+
+                return;
+            }
+            // The address points somewhere CoreX must never post to: do not retry, fail it now.
+            $delivery->forceFill([
+                'attempts'      => $delivery->attempts + 1,
+                'last_error'    => mb_substr($e->getMessage(), 0, 250),
+                'failed_at'     => Carbon::now(),
+                'next_retry_at' => null,
+            ])->save();
+            Log::warning("Agency webhook delivery #{$delivery->id} refused: {$e->getMessage()}");
         } catch (\Throwable $e) {
             $delivery->forceFill([
                 'attempts'   => $delivery->attempts + 1,

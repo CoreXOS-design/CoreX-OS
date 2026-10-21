@@ -9,7 +9,8 @@ use App\Models\RentalTakeOnImportRow;
 use App\Models\RentalTakeOnImportRun;
 use App\Services\Rentals\TakeOnImport\Reos\ReosAgentMatcher;
 use App\Services\Rentals\TakeOnImport\Reos\ReosDecisionService;
-use App\Services\Rentals\TakeOnImport\Reos\ReosRowQuery;
+use App\Services\Rentals\TakeOnImport\Reos\ReosQuestions;
+use App\Services\Rentals\TakeOnImport\Reos\ReosRunDefaults;
 use App\Services\Rentals\TakeOnImport\Reos\ReosRunSummary;
 use App\Services\Rentals\TakeOnImport\Reos\ReosSuburbLookup;
 use Illuminate\Http\JsonResponse;
@@ -32,13 +33,13 @@ class ReosTakeOnApiController extends Controller
         return response()->json(['summary' => ReosRunSummary::for($run)]);
     }
 
-    /** One row's choices (tick, create-or-not, suburb, link a contact, agent, wallet). Returns the row re-drawn + the header numbers. */
+    /** One lease's answers (property, person, suburb, agent, wallet, retry). Returns the lease re-drawn (its line) and the header numbers. */
     public function decisions(Request $request, RentalTakeOnImportRow $row, ReosDecisionService $service): JsonResponse
     {
         $run = $row->run()->withTrashed()->firstOrFail();
         $this->guardRun($request, $run);
 
-        $input = $request->only(['selected', 'property_create', 'property_choice', 'person', 'suburb_id', 'owner', 'tenant', 'agent_user_id', 'tenant_wallet_ref']);
+        $input = $request->only(['property_choice', 'person', 'suburb_id', 'owner', 'tenant', 'confirm', 'agent_user_id', 'tenant_wallet_ref', 'retry']);
 
         try {
             $row = $service->apply($row, $run, $input);
@@ -49,24 +50,20 @@ class ReosTakeOnApiController extends Controller
         return $this->rowResponse($run, $row);
     }
 
-    /** Whole-batch actions: tick all ready / tick all / untick all / apply suburb / apply agent to the ticked rows. */
-    public function bulk(Request $request, RentalTakeOnImportRun $run, ReosDecisionService $service): JsonResponse
+    /** The agent for all leases and the suburb for all new properties: saved on the batch and given to every lease that has none of its own. */
+    public function defaults(Request $request, RentalTakeOnImportRun $run, ReosDecisionService $service): JsonResponse
     {
         $this->guardRun($request, $run);
 
-        $data = $request->validate([
-            'action' => 'required|string|in:tick_ready,tick_all,untick_all,apply_suburb,apply_agent',
-            'suburb_id' => 'nullable|integer',
-            'agent_user_id' => 'nullable|integer',
-        ]);
+        $request->validate(['agent_user_id' => 'nullable|integer', 'suburb_id' => 'nullable|integer']);
 
         try {
-            $changed = $service->bulk($run, $data['action'], ReosRowQuery::only((array) $request->input('filters', [])), $data);
+            $changed = $service->setDefaults($run, $request->only(['agent_user_id', 'suburb_id']));
         } catch (ValidationException $e) {
             return response()->json(['message' => collect($e->errors())->flatten()->first()], 422);
         }
 
-        return response()->json(['changed' => $changed, 'summary' => ReosRunSummary::for($run)]);
+        return response()->json(['changed' => $changed, 'summary' => ReosRunSummary::for($run), 'defaults' => ReosRunDefaults::get($run->fresh())]);
     }
 
     public function suburbs(Request $request): JsonResponse
@@ -107,14 +104,19 @@ class ReosTakeOnApiController extends Controller
 
     private function rowResponse(RentalTakeOnImportRun $run, RentalTakeOnImportRow $row): JsonResponse
     {
-        return response()->json([
-            'row_html' => view('corex.rentals.take-on-import._reos-row', [
-                'row' => $row->fresh(),
-                'run' => $run,
+        return response()->json($this->parts($run, $row->fresh()) + ['summary' => ReosRunSummary::for($run)]);
+    }
+
+    /** @return array{state:string, line_html:string} */
+    private function parts(RentalTakeOnImportRun $run, RentalTakeOnImportRow $row): array
+    {
+        return [
+            'state' => ReosQuestions::state($row),
+            'line_html' => view('corex.rentals.take-on-import._reos-line', [
+                'row' => $row, 'run' => $run, 'canManage' => true,
                 'agents' => app(ReosAgentMatcher::class)->users((int) $run->agency_id),
-                'canManage' => true,
+                'defaults' => ReosRunDefaults::get($run),
             ])->render(),
-            'summary' => ReosRunSummary::for($run),
-        ]);
+        ];
     }
 }

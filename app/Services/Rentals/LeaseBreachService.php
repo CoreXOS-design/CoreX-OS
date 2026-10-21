@@ -10,6 +10,7 @@ use App\Models\LeaseBreach;
 use App\Models\LeaseEvent;
 use App\Models\LeaseSetting;
 use App\Models\RentalNotice;
+use App\Models\RentalNoticeDelivery;
 use App\Models\RentalNoticeTemplate;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
@@ -305,7 +306,7 @@ class LeaseBreachService
             throw ValidationException::withMessages(['breach' => 'A notice to vacate needs an open breach notice that has not been remedied.']);
         }
         if (! $breach->remedyWindowPassed()) {
-            throw ValidationException::withMessages(['breach' => 'The tenant still has until ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available from that date.']);
+            throw ValidationException::withMessages(['breach' => 'The tenant has the whole of ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available from ' . $breach->vacateAvailableFrom()?->format('j F Y') . '.']);
         }
         if ($vacateDate === null || trim($vacateDate) === '') {
             throw ValidationException::withMessages(['vacate_date' => 'Choose the date the tenant must be out by.']);
@@ -320,9 +321,12 @@ class LeaseBreachService
         }
         $time = $vacateTime && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $vacateTime) ? $vacateTime : LeaseSetting::vacateTimeFor((int) $breach->agency_id);
         $lease = $breach->lease;
+        // ONE value: the date and time stored on the breach are the very ones the notice prints - a typed override of either key is dropped
+        // (audit 2026-10-20 finding 7), whoever calls this.
+        $figures = $this->vacateFigures($vacateOn->toDateString(), $time, (int) $breach->agency_id) + array_diff_key($figures, ['vacate_date' => 1, 'vacate_time' => 1]);
 
         [$notice, $pdf, $filename] = DB::transaction(function () use ($breach, $template, $agent, $figures, $lease, $vacateOn, $time) {
-            // the date and time are filed on the breach first so the notice prints them (typed figures still win)
+            // the date and time are filed on the breach first so the notice prints them
             $breach->forceFill(['vacate_date' => $vacateOn->toDateString(), 'vacate_time' => $time])->save();
             $result = $this->notices->generate($lease, $template, $figures, true, true, $agent, $breach);
             $breach->update(['status' => LeaseBreach::STATUS_ESCALATED, 'vacate_issued_at' => now(), 'vacate_issued_by_user_id' => $agent->id, 'vacate_rental_notice_id' => $result[0]->id]);
@@ -401,23 +405,64 @@ class LeaseBreachService
         $parts = [];
 
         foreach ([[$inBreach, 'notice'], [$other, 'told']] as [$contacts, $role]) {
-            $names = [];
+            $sent = [];
+            $noEmail = [];
+            $failed = [];
+            $linked = 0;
             foreach ($contacts as $contact) {
                 /** @var Contact $contact */
-                $names[] = trim((string) $contact->full_name) ?: ucfirst($breach->breach_party);
-                if (! $contact->email) {
-                    continue;
+                $linked++;
+                $name = trim((string) $contact->full_name) ?: ucfirst($breach->breach_party);
+                $email = trim((string) $contact->email);
+                $status = RentalNoticeDelivery::SENT;
+                $error = null;
+                // Bug class fixed 21 Oct 2026 (same as RentalNoticeService::send, AT-495): a contact with no email address, or an email that
+                // failed, is NOT sent and is written down as such - the lease log never says "sent to" someone who was not emailed.
+                if ($email === '') {
+                    $status = RentalNoticeDelivery::NOT_SENT_NO_EMAIL;
+                    $noEmail[] = $name;
+                } elseif (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $status = RentalNoticeDelivery::FAILED;
+                    $error = 'That is not a valid email address.';
+                    $failed[] = $name;
+                } else {
+                    try {
+                        $this->mail->send($email, $role === 'notice'
+                            ? new LeaseBreachNoticeMail($breach, $notice, $contact, $agent, $pdf, $filename)
+                            : new LeaseBreachOtherPartyMail($breach, $contact, $agent, $event));
+                        $sent[] = $name;
+                    } catch (\Throwable $e) {
+                        $status = RentalNoticeDelivery::FAILED;
+                        $error = Str::limit($e->getMessage(), 500);
+                        $failed[] = $name;
+                        Log::warning('Breach notice: email failed', ['breach' => $breach->id, 'to' => $email, 'error' => $e->getMessage()]);
+                    }
                 }
-                try {
-                    $this->mail->send($contact->email, $role === 'notice'
-                        ? new LeaseBreachNoticeMail($breach, $notice, $contact, $agent, $pdf, $filename)
-                        : new LeaseBreachOtherPartyMail($breach, $contact, $agent, $event));
-                } catch (\Throwable $e) {
-                    Log::warning('Breach notice: email failed', ['breach' => $breach->id, 'to' => $contact->email, 'error' => $e->getMessage()]);
+                // the notice itself (the party in breach) gets a delivery row, so the Notices sent list shows the same truth
+                if ($role === 'notice') {
+                    RentalNoticeDelivery::create([
+                        'agency_id' => $notice->agency_id, 'rental_notice_id' => $notice->id, 'contact_id' => $contact->id, 'recipient_role' => $breach->breach_party,
+                        'recipient_name' => $name, 'recipient_email' => $email !== '' ? $email : null,
+                        'status' => $status, 'error' => $error, 'attempted_at' => now(), 'attempted_by_user_id' => $agent->id,
+                    ]);
                 }
             }
-            $parts[] = ($role === 'notice' ? 'sent to ' : 'other party told: ') . ($names ? implode(', ', array_unique($names)) : 'no one linked');
+
+            $text = ($role === 'notice' ? 'sent to ' : 'other party told: ');
+            if ($linked === 0) {
+                $text .= 'no one linked';
+            } else {
+                $text .= $sent ? implode(', ', array_unique($sent)) : 'no one';
+                if ($noEmail) {
+                    $text .= ' - NOT sent to ' . implode(', ', array_unique($noEmail)) . ' (no email address on file)';
+                }
+                if ($failed) {
+                    $text .= ' - NOT sent to ' . implode(', ', array_unique($failed)) . ' (the email failed)';
+                }
+            }
+            $parts[] = $text;
         }
+        $this->notices->refreshDeliveryStatus($notice);
 
         return implode('; ', $parts);
     }

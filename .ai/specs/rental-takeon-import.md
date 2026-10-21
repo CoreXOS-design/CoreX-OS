@@ -526,6 +526,9 @@ is therefore empty on a reOS run; only the file names are recorded.
 
 ## R4. The review screen (the existing preview, extended for reOS runs)
 
+> **Superseded in layout and interaction by R14 (AT-481, 22 Oct 2026)** — the per-row table, the tick boxes, the six filters and the
+> bulk buttons described below are gone. What R4 says about *what is decided, how it is matched and what blocks a lease* still holds.
+
 `preview` renders `preview-reos.blade.php` when `run.source = reos_tenancy_schedule`; the existing view is untouched
 for `corex_template`. Plain JavaScript, no Alpine (the existing preview's rule).
 
@@ -812,3 +815,68 @@ review, decisions, bulk, import) + `ReosTakeOnApiController` (JSON), `preview-re
 `index.blade.php`, `show.blade.php`, `RentalTakeOnArchiveService` (R9), `Property` + `PropertyObserver` (R6 switch),
 `Lease` model, `LeaseController::update`, lease `show.blade.php`, `RentalPortalOverviewService`, portal `_home`,
 `routes/web.php`, `database/schema/mysql-schema.sql` (regenerated with `scripts/schema-dump.sh`).
+
+## R14. The review screen, rebuilt around "what needs me" (AT-481, Johan 22 Oct 2026)
+
+Johan: *"such a confusing screen. how do we expect any human to understand this"*. The table of 25 six-column rows with a tick box, a
+dropdown and a note on every row is replaced by a screen that shows only what a person has to do. Existing import logic is untouched:
+never duplicates, updates by reOS lease id, per-lease transaction, never mails or messages anyone.
+
+**R14.1 Four states** (one definition, `ReosQuestions::state`): **imported** · **failed** (the file itself is wrong, the lease is archived
+in CoreX, or an import attempt said why not — nothing a button answers) · **needs you** (one or more questions open) · **ready** (nothing
+open). A lease already in CoreX (same reOS id) is *ready* by default and only has its terms updated; it is asked nothing.
+`ReosBlockers::refresh` stores `decisions_json.needs` / `needs_count` / `hard` and sets `selected` = ready, so Import takes exactly the
+ready leases; there are no tick boxes.
+
+**R14.2 The open questions** (`ReosQuestions::open`, asked in this order, only when open):
+1. *Which property?* — several CoreX properties fit the address (`property_choice_required`). One button per candidate with suburb, kind /
+   beds / erf / complex and how many leases it already has; two candidates that are the same address in the same suburb are labelled
+   "Same property entered twice in CoreX (also #id)" (`ReosCandidateDetails`). **None — create new** is always offered.
+2. *Same person?* — a contact matched on phone / e-mail under a genuinely different name (`name_flag = differs`): "Is CoreX's 'X' (phone)
+   the same person as reOS's 'Y'?" **Same person** · **New contact** · **Pick another contact…**. A pure spelling difference
+   (`name_flag = spelling`, incl. a swapped first name / surname) is NOT a question: the existing contact is used and the line carries a
+   small "spelling differs" marker, expandable to change.
+3. *Company matched a person* (`person_for_company`): "Create company 'X' with P as contact person?" **Yes** (the existing one-click
+   convert: the company is created and P linked as contact person) · **Use P as is** · **New contact**.
+4. *Which suburb?* — a new property with no suburb, only when the batch default did not cover it.
+5. *Which agent?* — only when no agent matched from reOS and no batch default covers it.
+Answering "same person" / "use as is" stores `decisions_json.<party>.confirmed = true`; choosing the matched contact on purpose from the
+Change controls counts as the same answer. Any other choice (new contact, another contact, left out) leaves nothing to ask.
+
+**R14.3 The "for all" defaults** (once, at the top; stored on the run in `counts_json.defaults` — `ReosRunDefaults`): **Agent for all**
+and **Suburb for all new properties**. `ReosDecisionService::setDefaults` gives them to every waiting lease that has none of its own
+(`decisions_json.agent_source` = `default` | `reos` | `user`; `property.suburb_source`); a lease whose agent came from reOS or from the
+user keeps it; changing or clearing the default follows through on the leases that took it. A lease shows its own agent / suburb
+control only when it differs from the default or is missing (the line carries the agent's name when it differs).
+**The agent list** (`ReosAgentMatcher::users`): active, not archived, agency members only, not an assistant / viewer / office
+administrator, and no test / fixture account (an e-mail on `.test`, `.invalid`, `.local`, `.example`, `.localhost`).
+
+**R14.4 Layout (revised 22 Oct: ONE list, not a one-at-a-time card).** (1) Sticky header, flush to the top of the scroll area: "46 leases ·
+18 ready · 28 need you · 0 imported" (live; "· n failed" only when n > 0), **Back to batches** (secondary) and the primary **Import the N
+ready leases**. (2) The defaults bar (Agent for all / Suburb for all new properties) — saving redraws the numbers and the list in place,
+no reload. (3) Search + one **Show: All / Ready / Needs you / Imported / Failed** switch. (4) **One list of the leases** (sheet order, 50 a
+page): a line each — row, property, owner → tenant, rent (deposit only if there is one), dates, a small "spelling differs" marker where one
+was accepted, and a status chip: **Ready** (green) · **Needs you · n** (amber, n = open questions) · **Imported/Updated** (with a link to
+the lease) · **Failed** (red). A line opens IN PLACE: a lease that needs you opens onto its open questions as standard CoreX buttons
+(`corex-btn-outline`; the property candidates and "None — create new" are the same full-width button) and "When imported: …" (what will
+happen: "Uses existing property · creates 2 contacts"), with "Change something else" folded under it; a ready lease opens onto its Change
+controls (property, suburb, agent, each person, company people, wallet reference); a failed lease onto why in plain words, a link to the
+fix (the lease, or the batch upload for a bad file) and **Try again**. Answering a question saves at once; answering the last one closes
+the line (it turns green) and the next amber line opens by itself (and the first one opens on load). No helper paragraphs; no fact printed
+twice. List standard: search = address, owner, tenant, agent text, reOS id; sort = sheet row; real empty state; scoping unchanged (the run
+is checked with `visibleTo`; every API call re-checks it). Removed: the tick boxes, "Tick all / all / none", the six filter dropdowns +
+sort + Apply, the bulk endpoint, and the one-at-a-time card with its Back / Skip / "Lease 3 of 28".
+
+**R14.5 API** (`/api/v1/rentals/take-on-import/…`, catalogued): `POST rows/{row}/decisions` (property_choice, person, suburb_id,
+owner, tenant, confirm, agent_user_id, tenant_wallet_ref, retry → the lease re-drawn as its line and the header numbers);
+`POST runs/{run}/defaults`; `GET runs/{run}/summary`; suburbs / contacts search (unchanged).
+
+**R14.6 Deposit.** The deposit is read from the **Deposit Required** column (found by its heading, like every other column). On the
+first real batch (QA1 batch 6, 46 leases) the cell held 0 on every lease. A 0 is "no deposit given", not a deposit of nothing: it is no
+longer stored as R0.00 on the lease or shown on the line, and a re-import never overwrites a deposit CoreX already holds with an empty
+or 0 one. What the column held across the file (blank / 0 / an amount) is recorded on the batch (`counts_json.deposit_column`).
+
+**R14.7 Tests** (`tests/Feature/Rentals/TakeOnImport/Reos/ReosReviewQueueTest.php` plus the existing files updated): states and
+counts, each question and its answers, spelling auto-accept with marker, defaults inherited / overridden / followed, the agent list,
+duplicates label, failed lines and Try again, Show/search, import takes exactly the ready leases, deposit 0.
+

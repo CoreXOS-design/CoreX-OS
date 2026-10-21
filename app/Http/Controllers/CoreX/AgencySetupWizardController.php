@@ -847,6 +847,7 @@ class AgencySetupWizardController extends Controller
                     'omr_mark_threshold' => \App\Models\RentalInspectionSetting::omrMarkThresholdFor($agency->id),
                     'omr_unsure_below' => \App\Models\RentalInspectionSetting::omrUnsureBelowFor($agency->id),
                     'note_read_min_confidence' => \App\Models\RentalInspectionSetting::noteReadMinConfidenceFor($agency->id),
+                    'note_read_enabled' => \App\Models\RentalInspectionSetting::noteReadEnabledFor($agency->id),
                     'form_paper_size' => \App\Models\RentalInspectionSetting::formPaperSizeFor($agency->id),
                     'form_safe_margin_mm' => \App\Models\RentalInspectionSetting::formSafeMarginMmFor($agency->id),
                     // §43 (2026-10-05) — inspection scheduling notifications; declared in the config, never named here.

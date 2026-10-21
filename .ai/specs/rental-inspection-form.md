@@ -1236,3 +1236,13 @@ button is gone.
 - Files: `scan-review.blade.php` (header, `$rowView` closure shared by the header's blockers and the rows), `corex-scan-review.js`,
   `RentalInspectionScanController.php` (`notesRequiredKeys`, `scan_refused`), `RentalInspectionScanReviewNotesPhotosTest` (4 new tests).
 
+
+### 13.17 Audit fixes of 20 Oct 2026: unchanged rows keep their note, the AI switch, the upload bounds (M1, M7, M8, L5; QA1 only)
+
+Full list: `rental-inspections.md` section 69.
+
+- **A note beside an already-recorded row is read (M1).** A row whose item is already recorded on screen (it printed greyed) and whose tick is unchanged or absent used to be skipped before its note area was looked at. Now, with note reading on, a row whose note area has ink (`INK_MIN`) is proposed with the on-screen condition (not flagged, `tick_boxes` 0) and carries the AI note; rows with nothing written beside them are still "unchanged" and skipped, and an untrusted page (fewer than half its rows located) still proposes nothing.
+- **AI reading is per agency, ON by default, under the platform master switch (M7).** `rental_inspection_settings.note_read_enabled` (null = on). An agency that switches it off never has a crop sent. Settings page + Setup Wizard `leases` step (`note_read_enabled`).
+- **Upload bounds (M8).** At most `MAX_PAGES` = 30 pages per upload (refused with a readable reason); the file is rasterized once per request (QR-owner look and re-file reuse the pages; the QR look only needs the first four); the read stops itself at 80 % of `max_execution_time`; any failure or a fatal time-limit leaves the scan `failed` with a plain-words reason, never `processing`. Still synchronous.
+- **Re-read keeps an applied scan applied (L5).** After `reread()`, a scan with applied marks and none left unapplied is `applied` again, not `needs_review`.
+- Files: `RentalInspectionScanReaderService`, `ScanTimeBudgetExceeded`, `RentalInspectionNoteReadService`, `RentalInspectionScanController`, `RentalInspectionSettingsController`, `AgencySetupWizardController`, `config/agency-onboarding-copy.php`, `rental-inspections.blade.php` (settings), migration `2026_11_26_100000_...`, tests in `RentalInspectionScanReviewNotesPhotosTest`.

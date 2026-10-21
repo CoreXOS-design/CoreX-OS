@@ -237,6 +237,18 @@
                     </p>
                 </div>
                 <div>
+                    <label class="flex items-center gap-2 text-sm font-semibold" style="color:var(--text-primary);">
+                        <input type="hidden" name="note_read_enabled" value="0">
+                        <input type="checkbox" name="note_read_enabled" value="1" @checked(old('note_read_enabled', $noteReadEnabled))>
+                        Scanned form: read handwritten notes with AI
+                    </label>
+                    <p class="text-xs mt-2" style="color: var(--text-muted);">
+                        On (the default): the handwritten note area of each row that has writing in it is sent to an AI service to be read and
+                        pre-filled for the agent to confirm. Off: nothing from your scanned forms is sent to an AI service and the agent types the
+                        notes in. (Ticks are always read inside CoreX.) CoreX can also switch this off for every agency at once.
+                    </p>
+                </div>
+                <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Scanned form: handwritten notes to type in below this confidence</label>
                     <input type="number" name="note_read_min_confidence" value="{{ old('note_read_min_confidence', $noteReadMinConfidence) }}"
                            min="0.1" max="0.95" step="0.05"

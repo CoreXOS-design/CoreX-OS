@@ -2100,12 +2100,14 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * every live photo, every room note and the overall notes. Stored on a signature when a party signs from their
      * link, so a later change to the report is detectable. Built from fresh scope-free queries so the value is the same
      * whoever asks (a tenant with no login, an agent, a console command). Only the signature records it — whether and
-     * how a later change is acted on is not decided yet (spec §46.8).
+     * how a later change is acted on is not decided yet (spec §46.8). Late offline evidence (audit M3) is left out: it is shown apart from the body.
      */
     public function reportFingerprint(): string
     {
         $observations = RentalInspectionObservation::withoutGlobalScopes()
             ->where('rental_inspection_id', $this->id)
+            // Audit M3 - late offline evidence (flagged after signing) is not part of the signed body, so it never moves the fingerprint.
+            ->whereNull('added_after_signing_at')
             ->orderBy('id')
             ->get(['id', 'rental_inspection_item_id', 'condition', 'notes'])
             ->map(fn ($o) => [$o->id, $o->rental_inspection_item_id, $o->condition, $o->notes])
@@ -2121,6 +2123,7 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
                 }
             })
             ->whereNull('deleted_at')
+            ->whereNull('added_after_signing_at')
             ->orderBy('id')
             ->pluck('id')
             ->all();

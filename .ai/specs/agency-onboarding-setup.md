@@ -354,6 +354,7 @@ by oversight — do not reinstate them without asking:
     savers `RentalApplicationSettingsController::updateCreditBureau` / `updateTenantedLabel`, now
     `has()`-guarded so a post that never rendered them leaves the value alone).
   - `lease_settings.show_lease_type_field` (toggle; `LeaseSettingsController::update`, already guarded).
+  - `rental_inspection_settings.note_read_enabled` (toggle, default ON; audit M7, 20 Oct 2026, Johan - per-agency switch for AI reading of handwritten notes on a scanned site form, under the platform master switch; `has()`-guarded in `RentalInspectionSettingsController::update`),
   - `rental_inspection_settings.omr_unsure_below` and `note_read_min_confidence` (numbers, 0.1-0.95, default 0.50 each; AT-472, 20 Oct 2026, form spec §13.15 - the scanned-form confidence lines for "ticks to check" and "handwritten notes to type in"; filled()-guarded in `RentalInspectionSettingsController::update`),
   - `rental_inspection_settings.form_paper_size` (select; AT-463, 15 Oct 2026 - the paper the printed site form is laid out for; has()-guarded), `rental_inspection_settings.require_notes_blocks_progression` (toggle) and `omr_mark_threshold`
     (number 0.05-0.95) — saved by `RentalInspectionSettingsController::update` (new `has()`/`filled()`
@@ -876,3 +877,7 @@ Real-world data (real SA agency name/address, real commission %) per BUILD_STAND
 ### Addendum 20 Oct 2026 (AT-475 P3) - Commission step also carries one agency setting
 
 Step 5 (`commission`) now has a `controls` entry besides its inline partial: `portal_show_agency_commission_totals` (`agencies` column, toggle, default OFF) - "Show agents their branch and agency commission totals" (My Portal). It is saved by the same `CommissionSettingsController@update` saver, which writes it only when the field was posted (section 6.1), so a form that never rendered it cannot switch it off. The same toggle is on both commission settings screens (`corex/settings/_portal-commission-totals`).
+
+### 5.5 Timezone - the agency's own (audit 2026-10-20, L7)
+
+`agencies.timezone` (an IANA name such as `Africa/Johannesburg` or `Europe/London`; NULL = the application's timezone, which is what every agency has used until now, so nothing moves on deploy). `Agency::outreachTimezone()` - the one seam `AppDate::agencyTimezone()` and every rentals screen, mail and crew page reads - returns the agency's own valid setting, else `config('app.timezone')` (never a literal `UTC` or a place name). **Where it is set:** the Setup Wizard identity step (control `timezone`, a select defaulting to "Same as the system", saved by `SettingsController@updateAgency`, written only when the step posted it - 6.1, so an absent box never wipes it; blank clears it back to the system default; a name PHP does not know is refused), Company Settings, and the Settings > Agency form (shared partial `partials/agency-timezone-field`). Times already stored are not converted: stored datetimes stay in the application timezone and are SHOWN in the agency's. Test: `tests/Feature/Onboarding/AgencyTimezoneSettingTest.php`.

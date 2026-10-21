@@ -15014,6 +15014,18 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 - **A25 - FICA link life.** The four hard-coded `addDays(14)` are gone; the life is the agency's existing FICA setting `FicaWindows::linkExpiryDays` (Settings -> FICA time windows and the Setup Wizard's Compliance step, default 14), in the one helper above.
 
 
+## Audit follow-up 2026-10-20 - who may decide when no approver is set up (notices / portal audit, finding 2)
+
+**Ruling (paraphrase, not a quote): Johan, 20 Oct 2026 - while an agency has no approver configured, ONLY an agency administrator may approve or decline an application; everyone else is told an approver must be set up and who can do it.** This replaces the earlier A4/A27 line above that let "whoever reviews the file" decide.
+
+- `User::mayDecideRentalApplications` and `mayDecideOwnRentalApplication` no longer have a "no approver = anyone" branch: a configured Reviewer / Override approver, or an administrator (`isRentalApplicationOverrideTier`, i.e. `admin` / `super_admin`), may decide; an administrator may decide their own file. With no approver set up that leaves the administrators only. The mode in force stays one step (`effectiveApprovalModeFor`), so the administrator is never sent to an empty queue.
+- `guardCanDecide` (approve / decline / request-more-info) answers an agent in that state: "Your agency has no approver set up yet, so only an agency administrator may approve or decline this application. An administrator can choose approvers in Settings -> Rental applications."
+- Review screen (`no-authoriser-warning`): an administrator sees "...approved directly by an administrator (no second person checks the decision)"; everyone else sees "Your agency has no approver set up yet, so this application cannot be approved or declined until one is. An agency administrator can choose approvers in Settings -> Rental applications." The "Submit for approval" button and the one-step note are not shown to them (the hand-off is refused anyway: `reason: no_authoriser`).
+- **Permission key.** The authorisation screens (`rental-applications/authorisation/*`: queue, review, documents, marks, assessment, approve, decline, request-more-info) are behind `rental_applications.authorise` (route group middleware; sidebar "Application Authorisation" item). It is a role gate in FRONT of the per-user approver tick, never a substitute for it. In `config/corex-permissions.php` and in the role defaults of every role that holds `rental_applications.view`. Migration `2026_11_26_100000` grants it to every role that holds `rental_applications.view` (same grants as today, so nobody loses a screen) and never restores a soft-deleted (deliberately revoked) row.
+- Tests: `RentalApplicationAuditFixesTest` (agent refused, administrator approves, own file, review-screen wording, route needs the key) and `NoticesPortalAuditFixesTest` (the grant migration).
+
+
+
 
 ## QA1 testing fixes, 21 Oct 2026 (cc1) - AT-485 / AT-486 / AT-487 / AT-488 / AT-482 (Johan's morning test)
 
@@ -15051,3 +15063,7 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 - **Declined / withdrawn / reopened:** not listened to - matches stay as they are.
 - **History.** A Core Match has no change-history table of its own, so the change is written to the application's audit trail (`core_match / rental_ceiling_set`: per match old `price_max`, the new ceiling, summary "Approved for R 10 500: the upper rent on 2 Core Matches was set to that amount.").
 - **Not changed:** the review screen's wishlist drawer still prefills from the approved amount and refuses a higher figure; a contact's matches are not re-checked when an approved amount is later reduced other than via a fresh approval.
+
+### Send greyed out whenever a property was being linked (Johan, QA1, 21 Oct 2026) - cc2
+**Report:** "an application does not want to send whenever a property is selected; with no property it works" (contact HAS an email). **Cause (found in a real browser on QA1, app 443):** not the server - create + send with a property answers exactly like without one for every kind of rental property on QA1 (let_out, to_let, active, draft; the AT-485 duplicate guard keys on the applicant only; the property rule on create is "rental listing the user can see" and says so on screen). The **"Link a property" control on the application page sits INSIDE the application form**, and that form marks itself edited (`dirty = true`, Send then says "Save your changes first" and is disabled) on every input/change event that bubbles up to it - so typing in the property search greyed Send out, and linking the property (saved by its own request) never released it. **Fix:** the control stops its own input/change events at its wrapper (`@input.stop @change.stop` on `[data-qa=application-property-link]`, `partials/property-link-control.blade.php`); real edits to the form still mark it edited. Test: `RentalApplicationPropertySendTest`. Same bug class to watch: any non-field control (search box, picker) placed inside this form must do the same.
+

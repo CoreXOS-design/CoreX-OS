@@ -46,7 +46,7 @@ final class RentalsStepRuledInSettingsTest extends TestCase
 
     /** The ruled-in controls (and their list markers): the keys a post "that never rendered the new controls" does not carry. */
     private const RULED_IN_KEYS = [
-        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'omr_unsure_below', 'note_read_min_confidence', 'form_paper_size', 'form_safe_margin_mm',
+        'credit_bureau_name', 'tenanted_label', 'show_lease_type_field', 'require_notes_blocks_progression', 'omr_mark_threshold', 'omr_unsure_below', 'note_read_min_confidence', 'note_read_enabled', 'form_paper_size', 'form_safe_margin_mm',
         'refusal_reason_presets', 'condition_states_submitted', 'condition_states', 'baseline_condition_key',
         'photo_note_classifications_submitted', 'photo_note_classifications',
         'inventory_condition_states_submitted', 'inventory_condition_states',
@@ -213,6 +213,36 @@ final class RentalsStepRuledInSettingsTest extends TestCase
         $this->actingAs($admin)
             ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['form_paper_size' => 'tabloid']);
         $this->assertSame('letter', RentalInspectionSetting::formPaperSizeFor($agency->id));
+    }
+
+    /** Audit M7 (Johan, 20 Oct 2026) - AI reading of handwritten notes is a per-agency switch, on by default, and is in the wizard. */
+    public function test_the_handwriting_ai_switch_is_in_the_wizard_saves_and_is_never_reset_by_a_step_that_omits_it(): void
+    {
+        $agency = $this->agency();
+        $admin = $this->admin($agency);
+
+        $this->actingAs($admin)
+            ->get(route('corex.agency-setup.step', ['step' => 'leases']))
+            ->assertOk()
+            ->assertSee('Scanned inspection form: read handwritten notes with AI')
+            ->assertSee('name="note_read_enabled"', false);
+        $this->assertTrue(RentalInspectionSetting::noteReadEnabledFor($agency->id), 'on by default');
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['note_read_enabled' => '0'])
+            ->assertSessionHasNoErrors();
+        $this->assertFalse(RentalInspectionSetting::noteReadEnabledFor($agency->id));
+
+        // A post that never rendered the control leaves the agency's choice alone.
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency))
+            ->assertSessionHasNoErrors();
+        $this->assertFalse(RentalInspectionSetting::noteReadEnabledFor($agency->id));
+
+        $this->actingAs($admin)
+            ->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $this->basePayload($admin, $agency) + ['note_read_enabled' => '1'])
+            ->assertSessionHasNoErrors();
+        $this->assertTrue(RentalInspectionSetting::noteReadEnabledFor($agency->id));
     }
 
     /** AT-463 / rental-inspections.md §63 - the printed form's safe margin is in the wizard like every other setting. */

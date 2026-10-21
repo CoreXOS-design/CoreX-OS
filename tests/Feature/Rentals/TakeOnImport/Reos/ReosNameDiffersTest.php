@@ -11,6 +11,7 @@ use App\Models\RentalTakeOnImportRun;
 use App\Models\User;
 use App\Services\Rentals\TakeOnImport\Reos\ReosDecisionService;
 use App\Services\Rentals\TakeOnImport\Reos\ReosNameCompare;
+use App\Services\Rentals\TakeOnImport\Reos\ReosQuestions;
 use App\Services\Rentals\TakeOnImport\Reos\ReosRunSummary;
 use App\Services\Rentals\TakeOnImport\Reos\ReosTenancyRunService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,18 +84,16 @@ final class ReosNameDiffersTest extends TestCase
         self::assertSame($tenant['existing_contact_id'], $row->decisions_json['tenant']['contact_id']);
         self::assertTrue($row->decisions_json['name_differs']);
         self::assertNotContains('name_differs', collect($row->blockers_json)->pluck('code')->all(), 'a name warning is not a blocker');
-        $row = app(ReosDecisionService::class)->apply($row, $run, ['selected' => true, 'suburb_id' => $this->p24Suburb()->id]);
+        $row = app(ReosDecisionService::class)->apply($row, $run, ['suburb_id' => $this->p24Suburb()->id]);
         self::assertFalse($row->is_blocked, json_encode($row->blockers_json));
 
-        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
-        self::assertStringContainsString('Name differs', $html);
-        self::assertStringContainsString('Elana Reid', $html);
-        self::assertStringContainsString('Matched a person', $html);
-        self::assertStringContainsString("likely the company's contact person", html_entity_decode($html));
-        self::assertStringContainsString('data-name-flag="differs"', $html);
-        self::assertStringContainsString('data-name-flag="person_for_company"', $html);
-        self::assertStringContainsString('Use the contact already in CoreX', $html);
-        self::assertSame(1, ReosRunSummary::for($run)['name_differs']);
+        // Both are questions in the lease's opened line (never a blocker); the person is the default until the user answers.
+        self::assertSame(['company:owner', 'name:tenant'], ReosQuestions::needs($row));
+        $card = html_entity_decode($this->lineHtml($admin, $row));
+        self::assertStringContainsString('is CoreX’s “Elana Reid”', $card);
+        self::assertStringContainsString('create company “ZZ TEST Wildevy Properties Pty Ltd” with Arne Nel as contact person?', $card);
+        self::assertStringContainsString('the same person as reOS’s “ZZ TEST Aiesha Steady”', $card);
+        self::assertSame([1, 0], [ReosRunSummary::for($run)['needs'], ReosRunSummary::for($run)['ready']], 'one lease, in one state');
     }
 
     public function test_the_same_person_written_another_way_is_not_flagged(): void
@@ -113,8 +112,7 @@ final class ReosNameDiffersTest extends TestCase
         $row2 = $run2->rows()->first();
         self::assertArrayNotHasKey('name_flag', $row2->landlord_match_json[1], 'same company, different suffix spelling');
         self::assertFalse($row2->decisions_json['name_differs']);
-        self::assertSame(0, ReosRunSummary::for($run2)['name_differs']);
-        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run2))->assertOk()->assertDontSee('Name differs —')->assertDontSee('Matched a person');
+        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run2))->assertOk()->assertDontSee('the same person as reOS')->assertDontSee('as contact person?');
     }
 
     public function test_the_flag_clears_when_the_user_creates_a_new_contact_or_leaves_the_person_out_or_links_another(): void
@@ -129,10 +127,9 @@ final class ReosNameDiffersTest extends TestCase
 
         $row = $svc->apply($row, $run, ['tenant' => ['action' => 'create']]);
         self::assertFalse($row->decisions_json['name_differs'], 'creating a new contact leaves nothing to warn about');
-        self::assertSame(0, ReosRunSummary::for($run)['name_differs']);
 
         $row = $svc->apply($row, $run, ['tenant' => ['action' => 'link', 'contact_id' => $row->tenant_match_json[1]['existing_contact_id']]]);
-        self::assertTrue($row->decisions_json['name_differs'], 'back to the matched contact: the warning is back');
+        self::assertFalse($row->decisions_json['name_differs'], 'choosing the matched contact again, on purpose, is "same person"');
 
         $row = $svc->apply($row, $run, ['tenant' => ['action' => 'skip']]);
         self::assertFalse($row->decisions_json['name_differs']);
@@ -141,19 +138,25 @@ final class ReosNameDiffersTest extends TestCase
         self::assertFalse($row->decisions_json['name_differs'], 'a contact the user picked by hand is their own decision');
     }
 
-    public function test_the_name_differs_filter_lists_only_flagged_leases(): void
+    public function test_answering_same_person_settles_the_difference_and_only_while_the_lease_still_uses_that_contact(): void
     {
         [$agency, $branch, $admin] = $this->reosAgency();
         $this->contact($agency, $branch, 'Elana', 'Reid', '0635550102');
-        $run = $this->makeRun($admin, [
-            $this->reosRow(['uuid' => self::UUID_A, 'Property Address' => '3 ZZ Flagged Road', 'Tenant' => 'ZZ TEST Aiesha Steady']),
-            $this->reosRow(['uuid' => self::UUID_B, 'Property Address' => '9 ZZ Clean Drive', 'Tenant' => 'Elana Reid', 'Owner' => 'ZZ TEST Owner Two', 'Owner Email' => 'zz.o2@example.test', 'Owner Phone' => '+27815550202']),
-        ]);
-        $url = route('corex.rentals.take-on-import.preview', $run);
+        $run = $this->makeRun($admin, [$this->reosRow(['Property Address' => '3 ZZ Flagged Road', 'Tenant' => 'ZZ TEST Aiesha Steady'])]);
+        $svc = app(ReosDecisionService::class);
+        $row = $run->rows()->first();
+        self::assertTrue($row->decisions_json['name_differs']);
+        self::assertContains('name:tenant', ReosQuestions::needs($row));
 
-        $this->actingAs($admin)->get($url)->assertOk()->assertSee('3 ZZ Flagged Road')->assertSee('9 ZZ Clean Drive')->assertSee('Contact names');
-        $this->actingAs($admin)->get($url . '?names=differs')->assertOk()->assertSee('3 ZZ Flagged Road')->assertDontSee('9 ZZ Clean Drive');
-        self::assertSame(1, ReosRunSummary::for($run)['name_differs']);
+        $row = $svc->apply($row, $run, ['confirm' => 'tenant']);
+        self::assertFalse($row->decisions_json['name_differs'], '"same person" settles it');
+        self::assertNotContains('name:tenant', ReosQuestions::needs($row));
+
+        // Choosing another contact and then the matched one again is a deliberate "same person".
+        $row = $svc->apply($row, $run, ['tenant' => ['action' => 'create']]);
+        $row = $svc->apply($row, $run, ['tenant' => ['action' => 'link', 'contact_id' => $row->tenant_match_json[1]['existing_contact_id']]]);
+        self::assertFalse($row->decisions_json['name_differs']);
+        self::assertTrue($row->decisions_json['tenant']['confirmed']);
     }
 
     // ── Johan's real-file check: spelling vs a real difference; companies are not people; the layout fits ──
@@ -240,7 +243,7 @@ final class ReosNameDiffersTest extends TestCase
         app(ReosDecisionService::class)->apply($other->rows()->first(), $other, ['person' => ['party' => 'owner', 'op' => 'add', 'contact_id' => $bebo->id]]);
     }
 
-    public function test_spelling_is_grey_not_counted_and_has_its_own_filter_while_real_differences_stay_amber_and_counted(): void
+    public function test_spelling_is_accepted_without_a_question_while_a_real_difference_is_asked(): void
     {
         [$agency, $branch, $admin] = $this->reosAgency();
         $this->contact($agency, $branch, 'Sipho', 'Mkozi', '0635550201');          // spelling apart from the reOS "Mkhozi"
@@ -249,55 +252,45 @@ final class ReosNameDiffersTest extends TestCase
             $this->reosRow(['uuid' => self::UUID_A, 'Property Address' => '3 ZZ Spelling Road', 'Tenant' => 'Sipho Mkhozi', 'Tenant Phone' => '+27635550201', 'Tenant Email' => '', 'Owner' => 'ZZ O One', 'Owner Phone' => '', 'Owner Email' => '']),
             $this->reosRow(['uuid' => self::UUID_B, 'Property Address' => '9 ZZ Real Drive', 'Tenant' => 'Aiesha Steady', 'Tenant Phone' => '+27635550202', 'Tenant Email' => '', 'Owner' => 'ZZ O Two', 'Owner Phone' => '', 'Owner Email' => '']),
         ]);
-        $rows = $run->rows()->orderBy('row_number')->get();
+        $suburb = $this->p24Suburb();
+        $svc = app(ReosDecisionService::class);
+        $rows = $run->rows()->orderBy('row_number')->get()->map(fn ($r) => $svc->apply($r, $run, ['suburb_id' => $suburb->id]));
 
         self::assertSame('spelling', $rows[0]->tenant_match_json[1]['name_flag']);
         self::assertTrue($rows[0]->decisions_json['spelling_differs']);
-        self::assertFalse($rows[0]->decisions_json['name_differs'], 'a spelling difference is not in the amber total');
+        self::assertFalse($rows[0]->decisions_json['name_differs'], 'a spelling difference is not an outstanding difference');
+        self::assertSame(ReosQuestions::READY, ReosQuestions::state($rows[0]), 'accepted without asking');
         self::assertSame('differs', $rows[1]->tenant_match_json[1]['name_flag']);
         self::assertTrue($rows[1]->decisions_json['name_differs']);
-        self::assertFalse($rows[1]->decisions_json['spelling_differs']);
+        self::assertSame(ReosQuestions::NEEDS, ReosQuestions::state($rows[1]));
 
         $sum = ReosRunSummary::for($run);
-        self::assertSame([1, 1], [$sum['name_differs'], $sum['spelling_differs']]);
+        self::assertSame([1, 1], [$sum['ready'], $sum['needs']]);
 
-        $url = route('corex.rentals.take-on-import.preview', $run);
-        $page = $this->actingAs($admin)->get($url)->assertOk();
-        $page->assertSee('Spelling differs —', false)->assertSee('Name differs</strong> —', false)->assertSee('data-test="spelling-chip"', false);
-        $this->actingAs($admin)->get($url . '?names=spelling')->assertOk()->assertSee('3 ZZ Spelling Road')->assertDontSee('9 ZZ Real Drive');
-        $this->actingAs($admin)->get($url . '?names=differs')->assertOk()->assertSee('9 ZZ Real Drive')->assertDontSee('3 ZZ Spelling Road');
-        $this->actingAs($admin)->get($url)->assertSee('Spelling differs</option>', false);
+        // The ready lease carries the small marker; the other is a question.
+        $page = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
+        self::assertStringContainsString('data-name-flag="spelling"', $page);
+        self::assertStringContainsString('the same person as reOS’s “Aiesha Steady”', html_entity_decode($page));
 
         // Settled by creating a new contact: the spelling note goes too.
-        $row = app(ReosDecisionService::class)->apply($rows[0], $run, ['tenant' => ['action' => 'create']]);
+        $row = $svc->apply($rows[0], $run, ['tenant' => ['action' => 'create']]);
         self::assertFalse($row->decisions_json['spelling_differs']);
     }
 
-    public function test_the_review_screen_fits_the_page_and_the_sticky_header_is_solid_and_above_the_rows(): void
+    public function test_the_sticky_header_is_solid_above_the_rows_and_flush_with_the_top_of_the_scroll_area(): void
     {
         [, , $admin] = $this->reosAgency();
         $run = $this->makeRun($admin, [$this->reosRow()]);
 
         $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
 
-        // 1. Sticky header: solid background, above every row control (their result lists are z-20).
+        // Solid background, above every row control (their result lists are z-20).
         self::assertMatchesRegularExpression('/id="reos-bar"[^>]*position: sticky[^>]*z-index: 50[^>]*background: var\(--surface/', $html);
-        // 1b. Flush with the top of the scroll area (<main id="appScroll"> has padding, so top:0 would leave a strip of rows above the bar):
-        //     a negative top equal to that padding, and no top:0 anywhere on the bar.
+        // Flush with the top of the scroll area (<main id="appScroll"> has padding, so top:0 would leave a strip of rows above the bar):
+        // a negative top equal to that padding, and no top:0 anywhere on the bar.
         self::assertMatchesRegularExpression('/#reos-bar\s*\{\s*top:\s*-1rem;/', $html);
         self::assertMatchesRegularExpression('/min-width:\s*1024px\)\s*\{\s*#reos-bar\s*\{\s*top:\s*-1\.5rem;/', $html);
         self::assertDoesNotMatchRegularExpression('/id="reos-bar"[^>]*top:\s*0/', $html);
-        // 4. Grid fits without a horizontal page scroll: fixed layout, percentage columns that add up to 100, no fixed minimum widths,
-        //    controls capped to their column, and the to-fix notes inside the agent cell (six columns, not seven).
-        self::assertStringContainsString('table-layout: fixed', $html);
-        preg_match_all('/<col style="width:(\d+)%">/', $html, $cols);
-        self::assertCount(6, $cols[1]);
-        self::assertSame(100, array_sum(array_map('intval', $cols[1])));
-        $table = substr($html, strpos($html, 'id="reos-table"'), strpos($html, '</table>') - strpos($html, 'id="reos-table"'));
-        self::assertStringNotContainsString('min-w-[', $table, 'no fixed minimum widths inside the review table');
-        self::assertSame(6, preg_match_all('/<th[ >]/', substr($html, strpos($html, 'id="reos-table"'), 1800)), 'six header cells');
-        self::assertDoesNotMatchRegularExpression('/max-width:\d+(\.\d+)?rem/', substr($html, strpos($html, '<tbody>'), strpos($html, '</tbody>') - strpos($html, '<tbody>')), 'no control wider than its column');
-        self::assertMatchesRegularExpression('/Agent · to fix \/ to know/', $html);
     }
 
     public function test_a_batch_built_under_the_old_rules_is_rechecked_once_when_it_is_opened(): void
@@ -322,9 +315,8 @@ final class ReosNameDiffersTest extends TestCase
         self::assertSame('spelling', $row->tenant_match_json[1]['name_flag']);
         self::assertSame([false, true], [$row->decisions_json['name_differs'], $row->decisions_json['spelling_differs']]);
         self::assertSame(\App\Services\Rentals\TakeOnImport\Reos\ReosRowResolver::NAME_FLAGS_VERSION, $run->fresh()->counts_json['name_flags_v']);
-        self::assertStringNotContainsString('Matched a person', $html);
-        self::assertStringContainsString('Spelling differs —', $html);
-        self::assertSame(0, ReosRunSummary::for($run)['name_differs']);
+        self::assertStringNotContainsString('as contact person?', html_entity_decode($html));
+        self::assertSame(['suburb'], ReosQuestions::needs($row), 'the typo is no longer a question (only the suburb is left to ask)');
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────

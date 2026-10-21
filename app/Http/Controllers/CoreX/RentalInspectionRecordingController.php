@@ -1734,6 +1734,12 @@ class RentalInspectionRecordingController extends Controller
                 && ($denied = $this->refuseUnlessSavedSignatureUnlocked($request, $rentalInspection, $validated['signature_image'] ?? null))) {
                 return $denied;
             }
+            // Audit M2 - a hand-drawn "Sign now" agent signature is held to the same "only the inspection's own agent signs as the agent" rule.
+            if ($validated['disposition'] === RentalInspectionSignature::DISPOSITION_SIGNED
+                && ($validated['signing_method'] ?? null) === 'drawn'
+                && ($denied = $this->refuseUnlessInspectionsOwnAgent($request, $rentalInspection))) {
+                return $denied;
+            }
             $attributes = ['recorded_by_user_id' => $request->user()->id, 'client_idempotency_key' => $validated['client_idempotency_key'] ?? null];
             // §61 - a signature the logged-in agent drew on screen carries who (the agent's identity), when (the row's own
             // recorded-at), and where (IP and the device's user agent), and the report content it was given against.
@@ -1772,19 +1778,32 @@ class RentalInspectionRecordingController extends Controller
     }
 
     /**
+     * Audit B23 / M2 - the agent's signature row belongs to the agent doing this inspection (the report prints that agent's name under it): the
+     * inspector, else whoever created the inspection. A colleague who never attended cannot sign for them by either route (PIN or drawn).
+     */
+    private function refuseUnlessInspectionsOwnAgent(Request $request, RentalInspection $rentalInspection, string $how = ''): ?JsonResponse
+    {
+        $inspectorId = $rentalInspection->inspector_user_id ?: $rentalInspection->created_by_user_id;
+        if ($inspectorId && (int) $inspectorId !== (int) $request->user()->id) {
+            return response()->json(['message' => 'Only the agent who is doing this inspection can sign for the agent' . ($how !== '' ? ' ' . $how : '') . '.'], 403);
+        }
+
+        return null;
+    }
+
+    /**
      * Audit 2026-10-19 B23 - the agent's own signature row, by the saved-signature (PIN) route, is only accepted when (a) the signer IS the
      * inspection's inspector (the report prints that agent's name under the signature), (b) their saved signature is unlocked for THIS inspection
      * in this session (the PIN was entered - AgentSignatureService, never under impersonation), and (c) the image posted is exactly their saved
      * one. Before, any in-scope user holding `rental_inspections.create` could post any PNG as "the agent". A hand-drawn "Sign now" signature
-     * (signing_method=drawn) is a different, honest act - it carries the signer's own identity, IP and device - and is not held to this.
+     * (signing_method=drawn) carries the signer's own identity, IP and device, and (audit M2) is held to the first rule only - the signer must be the inspection's own agent.
      * Returns a JSON refusal, or null when the signature may be recorded.
      */
     private function refuseUnlessSavedSignatureUnlocked(Request $request, RentalInspection $rentalInspection, ?string $submittedImage): ?JsonResponse
     {
         $user = $request->user();
-        $inspectorId = $rentalInspection->inspector_user_id ?: $rentalInspection->created_by_user_id;
-        if ($inspectorId && (int) $inspectorId !== (int) $user->id) {
-            return response()->json(['message' => 'Only the agent who is doing this inspection can sign for the agent with their saved signature.'], 403);
+        if ($denied = $this->refuseUnlessInspectionsOwnAgent($request, $rentalInspection, 'with their saved signature')) {
+            return $denied;
         }
 
         $signatures = app(\App\Services\AgentSignatureService::class);

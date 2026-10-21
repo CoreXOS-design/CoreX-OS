@@ -17,6 +17,10 @@ use Illuminate\View\View;
  */
 class RentalNoticeTemplateController extends Controller
 {
+    /**
+     * AT-495 - the Templates tab. List-screen floor: search (name), sort (name - the default -, type, date added; either direction), filter (type,
+     * active / archived, date added range), pagination 25, real empty state. Agency-scoped by BelongsToAgency on the model.
+     */
     public function index(Request $request): View
     {
         $query = RentalNoticeTemplate::query();
@@ -29,10 +33,18 @@ class RentalNoticeTemplateController extends Controller
             $query->where('notice_type', $type);
         }
 
+        if ($from = $request->get('date_from')) {
+            $query->whereDate('created_at', '>=', $from);
+        }
+        if ($to = $request->get('date_to')) {
+            $query->whereDate('created_at', '<=', $to);
+        }
+
         $status = $request->get('status', 'active');
         if ($status === 'archived') {
             $query->onlyTrashed();
         } else {
+            $status = 'active';
             $query->where('is_active', true);
         }
 
@@ -41,11 +53,22 @@ class RentalNoticeTemplateController extends Controller
         if (!in_array($sort, $allowedSorts, true)) {
             $sort = 'name';
         }
-        $query->orderBy($sort);
+        $dir = $request->get('dir') === 'desc' ? 'desc' : 'asc';
+        $query->orderBy($sort, $dir)->orderBy('id');
 
         $templates = $query->paginate(25)->withQueryString();
 
-        return view('corex.rental-notice-templates.index', compact('templates', 'status', 'sort'));
+        return view('corex.rental-notice-templates.index', compact('templates', 'status', 'sort', 'dir'));
+    }
+
+    /** AT-495 - the Word document this template was made from, exactly as it was uploaded (404 when it was typed in, or is another agency's). */
+    public function downloadOriginal(int $id)
+    {
+        $template = RentalNoticeTemplate::withTrashed()->findOrFail($id); // BelongsToAgency: another agency's id is a 404
+        $path = (string) $template->source_file_path;
+        abort_unless($path !== '' && \Illuminate\Support\Facades\Storage::disk('local')->exists($path), 404);
+
+        return \Illuminate\Support\Facades\Storage::disk('local')->download($path, $template->source_file_name ?: basename($path));
     }
 
     public function create(): View
@@ -129,7 +152,7 @@ class RentalNoticeTemplateController extends Controller
     {
         $file = $request->file('document');
         if (! $file) {
-            $data['body_html'] = (string) ($data['body_html'] ?? '');
+            $data['body_html'] = \App\Support\Html\NoticeHtmlCleaner::clean((string) ($data['body_html'] ?? ''));
 
             return $data;
         }
@@ -144,6 +167,6 @@ class RentalNoticeTemplateController extends Controller
         $path = 'rental-notice-templates/' . (int) $request->user()->effectiveAgencyId() . '/' . uniqid() . '-' . $name;
         \Illuminate\Support\Facades\Storage::disk('local')->put($path, file_get_contents($file->getRealPath()));
 
-        return ['body_html' => $html, 'source_file_name' => $name, 'source_file_path' => $path] + $data;
+        return ['body_html' => \App\Support\Html\NoticeHtmlCleaner::clean($html), 'source_file_name' => $name, 'source_file_path' => $path] + $data;
     }
 }

@@ -150,8 +150,10 @@
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-m2m')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Goes month-to-month&hellip;</button>
                                 @endif
                                 @if($lease->hasActiveNotice())
+                                    @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-change-notice-outcome')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Change notice outcome&hellip;</button>
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-reverse-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Reverse notice&hellip;</button>
+                                    @endpermission
                                 @else
                                     @permission('rental_notices.review')
                                     <button type="button" x-on:click="open = false; $dispatch('open-modal', 'lease-dialog-tenant-notice')" class="block w-full text-left px-2 py-1.5 rounded" style="background: transparent;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">Tenant gave notice&hellip;</button>
@@ -309,8 +311,10 @@
 
             @if(!$lease->hasActiveNotice() && auth()->user()?->hasPermission('rental_notices.review'))
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="tenant">
                         <input type="hidden" name="_lease_action" value="tenant-notice">
                         <h2 class="text-lg font-medium">Tenant gave notice</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the landlord until you have checked it against the lease and the law and accepted it.</p>
@@ -342,8 +346,10 @@
                 </x-modal>
 
                 <x-modal name="lease-dialog-landlord-notice" :show="$openDialog === 'landlord-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="landlord">
                         <input type="hidden" name="_lease_action" value="landlord-notice">
                         <h2 class="text-lg font-medium">Landlord gave notice (not renewing)</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the tenant until you have checked it against the lease and the law and accepted it.</p>
@@ -476,7 +482,7 @@
                         @if($bf['can_act'])
                             <div class="flex flex-wrap items-center gap-2">
                                 <button type="button" class="corex-btn-primary text-xs" data-qa="next-breach-remedied" onclick="document.getElementById('next-breach-remedy-form').classList.toggle('hidden')">Breach remedied</button>
-                                @if($bf['tenant'])
+                                @if($bf['tenant'] && !empty($bf['can_vacate']))
                                     <a href="{{ route('corex.breaches.show', $bf['breach_id']) }}#vacate-box" class="corex-btn-outline text-xs" data-qa="next-breach-vacate">Send notice to vacate</a>
                                 @endif
                             </div>

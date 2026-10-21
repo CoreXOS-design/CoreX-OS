@@ -6,6 +6,7 @@
 --}}
 
 @section('content')
+<div class="mb-4">@include('corex.notices._tabs', ['active' => 'received'])</div>
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $unit = fn ($v) => $v ?: 'not stated';

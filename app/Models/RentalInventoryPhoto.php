@@ -43,8 +43,12 @@ class RentalInventoryPhoto extends Model
 
     /**
      * Audit 2026-10-19 B32 - a photo this inventory SHARES with the inspection: no file of its own, it shows the inspection photo named by
-     * `rental_inspection_photo_id`. The address a screen reads is the source photo's (a signed, expiring link); a source that has been archived
-     * leaves the reference with no picture, and {@see scopeUsable()} keeps such a reference out of every list.
+     * `rental_inspection_photo_id`. The address a screen reads is a signed, expiring link to that photo's file; a source that has been archived
+     * leaves a DRAFT inventory's reference with no picture, and {@see scopeUsable()} keeps such a reference out of every list.
+     *
+     * Audit M4: once the inventory is awaiting signatures or completed, its shared photos are part of signed evidence and no later archive of
+     * the inspection photo (or its inspection) takes them out of it - {@see self::evidenceIsLocked()}. The relation therefore includes
+     * archived sources; the address and the usable scope decide what is shown.
      */
     public function isReference(): bool
     {
@@ -53,20 +57,52 @@ class RentalInventoryPhoto extends Model
 
     public function sourceInspectionPhoto(): BelongsTo
     {
-        return $this->belongsTo(RentalInspectionPhoto::class, 'rental_inspection_photo_id');
+        return $this->belongsTo(RentalInspectionPhoto::class, 'rental_inspection_photo_id')->withTrashed();
+    }
+
+    /** Inventory statuses whose shared photos can no longer be taken out by archiving the inspection photo they point at. */
+    public const LOCKED_INVENTORY_STATUSES = [RentalInventory::STATUS_AWAITING_SIGNATURE, RentalInventory::STATUS_COMPLETED];
+
+    /** Audit M4 - is this photo's inventory awaiting signatures or completed (its shared photos are signed evidence)? */
+    public function evidenceIsLocked(): bool
+    {
+        $status = RentalInventory::withoutGlobalScopes()->whereKey($this->rental_inventory_id)->value('status');
+
+        return in_array($status, self::LOCKED_INVENTORY_STATUSES, true);
     }
 
     /**
      * What a screen puts in an `<img src>`. An own file stored on the private disk (a new upload) reads as a signed, expiring URL, like an
-     * inspection photo; a legacy row still holding a public /storage URL reads as it always did; a reference reads as its source photo's address.
+     * inspection photo; a legacy row still holding a public /storage URL reads as it always did; a reference reads as a signed link to its
+     * source photo's file.
+     *
+     * A reference link is guarded by THIS reference row and its inventory (audit L7: archiving the reference revokes links already handed out,
+     * checked when the link is served) and - while the inventory is still a draft - by the source photo and its inspection too, so archiving the
+     * source kills it there. On a locked inventory (audit M4) the source guards are dropped: the picture stays.
      */
     public function getStoragePathAttribute($value): ?string
     {
+        $images = app(\App\Services\Images\PrivateImageService::class);
+
         if (($this->attributes['rental_inspection_photo_id'] ?? null) !== null) {
-            return $this->sourceInspectionPhoto?->storage_path;
+            $source = $this->sourceInspectionPhoto;
+            if ($source === null) {
+                return null;
+            }
+            $raw = $source->rawStoragePath();
+            $own = [['rental_inventory_photos', (int) $this->id], ['rental_inventories', (int) $this->rental_inventory_id]];
+            $locked = $this->evidenceIsLocked();
+            if ($source->trashed() && ! $locked) {
+                return null;
+            }
+            if (! $images->isPrivate($raw)) {
+                return $raw; // a legacy public file: no signed link to guard
+            }
+            $guards = $locked ? $own : array_merge($own, [['rental_inspection_photos', (int) $source->id], ['rental_inspections', (int) $source->rental_inspection_id]]);
+
+            return $images->signedUrl($raw, $this->agency_id, $guards, RentalInspectionSetting::photoLinkMinutesFor($this->agency_id));
         }
 
-        $images = app(\App\Services\Images\PrivateImageService::class);
         if (! $images->isPrivate($value)) {
             return $value;
         }
@@ -100,6 +136,12 @@ class RentalInventoryPhoto extends Model
                         ->join('rental_inspections', 'rental_inspections.id', '=', 'rental_inspection_photos.rental_inspection_id')
                         ->whereNull('rental_inspection_photos.deleted_at')
                         ->whereNull('rental_inspections.deleted_at');
+                })
+                // Audit M4 - a shared photo on an inventory that is awaiting signatures or completed stays, whatever happens to its source.
+                ->orWhereIn($table . '.rental_inventory_id', function ($sub) {
+                    $sub->select('rental_inventories.id')->from('rental_inventories')
+                        ->whereIn('rental_inventories.status', self::LOCKED_INVENTORY_STATUSES)
+                        ->whereNull('rental_inventories.deleted_at');
                 });
         });
     }

@@ -166,6 +166,10 @@ class NotifyOnMarketReportParseFailure
                               . " AI reads has been reached. Until tomorrow, every report in a new layout is queued instead of read. First one queued: {$fileName} ({$agencyName}). Open the admin queue.",
                             $queueUrl, 'warning', $flaggedBy);
                     }
+                } elseif ($event instanceof MarketReportUnreadable && $event->caseId !== null && !$event->newCase) {
+                    // The report joined a layout case that already exists (an owner's re-run, or another agency's report
+                    // in the same layout): the team was alerted when the case was opened — once per new case, not per report.
+                    // A report with no case (its layout cannot be fingerprinted) still alerts: nothing else covers it.
                 } else {
                     $teamNotification = $this->notification($report, 'market_report.parse_unrecognized_team',
                         "Report layout needs adding: {$fileName} ({$agencyName})",

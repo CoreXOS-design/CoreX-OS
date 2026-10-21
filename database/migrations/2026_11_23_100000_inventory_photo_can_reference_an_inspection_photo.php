@@ -32,5 +32,15 @@ return new class extends Migration
             $table->dropUnique('rental_inv_photos_inspection_ref_unique');
             $table->dropConstrainedForeignId('rental_inspection_photo_id');
         });
+
+        // Audit L6 - put `storage_path` back to NOT NULL, but only when that cannot fail or lose anything: a reference row has no file of its
+        // own (NULL), and the reference column is already gone above, so such a row can no longer say what it showed. When any NULL exists the
+        // column is deliberately LEFT NULLABLE (the rows are kept, never invented a path or deleted) - bring them to a path or archive them
+        // first, then re-run the change by hand.
+        if (! \Illuminate\Support\Facades\DB::table('rental_inventory_photos')->whereNull('storage_path')->exists()) {
+            Schema::table('rental_inventory_photos', function (Blueprint $table) {
+                $table->string('storage_path')->nullable(false)->change();
+            });
+        }
     }
 };

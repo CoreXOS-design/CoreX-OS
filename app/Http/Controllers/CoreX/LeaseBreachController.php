@@ -206,6 +206,8 @@ class LeaseBreachController extends Controller
             // each template's own remedy period, so the screen can say how long the chosen one allows
             'windowByTemplate' => $templates->mapWithKeys(fn ($t) => [$t->id => $this->breaches->remedyWindowText($agencyId, $this->breaches->remedyDaysFor($t, $agencyId))])->all(),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
+            // AT-495 - "Use this template" on the Templates tab arrives with the template already chosen
+            'chosenTemplateId' => (int) $request->query('template'),
         ]);
     }
 
@@ -270,7 +272,7 @@ class LeaseBreachController extends Controller
             return back()->withInput()->withErrors($e->errors());
         }
 
-        return redirect()->route('corex.breaches.show', $breach->id)->with('success', 'Breach notice sent. The other party has been told.');
+        return redirect()->route('corex.breaches.show', $breach->id)->with($this->deliveryFlash($breach->notice, 'Breach notice sent. The other party has been told.'));
     }
 
     // ── remedy / vacate / archive ───────────────────────────────────────────
@@ -310,9 +312,11 @@ class LeaseBreachController extends Controller
             return back()->withErrors(['rental_notice_template_id' => 'Choose one of your agency\'s notice to vacate templates.']);
         }
         $figures = $this->parseFigures((string) ($data['figures_raw'] ?? ''));
-        // the vacate date / time and the breach summary the agent confirmed on the form (a typed name=value line still wins)
+        // The date and time the tenant must be out by come ONLY from the form's own fields - the one value the notice prints and the breach
+        // stores (audit 2026-10-20 finding 7). A typed vacate_date= / vacate_time= line is ignored; every other typed line still wins.
+        unset($figures['vacate_date'], $figures['vacate_time']);
         if (! empty($data['vacate_date'])) {
-            $figures += $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id);
+            $figures = $this->breaches->vacateFigures($data['vacate_date'], $data['vacate_time'] ?? null, (int) $breach->agency_id) + $figures;
         }
         if (trim((string) ($data['breach_summary'] ?? '')) !== '') {
             $figures += ['breach_summary' => trim($data['breach_summary'])];
@@ -330,7 +334,7 @@ class LeaseBreachController extends Controller
             return back()->withInput()->withErrors($e->errors());
         }
 
-        return redirect()->route('corex.breaches.show', $breach->id)->with('success', 'Notice to vacate sent. The landlord has been told.');
+        return redirect()->route('corex.breaches.show', $breach->id)->with($this->deliveryFlash($breach->fresh()->vacateNotice ?? null, 'Notice to vacate sent. The landlord has been told.'));
     }
 
     public function archive(Request $request, int $id): RedirectResponse
@@ -395,5 +399,20 @@ class LeaseBreachController extends Controller
         }
 
         return $figures;
+    }
+
+    /**
+     * Bug class fixed 21 Oct 2026 (as RentalNoticeService::send, AT-495): never say "sent" when the email did not reach everyone. The notice is
+     * filed on the lease and in both portals either way; the screen says plainly when the email did NOT go, so the agent hands it over another way.
+     */
+    private function deliveryFlash(?\App\Models\RentalNotice $notice, string $sentText): array
+    {
+        $status = $notice?->fresh()?->delivery_status;
+        if ($status === null || $status === \App\Models\RentalNotice::DELIVERY_SENT) {
+            return ['success' => $sentText];
+        }
+
+        return ['error' => 'The notice is filed on the lease and in the portals, but it was ' . ($status === \App\Models\RentalNotice::DELIVERY_PARTIAL ? 'only partly emailed' : 'NOT emailed')
+            . ' - someone has no email address on file or the email failed. See "Notices sent" or the lease log for who, and give it to them another way.'];
     }
 }

@@ -401,9 +401,14 @@ final class BreachTemplatesAndFollowUpTest extends TestCase
         $this->assertStringContainsString('Breach remedy date reached — was it fixed?', $html);
         $this->assertStringContainsString('data-qa="next-breach-remedied"', $html);
         $this->assertStringContainsString('Breach remedied', $html);
-        $this->assertStringContainsString('Send notice to vacate', $html);
-        $this->assertStringContainsString(route('corex.breaches.show', $breach->id) . '#vacate-box', $html);
+        // Johan 20 Oct 2026 (paraphrase): the tenant has the whole last remedy day - on the day itself the bar does NOT offer the notice to vacate
+        $this->assertStringNotContainsString('Send notice to vacate', $html);
         $this->assertStringContainsString('name="remedied_on"', $html);
+
+        $breach->forceFill(['remedy_deadline' => Carbon::today()->subDay()->toDateString()])->save(); // the next day
+        $next = $this->actingAs($this->agent)->get(route('corex.leases.show', $this->lease))->assertOk()->getContent();
+        $this->assertStringContainsString('Send notice to vacate', $next);
+        $this->assertStringContainsString(route('corex.breaches.show', $breach->id) . '#vacate-box', $next);
     }
 
     public function test_someone_who_may_not_act_on_breaches_only_sees_the_question(): void
@@ -450,7 +455,7 @@ final class BreachTemplatesAndFollowUpTest extends TestCase
         $this->assertSame('issued', $breach->fresh()->status);
     }
 
-    public function test_send_notice_to_vacate_is_available_from_the_remedy_by_date_and_stays_gated_on_an_unremedied_breach(): void
+    public function test_send_notice_to_vacate_is_available_from_the_day_after_the_remedy_by_date_and_stays_gated_on_an_unremedied_breach(): void
     {
         $vacate = $this->vacateTemplate();
         $breach = $this->openBreach(Carbon::today()->addDay()->toDateString());
@@ -459,12 +464,22 @@ final class BreachTemplatesAndFollowUpTest extends TestCase
         $post()->assertSessionHasErrors('breach'); // the day before the date
         $this->assertSame('issued', $breach->fresh()->status);
 
-        $breach->forceFill(['remedy_deadline' => Carbon::today()->toDateString()])->save(); // the day itself
+        // Johan 20 Oct 2026 (paraphrase): the tenant has the whole last remedy day - the day itself is still refused, and the message is not contradictory
+        $breach->forceFill(['remedy_deadline' => Carbon::today()->toDateString()])->save();
+        $this->assertFalse($breach->fresh()->canIssueVacate());
+        $this->assertTrue($breach->fresh()->remedyDateReached(), 'the "was it fixed?" question is still asked on the day');
+        $msg = $post()->assertSessionHasErrors('breach')->getSession()->get('errors')->first('breach');
+        $this->assertStringContainsString('the whole of ' . Carbon::today()->format('j F Y'), $msg);
+        $this->assertStringContainsString('available from ' . Carbon::tomorrow()->format('j F Y'), $msg);
+        $this->assertSame('issued', $breach->fresh()->status);
+
+        $breach->forceFill(['remedy_deadline' => Carbon::today()->subDay()->toDateString()])->save(); // the next day
         $this->assertTrue($breach->fresh()->canIssueVacate());
+        $this->assertSame(Carbon::today()->toDateString(), $breach->fresh()->vacateAvailableFrom()->toDateString());
         $post()->assertSessionHasNoErrors();
         $this->assertSame('escalated', $breach->fresh()->status);
 
-        $other = $this->openBreach(Carbon::today()->toDateString());
+        $other = $this->openBreach(Carbon::today()->subDay()->toDateString());
         $this->actingAs($this->agent)->post(route('corex.breaches.remedy', $other->id), ['note' => 'fixed'])->assertSessionHasNoErrors();
         $this->actingAs($this->agent)->post(route('corex.breaches.vacate', $other->id), ['rental_notice_template_id' => $vacate->id, 'intent' => 'send', 'vacate_date' => Carbon::today()->addDays(30)->toDateString()])->assertSessionHasErrors('breach');
     }
@@ -474,7 +489,7 @@ final class BreachTemplatesAndFollowUpTest extends TestCase
     public function test_the_vacate_date_starts_from_the_agency_setting_days_after_the_day_it_is_sent_and_stays_editable(): void
     {
         $vacate = $this->vacateTemplate();
-        $breach = $this->openBreach(Carbon::today()->toDateString());
+        $breach = $this->openBreach(Carbon::today()->subDay()->toDateString());
 
         $default = $this->actingAs($this->agent)->get(route('corex.breaches.show', $breach->id))->getContent();
         $this->assertStringContainsString('value="' . Carbon::today()->addDays(30)->toDateString() . '"', $default, '30 is the neutral default');

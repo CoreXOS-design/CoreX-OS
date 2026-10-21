@@ -100,6 +100,25 @@ class RentalWorkOrderPhoto extends Model
         return app(\App\Services\Images\PrivateImageService::class)->displayUrl($this->storage_path, (int) $this->agency_id, $this->imageGuards(), $variant);
     }
 
+    /**
+     * The address a picture gets in an EMAIL: a private picture is a signed link that lives for the longest picture-link window the portal
+     * allows (a mail is read hours later - the screen window would be dead by then; it still dies the moment the photo / work order / card is
+     * archived), a public one its own absolute address.
+     */
+    public function mailUrl(): ?string
+    {
+        $stored = trim((string) $this->storage_path);
+        if ($stored === '') {
+            return null;
+        }
+        $images = app(\App\Services\Images\PrivateImageService::class);
+        if ($images->isPrivate($stored)) {
+            return $images->signedUrl($stored, (int) $this->agency_id, $this->imageGuards(), \App\Models\RentalPortalSetting::MAX_PORTAL_PHOTO_LINK_MINUTES);
+        }
+
+        return str_starts_with($stored, 'http') ? $stored : url($stored);
+    }
+
     /** The file on disk (PDF, mail attachment, GD) for either kind of stored picture; null when it is not there. */
     public function absolutePath(): ?string
     {

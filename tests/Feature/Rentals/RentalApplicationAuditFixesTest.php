@@ -88,7 +88,7 @@ final class RentalApplicationAuditFixesTest extends TestCase
 
     // ── A4 / A27: no approver configured ──────────────────────────────────
 
-    public function test_with_no_approver_configured_approval_is_one_step_by_default_and_a_plain_agent_can_decide(): void
+    public function test_with_no_approver_configured_approval_is_one_step_by_default_but_only_an_administrator_can_decide(): void
     {
         $this->assertFalse(RentalApplicationQualifyingSetting::hasAuthoriserFor($this->agency->id));
         $this->assertSame('two_step', RentalApplicationQualifyingSetting::approvalModeFor($this->agency->id), 'the saved choice is untouched');
@@ -96,8 +96,15 @@ final class RentalApplicationAuditFixesTest extends TestCase
 
         $app = $this->application('returned');
 
+        // Johan, 20 Oct 2026 (paraphrase): until an approver is set up ONLY an agency administrator may approve or decline - not an agent, not even on their own file.
+        $this->assertFalse($this->agent->mayDecideRentalApplications($this->agency->id));
+        $this->assertFalse($this->agent->mayDecideOwnRentalApplication($this->agency->id));
         $this->actingAs($this->agent)->post(route('corex.rental-applications.authorisation.approve', $app), ['approved_rental_amount' => '9,500'])
-            ->assertRedirect(route('corex.rental-applications.review', $app));   // no queue to land in for a non-approver
+            ->assertForbidden()->assertSee('no approver set up yet', false)->assertSee('agency administrator', false);
+        $this->actingAs($this->agent)->post(route('corex.rental-applications.authorisation.decline', $app), ['decline_reason' => 'x'])->assertForbidden();
+        $this->assertSame('returned', $app->fresh()->status);
+
+        $this->actingAs($this->admin)->post(route('corex.rental-applications.authorisation.approve', $app), ['approved_rental_amount' => '9,500'])->assertRedirect();
 
         $app->refresh();
         $this->assertSame('approved', $app->status);
@@ -105,12 +112,42 @@ final class RentalApplicationAuditFixesTest extends TestCase
         $this->assertSame('approved', RentalApplicationStatusHistory::where('rental_application_id', $app->id)->latest('id')->value('to_status'));
     }
 
+    public function test_an_application_the_agent_created_is_not_theirs_to_approve_when_there_is_no_approver(): void
+    {
+        $app = $this->application('returned', ['created_by_user_id' => $this->agent->id]);
+
+        $this->actingAs($this->agent)->post(route('corex.rental-applications.authorisation.approve', $app), ['approved_rental_amount' => '9,500'])->assertForbidden();
+        $this->assertSame('returned', $app->fresh()->status);
+    }
+
+    public function test_the_authorisation_routes_need_the_authorise_permission(): void
+    {
+        $app = $this->application('returned');
+        $this->agency->update(['rental_application_ro_user_ids' => [$this->agent->id]]);
+        $this->setting(['approval_mode' => 'one_step']);
+
+        $this->actingAs($this->agent)->get(route('corex.rental-applications.authorisation.show', $app))->assertOk();
+
+        // an administrator took the permission off this role: the screens close even to a ticked approver
+        \App\Models\RolePermission::updateOrCreate(['role' => 'agent', 'permission_key' => 'rental_applications.view', 'agency_id' => $this->agency->id], ['scope' => 'agency']);
+        \App\Models\RolePermission::withTrashed()->where('role', 'agent')->where('permission_key', 'rental_applications.authorise')->where('agency_id', $this->agency->id)->forceDelete();
+        \App\Services\PermissionService::clearCache();
+        $this->assertFalse($this->agent->fresh()->hasPermission('rental_applications.authorise'), 'precondition: the role does not hold the key');
+        $this->actingAs($this->agent->fresh())->get(route('corex.rental-applications.authorisation.show', $app))->assertForbidden();
+        $this->actingAs($this->agent->fresh())->post(route('corex.rental-applications.authorisation.approve', $app), ['approved_rental_amount' => 9000])->assertForbidden();
+    }
+
     public function test_the_review_screen_and_the_settings_screen_warn_when_nobody_is_an_approver(): void
     {
         $app = $this->application('returned');
 
+        // a plain agent is told, plainly, that an approver must be set up and who can do it - and is not offered the hand-off
         $this->actingAs($this->agent)->get(route('corex.rental-applications.review', $app))
-            ->assertOk()->assertSee('no-authoriser-warning', false)->assertSee('no approver set up', false);
+            ->assertOk()->assertSee('no-authoriser-warning', false)->assertSee('no approver set up yet', false)->assertSee('An agency administrator can choose approvers', false)
+            ->assertDontSee('data-qa="submit-for-approval"', false)->assertDontSee('data-qa="one-step-note"', false);
+        // an administrator sees the fallback is in force
+        $this->actingAs($this->admin)->get(route('corex.rental-applications.review', $app))
+            ->assertOk()->assertSee('no-authoriser-warning', false)->assertSee('approved directly by an administrator', false);
 
         $this->actingAs($this->admin)->get(route('corex.settings.rental-applications.edit'))
             ->assertOk()->assertSee('No approver is set up', false);

@@ -420,7 +420,7 @@
                             @if($unsplitCount > 0)
                                 <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
                             @endif
-                            @unless($canApproveDirectly ?? false)
+                            @unless(($canApproveDirectly ?? false) || !empty($noAuthoriserWarning ?? null))
                             <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
                                     @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
                             @endunless

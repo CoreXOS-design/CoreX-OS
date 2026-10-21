@@ -9,6 +9,7 @@ use App\Models\RentalTakeOnImportRun;
 use App\Services\Rentals\TakeOnImport\Reos\ReosAgentMatcher;
 use App\Services\Rentals\TakeOnImport\Reos\ReosLayoutException;
 use App\Services\Rentals\TakeOnImport\Reos\ReosRowQuery;
+use App\Services\Rentals\TakeOnImport\Reos\ReosRunDefaults;
 use App\Services\Rentals\TakeOnImport\Reos\ReosRunSummary;
 use App\Services\Rentals\TakeOnImport\Reos\ReosTenancyConfirmService;
 use App\Services\Rentals\TakeOnImport\Reos\ReosTenancyRunService;
@@ -25,7 +26,6 @@ use Illuminate\View\View;
 class ReosTakeOnController extends Controller
 {
     use EnforcesRecordVisibility;
-
     public function upload(Request $request, ReosTenancyRunService $service): RedirectResponse
     {
         $request->validate([
@@ -50,7 +50,7 @@ class ReosTakeOnController extends Controller
         }
 
         return redirect()->route('corex.rentals.take-on-import.preview', $run)
-            ->with('status', 'Read ' . ($run->counts_json['total'] ?? 0) . ' leases from the reOS Tenancy Schedule. Nothing has been imported yet — tick the leases you want, fix anything blocked, then press Import.');
+            ->with('status', 'Read ' . ($run->counts_json['total'] ?? 0) . ' leases from the reOS Tenancy Schedule. Nothing has been imported yet.');
     }
 
     /** The review screen. Also serves the finished-batch view (rows show what became of them). */
@@ -64,16 +64,20 @@ class ReosTakeOnController extends Controller
         $run->refresh();
 
         $filters = ReosRowQuery::only($request->query());
-        $rows = ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), $filters)
-            ->paginate(25)->withQueryString();
+        $canManage = $request->user()->hasPermission('rentals_take_on_import.manage');
+
+        // ONE list of the leases (sheet order), 50 a page, narrowed by the search box and the Show switch.
+        $rows = ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), $filters)->paginate(50)->withQueryString();
 
         return view('corex.rentals.take-on-import.preview-reos', [
             'run' => $run,
-            'rows' => $rows,
             'filters' => $filters,
+            'show' => $filters['show'] ?? 'all',
+            'rows' => $rows,
             'summary' => ReosRunSummary::for($run),
+            'defaults' => ReosRunDefaults::get($run),
             'agents' => app(ReosAgentMatcher::class)->users((int) $run->agency_id),
-            'canManage' => $request->user()->hasPermission('rentals_take_on_import.manage'),
+            'canManage' => $canManage,
             'continueImport' => (bool) session('reos_continue'),
         ]);
     }
@@ -90,7 +94,7 @@ class ReosTakeOnController extends Controller
 
         $summary = ReosRunSummary::for($run);
         if (! $request->boolean('continue') && ! $summary['can_import']) {
-            return back()->withErrors(['run' => $summary['selected'] === 0 ? 'Tick at least one lease to import.' : 'Some ticked leases are blocked — fix them or untick them first.']);
+            return back()->withErrors(['run' => $summary['needs'] > 0 ? 'No lease is ready yet — answer the questions first.' : 'There is no lease ready to import.']);
         }
 
         $result = $service->importChunk($run, $request->user(), retryFailed: ! $request->boolean('continue'));
@@ -98,7 +102,7 @@ class ReosTakeOnController extends Controller
         $run->refresh();
         $c = $run->counts_json ?? [];
         $message = 'Imported so far: ' . (int) ($c['imported_created'] ?? 0) . ' new, ' . (int) ($c['imported_updated'] ?? 0) . ' updated'
-            . ((int) ($c['imported_failed'] ?? 0) > 0 ? ', ' . (int) $c['imported_failed'] . ' could not be imported (see the red notes on those rows)' : '') . '.';
+            . ((int) ($c['imported_failed'] ?? 0) > 0 ? ', ' . (int) $c['imported_failed'] . ' could not be imported (each says why)' : '') . '.';
 
         if ($result['remaining'] > 0) {
             return redirect()->route('corex.rentals.take-on-import.preview', $run)

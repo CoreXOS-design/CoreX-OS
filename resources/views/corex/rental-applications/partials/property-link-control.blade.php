@@ -13,7 +13,10 @@
     $linkedLabel = $linkedProperty?->buildDisplayAddress();
     $linkLocked = \App\Models\RentalApplicationQualifyingSetting::isPropertyLinkLockedFor($rentalApplication);
 @endphp
-<div class="space-y-2" data-qa="application-property-link"
+{{-- Send greyed out whenever a property was being linked: this control sits INSIDE the application form, and that form marks itself
+     "edited" (so Send says "Save your changes first") on every input/change event that bubbles up to it. The search box here is not form data
+     and the link is saved by its own request, so its events must stop at this wrapper - never reach the form. --}}
+<div class="space-y-2" data-qa="application-property-link" @input.stop @change.stop
      x-data="rentalApplicationPropertyLink({{ Js::from([
          'searchUrl' => route('corex.rental-applications.search-properties'),
          'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),

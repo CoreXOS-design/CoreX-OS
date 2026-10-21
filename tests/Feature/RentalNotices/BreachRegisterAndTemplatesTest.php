@@ -224,9 +224,12 @@ final class BreachRegisterAndTemplatesTest extends TestCase
 
     public function test_the_nav_link_and_the_navigation_entry_exist(): void
     {
-        $this->actingAs($this->agent)->get(route('corex.breaches.index'))->assertOk()->assertSee('Breach register');
-        $html = $this->actingAs($this->agent)->get(route('corex.leases.index'))->getContent();
-        $this->assertStringContainsString(route('corex.breaches.index'), $html, 'Breach Register is in the Rentals menu');
+        // AT-466 - the sidebar has ONE "Notices" item (corex.notices.index) whose tabs are the four screens; the breach register is the Breaches tab
+        $html = $this->actingAs($this->agent)->get(route('corex.breaches.index'))->assertOk()->assertSee('Breach register')->getContent();
+        $this->assertStringContainsString('data-notices-tab="breaches"', $html, 'the register is a tab of the Notices screen');
+        // the menu item itself (one "Notices" link -> corex.notices.index -> the first tab the user may open) is pinned in Navigation/NoticesHubTest
+        $this->assertTrue(\Illuminate\Support\Facades\Route::has('corex.notices.index'));
+        $this->actingAs($this->agent)->get(route('corex.notices.index', ['tab' => 'breaches']))->assertRedirect(route('corex.breaches.index'));
     }
 
     public function test_the_notice_document_downloads_for_people_who_can_see_the_lease(): void
@@ -242,6 +245,8 @@ final class BreachRegisterAndTemplatesTest extends TestCase
     /** Audit 2026-10-18 (A-L7): an arbitrary ?sort= column used to reach orderBy() (a 500 for a bad name, a probe for hidden columns). */
     public function test_the_sent_notices_list_ignores_a_sort_column_that_is_not_on_the_whitelist(): void
     {
+        // the sent-notices list needs rental_notices.view since audit A28 (the shared fixture grants create, not view)
+        $this->grant($this->agent, ['rental_notices.view']);
         // a row must exist, otherwise paginate() never runs the ordered select and a bad column goes unnoticed
         \App\Models\RentalNotice::create([
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'notice_type' => 'breach', 'sent_at' => now(), 'sent_by_user_id' => $this->agent->id,
