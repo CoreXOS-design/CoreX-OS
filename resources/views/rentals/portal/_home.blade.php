@@ -49,6 +49,9 @@
                 <p class="muted" style="margin:0;" x-show="!h.tenancy">No current tenancy.</p>
             </div>
 
+            {{-- AT-479 — the payment reference for paying through reOS (tenant wallet for the tenant, owner wallet for the owner). Nothing when the lease has none. --}}
+            <div class="list-item" data-portal-home-pay x-show="h.pay_reference" x-text="'Pay via reOS — your payment reference: ' + h.pay_reference"></div>
+
             {{-- 4. FAQ worked out from the lease's own notice / cancellation terms (§22). Nothing at all when the lease has none. --}}
             <div class="list-item" data-portal-home-faq x-show="h.faq && h.faq.length">
                 <template x-for="q in (h.faq || [])" :key="h.property.id + q.key">

@@ -610,6 +610,28 @@
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
                 <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
+                {{-- AT-479 (rental-takeon-import.md R7) — where this lease came from in another system, whether it rolls over, and the
+                     payment references used to pay through reOS. Each line only when it has a value. --}}
+                @if($lease->external_id || $lease->external_url || $lease->rollover !== null || $lease->tenant_wallet_ref || $lease->owner_wallet_ref)
+                <div class="pt-1 mt-1" style="border-top: 1px dashed var(--border);" data-test="lease-reos-block">
+                    <div class="text-xs font-semibold" style="color: var(--text-muted);">{{ $lease->external_source === \App\Models\Lease::EXTERNAL_SOURCE_REOS ? 'Imported from reOS' : 'From another system' }}</div>
+                    @if($lease->external_url && preg_match('#^https?://#i', $lease->external_url))
+                        <div class="text-xs"><a href="{{ $lease->external_url }}" target="_blank" rel="noopener noreferrer" class="underline" data-test="open-in-reos">Open in {{ $lease->external_source === \App\Models\Lease::EXTERNAL_SOURCE_REOS ? 'reOS' : 'the other system' }}</a></div>
+                    @endif
+                    @if($lease->external_id)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Lease id there:</span> {{ $lease->external_id }}</div>
+                    @endif
+                    @if($lease->rollover !== null)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Rollover:</span> {{ $lease->rollover ? 'Yes' : 'No' }}</div>
+                    @endif
+                    @if($lease->tenant_wallet_ref)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Tenant wallet reference:</span> {{ $lease->tenant_wallet_ref }}</div>
+                    @endif
+                    @if($lease->owner_wallet_ref)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Owner wallet reference:</span> {{ $lease->owner_wallet_ref }}</div>
+                    @endif
+                </div>
+                @endif
                 {{-- rental-takeon-import.md §6 — facts captured on take-on,
                      read-only, never fed into any calculation (no scheduled-
                      escalation feature, no rental ledger — neither exists).
@@ -912,6 +934,47 @@
                             </select>
                         </div>
                     @endif
+                    {{-- AT-479 (rental-takeon-import.md R7) — where the lease came from in another system, rollover, and the wallet references. --}}
+                    <div class="pt-2 space-y-2" style="border-top: 1px dashed var(--border);">
+                        <div class="text-xs font-semibold" style="color: var(--text-muted);">reOS / payment details</div>
+                        <div>
+                            <label class="prop-label" for="lease-rollover">Rollover</label>
+                            <select name="rollover" id="lease-rollover" @disabled($leaseLocked) class="prop-select">
+                                @php $rolloverNow = old('rollover', $lease->rollover === null ? '' : ($lease->rollover ? '1' : '0')); @endphp
+                                <option value="" @selected($rolloverNow === '' || $rolloverNow === null)>Not known</option>
+                                <option value="1" @selected((string) $rolloverNow === '1')>Yes</option>
+                                <option value="0" @selected((string) $rolloverNow === '0')>No</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-source">Came from</label>
+                            <select name="external_source" id="lease-external-source" @disabled($leaseLocked) class="prop-select">
+                                <option value="" @selected(! old('external_source', $lease->external_source))>— nowhere else —</option>
+                                <option value="{{ \App\Models\Lease::EXTERNAL_SOURCE_REOS }}" @selected(old('external_source', $lease->external_source) === \App\Models\Lease::EXTERNAL_SOURCE_REOS)>reOS</option>
+                                @if($lease->external_source && $lease->external_source !== \App\Models\Lease::EXTERNAL_SOURCE_REOS)
+                                    <option value="{{ $lease->external_source }}" selected>{{ $lease->external_source }}</option>
+                                @endif
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-id">Lease id there</label>
+                            <input type="text" name="external_id" id="lease-external-id" maxlength="64" value="{{ old('external_id', $lease->external_id) }}" @disabled($leaseLocked) class="prop-input">
+                            @error('external_id')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-url">Link to the lease there</label>
+                            <input type="url" name="external_url" id="lease-external-url" maxlength="500" placeholder="https://…" value="{{ old('external_url', $lease->external_url) }}" @disabled($leaseLocked) class="prop-input">
+                            @error('external_url')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-tenant-wallet">Tenant wallet reference</label>
+                            <input type="text" name="tenant_wallet_ref" id="lease-tenant-wallet" maxlength="100" value="{{ old('tenant_wallet_ref', $lease->tenant_wallet_ref) }}" @disabled($leaseLocked) class="prop-input">
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-owner-wallet">Owner wallet reference</label>
+                            <input type="text" name="owner_wallet_ref" id="lease-owner-wallet" maxlength="100" value="{{ old('owner_wallet_ref', $lease->owner_wallet_ref) }}" @disabled($leaseLocked) class="prop-input">
+                        </div>
+                    </div>
                     <div class="flex items-center gap-2">
                         <button type="submit" @disabled($leaseLocked) class="corex-btn-primary text-xs">Save changes</button>
                         <button type="button" onclick="document.getElementById('lease-edit-panel').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>

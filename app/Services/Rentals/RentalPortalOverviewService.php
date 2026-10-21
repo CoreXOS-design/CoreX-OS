@@ -106,11 +106,24 @@ class RentalPortalOverviewService
             'lease_id' => $lease?->id,
             'tenant_names' => $audience === self::AUDIENCE_LANDLORD && $lease && $lease->status === Lease::STATUS_ACTIVE ? $lease->tenantNames() : null,
             'tenancy' => $lease ? $this->tenancy($lease, $audience) : null,
+            // AT-479 (rental-takeon-import.md R7) — the payment reference for paying through reOS: the tenant's wallet on the tenant's
+            // Home, the owner's wallet on the owner's Home. Null (so nothing is shown) when the lease has none.
+            'pay_reference' => $this->payReference($audience, $lease),
             // §22 — the FAQ worked out from the lease's own notice / cancellation terms; empty when the lease has none.
             'faq' => $lease ? app(RentalPortalFaqService::class)->forLease($lease, $audience) : [],
             'contact' => $this->agentContact($lease, $property, $agencyId, $audience),
             'inspections' => $this->inspectionLists($inspections),
         ];
+    }
+
+    private function payReference(string $audience, ?Lease $lease): ?string
+    {
+        if (! $lease) {
+            return null;
+        }
+        $ref = trim((string) ($audience === self::AUDIENCE_LANDLORD ? $lease->owner_wallet_ref : $lease->tenant_wallet_ref));
+
+        return $ref === '' ? null : $ref;
     }
 
     // ── 1. Who to call ───────────────────────────────────────────────────────────────────────

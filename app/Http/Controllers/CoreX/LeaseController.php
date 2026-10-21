@@ -1024,7 +1024,32 @@ class LeaseController extends Controller
             'end_date' => ['nullable', 'date', 'after:' . $lease->start_date->format('Y-m-d')],
             'is_month_to_month' => ['nullable', 'boolean'],
             'lease_type' => ['nullable', 'string', 'max:40'],
+            // AT-479 (rental-takeon-import.md R7) — where the lease came from elsewhere, rollover, and the reOS payment references.
+            'rollover' => ['nullable', 'in:0,1'],
+            'external_source' => ['nullable', 'string', 'max:30'],
+            'external_id' => ['nullable', 'string', 'max:64'],
+            'external_url' => ['nullable', 'string', 'max:500', 'url', 'starts_with:http://,https://'],
+            'tenant_wallet_ref' => ['nullable', 'string', 'max:100'],
+            'owner_wallet_ref' => ['nullable', 'string', 'max:100'],
+        ], [
+            'external_url.url' => 'The link to the lease there must be a web address starting with https://',
+            'external_url.starts_with' => 'The link to the lease there must be a web address starting with https://',
         ]);
+
+        // Source and id go together, and the pair is unique within the agency (the database holds it across archived leases too).
+        $source = array_key_exists('external_source', $validated) ? $validated['external_source'] : $lease->external_source;
+        $externalId = array_key_exists('external_id', $validated) ? $validated['external_id'] : $lease->external_id;
+        if (($source === null) !== ($externalId === null)) {
+            return back()->withInput()->withErrors(['external_id' => 'Fill in both "Came from" and "Lease id there", or leave both empty.']);
+        }
+        if ($source !== null && $externalId !== null) {
+            $clash = Lease::withoutGlobalScopes()->withTrashed()
+                ->where('agency_id', $lease->agency_id)->where('external_source', $source)->where('external_id', $externalId)
+                ->where('id', '!=', $lease->id)->first();
+            if ($clash) {
+                return back()->withInput()->withErrors(['external_id' => "Lease #{$clash->id} in your agency already has this id" . ($clash->trashed() ? ' (it is archived)' : '') . ' — a lease from another system can be in CoreX only once.']);
+            }
+        }
 
         // Audit A12 (2026-10-19) - a field that was not posted keeps the lease's value (has()-guard, same rule as the settings savers): a
         // client posting only `deposit_amount` must not switch month-to-month off. The web form posts a hidden 0 so un-ticking still works.
@@ -1043,6 +1068,12 @@ class LeaseController extends Controller
             'end_date' => $endDate,
             'is_month_to_month' => $monthToMonth,
             'lease_type' => $validated['lease_type'] ?? $lease->lease_type,
+            'rollover' => array_key_exists('rollover', $validated) ? ($validated['rollover'] === null ? null : (bool) $validated['rollover']) : $lease->rollover,
+            'external_source' => $source,
+            'external_id' => $externalId,
+            'external_url' => array_key_exists('external_url', $validated) ? $validated['external_url'] : $lease->external_url,
+            'tenant_wallet_ref' => array_key_exists('tenant_wallet_ref', $validated) ? $validated['tenant_wallet_ref'] : $lease->tenant_wallet_ref,
+            'owner_wallet_ref' => array_key_exists('owner_wallet_ref', $validated) ? $validated['owner_wallet_ref'] : $lease->owner_wallet_ref,
         ]);
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Lease updated.');

@@ -413,10 +413,13 @@ class PropertyObserver
         // resolves, actor = null and InstantPointService skips the
         // credit silently (covers system/import-created rows).
         try {
-            event(new \App\Events\Property\PropertyCaptured(
-                property: $property,
-                actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
-            ));
+            // AT-479 — a bulk take-on brings in stock that already existed: nothing was "captured", so no points.
+            if (! $property->skipActivityPoints) {
+                event(new \App\Events\Property\PropertyCaptured(
+                    property: $property,
+                    actorUserId: $property->agent_id !== null ? (int) $property->agent_id : null,
+                ));
+            }
         } catch (\Throwable $e) {
             Log::warning("SPINE-3 PropertyCaptured dispatch failed on property #{$property->id}: {$e->getMessage()}");
         }
