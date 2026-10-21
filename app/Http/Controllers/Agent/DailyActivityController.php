@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Agent;
 
 use App\Http\Controllers\Controller;
+use App\Services\Activity\ActivityPointsService;
 use App\Http\Controllers\Admin\TargetController;
 use Illuminate\Http\Request;
 
@@ -117,16 +118,11 @@ class DailyActivityController extends Controller
         // every other daily_activity_entries call site fixed in this pass.
         $agencyId = $user->effectiveAgencyId();
 
-        $mtdPoints = (int) \DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->ownershipUserId())
-            ->where('e.period', $period)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->sum(\DB::raw('e.value * d.weight'));
+        $mtdPoints = (int) round(ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->ownershipUserId())
+                ->where('e.period', $period)
+        ));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
 
@@ -146,7 +142,7 @@ class DailyActivityController extends Controller
         foreach ($definitions as $def) {
             $val = (int)($manualEntries[$def->id]->value ?? 0);
             $values[$def->id] = $val;
-            $totalPoints += $val * (int)$def->weight;
+            $totalPoints += ActivityPointsService::pointsFor($val, $def->weight);
         }
 
         // M6.5 — Today's AUTO entries (calendar + instant). Each row is
@@ -195,7 +191,7 @@ class DailyActivityController extends Controller
             $label = $e->source === \App\Models\DailyActivityEntry::SOURCE_AUTO_CALENDAR
                 ? \App\Support\Activity\ActivityLabelResolver::forEventClass($e->calendar_event_class)
                 : \App\Support\Activity\ActivityLabelResolver::forSlug($e->instant_slug);
-            $points = (int) $e->value * (int) ($e->weight ?? 0);
+            $points = ActivityPointsService::pointsFor((int) $e->value, $e->weight ?? 0);
             $row = [
                 'id'         => (int) $e->id,
                 'label'      => $label,
@@ -289,16 +285,11 @@ class DailyActivityController extends Controller
         // index() above for the same fix).
         $agencyId = $user->effectiveAgencyId();
 
-        $mtdPoints = (int) \DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->ownershipUserId())
-            ->where('e.period', $period)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->sum(\DB::raw('e.value * d.weight'));
+        $mtdPoints = (int) round(ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->ownershipUserId())
+                ->where('e.period', $period)
+        ));
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
 
@@ -314,7 +305,7 @@ class DailyActivityController extends Controller
         foreach ($definitions as $def) {
             $val = (int)($entries[$def->id]->value ?? 0);
             $values[$def->id] = $val;
-            $totalPoints += $val * (int)$def->weight;
+            $totalPoints += ActivityPointsService::pointsFor($val, $def->weight);
         }
 
         // Optional: branch name (safe check)

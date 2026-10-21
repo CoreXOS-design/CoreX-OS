@@ -6,6 +6,7 @@ use App\Models\MonthlyTargetGoal;
 use App\Models\Deal;
 use App\Http\Controllers\Controller;
 use App\Services\Admin\CompanyPerformanceService;
+use App\Services\Activity\ActivityPointsService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -94,17 +95,12 @@ class PerformanceController extends Controller
             else $pointsStatus = 'Behind';
         }
 
-        // Today points (company): sum(e.value * d.weight) for enabled definitions (global + any branch definitions).
-        // M6.5 — achievement-total filter.
-        $todayPoints = (float) \DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.period', $period)
-            ->where('e.activity_date', $today->toDateString())
-            ->where('d.is_enabled', 1)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId !== null, fn($q) => $q->where('e.agency_id', $agencyId))
-            ->sum(\DB::raw('e.value * d.weight'));
+        // Today points (company): the one shared points rule (ActivityPointsService).
+        $todayPoints = ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.period', $period)
+                ->where('e.activity_date', $today->toDateString())
+        );
 
         $rollup['points'] = [
             'actual' => $pointsActual,

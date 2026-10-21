@@ -6,6 +6,7 @@ use App\Models\CommandCenter\AgentScorecard;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CommandTask;
 use App\Models\User;
+use App\Services\Activity\ActivityPointsService;
 use Illuminate\Support\Facades\DB;
 
 class AgentScorecardCalculator
@@ -72,18 +73,11 @@ class AgentScorecardCalculator
         // every other daily_activity_entries call site fixed in this pass.
         $agencyId = $user->effectiveAgencyId();
         // M6.5 — achievement-total filter.
-        $activityPoints = (int) DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.user_id', $user->id)
-            ->where('e.period', $period)
-            ->where('d.is_enabled', 1)
-            ->where('d.scope', 'system')
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
-            ->sum(DB::raw('e.value * d.weight'));
+        $activityPoints = (int) round(ActivityPointsService::sum(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->id)
+                ->where('e.period', $period)
+        ));
 
         // Average response time (hours from task created to started)
         $avgResponse = CommandTask::forUser($user->id)

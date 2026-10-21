@@ -112,7 +112,9 @@
     $activeGroup = null;
     if (request()->routeIs(
         'worksheet.*',
-        'agent.dashboard', 'agent.daily*', 'agent.deals.*',
+        // 'agent.daily' + 'agent.daily.print' (the capture form) live under My Portal now; the summary stays here
+        // until Road to Sold phase 3 replaces it (agency-tracker-rehome.md §14 step 3).
+        'agent.dashboard', 'agent.daily.summary*', 'agent.deals.*',
         'bm.performance*', 'bm.daily*', 'bm.listings*',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
@@ -854,7 +856,7 @@
             }
         @endphp
         <a href="{{ route('agent.portal') }}"
-           class="corex-nav-item {{ request()->routeIs('agent.portal*') ? 'active' : '' }}">
+           class="corex-nav-item {{ request()->routeIs('agent.portal*', 'agent.daily', 'agent.daily.print') ? 'active' : '' }}">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0 0 12 15.75a7.488 7.488 0 0 0-5.982 2.975m11.963 0a9 9 0 1 0-11.963 0m11.963 0A8.966 8.966 0 0 1 12 21a8.966 8.966 0 0 1-5.982-2.275M15 9.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
             </svg>
@@ -1746,9 +1748,6 @@
                 <div class="corex-nav-sublabel">My Performance</div>
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
-                @permission('access_daily_activity')
-                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') ? 'active' : '' }}">My Daily Activity</a>
-                @endpermission
                 <a href="{{ route('agent.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
@@ -1891,14 +1890,9 @@
                     </a>
                 @endif
 
-                {{-- Daily Activities group — capture + summary + merged Setup, all in one place. --}}
+                {{-- Daily Activities group — summary + merged Setup. The capture form is reached from My Portal > My Activity. --}}
                 @permission('view_daily_activity')
                 <div class="corex-nav-sublabel">Daily Activities</div>
-                @if($effectiveBranchId)
-                @permission('access_daily_activity')
-                <a href="{{ route('agent.daily') }}" class="corex-nav-subitem {{ request()->routeIs('agent.daily') && !request()->routeIs('agent.daily.summary*') ? 'active' : '' }}">Daily Activity Capture</a>
-                @endpermission
-                @endif
                 <a href="{{ route('bm.daily.summary') }}" class="corex-nav-subitem {{ request()->routeIs('bm.daily.summary*') ? 'active' : '' }}">Daily Activity Summary</a>
                 @endpermission
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
