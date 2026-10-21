@@ -975,7 +975,7 @@ class RentalApplication extends Model
         // applicant POSTing either field has zero effect regardless of
         // $fillable. Needed here so direct-construction test fixtures
         // (RentalApplication::create([...])) can set them without forceFill().
-        'identity_verified_at', 'identity_gate_unreachable',
+        'identity_verified_at', 'identity_gate_unreachable', 'identity_hold_at',
         'property_address_override',
         'full_name', 'id_number', 'marital_status', 'spouse_name', 'spouse_id', 'citizenship',
         'current_residential_address', 'email', 'cell', 'work_number',
@@ -995,6 +995,7 @@ class RentalApplication extends Model
         'submitted_at' => 'datetime',
         'identity_verified_at' => 'datetime',
         'identity_gate_unreachable' => 'boolean',
+        'identity_hold_at' => 'datetime',
         'draft_saved_at' => 'datetime',
         'submitted_for_approval_at' => 'datetime',
         'reopened_at' => 'datetime',
@@ -1404,9 +1405,23 @@ class RentalApplication extends Model
      */
     public function identityVerificationAwaitingApplicantAction(): bool
     {
-        return $this->isSubmitted()
+        // AT-486: a submission put on hold behind the identity screen is not "submitted" yet (identity_hold_at is set,
+        // submitted_at is not); an older row that was already marked submitted before the gate resolved is covered by
+        // isSubmitted().
+        return ($this->identity_hold_at !== null || $this->isSubmitted())
             && $this->identity_verified_at === null
             && ! $this->identity_gate_unreachable
+            && \App\Models\RentalApplicationQualifyingSetting::identityGateEnabledFor($this->agency_id);
+    }
+
+    /**
+     * AT-486 - true while the applicant's answers sit behind the identity screen: saved, but not handed to the agency.
+     * The agent's approve / hand-off paths refuse while this is true (AuthorisationHandOffGate).
+     */
+    public function identityHoldPending(): bool
+    {
+        return $this->identity_hold_at !== null
+            && $this->identity_verified_at === null
             && \App\Models\RentalApplicationQualifyingSetting::identityGateEnabledFor($this->agency_id);
     }
 

@@ -19,7 +19,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ match($reason) { 'not_sent' => 'Not Ready Yet', 'rate_limited' => 'One Moment', default => 'Link Expired' } }}</title>
+    <title>{{ match($reason) { 'not_sent' => 'Not Ready Yet', 'rate_limited', 'submit_rate_limited' => 'One Moment', default => 'Link Expired' } }}</title>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="bg-slate-50 min-h-screen flex items-center justify-center p-4">
@@ -35,6 +35,10 @@
                      says what to do — never "Too many attempts". --}}
                 <h1 class="text-xl font-bold text-slate-800 mb-2">One moment</h1>
                 <p class="text-sm text-slate-500">This page is receiving a lot of requests right now, so it's paused for a moment. Your application is safe — please wait a minute and reload.</p>
+            @elseif($reason === 'submit_rate_limited')
+                {{-- AT-486 - the submit limiter's trip page (a browser form post used to be answered with raw JSON). --}}
+                <h1 class="text-xl font-bold text-slate-800 mb-2">One moment</h1>
+                <p class="text-sm text-slate-500">You've pressed Submit a lot in a short time, so it's paused for a moment. Nothing has been lost. Go back to your application (use your browser's Back button), wait a minute, and press Submit again.</p>
             @else
                 <h1 class="text-xl font-bold text-slate-800 mb-2">This link has expired</h1>
                 <p class="text-sm text-slate-500">Please contact your agent for a new link.</p>

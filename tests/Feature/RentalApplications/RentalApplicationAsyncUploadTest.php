@@ -56,6 +56,8 @@ final class RentalApplicationAsyncUploadTest extends TestCase
             'agency_id' => $this->agency->id, 'branch_id' => $this->branch->id,
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho@example.co.za',
         ]);
+        // AT-486: this test is about the submitted application, not the identity screen - switch the gate off so Submit completes.
+        \App\Models\RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], ['identity_gate_enabled' => false]);
     }
 
     private function application(array $attrs = []): RentalApplication

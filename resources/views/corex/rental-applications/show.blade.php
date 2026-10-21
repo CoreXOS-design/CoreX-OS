@@ -119,6 +119,13 @@
 
     {{-- success / error flashes are shown ONCE, by the layout's toast — never again as an inline banner (they used to appear twice). --}}
 
+    {{-- AT-486 - the applicant pressed Submit but has not confirmed their identity yet: saved, not submitted. --}}
+    @if($rentalApplication->identityHoldPending())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #b45309) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #b45309) 30%, transparent); color: var(--text-primary);" data-qa="identity-hold-banner">
+            The applicant has filled in the form but has not confirmed their identity yet, so it is not submitted. It reaches you once they enter the code that was emailed to them.
+        </div>
+    @endif
+
     {{-- AT-485 - a refused duplicate send: the toast says why, this is the link to the application that already exists. --}}
     @if(session('duplicate_application'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);" data-qa="duplicate-application-banner">

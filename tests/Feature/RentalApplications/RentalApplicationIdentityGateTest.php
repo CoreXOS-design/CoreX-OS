@@ -103,10 +103,13 @@ final class RentalApplicationIdentityGateTest extends TestCase
 
         $response->assertRedirect(route('rental-applications.public.identity-gate', $application->token));
         Mail::assertNothingSent();
-        // Data is captured regardless — never lost, never re-asked.
+        // Data is captured regardless — never lost, never re-asked. AT-486: but it is NOT a submission yet - the status
+        // stays put and submitted_at stays empty until the applicant confirms the code.
         $application->refresh();
-        $this->assertSame('returned', $application->status);
-        $this->assertNotNull($application->submitted_at);
+        $this->assertSame('sent', $application->status);
+        $this->assertNull($application->submitted_at);
+        $this->assertNotNull($application->identity_hold_at);
+        $this->assertSame('Sipho Ndlovu', $application->full_name);
         $this->assertNull($application->identity_verified_at);
     }
 
@@ -258,23 +261,17 @@ final class RentalApplicationIdentityGateTest extends TestCase
         $this->post(route('rental-applications.public.submit', $application->token), $this->submitPayload(['full_name' => 'Sipho Ndlovu', 'id_number' => '8501015800083']));
 
         // Fresh "session" (no cookies carried over) — a genuinely different
-        // browser/day, same link. The RETURN gate (a different, earlier
-        // check) fires first on a fresh session — proving identity there
-        // is what a real returning applicant would do before ever
-        // reaching this gate again.
+        // browser/day, same link. AT-486: the submission is not marked submitted while it waits, so the RETURN gate
+        // (which guards a LATER visit to a submitted application) does not apply - the link goes straight back to the
+        // identity screen.
         $this->flushSession();
-        $returnGate = $this->get(route('rental-applications.public.show', $application->token));
-        $returnGate->assertOk();
-        $returnGate->assertSee("Verify it's you", false);
-
-        $this->post(route('rental-applications.public.verify-gate', $application->token), ['id_number' => '8501015800083']);
-
         $response = $this->get(route('rental-applications.public.show', $application->token));
 
         $response->assertRedirect(route('rental-applications.public.identity-gate', $application->token));
         $application->refresh();
         $this->assertSame('Sipho Ndlovu', $application->full_name);
-        $this->assertNotNull($application->submitted_at);
+        $this->assertNull($application->submitted_at);
+        $this->assertNotNull($application->identity_hold_at);
     }
 
     public function test_pdf_and_document_view_are_also_gated_while_identity_is_pending(): void
@@ -410,7 +407,10 @@ final class RentalApplicationIdentityGateTest extends TestCase
         $this->post(route('rental-applications.public.verify-identity-gate', $application->token), ['id_number' => 'wrong']);
         $this->post(route('rental-applications.public.verify-identity-gate', $application->token), ['id_number' => 'wrong'])->assertStatus(429);
 
-        // The Return Gate's own endpoint, same token, is unaffected.
+        // The Return Gate's own endpoint, same token, is unaffected. (AT-486: it only applies to an application that
+        // is actually submitted - one held behind the identity screen is not, so mark it submitted as a visit after
+        // the first submission would find it.)
+        $application->forceFill(['submitted_at' => now(), 'status' => 'returned'])->save();
         $this->post(route('rental-applications.public.verify-gate', $application->token), ['id_number' => 'wrong'])->assertSessionHasErrors('gate');
     }
 }
