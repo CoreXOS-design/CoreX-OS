@@ -809,3 +809,110 @@ Addendum B) both record facts about "the property" (building plans, compliance c
 address header — they are property documents without one.
 
 **Tests:** `tests/Feature/Docuperfect/MandatoryDisclosurePropertyHeaderTest.php`.
+
+---
+
+## 24. Proxy / signing on behalf of — who signs for whom (AT-498, HOTFIX 2026-10-21)
+
+**Rule in one line:** a person marked **Proxy** signs for the *other parties the agent ticks* — not automatically for everyone.
+Parties who are not covered by a proxy stay full signatories. **Never assume one seller; never drop a party who is not covered.**
+This section is the single written source of truth for the rule. The code is `App\Support\Docuperfect\ProxyCoverage`
+(the only place the question is answered) and every route reads it.
+
+### 24.1 Words used
+- **Party / role group** — a recipient and the other recipients of the SAME role on the same document (sellers, buyers, landlords,
+  tenants, any role; sales and rental alike). Roles never mix: a proxy among the sellers has no effect on the buyers.
+- **Proxy** — a party who also signs on behalf of one or more other parties of their role (the agent ticks **Proxy — signs on behalf
+  of other parties in this role** on that person's card in the Recipients step).
+- **Represented party** — a party a proxy signs for. **Unrepresented party** — a party of the same role no proxy covers; they sign for themself.
+- **Covered set** of a proxy = every other living, non-company party of the same role **except the ones the agent un-ticked**.
+- A person can be a proxy **or** be represented, not both (a proxy always signs, so the picker does not offer a proxy, a deceased party
+  or a company as someone to be signed for).
+
+### 24.2 How the agent sets it (Recipients step)
+1. Tick **Proxy** on a person. A picker **"Signs on behalf of:"** appears listing every other party of that role. **All start ticked**
+   — that is exactly what a proxy always meant, so nothing changes unless the agent un-ticks someone.
+2. Un-tick the parties the proxy does **not** sign for. **At least one must stay ticked** — a proxy for nobody is refused (24.8).
+3. Below the picker the wizard shows the resulting recipient list **live**: *"A — signs for self and for B"*, *"C — signs for self"*.
+4. A party added to the role later is covered by default (as a proxy always covered everyone) — un-tick them if they should sign themself.
+5. A company in the role: its signers are not offered in the picker. A proxy with **nothing un-ticked** covers them as it always did; once the
+   agent un-ticks anyone (a partial proxy) the company's own signers keep signing for the company. The picker says so.
+
+**Stored as** `recipients[]._proxy_excludes` — the list of parties the proxy does **not** sign for, each by its stable
+`_recipient_local_key`. **Empty / absent = signs for everyone else** (the original behaviour; every existing proxy and every flow with no
+proxy needs no change). Frozen on the signature request at send as `signature_requests.proxy_excludes` (JSON; migration
+`2026_11_27_100200`) so the rule never depends on live data afterwards. A party with no stable key can never be un-ticked, so a partial proxy never covers it.
+
+### 24.3 Who signs — the exact rule
+A party is **covered** (displayed, but not asked to sign) when a proxy of the same role covers them: the proxy has no exclusions, or the
+party is not in the proxy's exclusion list. A proxy, and everyone not covered, **signs**. A deceased party never signs (their replacement
+mechanism is separate and untouched). Several proxies in one role are allowed; each covers its own people.
+The rule exists once (`ProxyCoverage`) and is read by: the wizard's signing-participant filter (signature-block inputs), the role-block
+expansion (which signature/initial/attestation blocks print), `SignatureRequest::nonSigningReason()` (who is sent a link), the
+preview rows, and the renderer's initial-slot count.
+
+### 24.4 How the document reads
+- **Unrepresented party and the proxy:** their own plain name and ID, exactly as for any party.
+- **Represented party:** their entry reads **"{name} (ID: …), herein represented by {proxy name} (ID: …) in terms of a proxy"** — in the
+  "I/We …" party list, anywhere the document lists the role's parties, and in the Step 6 preview. A clause the party already has
+  (a deceased party's "Late Estate of … herein represented by …", or a company's representation clause) is **never overwritten**.
+- **The proxy's signature caption:** *"For self and as proxy for B"* (or *"… for B and C"* for several). A proxy who covers only B is never
+  described as signing for C.
+- Partial vs full is just the length of the covered list: full proxy → every other party reads "herein represented by A"; partial → only
+  the ticked ones do; the un-ticked party's entry is plain.
+- Wording is produced in one place (`ProxyCoverage::withRepresentation`, applied by `WebTemplateDataService` for every route and the preview),
+  never typed into a template.
+
+### 24.5 Which blocks appear (per party)
+| Block | Proxy (signs for self + covered) | Represented party | Unrepresented party |
+|---|---|---|---|
+| **Signature block** ("Thus done and signed by the Seller…") | **one**, in the proxy's own name (caption says "for self and as proxy for …") | **none of their own** | **their own** |
+| **Initials** (margin / per-condition) | the proxy initials once (initials count = signers) | none | their own |
+| **Domicilium / address-and-contact block** | their own details | **their own details still print** | their own details |
+| **Attestation block** | the proxy's | not split out for them | their own |
+| **Named in the party list / "herein represented by"** | plain name | "…, herein represented by {proxy}" | plain name |
+A represented party is therefore still a party to the document (named, with address and contact details) but is not a *signatory*; an unrepresented
+party is indistinguishable from a party on a document with no proxy at all.
+
+### 24.6 Recipients, signing order and notifications
+- **Every party gets a signature-request row** — nobody is dropped from the record. Covered parties' rows are created with status *not required*
+  (they are never emailed a link and never block completion); signers are *waiting/pending* as usual.
+- In the example (A proxy for B only; C unrepresented) there are **2 people who sign**: A (for A and B) and C (for themself); B is a row
+  that does not sign.
+- **Signing order** is unchanged (agent → acquiring party → owner party → witness, SA convention; the agent's per-document order within a role).
+  A proxy signs at their own position; a covered party has no position of their own. Completion waits for exactly the signers.
+- Signing-participant status is frozen on the row (`is_proxy`, `proxy_excludes`, `recipient_local_key`), so a later edit to a contact never changes who was required.
+
+### 24.7 Behaviour on every route (single documents and packs)
+| Route | What changes | Where |
+|---|---|---|
+| **Electronic** | requests built for all parties; covered ones *not required*; signature/initial/attestation blocks only for signers; wording per 24.4 | `prepareSigning` |
+| **Wet-ink** | same request rows (one envelope); printed copy carries the signers' blocks, every party's domicilium, and the wording | `prepareWetInk` |
+| **Download-and-sign** | no requests; printed document carries the same blocks and wording as wet-ink | `prepareDownloadOnly` |
+| **Packs** | the SAME recipients and the SAME rule apply to every document of the pack (each member prints/blocks for the same signers); wet-ink pack = one envelope on the first document | all three, per pack member |
+| **Step 6 preview** | shows the same wording and blocks the sent document will carry | `WebTemplateDataService` + preview rows |
+No route has its own proxy logic.
+
+### 24.8 Validation
+A proxy who signs for nobody (everyone un-ticked, or the only person in their role) is **refused on all three routes** with
+*"{name} is marked as a proxy but signs for nobody. Tick at least one other party they sign for, or untick Proxy."* (422 / validation error;
+nothing is created). The wizard also shows this beside the picker and the live list.
+
+### 24.9 Proof of authority (power of attorney / resolution) — **PENDING, not built**
+**Decision (Johan, 21 Oct 2026): left OUT of this hotfix; Johan is asking whether it is wanted.** Today the proxy flow captures **no** proof
+document (the existing POA link is only the company-representative relationship on a contact, `contact_representatives`). If it is wanted,
+the intended shape is one proof upload **per represented party** (a `Document` row attached to the represented contact and the property, linked
+from that party's entry on the proxy's card), required or optional by agency setting, shown on the proxy's signing screen. Nothing in 24.1–24.8 depends on it.
+
+### 24.10 Existing flows are unchanged (proved)
+- **No proxy:** `ProxyCoverage::withRepresentation` and `violation` are no-ops; the signer list is the full list — identical to before.
+- **Proxy with no exclusions (every proxy that exists today):** covers everyone else — identical to the old rule. Proved by
+  `ProxyCoverageRuleTest::test_every_existing_flow_resolves_identically_to_the_old_rule` (the old function reproduced verbatim and compared over
+  more than 1,000 generated recipient sets: up to 5 parties, two roles, plain / proxy / deceased, with and without keys), and against every flow on QA1.
+- Company (entity) proxies keep their own mechanism (`_entity_proxy_contact_id`, `EsignRecipientPreset` wording) untouched.
+
+### 24.11 Tests
+`tests/Feature/Docuperfect/SigningView/ProxyCoverageRuleTest.php` (the rule: legacy equivalence, 3 parties partial / full / none, 2–6 parties,
+sales and rental roles, two proxies in one role, keyless and company rows never dropped, wording, refusal) and
+`PartialProxyRoutesTest.php` (electronic, download-and-sign, wet-ink and a pack: who gets a request, whose signature blocks print, one domicilium per
+party, wording, exclusions frozen on the row, refusal on every route, existing shapes unchanged).

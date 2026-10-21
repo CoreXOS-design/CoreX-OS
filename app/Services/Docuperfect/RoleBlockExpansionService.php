@@ -477,21 +477,14 @@ final class RoleBlockExpansionService
         // filterToSigningParticipants() — works identically whether the rows
         // are real, transient, or synthetic-for-display.
         try {
-            $proxyRoles = [];
-            foreach ($recipients as $r) {
-                if (! empty($r->is_proxy)) {
-                    $proxyRoles[strtolower((string) $r->party_role)] = true;
-                }
-            }
-            $signingOnly = $recipients->filter(function (SignatureRequest $r) use ($proxyRoles) {
+            // AT-498 — the shared proxy rule (a proxy covers the rest of its role except those the agent un-ticked).
+            $coverageRows = $recipients->map(fn (SignatureRequest $r) => \App\Support\Docuperfect\ProxyCoverage::fromRequest($r))->values()->all();
+            $signingOnly = $recipients->values()->filter(function (SignatureRequest $r, int $i) use ($coverageRows) {
                 if (! empty($r->is_deceased)) {
                     return false;
                 }
-                $role = strtolower((string) $r->party_role);
-                if (! empty($proxyRoles[$role]) && empty($r->is_proxy)) {
-                    return false; // collapsed by a proxy elsewhere in this same role group
-                }
-                return true;
+
+                return ! \App\Support\Docuperfect\ProxyCoverage::isCovered($coverageRows[$i], $coverageRows);
             })->values();
             $this->expandAttestationBlocksPerRecipient($dom, $signingOnly);
         } catch (\Throwable $e) {

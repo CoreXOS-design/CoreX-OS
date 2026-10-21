@@ -539,7 +539,7 @@ class CanonicalDocumentRenderer
                 return [];
             }
             $rows = \App\Models\Docuperfect\SignatureRequest::whereIn('signature_template_id', $templateIds)
-                ->get(['id', 'party_role', 'role_index', 'signature_template_id', 'is_deceased', 'is_proxy']);
+                ->get(['id', 'party_role', 'role_index', 'signature_template_id', 'is_deceased', 'is_proxy', 'proxy_excludes', 'recipient_local_key']);
             $byRole = [];
             foreach ($rows as $r) {
                 // Cluster B1 (Johan/conductor, 2026-08-27, shapes 2/3) — this

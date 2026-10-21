@@ -26,6 +26,7 @@ class SignatureRequest extends Model
         'supplier_firm_address',
         'is_deceased',
         'is_proxy',
+        'proxy_excludes',
         'recipient_local_key',
         'recipient_template_id',
         'slot_bindings',
@@ -81,6 +82,8 @@ class SignatureRequest extends Model
         'fica_required' => 'boolean',
         'is_deceased' => 'boolean',
         'is_proxy' => 'boolean',
+        // AT-498 — list of recipient_local_keys this proxy does NOT sign for (empty/null = signs for everyone else in the role).
+        'proxy_excludes' => 'array',
         'slot_bindings' => 'array',
     ];
 
@@ -143,14 +146,23 @@ class SignatureRequest extends Model
             return null; // the proxy itself always signs
         }
 
-        $groupHasProxy = static::query()
+        // AT-498 — a proxy covers the rest of its role EXCEPT the parties the agent un-ticked (proxy_excludes, a list of
+        // recipient_local_keys). An empty list = everyone else = the original rule. See ProxyCoverage.
+        $proxies = static::query()
             ->where('signature_template_id', $this->signature_template_id)
             ->where('party_role', $this->party_role)
             ->where('is_proxy', true)
             ->where('id', '!=', $this->id)
-            ->exists();
+            ->get();
 
-        return $groupHasProxy ? self::NON_SIGNING_REASON_PROXY_COLLAPSED : null;
+        $row = \App\Support\Docuperfect\ProxyCoverage::fromRequest($this);
+        foreach ($proxies as $proxy) {
+            if (\App\Support\Docuperfect\ProxyCoverage::proxyCovers(\App\Support\Docuperfect\ProxyCoverage::fromRequest($proxy), $row)) {
+                return self::NON_SIGNING_REASON_PROXY_COLLAPSED;
+            }
+        }
+
+        return null;
     }
 
     /**
