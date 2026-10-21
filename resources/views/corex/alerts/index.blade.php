@@ -95,7 +95,10 @@
                     $title = $data['title'] ?? $data['message'] ?? ($key ? \Illuminate\Support\Str::headline(str_replace(['.', '_'], ' ', $key)) : \Illuminate\Support\Str::headline(class_basename($n->type)));
                     $received = \Carbon\Carbon::parse($n->created_at);
                 @endphp
-                <tr style="border-bottom: 1px solid var(--border); vertical-align: top;" data-qa="alert-row" data-read="{{ $unread ? '0' : '1' }}">
+                {{-- AT-491: the whole row opens the alert (the title link stays for keyboard users); Mark read keeps its own click. --}}
+                <tr style="border-bottom: 1px solid var(--border); vertical-align: top; cursor: pointer;" class="hover:bg-[var(--surface-2)]" data-qa="alert-row" data-read="{{ $unread ? '0' : '1' }}"
+                    data-href="{{ route('corex.alerts.open', $n->id) }}"
+                    onclick="if (!event.target.closest('a, button, form')) { window.location.href = this.dataset.href; }">
                     <td class="px-4 py-3">
                         <span class="inline-block w-2 h-2 rounded-full" title="{{ $unread ? 'Unread' : 'Read' }}" style="{{ $unread ? 'background:var(--brand-button);' : 'background:var(--text-muted);opacity:.35;' }}"></span>
                     </td>
