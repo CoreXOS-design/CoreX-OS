@@ -67,8 +67,9 @@ final class ReosBlockers
         $d = $row->decisions_json ?? [];
         foreach (['owner' => $row->landlord_match_json, 'tenant' => $row->tenant_match_json] as $party => $match) {
             $m = $match[1] ?? null;
-            if ($m && ! empty($m['name_flag']) && in_array($m['name_flag'], $flags, true) && ($d[$party]['action'] ?? null) === 'link'
-                && (int) ($d[$party]['contact_id'] ?? 0) === (int) ($m['existing_contact_id'] ?? -1)) {
+            // A difference the user has answered "same person" to (decisions_json.<party>.confirmed) is settled, not outstanding.
+            if ($m && ! empty($m['name_flag']) && in_array($m['name_flag'], $flags, true) && empty($d[$party]['confirmed'])
+                && ReosQuestions::usesMatched($d[$party] ?? [], $m)) {
                 return true;
             }
         }
@@ -76,14 +77,30 @@ final class ReosBlockers
         return false;
     }
 
-    /** Stores the blockers on the row (no other column touched). */
+    /**
+     * Stores the blockers on the row, and with them what is still open (spec: reOS review screen rebuild): `needs` / `needs_count` /
+     * `hard` on decisions_json, and `selected` = the lease is READY (nothing open, nothing wrong) — the import takes exactly the
+     * selected, unblocked, pending rows, so "ready" is what gets imported.
+     */
     public static function refresh(RentalTakeOnImportRow $row): RentalTakeOnImportRow
     {
         $blockers = self::compute($row);
+        $open = ReosQuestions::open($row, $blockers);
         $d = $row->decisions_json ?? [];
         $d['name_differs'] = self::nameDiffers($row, ReosNameCompare::AMBER);
         $d['spelling_differs'] = self::nameDiffers($row, [ReosNameCompare::SPELLING]);
-        $row->forceFill(['blockers_json' => $blockers ?: null, 'is_blocked' => $blockers !== [], 'decisions_json' => $d])->save();
+        $d['needs'] = array_column($open, 'key');
+        $d['needs_count'] = count($open);
+        $d['hard'] = ReosQuestions::isHard($blockers);
+
+        $imported = $row->status === RentalTakeOnImportRow::STATUS_CONFIRMED;
+        $ready = ! $imported && $row->status !== RentalTakeOnImportRow::STATUS_ERROR && ! $row->import_error && $d['hard'] === false && $open === [] && $blockers === [];
+        $row->forceFill([
+            'blockers_json' => $blockers ?: null,
+            'is_blocked' => $blockers !== [],
+            'decisions_json' => $d,
+            'selected' => $imported ? $row->selected : $ready,
+        ])->save();
 
         return $row;
     }

@@ -392,7 +392,8 @@ Route::middleware('auth')->group(function () {
         Route::get('/suburbs', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'suburbs'])->name('api.v1.rentals.take-on-import.suburbs');
         Route::get('/contacts', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'contacts'])->name('api.v1.rentals.take-on-import.contacts');
         Route::get('/runs/{run}/summary', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'summary'])->name('api.v1.rentals.take-on-import.summary');
-        Route::post('/runs/{run}/bulk', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'bulk'])->name('api.v1.rentals.take-on-import.bulk');
+        Route::post('/runs/{run}/defaults', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'defaults'])->name('api.v1.rentals.take-on-import.defaults');
+        Route::get('/rows/{row}/card', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'card'])->name('api.v1.rentals.take-on-import.card');
         Route::post('/rows/{row}/decisions', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'decisions'])->name('api.v1.rentals.take-on-import.decisions');
     });
 

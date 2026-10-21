@@ -83,7 +83,7 @@ final class ReosImportFlowTest extends TestCase
         self::assertSame([self::UUID_A, self::UUID_B], $rows->pluck('external_id')->all());
         self::assertSame('WLT-1001', $rows[0]->decisions_json['tenant_wallet_ref']);
         self::assertSame($agent->id, $rows[0]->decisions_json['agent_user_id'], 'the first named person is matched to a user by name');
-        self::assertFalse((bool) $rows[0]->selected, 'nothing is ticked until the user ticks it');
+        self::assertFalse((bool) $rows[0]->selected, 'a lease with a question open (its suburb) is not ready, so Import does not take it');
         self::assertSame(0, Lease::withoutGlobalScopes()->count(), 'nothing is created by an upload');
         self::assertSame(0, Property::withoutGlobalScopes()->count());
         self::assertSame(0, Contact::withoutGlobalScopes()->count());
@@ -130,7 +130,7 @@ final class ReosImportFlowTest extends TestCase
 
     // ── review ─────────────────────────────────────────────────────────────────────────────
 
-    public function test_the_review_screen_lists_the_leases_with_search_filter_sort_and_an_empty_state(): void
+    public function test_the_review_screen_lists_the_leases_with_search_the_show_switch_and_an_empty_state(): void
     {
         [, , $admin] = $this->reosAgency();
         $run = $this->makeRun($admin, [
@@ -139,16 +139,16 @@ final class ReosImportFlowTest extends TestCase
         ]);
         $url = route('corex.rentals.take-on-import.preview', $run);
 
+        // Both leases still need a suburb for their new property, so both are asked in the queue (the first card is drawn).
         $page = $this->actingAs($admin)->get($url)->assertOk();
-        $page->assertSee('Review reOS import');
+        $page->assertSee('ZZ-tenancy-schedule.xlsx');
+        $page->assertSee('2 leases · 0 ready · 2 need you · 0 imported');
         $page->assertSee('3 ZZ Aqua Breeze');
-        $page->assertSee('9 ZZ Marine Drive');
-        $page->assertSee('Tick the leases you want to import.');
+        $page->assertSee('Which suburb is the new property');
 
         $this->actingAs($admin)->get($url . '?q=Marine')->assertOk()->assertSee('9 ZZ Marine Drive')->assertDontSee('3 ZZ Aqua Breeze');
-        $this->actingAs($admin)->get($url . '?lease_status=Draft')->assertOk()->assertSee('9 ZZ Marine Drive')->assertDontSee('3 ZZ Aqua Breeze');
-        $this->actingAs($admin)->get($url . '?sort=address&dir=desc')->assertOk();
-        $this->actingAs($admin)->get($url . '?q=nothing-matches-this')->assertOk()->assertSee('No leases match these filters');
+        $this->actingAs($admin)->get($url . '?show=needs&q=Marine')->assertOk()->assertSee('9 ZZ Marine Drive');
+        $this->actingAs($admin)->get($url . '?q=nothing-matches-this')->assertOk()->assertSee('No leases match');
     }
 
     public function test_suburb_is_required_only_for_a_property_corex_does_not_know_and_picking_one_unblocks_the_row(): void
@@ -210,57 +210,47 @@ final class ReosImportFlowTest extends TestCase
         self::assertStringContainsString('agency', $rows[1]->decisions_json['agent_note']);
     }
 
-    public function test_the_json_endpoints_save_a_choice_and_return_the_row_and_the_header_numbers(): void
+    public function test_the_json_endpoints_save_a_choice_and_return_the_lease_and_the_header_numbers(): void
     {
         [, , $admin, $agent] = $this->reosAgency();
         $suburb = $this->p24Suburb();
         $run = $this->makeRun($admin, [$this->reosRow()]);
         $row = $run->rows()->first();
 
-        $res = $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['selected' => true, 'suburb_id' => $suburb->id])->assertOk();
-        self::assertStringContainsString('ZZ Testville', $res->json('row_html'));
-        self::assertSame(1, $res->json('summary.selected'));
-        self::assertSame(0, $res->json('summary.blocked'));
-        self::assertTrue($res->json('summary.can_import'));
-        self::assertTrue((bool) $row->fresh()->selected, 'saved at once');
+        $res = $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['suburb_id' => $suburb->id])->assertOk();
+        self::assertStringContainsString('ZZ Testville', json_encode($row->fresh()->decisions_json));
+        $res->assertJsonPath('state', 'ready')->assertJsonPath('summary.ready', 1)->assertJsonPath('summary.needs', 0)->assertJsonPath('summary.can_import', true);
+        self::assertStringContainsString('data-test="reos-line"', $res->json('line_html'));
+        self::assertNull($res->json('card_html'));
+        self::assertTrue((bool) $row->fresh()->selected, 'ready is saved at once: it is what Import takes');
 
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['suburb_id' => 999999999])->assertStatus(422);
         $left = User::factory()->create(['agency_id' => $admin->agency_id, 'branch_id' => $admin->branch_id, 'role' => 'agent', 'is_active' => false]);
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['agent_user_id' => $left->id])->assertStatus(422);   // someone who has left cannot be the agent
 
-        $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.bulk', $run), ['action' => 'untick_all'])->assertOk()->assertJsonPath('summary.selected', 0);
-        $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.bulk', $run), ['action' => 'tick_ready'])->assertOk()->assertJsonPath('summary.selected', 1);
-        $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.bulk', $run), ['action' => 'nonsense'])->assertStatus(422);
         $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.suburbs', ['q' => 'Testv']))->assertOk()->assertJsonPath('data.0.suburb', 'ZZ Testville')->assertJsonPath('data.0.town', 'ZZ Test City');
         $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.summary', $run))->assertOk()->assertJsonPath('summary.total', 1);
+        $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->assertJsonPath('state', 'ready');
     }
 
-    public function test_apply_suburb_and_agent_to_all_ticked_rows_only_touches_ticked_rows(): void
+    public function test_the_agent_and_suburb_for_all_fill_every_waiting_lease_that_has_none(): void
     {
         [, , $admin, $agent] = $this->reosAgency();
         $suburb = $this->p24Suburb();
         $run = $this->makeRun($admin, [
             $this->reosRow(['uuid' => self::UUID_A, 'Agent' => '']),
             $this->reosRow(['uuid' => self::UUID_B, 'Agent' => '', 'Property Address' => '9 ZZ Marine Drive']),
-            $this->reosRow(['uuid' => self::UUID_C, 'Agent' => '', 'Property Address' => '21 ZZ Beach Road']),
         ]);
-        $rows = $run->rows()->orderBy('row_number')->get();
-        $svc = app(ReosDecisionService::class);
-        $svc->apply($rows[0], $run, ['selected' => true]);
-        $svc->apply($rows[1], $run, ['selected' => true]);
 
-        $n = $svc->bulk($run, 'apply_suburb', [], ['suburb_id' => $suburb->id]);
-        $m = $svc->bulk($run, 'apply_agent', [], ['agent_user_id' => $agent->id]);
+        $n = app(ReosDecisionService::class)->setDefaults($run, ['suburb_id' => $suburb->id, 'agent_user_id' => $agent->id]);
 
-        self::assertSame([2, 2], [$n, $m]);
-        $fresh = $run->rows()->orderBy('row_number')->get();
-        self::assertSame('ZZ Testville', $fresh[0]->decisions_json['property']['suburb']);
-        self::assertSame($agent->id, $fresh[1]->decisions_json['agent_user_id']);
-        self::assertNull($fresh[2]->decisions_json['property']['suburb'], 'the unticked row is left alone');
-        self::assertNull($fresh[2]->decisions_json['agent_user_id']);
+        self::assertSame(2, $n);
+        foreach ($run->rows()->orderBy('row_number')->get() as $r) {
+            self::assertSame('ZZ Testville', $r->decisions_json['property']['suburb']);
+            self::assertSame($agent->id, $r->decisions_json['agent_user_id']);
+            self::assertTrue((bool) $r->selected, 'with both filled in nothing is left to ask');
+        }
     }
-
-    // ── import ─────────────────────────────────────────────────────────────────────────────
 
     public function test_import_creates_the_lease_property_and_people_and_nothing_is_sent_to_anyone(): void
     {
@@ -465,7 +455,7 @@ final class ReosImportFlowTest extends TestCase
 
         self::assertStringContainsString('2 new, 0 updated', session('status'));
         self::assertSame(RentalTakeOnImportRun::STATUS_COMPLETED, $run->fresh()->status);
-        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->assertSee('Everything in this batch has been imported.');
+        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->assertSee('0 ready · 0 need you · 2 imported');
     }
 
     public function test_the_existing_template_actions_refuse_a_reos_batch_instead_of_half_working(): void
@@ -493,7 +483,8 @@ final class ReosImportFlowTest extends TestCase
         $this->actingAs($adminA)->get(route('corex.rentals.take-on-import.show', $runB))->assertNotFound();
         $this->actingAs($adminA)->post(route('corex.rentals.take-on-import.reos.import', $runB))->assertNotFound();
         $this->actingAs($adminA)->postJson(route('api.v1.rentals.take-on-import.decisions', $rowB), ['selected' => true])->assertNotFound();
-        $this->actingAs($adminA)->postJson(route('api.v1.rentals.take-on-import.bulk', $runB), ['action' => 'tick_all'])->assertNotFound();
+        $this->actingAs($adminA)->postJson(route('api.v1.rentals.take-on-import.defaults', $runB), ['agent_user_id' => $adminA->id])->assertNotFound();
+        $this->actingAs($adminA)->getJson(route('api.v1.rentals.take-on-import.card', $rowB))->assertNotFound();
         $this->actingAs($adminA)->getJson(route('api.v1.rentals.take-on-import.summary', $runB))->assertNotFound();
         self::assertFalse((bool) $rowB->fresh()->selected);
 

@@ -76,7 +76,7 @@ class ReosTenancyScheduleParser
 
     /**
      * @param array<int,mixed> $c
-     * @return array{row_number:int, payload:array<string,mixed>, errors:list<string>, warnings:list<string>}
+     * @return array{row_number:int, payload:array<string,mixed>, errors:list<string>, warnings:list<string>, deposit_seen:string}
      */
     public function normalise(int $rowNumber, array $c): array
     {
@@ -115,6 +115,11 @@ class ReosTenancyScheduleParser
             $errors[] = 'Current Rent must be more than zero.';
         }
         $deposit = $this->money($c[13] ?? null, 'Deposit Required', $errors);
+        // What the column held (blank / 0 / an amount) is recorded on the batch; a 0 is "no deposit given", not a deposit of nothing.
+        $depositSeen = $deposit === null ? 'blank' : ($deposit > 0 ? 'amount' : 'zero');
+        if ($deposit !== null && $deposit <= 0) {
+            $deposit = null;
+        }
 
         // Commission: read only to notice a garbled cell. Never stored (the four money/segment columns stay in reOS).
         foreach ([17, 18] as $i) {
@@ -163,7 +168,7 @@ class ReosTenancyScheduleParser
             $warnings[] = 'No tenant named — the lease is imported without a tenant.';
         }
 
-        return ['row_number' => $rowNumber, 'payload' => $payload, 'errors' => $errors, 'warnings' => $warnings];
+        return ['row_number' => $rowNumber, 'payload' => $payload, 'errors' => $errors, 'warnings' => $warnings, 'deposit_seen' => $depositSeen];
     }
 
     /** "759.00" → 759.0, "0.00%" → 0.0, "R 1 250,50"-style noise absorbed; anything else null. Public for the test. */
