@@ -143,3 +143,39 @@ Columns: what the agent dashboard showed, what the agent's own daily page showed
 ## Not verified
 
 - Live (production) data was **not** read. QA1 has no switched-off activity with earned credit and no branch-private activity with credit, so it cannot show the one case where the new rule could move a number (credit on a switched-off activity now counts everywhere). **Run this comparison against live before this is promoted.**
+
+## Johan's go (21 Oct 2026): the 21 overstated calendar credits are corrected
+
+Johan said yes: recount each one once, at the right size, through the shared points rule, with an audit row per change. This is done by `php artisan daily-points:correct-calendar-credits --apply` (dry run by default; refuses on a production environment unless `--force-production`; running it twice changes nothing). Each corrected credit is kept in the table `daily_activity_entry_corrections`: credit id, agent, month, old and new count, old and new points.
+
+**Status: rehearsed on a copy of the QA1 data, NOT yet run on QA1** - Johan put a hold on QA1 while HFC staff are in rental training. The figures below are from the rehearsal; the real run on QA1 recomputes them from the live rows and this section is then re-checked against it. It has not been run on live and will not be until Johan orders it.
+
+| Month | Credits corrected | Points counted before | Points after | Agency total for the month: before | after |
+|---|---:|---:|---:|---:|---:|
+| 2026-06 | 2 | 5,000 | 100 | 432,285 | 427,385 |
+| 2026-07 | 7 | 55,000 | 500 | 306,630 | 252,130 |
+| 2026-08 | 7 | 17,500 | 350 | 308,516 | 291,366 |
+| 2026-09 | 5 | 162,500 | 850 | 243,905 | 82,255 |
+
+The new **September total is 82,255 points** (it was 243,905).
+
+### Before and after, per agent and month
+
+| Month | Agent | Credits corrected | Those credits before | Those credits after | The agent's month total: before | after |
+|---|---|---:|---:|---:|---:|---:|
+| 2026-06 | Elize Reichel | 1 | 2,500 | 50 | 62,515 | 60,065 |
+| 2026-06 | Johan Reichel | 1 | 2,500 | 50 | 117,350 | 114,900 |
+| 2026-07 | Maggie Venter | 2 | 42,500 | 250 | 74,490 | 32,240 |
+| 2026-07 | Shalan Du Bois | 3 | 7,500 | 150 | 37,190 | 29,840 |
+| 2026-07 | Kym Pollard | 1 | 2,500 | 50 | 5,075 | 2,625 |
+| 2026-07 | Rochelle Combrink | 1 | 2,500 | 50 | 10,450 | 8,000 |
+| 2026-08 | Retha Kelly | 2 | 5,000 | 100 | 31,731 | 26,831 |
+| 2026-08 | Shalan Du Bois | 2 | 5,000 | 100 | 12,725 | 7,825 |
+| 2026-08 | Falan Du Bois | 1 | 2,500 | 50 | 14,810 | 12,360 |
+| 2026-08 | Gerda Baard | 1 | 2,500 | 50 | 44,830 | 42,380 |
+| 2026-08 | Maggie Venter | 1 | 2,500 | 50 | 63,895 | 61,445 |
+| 2026-09 | Angelique Venter | 2 | 80,000 | 400 | 82,080 | 2,480 |
+| 2026-09 | Maggie Venter | 2 | 80,000 | 400 | 86,830 | 7,230 |
+| 2026-09 | Johan Reichel | 1 | 2,500 | 50 | 5,680 | 3,230 |
+
+Never touched: overridden, revoked, still-waiting, manual and instant credits, and any count an agency chose for itself. The individual credit ids are in the audit table (and printed by the command).

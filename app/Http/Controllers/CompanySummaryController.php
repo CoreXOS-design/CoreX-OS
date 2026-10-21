@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Worksheet;
 use App\Models\CompanyExpense;
-use App\Models\ListingTarget;
+use App\Models\Target;
 use App\Http\Controllers\WorksheetController;
 use App\Models\PerformanceSetting;
 
@@ -29,7 +29,7 @@ $period = $request->query('period', now()->format('Y-m'));
         $monthlyExpenses = (float) $companyExpense->monthly_expenses;
 
         // Load targets for this period (keyed by user_id)
-        $targetsByUser = ListingTarget::where('period', $period)
+        $targetsByUser = Target::where('period', $period)
             ->get()
             ->keyBy('user_id');
 
@@ -59,7 +59,7 @@ $period = $request->query('period', now()->format('Y-m'));
             $actual['agent_net'] += $aSales * $agentNetPerSale;
 
             // TARGET (from listing_targets for this period)
-            $tListings = (float) ($targetsByUser->get($w->user_id)?->target_listings ?? 0);
+            $tListings = (float) ($targetsByUser->get($w->user_id)?->listings_target ?? 0);
             $tCP = $tListings * $cpFactor;
             $tSales = $tCP / $listingsPerSale;
 

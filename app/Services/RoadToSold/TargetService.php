@@ -4,6 +4,7 @@ namespace App\Services\RoadToSold;
 
 use App\Models\RoadToSold\RtsSetting;
 use App\Models\RoadToSold\RtsWeekdayTarget;
+use App\Models\Target;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -44,6 +45,109 @@ class TargetService
             'points'   => (int) ($row->points_target ?? 0),
             'set'      => $row !== null,
         ];
+    }
+
+    // ── the monthly targets (points / deals / value / listings) - one row per agent per month in `targets` ──────────
+
+    /** The four numbers and the form field each one comes from. */
+    public const MONTHLY_FIELDS = ['points_target', 'deals_target', 'value_target', 'listings_target'];
+
+    /**
+     * Save an agent's monthly targets. ONLY the numbers in `$values` are written: a number the caller did not send
+     * is left exactly as it is, and a blank is the same as not sent (type 0 to set zero). This is the fix for the
+     * Targets-screen bug where saving "points" zeroed deals, value and listings for every agent on the page
+     * (the old handler wrote all four from a form that posted one, and overwrote created_by every time).
+     *
+     * An archived row for the same agent and month is brought back, never duplicated (the unique index ignores
+     * soft deletes). created_by is set once; only updated_by moves after that.
+     *
+     * @param  array<string, int|float|string|null> $values  any of MONTHLY_FIELDS
+     */
+    public function saveMonthly(User $actor, User $agent, string $period, array $values): Target
+    {
+        $agencyId = (int) ($agent->agency_id ?: 0);
+        abort_unless($agencyId > 0 && $agencyId === (int) ($actor->effectiveAgencyId() ?: 0), 404);
+
+        return DB::transaction(function () use ($actor, $agent, $period, $values, $agencyId) {
+            // An agent belongs to one agency, so (period, agent) can only ever be this agency's row.
+            $row = Target::withTrashed()->where('period', $period)->where('user_id', $agent->id)->lockForUpdate()->first();
+            if (! $row) {
+                $row = new Target();
+                $row->forceFill(['agency_id' => $agencyId, 'period' => $period, 'user_id' => $agent->id, 'created_by' => $actor->id]);
+            } elseif ($row->trashed()) {
+                $row->restore();
+            }
+            $row->branch_id = $agent->branch_id;
+
+            foreach (self::MONTHLY_FIELDS as $field) {
+                if (! array_key_exists($field, $values) || $values[$field] === null || (is_string($values[$field]) && trim($values[$field]) === '')) {
+                    continue;
+                }
+                $v = $values[$field];
+                $row->{$field} = $field === 'value_target'
+                    ? round(max(0.0, min((float) $v, (float) RtsSetting::MAX_MONTHLY_VALUE)), 2)
+                    : max(0, min((int) $v, RtsSetting::MAX_MONTHLY_COUNT));
+            }
+            $row->updated_by = $actor->id;
+            $row->save();
+
+            return $row;
+        });
+    }
+
+    /** Archive an agent's targets for a month (soft). False when there was nothing to archive. */
+    public function archiveMonthly(User $actor, User $agent, string $period): bool
+    {
+        $row = Target::query()->where('agency_id', (int) ($actor->effectiveAgencyId() ?: 0))
+            ->where('period', $period)->where('user_id', $agent->id)->first();
+        if (! $row) {
+            return false;
+        }
+        $row->updated_by = $actor->id;
+        $row->save();
+
+        return (bool) $row->delete();
+    }
+
+    public function restoreMonthly(User $actor, User $agent, string $period): bool
+    {
+        $row = Target::onlyTrashed()->where('agency_id', (int) ($actor->effectiveAgencyId() ?: 0))
+            ->where('period', $period)->where('user_id', $agent->id)->first();
+        if (! $row) {
+            return false;
+        }
+        $row->updated_by = $actor->id;
+
+        return (bool) $row->restore();
+    }
+
+    /**
+     * Give the agency default to every one of these agents who has no live target row for the month. An agent who
+     * already has a row - even one of zeros - is left alone (a manager's number is never overwritten). Does nothing
+     * when the agency has not set a default (all zero). Returns how many agents were given the default.
+     *
+     * @param iterable<User> $agents
+     * @param array{points:int,deals:int,listings:int,value:float} $default
+     */
+    public function applyMonthlyDefault(User $actor, iterable $agents, string $period, array $default): int
+    {
+        if (! array_filter($default)) {
+            return 0;
+        }
+        $n = 0;
+        foreach ($agents as $agent) {
+            $has = Target::query()->where('period', $period)->where('user_id', $agent->id)->exists();
+            if ($has) {
+                continue;
+            }
+            $this->saveMonthly($actor, $agent, $period, [
+                'points_target' => $default['points'], 'deals_target' => $default['deals'],
+                'listings_target' => $default['listings'], 'value_target' => $default['value'],
+            ]);
+            $n++;
+        }
+
+        return $n;
     }
 
     /**

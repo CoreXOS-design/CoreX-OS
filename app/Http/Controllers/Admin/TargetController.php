@@ -16,372 +16,49 @@ use App\Services\PermissionService;
 
 class TargetController extends Controller
 {
+    /**
+     * The Targets screen moved to Road to Sold settings (re-home step 4): this address redirects there, keeping the month.
+     * The route name `admin.targets` is kept so every older link still resolves.
+     */
     public function index(Request $request)
     {
-        $auth = auth()->user();
-        abort_unless($auth->hasPermission('targets.view'), 403);
+        $params = array_filter(['period' => $request->query('period')]);
 
-        $scope = PermissionService::getDataScope($auth, 'targets');
-
-        // Period
-        $period = (string)($request->get('period') ?: Carbon::now()->format('Y-m'));
-
-        // Period options from deals table (plus current period)
-        $periods = Deal::query()
-            ->select('period')
-            ->whereNotNull('period')
-            ->groupBy('period')
-            ->orderBy('period', 'desc')
-            ->pluck('period')
-            ->all();
-
-        if (!in_array($period, $periods, true)) {
-            array_unshift($periods, $period);
-        }
-
-        // Branch name lookup
-        $branchNames = Branch::query()->pluck('name', 'id')->all();
-
-        // Scope users
-        $usersQ = User::query()
-            ->where('is_active', 1)
-            ->where(function ($q) {
-                $q->whereNull('role')
-                  ->orWhere('role', 'agent')
-                  ->orWhere('role', 'branch_manager');
-            });
-
-        if ($scope === 'own') {
-            $usersQ->where('id', (int)$auth->id);
-        } elseif ($scope === 'branch') {
-            $usersQ->where('branch_id', (int)$auth->branch_id);
-        }
-
-        $users = $usersQ
-            ->orderBy('branch_id')
-            ->orderBy('name')
-            ->get();
-
-
-        // Normalize branch_id for display (fallback to branch_assignments when users.branch_id is empty)
-        $baMap = [];
-        $baRows = DB::table('branch_assignments')
-            ->select('user_id', 'branch_id', 'id')
-            ->whereIn('user_id', $users->pluck('id'))
-            ->orderBy('id', 'desc')
-            ->get();
-
-        foreach ($baRows as $r) {
-            $uid = (int)$r->user_id;
-            if (!isset($baMap[$uid]) && (int)$r->branch_id > 0) {
-                $baMap[$uid] = (int)$r->branch_id;
-            }
-        }
-
-        $users->transform(function ($u) use ($baMap) {
-            $bid = (int)($u->branch_id ?? 0);
-            if ($bid <= 0) {
-                $uid = (int)$u->id;
-                if (isset($baMap[$uid])) {
-                    $u->branch_id = $baMap[$uid];
-                }
-            }
-            return $u;
-        });
-        // Monthly targets (existing)
-        $targets = Target::query()
-            ->where('period', $period)
-            ->whereIn('user_id', $users->pluck('id'))
-            ->get()
-            ->keyBy('user_id');
-
-        // Actuals: from deal_user pivot joined to deals by period
-        $actuals = collect();
-        $userIds = $users->pluck('id')->all();
-
-        if (count($userIds) > 0) {
-            // Actuals NOTE:
-
-            // value_actual must split each deal's property_value equally across DISTINCT agents on the deal,
-
-            // and must NOT halve a deal when the same agent appears twice (listing + selling).
-
-            //
-
-            // Rule: per deal, agent_value = property_value / COUNT(DISTINCT user_id on that deal)
-
-            // Then SUM per user.
-
-            
-
-            // Distinct deal+user rows for users in scope (prevents double rows when user is on both sides)
-
-            $duDistinct = DB::table('deal_user')
-
-                ->selectRaw('DISTINCT deal_id, user_id');
-
-            
-
-            // Agent count per deal (for this period), counting DISTINCT agents on the deal
-
-            $agentCounts = DB::table('deal_user')
-
-                ->join('deals', 'deals.id', '=', 'deal_user.deal_id')
-
-                ->where('deals.period', $period)
-
-                ->selectRaw('deal_user.deal_id as deal_id, COUNT(DISTINCT deal_user.user_id) as agent_count')
-
-                ->groupBy('deal_user.deal_id');
-
-            
-
-            $rows = DB::query()
-
-                ->fromSub($duDistinct, 'du')
-
-                ->join('deals', 'deals.id', '=', 'du.deal_id')
-
-                ->joinSub($agentCounts, 'ac', function($j) {
-
-                    $j->on('ac.deal_id', '=', 'du.deal_id');
-
-                })
-
-                ->where('deals.period', $period)
-
-                ->whereIn('du.user_id', $userIds)
-
-                ->leftJoin('deal_user as du_side', function($j) {
-
-                    $j->on('du_side.deal_id', '=', 'du.deal_id')
-
-                      ->on('du_side.user_id', '=', 'du.user_id');
-
-                })
-
-                ->selectRaw('
-
-                    du.user_id as user_id,
-
-                    COUNT(DISTINCT CASE WHEN du_side.side = "listing" THEN du.deal_id END) as listings_actual,
-
-                    COUNT(DISTINCT du.deal_id) as deals_actual,
-
-                    COALESCE(SUM(
-                        CASE du_side.side
-                            WHEN "listing" THEN deals.property_value * deals.listing_split_percent / 100.0
-                            WHEN "selling" THEN deals.property_value * deals.selling_split_percent / 100.0
-                            ELSE 0 END
-                    ), 0) as value_actual
-
-                ')
-
-                ->groupBy('du.user_id')
-
-                ->get();
-
-
-            $actuals = collect($rows)->keyBy('user_id');
-        }
-
-        // Daily date selector
-        $dailyDate = (string)($request->get('date') ?: Carbon::now()->toDateString());
-
-        // Monthly activity targets (leading indicators) — for later settings screen, but ready now
-        $activityTargets = ActivityTarget::query()
-            ->where('period', $period)
-            ->whereIn('user_id', $users->pluck('id'))
-            ->get()
-            ->keyBy('user_id');
-
-        
-        // Daily activity columns (settings-driven)
-        // Admin view (all branches): global defaults only
-        // Branch Manager / Agent: branch override (if exists) else global defaults
-        $dailyCols = DB::table('activity_columns')
-            ->select('key', 'label', 'group', 'default_enabled', 'sort_order')
-            ->orderBy('sort_order')
-            ->orderBy('key')
-            ->get()
-            ->map(function ($c) {
-                return [
-                    'key' => (string)$c->key,
-                    'label' => (string)$c->label,
-                    'group' => $c->group === null ? null : (string)$c->group,
-                    'enabled' => (int)$c->default_enabled,
-                    'order' => (int)$c->sort_order,
-                ];
-            })
-            ->keyBy('key')
-            ->all();
-
-        $effectiveCols = [];
-
-        if ($scope === 'all') {
-            // global only
-            foreach ($dailyCols as $k => $c) {
-                if ((int)$c['enabled'] === 1) $effectiveCols[] = $c;
-            }
-            usort($effectiveCols, fn($a, $b) => ($a['order'] <=> $b['order']) ?: strcmp($a['key'], $b['key']));
-        } else {
-            // branch override if possible
-            $bid = (int)($auth?->branch_id ?? 0);
-            $over = [];
-            if ($bid > 0) {
-                $rows = DB::table('branch_activity_columns')
-                    ->select('key', 'is_enabled', 'sort_order', 'points_weight')
-                    ->where('branch_id', $bid)
-                    ->get();
-                foreach ($rows as $r) {
-                    $over[(string)$r->key] = [
-                        'enabled' => (int)$r->is_enabled,
-                        'order' => $r->sort_order === null ? null : (int)$r->sort_order,
-                    ];
-                }
-            }
-
-            foreach ($dailyCols as $k => $c) {
-                $enabled = (int)$c['enabled'];
-                $order = (int)$c['order'];
-
-                if (isset($over[$k])) {
-                    $enabled = (int)$over[$k]['enabled'];
-                    if ($over[$k]['order'] !== null) $order = (int)$over[$k]['order'];
-                }
-
-                if ($enabled === 1) {
-                    $c['enabled'] = 1;
-                    $c['order'] = $order;
-                    $effectiveCols[] = $c;
-                }
-            }
-
-            usort($effectiveCols, fn($a, $b) => ($a['order'] <=> $b['order']) ?: strcmp($a['key'], $b['key']));
-        }
-// Daily activity actuals for selected date
-        $dailyActivities = DailyActivity::query()
-            ->where('activity_date', $dailyDate)
-            ->whereIn('user_id', $users->pluck('id'))
-            ->get()
-            ->keyBy('user_id');
-
-        // Rolling date strip: today + 7 days back (NO future dates)
-        $tz = config('app.timezone') ?: 'UTC';
-        $todayObj = \Carbon\Carbon::now($tz)->startOfDay();
-        $minObj = $todayObj->copy()->subDays(7);
-
-        // Validate + clamp selected date into [today-7, today]
-        if (!preg_match('/^\d{4}\-\d{2}\-\d{2}$/', $dailyDate)) {
-            $dailyDate = $todayObj->toDateString();
-        }
-        $selectedDateObj = \Carbon\Carbon::parse($dailyDate, $tz)->startOfDay();
-        if ($selectedDateObj->gt($todayObj)) $selectedDateObj = $todayObj->copy();
-        if ($selectedDateObj->lt($minObj)) $selectedDateObj = $minObj->copy();
-        $dailyDate = $selectedDateObj->toDateString();
-
-        $weekStart = $minObj->copy()->startOfDay();
-        $weekEnd   = $todayObj->copy()->endOfDay();
-
-        $weekDays = [];
-        for ($i = 0; $i <= 7; $i++) {
-            $d = $minObj->copy()->addDays($i);
-            $weekDays[] = [
-                'date' => $d->toDateString(),
-                'label' => $d->format('D j M'),
-                'is_selected' => ($d->toDateString() === $selectedDateObj->toDateString()),
-                'is_today' => $d->isSameDay($todayObj),
-            ];
-        }
-
-        // Points-by-day is optional on admin targets; keep empty unless/ until computed per user
-        $pointsByDay = [];
-
-
-        return view('admin.targets.index', [
-            'period' => $period,
-            'periods' => $periods,
-            'users' => $users,
-            'targets' => $targets,
-            'actuals' => $actuals,
-
-            'dailyDate' => $dailyDate,
-            'weekStart' => $weekStart,
-            'weekEnd' => $weekEnd,
-            'weekDays' => $weekDays,
-            'pointsByDay' => $pointsByDay,
-            'activityTargets' => $activityTargets,
-            'dailyActivities' => $dailyActivities,
-
-            'dailyCols' => $effectiveCols,
-
-            'branchNames' => $branchNames,
-
-            'isAdmin' => $scope === 'all',
-            'isBM' => $scope === 'branch',
-            'isAgent' => $scope === 'own',
-            'canEditTargets' => $auth->hasPermission('manage_targets'),
-        ]);
+        return redirect()->to(route('road-to-sold.settings.targets.index', $params) . '#monthly', 301);
     }
 
+    /**
+     * Kept so a Targets page that was open before the move can still post. It writes through the ONE writer
+     * (TargetService::saveMonthly) which only writes the boxes that were posted - the old handler wrote all four
+     * columns from a form that posted one and so zeroed deals, value and listings for every agent on the page.
+     */
     public function save(Request $request)
     {
         // Monthly targets: manage_targets permission required
         abort_unless(auth()->user()->hasPermission('manage_targets'), 403);
 
         $period = (string)$request->input('period');
-        if (!preg_match('/^\d{4}\-\d{2}$/', $period)) {
+        if (!preg_match('/^\d{4}\-(0[1-9]|1[0-2])$/', $period)) {
             return back()->withErrors('Invalid period.')->withInput();
         }
 
         $auth = auth()->user();
-        $branchId = $auth?->branch_id;
-
         $data = $request->input('targets', []);
         if (!is_array($data)) $data = [];
+        $visible = \App\Services\RoadToSold\VisibleAgents::for($auth);
+        $service = app(\App\Services\RoadToSold\TargetService::class);
 
-        DB::transaction(function () use ($data, $period, $auth, $branchId) {
-            $saveScope = PermissionService::getDataScope($auth, 'targets');
+        DB::transaction(function () use ($data, $period, $auth, $visible, $service) {
             foreach ($data as $userId => $row) {
-                $userId = (int)$userId;
-                if ($userId <= 0) continue;
-
-                $u = User::find($userId);
-                if (!$u) continue;
-
-                // Branch-scoped users can only save for their branch
-                if ($saveScope === 'branch') {
-                    if ((int)$u->branch_id !== (int)$branchId) continue;
-                }
-
-                $listings = isset($row['listings_target']) ? (int)$row['listings_target'] : 0;
-                $deals    = isset($row['deals_target']) ? (int)$row['deals_target'] : 0;
-                $value    = isset($row['value_target']) ? (float)$row['value_target'] : 0;
-
-                $points   = isset($row['points_target']) ? (int)$row['points_target'] : 0;
-
-                if ($listings < 0) $listings = 0;
-                if ($deals < 0) $deals = 0;
-                if ($value < 0) $value = 0;
-                if ($points < 0) $points = 0;
-
-                Target::updateOrCreate(
-                    ['period' => $period, 'user_id' => $userId],
-                    [
-                        'branch_id' => $u->branch_id,
-                        'listings_target' => $listings,
-                        'deals_target' => $deals,
-                        'value_target' => $value,
-                        'points_target' => $points,
-                        'updated_by' => $auth?->id,
-                        'created_by' => $auth?->id,
-                    ]
-                );
+                $agent = $visible->get((int) $userId);   // own / branch / agency breadth, decided in the query
+                if (! $agent || ! is_array($row)) continue;
+                $posted = array_intersect_key($row, array_flip(\App\Services\RoadToSold\TargetService::MONTHLY_FIELDS));
+                $service->saveMonthly($auth, $agent, $period, $posted);
             }
         });
 
-        return redirect()->route('admin.targets', ['period' => $period])
-            ->with('status', 'Targets saved.');
+        return redirect()->to(route('road-to-sold.settings.targets.index', ['period' => $period]) . '#monthly')
+            ->with('success', 'Targets saved.');
     }
 
     

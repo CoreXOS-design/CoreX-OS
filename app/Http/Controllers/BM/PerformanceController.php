@@ -32,10 +32,8 @@ class PerformanceController extends Controller
 
         $branchName = \App\Models\Branch::where('id', $branchId)->value('name') ?? 'Branch';
 
-        $branchGoal = MonthlyTargetGoal::firstOrCreate(
-            ['branch_id' => $branchId, 'period' => $period],
-            ['listings_target' => 0, 'deals_target' => 0, 'value_target' => 0, 'branch_budget' => 0]
-        );
+        // Budgets live in Road to Sold settings now (re-home step 4); this page only reads them.
+        $branchGoal = app(\App\Services\RoadToSold\BudgetService::class)->branchGoal((int) ($branchAgencyId ?? 0), (int) $branchId, (string) $period);
 
         // Income projection from agent targets (value sum -> income)
         $commissionRate = (float) config('performance.commission_rate', 0.075);
@@ -173,13 +171,8 @@ class PerformanceController extends Controller
         $user = Auth::user();
         $branchId = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
 
-        $goal = MonthlyTargetGoal::firstOrCreate(
-            ['branch_id' => $branchId, 'period' => $request->period],
-            ['listings_target' => 0, 'deals_target' => 0, 'value_target' => 0, 'branch_budget' => 0]
-        );
-
-        $goal->branch_budget = (float)$request->branch_budget;
-        $goal->save();
+        // The branch budget now lives in Road to Sold settings; this kept route writes there (the box is gone from the page).
+        app(\App\Services\RoadToSold\BudgetService::class)->saveRequirement($user, $branchId, (string) $request->period, (float) $request->branch_budget);
 
         return redirect()->route('bm.performance', ['period' => $request->period])
             ->with('status', 'Branch budget saved.');
@@ -195,8 +188,7 @@ class PerformanceController extends Controller
         $user = Auth::user();
         $branchId = (int)($user->effectiveBranchId() ?? ($user->branch_id ?? 0));
 
-        $branchGoal = MonthlyTargetGoal::where('branch_id', $branchId)->where('period', $period)->first();
-        $branchBudget = (float)($branchGoal->branch_budget ?? 0);
+        $branchBudget = app(\App\Services\RoadToSold\BudgetService::class)->branchRequirement((int) $user->effectiveAgencyId(), (int) $branchId, (string) $period);
 
         if ($branchBudget <= 0) {
             return back()->with('status', 'Set a branch budget first.');
@@ -286,20 +278,18 @@ class PerformanceController extends Controller
             return back()->with('status', 'User not found in your branch.');
         }
 
-        // Must have a worksheet for this user+period (we reuse the worksheet math)
-        $w = Worksheet::where('user_id', $targetUserId)
-            ->where('period', $period)
-            ->first();
+        // The agent's budget for the month (Road to Sold settings > Budgets), as the row the worksheet math takes.
+        $targetModel = \App\Models\User::find($targetUserId);
+        $w = $targetModel ? app(\App\Services\RoadToSold\BudgetService::class)->worksheetFor($targetModel, $period) : null;
 
         if (!$w) {
-            return back()->with('status', 'Agent has no worksheet for this period yet.');
+            return back()->with('status', 'Agent has no budget for this period yet.');
         }
 
-        $goal = MonthlyTargetGoal::where('branch_id', $branchId)
-            ->where('period', $period)
-            ->first();
+        $branchBudgetNeeded = app(\App\Services\RoadToSold\BudgetService::class)->branchRequirement((int) $bm->effectiveAgencyId(), (int) $branchId, $period);
+        $goal = (object) ['branch_budget' => $branchBudgetNeeded];
 
-        if (!$goal || (float)$goal->branch_budget <= 0) {
+        if ((float)$goal->branch_budget <= 0) {
             return back()->with('status', 'No branch budget configured.');
         }
 
@@ -323,14 +313,11 @@ class PerformanceController extends Controller
 
         $ratio = $requiredPerAgent / $currentCompanyIncome;
 
-        // Uplift the agent's worksheet net targets
+        // Uplift the agent's budget (in memory first, saved to Road to Sold once at the end)
         $w->personal_net_target = round((float)$w->personal_net_target * $ratio, 2);
         $w->business_net_target = round((float)$w->business_net_target * $ratio, 2);
-        $w->want_net_target     = round((float)$w->want_net_target * $ratio, 2);
-        $w->save();
 
         // Precision correction (guarantee meets requirement)
-        $w->refresh();
         $recalc = WorksheetController::calculate($w);
         $newCompanyIncome = (float)($recalc['company_income'] ?? 0);
 
@@ -339,12 +326,10 @@ class PerformanceController extends Controller
 
             $w->personal_net_target = round((float)$w->personal_net_target * $fixRatio, 2);
             $w->business_net_target = round((float)$w->business_net_target * $fixRatio, 2);
-            $w->want_net_target     = round((float)$w->want_net_target * $fixRatio, 2);
-            $w->save();
         }
+        app(\App\Services\RoadToSold\BudgetService::class)->saveAgent($bm, $targetModel, $period, (float) $w->personal_net_target, (float) $w->business_net_target);
 
         // Sync targets table (single source for dashboards) WITHOUT overwriting points_target
-        $w->refresh();
         $final = WorksheetController::calculate($w);
 
         $dealsTarget = (int) ceil((float)($final['sales_needed_per_month'] ?? 0));
@@ -442,8 +427,7 @@ class PerformanceController extends Controller
         }
 
         // 2) NO HISTORY: use Branch Budget / active headcount (agents + BM + admin in branch)
-        $branchGoal = MonthlyTargetGoal::where('branch_id', $branchId)->where('period', $period)->first();
-        $branchBudget = (float)($branchGoal->branch_budget ?? 0);
+        $branchBudget = app(\App\Services\RoadToSold\BudgetService::class)->branchRequirement((int) $user->effectiveAgencyId(), (int) $branchId, (string) $period);
 
         if ($branchBudget <= 0) {
             return back()->with('status', 'No history found. Set Branch Budget for this month first.');

@@ -46,10 +46,8 @@ class BranchPerformanceController extends Controller
         $rollup = $service->getBranchRollup($branchId, $period, $agencyId);
 
         // Ensure goal exists (same as BM)
-        $branchGoal = MonthlyTargetGoal::firstOrCreate(
-            ['branch_id' => $branchId, 'period' => $period],
-            ['listings_target' => 0, 'deals_target' => 0, 'value_target' => 0, 'branch_budget' => 0]
-        );
+        // Read-only: budgets are set in Road to Sold settings (re-home step 4).
+        $branchGoal = app(\App\Services\RoadToSold\BudgetService::class)->branchGoal($agencyId, (int) $branchId, (string) $period);
 
         // Income projection from agent targets (value sum -> income)
         $commissionRate = (float) config('performance.commission_rate', 0.075);

@@ -12,6 +12,18 @@
     $q = $filters['q']; $status = $filters['status']; $mode = $filters['mode']; $sortNow = $filters['sort'];
     $keep = array_filter(['q' => $q ?: null, 'status' => $status === 'cleared' ? 'cleared' : null, 'mode' => $mode === 'all' ? null : $mode,
         'branch_id' => $filters['branchId'] ?: null, 'sort' => $sortNow === 'name' ? null : $sortNow, 'page' => request('page')]);
+    $mo = $monthly;
+    $mkeep = array_filter(['m_q' => $mo['filters']['q'] ?: null, 'm_show' => $mo['filters']['show'] === 'all' ? null : $mo['filters']['show'],
+        'm_branch' => $mo['filters']['branchId'] ?: null, 'm_sort' => $mo['filters']['sort'] === 'name' ? null : $mo['filters']['sort'], 'mpage' => request('mpage')]);
+    $moLabel = \Carbon\CarbonImmutable::createFromFormat('!Y-m', $mo['period'])->format('F Y');
+    $fieldStyle = 'background:var(--surface); border:1px solid var(--border); color:var(--text-primary);';
+    $fmtVal = fn ($v) => number_format((float) $v, 0, '.', ' ');
+    $diffCell = function ($target, $actual, $isMoney = false) use ($fmtVal) {
+        if (! $target) { return 'no target'; }
+        $d = $actual - $target;
+        $txt = ($d >= 0 ? '+' : '-') . $fmtVal(abs($d));
+        return $txt . ' ' . ($d >= 0 ? 'ahead' : 'to go');
+    };
 @endphp
 
 @section('corex-content')
@@ -40,6 +52,185 @@
             You can look at these numbers but not change them.
         </div>
     @endunless
+
+
+    {{-- ───────────────────────── Monthly targets ───────────────────────── --}}
+    <section id="monthly" class="space-y-4">
+        <div>
+            <h2 class="text-base font-bold" style="color:var(--text-primary);">Monthly targets</h2>
+            <p class="text-sm" style="color:var(--text-muted);">What each agent works towards in a month: points, deals, sales value and new listings. Under each box is what the agent has actually done so far, and how far ahead or behind that is. A box left blank is left as it was; type 0 to set zero.</p>
+        </div>
+
+        <div class="rounded-md p-4 flex flex-wrap items-center gap-4" style="background:var(--surface); border:1px solid var(--border);">
+            <x-period-selector :months="$mo['months']" />
+            @if($canWrite)
+                <form method="POST" action="{{ route($rb . 'targets.monthly.apply-default') }}" class="ml-auto">
+                    @csrf <input type="hidden" name="period" value="{{ $mo['period'] }}">
+                    @foreach($mkeep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
+                    <button type="submit" class="corex-btn-outline"
+                            onclick="return confirm('Give every agent you can see who has no targets for {{ $moLabel }} the agency default? Anyone who already has targets is left alone.');">Give agents without targets the default</button>
+                </form>
+            @endif
+        </div>
+
+        {{-- Agency default --}}
+        <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
+            <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">Agency default monthly targets</h3>
+            <p class="text-xs mb-3" style="color:var(--text-muted);">A starting point for agents who have no targets of their own. Nothing changes for anyone until you press "Give agents without targets the default". 0 means you have not set one.</p>
+            <form method="POST" action="{{ route($rb . 'targets.monthly.default') }}" class="flex flex-wrap items-end gap-3">
+                @csrf @method('PUT')
+                <input type="hidden" name="period" value="{{ $mo['period'] }}">
+                @foreach($mkeep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
+                @foreach(['points' => 'Points', 'deals' => 'Deals', 'listings' => 'New listings', 'value' => 'Sales value (rand)'] as $key => $label)
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="mdef-{{ $key }}">{{ $label }}</label>
+                        <input id="mdef-{{ $key }}" type="number" min="0" step="{{ $key === 'value' ? '0.01' : '1' }}" name="default_monthly[{{ $key }}]" value="{{ old('default_monthly.' . $key, $mo['default'][$key]) }}"
+                               @disabled(! $canEditDefault) class="{{ $key === 'value' ? 'w-44' : 'w-28' }} rounded-md px-2 py-2 text-sm" style="{{ $fieldStyle }}">
+                    </div>
+                @endforeach
+                @if($canEditDefault)<button type="submit" class="corex-btn-primary">Save default</button>@endif
+            </form>
+        </div>
+
+        {{-- Totals --}}
+        <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
+            <table class="w-full text-sm" style="color:var(--text-primary);">
+                <thead>
+                    <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
+                        <th class="px-4 py-2">Added up for {{ $moLabel }}</th>
+                        <th class="px-3 py-2 text-right">Agents with targets</th>
+                        <th class="px-3 py-2 text-right">Points</th><th class="px-3 py-2 text-right">Deals</th>
+                        <th class="px-3 py-2 text-right">New listings</th><th class="px-3 py-2 text-right">Sales value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach($mo['totalsByBranch'] as $bid => $t)
+                        <tr style="border-bottom:1px solid var(--border);">
+                            <td class="px-4 py-2">{{ $branches[$bid] ?? 'No branch' }}</td>
+                            <td class="px-3 py-2 text-right">{{ $t['withTargets'] }} of {{ $t['agents'] }}</td>
+                            <td class="px-3 py-2 text-right">{{ $fmtVal($t['points']) }}</td><td class="px-3 py-2 text-right">{{ $fmtVal($t['deals']) }}</td>
+                            <td class="px-3 py-2 text-right">{{ $fmtVal($t['listings']) }}</td><td class="px-3 py-2 text-right">R {{ $fmtVal($t['value']) }}</td>
+                        </tr>
+                    @endforeach
+                    <tr class="font-semibold" style="background:var(--surface-2);">
+                        <td class="px-4 py-2">Everyone you can see</td>
+                        <td class="px-3 py-2 text-right">{{ $mo['totalAll']['withTargets'] }} of {{ $mo['totalAll']['agents'] }}</td>
+                        <td class="px-3 py-2 text-right">{{ $fmtVal($mo['totalAll']['points']) }}</td><td class="px-3 py-2 text-right">{{ $fmtVal($mo['totalAll']['deals']) }}</td>
+                        <td class="px-3 py-2 text-right">{{ $fmtVal($mo['totalAll']['listings']) }}</td><td class="px-3 py-2 text-right">R {{ $fmtVal($mo['totalAll']['value']) }}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        {{-- Filters --}}
+        <form method="GET" action="{{ route($rb . 'targets.index') }}#monthly" class="props-filter-panel rounded-md p-4 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end"
+              style="background:var(--surface); border:1px solid var(--border);">
+            <input type="hidden" name="period" value="{{ $mo['period'] }}">
+            @foreach(array_diff_key(array_filter(request()->only(['q', 'status', 'mode', 'branch_id', 'sort', 'page'])), []) as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
+            <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="m_q">Search</label>
+                <input class="list-header-filter {{ (!empty($mo['filters']['q'])) ? 'is-active' : '' }} w-full" id="m_q" name="m_q" value="{{ $mo['filters']['q'] }}" type="search" placeholder="Agent name or email">
+            </div>
+            @if($branches->count() > 1)
+                <div>
+                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="m_branch">Branch</label>
+                    <select class="list-header-filter {{ (!empty($mo['filters']['branchId'])) ? 'is-active' : '' }} w-full" id="m_branch" name="m_branch">
+                        <option value="">All branches</option>
+                        @foreach($branches as $bid => $bname)<option value="{{ $bid }}" @selected($mo['filters']['branchId'] == $bid)>{{ $bname }}</option>@endforeach
+                    </select>
+                </div>
+            @endif
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="m_show">Show</label>
+                <select class="list-header-filter {{ ($mo['filters']['show'] !== 'all') ? 'is-active' : '' }} w-full" id="m_show" name="m_show">
+                    <option value="all" @selected($mo['filters']['show'] === 'all')>All agents</option>
+                    <option value="set" @selected($mo['filters']['show'] === 'set')>With targets</option>
+                    <option value="notset" @selected($mo['filters']['show'] === 'notset')>Without targets</option>
+                    <option value="archived" @selected($mo['filters']['show'] === 'archived')>Removed targets</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="m_sort">Sort by</label>
+                <select class="list-header-filter w-full" id="m_sort" name="m_sort">
+                    @foreach(['name' => 'Agent name (A-Z)', 'branch' => 'Branch', 'points' => 'Points, biggest first', 'deals' => 'Deals, biggest first', 'listings' => 'Listings, biggest first', 'value' => 'Sales value, biggest first'] as $v => $l)
+                        <option value="{{ $v }}" @selected($mo['filters']['sort'] === $v)>{{ $l }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="sm:col-span-5 flex items-center gap-3">
+                <button type="submit" class="corex-btn-primary">Apply</button>
+                <a href="{{ route($rb . 'targets.index', ['period' => $mo['period']]) }}#monthly" class="corex-btn-outline">Clear</a>
+            </div>
+        </form>
+
+        {{-- Grid --}}
+        <div class="rounded-md overflow-x-auto" style="background:var(--surface); border:1px solid var(--border);">
+            <table class="w-full text-sm" style="color:var(--text-primary);">
+                <thead>
+                    <tr class="text-left text-xs uppercase tracking-wide" style="background:var(--surface-2); border-bottom:1px solid var(--border); color:var(--text-muted);">
+                        <th class="px-4 py-2">Agent</th><th class="px-2 py-2">Points</th><th class="px-2 py-2">Deals</th>
+                        <th class="px-2 py-2">New listings</th><th class="px-2 py-2">Sales value (rand)</th><th class="px-4 py-2"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                @forelse($mo['rows'] as $row)
+                    @php
+                        $u = $row['user']; $fid = 'rts-mt-' . $u->id; $t = $row['row']; $removed = $mo['filters']['show'] === 'archived'; $src = $removed ? $row['archived'] : $t;
+                        $a = $row['actual'];
+                        $cols = [['points_target', 'points', 'w-24', '1'], ['deals_target', 'deals', 'w-20', '1'], ['listings_target', 'listings', 'w-20', '1'], ['value_target', 'value', 'w-36', '0.01']];
+                    @endphp
+                    <tr style="border-top:1px solid var(--border);">
+                        <td class="px-4 py-2">
+                            <div class="font-semibold">{{ $u->name }}</div>
+                            <div class="text-xs" style="color:var(--text-muted);">{{ $u->branch?->name }} &middot; {{ $removed ? 'removed targets' : ($t ? 'own targets' : 'no targets set') }}</div>
+                        </td>
+                        @foreach($cols as [$field, $key, $w, $step])
+                            <td class="px-2 py-2 align-top">
+                                <input type="number" min="0" step="{{ $step }}" form="{{ $fid }}" name="{{ $field }}" value="{{ $removed ? '' : ($t?->{$field} ?? '') }}"
+                                       placeholder="{{ $removed ? $fmtVal($src?->{$field} ?? 0) : '0' }}" @disabled(! $canWrite || $removed)
+                                       class="{{ $w }} rounded-md px-2 py-2 text-sm" style="{{ $fieldStyle }}">
+                                <div class="text-xs mt-1" style="color:var(--text-muted);" title="What {{ $u->name }} has actually done in {{ $moLabel }}">
+                                    done {{ $key === 'value' ? 'R ' : '' }}{{ $fmtVal($a[$key]) }}<br>
+                                    {{ $t ? $diffCell((float) $t->{$field}, (float) $a[$key]) : 'no target' }}
+                                </div>
+                            </td>
+                        @endforeach
+                        <td class="px-4 py-2 align-top">
+                            <form id="{{ $fid }}" method="POST" action="{{ route($rb . 'targets.monthly.save', $u->id) }}" class="flex flex-wrap gap-2">
+                                @csrf @method('PUT')
+                                <input type="hidden" name="period" value="{{ $mo['period'] }}">
+                                @foreach($mkeep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
+                                @if($removed)
+                                    @if($canWrite)
+                                        <button type="submit" formaction="{{ route($rb . 'targets.monthly.restore', $u->id) }}" name="_method" value="POST" class="corex-btn-primary">Bring back</button>
+                                    @endif
+                                @elseif($canWrite)
+                                    <button type="submit" class="corex-btn-primary">Save</button>
+                                    @if($t)
+                                        <button type="submit" formaction="{{ route($rb . 'targets.monthly.archive', $u->id) }}" name="_method" value="DELETE"
+                                                onclick="return confirm('Remove {{ addslashes($u->name) }}\'s targets for {{ $moLabel }}? You can bring them back from Removed targets.');"
+                                                class="corex-btn-outline">Remove</button>
+                                    @endif
+                                @endif
+                            </form>
+                        </td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="px-4 py-8 text-center" style="color:var(--text-muted);">
+                        @if($mo['emptyFiltered']) No agents match those filters. <a class="underline" href="{{ route($rb . 'targets.index', ['period' => $mo['period']]) }}#monthly">Clear the filters</a>.
+                        @else No agents have the "Access Road to Sold" permission yet. Add it in Role Manager, then set their targets here. @endif
+                    </td></tr>
+                @endforelse
+                </tbody>
+            </table>
+        </div>
+        {{ $mo['rows']->links() }}
+    </section>
+
+    <div>
+        <h2 class="text-base font-bold" style="color:var(--text-primary);">Daily call targets</h2>
+        <p class="text-sm" style="color:var(--text-muted);">How many properties each agent works on each day of the week.</p>
+    </div>
 
     {{-- Agency default --}}
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">

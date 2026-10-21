@@ -156,6 +156,12 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
+  "admin.targets": {
+    "flags": [
+      "NO_ITEM"
+    ],
+    "reason": "Moved in the Agency Tracker re-home (step 4, 21 Oct 2026): the old Targets screen is now Road to Sold settings > Targets. This address only 301-redirects there (the route name is kept so older links resolve), so there is deliberately no sidebar item for it."
+  },
   "admin.targets.activity.definitions": {
     "flags": [
       "NO_ITEM"
