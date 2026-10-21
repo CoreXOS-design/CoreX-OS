@@ -418,18 +418,12 @@
         </div>
 
         <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-            <form method="POST" action="{{ route('bm.performance.save') }}" class="flex items-end justify-end gap-2 flex-wrap">
-                @csrf
-                <input type="hidden" name="period" value="{{ $r['period'] }}">
-                <div>
-                    <label for="branch_budget" class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Branch budget (R)</label>
-                    <input id="branch_budget" type="number" step="0.01" name="branch_budget" value="{{ $branchBudget }}"
-                           class="w-48 rounded-md text-sm px-3 py-2"
-                           style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);"
-                           min="0">
-                </div>
-                <button type="submit" class="corex-btn-primary">Save Budget</button>
-            </form>
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="text-sm" style="color: var(--text-secondary);">The branch budget is set in Road to Sold settings, not on this page.</div>
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.budgets.index') && auth()->user()->hasPermission('road_to_sold.manage_targets'))
+                    <a href="{{ route('road-to-sold.settings.budgets.index', ['period' => $r['period']]) }}" class="corex-btn-outline">Set the branch budget</a>
+                @endif
+            </div>
 
             <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div class="ds-status-card h-full">

@@ -652,6 +652,10 @@ class AgencySetupWizardController extends Controller
                     }
 
                     return match ($key) {
+                        'default_monthly_points'       => $rts->defaultMonthlyTargets()['points'],
+                        'default_monthly_deals'        => $rts->defaultMonthlyTargets()['deals'],
+                        'default_monthly_listings'     => $rts->defaultMonthlyTargets()['listings'],
+                        'default_monthly_value'        => $rts->defaultMonthlyTargets()['value'],
                         'half_day_leave_halves_target' => $rts->halfDayLeaveHalvesTarget(),
                         'lock_agents_to_areas'         => $rts->lockAgentsToAreas(),
                         'area_refresh_warn_days'       => $rts->areaRefreshWarnDays(),

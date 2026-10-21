@@ -26,7 +26,7 @@
                 <div class="mt-2 text-sm text-[var(--text-muted)]">View company-wide performance dashboards.</div>
             </a>
 
-            <a href="{{ route('admin.targets') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
+            <a href="{{ route('road-to-sold.settings.targets.index') }}#monthly" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
                 <div class="text-sm text-[var(--text-muted)]">Targets</div>
                 <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Targets</div>
                 <div class="mt-2 text-sm text-[var(--text-muted)]">Review and adjust targets across users/branches.</div>
@@ -60,18 +60,6 @@
                 <div class="text-sm text-[var(--text-muted)]">Settings</div>
                 <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Company Settings</div>
                 <div class="mt-2 text-sm text-[var(--text-muted)]">Configure performance rules and defaults.</div>
-            </a>
-
-            <a href="{{ route('admin.monthly-goals') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
-                <div class="text-sm text-[var(--text-muted)]">Goals</div>
-                <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Monthly Goals</div>
-                <div class="mt-2 text-sm text-[var(--text-muted)]">Company/branch goals for a selected period.</div>
-            </a>
-
-            <a href="{{ route('admin.listing-targets') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
-                <div class="text-sm text-[var(--text-muted)]">Listings</div>
-                <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Listing Targets</div>
-                <div class="mt-2 text-sm text-[var(--text-muted)]">Manage listing targets and tracking.</div>
             </a>
         </div>
 

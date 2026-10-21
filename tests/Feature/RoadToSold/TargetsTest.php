@@ -98,12 +98,14 @@ final class TargetsTest extends TestCase
         $this->save($this->admin, $this->agentNorth, [1 => 8]);
         $this->flushSession(); // the "Retha Kelly's week saved" flash would otherwise show on the next page
 
-        $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', ['q' => 'shawn']))
-            ->assertOk()->assertSee('Shawn Du Bois')->assertDontSee('Retha Kelly');
-        $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', ['mode' => 'custom']))
-            ->assertOk()->assertSee('Retha Kelly')->assertDontSee('Shawn Du Bois');
-        $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', ['mode' => 'default']))
-            ->assertOk()->assertSee('Shawn Du Bois')->assertDontSee('Retha Kelly');
+        // The page now also carries the monthly-targets section (its own filters), so the weekday grid's rows are read
+        // from the view data rather than from the whole page text.
+        $weekdayNames = fn (array $q) => collect($this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', $q))
+            ->assertOk()->viewData('rows')->items())->map(fn ($r) => $r['user']->name)->sort()->values()->all();
+        $this->assertSame(['Shawn Du Bois'], $weekdayNames(['q' => 'shawn']));
+        $this->assertSame(['Retha Kelly'], $weekdayNames(['mode' => 'custom']));
+        $this->assertContains('Shawn Du Bois', $weekdayNames(['mode' => 'default']));
+        $this->assertNotContains('Retha Kelly', $weekdayNames(['mode' => 'default']));
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', ['sort' => 'total']))->assertOk();
         $this->actingAs($this->admin)->get(route('road-to-sold.settings.targets.index', ['q' => 'zzz']))
             ->assertOk()->assertSee('No agents match those filters');

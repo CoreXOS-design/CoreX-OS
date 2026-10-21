@@ -112,17 +112,22 @@ final class WorksheetOpenPostsClosedTest extends TestCase
         $this->assertNotEmpty(session('error') ?? session('status'), 'the action ran and answered in plain words');
     }
 
-    public function test_align_with_worksheet_but_no_branch_budget_says_so_and_changes_nothing(): void
+    public function test_after_the_budgets_move_the_actions_say_so_in_plain_words_and_change_nothing(): void
     {
+        // Re-home step 4: budgets are set in Road to Sold settings, so these two Worksheet actions are retired
+        // (the Worksheet itself goes in step 5). They still answer a logged-in user in plain words.
         $user = $this->agent();
         $worksheet = $this->worksheetFor($user);
         $this->grantAgentOnly(['view_worksheet']);
 
-        $this->actingAs($user)->from('/worksheet')->post(route('worksheet.align'))
-            ->assertRedirect('/worksheet')
-            ->assertSessionHas('error', 'No branch budget configured.');
+        foreach (['worksheet.align', 'worksheet.applyBranchDefault'] as $name) {
+            $this->actingAs($user)->from('/worksheet')->post(route($name))
+                ->assertRedirect('/worksheet')
+                ->assertSessionHas('error', fn ($m) => str_contains($m, 'Road to Sold settings'));
+        }
 
         $this->assertSame('40000.00', $worksheet->fresh()->personal_net_target);
+        $this->assertSame(0, \Illuminate\Support\Facades\DB::table('rts_budgets')->count());
     }
 
     public function test_another_role_granted_view_worksheet_is_not_locked_out(): void

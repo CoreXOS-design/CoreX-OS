@@ -40,5 +40,24 @@ return function () {
         Route::post('/copy-to-agents', [$c, 'copyToAgents'])->name('copy-agents');
         Route::delete('/agents/{user}', [$c, 'clear'])->whereNumber('user')->name('clear');
         Route::post('/agents/{user}/restore', [$c, 'restore'])->whereNumber('user')->name('restore');
+
+        // Monthly targets (points / deals / value / listings per agent per month) - agency-tracker-rehome.md 5.7.
+        Route::put('/monthly/agents/{user}', [$c, 'saveMonthly'])->whereNumber('user')->name('monthly.save');
+        Route::delete('/monthly/agents/{user}', [$c, 'archiveMonthly'])->whereNumber('user')->name('monthly.archive');
+        Route::post('/monthly/agents/{user}/restore', [$c, 'restoreMonthly'])->whereNumber('user')->name('monthly.restore');
+        Route::put('/monthly/default', [$c, 'updateMonthlyDefault'])->name('monthly.default');
+        Route::post('/monthly/apply-default', [$c, 'applyMonthlyDefault'])->name('monthly.apply-default');
+    });
+
+    // Budgets & requirements - what the agency, each branch and each agent needs per month (agency-tracker-rehome.md 4.3).
+    Route::middleware('permission:road_to_sold.manage_targets,road_to_sold.manage_settings')->prefix('budgets')->name('budgets.')->group(function () {
+        $c = \App\Http\Controllers\RoadToSold\BudgetsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::put('/agency', [$c, 'saveAgency'])->name('agency');
+        Route::put('/branches/{branch}', [$c, 'saveBranch'])->whereNumber('branch')->name('branch');
+        Route::put('/agents/{user}', [$c, 'saveAgent'])->whereNumber('user')->name('agent');
+        Route::delete('/agents/{user}', [$c, 'archiveAgent'])->whereNumber('user')->name('agent.archive');
+        Route::post('/agents/{user}/restore', [$c, 'restoreAgent'])->whereNumber('user')->name('agent.restore');
+        Route::post('/copy-previous', [$c, 'copyPrevious'])->name('copy-previous');
     });
 };

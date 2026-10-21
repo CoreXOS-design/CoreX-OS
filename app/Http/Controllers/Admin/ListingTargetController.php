@@ -3,78 +3,27 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\ListingTarget;
-use App\Models\User;
-use App\Services\PermissionService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 
+/**
+ * Listing Targets moved (Agency Tracker re-home step 4): an agent's listings target is the "New listings" number of
+ * their monthly targets (Road to Sold settings -> Targets), where it is shown against the listings they actually
+ * took on. Old rows were carried across by migration 2026_11_27_110000. Route names kept; nothing is saved here.
+ */
 class ListingTargetController extends Controller
 {
     public function index(Request $request)
     {
-        $period = $request->query('period', now()->format('Y-m'));
+        abort_unless(auth()->user()?->hasPermission('manage_targets'), 403);
 
-        $viewer = Auth::user();
-
-        // Base: staff we can target (exclude admins)
-        $query = User::whereIn('role', ['agent', 'branch_manager']);
-
-        // Branch-scoped: only their branch
-        $scope = PermissionService::getDataScope($viewer, 'listings');
-        if ($scope === 'branch') {
-            $query->where('branch_id', $viewer->branch_id);
-        }
-
-        $agents = $query->orderBy('email')->get();
-
-        $targets = ListingTarget::where('period', $period)
-            ->get()
-            ->keyBy('user_id');
-
-        return view('admin.listing-targets', [
-            'period' => $period,
-            'agents' => $agents,
-            'targets' => $targets,
-        ]);
+        return redirect()->to(route('road-to-sold.settings.targets.index', array_filter(['period' => $request->query('period')])) . '#monthly', 301);
     }
 
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'period' => ['required', 'string', 'max:7', 'regex:/^\d{4}-\d{2}$/'],
-            'targets' => ['required', 'array'],
-            'targets.*' => ['nullable', 'integer', 'min:0'],
-        ]);
+        abort_unless(auth()->user()?->hasPermission('manage_targets'), 403);
 
-        $period = $data['period'];
-        $viewer = Auth::user();
-
-        // Determine which user IDs the viewer is allowed to edit
-        $allowedUserIdsQuery = User::whereIn('role', ['agent', 'branch_manager']);
-
-        $scope = PermissionService::getDataScope($viewer, 'listings');
-        if ($scope === 'branch') {
-            $allowedUserIdsQuery->where('branch_id', $viewer->branch_id);
-        }
-
-        $allowedUserIds = $allowedUserIdsQuery->pluck('id')->map(fn ($id) => (string)$id)->all();
-        $allowedLookup = array_flip($allowedUserIds);
-
-        foreach ($data['targets'] as $userId => $targetListings) {
-            // Only save for allowed users
-            if (!isset($allowedLookup[(string)$userId])) {
-                continue;
-            }
-
-            ListingTarget::updateOrCreate(
-                ['user_id' => (int) $userId, 'period' => $period],
-                ['target_listings' => (int) ($targetListings ?? 0)]
-            );
-        }
-
-        return redirect()
-            ->route('admin.listing-targets', ['period' => $period])
-            ->with('status', 'Targets saved for ' . $period);
+        return redirect()->to(route('road-to-sold.settings.targets.index', array_filter(['period' => $request->input('period')])) . '#monthly')
+            ->with('error', 'Listing Targets has moved. Nothing was saved from that page - set the "New listings" number under Targets.');
     }
 }

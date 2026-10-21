@@ -50,11 +50,7 @@ class PerformanceController extends Controller
         $rollup = $svc->getPeriodRollup($period, $agencyId);
 
         // Branch budgets (per period) for Admin branch cards
-        $branchBudgets = MonthlyTargetGoal::query()
-            ->where('period', $period)
-            ->whereNotNull('branch_id')
-            ->pluck('branch_budget', 'branch_id')
-            ->toArray();
+        $branchBudgets = app(\App\Services\RoadToSold\BudgetService::class)->branchRequirements((int) $agencyId, (string) $period);
 
         // Attach budget onto each branch row in rollup
         if (isset($rollup['branches']) && is_array($rollup['branches'])) {
