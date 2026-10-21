@@ -187,6 +187,23 @@ final class ReosNameDiffersTest extends TestCase
         self::assertNotContains(ReosNameCompare::SPELLING, ReosNameCompare::AMBER);
     }
 
+    public function test_first_name_and_surname_the_wrong_way_round_is_a_spelling_difference_not_a_name_difference(): void
+    {
+        // Johan's real example (21 Oct): CoreX "Nkome Langelihle", reOS "Langelihle Nkomo" — swapped, plus a one-letter typo.
+        self::assertSame(ReosNameCompare::SPELLING, ReosNameCompare::flag('Langelihle Nkomo', 'Nkome Langelihle', false));
+        self::assertSame(ReosNameCompare::SPELLING, ReosNameCompare::flag('Nkome Langelihle', 'Langelihle Nkomo', false), 'either way round');
+        // Swapped and spelled the same: the name is the same set of words, so it is not flagged at all.
+        self::assertNull(ReosNameCompare::flag('Langelihle Nkomo', 'Nkomo Langelihle', false));
+        // A middle name on one side does not stop the swap being recognised.
+        self::assertSame(ReosNameCompare::SPELLING, ReosNameCompare::flag('Langelihle Nkomo', 'Nkome Thabo Langelihle', false));
+
+        // Still real differences: a different surname, a different first name, a single word against two, short names.
+        self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag('Langelihle Nkomo', 'Dlamini Langelihle', false));
+        self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag('Langelihle Nkomo', 'Thabo Nkomo', false));
+        self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag('Mkhozi', 'Thabo Mkozi', false), 'one word has no order to swap');
+        self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag('Ben Smith', 'Smith Ken', false));
+    }
+
     public function test_a_company_matched_to_a_company_is_a_company_match_even_when_corex_holds_it_as_a_person_record(): void
     {
         [$agency, $branch, $admin] = $this->reosAgency();
@@ -265,6 +282,11 @@ final class ReosNameDiffersTest extends TestCase
 
         // 1. Sticky header: solid background, above every row control (their result lists are z-20).
         self::assertMatchesRegularExpression('/id="reos-bar"[^>]*position: sticky[^>]*z-index: 50[^>]*background: var\(--surface/', $html);
+        // 1b. Flush with the top of the scroll area (<main id="appScroll"> has padding, so top:0 would leave a strip of rows above the bar):
+        //     a negative top equal to that padding, and no top:0 anywhere on the bar.
+        self::assertMatchesRegularExpression('/#reos-bar\s*\{\s*top:\s*-1rem;/', $html);
+        self::assertMatchesRegularExpression('/min-width:\s*1024px\)\s*\{\s*#reos-bar\s*\{\s*top:\s*-1\.5rem;/', $html);
+        self::assertDoesNotMatchRegularExpression('/id="reos-bar"[^>]*top:\s*0/', $html);
         // 4. Grid fits without a horizontal page scroll: fixed layout, percentage columns that add up to 100, no fixed minimum widths,
         //    controls capped to their column, and the to-fix notes inside the agent cell (six columns, not seven).
         self::assertStringContainsString('table-layout: fixed', $html);
@@ -299,7 +321,7 @@ final class ReosNameDiffersTest extends TestCase
         self::assertArrayNotHasKey('name_flag', $row->landlord_match_json[1], 'the company is no longer "a person"');
         self::assertSame('spelling', $row->tenant_match_json[1]['name_flag']);
         self::assertSame([false, true], [$row->decisions_json['name_differs'], $row->decisions_json['spelling_differs']]);
-        self::assertSame(2, $run->fresh()->counts_json['name_flags_v']);
+        self::assertSame(\App\Services\Rentals\TakeOnImport\Reos\ReosRowResolver::NAME_FLAGS_VERSION, $run->fresh()->counts_json['name_flags_v']);
         self::assertStringNotContainsString('Matched a person', $html);
         self::assertStringContainsString('Spelling differs —', $html);
         self::assertSame(0, ReosRunSummary::for($run)['name_differs']);
