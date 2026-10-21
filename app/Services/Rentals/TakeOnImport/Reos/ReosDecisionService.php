@@ -206,7 +206,7 @@ class ReosDecisionService
             // The company matched a PERSON by phone / e-mail: create the company, and link that person to it — reused, not duplicated.
             $person = $m && ! empty($m['name_flag']) && $m['name_flag'] === ReosNameCompare::PERSON_FOR_COMPANY && ! empty($m['existing_contact_id'])
                 ? Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $m['existing_contact_id']) : null;
-            if (! $person || $person->isEntity()) {
+            if (! $person || ReosContactNames::isCompanyContact($person)) {
                 throw ValidationException::withMessages(['person' => 'This company did not match a person, so there is nobody to link.']);
             }
             $entry = ['contact_id' => (int) $person->id, 'label' => (string) $person->full_name, 'capacity' => ReosCompanyPeople::CONTACT_PERSON_CAPACITY, 'via' => 'matched_person'];
@@ -228,7 +228,7 @@ class ReosDecisionService
             }
             if (! empty($in['contact_id'])) {
                 $c = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $in['contact_id']);
-                if (! $c || $c->isEntity()) {
+                if (! $c || ReosContactNames::isCompanyContact($c)) {
                     throw ValidationException::withMessages(['contact_id' => 'Pick a person (not a company) from the list.']);
                 }
                 $entry = ['contact_id' => (int) $c->id, 'label' => (string) $c->full_name];

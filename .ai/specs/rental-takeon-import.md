@@ -541,6 +541,22 @@ that says to restore it first, because the database key spans archived rows).
 - **agent** (default: the name match, R4.2);
 - tenant wallet reference (pre-filled from the Rent Roll; editable).
 
+**R4.0b Review-screen corrections after Johan's real-file check (21 Oct 2026, batch 6).**
+1. *Sticky header* now has a solid background and `z-index: 50` (above every row control, whose result lists are z-20): rows scroll
+   under it.
+2. *A company matched to a company is a company match.* A CoreX contact counts as a **company** when it is a company record
+   (`contact_kind = entity`) **or its name reads as a company** (`ReosContactNames::isCompanyContact` — CoreX holds 10,706 "natural
+   person" records on QA1, many named "… Pty Ltd", e.g. "BEBO Investments (PTY) LTY"). Such a match is never "matched a person" and the
+   one-click is never offered for it; an entity-like contact is refused as somebody's "person" (decision API and import). Same for tenants.
+3. *Name differs is split in two* (`ReosNameCompare`): **Spelling differs** (muted grey, NOT in the amber total) = same surname once
+   squashed ("Mc Neil" = "McNeil"), a middle name on one side only, or an edit distance ≤ 2 on first name or surname (only for words
+   of 4+ letters, so Ben/Ken stay different) — "Mkhozi/Mkozi", "Desire/Desiree"; and **Name differs** (amber, counted) = everything
+   else, plus "matched a person" for a company. Filter options for both; the header shows the amber count and a separate muted
+   "Spelling" count. `decisions_json.name_differs` (amber) and `.spelling_differs`.
+4. *The row grid fits the page without a horizontal scroll* (checked at 1523 px): `table-layout: fixed`, six percentage columns
+   (3/14/23/19/19/22), controls capped to their column, and the "to fix / to know" notes sit under the agent instead of in a
+   seventh column.
+
 **R4.0a Contact matched under a different name (Johan, 21 Oct 2026).** A contact matched on phone / e-mail can be someone
 else (a shared number, a re-used e-mail, a company whose phone is its contact person's). When the matched CoreX contact's
 name does not match the reOS name — compared normalised: case, spacing, punctuation, "&"/"and" and Pty/Ltd/Limited ignored,

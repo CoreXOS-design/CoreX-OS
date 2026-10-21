@@ -287,7 +287,7 @@ class ReosTenancyConfirmService
             $found = $this->contacts->findDuplicatesForIdentifiers($phones, $emails, null, $agencyId)->first();
             // A company is never "satisfied" by a person who merely shares its phone / e-mail (Johan: Wildevy Properties Pty Ltd →
             // Arne Nel): the review screen offered to create the company and link that person to it, and that is what happens.
-            if ($found && ReosContactNames::isCompany($name) && ! $found->isEntity()) {
+            if ($found && ReosContactNames::isCompany($name) && ! ReosContactNames::isCompanyContact($found)) {
                 $found = null;
             }
             if ($found) {
