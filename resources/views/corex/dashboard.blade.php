@@ -130,6 +130,7 @@
                 @if($monthlyTarget > 0)
                     <span class="text-lg mb-1" style="color:var(--text-muted);">/ {{ number_format($monthlyTarget) }} target</span>
                 @endif
+                <x-points-split-total :split="$mtdSplit" split-only class="mb-1" />
             </div>
 
             {{-- Progress bar (only if target set) --}}

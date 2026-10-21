@@ -21,11 +21,12 @@ class DashboardController extends Controller
         // builder bypasses the BelongsToAgency scope.
         $agencyId = $user->effectiveAgencyId();
 
-        $mtdPoints = (int) round(ActivityPointsService::sum(
+        $mtdSplit = ActivityPointsService::sumSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->id)
                 ->where('e.period', $period)
-        ));
+        );
+        $mtdPoints = (int) round($mtdSplit['total']);
 
         $monthlyTarget = (int) (DB::table('targets')
             ->where('user_id', $user->id)
@@ -101,6 +102,7 @@ class DashboardController extends Controller
 
         return view('corex.dashboard', [
             'mtdPoints'                => $mtdPoints,
+            'mtdSplit'                 => $mtdSplit,
             'monthlyTarget'            => $monthlyTarget,
             'period'                   => $period,
             'candidateDocs'            => $candidateDocs,

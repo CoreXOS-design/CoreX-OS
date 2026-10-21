@@ -313,12 +313,13 @@ final class MyPortalNumbers
      * block, the agent's daily page and the dashboards cannot disagree. Days are looked up by date, not by
      * month, so the strip stays correct across a month boundary.
      *
-     * @return array{month: float, today: float, days: array<string, float>, target: int}
+     * @return array{month: float, today: float, days: array<string, float>, target: int, monthSplit: array, todaySplit: array, daysSplit: array<string, array>}
      */
     public function points(User $u, string $period, int $pointsTarget = 0): array
     {
         $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
-        $empty = ['month' => 0.0, 'today' => 0.0, 'days' => [], 'target' => $pointsTarget];
+        $zero = ['manual' => 0.0, 'automatic' => 0.0, 'total' => 0.0];
+        $empty = ['month' => 0.0, 'today' => 0.0, 'days' => [], 'target' => $pointsTarget, 'monthSplit' => $zero, 'todaySplit' => $zero, 'daysSplit' => []];
         if ($agencyId <= 0) {
             return $empty;
         }
@@ -327,18 +328,29 @@ final class MyPortalNumbers
 
         $base = fn () => ActivityPointsService::counted($agencyId)->whereIn('e.user_id', $u->dataIdentityIds());
 
-        $month = ActivityPointsService::sum($base()->where('e.period', $period));
-        $days = ActivityPointsService::sumByDate(
+        // One query each, the shared rule, split into what the agent captured (manual) and what CoreX credited
+        // (automatic). The combined figures below are manual + automatic, i.e. exactly what sum() would give.
+        $monthSplit = ActivityPointsService::sumSplit($base()->where('e.period', $period));
+        $daysSplit = ActivityPointsService::sumByDateSplit(
             $base()->where('e.activity_date', '>=', $from)->where('e.activity_date', '<=', $today->toDateString())
         );
 
         $strip = [];
+        $stripSplit = [];
         for ($i = 13; $i >= 0; $i--) {
             $day = $today->subDays($i)->toDateString();
-            $strip[$day] = (float) ($days[$day] ?? 0);
+            $stripSplit[$day] = ['manual' => round((float) ($daysSplit[$day]['manual'] ?? 0), 2), 'automatic' => round((float) ($daysSplit[$day]['automatic'] ?? 0), 2)];
+            $strip[$day] = round($stripSplit[$day]['manual'] + $stripSplit[$day]['automatic'], 2);
         }
+        $todayKey = $today->toDateString();
 
-        return ['month' => round($month, 2), 'today' => $strip[$today->toDateString()], 'days' => $strip, 'target' => $pointsTarget];
+        return [
+            'month' => $monthSplit['total'], 'today' => $strip[$todayKey], 'days' => $strip, 'target' => $pointsTarget,
+            // manual / automatic (Johan, 21 Oct 2026)
+            'monthSplit' => $monthSplit,
+            'todaySplit' => array_merge($stripSplit[$todayKey], ['total' => $strip[$todayKey]]),
+            'daysSplit'  => $stripSplit,
+        ];
     }
 
     // ── you vs branch vs company (totals only) ────────────────────────────────────────

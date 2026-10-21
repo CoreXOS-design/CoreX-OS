@@ -61,15 +61,23 @@
     {{-- ── Week strip + Monthly stats — 50/50, frozen ── --}}
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-shrink-0">
         @if(isset($agentDailyWeek) && isset($agentDailyWeek['days']))
-            <div class="rounded-md px-3 py-2.5 flex items-center" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-md px-3 py-2.5 flex flex-col justify-center" style="background: var(--surface); border: 1px solid var(--border);">
                 <div class="flex flex-wrap gap-1 w-full">
                     @foreach($agentDailyWeek['days'] as $d)
+                        @php $mk = $dayMarkers[$d['date']] ?? ['manual' => 0, 'automatic' => 0]; @endphp
                         <a href="{{ route('agent.daily', ['date' => $d['date']]) }}"
-                           class="ds-daily-chip {{ $d['is_selected'] ? 'ds-daily-chip-active' : '' }} flex-1 text-center px-1.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap">
+                           class="ds-daily-chip {{ $d['is_selected'] ? 'ds-daily-chip-active' : '' }} flex-1 text-center px-1.5 py-1.5 rounded-md text-[11px] font-medium whitespace-nowrap"
+                           data-day="{{ $d['date'] }}" data-manual="{{ $mk['manual'] }}" data-automatic="{{ $mk['automatic'] }}"
+                           title="{{ $mk['manual'] }} captured by you, {{ $mk['automatic'] }} credited automatically">
                             {{ $d['label'] }}
+                            <span class="flex justify-center gap-0.5 mt-0.5" style="height:5px;">
+                                @if($mk['manual'] > 0)<span style="display:inline-block;width:5px;height:5px;border-radius:9999px;background:var(--brand-icon, #0ea5e9);"></span>@endif
+                                @if($mk['automatic'] > 0)<span style="display:inline-block;width:5px;height:5px;border-radius:9999px;background:var(--ds-amber, #f59e0b);"></span>@endif
+                            </span>
                         </a>
                     @endforeach
                 </div>
+                <div class="mt-1.5"><x-points-legend /></div>
             </div>
         @endif
 
@@ -85,7 +93,11 @@
                 </div>
                 <div class="text-center">
                     <div class="text-[11px] font-medium uppercase tracking-wide" style="color: var(--text-muted);">MTD</div>
-                    <div class="text-base font-bold mt-0.5" style="color: var(--brand-icon, #0ea5e9);">{{ number_format((int)($mtdPoints ?? 0)) }}</div>
+                    <div class="text-base font-bold mt-0.5" style="color: var(--brand-icon, #0ea5e9);" data-testid="mtd-total">{{ number_format((int)($mtdPoints ?? 0)) }}</div>
+                    <div class="text-[10px] flex justify-center gap-2" style="color: var(--text-muted);" data-testid="mtd-split">
+                        <span class="inline-flex items-center gap-0.5" title="Captured by you"><span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--brand-icon, #0ea5e9);"></span>Manual {{ number_format((float)($mtdSplit['manual'] ?? 0), 0) }}</span>
+                        <span class="inline-flex items-center gap-0.5" title="Credited by CoreX work"><span style="display:inline-block;width:6px;height:6px;border-radius:2px;background:var(--ds-amber, #f59e0b);"></span>Auto {{ number_format((float)($mtdSplit['automatic'] ?? 0), 0) }}</span>
+                    </div>
                 </div>
                 <div class="text-center">
                     <div class="text-[11px] font-medium uppercase tracking-wide" style="color: var(--text-muted);">Remaining</div>

@@ -116,6 +116,91 @@ final class ActivityPointsService
     }
 
     /**
+     * Points split into what the agent captured (manual) and what CoreX credited (automatic), plus the combined total -
+     * from the SAME rows and the SAME rule as sum(): manual + automatic always equals sum(). Not a second calculation.
+     *
+     * @return array{manual: float, automatic: float, total: float}
+     */
+    public static function sumSplit(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
+    {
+        [$man, $auto] = self::splitExpressions($entryAlias, $definitionAlias);
+        $row = $counted->selectRaw("COALESCE(SUM({$man}), 0) as manual_pts, COALESCE(SUM({$auto}), 0) as auto_pts")->first();
+
+        return self::splitPair((float) ($row->manual_pts ?? 0), (float) ($row->auto_pts ?? 0));
+    }
+
+    /**
+     * Points per calendar day, split: Y-m-d => {manual, automatic, total}.
+     *
+     * @return array<string, array{manual: float, automatic: float, total: float}>
+     */
+    public static function sumByDateSplit(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
+    {
+        [$man, $auto] = self::splitExpressions($entryAlias, $definitionAlias);
+        $out = [];
+        $counted->groupBy("{$entryAlias}.activity_date")
+            ->selectRaw("DATE({$entryAlias}.activity_date) as d, COALESCE(SUM({$man}), 0) as manual_pts, COALESCE(SUM({$auto}), 0) as auto_pts")
+            ->get()
+            ->each(function ($r) use (&$out) {
+                $out[(string) $r->d] = self::splitPair((float) $r->manual_pts, (float) $r->auto_pts);
+            });
+
+        return $out;
+    }
+
+    /**
+     * Counted entry rows per calendar day, split manual / automatic: Y-m-d => {manual, automatic} (calendar markers).
+     *
+     * @return array<string, array{manual: int, automatic: int}>
+     */
+    public static function entryRowsByDateSplit(Builder $counted, string $entryAlias = 'e'): array
+    {
+        self::assertAliases($entryAlias);
+        $man = self::sourceList(DailyActivityEntry::MANUAL_SOURCES);
+        $auto = self::sourceList(DailyActivityEntry::AUTOMATIC_SOURCES);
+        $out = [];
+        $counted->groupBy("{$entryAlias}.activity_date")
+            ->selectRaw("DATE({$entryAlias}.activity_date) as d, SUM({$entryAlias}.source IN ({$man})) as manual_rows, SUM({$entryAlias}.source IN ({$auto})) as auto_rows")
+            ->get()
+            ->each(function ($r) use (&$out) {
+                $out[(string) $r->d] = ['manual' => (int) $r->manual_rows, 'automatic' => (int) $r->auto_rows];
+            });
+
+        return $out;
+    }
+
+    /** A per-activity count pair (manual count, automatic count) as points at the activity's weight, through the one rule. */
+    public static function splitPointsFor(int $manualCount, int $automaticCount, int|float|string $weight): array
+    {
+        return self::splitPair(self::pointsFor($manualCount, $weight), self::pointsFor($automaticCount, $weight));
+    }
+
+    /** @return array{manual: float, automatic: float, total: float} */
+    private static function splitPair(float $manual, float $automatic): array
+    {
+        $manual = round($manual, 2);
+        $automatic = round($automatic, 2);
+
+        return ['manual' => $manual, 'automatic' => $automatic, 'total' => round($manual + $automatic, 2)];
+    }
+
+    /** @return array{0: string, 1: string} SQL points for manual rows only, and for automatic rows only (for callers that group themselves) */
+    public static function splitExpressions(string $entryAlias, string $definitionAlias): array
+    {
+        $pts = self::sqlPoints($entryAlias, $definitionAlias);
+        $man = self::sourceList(DailyActivityEntry::MANUAL_SOURCES);
+        $auto = self::sourceList(DailyActivityEntry::AUTOMATIC_SOURCES);
+
+        return ["(CASE WHEN {$entryAlias}.source IN ({$man}) THEN {$pts} ELSE 0 END)", "(CASE WHEN {$entryAlias}.source IN ({$auto}) THEN {$pts} ELSE 0 END)"];
+    }
+
+    /** @param string[] $sources constants of the model, never user input */
+    private static function sourceList(array $sources): string
+    {
+        return implode(',', array_map(fn ($s) => "'" . str_replace("'", '', $s) . "'", $sources));
+    }
+
+    /**
      * Counted entries per calendar day (Y-m-d => number of entry rows), for the
      * "activity was captured on this day" markers. Replaces the abandoned
      * `daily_activities` table, which holds no rows.

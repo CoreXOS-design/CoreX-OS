@@ -79,10 +79,14 @@ class DailyActivitySummaryController extends Controller
         $items = [];
         $grandCount = 0;
         $grandPoints = 0.0;
+        $grandManual = 0.0;
+        $grandAuto = 0.0;
 
         foreach ($defs as $d) {
             $count = (int)($agg[$d->id]->total_count ?? 0);
             $points = ActivityPointsService::pointsFor($count, $d->weight);
+            // manual / automatic points of this activity - the same rule applied to each part's count
+            $split = ActivityPointsService::splitPointsFor((int)($agg[$d->id]->manual_count ?? 0), (int)($agg[$d->id]->auto_count ?? 0), $d->weight);
 
             $items[] = [
                 'id' => (int)$d->id,
@@ -94,10 +98,14 @@ class DailyActivitySummaryController extends Controller
                 'branch_id' => $d->branch_id !== null ? (int)$d->branch_id : null,
                 'manual_count' => (int)($agg[$d->id]->manual_count ?? 0),
                 'auto_count' => (int)($agg[$d->id]->auto_count ?? 0),
+                'manual_points' => $split['manual'],
+                'auto_points' => $split['automatic'],
             ];
 
             $grandCount += $count;
             $grandPoints += $points;
+            $grandManual += $split['manual'];
+            $grandAuto += $split['automatic'];
         }
 
         foreach ($items as &$it) {
@@ -108,6 +116,7 @@ class DailyActivitySummaryController extends Controller
         return view('admin.daily-summary.index', [
             'range'=>$range,'month'=>$month,'start'=>$start,'end'=>$end,
             'items'=>$items,'grandCount'=>$grandCount,'grandPoints'=>$grandPoints,
+            'grandSplit'=>['manual'=>round($grandManual,2),'automatic'=>round($grandAuto,2),'total'=>round($grandManual+$grandAuto,2)],
         ]);
     }
 
