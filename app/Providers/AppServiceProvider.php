@@ -463,6 +463,12 @@ class AppServiceProvider extends ServiceProvider
         // Spec: .ai/specs/mic-complete-spec.md §3.2.1.
         \App\Models\Prospecting\TrackedPropertyAddress::observe(\App\Observers\TrackedPropertyAddressObserver::class);
 
+        // Road to Sold events (road-to-sold.md section 6.2, build log P2): owner found, presentation given,
+        // mandate filed. Each observer only RAISES a domain event; it changes no data.
+        \App\Models\Prospecting\TrackedProperty::observe(\App\Observers\TrackedPropertyObserver::class);
+        \App\Models\PresentationDelivery::observe(\App\Observers\PresentationDeliveryObserver::class);
+        \App\Models\DocumentProperty::observe(\App\Observers\DocumentPropertyObserver::class);
+
         // Register calendar source services (Phase 1)
         $registry = $this->app->make(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\ComplianceCalendarSource::class);
