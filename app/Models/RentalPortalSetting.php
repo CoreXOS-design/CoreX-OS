@@ -89,7 +89,7 @@ class RentalPortalSetting extends Model
 
     /**
      * §22 — the portal Home FAQ. The agency's wording, with the lease's own values merged in: {notice_days}, {earliest_termination_date},
-     * {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. A piece in [[double brackets]] is dropped whole when any
+     * {lease_end_date}, {early_cancellation_terms}. A piece in [[double brackets]] is dropped whole when any
      * {value} inside it is not on the lease — so the portal never states a figure it does not have.
      */
     public const FAQ_KEYS = [

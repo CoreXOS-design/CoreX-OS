@@ -425,8 +425,8 @@ class LeaseNoticeTermsService
     /**
      * The real dates for ONE lease, worked out from what it holds (null when it lacks what the date needs):
      *  - notice_by      the last day notice can be given for the lease to end on its end date (end date less the notice period);
-     *  - earliest_notice the first day notice can be given: the lease's own earliest notice date, else the earliest date the lease may end
-     *                    less the notice period;
+     *  - earliest_notice the lease's OWN clause "notice may be given from" - only when the lease states one; CoreX never works one out
+     *                    (the agency's expiry-notice window is LeaseExpiryNoticeService's, from the CPA);
      *  - earliest_end   the earliest date the lease may end (the agreement's own date).
      *
      * @param array<string,mixed> $values stored()
@@ -444,9 +444,6 @@ class LeaseNoticeTermsService
 
         $earliestEnd = $values['earliest_termination_date'] ?? null;
         $earliestNotice = $values['earliest_notice_date'] ?? null;
-        if ($earliestNotice === null && $earliestEnd !== null && $length) {
-            $earliestNotice = $this->subPeriod(Carbon::parse((string) $earliestEnd), (int) $length, (string) $unit)->toDateString();
-        }
 
         return ['notice_by' => $noticeBy, 'earliest_notice' => $earliestNotice, 'earliest_end' => $earliestEnd];
     }

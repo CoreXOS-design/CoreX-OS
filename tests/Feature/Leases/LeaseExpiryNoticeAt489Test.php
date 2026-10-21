@@ -63,6 +63,12 @@ final class LeaseExpiryNoticeAt489Test extends TestCase
         return app(LeaseExpiryNoticeService::class);
     }
 
+    /** Notices mailed (AT-495 sends through the agent's mailbox path, which may send or queue). */
+    private function tenantMailCount(): int
+    {
+        return Mail::sent(RentalNoticeMail::class)->count() + Mail::queued(RentalNoticeMail::class)->count();
+    }
+
     private function template(): RentalNoticeTemplate
     {
         return RentalNoticeTemplate::create([
@@ -229,7 +235,7 @@ final class LeaseExpiryNoticeAt489Test extends TestCase
         $this->travelTo(Carbon::parse($sendOn . ' 06:30:00'));
         Artisan::call('leases:expiry-notices', ['--lease' => $this->lease->id]);
 
-        Mail::assertQueued(RentalNoticeMail::class, 1);
+        $this->assertSame(1, $this->tenantMailCount(), 'one notice, sent from the lease agent\'s mailbox path');
         $lease = $this->lease->fresh();
         $this->assertNotNull($lease->expiry_notice_sent_at);
         $this->assertSame('corex', $lease->expiry_notice_sent_via);
@@ -237,7 +243,7 @@ final class LeaseExpiryNoticeAt489Test extends TestCase
 
         // idempotent: the next run sends nothing more
         Artisan::call('leases:expiry-notices', ['--lease' => $this->lease->id]);
-        Mail::assertQueued(RentalNoticeMail::class, 1);
+        $this->assertSame(1, $this->tenantMailCount(), 'one notice, sent from the lease agent\'s mailbox path');
     }
 
     public function test_before_the_send_day_nothing_goes_and_a_dry_run_changes_nothing(): void
