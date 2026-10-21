@@ -10,6 +10,7 @@ use App\Models\LeaseBreach;
 use App\Models\LeaseEvent;
 use App\Models\LeaseSetting;
 use App\Models\RentalNotice;
+use App\Models\RentalNoticeDelivery;
 use App\Models\RentalNoticeTemplate;
 use App\Models\User;
 use App\Services\CommandCenter\NotificationDispatcher;
@@ -404,23 +405,64 @@ class LeaseBreachService
         $parts = [];
 
         foreach ([[$inBreach, 'notice'], [$other, 'told']] as [$contacts, $role]) {
-            $names = [];
+            $sent = [];
+            $noEmail = [];
+            $failed = [];
+            $linked = 0;
             foreach ($contacts as $contact) {
                 /** @var Contact $contact */
-                $names[] = trim((string) $contact->full_name) ?: ucfirst($breach->breach_party);
-                if (! $contact->email) {
-                    continue;
+                $linked++;
+                $name = trim((string) $contact->full_name) ?: ucfirst($breach->breach_party);
+                $email = trim((string) $contact->email);
+                $status = RentalNoticeDelivery::SENT;
+                $error = null;
+                // Bug class fixed 21 Oct 2026 (same as RentalNoticeService::send, AT-495): a contact with no email address, or an email that
+                // failed, is NOT sent and is written down as such - the lease log never says "sent to" someone who was not emailed.
+                if ($email === '') {
+                    $status = RentalNoticeDelivery::NOT_SENT_NO_EMAIL;
+                    $noEmail[] = $name;
+                } elseif (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $status = RentalNoticeDelivery::FAILED;
+                    $error = 'That is not a valid email address.';
+                    $failed[] = $name;
+                } else {
+                    try {
+                        $this->mail->send($email, $role === 'notice'
+                            ? new LeaseBreachNoticeMail($breach, $notice, $contact, $agent, $pdf, $filename)
+                            : new LeaseBreachOtherPartyMail($breach, $contact, $agent, $event));
+                        $sent[] = $name;
+                    } catch (\Throwable $e) {
+                        $status = RentalNoticeDelivery::FAILED;
+                        $error = Str::limit($e->getMessage(), 500);
+                        $failed[] = $name;
+                        Log::warning('Breach notice: email failed', ['breach' => $breach->id, 'to' => $email, 'error' => $e->getMessage()]);
+                    }
                 }
-                try {
-                    $this->mail->send($contact->email, $role === 'notice'
-                        ? new LeaseBreachNoticeMail($breach, $notice, $contact, $agent, $pdf, $filename)
-                        : new LeaseBreachOtherPartyMail($breach, $contact, $agent, $event));
-                } catch (\Throwable $e) {
-                    Log::warning('Breach notice: email failed', ['breach' => $breach->id, 'to' => $contact->email, 'error' => $e->getMessage()]);
+                // the notice itself (the party in breach) gets a delivery row, so the Notices sent list shows the same truth
+                if ($role === 'notice') {
+                    RentalNoticeDelivery::create([
+                        'agency_id' => $notice->agency_id, 'rental_notice_id' => $notice->id, 'contact_id' => $contact->id, 'recipient_role' => $breach->breach_party,
+                        'recipient_name' => $name, 'recipient_email' => $email !== '' ? $email : null,
+                        'status' => $status, 'error' => $error, 'attempted_at' => now(), 'attempted_by_user_id' => $agent->id,
+                    ]);
                 }
             }
-            $parts[] = ($role === 'notice' ? 'sent to ' : 'other party told: ') . ($names ? implode(', ', array_unique($names)) : 'no one linked');
+
+            $text = ($role === 'notice' ? 'sent to ' : 'other party told: ');
+            if ($linked === 0) {
+                $text .= 'no one linked';
+            } else {
+                $text .= $sent ? implode(', ', array_unique($sent)) : 'no one';
+                if ($noEmail) {
+                    $text .= ' - NOT sent to ' . implode(', ', array_unique($noEmail)) . ' (no email address on file)';
+                }
+                if ($failed) {
+                    $text .= ' - NOT sent to ' . implode(', ', array_unique($failed)) . ' (the email failed)';
+                }
+            }
+            $parts[] = $text;
         }
+        $this->notices->refreshDeliveryStatus($notice);
 
         return implode('; ', $parts);
     }
