@@ -62,7 +62,7 @@ class ReosTenancyRunService
             $counts = ['total' => 0, 'property_matched' => 0, 'property_to_choose' => 0, 'property_not_in_corex' => 0, 'owner_matched' => 0, 'tenant_matched' => 0,
                 'already_in_corex' => 0, 'errors' => 0,
                 'rent_roll' => $rollSummary === null ? null : ['rows' => count($rollRows)] + $rollSummary,
-                'imported_created' => 0, 'imported_updated' => 0, 'imported_failed' => 0];
+                'imported_created' => 0, 'imported_updated' => 0, 'imported_failed' => 0, 'name_flags_v' => ReosRowResolver::NAME_FLAGS_VERSION];
 
             foreach ($parsed as $p) {
                 $row = RentalTakeOnImportRow::create([

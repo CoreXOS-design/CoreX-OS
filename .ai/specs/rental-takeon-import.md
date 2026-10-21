@@ -553,6 +553,9 @@ that says to restore it first, because the database key spans archived rows).
    of 4+ letters, so Ben/Ken stay different) — "Mkhozi/Mkozi", "Desire/Desiree"; and **Name differs** (amber, counted) = everything
    else, plus "matched a person" for a company. Filter options for both; the header shows the amber count and a separate muted
    "Spelling" count. `decisions_json.name_differs` (amber) and `.spelling_differs`.
+5. *Batches parsed under older rules are re-checked.* The name flags are stored when a batch is parsed, so the first time a batch is
+   opened after the rules change `ReosRowResolver::recheckNameFlags` re-works the flags of its not-yet-imported rows (the user's
+   choices untouched) and stamps `counts_json.name_flags_v`. Without it Johan's existing batch 6 would have kept the old verdicts.
 4. *The row grid fits the page without a horizontal scroll* (checked at 1523 px): `table-layout: fixed`, six percentage columns
    (3/14/23/19/19/22), controls capped to their column, and the "to fix / to know" notes sit under the agent instead of in a
    seventh column.
