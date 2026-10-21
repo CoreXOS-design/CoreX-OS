@@ -26,7 +26,15 @@
         : (str_starts_with($item['route'], 'corex.rental-inspections.') ? 'rental-inspections' : 'rental-leases'))))
     @feature($queueFeature)
     @if(app(\App\Services\Rentals\RentalCommandCentreService::class)->canOpenRoute(auth()->user(), $item['route']))
+    @if($item['post'] ?? false)
+    {{-- AT-490 - an action that creates a record (start an inspection) is a form post, not a link. --}}
+    <form method="POST" action="{{ route($item['route'], $item['route_params']) }}" class="flex-shrink-0">
+        @csrf
+        <button type="submit" class="corex-btn-outline text-[11px] px-2 py-1" data-qa="queue-post-action">{{ $item['label'] }}</button>
+    </form>
+    @else
     <a href="{{ route($item['route'], $item['route_params']) }}" class="corex-btn-outline text-[11px] px-2 py-1 flex-shrink-0" @if($item['informational'] ?? false) style="font-style: italic;" @endif>{{ $item['label'] }}</a>
+    @endif
     @endif
     @endfeature
 </div>

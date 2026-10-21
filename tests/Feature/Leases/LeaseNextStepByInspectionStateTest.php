@@ -111,7 +111,7 @@ final class LeaseNextStepByInspectionStateTest extends TestCase
     public function test_a_brand_new_lease_with_no_inspection_next_step_is_the_incoming_inspection(): void
     {
         $this->assertSame('Start in-inspection', $this->label());
-        $this->assertSame('corex.rental-inspections.create', $this->next()['route_name']);
+        $this->assertSame('corex.rental-inspections.start-for-lease', $this->next()['route_name']);
         $this->assertSame('in', $this->next()['route_param']['type']);
 
         $this->assertSame('Start in-inspection', $this->nextBarOnThePage());
