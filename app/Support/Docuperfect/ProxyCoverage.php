@@ -201,6 +201,69 @@ final class ProxyCoverage
         return $recipients;
     }
 
+    /**
+     * Wording order: the proxy holder first, then the parties they sign for, then everyone else — "Peter Proxy (ID…); Paula Partner (ID…),
+     * herein represented by Peter Proxy (ID…); and Sam Separate (ID…)". A proxy and the parties it covers form one group, placed where
+     * the earliest of its members stood; everyone else keeps their place. No proxy → returned untouched.
+     *
+     * @param  list<array<string, mixed>>  $recipients
+     * @return list<array<string, mixed>>
+     */
+    public static function orderForWording(array $recipients): array
+    {
+        $map = self::coverageMap($recipients);
+        if ($map === []) {
+            return array_values($recipients);
+        }
+
+        $coveredOf = [];
+        foreach ($map as $pi => $cs) {
+            foreach ($cs as $ci) {
+                $coveredOf[$ci] ??= $pi;
+            }
+        }
+        $members = [];
+        $emitAt = [];
+        foreach ($map as $pi => $cs) {
+            $members[$pi] = array_values(array_filter($cs, fn (int $ci) => $coveredOf[$ci] === $pi));
+            $emitAt[min(array_merge([$pi], $members[$pi]))] = $pi;
+        }
+
+        $out = [];
+        foreach ($recipients as $i => $r) {
+            if (isset($emitAt[$i])) {
+                $pi = $emitAt[$i];
+                $out[] = $recipients[$pi];
+                foreach ($members[$pi] as $ci) {
+                    $out[] = $recipients[$ci];
+                }
+                continue;
+            }
+            if (isset($coveredOf[$i]) || isset($map[$i])) {
+                continue;   // already placed with its group
+            }
+            $out[] = $r;
+        }
+
+        return $out;
+    }
+
+    /**
+     * For wizard rows: the index of the proxy covering row $ri, or null. (Same rule as {@see isCovered()}, naming the proxy.)
+     *
+     * @param  list<array<string, mixed>>  $recipients
+     */
+    public static function proxyIndexFor(array $recipients, int $ri): ?int
+    {
+        foreach (self::coverageMap($recipients) as $pi => $covered) {
+            if (in_array($ri, $covered, true)) {
+                return $pi;
+            }
+        }
+
+        return null;
+    }
+
     /** "Name (ID 800101…)" — the ID is shown the way the rest of the document shows a party. */
     private static function label(array $r): string
     {

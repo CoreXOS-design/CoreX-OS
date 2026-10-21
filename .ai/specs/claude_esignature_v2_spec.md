@@ -835,7 +835,11 @@ This section is the single written source of truth for the rule. The code is `Ap
 2. Un-tick the parties the proxy does **not** sign for. **At least one must stay ticked** — a proxy for nobody is refused (24.8).
 3. Below the picker the wizard shows the resulting recipient list **live**: *"A — signs for self and for B"*, *"C — signs for self"*.
 4. A party added to the role later is covered by default (as a proxy always covered everyone) — un-tick them if they should sign themself.
-5. A company in the role: its signers are not offered in the picker. A proxy with **nothing un-ticked** covers them as it always did; once the
+5. **Step 6 (Signing Order) shows the real recipients before the agent presses Sign Document.** A party a proxy signs for is **not** listed as a
+   signer or email recipient there: they collapse to one non-editable line under the proxy — *"Paula Partner — signed for by Peter Proxy (proxy)"* — and
+   the proxy's own card is the one that signs. The numbers (1, 2, 3 …) and **Move up / Move down** run across the real signers only (the agent counts as
+   the first); a party with no email who is covered by a proxy raises no "no email" warning, because nothing is sent to them. The same rule as 24.3 decides who is covered.
+6. A company in the role: its signers are not offered in the picker. A proxy with **nothing un-ticked** covers them as it always did; once the
    agent un-ticks anyone (a partial proxy) the company's own signers keep signing for the company. The picker says so.
 
 **Stored as** `recipients[]._proxy_excludes` — the list of parties the proxy does **not** sign for, each by its stable
@@ -858,6 +862,9 @@ preview rows, and the renderer's initial-slot count.
   (a deceased party's "Late Estate of … herein represented by …", or a company's representation clause) is **never overwritten**.
 - **The proxy's signature caption:** *"For self and as proxy for B"* (or *"… for B and C"* for several). A proxy who covers only B is never
   described as signing for C.
+- **Order in the wording:** the proxy holder first, then the parties they sign for, then everyone else — *"Peter Proxy (ID…); Paula Partner (ID…), herein
+  represented by Peter Proxy (ID…); and Sam Separate (ID…)"*. A proxy and the parties it covers form one group, placed where the earliest of its members stood
+  (`ProxyCoverage::orderForWording`); everyone else keeps their place; no proxy → no reordering.
 - Partial vs full is just the length of the covered list: full proxy → every other party reads "herein represented by A"; partial → only
   the ticked ones do; the un-ticked party's entry is plain.
 - Wording is produced in one place (`ProxyCoverage::withRepresentation`, applied by `WebTemplateDataService` for every route and the preview),
@@ -880,6 +887,9 @@ party is indistinguishable from a party on a document with no proxy at all.
   `send_skipped_not_signing_participant` — it is never emailed a link and never blocks completion. Signers are *waiting → pending* as usual.
 - In the example (A proxy for B only; C unrepresented) there are **2 people who sign**: A (for A and B) and C (for themself); B is a row
   that does not sign.
+- **Wherever recipients are listed, a represented party is not one.** Step 6 (24.2 point 5) and the wet-ink confirmation screen list only the people who
+  sign / are sent something; each represented party is one line under their proxy ("… signed for by … (proxy)"). On the wet-ink screen a represented party
+  never holds the document in "waiting for recipient" — completion looks only at the people who sign.
 - **Signing order** is unchanged (agent → acquiring party → owner party → witness, SA convention; the agent's per-document order within a role).
   A proxy signs at their own position; a covered party has no position of their own. Completion waits for exactly the signers.
 - Signing-participant status is frozen on the row (`is_proxy`, `proxy_excludes`, `recipient_local_key`), so a later edit to a contact never changes who was required.
