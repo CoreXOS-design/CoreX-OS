@@ -805,6 +805,7 @@ class LeaseController extends Controller
                 ? \App\Models\User::withoutGlobalScopes()->withTrashed()->whereKey($terms->notice_terms_confirmed_by)->value('name')
                 : null,
             'defaults' => $svc->defaultsFor((int) $lease->agency_id, $lease->start_date),
+            'earliestNoticeMonths' => \App\Models\LeaseSetting::earliestNoticeMonthsFor((int) $lease->agency_id),
             'locked' => $lease->isLockedForSigning(),
             'signedDocument' => in_array($lease->signing_status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true),
             'periodText' => $svc->periodText($values['notice_period'], $values['notice_period_unit']),
