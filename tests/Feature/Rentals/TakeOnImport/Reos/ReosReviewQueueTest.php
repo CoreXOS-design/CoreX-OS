@@ -64,7 +64,7 @@ final class ReosReviewQueueTest extends TestCase
         self::assertSame('1 lease · 0 ready · 0 need you · 1 failed · 0 imported', ReosRunSummary::for($run2)['line']);
     }
 
-    public function test_the_page_is_a_header_a_defaults_bar_a_queue_and_one_line_per_ready_lease_with_no_table_or_tick_boxes(): void
+    public function test_the_page_is_a_header_a_defaults_bar_and_one_list_with_a_line_and_a_status_chip_per_lease(): void
     {
         [$run, $admin] = $this->mixedRun();
         $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
@@ -74,14 +74,27 @@ final class ReosReviewQueueTest extends TestCase
         self::assertStringContainsString('Back to batches', $html);
         self::assertStringContainsString('Agent for all', $html);
         self::assertStringContainsString('Suburb for all new properties', $html);
-        self::assertStringContainsString('data-test="reos-queue"', $html);
-        self::assertStringContainsString('Lease <span data-queue-pos>', $html);
-        // The ready lease is one line saying what will happen; the unready ones are not lines.
-        self::assertSame(1, substr_count($html, 'data-test="reos-line"'));
-        self::assertStringContainsString('Uses existing property · creates 2 contacts', $html);
-        // The old screen's furniture is gone.
-        foreach (['<table', 'type="checkbox"', 'Tick all', 'Untick all', 'Apply suburb', 'Apply agent', 'Sort by', 'Nothing below has been created yet'] as $gone) {
+        // ONE list: every lease is a line, with its status chip — green Ready, amber Needs you with the question count.
+        self::assertSame(3, substr_count($html, 'data-test="reos-line"'));
+        self::assertSame(1, substr_count($html, 'data-test="row-ready"'));
+        self::assertSame(2, substr_count($html, 'data-test="row-needs"'));
+        self::assertStringContainsString('Needs you · 1', $html);
+        self::assertStringContainsString('ds-badge-warning', $html);
+        self::assertStringContainsString('ds-badge-success', $html);
+        // Each opens in place onto what it needs and what will happen.
+        self::assertSame(3, substr_count($html, '<details id="row-'));
+        self::assertStringContainsString('When imported: Uses existing property · creates 2 contacts', html_entity_decode($html));
+        self::assertStringContainsString('Which suburb is the new property', $html);
+        self::assertStringContainsString('the same person as reOS', html_entity_decode($html));
+        // The one-at-a-time card and the sections are gone, as is the old screen's furniture.
+        foreach (['<table', 'type="checkbox"', 'Tick all', 'Apply suburb', 'Sort by', 'reos-card', 'data-queue', 'Lease <span'] as $gone) {
             self::assertStringNotContainsString($gone, $html, $gone);
+        }
+        // Every control is a standard CoreX button (corex-btn-secondary is not defined in the CSS — it rendered as plain text) and the parts the
+        // page redraws in place after the "for all" defaults are findable by id.
+        self::assertStringNotContainsString('corex-btn-secondary', $html);
+        foreach (['id="reos-line"', 'id="reos-import-btn"', 'data-test="reos-defaults"', 'id="reos-list"', 'id="reos-pager"'] as $part) {
+            self::assertStringContainsString($part, $html, $part);
         }
         // The bar still sticks flush to the top of the scroll area.
         self::assertMatchesRegularExpression('/#reos-bar\s*\{\s*top:\s*-1rem;/', $html);
@@ -95,11 +108,11 @@ final class ReosReviewQueueTest extends TestCase
         $ready = $this->actingAs($admin)->get($url . '?show=ready')->assertOk()->getContent();
         self::assertStringContainsString('13 ZZ Stafford Ave', $ready);
         self::assertStringNotContainsString('99 ZZ Nowhere Road', $ready);
-        self::assertStringNotContainsString('data-test="reos-queue"', $ready);
+        self::assertSame(1, substr_count($ready, 'data-test="reos-line"'));
 
         $needs = $this->actingAs($admin)->get($url . '?show=needs')->assertOk()->getContent();
-        self::assertStringContainsString('data-test="reos-queue"', $needs);
-        self::assertStringNotContainsString('data-test="reos-line"', $needs, 'leases that need you are asked in the queue, not listed');
+        self::assertSame(2, substr_count($needs, 'data-test="reos-line"'));
+        self::assertSame(0, substr_count($needs, 'data-test="row-ready"'));
 
         $this->actingAs($admin)->get($url . '?show=failed')->assertOk()->assertSee('No leases match');
         $this->actingAs($admin)->get($url . '?show=imported')->assertOk()->assertSee('No leases match');
@@ -117,7 +130,7 @@ final class ReosReviewQueueTest extends TestCase
         [$run, $admin] = $this->mixedRun();
         $row = $this->rowOf($run, self::UUID_C);
 
-        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        $card = $this->lineHtml($admin, $row);
         self::assertStringContainsString('Tenant: is CoreX’s “Elana Reid” (0635550299) the same person as reOS’s “ZZ TEST Tenant Two”?', html_entity_decode($card));
         foreach (['Same person', 'New contact', 'Pick another contact…'] as $button) {
             self::assertStringContainsString($button, $card);
@@ -127,7 +140,6 @@ final class ReosReviewQueueTest extends TestCase
         // Same person → ready, counted, and the lease is a line now.
         $res = $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['confirm' => 'tenant'])->assertOk();
         $res->assertJsonPath('state', 'ready')->assertJsonPath('summary.ready', 2)->assertJsonPath('summary.needs', 1);
-        self::assertNull($res->json('card_html'));
         self::assertStringContainsString('data-test="reos-line"', $res->json('line_html'));
         self::assertTrue($row->fresh()->decisions_json['tenant']['confirmed']);
         self::assertSame('link', $row->fresh()->decisions_json['tenant']['action'], 'the existing contact is used');
@@ -161,7 +173,7 @@ final class ReosReviewQueueTest extends TestCase
         $row = $run->rows()->first();
 
         self::assertSame(['company:owner'], ReosQuestions::needs($row));
-        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        $card = $this->lineHtml($admin, $row);
         self::assertStringContainsString('Owner: create company “ZZ Exilite 104 CC” with Ray Herbert as contact person?', html_entity_decode($card));
         foreach (['Yes', 'Use Ray Herbert as is', 'New contact'] as $button) {
             self::assertStringContainsString($button, $card);
@@ -210,7 +222,7 @@ final class ReosReviewQueueTest extends TestCase
 
         self::assertSame(['property'], ReosQuestions::needs($row), 'only the property is asked first');
 
-        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        $card = $this->lineHtml($admin, $row);
         $card = html_entity_decode($card);
         self::assertStringContainsString('Which property is “3 ZZ Union Street”?', $card);
         self::assertSame(3, substr_count($card, 'data-test="property-candidate"'));
@@ -220,6 +232,8 @@ final class ReosReviewQueueTest extends TestCase
         self::assertStringContainsString("also #{$b->id}", $card);
         self::assertStringContainsString("also #{$a->id}", $card);
         self::assertStringContainsString('None — create new', $card);
+        self::assertStringNotContainsString('corex-btn-secondary', $card);
+        self::assertSame(4, substr_count($card, 'class="corex-btn-outline w-full justify-start text-left'), 'three candidates and "None" are the same full-width button');
 
         // Pick one → the lease is ready (agent matched, contacts created).
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['property_choice' => $c->id])
@@ -343,17 +357,16 @@ final class ReosReviewQueueTest extends TestCase
         self::assertStringContainsString('Lease Status', $html);
         self::assertStringContainsString('Back to batches to upload the corrected file', $html, 'a bad file is fixed in the file');
 
-        // An import attempt that said why not: a "Fix it" and "Try again"; trying again clears the error and the lease is ready again.
+        // An import attempt that said why not: the line opens onto the reason, the Change controls and "Try again"; trying again clears the error and the lease is ready again.
         $row = $this->rowOf($run, self::UUID_A);
         $row->forceFill(['import_error' => 'ZZ the property could not be saved'])->save();
         self::assertSame(ReosQuestions::FAILED, ReosQuestions::state($row->fresh()));
         $page = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
         self::assertStringContainsString('ZZ the property could not be saved', $page);
-        self::assertStringContainsString('data-fix="' . $row->id . '"', $page);
         self::assertStringContainsString('Try again', $page);
-        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        $card = $this->lineHtml($admin, $row);
         self::assertStringContainsString('ZZ the property could not be saved', $card);
-        self::assertStringContainsString('data-test="reos-panel"', $card, 'the card carries the Change controls');
+        self::assertStringContainsString('data-test="reos-panel"', $card, 'the opened line carries the Change controls');
 
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['retry' => true])->assertOk()->assertJsonPath('state', 'ready');
         self::assertNull($row->fresh()->import_error);
@@ -391,8 +404,9 @@ final class ReosReviewQueueTest extends TestCase
 
         $after = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
         self::assertStringContainsString('3 leases · 2 ready · 1 need you · 0 imported', $after);
-        self::assertSame(2, substr_count($after, 'data-test="reos-line"'));
-        self::assertSame([$this->rowOf($run, self::UUID_B)->id], json_decode(html_entity_decode((string) preg_replace('/.*data-queue="([^"]*)".*/s', '$1', $after)), true));
+        self::assertSame(3, substr_count($after, 'data-test="reos-line"'), 'every lease is a line');
+        self::assertSame(1, substr_count($after, 'data-test="row-needs"'));
+        self::assertSame(2, substr_count($after, 'data-test="row-ready"'));
     }
 
     // ── the deposit ─────────────────────────────────────────────────────────────────────────

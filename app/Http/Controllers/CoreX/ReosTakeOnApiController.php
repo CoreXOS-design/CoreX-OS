@@ -33,7 +33,7 @@ class ReosTakeOnApiController extends Controller
         return response()->json(['summary' => ReosRunSummary::for($run)]);
     }
 
-    /** One lease's answers (property, person, suburb, agent, wallet, retry). Returns the lease re-drawn (line + card) and the header numbers. */
+    /** One lease's answers (property, person, suburb, agent, wallet, retry). Returns the lease re-drawn (its line) and the header numbers. */
     public function decisions(Request $request, RentalTakeOnImportRow $row, ReosDecisionService $service): JsonResponse
     {
         $run = $row->run()->withTrashed()->firstOrFail();
@@ -64,15 +64,6 @@ class ReosTakeOnApiController extends Controller
         }
 
         return response()->json(['changed' => $changed, 'summary' => ReosRunSummary::for($run), 'defaults' => ReosRunDefaults::get($run->fresh())]);
-    }
-
-    /** One lease's question card, on demand (the queue steps through leases with it). */
-    public function card(Request $request, RentalTakeOnImportRow $row): JsonResponse
-    {
-        $run = $row->run()->withTrashed()->firstOrFail();
-        $this->guardRun($request, $run);
-
-        return response()->json($this->parts($run, $row));
     }
 
     public function suburbs(Request $request): JsonResponse
@@ -116,21 +107,16 @@ class ReosTakeOnApiController extends Controller
         return response()->json($this->parts($run, $row->fresh()) + ['summary' => ReosRunSummary::for($run)]);
     }
 
-    /** @return array{state:string, line_html:string, card_html:?string} */
+    /** @return array{state:string, line_html:string} */
     private function parts(RentalTakeOnImportRun $run, RentalTakeOnImportRow $row): array
     {
-        $state = ReosQuestions::state($row);
-        $shared = [
-            'row' => $row, 'run' => $run, 'canManage' => true,
-            'agents' => app(ReosAgentMatcher::class)->users((int) $run->agency_id),
-            'defaults' => ReosRunDefaults::get($run),
-        ];
-
         return [
-            'state' => $state,
-            'line_html' => view('corex.rentals.take-on-import._reos-line', $shared)->render(),
-            // The card is for a lease with questions open — and, for a failed lease, the same edit controls to put it right.
-            'card_html' => in_array($state, [ReosQuestions::NEEDS, ReosQuestions::FAILED], true) ? view('corex.rentals.take-on-import._reos-card', $shared)->render() : null,
+            'state' => ReosQuestions::state($row),
+            'line_html' => view('corex.rentals.take-on-import._reos-line', [
+                'row' => $row, 'run' => $run, 'canManage' => true,
+                'agents' => app(ReosAgentMatcher::class)->users((int) $run->agency_id),
+                'defaults' => ReosRunDefaults::get($run),
+            ])->render(),
         ];
     }
 }

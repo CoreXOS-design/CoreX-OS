@@ -221,7 +221,7 @@ final class ReosPropertyMatchTest extends TestCase
 
         $c = $run->fresh()->counts_json;
         self::assertSame([1, 1, 1], [$c['property_matched'], $c['property_to_choose'], $c['property_not_in_corex']]);
-        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run) . '?property=matched')->assertOk()->assertSee('13 ZZ Stafford Avenue')->assertDontSee('77 ZZ Nowhere Lane');
+        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run) . '?q=Stafford')->assertOk()->assertSee('13 ZZ Stafford Avenue')->assertDontSee('77 ZZ Nowhere Lane');
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────

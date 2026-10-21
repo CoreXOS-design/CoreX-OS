@@ -87,9 +87,9 @@ final class ReosNameDiffersTest extends TestCase
         $row = app(ReosDecisionService::class)->apply($row, $run, ['suburb_id' => $this->p24Suburb()->id]);
         self::assertFalse($row->is_blocked, json_encode($row->blockers_json));
 
-        // Both are questions on the queue card (never a blocker); the person is the default until the user answers.
+        // Both are questions in the lease's opened line (never a blocker); the person is the default until the user answers.
         self::assertSame(['company:owner', 'name:tenant'], ReosQuestions::needs($row));
-        $card = html_entity_decode($this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html'));
+        $card = html_entity_decode($this->lineHtml($admin, $row));
         self::assertStringContainsString('is CoreX’s “Elana Reid”', $card);
         self::assertStringContainsString('create company “ZZ TEST Wildevy Properties Pty Ltd” with Arne Nel as contact person?', $card);
         self::assertStringContainsString('the same person as reOS’s “ZZ TEST Aiesha Steady”', $card);

@@ -7,7 +7,7 @@
      here, before the company exists, as the full people block only applies to a company contact. --}}
 @if($editable && ($m['name_flag'] ?? null) === 'person_for_company' && $state === 'link-auto')
     <div class="corex-card p-2 mt-2" data-test="{{ $party }}-convert">
-        <button type="button" class="corex-btn-secondary text-xs" data-person-convert data-people-party="{{ $party }}" data-test="convert-to-company">Create the company and link {{ $m['matched_name'] ?? 'this person' }} as its contact person</button>
+        <button type="button" class="corex-btn-outline text-xs" data-person-convert data-people-party="{{ $party }}" data-test="convert-to-company">Create the company and link {{ $m['matched_name'] ?? 'this person' }} as its contact person</button>
     </div>
 @endif
 
@@ -59,7 +59,7 @@
                         <select data-person-new-capacity class="prop-select" aria-label="Role">
                             @foreach($capacities as $cap)<option value="{{ $cap }}">{{ $cap }}</option>@endforeach
                         </select>
-                        <button type="button" class="corex-btn-secondary text-xs" data-person-add-new>Add person</button>
+                        <button type="button" class="corex-btn-outline text-xs" data-person-add-new>Add person</button>
                     </div>
                 </div>
             </div>

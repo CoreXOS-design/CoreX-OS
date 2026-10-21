@@ -139,7 +139,7 @@ final class ReosImportFlowTest extends TestCase
         ]);
         $url = route('corex.rentals.take-on-import.preview', $run);
 
-        // Both leases still need a suburb for their new property, so both are asked in the queue (the first card is drawn).
+        // Both leases still need a suburb for their new property, so both are asked in the queue (each line opens onto its question).
         $page = $this->actingAs($admin)->get($url)->assertOk();
         $page->assertSee('ZZ-tenancy-schedule.xlsx');
         $page->assertSee('2 leases · 0 ready · 2 need you · 0 imported');
@@ -221,7 +221,6 @@ final class ReosImportFlowTest extends TestCase
         self::assertStringContainsString('ZZ Testville', json_encode($row->fresh()->decisions_json));
         $res->assertJsonPath('state', 'ready')->assertJsonPath('summary.ready', 1)->assertJsonPath('summary.needs', 0)->assertJsonPath('summary.can_import', true);
         self::assertStringContainsString('data-test="reos-line"', $res->json('line_html'));
-        self::assertNull($res->json('card_html'));
         self::assertTrue((bool) $row->fresh()->selected, 'ready is saved at once: it is what Import takes');
 
         $this->actingAs($admin)->postJson(route('api.v1.rentals.take-on-import.decisions', $row), ['suburb_id' => 999999999])->assertStatus(422);
@@ -230,7 +229,6 @@ final class ReosImportFlowTest extends TestCase
 
         $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.suburbs', ['q' => 'Testv']))->assertOk()->assertJsonPath('data.0.suburb', 'ZZ Testville')->assertJsonPath('data.0.town', 'ZZ Test City');
         $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.summary', $run))->assertOk()->assertJsonPath('summary.total', 1);
-        $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->assertJsonPath('state', 'ready');
     }
 
     public function test_the_agent_and_suburb_for_all_fill_every_waiting_lease_that_has_none(): void
@@ -484,7 +482,6 @@ final class ReosImportFlowTest extends TestCase
         $this->actingAs($adminA)->post(route('corex.rentals.take-on-import.reos.import', $runB))->assertNotFound();
         $this->actingAs($adminA)->postJson(route('api.v1.rentals.take-on-import.decisions', $rowB), ['selected' => true])->assertNotFound();
         $this->actingAs($adminA)->postJson(route('api.v1.rentals.take-on-import.defaults', $runB), ['agent_user_id' => $adminA->id])->assertNotFound();
-        $this->actingAs($adminA)->getJson(route('api.v1.rentals.take-on-import.card', $rowB))->assertNotFound();
         $this->actingAs($adminA)->getJson(route('api.v1.rentals.take-on-import.summary', $runB))->assertNotFound();
         self::assertFalse((bool) $rowB->fresh()->selected);
 
