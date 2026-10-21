@@ -543,7 +543,9 @@ that says to restore it first, because the database key spans archived rows).
 
 **R4.0b Review-screen corrections after Johan's real-file check (21 Oct 2026, batch 6).**
 1. *Sticky header* now has a solid background and `z-index: 50` (above every row control, whose result lists are z-20): rows scroll
-   under it.
+   under it. **Flush to the top (22 Oct follow-up):** the page scrolls inside `<main id="appScroll">`, which has its own padding
+   (1rem, 1.5rem from 1024 px); a sticky bar at `top: 0` stops inside that padding and a strip of rows showed above it. The bar's
+   `top` is now the negative of that padding (`-1rem`, `-1.5rem` at lg) so it sits flush with the scroll area.
 2. *A company matched to a company is a company match.* A CoreX contact counts as a **company** when it is a company record
    (`contact_kind = entity`) **or its name reads as a company** (`ReosContactNames::isCompanyContact` — CoreX holds 10,706 "natural
    person" records on QA1, many named "… Pty Ltd", e.g. "BEBO Investments (PTY) LTY"). Such a match is never "matched a person" and the
@@ -551,7 +553,10 @@ that says to restore it first, because the database key spans archived rows).
 3. *Name differs is split in two* (`ReosNameCompare`): **Spelling differs** (muted grey, NOT in the amber total) = same surname once
    squashed ("Mc Neil" = "McNeil"), a middle name on one side only, or an edit distance ≤ 2 on first name or surname (only for words
    of 4+ letters, so Ben/Ken stay different) — "Mkhozi/Mkozi", "Desire/Desiree"; and **Name differs** (amber, counted) = everything
-   else, plus "matched a person" for a company. Filter options for both; the header shows the amber count and a separate muted
+   else, plus "matched a person" for a company. **Swapped first name / surname (22 Oct follow-up)** is also Spelling: the name is
+   treated as a set of words, each found once in the other name (equal, an initial, or ≤ 2 edits) in any order — CoreX "Nkome
+   Langelihle" vs reOS "Langelihle Nkomo". Needs two words on the shorter side (a single word has no order to swap). Stored flags
+   re-worked once per batch (`NAME_FLAGS_VERSION` 3). Filter options for both; the header shows the amber count and a separate muted
    "Spelling" count. `decisions_json.name_differs` (amber) and `.spelling_differs`.
 5. *Batches parsed under older rules are re-checked.* The name flags are stored when a batch is parsed, so the first time a batch is
    opened after the rules change `ReosRowResolver::recheckNameFlags` re-works the flags of its not-yet-imported rows (the user's

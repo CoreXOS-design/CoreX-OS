@@ -113,8 +113,8 @@ class ReosRowResolver
         return ['action' => RentalTakeOnImportRow::ACTION_CHOOSE, 'tracked_id' => null, 'label' => count($candidates) . ' properties in CoreX fit this address — pick the right one', 'notes' => []];
     }
 
-    /** Version of the name-flag rules the stored flags were worked out with (2 = Spelling / Name differs split, company-like contacts). */
-    public const NAME_FLAGS_VERSION = 2;
+    /** Version of the name-flag rules the stored flags were worked out with (2 = Spelling / Name differs split, company-like contacts; 3 = first name and surname swapped counts as spelling). */
+    public const NAME_FLAGS_VERSION = 3;
 
     /**
      * Re-work the name flags of a batch built under older rules (the flags are stored when a batch is parsed, so a batch uploaded before
