@@ -865,6 +865,10 @@ preview rows, and the renderer's initial-slot count.
 - **Order in the wording:** the proxy holder first, then the parties they sign for, then everyone else — *"Peter Proxy (ID…); Paula Partner (ID…), herein
   represented by Peter Proxy (ID…); and Sam Separate (ID…)"*. A proxy and the parties it covers form one group, placed where the earliest of its members stood
   (`ProxyCoverage::orderForWording`); everyone else keeps their place; no proxy → no reordering.
+- **A saved party list never overrides the derived order.** Fill & Review saves the party-list text the agent saw (the `field_group_display` value). When a saved
+  list holds exactly the same words as the freshly derived one — only the order differs, e.g. it was saved before the proxy order rule, or the agent changed who is
+  proxy afterwards — the derived list is used on the Step 5 form, the Step 6 preview and every sent / printed document (`ProxyCoverage::preferFreshOrder`,
+  `ESignWizardController::freshenStoredPartyLists` and `overlayFillReviewValues`). A list the agent genuinely edited (different words) is kept as typed.
 - Partial vs full is just the length of the covered list: full proxy → every other party reads "herein represented by A"; partial → only
   the ticked ones do; the un-ticked party's entry is plain.
 - Wording is produced in one place (`ProxyCoverage::withRepresentation`, applied by `WebTemplateDataService` for every route and the preview),

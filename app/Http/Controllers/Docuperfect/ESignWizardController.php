@@ -629,6 +629,8 @@ class ESignWizardController extends Controller
 
         // Auto-fill field group display values from recipients
         $allWizardFields = $this->autoFillFieldGroupDisplays($allWizardFields, $mergeStepData);
+        // AT-498 — a party list saved at step 5 before the proxy order rule keeps the same parties in the old order; show the derived one.
+        $stepData = $this->freshenStoredPartyLists($stepData, $allWizardFields, $resolvedValues);
 
         // E-sign walk-fix FIX 1 + FIX 2 — expand role-bound fields per
         // recipient so a 3-seller session renders N inputs (each
@@ -2618,8 +2620,13 @@ class ESignWizardController extends Controller
 
             // Single-recipient / non-expanded field — value keyed by the base id.
             if (isset($frValues[$fieldId]) && $frValues[$fieldId] !== '') {
-                $data[$var] = $frValues[$fieldId];
-                $overlay[$var] = $frValues[$fieldId];
+                $value = $frValues[$fieldId];
+                // AT-498 — a saved party list with the same parties in an older order gives way to the freshly derived one.
+                if (($field['type'] ?? '') === 'field_group_display' && is_string($value) && is_string($data[$var] ?? null)) {
+                    $value = \App\Support\Docuperfect\ProxyCoverage::preferFreshOrder($value, $data[$var]);
+                }
+                $data[$var] = $value;
+                $overlay[$var] = $value;
             }
 
             // AT-360b — PER-RECIPIENT instances. A role-bound field with 2+ recipients is expanded
@@ -7275,6 +7282,34 @@ class ESignWizardController extends Controller
     private function blankUnresolvedMarkers(string $html): string
     {
         return str_contains($html, '~~~') ? (string) preg_replace('/~{4,}([^~]{1,200}?)~{4,}/s', '', $html) : $html;
+    }
+
+    /**
+     * AT-498 — see ProxyCoverage::preferFreshOrder(). Rewrites the saved Fill & Review party-list values (field_group_display fields) whose
+     * words match the freshly derived list, so step 5's own form, the step 6 preview and the sent document agree on the order.
+     */
+    private function freshenStoredPartyLists(array $stepData, array $fields, array $resolved): array
+    {
+        $stored = $stepData['fill_review']['fieldValues'] ?? [];
+        if (! is_array($stored) || $stored === []) {
+            return $stepData;
+        }
+        foreach ($fields as $f) {
+            if (($f['type'] ?? '') !== 'field_group_display') {
+                continue;
+            }
+            $id = $f['id'] ?? null;
+            $name = $f['field_name'] ?? null;
+            if (! $id || ! $name || ! is_string($stored[$id] ?? null)) {
+                continue;
+            }
+            $fresh = $resolved[$name] ?? null;
+            if (is_string($fresh)) {
+                $stepData['fill_review']['fieldValues'][$id] = \App\Support\Docuperfect\ProxyCoverage::preferFreshOrder($stored[$id], $fresh);
+            }
+        }
+
+        return $stepData;
     }
 
     /** One Document per pack member keeps the member's own name so it can be found and pulled on its own. */

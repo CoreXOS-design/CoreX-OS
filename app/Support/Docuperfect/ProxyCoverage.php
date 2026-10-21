@@ -264,6 +264,32 @@ final class ProxyCoverage
         return null;
     }
 
+    /**
+     * A party list ("Peter …; Paula …, herein represented by Peter …; and Sam …") is DERIVED from the recipients, but Fill & Review saves the
+     * text the agent saw. A value saved before the proxy/wording rules (or after the agent changed who is proxy) keeps the same parties in
+     * the old order and would override the fresh text on the preview and the finished document. When the saved text holds exactly the same
+     * words as the freshly derived list — only the order / joining differs — the fresh list is used; anything the agent genuinely edited
+     * (different words) is kept as typed.
+     */
+    public static function preferFreshOrder(string $stored, ?string $fresh): string
+    {
+        if ($fresh === null || trim($fresh) === '' || trim($stored) === '') {
+            return $stored;
+        }
+
+        return self::wordBag($stored) === self::wordBag($fresh) ? $fresh : $stored;
+    }
+
+    /** @return list<string> */
+    private static function wordBag(string $text): array
+    {
+        $words = preg_split('/\s+/', trim(strtolower((string) preg_replace('/[;,.()]/', ' ', $text)))) ?: [];
+        $words = array_values(array_filter($words, fn ($w) => $w !== '' && $w !== 'and'));
+        sort($words);
+
+        return $words;
+    }
+
     /** "Name (ID 800101…)" — the ID is shown the way the rest of the document shows a party. */
     private static function label(array $r): string
     {

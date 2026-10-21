@@ -282,6 +282,19 @@ final class ProxyCoverageRuleTest extends TestCase
         $this->assertNull(ProxyCoverage::proxyIndexFor($rows, 0));
     }
 
+    public function test_a_saved_party_list_in_an_older_order_gives_way_to_the_fresh_one_but_a_real_edit_is_kept(): void
+    {
+        $old = 'Paula Partner (ID: 1), herein represented by Peter Proxy (ID: 3) in terms of a proxy; Sam Separate (ID: 2); and Peter Proxy (ID: 3)';
+        $fresh = 'Peter Proxy (ID: 3); Paula Partner (ID: 1), herein represented by Peter Proxy (ID: 3) in terms of a proxy; and Sam Separate (ID: 2)';
+
+        $this->assertSame($fresh, ProxyCoverage::preferFreshOrder($old, $fresh), 'same parties, older order → the fresh order');
+        $this->assertSame($fresh, ProxyCoverage::preferFreshOrder($fresh, $fresh));
+        $edited = str_replace('Sam Separate (ID: 2)', 'Samuel Separate (ID: 2)', $old);
+        $this->assertSame($edited, ProxyCoverage::preferFreshOrder($edited, $fresh), 'a genuine edit is kept as typed');
+        $this->assertSame($old, ProxyCoverage::preferFreshOrder($old, null));
+        $this->assertSame($old, ProxyCoverage::preferFreshOrder($old, ''));
+    }
+
     public function test_an_existing_clause_is_never_overwritten(): void
     {
         $rows = [
