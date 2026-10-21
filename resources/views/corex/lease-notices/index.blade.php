@@ -23,9 +23,18 @@
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
-        <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Notices received</h1>
-        <p class="text-xs" style="color: var(--text-muted);">A tenant or a landlord has given notice. Review each one against the lease and the law before anything goes to the other party.</p>
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Notices received</h1>
+                <p class="text-xs" style="color: var(--text-muted);">A tenant or a landlord has given notice. Review each one against the lease and the law before anything goes to the other party.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+                {{-- AT-495 - record a notice the tenant / landlord gave outside the portal (phone, email, letter): pick the lease, then the lease's own dialog opens --}}
+                @include('corex.notices._pick-lease-button', ['purpose' => 'received', 'label' => 'Record a received notice', 'title' => 'Record a received notice - which lease?', 'qa' => 'record-received-notice'])
+            </div>
+        </div>
     </div>
+    @include('corex.notices._lease-picker')
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
     <form method="GET" action="{{ route('corex.lease-notices.index') }}" class="flex flex-wrap items-end gap-3" data-qa="lease-notices-filters">
@@ -100,6 +109,7 @@
                                 No notices match these filters.
                             @else
                                 Nothing waiting for review. When a tenant or a landlord gives notice - from their portal, or recorded on a lease - it appears here.
+                                <div class="mt-3">@include('corex.notices._pick-lease-button', ['purpose' => 'received', 'label' => 'Record a received notice', 'title' => 'Record a received notice - which lease?', 'qa' => 'record-received-notice-empty'])</div>
                             @endif
                         </td>
                     </tr>

@@ -1,6 +1,7 @@
 @extends('layouts.corex')
 
 @section('content')
+<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $badge = $breach->status === 'issued' ? 'ds-badge-warning' : ($breach->status === 'remedied' ? 'ds-badge-success' : 'ds-badge-danger');

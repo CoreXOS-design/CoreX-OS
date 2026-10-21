@@ -35,6 +35,8 @@ final class PortalDocumentsTest extends TestCase
     use RefreshDatabase;
 
     private const BROWSER = ['Origin' => 'http://localhost'];
+    /** When every fixture document was filed and every inspection completed (AT-495: never the real clock). */
+    private const FILED_AT = '2026-09-01 08:00:00';
 
     private Agency $agency;
     private Branch $branch;
@@ -149,10 +151,18 @@ final class PortalDocumentsTest extends TestCase
         $path = "portal-docs-test/{$sourceType}-{$sourceId}-" . uniqid() . '.pdf';
         Storage::disk('local')->put($path, "%PDF-1.4 content of {$name}");
 
-        return Document::withoutAgencyStamping(fn () => Document::create($extra + [
+        $document = Document::withoutAgencyStamping(fn () => Document::create($extra + [
             'original_name' => $name, 'storage_path' => $path, 'disk' => 'local', 'mime_type' => 'application/pdf', 'size' => 30,
             'source_type' => $sourceType, 'source_id' => $sourceId, 'agency_id' => $agencyId ?? $this->agency->id,
         ]));
+
+        // AT-495 - a fixed filing date, far outside the date-range window the filter test uses, so no document's date depends on the day the
+        // test runs (the window test used to fail whenever "today" fell inside it)
+        DB::table('documents')->where('id', $document->id)->update(['created_at' => self::FILED_AT, 'updated_at' => self::FILED_AT]);
+
+        $document->setRawAttributes(array_merge($document->getAttributes(), ['created_at' => self::FILED_AT, 'updated_at' => self::FILED_AT]), true);
+
+        return $document;
     }
 
     /** §49 — every party (each lease tenant and the agent) holds a live signature, as a report that was properly signed does. */
@@ -181,7 +191,7 @@ final class PortalDocumentsTest extends TestCase
         $inspection = RentalInspection::create([
             'agency_id' => $this->agency->id, 'lease_id' => $lease->id, 'property_id' => $lease->property_id,
             'type' => $type, 'status' => $status, 'created_by_user_id' => $this->staff->id,
-            'completed_at' => $status === 'completed' ? now()->subDay() : null,
+            'completed_at' => $status === 'completed' ? self::FILED_AT : null,
         ]);
         if ($signed && ($status === 'completed' || $sentCopy)) {
             $this->signEveryone($inspection);

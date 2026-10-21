@@ -13,6 +13,7 @@
 @endphp
 <div class="w-full space-y-5">
     @include('corex.notices._tabs', ['active' => 'breaches'])
+    @include('corex.notices._lease-picker')
 
     {{-- Page header --}}
     <div class="rounded-md px-6 py-5 corex-page-banner">
@@ -23,6 +24,8 @@
             </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @include('corex.breaches._templates-link')
+                {{-- AT-495 - issue one breach notice: pick the lease, then the breach notice form for it opens --}}
+                @include('corex.notices._pick-lease-button', ['purpose' => 'breach', 'label' => 'Issue breach notice', 'title' => 'Issue a breach notice - which lease?', 'qa' => 'issue-breach-notice'])
                 @permission('rental_breaches.manage')
 @feature('rental-leases')
                 <a href="{{ route('corex.leases.index', ['status' => 'active']) }}" class="corex-btn-primary text-xs">Choose leases for a breach notice</a>
@@ -136,7 +139,8 @@
                             @if(request()->hasAny(['q', 'status', 'kind', 'party', 'date_from', 'date_to', 'archived', 'tile']))
                                 No breach notices match these filters.
                             @else
-                                No breach notices have been issued yet. Tick leases on the Leases list and choose "Breach notice", or open a lease and use its Breach notice button.
+                                No breach notices have been issued yet. Issue one for a lease, or tick several leases on the Leases list and choose "Breach notice".
+                                <div class="mt-3">@include('corex.notices._pick-lease-button', ['purpose' => 'breach', 'label' => 'Issue breach notice', 'title' => 'Issue a breach notice - which lease?', 'qa' => 'issue-breach-notice-empty'])</div>
                             @endif
                         </td>
                     </tr>

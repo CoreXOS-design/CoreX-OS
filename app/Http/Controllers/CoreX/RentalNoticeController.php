@@ -19,21 +19,44 @@ use Illuminate\View\View;
  */
 class RentalNoticeController extends Controller
 {
+    /** The columns the list may be sorted on (anything else is ignored - the default applies). */
+    private const SORTS = ['sent_at', 'notice_type', 'delivery_status', 'created_at'];
+
+    /**
+     * AT-495 - the "Notices sent" tab. List-screen floor: search (tenant name, property address, lease number, document name), sort (date sent
+     * - default newest first -, type, delivery), filter (type, delivery status, date range, archived), pagination, real empty state.
+     */
     public function index(Request $request): View
     {
         // Own / branch / agency visibility is the lease's (Lease::visibleTo) — a notice is only as visible as the lease it is about.
-        $query = RentalNotice::query()->with(['lease.property', 'sentByUser'])
-            ->whereIn('lease_id', Lease::query()->visibleTo($request->user())->select('leases.id'));
+        $query = RentalNotice::query()->with(['lease.property', 'lease.tenants.contact', 'sentByUser', 'template'])
+            ->whereIn('lease_id', Lease::query()->withTrashed()->visibleTo($request->user())->select('leases.id'));
+
+        if ($request->boolean('archived')) {
+            $query->onlyTrashed();
+        }
 
         if ($search = trim((string) $request->get('q', ''))) {
             $query->where(function ($q) use ($search) {
-                $q->whereHas('lease.property', fn ($p) => $p->where('title', 'like', "%{$search}%"))
-                    ->orWhereHas('lease.tenants.contact', fn ($c) => $c->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"));
+                $q->whereHas('lease.property', fn ($p) => $p->withTrashed()->where(fn ($pp) => $pp->where('title', 'like', "%{$search}%")->orWhere('address', 'like', "%{$search}%")))
+                    ->orWhereHas('lease.tenants.contact', fn ($c) => $c->where('first_name', 'like', "%{$search}%")->orWhere('last_name', 'like', "%{$search}%"))
+                    ->orWhereHas('template', fn ($t) => $t->withTrashed()->where('name', 'like', "%{$search}%"));
+                // a lease number: "12" or "#12" or "Lease #12"
+                if (preg_match('/^(?:lease\s*)?#?\s*(\d+)$/i', $search, $m)) {
+                    $q->orWhere('lease_id', (int) $m[1]);
+                }
             });
         }
 
         if ($type = $request->get('notice_type')) {
             $query->where('notice_type', $type);
+        }
+
+        $status = (string) $request->get('status', '');
+        if (in_array($status, [RentalNotice::DELIVERY_SENT, RentalNotice::DELIVERY_PARTIAL, RentalNotice::DELIVERY_NOT_SENT], true)) {
+            $query->where('delivery_status', $status);
+        } elseif ($status === 'unrecorded') {
+            $query->whereNull('delivery_status');
         }
 
         if ($from = $request->get('date_from')) {
@@ -45,13 +68,13 @@ class RentalNoticeController extends Controller
 
         // Audit 2026-10-18 (A-L7): only these columns may be sorted on - a free `?sort=` used to reach orderBy() as-is
         // (a bad name was a 500, a hidden column could be probed by ordering). Anything else falls back to the default.
-        $sort = in_array($request->get('sort'), ['sent_at', 'notice_type', 'created_at'], true) ? $request->get('sort') : 'sent_at';
-        $direction = $sort === 'sent_at' ? 'desc' : 'asc';
-        $query->orderBy($sort, $direction);
+        $sort = in_array($request->get('sort'), self::SORTS, true) ? $request->get('sort') : 'sent_at';
+        $dir = $request->has('dir') ? ($request->get('dir') === 'asc' ? 'asc' : 'desc') : ($sort === 'sent_at' ? 'desc' : 'asc');
+        $query->orderBy($sort, $dir)->orderByDesc('id');
 
         $notices = $query->paginate(25)->withQueryString();
 
-        return view('corex.rental-notices.index', compact('notices'));
+        return view('corex.rental-notices.index', compact('notices', 'sort', 'dir', 'status'));
     }
 
     /** Direct-URL access by id is blocked unless the notice's lease is visible to this user (own / branch / agency). */
@@ -64,9 +87,47 @@ class RentalNoticeController extends Controller
     public function show(Request $request, RentalNotice $rentalNotice): View
     {
         $this->authoriseLease($rentalNotice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
-        $rentalNotice->load(['lease.property', 'template', 'sentByUser', 'document']);
+        $rentalNotice->load(['lease.property', 'template', 'sentByUser', 'document', 'deliveries.attemptedBy']);
 
         return view('corex.rental-notices.show', ['notice' => $rentalNotice]);
+    }
+
+    /** AT-495 - email the notice again to the people it was addressed to, from the agent's own mailbox. Logged on the lease. */
+    public function resend(Request $request, RentalNotice $rentalNotice, RentalNoticeService $service): RedirectResponse
+    {
+        $this->authoriseLease($rentalNotice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
+        try {
+            $deliveries = $service->resend($rentalNotice, $request->user());
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return back()->with('error', collect($e->errors())->flatten()->first());
+        }
+
+        $missed = $deliveries->reject(fn ($d) => $d->wasSent());
+        if ($deliveries->isEmpty() || $missed->isNotEmpty()) {
+            return back()->with('error', $deliveries->isEmpty()
+                ? 'Nothing was sent: no one is linked to the lease on the side this notice was addressed to.'
+                : 'Resent, but NOT sent to: ' . $missed->map(fn ($d) => ($d->recipient_name ?: ucfirst($d->recipient_role)) . ($d->status === 'failed' ? ' (the email failed)' : ' (no email address on file)'))->implode(', ') . '.');
+        }
+
+        return back()->with('success', 'Notice resent.');
+    }
+
+    public function archive(Request $request, RentalNotice $rentalNotice): RedirectResponse
+    {
+        $this->authoriseLease($rentalNotice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
+        abort_if($rentalNotice->lease_breach_id !== null, 404); // a breach notice is archived with its breach, on the breach screen
+        $rentalNotice->delete();
+
+        return redirect()->route('corex.rental-notices.index')->with('success', 'Notice archived.');
+    }
+
+    public function restore(Request $request, int $id): RedirectResponse
+    {
+        $notice = RentalNotice::onlyTrashed()->findOrFail($id); // BelongsToAgency: another agency's id is a 404
+        $this->authoriseLease($notice->lease()->withoutGlobalScopes()->firstOrFail(), $request);
+        $notice->restore();
+
+        return redirect()->route('corex.rental-notices.show', $notice)->with('success', 'Notice restored.');
     }
 
     public function downloadDocument(Request $request, RentalNotice $rentalNotice)
@@ -88,6 +149,7 @@ class RentalNoticeController extends Controller
             'lease' => $lease, 'templates' => $templates,
             'autoPlaceholders' => \App\Services\Rentals\RentalNoticeService::PLACEHOLDERS,
             'preview' => session('notice_preview'),
+            'chosenTemplateId' => (int) $request->query('template'),
         ]);
     }
 
@@ -129,10 +191,17 @@ class RentalNoticeController extends Controller
         }
 
         try {
-            $service->send($lease, $template, $figures, $toTenant, $toLandlord, $request->user());
+            $notice = $service->send($lease, $template, $figures, $toTenant, $toLandlord, $request->user());
         } catch (\Illuminate\Validation\ValidationException $e) {
             // a placeholder still empty: the notice is never sent with a hole in it
             return back()->withInput()->withErrors($e->errors());
+        }
+
+        // AT-495 - never "sent" for someone it did not reach: say who it did NOT go to
+        $missed = $notice->deliveries->reject(fn ($d) => $d->wasSent());
+        if ($notice->delivery_status !== RentalNotice::DELIVERY_SENT) {
+            return redirect()->route('corex.rental-notices.show', $notice)->with('error', 'The notice is filed on the lease, but NOT sent to '
+                . ($missed->isEmpty() ? 'anyone - no one is linked to the lease on the side you chose' : $missed->map(fn ($d) => ($d->recipient_name ?: ucfirst($d->recipient_role)) . ($d->status === 'failed' ? ' (the email failed)' : ' (no email address on file)'))->implode(', ')) . '.');
         }
 
         return redirect()->route('corex.leases.show', $lease)->with('success', 'Notice sent.');

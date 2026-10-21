@@ -58,7 +58,7 @@ trait BuildsNoticeFixture
         $this->landlord = $this->contact('Lenny', 'Landlord');
         $this->property->contacts()->attach($this->landlord->id, ['role' => 'landlord']);
 
-        $this->grant($this->agent, ['leases.view', 'leases.create', 'leases.renew', 'rental_notices.review', 'rental_notices.create', 'rental_notice_templates.manage_settings', 'rental_breaches.view', 'rental_breaches.manage']);
+        $this->grant($this->agent, ['leases.view', 'leases.create', 'leases.renew', 'rental_notices.review', 'rental_notices.create', 'rental_notices.view', 'rental_notice_templates.manage_settings', 'rental_breaches.view', 'rental_breaches.manage']);
     }
 
     protected function contact(string $first, string $last, ?Agency $agency = null, ?Branch $branch = null): Contact

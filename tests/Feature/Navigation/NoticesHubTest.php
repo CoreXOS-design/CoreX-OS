@@ -25,7 +25,8 @@ final class NoticesHubTest extends TestCase
     use BuildsNoticeFixture;
     use RefreshDatabase;
 
-    private const ALL = ['rental_breaches.view', 'rental_notices.review', 'rental_notices.create', 'rental_notice_templates.manage_settings'];
+    // AT-495: the Notices sent tab needs rental_notices.view (not .create - audit 2026-10-19 A28); .create is the right to send, which also opens the entry
+    private const ALL = ['rental_breaches.view', 'rental_notices.review', 'rental_notices.view', 'rental_notices.create', 'rental_notice_templates.manage_settings'];
 
     protected function setUp(): void
     {
@@ -182,7 +183,7 @@ final class NoticesHubTest extends TestCase
 
     public function test_the_menu_item_the_entry_route_and_the_tabs_agree_on_the_permissions(): void
     {
-        $this->assertEqualsCanonicalizing(self::ALL, NoticesTabs::permissions());
+        $this->assertEqualsCanonicalizing(array_values(array_diff(self::ALL, ['rental_notices.create'])), NoticesTabs::permissions(), 'the four tabs');
 
         $middleware = collect(Route::getRoutes()->getByName('corex.notices.index')->gatherMiddleware())->first(fn ($m) => is_string($m) && str_starts_with($m, 'permission:'));
         $this->assertEqualsCanonicalizing(self::ALL, explode(',', substr($middleware, 11)));

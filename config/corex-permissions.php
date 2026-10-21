@@ -1187,6 +1187,9 @@ return [
                 // manage_settings keys stay admin-only, like every sibling module.
                 // properties.syndication.manage_approvers is deliberately NOT here.
                 'leases.view', 'leases.create', 'leases.renew', 'leases.cancel', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_notices.view', 'rental_breaches.view', 'rental_breaches.manage',
+                // AT-495 - the Notices tabs work out of the box: a branch manager sends notices and keeps the agency's notice templates (Johan's ticket;
+                // the exception to "manage_settings stays admin-only" - the templates ARE the agency's working documents).
+                'rental_notices.create', 'rental_notice_templates.manage_settings',
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates', 'rental_inspections.resolve_discrepancy',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export', 'rental_inspections.archive_completed',
                 // sign_on_behalf deliberately NOT granted (owner's ruling 2026-09-30: admin only).
@@ -1388,6 +1391,7 @@ return [
                 // branch managers/admin. properties.syndication.manage_approvers
                 // stays admin-only.
                 'leases.view', 'leases.create', 'leases.renew', 'lease_notice_terms.edit', 'rental_notices.review', 'rental_notices.view', 'rental_breaches.view', 'rental_breaches.manage',
+                'rental_notices.create', // AT-495 - an agent sends (and resends) notices on their own leases
                 'rental_inspections.view', 'rental_inspections.create', 'rental_inspections.record_attendance', 'rental_inspections.manage_planned_dates',
                 'rental_inspections.edit_details', 'rental_inspections.archive', 'rental_inspections.restore', 'rental_inspections.cancel', 'rental_inspections.reschedule', 'rental_inspections.public_link', 'rental_inspections.export',
                 'rental_fault_reports.view', 'rental_fault_reports.create', 'rental_fault_reports.send_to_owner', 'rental_fault_reports.raise_work_order',
