@@ -123,6 +123,38 @@ final class LeaseBreachFlowTest extends TestCase
         });
     }
 
+    public function test_a_party_with_no_email_is_recorded_as_not_sent_never_as_sent(): void
+    {
+        // the same bug class AT-495 fixed in RentalNoticeService::send(): the lease log said "sent to <names>" for people who were never emailed
+        \App\Models\Contact::withoutGlobalScopes()->whereKey($this->tenant->id)->update(['email' => null]);
+        if (\Illuminate\Support\Facades\Schema::hasTable('contact_emails')) {
+            \Illuminate\Support\Facades\DB::table('contact_emails')->where('contact_id', $this->tenant->id)->delete();
+        }
+        $tpl = $this->template('breach_payment');
+
+        $res = $this->actingAs($this->agent)->post(route('corex.breaches.bulk.store'), ['rental_notice_template_id' => $tpl->id, 'amount' => [$this->lease->id => '1500.50']])->assertOk();
+
+        Mail::assertNotSent(LeaseBreachNoticeMail::class);
+        Mail::assertSent(LeaseBreachOtherPartyMail::class, fn ($m) => $m->hasTo($this->landlord->email));
+        $line = \App\Models\LeaseEvent::where('lease_id', $this->lease->id)->where('event_type', \App\Models\LeaseEvent::TYPE_BREACH_ISSUED)->value('description');
+        $this->assertStringContainsString('NOT sent to Tina Tenant (no email address on file)', (string) $line);
+        $this->assertStringNotContainsString('sent to Tina Tenant', str_replace('NOT sent to Tina Tenant', '', (string) $line), 'it must not say sent to someone who has no email');
+        $notice = RentalNotice::withoutGlobalScopes()->firstOrFail();
+        $this->assertSame(RentalNotice::DELIVERY_NOT_SENT, $notice->fresh()->delivery_status);
+        $delivery = \App\Models\RentalNoticeDelivery::withoutGlobalScopes()->where('rental_notice_id', $notice->id)->sole();
+        $this->assertSame(\App\Models\RentalNoticeDelivery::NOT_SENT_NO_EMAIL, $delivery->status);
+    }
+
+    public function test_a_one_off_breach_with_no_party_email_tells_the_agent_on_screen_that_it_was_not_emailed(): void
+    {
+        \App\Models\Contact::withoutGlobalScopes()->whereKey($this->tenant->id)->update(['email' => null]);
+        $tpl = $this->template('breach_other');
+
+        $this->actingAs($this->agent)->post(route('corex.leases.breaches.store', $this->lease->id), [
+            'rental_notice_template_id' => $tpl->id, 'breach_party' => 'tenant', 'clause' => '4.2', 'reason' => 'Keeps a dog without permission', 'intent' => 'send',
+        ])->assertRedirect()->assertSessionHas('error', fn ($m) => str_contains($m, 'NOT emailed'));
+    }
+
     public function test_the_filled_notice_comes_from_the_agencys_own_template(): void
     {
         $tpl = $this->template('breach_payment');
