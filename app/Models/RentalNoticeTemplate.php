@@ -22,11 +22,14 @@ class RentalNoticeTemplate extends Model
     // .ai/specs/rental-notices.md §3 - the agency's own uploaded notice templates. 'breach' is the older single breach template (kept; read as "other").
     public const TYPE_BREACH_PAYMENT = 'breach_payment';
     public const TYPE_BREACH_OTHER = 'breach_other';
-    public const TYPES = [self::TYPE_BREACH_PAYMENT, self::TYPE_BREACH_OTHER, self::TYPE_NOTICE_TO_VACATE, self::TYPE_BREACH];
+    // AT-489 - the agency's EXPIRY NOTICE to the tenant (CPA s14(2)(c)): the agency's own wording, uploaded here; CoreX ships none.
+    public const TYPE_EXPIRY_NOTICE = 'expiry_notice';
+    public const TYPES = [self::TYPE_BREACH_PAYMENT, self::TYPE_BREACH_OTHER, self::TYPE_NOTICE_TO_VACATE, self::TYPE_EXPIRY_NOTICE, self::TYPE_BREACH];
     public const TYPE_LABELS = [
         self::TYPE_BREACH_PAYMENT => 'Breach notice (payment)',
         self::TYPE_BREACH_OTHER => 'Breach notice (ad hoc)',
         self::TYPE_NOTICE_TO_VACATE => 'Notice to vacate',
+        self::TYPE_EXPIRY_NOTICE => 'Lease expiry notice',
         self::TYPE_BREACH => 'Breach notice (older template)',
     ];
 

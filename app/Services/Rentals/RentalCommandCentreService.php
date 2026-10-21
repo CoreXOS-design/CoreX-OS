@@ -1126,6 +1126,38 @@ class RentalCommandCentreService
             ]);
         });
 
+        // AT-489 (Johan, 21 Oct 2026): the lease EXPIRY NOTICE to the tenant (Consumer Protection Act) has not gone out and fewer than 40 business
+        // days remain - the lease is OVERDUE. (The alert before that is a notification to the lease's agents, not a row here.) Live, not stored.
+        $expiryNotices = app(LeaseExpiryNoticeService::class);
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')->whereNull('expiry_notice_sent_at')
+                    ->whereDate('end_date', '>=', $today->toDateString())
+                    ->whereDate('end_date', '<=', $today->copy()->addDays(120)->toDateString()), // 40 business days is about 56 calendar days; room for holidays
+                'end_date'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today, $expiryNotices) {
+            $st = $expiryNotices->status($lease, $today);
+            if ($st['state'] !== LeaseExpiryNoticeService::STATE_OVERDUE) {
+                return;
+            }
+            $items->push([
+                'type' => 'expiry_notice_overdue',
+                'urgency' => 2,
+                'age_days' => 0,
+                'item_date' => $lease->end_date,
+                'property' => $lease->property,
+                'lease' => $lease,
+                'label' => 'Expiry notice overdue',
+                'detail' => 'Not sent - ' . $st['remaining'] . ' business days left (CPA: at least ' . $st['dates']['min'] . ')',
+                'route' => 'corex.leases.show',
+                'route_params' => ['lease' => $lease->id],
+            ]);
+        });
+
         // C1 (Johan, 9 Oct 2026): work orders and job cards that are waiting on the AGENT (and, as information only, on the owner / tenant).
         $this->waitingWorkItems($user, $scope, $applyQueueFilters, $today, $items);
 

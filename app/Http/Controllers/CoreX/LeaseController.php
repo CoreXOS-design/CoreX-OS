@@ -805,7 +805,9 @@ class LeaseController extends Controller
                 ? \App\Models\User::withoutGlobalScopes()->withTrashed()->whereKey($terms->notice_terms_confirmed_by)->value('name')
                 : null,
             'defaults' => $svc->defaultsFor((int) $lease->agency_id, $lease->start_date),
-            'earliestNoticeMonths' => \App\Models\LeaseSetting::earliestNoticeMonthsFor((int) $lease->agency_id),
+            // AT-489 - when the agency's expiry notice to the tenant is due (computed from the end date; none for month-to-month).
+            'window' => app(\App\Services\Rentals\LeaseExpiryNoticeService::class)->dates((int) $lease->agency_id, $lease->is_month_to_month ? null : $lease->end_date),
+            'expiry' => app(\App\Services\Rentals\LeaseExpiryNoticeService::class)->status($lease),
             'locked' => $lease->isLockedForSigning(),
             'signedDocument' => in_array($lease->signing_status, [Lease::SIGNING_SIGNED, Lease::SIGNING_SIGNED_ON_PAPER], true),
             'periodText' => $svc->periodText($values['notice_period'], $values['notice_period_unit']),
@@ -852,6 +854,41 @@ class LeaseController extends Controller
      * leases.md §18.7 — "Confirm terms": an agent confirms the notice terms the lease holds against its signed copy. One click,
      * audited (who, when), same permission as editing them. Only confirmed terms are ever stated to a tenant or owner.
      */
+    /**
+     * AT-489 - "Send the expiry notice now": the same send CoreX does on the agency's send day (the agency's own "Lease expiry notice"
+     * template, to the tenants, from the lease agent's mailbox), pressed early or after a failed automatic send.
+     */
+    public function sendExpiryNotice(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        $service = app(\App\Services\Rentals\LeaseExpiryNoticeService::class);
+        abort_unless($service->applies($lease), 422, 'An expiry notice does not apply to this lease.');
+        abort_if($lease->expiry_notice_sent_at, 422, 'The expiry notice has already gone out.');
+
+        $result = $service->sendNow($lease);
+        $messages = [
+            'no_template' => 'Your agency has no "Lease expiry notice" template yet - add one in Settings -> Rental Notice Templates, or hand the notice over yourself and mark it as given.',
+            'no_tenant_email' => 'No tenant on this lease has an email address - hand the notice over another way and mark it as given.',
+            'no_sender' => 'There is no active agent to send the notice from.',
+            'send_failed' => 'The notice could not be sent - try again.',
+        ];
+
+        return redirect()->route('corex.leases.show', $lease)->with($result['ok'] ? 'success' : 'error', $result['ok'] ? 'Expiry notice sent to the tenant.' : ($messages[$result['reason']] ?? 'The notice could not be sent.'));
+    }
+
+    /** AT-489 - the expiry notice was handed to the tenant another way (by hand, by their own post): record it so the lease stops asking. */
+    public function markExpiryNoticeGiven(Request $request, Lease $lease): RedirectResponse
+    {
+        $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);
+        $data = $request->validate(['note' => ['nullable', 'string', 'max:500']]);
+        $service = app(\App\Services\Rentals\LeaseExpiryNoticeService::class);
+        abort_unless($service->applies($lease), 422, 'An expiry notice does not apply to this lease.');
+
+        $service->markSent($lease, 'manual', $request->user(), $data['note'] ?? null);
+
+        return redirect()->route('corex.leases.show', $lease)->with('success', 'Recorded: the expiry notice has been given to the tenant.');
+    }
+
     public function confirmNoticeTerms(Request $request, Lease $lease): RedirectResponse
     {
         $this->guardRentalRecordScope($lease, 'leases', $lease->branch_id);

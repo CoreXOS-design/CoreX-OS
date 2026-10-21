@@ -517,6 +517,33 @@
                 </div>
             @endif
 
+            {{-- AT-489 (Johan, 21 Oct 2026) - the agency's expiry notice to the tenant (Consumer Protection Act, business days). --}}
+            @php $ex = $noticeTerms['expiry'] ?? null; @endphp
+            @if($ex && in_array($ex['state'], ['due', 'alert', 'overdue'], true))
+                @php $overdue = $ex['state'] === 'overdue'; @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: color-mix(in srgb, {{ $overdue ? 'var(--ds-crimson)' : 'var(--ds-amber, #d97706)' }} 12%, var(--surface)); border: 1px solid {{ $overdue ? 'var(--ds-crimson)' : 'var(--ds-amber, #d97706)' }};" data-qa="expiry-notice-banner" data-state="{{ $ex['state'] }}">
+                    <div class="font-medium">
+                        @if($overdue)
+                            Expiry notice OVERDUE - fewer than {{ $ex['dates']['min'] }} business days left and it has not gone out.
+                        @else
+                            Expiry notice has not gone out - {{ $ex['remaining'] }} business days left.
+                        @endif
+                    </div>
+                    <div class="text-xs">The tenant must be told this fixed term is ending between {{ \Illuminate\Support\Carbon::parse($ex['dates']['from'])->format('j M Y') }} and {{ \Illuminate\Support\Carbon::parse($ex['dates']['to'])->format('j M Y') }} ({{ $ex['dates']['max'] }} to {{ $ex['dates']['min'] }} business days before it ends on {{ \Illuminate\Support\Carbon::parse($ex['dates']['end'])->format('j M Y') }}). CoreX sends it from {{ \Illuminate\Support\Carbon::parse($ex['dates']['send_on'])->format('j M Y') }}.</div>
+                    @permission('rental_notices.review')
+                    <div class="flex flex-wrap items-center gap-2">
+                        <form method="POST" action="{{ route('corex.leases.expiry-notice.send', $lease) }}">@csrf<button type="submit" class="corex-btn-primary text-xs" data-qa="expiry-notice-send-now">Send the expiry notice now</button></form>
+                        <form method="POST" action="{{ route('corex.leases.expiry-notice.mark-given', $lease) }}" class="flex items-center gap-2">@csrf
+                            <input type="text" name="note" maxlength="500" placeholder="How was it given? (optional)" class="prop-input text-xs" style="min-width: 14rem;">
+                            <button type="submit" class="corex-btn-outline text-xs" data-qa="expiry-notice-mark-given">Mark as given</button>
+                        </form>
+                    </div>
+                    @endpermission
+                </div>
+            @elseif($ex && $ex['state'] === 'sent')
+                <div class="rounded-md p-2 text-xs" style="color: var(--text-muted); border: 1px solid var(--border);" data-qa="expiry-notice-sent">Expiry notice given to the tenant on {{ $ex['sent_at']->format('j M Y') }}{{ $ex['sent_via'] === 'corex' ? ' (sent by CoreX)' : ($ex['sent_via'] === 'manual' ? ' (marked as given)' : '') }}.</div>
+            @endif
+
             @if(!empty($propertyStatusWarning))
                 {{-- Audit A26 (2026-10-19): the lease is active but the property could not be given a let status in this agency's vocabulary. --}}
                 <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="property-status-warning">{{ $propertyStatusWarning }}</div>
@@ -770,6 +797,10 @@
                     <div class="text-xs" style="color: var(--ds-crimson);">{{ $errors->first('notice') }}</div>
                 @endif
                 <div x-show="!editing" class="space-y-1" data-qa="lease-notice-values">
+                    @if(!empty($nt['window']))
+                            <div data-qa="lease-expiry-notice-window"><span style="color: var(--text-muted);">Expiry notice due between:</span> {{ \Illuminate\Support\Carbon::parse($nt['window']['from'])->format('j M Y') }} and {{ \Illuminate\Support\Carbon::parse($nt['window']['to'])->format('j M Y') }} <span style="color: var(--text-muted);">({{ $nt['window']['max'] }} to {{ $nt['window']['min'] }} business days before the lease ends)</span></div>
+                            <div data-qa="lease-expiry-notice-send-on"><span style="color: var(--text-muted);">CoreX sends it on:</span> {{ \Illuminate\Support\Carbon::parse($nt['window']['send_on'])->format('j M Y') }} <span style="color: var(--text-muted);">({{ $nt['window']['send'] }} business days before the lease ends)</span></div>
+                        @endif
                     @if(! $nt['has'])
                         <div style="color: var(--text-muted);">Not on record — the portal FAQ shows nothing for this lease.</div>
                     @else
@@ -823,7 +854,8 @@
                                 'noticePrefix' => 'notice',
                                 'noticeHide' => [],
                                 'leaseStart' => $lease->start_date?->toDateString(),
-                                'earliestNoticeMonths' => $nt['earliestNoticeMonths'] ?? null,
+                                'leaseEnd' => $lease->is_month_to_month ? null : $lease->end_date?->toDateString(),
+                                'noticeSendBd' => $nt['window']['send'] ?? null,
                             ])
                             @if($nt['signedDocument'])
                                 <div>
