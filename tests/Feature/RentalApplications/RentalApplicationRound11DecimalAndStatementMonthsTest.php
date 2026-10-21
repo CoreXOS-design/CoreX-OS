@@ -214,23 +214,22 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         $this->assertStringContainsString('months', $response->json('error'));
     }
 
-    // "Dates on entries" — a save with NO period dates clears the stored month count. The client
-    // always sends both date keys on every autosave (blank when unset), so "both blank" can only
-    // mean the agent cleared a period that was set; leaving the old figure behind showed a plausible
-    // Months / Monthly income under two empty date inputs (QA1 item 6, corrected 2026-09-13).
-    // Supersedes the original "leave an existing figure untouched" rule.
-    public function test_a_save_with_both_dates_blank_clears_the_stored_statement_months(): void
+    // "Dates on entries" — clearing a period that WAS set (stored dates) clears the stored month count. The client
+    // always sends both date keys on every autosave (blank when unset), so "both blank" after a stored period means
+    // the agent cleared it; leaving the old figure behind showed a plausible Months / Monthly income under two empty
+    // date inputs (QA1 item 6, corrected 2026-09-13).
+    public function test_clearing_a_period_that_was_set_clears_the_stored_statement_months(): void
     {
         $agent = $this->agent();
         $app = $this->application();
         RentalApplicationAssessment::create([
             'agency_id' => $this->agency->id,
             'rental_application_id' => $app->id,
-            'statement_months' => 6,
+            'statement_months' => 3, 'statement_period_from' => '2026-05-25', 'statement_period_to' => '2026-08-25',
         ]);
 
         $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
-            'notes' => 'Saved with no statement dates.',
+            'notes' => 'Cleared the dates.',
         ]);
 
         $response->assertOk();
@@ -238,6 +237,29 @@ final class RentalApplicationRound11DecimalAndStatementMonthsTest extends TestCa
         $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
         $this->assertNull($assessment->statement_months);
         $this->assertNull($assessment->statement_period_from);
+    }
+
+    // AT-488 follow-up (QA1 application 15): an assessment captured before date ranges existed has months and NO dates.
+    // Any save posts blank dates (autosave, or the save that runs before Send back) - it must never wipe the months.
+    public function test_a_save_with_blank_dates_keeps_a_legacy_month_count_that_has_no_dates(): void
+    {
+        $agent = $this->agent();
+        $app = $this->application();
+        RentalApplicationAssessment::create([
+            'agency_id' => $this->agency->id,
+            'rental_application_id' => $app->id,
+            'statement_months' => 3,
+        ]);
+
+        $response = $this->actingAs($agent)->post(route('corex.rental-applications.review.assessment', $app), [
+            'notes' => 'Saved before send-back.', 'statement_period_from' => '', 'statement_period_to' => '',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame(3, $response->json('statement_months'));
+        $assessment = RentalApplicationAssessment::where('rental_application_id', $app->id)->first();
+        $this->assertSame(3, $assessment->statement_months);
+        $this->assertSame('Saved before send-back.', $assessment->notes);
     }
 
     // Once a date range IS picked on an assessment that already had an

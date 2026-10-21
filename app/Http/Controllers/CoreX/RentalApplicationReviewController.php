@@ -1430,10 +1430,20 @@ class RentalApplicationReviewController extends Controller
         // looking number for a period that, as far as the agent can see,
         // no longer exists. "Never had a period" and "just cleared one"
         // both mean the same thing going forward: no months either.
+        //
+        // AT-488 follow-up (21 Oct 2026, QA1 application 15): that correction was too wide. An assessment captured BEFORE date ranges existed
+        // holds a typed month count and NO dates, and every save (autosave, "save then send back") posts blank dates - so it silently wiped
+        // the months and with them Monthly income / Net monthly. Only a period that really WAS set (stored dates) can be "cleared"; a row
+        // with months but no dates keeps its figure until the agent picks a date range.
         if ($derivedStatementMonths !== null) {
             $assessmentAttributes['statement_months'] = $derivedStatementMonths;
         } elseif ($statementFrom === null && $statementTo === null) {
-            $assessmentAttributes['statement_months'] = null;
+            $hadPeriod = RentalApplicationAssessment::where('rental_application_id', $rentalApplication->id)
+                ->where(fn ($q) => $q->whereNotNull('statement_period_from')->orWhereNotNull('statement_period_to'))
+                ->exists();
+            if ($hadPeriod) {
+                $assessmentAttributes['statement_months'] = null;
+            }
         }
 
         $assessment = RentalApplicationAssessment::updateOrCreate(
