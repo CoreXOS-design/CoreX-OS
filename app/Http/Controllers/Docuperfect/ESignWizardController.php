@@ -8251,12 +8251,33 @@ class ESignWizardController extends Controller
         // Find the agent's signature request and all recipients
         $agentRequest = null;
         $recipientRequests = collect();
+        $representedLines = [];
         $sigTemplate = null;
         if ($document && $document->signatureTemplate) {
             $sigTemplate = $document->signatureTemplate;
             $allRequests = $sigTemplate->requests;
             $agentRequest = $allRequests->where('party_role', 'agent')->first();
             $recipientRequests = $allRequests->where('party_role', '!=', 'agent')->values();
+
+            // AT-498 — a party a proxy signs for is not a recipient: they are not sent anything, and must not hold the document in
+            // "waiting for recipient". Listed as one line under the proxy instead.
+            $coverageRows = $recipientRequests->map(fn ($r) => \App\Support\Docuperfect\ProxyCoverage::fromRequest($r))->all();
+            $representedLines = [];
+            foreach ($recipientRequests as $i => $r) {
+                if (! \App\Support\Docuperfect\ProxyCoverage::isCovered($coverageRows[$i], $coverageRows)) {
+                    continue;
+                }
+                $by = null;
+                foreach ($recipientRequests as $j => $p) {
+                    if ($coverageRows[$j]['proxy'] && $coverageRows[$j]['role'] === $coverageRows[$i]['role']
+                        && \App\Support\Docuperfect\ProxyCoverage::proxyCovers($coverageRows[$j], $coverageRows[$i])) {
+                        $by = $p->signer_name;
+                        break;
+                    }
+                }
+                $representedLines[] = ['name' => $r->signer_name, 'by' => $by];
+            }
+            $recipientRequests = $recipientRequests->filter(fn ($r, $i) => ! \App\Support\Docuperfect\ProxyCoverage::isCovered($coverageRows[$i], $coverageRows))->values();
         }
 
         // Determine current state
@@ -8294,6 +8315,7 @@ class ESignWizardController extends Controller
             'agentRequest' => $agentRequest,
             'sigTemplate' => $sigTemplate,
             'recipientRequests' => $recipientRequests,
+            'representedLines' => $representedLines,
             'state' => $state,
         ]);
     }

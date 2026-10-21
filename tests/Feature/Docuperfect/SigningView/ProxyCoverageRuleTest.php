@@ -246,6 +246,42 @@ final class ProxyCoverageRuleTest extends TestCase
         $this->assertSame(['A', 'B', 'CoRep'], $this->names(ProxyCoverage::filterSigners($partial)), 'company reps are never dropped by a partial proxy');
     }
 
+    public function test_wording_order_puts_the_proxy_first_then_who_they_sign_for_then_everyone_else(): void
+    {
+        $paula = $this->party('Paula Partner', 'seller', ['_recipient_local_key' => 'paula']);
+        $sam = $this->party('Sam Separate', 'seller', ['_recipient_local_key' => 'sam']);
+        $peter = $this->party('Peter Proxy', 'seller', ['_recipient_local_key' => 'peter', '_is_proxy' => true, '_proxy_excludes' => ['sam']]);
+
+        $this->assertSame(['Peter Proxy', 'Paula Partner', 'Sam Separate'], $this->names(ProxyCoverage::orderForWording([$paula, $sam, $peter])));
+        // already in a sensible order → unchanged
+        $this->assertSame(['Peter Proxy', 'Paula Partner', 'Sam Separate'], $this->names(ProxyCoverage::orderForWording([$peter, $paula, $sam])));
+        // the group sits where its earliest member stood; another role is untouched
+        $buyer = $this->party('Bea Buyer', 'buyer');
+        $this->assertSame(['Bea Buyer', 'Peter Proxy', 'Paula Partner', 'Sam Separate'], $this->names(ProxyCoverage::orderForWording([$buyer, $paula, $sam, $peter])));
+    }
+
+    public function test_wording_order_is_untouched_without_a_proxy_and_with_two_proxies_keeps_each_group_together(): void
+    {
+        $rows = [$this->party('A'), $this->party('B'), $this->party('C')];
+        $this->assertSame(['A', 'B', 'C'], $this->names(ProxyCoverage::orderForWording($rows)));
+
+        $two = [
+            $this->party('B'),
+            $this->party('D'),
+            $this->party('A', 'seller', ['_is_proxy' => true, '_proxy_excludes' => ['c-key', 'd-key']]),
+            $this->party('C', 'seller', ['_is_proxy' => true, '_proxy_excludes' => ['a-key', 'b-key']]),
+        ];
+        $this->assertSame(['A', 'B', 'C', 'D'], $this->names(ProxyCoverage::orderForWording($two)));
+    }
+
+    public function test_proxy_index_names_who_covers_a_row(): void
+    {
+        $rows = [$this->party('A', 'seller', ['_is_proxy' => true, '_proxy_excludes' => ['c-key']]), $this->party('B'), $this->party('C')];
+        $this->assertSame(0, ProxyCoverage::proxyIndexFor($rows, 1));
+        $this->assertNull(ProxyCoverage::proxyIndexFor($rows, 2));
+        $this->assertNull(ProxyCoverage::proxyIndexFor($rows, 0));
+    }
+
     public function test_an_existing_clause_is_never_overwritten(): void
     {
         $rows = [
