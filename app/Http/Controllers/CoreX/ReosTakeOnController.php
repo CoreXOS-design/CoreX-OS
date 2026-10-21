@@ -26,10 +26,6 @@ use Illuminate\View\View;
 class ReosTakeOnController extends Controller
 {
     use EnforcesRecordVisibility;
-
-    /** "Show: All" lists this many of each state, with a link to the rest. */
-    private const ALL_VIEW_LIMIT = 50;
-
     public function upload(Request $request, ReosTenancyRunService $service): RedirectResponse
     {
         $request->validate([
@@ -68,37 +64,16 @@ class ReosTakeOnController extends Controller
         $run->refresh();
 
         $filters = ReosRowQuery::only($request->query());
-        $show = $filters['show'] ?? 'all';
         $canManage = $request->user()->hasPermission('rentals_take_on_import.manage');
-        $base = fn (string $state) => ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), array_merge($filters, ['show' => $state]));
 
-        // One section per state; "All" shows a first page of each with a link to the full list, a single state pages through it.
-        $sections = [];
-        foreach (['ready' => 'Ready', 'failed' => 'Failed', 'imported' => 'Imported'] as $state => $title) {
-            if ($show !== 'all' && $show !== $state) {
-                continue;
-            }
-            $query = $base($state);
-            if ($show === 'all') {
-                $total = (clone $query)->count();
-                $sections[$state] = ['title' => $title, 'total' => $total, 'rows' => $query->limit(self::ALL_VIEW_LIMIT)->get(), 'pager' => null];
-            } else {
-                $pager = $query->paginate(50)->withQueryString();
-                $sections[$state] = ['title' => $title, 'total' => $pager->total(), 'rows' => $pager->getCollection(), 'pager' => $pager];
-            }
-        }
-
-        // The queue: the leases with questions open, in sheet order (it follows the search box, so "3 Union" works through just those).
-        $queue = ($canManage && in_array($show, ['all', 'needs'], true)) ? $base('needs')->pluck('id')->map(fn ($id) => (int) $id)->all() : [];
-        $first = $queue !== [] ? RentalTakeOnImportRow::query()->find($queue[0]) : null;
+        // ONE list of the leases (sheet order), 50 a page, narrowed by the search box and the Show switch.
+        $rows = ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), $filters)->paginate(50)->withQueryString();
 
         return view('corex.rentals.take-on-import.preview-reos', [
             'run' => $run,
             'filters' => $filters,
-            'show' => $show,
-            'sections' => $sections,
-            'queue' => $queue,
-            'firstRow' => $first,
+            'show' => $filters['show'] ?? 'all',
+            'rows' => $rows,
             'summary' => ReosRunSummary::for($run),
             'defaults' => ReosRunDefaults::get($run),
             'agents' => app(ReosAgentMatcher::class)->users((int) $run->agency_id),

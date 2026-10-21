@@ -150,7 +150,11 @@ final class ReosQuestions
         }
         $d = $row->decisions_json ?? [];
         $parts = [];
-        $parts[] = $row->property_match_action === RentalTakeOnImportRow::ACTION_MATCH ? 'uses existing property' : 'creates property';
+        $parts[] = match ($row->property_match_action) {
+            RentalTakeOnImportRow::ACTION_MATCH => 'uses existing property',
+            RentalTakeOnImportRow::ACTION_CHOOSE => 'property still to be chosen',
+            default => 'creates property',
+        };
 
         $creates = 0;
         $links = 0;
