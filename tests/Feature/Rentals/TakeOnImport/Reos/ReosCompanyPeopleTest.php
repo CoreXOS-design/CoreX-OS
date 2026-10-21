@@ -107,7 +107,7 @@ final class ReosCompanyPeopleTest extends TestCase
         self::assertSame('person_for_company', $row->landlord_match_json[1]['name_flag']);
         self::assertSame('link', $row->decisions_json['owner']['action']);
         self::assertSame(['company:owner', 'suburb'], \App\Services\Rentals\TakeOnImport\Reos\ReosQuestions::needs($row));
-        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        $card = $this->lineHtml($admin, $row);
         self::assertStringContainsString('create company “ZZ TEST Wildevy Properties Pty Ltd” with Arne Nel as contact person?', html_entity_decode($card));
 
         $row = $svc->apply($row, $run, ['person' => ['party' => 'owner', 'op' => 'convert']]);

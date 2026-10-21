@@ -1,20 +1,20 @@
 @extends('layouts.corex')
 
 {{--
-    AT-481 — .ai/specs/rental-takeon-import.md "reOS review screen rebuild". The review screen of a reOS batch, in the order a person
-    works it: the numbers and the Import button (sticky), the "for all" defaults, the leases that NEED YOU one at a time as a card of
-    plain questions, then the READY leases as one line each (and the imported / failed ones). Every answer is saved the moment it is
-    given (ReosTakeOnApiController), so it survives a reload; nothing is created until Import is pressed.
+    AT-481 — .ai/specs/rental-takeon-import.md "reOS review screen rebuild" (R14). The review screen of a reOS batch: the numbers and the
+    Import button (sticky), the "for all" defaults, then ONE LIST of the leases — a line each (row, property, owner → tenant, rent, dates,
+    status chip) that opens in place onto what that lease needs. Every answer is saved the moment it is given (ReosTakeOnApiController),
+    so it survives a reload; nothing is created until Import is pressed.
 
     List standard (BUILD_STANDARD §1b): search = address, owner, tenant, agent text, reOS lease id; the one "Show" switch = all / ready /
-    needs you / imported / failed; sheet order; 50 per page; real empty states. Scoping: the run is checked with
+    needs you / imported / failed; sheet order; 50 per page; real empty state. Scoping: the run is checked with
     RentalTakeOnImportRun::visibleTo before this renders. Plain JavaScript, event delegation (the page's own rule: no Alpine here).
 --}}
+
 
 @php
     $q = $filters['q'] ?? '';
     $showUrl = fn (string $s) => route('corex.rentals.take-on-import.preview', array_filter(['run' => $run->id, 'q' => $q, 'show' => $s === 'all' ? null : $s]));
-    $anyRows = collect($sections)->sum('total') + count($queue) > 0;
 @endphp
 
 @section('content')
@@ -23,7 +23,7 @@
      data-url-suburbs="{{ route('api.v1.rentals.take-on-import.suburbs') }}"
      data-url-contacts="{{ route('api.v1.rentals.take-on-import.contacts') }}"
      data-url-decisions="{{ url('/api/v1/rentals/take-on-import/rows') }}"
-     data-queue="{{ json_encode($queue) }}">
+     data-current-show="{{ $show }}" data-can-manage="{{ $canManage ? 1 : 0 }}">
 
     {{-- Sticky header: the live numbers and the one primary action. It sticks flush to the top of the scroll area: <main id="appScroll">
          has its own padding (1rem, 1.5rem from lg), so the bar's top is minus that padding. --}}
@@ -34,7 +34,7 @@
     <div id="reos-bar" class="corex-card p-3" style="position: sticky; z-index: 50; background: var(--surface, #fff); box-shadow: 0 2px 6px rgba(0,0,0,.12);" data-test="reos-bar">
         <div class="flex flex-wrap items-center justify-between gap-3">
             <div class="flex flex-wrap items-center gap-3">
-                <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-secondary corex-btn-xs">← Back to batches</a>
+                <a href="{{ route('corex.rentals.take-on-import.index') }}" class="corex-btn-outline corex-btn-xs">← Back to batches</a>
                 <span class="text-xs text-muted">{{ $run->source_filename }}</span>
                 <span class="text-sm font-semibold" id="reos-line" data-test="reos-counts">{{ $summary['line'] }}</span>
             </div>
@@ -92,41 +92,20 @@
         </div>
     </div>
 
-    @if($canManage && in_array($show, ['all', 'needs'], true))
-        <section data-section="needs" @if($queue === []) hidden @endif>
-            <h2 class="ds-section-header mb-2">Needs you</h2>
-            <div id="reos-card-wrap" data-test="reos-queue">
-                @if($firstRow)
-                    @include('corex.rentals.take-on-import._reos-card', ['row' => $firstRow, 'run' => $run, 'agents' => $agents, 'defaults' => $defaults, 'canManage' => true])
+    <div id="reos-list" class="space-y-2" data-test="reos-list">
+        @forelse($rows as $row)
+            @include('corex.rentals.take-on-import._reos-line', ['row' => $row, 'run' => $run, 'agents' => $agents, 'defaults' => $defaults, 'canManage' => $canManage])
+        @empty
+            <div class="ds-empty-state px-6 py-12 text-center text-sm text-muted" data-test="reos-empty">
+                @if(($filters['q'] ?? '') !== '' || $show !== 'all')
+                    No leases match. <a href="{{ route('corex.rentals.take-on-import.preview', $run) }}" class="underline">Show everything</a>.
+                @else
+                    This batch has no leases in it.
                 @endif
             </div>
-        </section>
-    @endif
-
-    @if(! $anyRows)
-        <div class="ds-empty-state px-6 py-12 text-center text-sm text-muted" data-test="reos-empty">
-            @if($q !== '' || $show !== 'all')
-                No leases match. <a href="{{ route('corex.rentals.take-on-import.preview', $run) }}" class="underline">Show everything</a>.
-            @else
-                This batch has no leases in it.
-            @endif
-        </div>
-    @endif
-
-    @foreach($sections as $state => $section)
-        <section data-section="{{ $state }}" @if($section['total'] === 0) hidden @endif>
-            <h2 class="ds-section-header mb-2">{{ $section['title'] }} <span class="ds-badge ds-badge-muted" data-section-count="{{ $state }}">{{ $section['total'] }}</span></h2>
-            <div class="space-y-2" id="reos-list-{{ $state }}">
-                @foreach($section['rows'] as $row)
-                    @include('corex.rentals.take-on-import._reos-line', ['row' => $row, 'run' => $run, 'agents' => $agents, 'defaults' => $defaults, 'canManage' => $canManage])
-                @endforeach
-            </div>
-            @if($section['total'] > $section['rows']->count() && ! $section['pager'])
-                <a href="{{ $showUrl($state) }}" class="underline">Show all {{ $section['total'] }}</a>
-            @endif
-            @if($section['pager'])<div class="mt-2">{{ $section['pager']->links() }}</div>@endif
-        </section>
-    @endforeach
+        @endforelse
+    </div>
+    <div id="reos-pager">{{ $rows->links() }}</div>
 </div>
 
 @if($continueImport)
@@ -140,11 +119,9 @@
     var root = document.getElementById('reos-review');
     if (!root) { return; }
     var csrf = (document.querySelector('meta[name="csrf-token"]') || {}).content || '';
-    var queue = [];
-    try { queue = JSON.parse(root.getAttribute('data-queue') || '[]'); } catch (e) { queue = []; }
-    var pos = 0;
-    var cardWrap = document.getElementById('reos-card-wrap');
     var urlDecisions = root.getAttribute('data-url-decisions');
+    var currentShow = root.getAttribute('data-current-show') || 'all';
+    var canManage = root.getAttribute('data-can-manage') === '1';
 
     function api(method, url, body) {
         return fetch(url, {
@@ -160,7 +137,8 @@
         m.textContent = msg || '';
         m.classList.toggle('hidden', !msg);
     }
-    function toHtml(html) { var t = document.createElement('div'); t.innerHTML = html.trim(); return t.firstElementChild; }
+    function toEl(html) { var t = document.createElement('div'); t.innerHTML = html.trim(); return t.firstElementChild; }
+    function list() { return document.getElementById('reos-list'); }
 
     // ── header numbers ─────────────────────────────────────────────────────────────
     function setSummary(s) {
@@ -168,80 +146,47 @@
         var line = document.getElementById('reos-line'); if (line) { line.textContent = s.line; }
         var btn = document.getElementById('reos-import-btn');
         if (btn) { btn.textContent = s.import_label; btn.disabled = !s.can_import; }
-        ['ready', 'failed', 'imported'].forEach(function (k) {
-            var c = document.querySelector('[data-section-count="' + k + '"]'); if (c) { c.textContent = s[k]; }
-            var sec = document.querySelector('[data-section="' + k + '"]'); if (sec) { sec.hidden = s[k] === 0; }
-        });
     }
 
-    // ── the queue card ─────────────────────────────────────────────────────────────
-    function labelCard() {
-        if (!cardWrap) { return; }
-        var p = cardWrap.querySelector('[data-queue-pos]'), t = cardWrap.querySelector('[data-queue-total]');
-        if (p) { p.textContent = String(pos + 1); }
-        if (t) { t.textContent = String(queue.length); }
-        var back = cardWrap.querySelector('[data-queue-step="-1"]'); if (back) { back.disabled = pos <= 0; }
-        var skip = cardWrap.querySelector('[data-queue-step="1"]'); if (skip) { skip.disabled = queue.length <= 1; }
-    }
-    function paintCard(html) {
-        if (!cardWrap) { return; }
-        cardWrap.innerHTML = html || '';
-        var sec = document.querySelector('[data-section="needs"]');
-        if (sec) { sec.hidden = !html; }
-        labelCard();
-    }
-    function showCard(id) {
-        return api('GET', urlDecisions + '/' + id + '/card').then(function (res) {
-            if (!res.ok) { say((res.data && res.data.message) || 'That lease could not be opened.'); return; }
-            paintCard(res.data.card_html);
-            if (cardWrap) { cardWrap.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-        });
-    }
-    function showCurrent() {
-        if (!queue.length) { paintCard(''); return; }
-        pos = Math.max(0, Math.min(pos, queue.length - 1));
-        showCard(queue[pos]);
-    }
-    function dequeue(id) { var i = queue.indexOf(id); if (i !== -1) { queue.splice(i, 1); if (i < pos) { pos--; } } }
-    function enqueue(id) {
-        if (queue.indexOf(id) !== -1) { return; }
-        queue.push(id); queue.sort(function (a, b) { return a - b; });
+    // ── opening lines: the next lease that needs an answer opens by itself ────────────
+    function needsLines() { return Array.prototype.slice.call(list().querySelectorAll('details[data-state="needs"]')); }
+    function openNextNeeding(after) {
+        var all = needsLines();
+        if (!all.length) { return; }
+        var next = null;
+        if (after) {
+            all.some(function (d) { if (after.compareDocumentPosition(d) & Node.DOCUMENT_POSITION_FOLLOWING) { next = d; return true; } return false; });
+        }
+        next = next || all[0];
+        next.open = true;
+        next.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
-    // ── the lines ──────────────────────────────────────────────────────────────────
-    function placeLine(id, state, html) {
-        var old = document.getElementById('row-' + id);
-        var wasOpen = old && old.tagName === 'DETAILS' && old.open;
-        if (old) { old.parentNode.removeChild(old); }
-        if (state === 'needs') { return; }               // asked in the queue, not listed
-        var list = document.getElementById('reos-list-' + state);
-        if (!list) { return; }
-        var line = toHtml(html);
-        if (wasOpen && line.tagName === 'DETAILS') { line.open = true; }
-        var n = parseInt(line.getAttribute('data-row-number'), 10), before = null;
-        Array.prototype.some.call(list.children, function (c) { if (parseInt(c.getAttribute('data-row-number'), 10) > n) { before = c; return true; } return false; });
-        list.insertBefore(line, before);
-    }
-
-    // ── saving an answer ───────────────────────────────────────────────────────────
+    // ── saving an answer: the lease is drawn again where it stands ────────────────────
     function save(holder, payload) {
         var id = parseInt(holder.getAttribute('data-row-id'), 10);
-        var cardShown = cardWrap && cardWrap.querySelector('#reos-card[data-row-id="' + id + '"]');
         holder.style.opacity = '.6';
         say('');
         return api('POST', urlDecisions + '/' + id + '/decisions', payload).then(function (res) {
             holder.style.opacity = '';
             if (!res.ok) { say((res.data && res.data.message) || 'That could not be saved.'); return; }
-            var d = res.data;
+            var d = res.data, was = holder.getAttribute('data-state');
             setSummary(d.summary);
-            placeLine(id, d.state, d.line_html);
-            if (d.state === 'needs') {
-                enqueue(id);
-                if (cardShown) { paintCard(d.card_html); }
+            var fresh = toEl(d.line_html);
+            var stays = currentShow === 'all' || currentShow === d.state;
+            var next = holder.nextElementSibling;
+            if (stays) {
+                // Still asking → keep it open; anything else closes (an answered lease turns green and shut).
+                if (d.state === 'needs' && fresh.tagName === 'DETAILS') { fresh.open = true; }
+                else if (was !== 'needs' && holder.tagName === 'DETAILS' && holder.open && fresh.tagName === 'DETAILS') { fresh.open = true; }
+                holder.replaceWith(fresh);
             } else {
-                dequeue(id);
-                if (d.state === 'failed' && cardShown) { paintCard(d.card_html); }
-                else if (cardShown) { showCurrent(); }
+                holder.remove();
+            }
+            if (was === 'needs' && d.state !== 'needs') {
+                // The next amber line after this one's place opens.
+                var anchor = stays ? fresh : (next ? next.previousElementSibling : list().lastElementChild);
+                openNextNeeding(anchor);
             }
         }, function () { holder.style.opacity = ''; say('The connection was lost — nothing was saved. Try again.'); });
     }
@@ -260,7 +205,7 @@
         box.classList.remove('hidden');
     }
 
-    // ── clicks: answers, queue steps, fix / close, small toggles ──────────────────
+    // ── clicks: answers, small toggles ─────────────────────────────────────────────
     root.addEventListener('click', function (e) {
         var t;
         if ((t = e.target.closest('[data-payload]'))) {
@@ -268,14 +213,6 @@
             if (h) { try { save(h, JSON.parse(t.getAttribute('data-payload'))); } catch (err) { say('That could not be sent.'); } }
             return;
         }
-        if ((t = e.target.closest('[data-queue-step]'))) {
-            var step = parseInt(t.getAttribute('data-queue-step'), 10);
-            pos = queue.length ? (pos + step + queue.length) % queue.length : 0;
-            showCurrent();
-            return;
-        }
-        if ((t = e.target.closest('[data-fix]'))) { showCard(parseInt(t.getAttribute('data-fix'), 10)); return; }
-        if (e.target.closest('[data-card-close]')) { showCurrent(); return; }
         if ((t = e.target.closest('[data-open-contact-search]'))) {
             var panel = t.parentNode.querySelector('[data-contact-panel]');
             panel.classList.toggle('hidden');
@@ -302,6 +239,8 @@
 
     // ── selects and fields that save when changed ──────────────────────────────────
     root.addEventListener('change', function (e) {
+        var da = e.target.closest('#reos-default-agent');
+        if (da) { saveDefaults({ agent_user_id: da.value === '' ? null : parseInt(da.value, 10) }); return; }
         var cap = e.target.closest('[data-person-capacity]');
         if (cap) {
             var box = cap.closest('[data-people-party]');
@@ -323,12 +262,18 @@
         save(h, p);
     });
 
-    // ── type-ahead: suburb, contact, person ────────────────────────────────────────
+    // ── type-ahead: suburb, contact, person, and the default suburb ───────────────────
     root.addEventListener('input', debounce(function (e) {
         var s = e.target.closest('[data-suburb-input]');
         var c = e.target.closest('[data-contact-input]');
         var ps = e.target.closest('[data-person-search]');
-        if (s) {
+        var ds = e.target.closest('[data-default-suburb-input]');
+        if (ds) {
+            var dBox = ds.parentNode.querySelector('[data-default-suburb-results]');
+            api('GET', root.getAttribute('data-url-suburbs') + '?q=' + encodeURIComponent(ds.value)).then(function (r) {
+                renderResults(dBox, (r.data && r.data.data) || [], function (i) { return i.label; }, function (i) { saveDefaults({ suburb_id: i.id }); });
+            });
+        } else if (s) {
             var box = s.parentNode.querySelector('[data-suburb-results]');
             api('GET', root.getAttribute('data-url-suburbs') + '?q=' + encodeURIComponent(s.value)).then(function (r) {
                 renderResults(box, (r.data && r.data.data) || [], function (i) { return i.label; }, function (i) { save(holderOf(s), { suburb_id: i.id }); });
@@ -352,27 +297,32 @@
         }
     }, 250));
 
-    // ── "for all" defaults: saved on the batch, then the page is drawn again (many leases change at once) ──
+    // ── "for all" defaults: saved on the batch, then the numbers and the list are drawn again in place (no reload) ──
+    function refreshView() {
+        return fetch(window.location.href, { credentials: 'same-origin', headers: { 'Accept': 'text/html', 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function (r) { if (!r.ok) { throw new Error('refresh'); } return r.text(); })
+            .then(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                if (!doc.getElementById('reos-review')) { throw new Error('refresh'); }
+                ['reos-line', 'reos-import-btn', 'reos-list', 'reos-pager'].forEach(function (id) {
+                    var o = document.getElementById(id), n = doc.getElementById(id);
+                    if (o && n) { o.replaceWith(n); }
+                });
+                var d = document.querySelector('[data-test="reos-defaults"]'), nd = doc.querySelector('[data-test="reos-defaults"]');
+                if (d && nd) { d.replaceWith(nd); }
+                if (canManage) { openNextNeeding(null); }
+            });
+    }
     function saveDefaults(body) {
         say('');
         return api('POST', root.getAttribute('data-url-defaults'), body).then(function (res) {
             if (!res.ok) { say((res.data && res.data.message) || 'That could not be saved.'); return; }
-            window.location.reload();
+            return refreshView().catch(function () { window.location.reload(); });
         }, function () { say('The connection was lost — nothing was saved. Try again.'); });
     }
-    var dAgent = document.getElementById('reos-default-agent');
-    if (dAgent) { dAgent.addEventListener('change', function () { saveDefaults({ agent_user_id: dAgent.value === '' ? null : parseInt(dAgent.value, 10) }); }); }
-    var dSub = document.querySelector('[data-default-suburb-input]');
-    if (dSub) {
-        var dBox = document.querySelector('[data-default-suburb-results]');
-        dSub.addEventListener('input', debounce(function () {
-            api('GET', root.getAttribute('data-url-suburbs') + '?q=' + encodeURIComponent(dSub.value)).then(function (r) {
-                renderResults(dBox, (r.data && r.data.data) || [], function (i) { return i.label; }, function (i) { saveDefaults({ suburb_id: i.id }); });
-            });
-        }, 250));
-    }
-    var dClear = document.querySelector('[data-default-suburb-clear]');
-    if (dClear) { dClear.addEventListener('click', function () { saveDefaults({ suburb_id: null }); }); }
+    root.addEventListener('click', function (e) {
+        if (e.target.closest('[data-default-suburb-clear]')) { saveDefaults({ suburb_id: null }); }
+    });
 
     // ── search: runs as you type ───────────────────────────────────────────────────
     var q = document.getElementById('reos-q');
@@ -381,7 +331,7 @@
         q.addEventListener('input', debounce(function () { if (q.value !== last) { last = q.value; document.getElementById('reos-search-form').submit(); } }, 500));
     }
 
-    labelCard();
+    if (canManage) { openNextNeeding(null); }
 })();
 </script>
 @endpush

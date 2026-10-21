@@ -171,6 +171,12 @@ trait ReosFixtures
         return new UploadedFile($path, $name, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', null, true);
     }
 
+    /** The review page narrowed (by search) to ONE lease: its line, opened onto what it needs. */
+    protected function lineHtml(User $admin, \App\Models\RentalTakeOnImportRow $row): string
+    {
+        return $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', ['run' => $row->run_id, 'q' => $row->external_id]))->assertOk()->getContent();
+    }
+
     /** @return array{0: Agency, 1: Branch, 2: User, 3: User} agency, branch, admin (owner-role, may import), a real agent */
     protected function reosAgency(string $name = 'ZZ TEST Agency'): array
     {
