@@ -21,7 +21,7 @@ final class ReosRunSummary
             ->get(['id', 'status', 'selected', 'is_blocked', 'existing_lease_id', 'property_match_action', 'decisions_json', 'landlord_match_json', 'tenant_match_json', 'import_error', 'result_action']);
 
         $s = ['total' => $rows->count(), 'selected' => 0, 'blocked' => 0, 'ready' => 0, 'to_create_properties' => 0, 'to_create_contacts' => 0,
-            'to_update' => 0, 'to_create_leases' => 0, 'imported' => 0, 'failed' => 0, 'waiting' => 0];
+            'to_update' => 0, 'to_create_leases' => 0, 'imported' => 0, 'failed' => 0, 'waiting' => 0, 'name_differs' => 0];
         $contactKeys = [];
 
         foreach ($rows as $row) {
@@ -30,6 +30,9 @@ final class ReosRunSummary
                 continue;
             }
             $s['waiting']++;
+            if (($row->decisions_json['name_differs'] ?? false) === true) {
+                $s['name_differs']++;
+            }
             if ($row->import_error) {
                 $s['failed']++;
             }

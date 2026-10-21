@@ -5,8 +5,8 @@ namespace App\Services\Rentals\TakeOnImport\Reos;
 use App\Services\Rentals\TakeOnImport\RentalTakeOnRowParser;
 
 /**
- * AT-479 / rental-takeon-import.md R2 — the reOS "Tenancy Schedule" report. Sheet "Tenancy Schedule", headers on row 4,
- * data from row 5, 21 columns. Yields one normalised payload per data row with the errors / warnings found reading it.
+ * AT-479 / rental-takeon-import.md R2 — the reOS "Tenancy Schedule" report. Sheet "Tenancy Schedule",
+ * 21 columns, the header row found by scanning (see ReosWorkbookReader). Yields one normalised payload per data row with the errors / warnings found reading it.
  *
  * NOT kept: commission (incl/excl VAT), fixed and variable invoices, lease segment (Johan's money-side ruling) — the
  * commission cells are read only to notice an unreadable one; none of the four ever reaches the payload.
@@ -39,12 +39,10 @@ class ReosTenancyScheduleParser
         $this->cells = $cells ?? new RentalTakeOnRowParser();
     }
 
-    /** Checks sheet name + headers only (stops after row 4) so a wrong file is refused before a run exists. */
+    /** Checks the sheet and finds the header row only, so a wrong file is refused before a run exists. */
     public function assertLayout(string $path): void
     {
-        foreach (ReosWorkbookReader::rows($path, self::SHEET, self::HEADERS, 'Tenancy Schedule') as $_) {
-            return;
-        }
+        ReosWorkbookReader::locate($path, self::SHEET, self::HEADERS, 'Tenancy Schedule');
     }
 
     /**
@@ -53,9 +51,10 @@ class ReosTenancyScheduleParser
     public function rows(string $path): \Generator
     {
         $seenIds = [];
+        $where = ReosWorkbookReader::locate($path, self::SHEET, self::HEADERS, 'Tenancy Schedule');
 
-        foreach (ReosWorkbookReader::rows($path, self::SHEET, self::HEADERS, 'Tenancy Schedule') as $rowNumber => $cells) {
-            if ($rowNumber < ReosWorkbookReader::FIRST_DATA_ROW || $this->isBlank($cells)) {
+        foreach (ReosWorkbookReader::dataRows($path, self::SHEET, $where, 'Tenancy Schedule') as $rowNumber => $cells) {
+            if ($this->isBlank($cells)) {
                 continue;
             }
 

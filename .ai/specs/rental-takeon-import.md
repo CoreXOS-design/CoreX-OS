@@ -471,17 +471,24 @@ batch list (a "Type" column is added so the two kinds are told apart). No new me
 Both files are `.xlsx` (the CSV path is not offered for reOS — the Lease ID is a formula cell). Read with OpenSpout
 (`SHOULD_PRESERVE_EMPTY_ROWS = true` so a row's index is its real spreadsheet row number).
 
-**Tenancy Schedule** — sheet named exactly `Tenancy Schedule` (case/space-insensitive); row 4 are the 21 headers
-below, in order; data from row 5; fully blank rows skipped. Anything else is rejected before a run exists with a
-message that says what was found ("The sheet 'Tenancy Schedule' was not found — this file has: X, Y." /
-"Row 4 should read … but column 7 is 'Foo'.").
+**The header row is FOUND, not assumed** (corrected 21 Oct 2026 after Johan's real files: the Rent Roll has a "Date Range"
+line, so its headers are on row 5, the Accounts Receivable report has them on row 3). Both parsers scan the first **15 rows**
+of the sheet for the row that holds every expected header (compared normalised) and read the data from the row below it;
+blank rows and any metadata lines above it (title, "Compiled", "Date Range", …) are ignored. The columns are found by their
+heading too, so extra columns, a shifted first column or a different order do not matter. A file is refused only when no row
+in the first 15 holds the full header set, with a message that names the sheet or the expected headers. The row number quoted
+on the review screen is always the real spreadsheet row.
+
+**Tenancy Schedule** — sheet named exactly `Tenancy Schedule` (case/space-insensitive); the 21 headers below; fully blank
+rows skipped. Anything else is rejected before a run exists with a message that says what was found ("The sheet 'Tenancy
+Schedule' was not found — this file has: X, Y." / "The header row … was not found in the first 15 rows … It should have
+these columns: …").
 
 Lease ID | Property Address | Owner | Owner Email | Owner Phone | Tenant | Tenant Email | Tenant Phone |
 Lease Type | Lease Status | Lease Start | Lease End | Rollover | Deposit Required | Current Rent | Fixed Invoices |
 Variable Invoices | Current Commission (including VAT) | Current Commission (excluding VAT) | Agent | Lease Segment
 
-**Rent Roll (optional)** — sheet `Rent Roll`, row 4 headers, data from row 5. Only the first six columns are read
-and validated: Property Address, Agent, Owner, Tenant, Tenant Wallet, Lease End. **Only Tenant Wallet is used**;
+**Rent Roll (optional)** — sheet `Rent Roll`. Only these six columns are looked for: Property Address, Agent, Owner, Tenant, Tenant Wallet, Lease End. **Only Tenant Wallet is used**;
 every money column is ignored (not read, not kept).
 
 **Lease ID cell** is the formula `=HYPERLINK("https://app.reos.co.za/leases/<uuid>", "<uuid>")`. OpenSpout returns a
@@ -533,6 +540,17 @@ that says to restore it first, because the database key spans archived rows).
   a matched contact is linked by default;
 - **agent** (default: the name match, R4.2);
 - tenant wallet reference (pre-filled from the Rent Roll; editable).
+
+**R4.0a Contact matched under a different name (Johan, 21 Oct 2026).** A contact matched on phone / e-mail can be someone
+else (a shared number, a re-used e-mail, a company whose phone is its contact person's). When the matched CoreX contact's
+name does not match the reOS name — compared normalised: case, spacing, punctuation, "&"/"and" and Pty/Ltd/Limited ignored,
+an initial = a full first name ("A Smith" = "Andre Smith"), and every word of the shorter name must be found in the longer so a
+joint name matching one spouse or a missing middle name is not noise (`ReosNameCompare`) — the cell shows an amber
+**"Name differs — CoreX has “X”, reOS has “Y”. Check it is the same person."** When the reOS name is a company and the CoreX
+contact is a person it shows **"Matched a person (likely the company's contact person)"** instead. "Use the contact already in
+CoreX" stays the default; the flag is a warning, never a blocker, and it clears when the user creates a new contact, leaves
+the person out or links another contact by hand. The review list has a **Contact names → Name differs** filter and the header
+a "Name differs: n" count. Stored: `name_flag` / `matched_name` on the owner/tenant match, and `decisions_json.name_differs`.
 
 **R4.0 Does the property exist? — no suburb needed (Johan, 21 Oct 2026).** Step 1 of every row. `ReosPropertyCandidates`
 looks across ALL suburbs of the agency's own (non-archived) properties on **street name + street number**, plus **unit /

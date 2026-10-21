@@ -71,14 +71,18 @@ trait ReosFixtures
     }
 
     /** @param list<array<string,mixed>> $rows */
-    protected function scheduleFile(array $rows, string $sheet = 'Tenancy Schedule', ?array $headers = null, int $headerRow = 4): string
+    protected function scheduleFile(array $rows, string $sheet = 'Tenancy Schedule', ?array $headers = null, int $headerRow = 4, ?array $preamble = null): string
     {
         $headers ??= ReosTenancyScheduleParser::HEADERS;
         $ss = new Spreadsheet();
         $ws = $ss->getActiveSheet();
         $ws->setTitle($sheet);
-        $ws->setCellValue('A1', 'Tenancy Schedule / ZZ TEST Agency');
-        $ws->setCellValue('A3', 'Compiled: 2026-10-21 08:00');
+        // Whatever sits above the header row: the title and "Compiled" by default, or exactly the rows the test names (row => text).
+        foreach ($preamble ?? [1 => 'Tenancy Schedule / ZZ TEST Agency', 3 => 'Compiled: 2026-10-21 08:00'] as $rowNo => $text) {
+            if ($rowNo < $headerRow) {
+                $ws->setCellValue([1, $rowNo], $text);
+            }
+        }
         foreach ($headers as $i => $h) {
             $ws->setCellValue([$i + 1, $headerRow], $h);
         }
@@ -100,20 +104,48 @@ trait ReosFixtures
     }
 
     /** @param list<array{address:string,tenant:string,wallet:string}> $rows */
-    protected function rentRollFile(array $rows, string $sheet = 'Rent Roll'): string
+    protected function rentRollFile(array $rows, string $sheet = 'Rent Roll', int $headerRow = 4, ?array $preamble = null): string
     {
         $ss = new Spreadsheet();
         $ws = $ss->getActiveSheet();
         $ws->setTitle($sheet);
-        $ws->setCellValue('A1', 'Rent Roll / ZZ TEST Agency');
+        foreach ($preamble ?? [1 => 'Rent Roll / ZZ TEST Agency'] as $rowNo => $text) {
+            if ($rowNo < $headerRow) {
+                $ws->setCellValue([1, $rowNo], $text);
+            }
+        }
         $headers = array_merge(ReosRentRollParser::HEADERS, ['Rent', 'Balance', 'Arrears']);
         foreach ($headers as $i => $h) {
-            $ws->setCellValue([$i + 1, 4], $h);
+            $ws->setCellValue([$i + 1, $headerRow], $h);
         }
         foreach ($rows as $r => $row) {
             $vals = [$row['address'], 'ZZ Agent Person', 'ZZ TEST Owner One', $row['tenant'], $row['wallet'], '2027-02-28', '8500.00', '0.00', '0.00'];
             foreach ($vals as $i => $v) {
-                $ws->setCellValueExplicit([$i + 1, 5 + $r], (string) $v, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+                $ws->setCellValueExplicit([$i + 1, $headerRow + 1 + $r], (string) $v, \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
+            }
+        }
+
+        return $this->save($ss);
+    }
+
+    /**
+     * A sheet with exactly the headers/rows given (list of lists), at any column offset and order: for the "columns are found by
+     * their heading" tests. $headerRow is where the heading row goes; data follows directly below it.
+     *
+     * @param list<string> $headers
+     * @param list<list<string>> $rows
+     */
+    protected function customSheetFile(string $sheet, array $headers, array $rows, int $headerRow = 4, int $firstColumn = 1): string
+    {
+        $ss = new Spreadsheet();
+        $ws = $ss->getActiveSheet();
+        $ws->setTitle($sheet);
+        foreach ($headers as $i => $h) {
+            $ws->setCellValue([$firstColumn + $i, $headerRow], $h);
+        }
+        foreach ($rows as $r => $row) {
+            foreach ($row as $i => $v) {
+                $ws->setCellValueExplicit([$firstColumn + $i, $headerRow + 1 + $r], (string) $v, str_starts_with((string) $v, '=') ? \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_FORMULA : \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING);
             }
         }
 

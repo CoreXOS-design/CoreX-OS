@@ -58,11 +58,31 @@ final class ReosBlockers
         return $out;
     }
 
+    /**
+     * True while the row is still going to use a CoreX contact that was matched under a different name (owner or tenant). Once the
+     * user creates a new contact, leaves the person out or links another contact, there is nothing left to warn about.
+     */
+    public static function nameDiffers(RentalTakeOnImportRow $row): bool
+    {
+        $d = $row->decisions_json ?? [];
+        foreach (['owner' => $row->landlord_match_json, 'tenant' => $row->tenant_match_json] as $party => $match) {
+            $m = $match[1] ?? null;
+            if ($m && ! empty($m['name_flag']) && ($d[$party]['action'] ?? null) === 'link'
+                && (int) ($d[$party]['contact_id'] ?? 0) === (int) ($m['existing_contact_id'] ?? -1)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** Stores the blockers on the row (no other column touched). */
     public static function refresh(RentalTakeOnImportRow $row): RentalTakeOnImportRow
     {
         $blockers = self::compute($row);
-        $row->forceFill(['blockers_json' => $blockers ?: null, 'is_blocked' => $blockers !== []])->save();
+        $d = $row->decisions_json ?? [];
+        $d['name_differs'] = self::nameDiffers($row);
+        $row->forceFill(['blockers_json' => $blockers ?: null, 'is_blocked' => $blockers !== [], 'decisions_json' => $d])->save();
 
         return $row;
     }
