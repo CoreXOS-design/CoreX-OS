@@ -9,6 +9,46 @@ use Illuminate\Support\Facades\DB;
 class WebTemplateDataService
 {
     /**
+     * HOTFIX 2026-10-21 — the property snapshot the wizard saves is deliberately small (address, suburb, erf,
+     * complex, type, id), so District / Town / Street / Unit number were blank on EVERY route (electronic included)
+     * even when the Property record carries them. Fill any MISSING key from the linked Property record; never
+     * overwrite a value the snapshot already holds (Fill & Review typed values are applied after resolve() and win
+     * over both). Only a Property the signed-in user can see is read — the model's own agency scope applies.
+     */
+    private function propertyForResolve(array $stepData): array
+    {
+        $property = $stepData['property'] ?? [];
+        $propertyId = $property['property_id'] ?? null;
+        $source = $property['_property_source'] ?? null;
+        if (! $propertyId || ! in_array($source, [null, 'properties'], true)) {
+            return $property;
+        }
+
+        $record = \App\Models\Property::find($propertyId);
+        if (! $record) {
+            return $property;
+        }
+
+        $columns = [
+            'suburb' => 'suburb', 'town' => 'town', 'city' => 'city', 'district' => 'district',
+            'street_name' => 'street_name', 'unit_number' => 'unit_number', 'complex_name' => 'complex_name',
+            'erf' => 'property_number', 'property_number' => 'property_number', 'property_type' => 'property_type',
+        ];
+        foreach ($columns as $key => $column) {
+            $have = $property[$key] ?? null;
+            $stored = $record->{$column} ?? null;
+            if (($have === null || $have === '') && $stored !== null && $stored !== '') {
+                $property[$key] = $stored;
+            }
+        }
+        if (($property['address'] ?? '') === '' && ($property['title'] ?? '') === '') {
+            $property['address'] = $record->buildDisplayAddress();
+        }
+
+        return $property;
+    }
+
+    /**
      * Check if a template's fields_json has a field with the given field_name.
      */
     public function hasField(int $templateId, string $fieldName): bool
@@ -50,7 +90,7 @@ class WebTemplateDataService
             return $this->resolveCdsTemplate($template, $stepData, $agent);
         }
 
-        $property   = $stepData['property'] ?? [];
+        $property   = $this->propertyForResolve($stepData);
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
@@ -460,7 +500,7 @@ class WebTemplateDataService
     private function resolveCdsTemplate(Template $template, array $stepData, ?User $agent): array
     {
         $agent = $agent ?? auth()->user();
-        $property = $stepData['property'] ?? [];
+        $property = $this->propertyForResolve($stepData);
         $recipients = $stepData['recipients']['recipients'] ?? [];
         // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
         // from the linked Contact, so the merge binds the seller's REAL details.
@@ -1457,7 +1497,7 @@ class WebTemplateDataService
      */
     private function resolveBase(array $stepData, ?User $agent): array
     {
-        $property   = $stepData['property'] ?? [];
+        $property   = $this->propertyForResolve($stepData);
         $recipients = $stepData['recipients']['recipients'] ?? [];
         $details    = $stepData['details'] ?? [];
         $agent      = $agent ?? auth()->user();
