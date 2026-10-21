@@ -809,6 +809,12 @@ class LeaseCaptureService
         [$base, $baseSource] = $previous
             ? $svc->forRenewal($previous, $start)
             : [$svc->defaultsFor($agencyId, $start), LeaseNoticeTermsService::SOURCE_AGENCY_DEFAULT];
+        // AT-489 - the earliest-notice date is not typed or carried any more: a renewal's old one was worked out for the OLD term and would
+        // print on the new lease as if it were true. (Only a value posted by the caller - the API - is kept.) When the agency's expiry notice
+        // is due is computed from the end date and never stored.
+        if ($previous) {
+            $base['earliest_notice_date'] = null;
+        }
 
         $values = [];
         foreach (LeaseNoticeTermsService::EDIT_KEYS as $key) {

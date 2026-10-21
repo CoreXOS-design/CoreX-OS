@@ -225,6 +225,11 @@ class RentalNoticeService
             }
         }
 
+        // AT-489 - the agency's expiry notice to the tenant has gone out (sent from this screen by an agent, or by CoreX's own daily send).
+        if ($template->notice_type === RentalNoticeTemplate::TYPE_EXPIRY_NOTICE && $toTenant) {
+            app(LeaseExpiryNoticeService::class)->markSent($lease, 'agent', $by);
+        }
+
         LeaseEvent::create([
             'lease_id' => $lease->id, 'event_type' => LeaseEvent::TYPE_NOTICE_SENT, 'actor_user_id' => $by->id, 'occurred_at' => now(), 'created_at' => now(),
             'description' => RentalNoticeTemplate::labelFor($template->notice_type) . ' sent to ' . ($names ? implode(', ', array_unique($names)) : 'no one') . ' ("' . $template->name . '")',

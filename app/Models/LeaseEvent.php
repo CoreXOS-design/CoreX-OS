@@ -82,6 +82,9 @@ class LeaseEvent extends Model
 
     /** leases.md §18.7 — an agent confirmed the notice terms against the signed lease (who, when). */
     public const TYPE_NOTICE_TERMS_CONFIRMED = 'lease_notice_terms_confirmed';
+    // AT-489 - the agency's expiry notice to the tenant (CPA s14(2)(c)): sent / marked as given / agents alerted that it has not gone out.
+    public const TYPE_EXPIRY_NOTICE_SENT = 'expiry_notice_sent';
+    public const TYPE_EXPIRY_NOTICE_ALERTED = 'expiry_notice_alerted';
 
     protected $fillable = [
         'lease_id',

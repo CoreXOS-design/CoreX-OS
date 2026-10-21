@@ -97,7 +97,8 @@ trait HandlesLeaseCapture
             'noticeSource' => $noticeSource,
             'noticeDefaultsNote' => $previous ? 'From the term being renewed' : 'From your agency defaults',
             'noticeAgreementKeys' => $agreementKeys,
-            'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
+            // AT-489 - the agency's send day (business days before the end) behind "CoreX sends it on ..." (computed on the screen from the end date).
+            'noticeSendBd' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId),
             'agentOptions' => $leaseAgents->selectableAgents($agencyId, $previous?->branch_id ?? $property?->branch_id ?? $user->effectiveBranchId())->all(),
             'agentDefaults' => $agentDefaults,
             'agreementState' => $state['state'],

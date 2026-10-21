@@ -67,8 +67,16 @@ class LeaseSetting extends Model
     // per lease) and onto old leases by `leases:backfill-notice-terms`. Neutral, configurable, nothing hardcoded elsewhere.
     public const NOTICE_UNITS = ['days', 'weeks', 'months'];
     public const DEFAULT_TENANT_NOTICE_PERIOD_UNIT = 'days';
-    /** null = no "not before" rule: notice may be given from the start of the lease. */
-    public const DEFAULT_EARLIEST_NOTICE_MONTHS = null;
+    /**
+     * AT-489 - the AGENCY'S EXPIRY NOTICE to the tenant, on Consumer Protection Act law (s14(2)(c)): given not more than 80 and not less
+     * than 40 BUSINESS days before a fixed-term lease ends, counted per s2(6). The 80 and the 40 are the LAW, not agency settings; what an
+     * agency chooses is the day CoreX sends it (40-80, default 60) and the day it alerts the agents when it has not gone out (default 45,
+     * between 40 and the send day).
+     */
+    public const CPA_EXPIRY_NOTICE_MAX_BUSINESS_DAYS = 80;
+    public const CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS = 40;
+    public const DEFAULT_EXPIRY_NOTICE_SEND_BUSINESS_DAYS = 60;
+    public const DEFAULT_EXPIRY_NOTICE_ALERT_BUSINESS_DAYS = 45;
     /** 'yes' | 'no'. Early cancellation (cancelling a fixed term before it ends, with notice) is allowed unless the agency says otherwise. */
     public const DEFAULT_EARLY_CANCELLATION_ALLOWED = 'yes';
     /** null = the same notice as the ordinary notice period. */
@@ -121,6 +129,8 @@ class LeaseSetting extends Model
         'payment_proof_email',
         'tenant_notice_period_unit',
         'default_earliest_notice_months',
+        'expiry_notice_send_business_days',
+        'expiry_notice_alert_business_days',
         'default_early_cancellation_allowed',
         'default_early_cancellation_notice',
         'default_early_cancellation_notice_unit',
@@ -146,6 +156,8 @@ class LeaseSetting extends Model
         'cpa_early_cancel_business_days' => 'integer',
         'breach_remedy_business_days' => 'integer',
         'default_earliest_notice_months' => 'integer',
+        'expiry_notice_send_business_days' => 'integer',
+        'expiry_notice_alert_business_days' => 'integer',
         'default_early_cancellation_notice' => 'integer',
         'month_to_month_after_end_days' => 'integer',
         'require_end_or_month_to_month_for_signing' => 'boolean',
@@ -437,12 +449,22 @@ class LeaseSetting extends Model
         return in_array($v, self::NOTICE_UNITS, true) ? $v : self::DEFAULT_TENANT_NOTICE_PERIOD_UNIT;
     }
 
-    /** Months into a lease before notice may be given; null = no such rule. */
-    public static function earliestNoticeMonthsFor(?int $agencyId): ?int
+    /** AT-489 - "send the lease expiry notice N business days before the lease ends": inside the CPA window 40-80, default 60. */
+    public static function expiryNoticeSendBusinessDaysFor(?int $agencyId): int
     {
-        $v = self::noticeRow($agencyId)?->default_earliest_notice_months;
+        $v = self::noticeRow($agencyId)?->expiry_notice_send_business_days;
+        $n = is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_EXPIRY_NOTICE_SEND_BUSINESS_DAYS;
 
-        return $v !== null ? (int) $v : self::DEFAULT_EARLIEST_NOTICE_MONTHS;
+        return max(self::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS, min(self::CPA_EXPIRY_NOTICE_MAX_BUSINESS_DAYS, $n));
+    }
+
+    /** AT-489 - alert the lease's agents at N business days left when the expiry notice has not gone out: between 40 and the send day, default 45. */
+    public static function expiryNoticeAlertBusinessDaysFor(?int $agencyId): int
+    {
+        $v = self::noticeRow($agencyId)?->expiry_notice_alert_business_days;
+        $n = is_numeric($v) && (int) $v > 0 ? (int) $v : self::DEFAULT_EXPIRY_NOTICE_ALERT_BUSINESS_DAYS;
+
+        return max(self::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS, min(self::expiryNoticeSendBusinessDaysFor($agencyId), $n));
     }
 
     public static function earlyCancellationAllowedFor(?int $agencyId): string
