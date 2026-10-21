@@ -758,3 +758,31 @@ paper routes single + pack, missing blade regenerated).
 
 **Known, not changed here:** pack members that are not web templates are skipped (as the electronic loop does); a
 wet-ink pack still has ONE envelope (one set of recipient requests), not one per member.
+
+---
+
+## 22. Property fields fill from the Property record — HOTFIX 2026-10-21
+
+**Rule:** a property field the wizard snapshot lacks is filled from the linked Property record; a value the snapshot or
+Fill & Review holds is never overwritten. This is not a paper-route rule — District was blank on the electronic route
+too, which is a bug, not behaviour to preserve.
+
+**Cause:** the wizard saves only address, suburb, erf, complex, type and id for step 2, so `district`, `town`,
+`street_name` and `unit_number` never reached `WebTemplateDataService` (QA1 property 6060 has District "Ray Nkonyeni";
+its flow snapshot has none, so `property_district` resolved to "").
+
+**Fix:** `WebTemplateDataService::propertyForResolve()` (used by `resolve()`, `resolveCdsTemplate()`, `resolveBase()`)
+fills missing suburb / town / city / district / street_name / unit_number / complex_name / erf / property_type (and the
+address when both address and title are blank) from `Property::find(property_id)` — `properties` source only, the
+model's own agency scope applies. Fill & Review values are applied after `resolve()` and win over both.
+
+**Proof (before/after, 48 real QA1 resolutions, data layer):** 30 differ; every changed field was blank and is now
+filled (property_district, district, property_erf_number, erf_no, erf_unit_no, unit_no, complex_name,
+property_complex_name, property_type) EXCEPT `property_town`, 8 documents: it was "Shelly Beach" (the suburb used as a
+fallback) and is now "Margate" (the property's real town).
+
+**Lease documents (#88, #92):** lessor / lessee address and lease end already resolve from the linked contacts and the
+lease on lease flows (verified on flows 28, 32, 34, 35); nothing to fill. Lease agreements are e-sign only.
+
+**Tests:** `tests/Feature/Docuperfect/PropertyFieldsFromRecordTest.php` (sectional record fill on both paper routes,
+snapshot never overwritten, freehold blank and no bleed from another property, electronic route typed District + record fill).
