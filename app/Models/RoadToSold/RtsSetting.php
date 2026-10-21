@@ -46,7 +46,7 @@ class RtsSetting extends Model
         'hot_pocket_lookback_days', 'price_drop_lookback_days', 'stuck_stock_lookback_days',
         'no_answer_drop_after', 'hold_days',
         'summary_steps', 'summary_green_from_pct', 'summary_red_below_pct',
-        'default_weekday_targets', 'updated_by_user_id',
+        'default_weekday_targets', 'default_monthly_targets', 'updated_by_user_id',
         'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
         'add_to_day_max', 'scan_page_size', 'min_area_properties',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
@@ -72,6 +72,7 @@ class RtsSetting extends Model
         'selections'                   => 'array',
         'summary_steps'                => 'array',
         'default_weekday_targets'      => 'array',
+        'default_monthly_targets'      => 'array',
         'refresh_portals'              => 'array',
         'buyer_match_tiers'            => 'array',
         'active_buyer_states'          => 'array',
@@ -141,6 +142,15 @@ class RtsSetting extends Model
 
     /** Default agency weekday targets (ISO 1=Mon … 7=Sun). Mon–Fri 5, weekend 0. */
     public const DEFAULT_WEEKDAY_TARGETS = [1 => 5, 2 => 5, 3 => 5, 4 => 5, 5 => 5, 6 => 0, 7 => 0];
+
+    /**
+     * The agency default for the monthly targets (agency-tracker-rehome.md 5.7): what an agent with no number of
+     * their own is given when a manager presses "Give agents without a target the agency default". 0 = nothing
+     * set. Neutral by design - no agency's figures are baked in.
+     */
+    public const DEFAULT_MONTHLY_TARGETS = ['points' => 0, 'deals' => 0, 'listings' => 0, 'value' => 0];
+    public const MAX_MONTHLY_COUNT = 1000000;
+    public const MAX_MONTHLY_VALUE = 999999999999;
 
     /**
      * Selection catalogue, in default order: key => label.

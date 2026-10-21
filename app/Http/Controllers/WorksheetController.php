@@ -96,9 +96,8 @@ class WorksheetController extends Controller
         if ($user->branch_id && $worksheets->first()) {
             $period = $worksheets->first()->period;
 
-            $branchGoal = \App\Models\MonthlyTargetGoal::where('branch_id', $user->branch_id)
-                ->where('period', $period)
-                ->first();
+            $branchGoal = app(\App\Services\RoadToSold\BudgetService::class)
+                ->branchGoal((int) $user->effectiveAgencyId(), (int) $user->branch_id, (string) $period);
 
             if ($branchGoal && $branchGoal->branch_budget > 0) {
                 $activeAgents = \App\Models\User::where('branch_id', $user->branch_id)
@@ -166,6 +165,18 @@ class WorksheetController extends Controller
 
 
         $w = $worksheets->first();
+        if ($w) {
+            // Budgets moved to Road to Sold settings (re-home step 4): show what is set THERE, in memory only.
+            // This page no longer saves budgets - its form is switched off until the Worksheet is removed (step 5).
+            $live = app(\App\Services\RoadToSold\BudgetService::class)->worksheetFor($user, (string) $w->period);
+            $w->personal_net_target = (float) ($live?->personal_net_target ?? 0);
+            $w->business_net_target = (float) ($live?->business_net_target ?? 0);
+            if ($live) {
+                foreach (['avg_sale_price', 'commission_percent', 'paye_percent', 'agent_split_percent', 'correctly_priced_percent'] as $k) {
+                    $w->{$k} = $live->{$k};
+                }
+            }
+        }
         $calc = $w ? self::calculate($w) : null;
 
         return view('worksheet.index', [
@@ -188,6 +199,8 @@ class WorksheetController extends Controller
 
     public function store(Request $request)
     {
+        return redirect()->back()->with('error', 'Budgets are now set in Road to Sold settings (Settings > Road to Sold > Budgets). This page can no longer change them.');
+
         $user = Auth::user();
         $userId = (int) $user->id;
         
@@ -954,6 +967,8 @@ class WorksheetController extends Controller
 
     public function alignToCompany(\Illuminate\Http\Request $request)
     {
+        return redirect()->back()->with('error', 'Budgets are now set in Road to Sold settings (Settings > Road to Sold > Budgets). This page can no longer change them.');
+
         $user = \Illuminate\Support\Facades\Auth::user();
 
         $worksheet = \App\Models\Worksheet::where('user_id', $user->id)
@@ -1102,6 +1117,8 @@ class WorksheetController extends Controller
 
     public function applyBranchDefault()
     {
+        return redirect()->back()->with('error', 'Budgets are now set in Road to Sold settings (Settings > Road to Sold > Budgets). This page can no longer change them.');
+
         $user = \Illuminate\Support\Facades\Auth::user();
 
         // Latest worksheet for this user (current working period)

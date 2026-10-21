@@ -125,8 +125,15 @@
     {{-- MAIN FORM --}}
     {{-- ============================================================ --}}
     @if(!empty($companyRequirement))
+    <div class="rounded-md px-4 py-3 text-sm font-medium" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9); color:var(--text-primary);">
+        Budgets are now set in <strong>Road to Sold settings &rarr; Budgets</strong>. What you see here is read-only and shows those figures.
+        @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.budgets.index') && auth()->user()->hasPermission('road_to_sold.manage_targets'))
+            <a class="underline" href="{{ route('road-to-sold.settings.budgets.index') }}">Open Budgets</a>
+        @endif
+    </div>
     <form method="POST" action="{{ route('worksheet.store') }}" class="space-y-6">
         @csrf
+        <fieldset disabled style="border:0; padding:0; margin:0; min-width:0;" class="space-y-6">
 
         {{-- Section: Period + Inputs --}}
         <div class="ds-status-card" data-tour="at-worksheet-inputs" style="border-left-color: var(--border);">
@@ -493,6 +500,7 @@
                 After changing any numbers, click <b>Save Worksheet</b> to update your results.
             </div>
         </div>
+        </fieldset>
     </form>
     @endif
 
