@@ -927,3 +927,33 @@ from that party's entry on the proxy's card), required or optional by agency set
 sales and rental roles, two proxies in one role, keyless and company rows never dropped, wording, refusal) and
 `PartialProxyRoutesTest.php` (electronic, download-and-sign, wet-ink and a pack: who gets a request, whose signature blocks print, one domicilium per
 party, wording, exclusions frozen on the row, refusal on every route, existing shapes unchanged).
+
+---
+
+## 25. Template markers never print on a paper copy — HOTFIX 2026-10-21
+
+**Rule:** a `~~~~MARKER~~~~` in a template (clause 2.8 "Other: `~~~~OTHER_CONDITIONS~~~~`" of the Exclusive Authority To Sell, the Open mandate, the
+Mandatory Disclosure…) is replaced when the document is prepared. A paper copy **never** prints the tildes: an unfilled marker is **blank**; when the agent
+entered conditions in Fill & Review they print there. Electronic output is not touched.
+
+**Symptom (Johan, QA1):** `~~~~OTHER_CONDITIONS~~~~` printed in clause 2.8 — on the download-and-sign copy, and on the wet-ink confirmation screen (which also
+showed all sellers merged into one block).
+
+**Cause:** only the signing renderer (`CanonicalDocumentRenderer::compose` → `InsertableBlockRenderer`) fills markers. A download-and-sign document, and the
+non-first documents of a wet-ink pack, are never composed, so the marker stayed in `merged_html` and printed. The wet-ink confirmation screen displayed the raw
+`merged_html` (un-composed: marker present, sellers merged) instead of what the PDF prints (the composed `canonical_html`). The PDFs of an electronic and of a wet-ink
+document were already correct.
+
+**Fix (`ESignWizardController`, paper routes only):**
+- `resolvePaperConditionMarkers()` runs when a paper document's body is built (download-and-sign, and wet-ink pack documents that are not composed): `OTHER_CONDITIONS`
+  (same tolerance as the signing renderer — tags, case, spacing, a `__DOCKEY` suffix and a typo or two ignored) → the agent's conditions: this pack member's Fill & Review
+  frames (`other_condition_frames`; `target_doc_index` picks the document, none = the first), else the legacy `other_conditions_text` on the first document; a single
+  condition prints as written, several are numbered "1. … 2. …"; text is escaped (never markup). Every other marker (`INCLUDED_ITEMS`, `EXCLUDED_ITEMS`, `CUSTOM:…`, unknown)
+  and an `OTHER_CONDITIONS` with nothing entered → blank.
+- The first wet-ink document keeps its marker in the stored raw body (compose starts from it) — unchanged; its canonical is filled by the renderer as before.
+- `paperPrintHtml()` — what the PDF, the download page and the wet-ink confirmation screen show — is the composed canonical when there is one; a stored document without a
+  canonical has any marker blanked, so no surface can print a literal marker.
+- The wet-ink confirmation screen now shows what the PDF prints (per-party domicilium blocks, filled clause 2.8) instead of the raw body.
+
+**Tests:** `tests/Feature/Docuperfect/PaperOtherConditionsMarkerTest.php` (blank when empty; text printed once; escaped; numbered; pack members get only their own frames;
+misspelt / included-items / custom / HTML-wrapped markers; wet-ink first document composed + confirmation screen; no-canonical fallback).

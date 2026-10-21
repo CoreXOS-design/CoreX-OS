@@ -76,7 +76,7 @@ abstract class PaperRouteFixtureCase extends TestCase
         parent::tearDown();
     }
 
-    protected function makeTemplate(int $n): Template
+    protected function makeTemplate(int $n, string $extraHtml = ''): Template
     {
         $sellerBlocks = $n === 1
             ? '<div class="corex-clause" data-role-block="seller" data-role-block-segment="address">'
@@ -88,6 +88,7 @@ abstract class PaperRouteFixtureCase extends TestCase
             . ' | Town: <span class="corex-field-value" data-field="property_town">{{ $property_town ?? \'\' }}</span>'
             . ' | Erf: <span class="corex-field-value" data-field="property_erf_number">{{ $property_erf_number ?? \'\' }}</span></p>'
             . $sellerBlocks
+            . $extraHtml
             . '@include("docuperfect.web-templates.components.signature-block", ["parties" => ["Seller", "Agent"]])';
 
         // High, fixed ids: a generated blade is written to resources/views/.../cds/template-<id>.blade.php, and low ids

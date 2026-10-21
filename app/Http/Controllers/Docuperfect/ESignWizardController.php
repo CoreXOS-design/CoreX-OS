@@ -7105,6 +7105,7 @@ class ESignWizardController extends Controller
         ?array $expandRawRecipients,
         bool $legacyClauses,
         ?int $onlyPackTemplateId,
+        int $segmentIndex = 0,
     ): array {
         $webTemplateData = app(WebTemplateDataService::class)->resolve($tpl->id, $resolveStepData, $user);
 
@@ -7182,11 +7183,98 @@ class ESignWizardController extends Controller
             $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
         }
 
+        // A paper copy that is NOT composed afterwards (download-and-sign, and the non-first wet-ink pack documents) has no
+        // renderer to fill the template's `~~~~OTHER_CONDITIONS~~~~` marker, so it printed literally. Resolve it here: the agent's
+        // Fill & Review conditions when given, otherwise blank. (The first wet-ink document keeps its marker — compose() fills it.)
         $webTemplateData['merged_html'] = $expandRawRecipients === null
             ? $styles . $bodyHtml
-            : $this->expandRoleBlocksForPaper($tpl, $flow, $styles . $bodyHtml, $expandRawRecipients, $user, $webTemplateData);
+            : $this->resolvePaperConditionMarkers(
+                $this->expandRoleBlocksForPaper($tpl, $flow, $styles . $bodyHtml, $expandRawRecipients, $user, $webTemplateData),
+                $stepData,
+                $segmentIndex,
+            );
 
         return $webTemplateData;
+    }
+
+    /**
+     * HOTFIX 2026-10-21 — the template markers (`~~~~OTHER_CONDITIONS~~~~`, `~~~~INCLUDED_ITEMS~~~~`, `~~~~CUSTOM:x~~~~`, even a
+     * misspelt one) are filled by the signing renderer; a paper copy that never goes through it must never print the tildes.
+     * OTHER_CONDITIONS becomes the agent's conditions from Fill & Review (this pack member's frames, or the legacy text on the
+     * first document); every other marker, and an OTHER_CONDITIONS with nothing entered, becomes blank.
+     */
+    private function resolvePaperConditionMarkers(string $html, array $stepData, int $segmentIndex): string
+    {
+        if (! str_contains($html, '~~~')) {
+            return $html;
+        }
+        $texts = $this->paperConditionTexts($stepData, $segmentIndex);
+
+        return (string) preg_replace_callback('/~{4,}([^~]{1,200}?)~{4,}/s', function (array $m) use ($texts) {
+            if ($texts === [] || ! $this->markerIsOtherConditions($m[1])) {
+                return '';
+            }
+            if (count($texts) === 1) {
+                return nl2br(e($texts[0]), false);
+            }
+            $rows = [];
+            foreach ($texts as $i => $t) {
+                $rows[] = ($i + 1) . '. ' . nl2br(e($t), false);
+            }
+
+            return implode('<br>', $rows);
+        }, $html);
+    }
+
+    /** @return list<string> the agent's other conditions that belong on pack member $segmentIndex */
+    private function paperConditionTexts(array $stepData, int $segmentIndex): array
+    {
+        $fill = $stepData['fill_review'] ?? [];
+        $texts = [];
+        $anyFrame = false;
+        foreach (($fill['other_condition_frames'] ?? []) as $f) {
+            if (! is_array($f)) {
+                continue;
+            }
+            $content = trim((string) ($f['content'] ?? $f['text'] ?? ''));
+            if ($content === '') {
+                continue;
+            }
+            $anyFrame = true;
+            $target = $f['target_doc_index'] ?? null;
+            // a frame with no target belongs to the first document (the same rule the structured-row bridge applies)
+            if ((is_numeric($target) ? (int) $target : 0) === $segmentIndex) {
+                $texts[] = $content;
+            }
+        }
+        if (! $anyFrame && $segmentIndex === 0) {
+            $legacy = trim((string) ($fill['other_conditions_text'] ?? ''));
+            if ($legacy === '') {
+                $legacy = implode("\n\n", array_map(fn ($c) => $c['text'] ?? $c['content'] ?? '', $fill['clauses'] ?? []));
+            }
+            $texts = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $legacy) ?: [])));
+        }
+
+        return $texts;
+    }
+
+    /** Same tolerance as the signing renderer: tags/case/spacing ignored, a scope suffix (`__DOCKEY`) ignored, a typo or two forgiven. */
+    private function markerIsOtherConditions(string $raw): bool
+    {
+        $c = strtoupper(html_entity_decode(strip_tags($raw), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        if (preg_match('/^\s*CUSTOM\s*:/', $c)) {
+            return false;
+        }
+        $c = explode('__', preg_replace('/\s+/', '_', trim($c)) ?? '', 2)[0];
+        $c = preg_replace('/[^A-Z]/', '', $c) ?? '';
+
+        return $c !== '' && levenshtein($c, 'OTHERCONDITIONS') <= 3;
+    }
+
+    /** A stored paper document with no composed canonical must still never print a literal marker. */
+    private function blankUnresolvedMarkers(string $html): string
+    {
+        return str_contains($html, '~~~') ? (string) preg_replace('/~{4,}([^~]{1,200}?)~{4,}/s', '', $html) : $html;
     }
 
     /** One Document per pack member keeps the member's own name so it can be found and pulled on its own. */
@@ -7237,7 +7325,7 @@ class ESignWizardController extends Controller
 
         return $canonicalHtml !== ''
             ? '<style>.btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn{display:none !important;}</style>' . $canonicalHtml
-            : (string) ($document->web_template_data['merged_html'] ?? '');
+            : $this->blankUnresolvedMarkers((string) ($document->web_template_data['merged_html'] ?? ''));
     }
 
     /**
@@ -7640,6 +7728,7 @@ class ESignWizardController extends Controller
                     expandRawRecipients: $recipients,
                     legacyClauses: $position === 0,
                     onlyPackTemplateId: $isPaperPack ? (int) $segTemplate->id : null,
+                    segmentIndex: (int) $position,
                 );
             }
 
@@ -7872,6 +7961,7 @@ class ESignWizardController extends Controller
                 expandRawRecipients: $position === 0 ? null : $recipientsPreExpansion,
                 legacyClauses: $position === 0,
                 onlyPackTemplateId: $isPaperPack ? (int) $segTemplate->id : null,
+                segmentIndex: (int) $position,
             );
             if ($isPaperPack) {
                 $segData['paper_pack'] = [
@@ -8173,7 +8263,9 @@ class ESignWizardController extends Controller
         $document = Document::whereIn('owner_id', $user->dataIdentityIds())->findOrFail($documentId);
         $document->load('template');
 
-        $mergedHtml = $document->web_template_data['merged_html'] ?? null;
+        // HOTFIX 2026-10-21 — show what the PDF prints (the composed, per-party-expanded canonical for a wet-ink document), never the
+        // raw template body (which merges the parties and carried the template's markers).
+        $mergedHtml = $this->paperPrintHtml($document);
         // HOTFIX 2026-10-21 — a paper pack shows (and prints) the whole pack, in pack order.
         $packDocuments = $this->paperPackDocuments($document, $user);
         if ($packDocuments->count() > 1) {
@@ -8240,7 +8332,7 @@ class ESignWizardController extends Controller
         $documentId = $stepData['document_id'] ?? null;
         $document = $documentId ? Document::with('signatureTemplate.requests')->find($documentId) : null;
 
-        $mergedHtml = $document ? ($document->web_template_data['merged_html'] ?? null) : null;
+        $mergedHtml = $document ? $this->paperPrintHtml($document) : null;
         if ($document) {
             $packDocuments = $this->paperPackDocuments($document, $user);
             if ($packDocuments->count() > 1) {
