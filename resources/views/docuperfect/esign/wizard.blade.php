@@ -781,9 +781,9 @@
                                     </label>
                                     <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none" style="color: var(--text-secondary);">
                                         <input type="checkbox" x-model="r._is_proxy"
-                                               @change="if (r._is_proxy) r._is_deceased = false; if (r._is_entity) toggleEntityProxy(ri)"
+                                               @change="if (r._is_proxy) { r._is_deceased = false; r._proxy_excludes = []; } else { r._proxy_excludes = []; } if (r._is_entity) toggleEntityProxy(ri)"
                                                class="rounded" style="accent-color: var(--ds-amber, #f59e0b); width: 14px; height: 14px;">
-                                        Proxy — signs on behalf of the others in this role
+                                        Proxy — signs on behalf of other parties in this role
                                     </label>
                                 </div>
                                 <div x-show="r._is_entity" class="rounded-md px-3 py-2 text-xs" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-muted);">
@@ -824,8 +824,31 @@
                                         </label>
                                     </template>
                                 </div>
-                                <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs" style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
-                                    Every other recipient in this role still displays with full details but will not receive a signing request — only this one signs.
+                                <div x-show="!r._is_entity && r._is_proxy" class="rounded-md px-3 py-2 text-xs space-y-2" data-proxy-picker style="background: color-mix(in srgb, var(--ds-amber,#f59e0b) 8%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber,#f59e0b) 25%, transparent); color: var(--text-secondary);">
+                                    {{-- AT-498 — WHO this proxy signs for. Every other party in the role starts ticked (= signs for all of them, the way a
+                                         proxy always worked); un-tick the ones who sign for themselves. At least one must stay ticked. A party the proxy
+                                         does NOT sign for still gets their own signing request, signature block and details. --}}
+                                    <div class="font-semibold" style="color: var(--text-primary);">Signs on behalf of:</div>
+                                    <template x-for="o in proxyCandidates(ri)" :key="o._recipient_local_key">
+                                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                                            <input type="checkbox" class="rounded" style="accent-color: var(--ds-amber,#f59e0b); width: 14px; height: 14px;"
+                                                   :checked="!(r._proxy_excludes || []).includes(o._recipient_local_key)"
+                                                   @change="toggleProxyCovers(ri, o._recipient_local_key)">
+                                            <span x-text="o.name || 'Unnamed party'"></span>
+                                        </label>
+                                    </template>
+                                    <p x-show="proxyCandidates(ri).length === 0" class="text-[11px]" style="color: var(--ds-red,#dc2626);">There is nobody else in this role for this person to sign for. Untick Proxy, or add the other parties first.</p>
+                                    <p x-show="proxyError(ri)" class="text-[11px]" style="color: var(--ds-red,#dc2626);" x-text="proxyError(ri)"></p>
+                                    <p x-show="(r._proxy_excludes || []).length && recipients.some(o => o !== r && o.role === r.role && o._is_entity)" class="text-[11px]" style="color: var(--text-muted);">A company in this role keeps signing for itself once you choose specific people.</p>
+                                    <div class="pt-1" style="border-top: 1px solid var(--border);">
+                                        <div class="font-semibold" style="color: var(--text-primary);">Will receive a signing request:</div>
+                                        <ul class="list-disc pl-5">
+                                            <template x-for="line in proxySigningList(r.role)" :key="line.key">
+                                                <li x-text="line.text"></li>
+                                            </template>
+                                        </ul>
+                                        <p class="text-[11px]" style="color: var(--text-muted);">Everyone still appears on the document with their own details; the parties above are named "herein represented by" this person.</p>
+                                    </div>
                                 </div>
 
                                 <div class="grid grid-cols-2 gap-3">
@@ -3611,6 +3634,8 @@ function esignWizard() {
                         // single predicate the notification guard checks.
                         _is_deceased: !!r._is_deceased,
                         _is_proxy: !!r._is_proxy,
+                        // AT-498 — the parties this proxy does NOT sign for (recipient_local_keys); empty = signs for everyone else in the role.
+                        _proxy_excludes: r._is_proxy && !r._is_entity ? (r._proxy_excludes || []) : [],
                         // "Replace this party" (stage 2) — the stable key other
                         // recipients' slot bindings point at, plus this
                         // recipient's own chosen template + resolved slots (if any).
@@ -4097,6 +4122,47 @@ function esignWizard() {
         // server call below is READ-ONLY: it validates the pick against the
         // company's real representatives and returns a computed preview,
         // nothing more.
+        // AT-498 — the other, non-company, living parties of the SAME role a proxy could sign for.
+        proxyCandidates(ri) {
+            const me = this.recipients[ri];
+            if (!me) return [];
+            return this.recipients.filter((o, i) => i !== ri && o.role === me.role && !o._is_entity && !o._is_deceased && !o._is_proxy);
+        },
+        toggleProxyCovers(ri, key) {
+            const r = this.recipients[ri];
+            const ex = new Set(r._proxy_excludes || []);
+            if (ex.has(key)) { ex.delete(key); } else { ex.add(key); }
+            r._proxy_excludes = Array.from(ex);
+        },
+        // A proxy must keep at least one party ticked.
+        proxyError(ri) {
+            const r = this.recipients[ri];
+            if (!r || !r._is_proxy || r._is_entity) return '';
+            const cands = this.proxyCandidates(ri);
+            if (cands.length === 0) return '';
+            const ex = r._proxy_excludes || [];
+            return cands.every(o => ex.includes(o._recipient_local_key)) ? 'Tick at least one party this person signs for.' : '';
+        },
+        // The live result for a role: who actually receives a signing request, and for whom.
+        proxySigningList(role) {
+            const rows = this.recipients.filter(o => o.role === role && !o._is_deceased);
+            const proxies = rows.filter(o => o._is_proxy && !o._is_entity);
+            const covered = new Set();
+            const forMap = {};
+            proxies.forEach(p => {
+                const ex = p._proxy_excludes || [];
+                const names = [];
+                rows.forEach(o => {
+                    if (o === p || o._is_proxy || o._is_entity) return;
+                    if (!ex.includes(o._recipient_local_key)) { covered.add(o._recipient_local_key); names.push(o.name || 'Unnamed party'); }
+                });
+                forMap[p._recipient_local_key] = names;
+            });
+            return rows.filter(o => !covered.has(o._recipient_local_key)).map(o => ({
+                key: o._recipient_local_key,
+                text: (o.name || 'Unnamed party') + (forMap[o._recipient_local_key] && forMap[o._recipient_local_key].length ? ' — signs for self and for ' + forMap[o._recipient_local_key].join(', ') : ' — signs for self'),
+            }));
+        },
         async toggleEntityProxy(recipientIndex) {
             const r = this.recipients[recipientIndex];
             if (r._is_proxy) return; // opening the picker is enough; nothing to save until a pick is made
