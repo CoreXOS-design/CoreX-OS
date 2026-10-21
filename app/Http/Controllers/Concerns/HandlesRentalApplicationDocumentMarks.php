@@ -130,6 +130,11 @@ trait HandlesRentalApplicationDocumentMarks
     public function applyHighlight(Request $request, RentalApplication $rentalApplication, Document $document, RentalApplicationDocumentHighlightService $highlights)
     {
         $this->guardDocumentMarkAccess($rentalApplication, $document);
+        // AT-488 - the one write endpoint in this trait that was missing the authoriser lock: while the application is
+        // with the authoriser the agent's screen is read-only, bulk marks included.
+        if ($locked = $this->guardScreenNotLockedForAuthoriser($rentalApplication)) {
+            return $locked;
+        }
 
         $validated = $request->validate([
             'marks' => ['nullable', 'array', function (string $attribute, $value, \Closure $fail) {
