@@ -717,3 +717,44 @@ Exclusive and Open wording, 1 seller, no recipients).
 `~~~~OTHER_CONDITIONS~~~~` marker (InsertableBlockRenderer never runs on that route); a wet-ink document's
 confirmation-page preview still shows the un-expanded `merged_html`; documents already created keep their
 stored output until re-created.
+
+---
+
+## 21. Paper routes: whole pack, one combined PDF, Fill & Review honoured — HOTFIX 2026-10-21
+
+**Rule:** download-and-sign and wet-ink behave like the electronic route for what the agent configured: every
+document of a Web Pack, in pack order, and every value typed or confirmed in Fill & Review. N parties, never one seller.
+
+**Symptoms (Johan, QA1):** (1) a Web Pack on wet-ink / download-only gave only the FIRST document (QA1 flow 105 —
+pack [77,74,76] — stored Document 630 with only the Open Authority); (2) District / Complex typed in Fill & Review did
+not appear on the finished document.
+
+**Cause:** `prepareDownloadOnly` / `prepareWetInk` rendered `$flow->template` (the pack's first member) and never
+walked `step_data.template_ids` as `prepareSigning` does; and neither called `overlayFillReviewValues()`, so
+`web_template_data['_fill_review_overlay']` was empty and yesterday's `applyFillReviewAuthoritativeOverlay()` call in
+`expandRoleBlocksForPaper()` was a no-op. The paper routes also rendered the generated blade with a raw `view()`
+(an untracked per-host file — a missing one is a 500 there while the preview regenerated it).
+
+**Fix (`ESignWizardController` only):**
+- `paperRouteTemplates()` — the pack members in pack order (a single document is a list of one); same skip /
+  `assertAccessibleBy` rules as the electronic pack loop.
+- `buildPaperSegment()` — ONE shared builder for both routes and every member: resolve → `overlayFillReviewValues`
+  (scoped to the member via `_pack_template_id`) → render → inject values → role-block expansion for print.
+  The generated blade comes from `WebTemplateBladeEnsurer::ensure()` (regenerates when missing; a real render failure
+  still throws — a printed legal document never becomes a "preview" fallback).
+- **One Document per pack member** (own name, `pack_instance_id`, `web_template_data.paper_pack = {instance_id,
+  position, count}`), so an agent can pull e.g. the Mandatory Disclosure alone. Wet-ink: the FIRST document carries the
+  pack's single SignatureTemplate / requests / canonical (unchanged machinery); the others are plain paper documents
+  expanded for print. `step_data.pack_document_ids` lists them.
+- **The agent's download is ONE combined PDF** of the pack in pack order: `downloadDocumentPdf`, the download page
+  and the wet-ink confirmation page print `combinedPaperPackHtml()` (each document on its own page) when the
+  document belongs to a paper pack; a single document prints exactly as before.
+- The agent's legacy "Additional Conditions" block is added once per pack (first document), not once per member.
+- Electronic path untouched.
+
+**Tests:** `tests/Feature/Docuperfect/PaperRoutePackAndPropertyFieldsTest.php` (pack of 3 on both routes, combined
+print order, 2- and 3-seller domicilium in a pack, stand-alone unchanged, District typed in Fill & Review on both
+paper routes single + pack, missing blade regenerated).
+
+**Known, not changed here:** pack members that are not web templates are skipped (as the electronic loop does); a
+wet-ink pack still has ONE envelope (one set of recipient requests), not one per member.
