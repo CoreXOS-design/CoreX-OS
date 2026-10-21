@@ -54,6 +54,7 @@ final class ReosCompanyPeopleTest extends TestCase
         $row = $svc->apply($row, $run, ['person' => ['party' => 'owner', 'op' => 'add', 'first_name' => 'ZZ', 'last_name' => 'Director One', 'phone' => '+27815550301', 'email' => 'zz.dir1@example.test', 'capacity' => 'Director']]);
         self::assertCount(1, $row->decisions_json['owner']['people']);
         self::assertSame('Director', $row->decisions_json['owner']['people'][0]['capacity']);
+        $svc->apply($row, $run, ['suburb_id' => $this->p24Suburb()->id]);   // ready now, so it is a line whose Change controls hold the people
         $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
         self::assertStringContainsString('People for this company', $html);
         self::assertStringContainsString('ZZ Director One', $html);
@@ -105,8 +106,9 @@ final class ReosCompanyPeopleTest extends TestCase
         // Default: the matched person is used, with the warning. The one-click is offered.
         self::assertSame('person_for_company', $row->landlord_match_json[1]['name_flag']);
         self::assertSame('link', $row->decisions_json['owner']['action']);
-        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
-        self::assertStringContainsString('Create the company and link Arne Nel as its contact person', html_entity_decode($html));
+        self::assertSame(['company:owner', 'suburb'], \App\Services\Rentals\TakeOnImport\Reos\ReosQuestions::needs($row));
+        $card = $this->actingAs($admin)->getJson(route('api.v1.rentals.take-on-import.card', $row))->assertOk()->json('card_html');
+        self::assertStringContainsString('create company “ZZ TEST Wildevy Properties Pty Ltd” with Arne Nel as contact person?', html_entity_decode($card));
 
         $row = $svc->apply($row, $run, ['person' => ['party' => 'owner', 'op' => 'convert']]);
         self::assertSame('create', $row->decisions_json['owner']['action']);
@@ -197,6 +199,7 @@ final class ReosCompanyPeopleTest extends TestCase
 
         $row = $run->rows()->first();
         self::assertSame($company->id, $row->decisions_json['owner']['contact_id']);
+        $row = $svc->apply($row, $run, ['suburb_id' => $this->p24Suburb()->id]);   // ready, so it is a line whose Change controls list the people
         $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
         self::assertStringContainsString('ZZ Already Linked', $html);
         self::assertStringContainsString('already linked in CoreX', $html);
@@ -246,13 +249,13 @@ final class ReosCompanyPeopleTest extends TestCase
         return app(ReosTenancyRunService::class)->createRun($user, (int) $user->agency_id, $user->branch_id, $this->upload($this->scheduleFile($rows)));
     }
 
-    /** Tick every row with a suburb and its matched agent, then import. */
+    /** Give every row its suburb (its agent was matched from reOS), then import the ready ones. */
     private function importReady(RentalTakeOnImportRun $run, User $admin): void
     {
         $suburb = $this->p24Suburb();
         $svc = app(ReosDecisionService::class);
         foreach ($run->rows()->orderBy('row_number')->get() as $row) {
-            $svc->apply($row, $run, ['selected' => true, 'suburb_id' => $suburb->id]);
+            $svc->apply($row, $run, ['suburb_id' => $suburb->id]);
         }
         $this->actingAs($admin);
         $r = app(ReosTenancyConfirmService::class)->importChunk($run->fresh(), $admin, true);

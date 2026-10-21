@@ -21,11 +21,13 @@ class ReosDecisionService
     }
 
     /**
-     * @param array<string,mixed> $in  selected?, property_create?, suburb_id?, owner?{action,contact_id}, tenant?{...}, agent_user_id?, tenant_wallet_ref?
+     * @param array<string,mixed> $in  property_create?, property_choice?, suburb_id?, owner?{action,contact_id}, tenant?{...}, confirm? (owner|tenant:
+     *                                 "same person" / "use as is"), person?, agent_user_id?, tenant_wallet_ref?, retry? (try a failed lease again);
      * @throws ValidationException
      */
     public function apply(RentalTakeOnImportRow $row, RentalTakeOnImportRun $run, array $in): RentalTakeOnImportRow
     {
+        $source = 'user';
         if ($row->status === RentalTakeOnImportRow::STATUS_CONFIRMED) {
             throw ValidationException::withMessages(['row' => 'This lease has already been imported — it can no longer be changed here.']);
         }
@@ -70,6 +72,7 @@ class ReosDecisionService
                 }
                 $d['property'] = array_merge($d['property'] ?? [], ['suburb_id' => $s['id'], 'suburb' => $s['suburb'], 'town' => $s['town'], 'province' => $s['province'], 'city_id' => $s['city_id'], 'province_id' => $s['province_id']]);
             }
+            $d['property']['suburb_source'] = ($in['suburb_id'] === null || $in['suburb_id'] === '') ? null : $source;
             $suburbChanged = true;
         }
 
@@ -77,6 +80,11 @@ class ReosDecisionService
             if (isset($in[$party]) && is_array($in[$party])) {
                 $people = $d[$party]['people'] ?? [];
                 $d[$party] = array_merge($this->party($in[$party], $agencyId), ['people' => $people]);
+                // Choosing the contact that matched, on purpose, is the same as saying "same person".
+                $m = ReosQuestions::match($row, $party);
+                if ($m && ReosQuestions::usesMatched($d[$party], $m)) {
+                    $d[$party]['confirmed'] = true;
+                }
                 // The people belong to a COMPANY: if this party is no longer one (left out, a person linked, …) they go with it.
                 $row->decisions_json = $d;
                 if (! ReosCompanyPeople::isCompanyParty($row, $party)) {
@@ -90,12 +98,22 @@ class ReosDecisionService
             $d = $this->personOp($row, $d, $agencyId, $in['person']);
         }
 
+        if (! empty($in['confirm'])) {
+            $party = (string) $in['confirm'];
+            $m = in_array($party, ['owner', 'tenant'], true) ? ReosQuestions::match($row, $party) : null;
+            if (! $m || ! ReosQuestions::usesMatched($d[$party] ?? [], $m)) {
+                throw ValidationException::withMessages(['confirm' => 'There is nothing to confirm for that person any more.']);
+            }
+            $d[$party]['confirmed'] = true;
+        }
+
         if (array_key_exists('agent_user_id', $in)) {
             $id = $in['agent_user_id'] === null || $in['agent_user_id'] === '' ? null : (int) $in['agent_user_id'];
             if ($id !== null && ! collect($this->agents->users($agencyId))->contains('id', $id)) {
                 throw ValidationException::withMessages(['agent_user_id' => 'Pick the agent from the list.']);
             }
             $d['agent_user_id'] = $id;
+            $d['agent_source'] = $id ? $source : null;
             $d['agent_note'] = $id ? 'Chosen by you.' : ($d['agent_note'] ?? null);
         }
 
@@ -107,10 +125,16 @@ class ReosDecisionService
             $d['tenant_wallet_ref'] = $ref === '' ? null : $ref;
         }
 
-        $row->decisions_json = $d;
-        if (array_key_exists('selected', $in)) {
-            $row->selected = (bool) $in['selected'];
+        if (! empty($in['retry']) && $row->import_error) {
+            $row->import_error = null;
         }
+
+        // The agent / suburb chosen "for all" reach every lease that has none of its own (and follow a change of that choice).
+        $row->decisions_json = $d;
+        [$d, $defaultSuburbChanged] = $this->fillDefaults($row, ReosRunDefaults::get($run));
+        $suburbChanged = $suburbChanged || $defaultSuburbChanged;
+
+        $row->decisions_json = $d;
         $row->save();
 
         // A suburb (or its removal) can change whether CoreX already has the property.
@@ -118,65 +142,97 @@ class ReosDecisionService
     }
 
     /**
-     * Bulk actions over the whole run ("Tick all ready", "Apply suburb to all selected"…), optionally limited to the list's
-     * current filter. Returns how many rows were changed.
+     * The batch's "for all" defaults (agent, suburb for new properties): save them on the run and give them to every waiting lease that
+     * has no choice of its own — or whose current value came from the defaults. A lease whose agent came from reOS or from the user keeps it.
      *
-     * @param array<string,mixed> $filters  ReosRowQuery filters
-     * @param array<string,mixed> $args     suburb_id | agent_user_id
+     * @param array{agent_user_id?:?int, suburb_id?:?int} $in  only the keys present are changed
+     * @return int  leases changed
      */
-    public function bulk(RentalTakeOnImportRun $run, string $action, array $filters, array $args): int
+    public function setDefaults(RentalTakeOnImportRun $run, array $in): int
     {
-        $base = fn () => ReosRowQuery::apply(
-            RentalTakeOnImportRow::query()->where('run_id', $run->id)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED),
-            $filters
-        );
-        $changed = 0;
+        $agencyId = (int) $run->agency_id;
+        $defaults = ReosRunDefaults::get($run);
 
-        switch ($action) {
-            case 'tick_ready':
-                $changed = $base()->where('is_blocked', false)->where('selected', false)->update(['selected' => true]);
-                break;
-            case 'tick_all':
-                // Rows the file itself rejected can never be imported; they are not ticked.
-                $changed = $base()->where('status', '!=', RentalTakeOnImportRow::STATUS_ERROR)->where('selected', false)->update(['selected' => true]);
-                break;
-            case 'untick_all':
-                $changed = $base()->where('selected', true)->update(['selected' => false]);
-                break;
-            case 'apply_suburb':
-                $changed = $this->applyToSelected($run, fn (RentalTakeOnImportRow $r) => $r->existing_lease_id === null && $r->property_match_action !== RentalTakeOnImportRow::ACTION_MATCH && $r->status !== RentalTakeOnImportRow::STATUS_ERROR,
-                    ['suburb_id' => $args['suburb_id'] ?? null]);
-                break;
-            case 'apply_agent':
-                $changed = $this->applyToSelected($run, fn (RentalTakeOnImportRow $r) => $r->status !== RentalTakeOnImportRow::STATUS_ERROR,
-                    ['agent_user_id' => $args['agent_user_id'] ?? null]);
-                break;
-            default:
-                throw ValidationException::withMessages(['action' => 'That bulk action is not recognised.']);
+        if (array_key_exists('agent_user_id', $in)) {
+            $id = $in['agent_user_id'] === null || $in['agent_user_id'] === '' ? null : (int) $in['agent_user_id'];
+            if ($id !== null && ! collect($this->agents->users($agencyId))->contains('id', $id)) {
+                throw ValidationException::withMessages(['agent_user_id' => 'Pick the agent from the list.']);
+            }
+            $defaults['agent_user_id'] = $id;
         }
-
-        return (int) $changed;
-    }
-
-    private function applyToSelected(RentalTakeOnImportRun $run, \Closure $eligible, array $values): int
-    {
-        if (($values['suburb_id'] ?? 'x') === null || ($values['agent_user_id'] ?? 'x') === null) {
-            throw ValidationException::withMessages(['value' => 'Pick a value first.']);
+        if (array_key_exists('suburb_id', $in)) {
+            $id = $in['suburb_id'] === null || $in['suburb_id'] === '' ? null : (int) $in['suburb_id'];
+            $found = $id !== null ? ReosSuburbLookup::find($id) : null;
+            if ($id !== null && ! $found) {
+                throw ValidationException::withMessages(['suburb_id' => 'Pick a suburb from the list.']);
+            }
+            $defaults['suburb_id'] = $id;
+            $defaults['suburb_label'] = $found ? trim($found['suburb'] . ($found['town'] ? ', ' . $found['town'] : '')) : null;
         }
+        ReosRunDefaults::store($run, $defaults);
+
         $n = 0;
         RentalTakeOnImportRow::query()
-            ->where('run_id', $run->id)->where('selected', true)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED)
+            ->where('run_id', $run->id)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED)
             ->orderBy('id')
-            ->chunkById(100, function ($rows) use ($run, $eligible, $values, &$n) {
-                foreach ($rows as $r) {
-                    if ($eligible($r)) {
-                        $this->apply($r, $run, $values);
-                        $n++;
+            ->chunkById(100, function ($rows) use ($defaults, &$n) {
+                foreach ($rows as $row) {
+                    if ($row->status === RentalTakeOnImportRow::STATUS_ERROR) {
+                        continue;
                     }
+                    $before = $row->decisions_json;
+                    [$d, $suburbChanged] = $this->fillDefaults($row, $defaults);
+                    if ($d === $before) {
+                        continue;
+                    }
+                    $row->decisions_json = $d;
+                    $row->save();
+                    $suburbChanged ? $this->resolver->rematchProperty($row) : ReosBlockers::refresh($row);
+                    $n++;
                 }
             });
 
         return $n;
+    }
+
+    /**
+     * @param array<string,mixed> $defaults  ReosRunDefaults::get()
+     * @return array{0: array<string,mixed>, 1: bool}  the row's decisions with the defaults laid in, and whether the suburb changed
+     */
+    private function fillDefaults(RentalTakeOnImportRow $row, array $defaults): array
+    {
+        $d = $row->decisions_json ?? [];
+        $suburbChanged = false;
+        if ($row->existing_lease_id !== null) {
+            return [$d, false];   // a lease already in CoreX keeps its agents and its property
+        }
+
+        // Agent
+        $own = ! empty($d['agent_user_id']) && ($d['agent_source'] ?? null) !== 'default';
+        if (! $own) {
+            $want = $defaults['agent_user_id'] ?? null;
+            if ((int) ($d['agent_user_id'] ?? 0) !== (int) $want) {
+                $d['agent_user_id'] = $want;
+                $d['agent_source'] = $want ? 'default' : null;
+                $d['agent_note'] = $want ? 'The agent chosen for all leases.' : ($d['agent_note'] ?? null);
+            }
+        }
+
+        // Suburb — only for a property that is going to be created
+        $creating = $row->property_match_action === RentalTakeOnImportRow::ACTION_CREATE && (bool) ($d['property']['create'] ?? true);
+        $ownSuburb = ! empty($d['property']['suburb_id']) && ($d['property']['suburb_source'] ?? null) !== 'default';
+        if ($creating && ! $ownSuburb) {
+            $wantId = $defaults['suburb_id'] ?? null;
+            if ((int) ($d['property']['suburb_id'] ?? 0) !== (int) $wantId) {
+                $s = $wantId ? ReosSuburbLookup::find((int) $wantId) : null;
+                $d['property'] = array_merge($d['property'] ?? [], $s
+                    ? ['suburb_id' => $s['id'], 'suburb' => $s['suburb'], 'town' => $s['town'], 'province' => $s['province'], 'city_id' => $s['city_id'], 'province_id' => $s['province_id'], 'suburb_source' => 'default']
+                    : ['suburb_id' => null, 'suburb' => null, 'town' => null, 'province' => null, 'city_id' => null, 'province_id' => null, 'suburb_source' => null]);
+                $suburbChanged = true;
+            }
+        }
+
+        return [$d, $suburbChanged];
     }
 
     /**

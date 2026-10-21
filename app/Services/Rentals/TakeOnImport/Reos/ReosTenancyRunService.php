@@ -64,7 +64,11 @@ class ReosTenancyRunService
                 'rent_roll' => $rollSummary === null ? null : ['rows' => count($rollRows)] + $rollSummary,
                 'imported_created' => 0, 'imported_updated' => 0, 'imported_failed' => 0, 'name_flags_v' => ReosRowResolver::NAME_FLAGS_VERSION];
 
+            // What the "Deposit Required" column held across the file (blank / 0 / an amount) — so "why is every deposit nothing?" can be answered from the batch.
+            $counts['deposit_column'] = ['blank' => 0, 'zero' => 0, 'amount' => 0];
+
             foreach ($parsed as $p) {
+                $counts['deposit_column'][$p['deposit_seen'] ?? 'blank']++;
                 $row = RentalTakeOnImportRow::create([
                     'agency_id' => $agencyId,
                     'run_id' => $run->id,
