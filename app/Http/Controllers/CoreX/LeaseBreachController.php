@@ -206,6 +206,8 @@ class LeaseBreachController extends Controller
             // each template's own remedy period, so the screen can say how long the chosen one allows
             'windowByTemplate' => $templates->mapWithKeys(fn ($t) => [$t->id => $this->breaches->remedyWindowText($agencyId, $this->breaches->remedyDaysFor($t, $agencyId))])->all(),
             'placeholders' => RentalNoticeService::PLACEHOLDERS, 'preview' => session('breach_preview'),
+            // AT-495 - "Use this template" on the Templates tab arrives with the template already chosen
+            'chosenTemplateId' => (int) $request->query('template'),
         ]);
     }
 

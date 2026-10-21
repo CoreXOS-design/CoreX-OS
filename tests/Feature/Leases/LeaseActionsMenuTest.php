@@ -140,15 +140,18 @@ final class LeaseActionsMenuTest extends TestCase
         $response->assertDontSee('Lease actions');
     }
 
-    public function test_the_tenant_notice_dialog_posts_to_the_real_renewal_route(): void
+    public function test_the_notice_dialogs_post_to_the_notice_cases_route_and_the_other_dialogs_to_their_renewal_routes(): void
     {
         $lease = $this->activeLease();
 
         $response = $this->actingAs($this->agent)->get(route('corex.leases.show', $lease));
 
         $response->assertOk();
-        $response->assertSee(route('corex.leases.renewal.tenant-notice', $lease), false);
-        $response->assertSee(route('corex.leases.renewal.landlord-notice', $lease), false);
+        // AT-495 - the received-notice dialogs post to the spec'd notice-cases route (given_by says which side), not the renewal ones
+        $response->assertSee(route('corex.leases.notice-cases.store', $lease), false);
+        $response->assertSee('name="given_by" value="tenant"', false);
+        $response->assertSee('name="given_by" value="landlord"', false);
+        $response->assertDontSee(route('corex.leases.renewal.tenant-notice', $lease), false);
         $response->assertSee(route('corex.leases.renewal.month-to-month', $lease), false);
     }
 }

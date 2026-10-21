@@ -1,6 +1,7 @@
 @extends('layouts.corex')
 
 @section('content')
+<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
 <div class="p-6 space-y-4 max-w-3xl">
     <div class="flex items-center justify-between gap-3">
         <h1 class="text-lg font-semibold">Breach notice - {{ $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id) }}</h1>
@@ -23,7 +24,7 @@
     @else
         @feature('rental-leases')
         @php
-            $chosen = $templates->firstWhere('id', (int) old('rental_notice_template_id')) ?? $templates->first();
+            $chosen = $templates->firstWhere('id', (int) old('rental_notice_template_id')) ?? $templates->firstWhere('id', (int) ($chosenTemplateId ?? 0)) ?? $templates->first();
         @endphp
         <form method="POST" action="{{ route('corex.leases.breaches.store', $lease) }}" class="space-y-3" data-qa="breach-form">
             @csrf

@@ -396,6 +396,13 @@ Route::middleware('auth')->group(function () {
         Route::post('/rows/{row}/decisions', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'decisions'])->name('api.v1.rentals.take-on-import.decisions');
     });
 
+    // AT-495 — the lease picker behind the Notices tabs' "Record a received notice" / "Send notice" / "Issue breach notice" buttons (JSON, called from the
+    // Blade pages over fetch with the session cookie, so it lives here like the ones above). Under /api/v1 so the Admin → API catalogue lists it (#7).
+    // The purpose's own permission + leases.view are checked in the controller; the leases returned are Lease::visibleTo() (own / branch / agency).
+    Route::get('/api/v1/rentals/notices/leases', [\App\Http\Controllers\CoreX\NoticeLeasePickerController::class, 'search'])
+        ->middleware(['feature:rental-notices', 'permission:rental_notices.review,rental_notices.create,rental_breaches.manage', 'agency.required'])
+        ->name('api.v1.rentals.notices.leases');
+
     // AT-168 Part C — conversation-thread paging + in-thread search (JSON).
     // Under /api/v1 (URI starts with api/) so they appear in the Admin→API
     // catalogue (non-negotiable #7). Called from the thread Blade over fetch with
@@ -4033,8 +4040,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // audit 2026-10-19 (A28): reading the history of notices sent needs rental_notices.view, not the right to draft and send.
     Route::prefix('rental-notices')->middleware('permission:rental_notices.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'index'])->name('corex.rental-notices.index');
-        Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->name('corex.rental-notices.show');
-        Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->name('corex.rental-notices.download-document');
+        Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->withTrashed()->name('corex.rental-notices.show');
+        Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->withTrashed()->name('corex.rental-notices.download-document');
+        // AT-495 - resend / archive / restore a sent notice (drafting and sending is rental_notices.create).
+        Route::middleware('permission:rental_notices.create')->group(function () {
+            Route::post('/{rentalNotice}/resend', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'resend'])->name('corex.rental-notices.resend');
+            Route::post('/{rentalNotice}/archive', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'archive'])->name('corex.rental-notices.archive');
+            Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'restore'])->whereNumber('id')->name('corex.rental-notices.restore');
+        });
     });
 
     // .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
@@ -4091,6 +4104,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'store'])->name('corex.rental-notice-templates.store');
         Route::get('/{rentalNoticeTemplate}/edit', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'edit'])->name('corex.rental-notice-templates.edit');
         Route::put('/{rentalNoticeTemplate}', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'update'])->name('corex.rental-notice-templates.update');
+        // AT-495 - the Word document the template was made from, as it was uploaded.
+        Route::get('/{id}/original', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'downloadOriginal'])->whereNumber('id')->name('corex.rental-notice-templates.download-original');
         Route::post('/{rentalNoticeTemplate}/archive', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'archive'])->name('corex.rental-notice-templates.archive');
         Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'restore'])->name('corex.rental-notice-templates.restore');
     });

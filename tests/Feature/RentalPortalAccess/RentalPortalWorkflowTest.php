@@ -330,10 +330,9 @@ class RentalPortalWorkflowTest extends TestCase
         $this->assertTrue((bool) $notice->sent_to_tenant);
         $this->assertNotNull($notice->document_id);
 
-        // RentalNoticeMail implements ShouldQueue, so Mail::send() queues it
-        // rather than sending synchronously — assertQueued, not assertSent.
-        Mail::assertQueued(RentalNoticeMail::class, function ($mail) {
-            return $mail->hasTo($this->tenant->email);
+        // AT-495 - RentalNoticeMail is sent as the agent through their own mailbox (RentalMailDispatcher), so it is no longer queued.
+        Mail::assertSent(RentalNoticeMail::class, function ($mail) {
+            return $mail->hasTo($this->tenant->email) && $mail->sendingAgentId() === $this->agent->id;
         });
 
         // 'rental_notice', not 'notice' — origin/QA1's own renewalEventEntries()
@@ -377,8 +376,9 @@ class RentalPortalWorkflowTest extends TestCase
 
         // The tenant is the ONLY contact on the property — if the old
         // sole-contact fallback were still in play, this assertion fails
-        // because the tenant's own email would have been queued instead.
+        // because the tenant's own email would have been sent instead (AT-495: sent, no longer queued).
         Mail::assertNothingQueued();
+        Mail::assertNothingSent();
     }
 
     /**
