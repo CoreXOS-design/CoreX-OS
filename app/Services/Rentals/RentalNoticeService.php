@@ -219,6 +219,12 @@ class RentalNoticeService
         $deliveries = $this->deliver($notice, $lease, $by, $toTenant, $toLandlord, $pdfContents, $filename);
         $this->logDelivery($lease, $notice, '"' . $template->name . '"', $deliveries, $by, false);
 
+        // AT-489 (a merge had left this block in logDelivery(), where $template/$toTenant do not exist - every send answered 500)
+        // AT-489 - the agency's expiry notice to the tenant has gone out (sent from this screen by an agent, or by CoreX's own daily send).
+        if ($template->notice_type === RentalNoticeTemplate::TYPE_EXPIRY_NOTICE && $toTenant) {
+            app(LeaseExpiryNoticeService::class)->markSent($lease, 'agent', $by);
+        }
+
         return $notice;
     }
 
@@ -228,7 +234,7 @@ class RentalNoticeService
      *
      * @return Collection<int, RentalNoticeDelivery> this attempt's rows
      *
-     * @throws ValidationException the notice has no filed document to attach, or it is a breach notice (resent from the breach screen)
+     * @throws ValidationException the notice has no filed document to attach
      */
     public function resend(RentalNotice $notice, User $by): Collection
     {
@@ -238,6 +244,10 @@ class RentalNoticeService
         $document = $notice->document;
         if (! $document || ! Storage::disk($document->disk)->exists($document->storage_path)) {
             throw ValidationException::withMessages(['notice' => 'The notice document could not be found, so it cannot be resent.']);
+        }
+        if ($notice->lease_breach_id !== null) {
+            // a breach notice / notice to vacate: goes again to the party in breach only
+            return app(LeaseBreachService::class)->resendNotice($notice, $by, Storage::disk($document->disk)->get($document->storage_path), $document->original_name);
         }
         $lease = $notice->lease()->withoutGlobalScopes()->withTrashed()->firstOrFail();
 
@@ -328,11 +338,6 @@ class RentalNoticeService
         }
         if ($deliveries->isEmpty()) {
             $text .= ' - NOT sent: no one is linked to the lease on the side chosen';
-        }
-
-        // AT-489 - the agency's expiry notice to the tenant has gone out (sent from this screen by an agent, or by CoreX's own daily send).
-        if ($template->notice_type === RentalNoticeTemplate::TYPE_EXPIRY_NOTICE && $toTenant) {
-            app(LeaseExpiryNoticeService::class)->markSent($lease, 'agent', $by);
         }
 
         LeaseEvent::create([
