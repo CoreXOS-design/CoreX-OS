@@ -887,7 +887,7 @@ class RentalApplicationSigningController extends Controller
         $validator = \Illuminate\Support\Facades\Validator::make($input, $rules);
         $fields = collect($input)->except($validator->errors()->keys())->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
-        $fields = RentalApplication::normalizeStillLiving($fields);
+        $fields = RentalApplication::clearRentingAnswersWhenNotRenting(RentalApplication::normalizeStillLiving($fields));
 
         // Collection::except() only matches exact top-level keys, so a
         // dotted error key like 'custom_field_values.pet_deposit' above
@@ -998,7 +998,7 @@ class RentalApplicationSigningController extends Controller
         // Optional-and-empty must never error (BUILD_STANDARD §2) — a blank
         // string is stored as NULL, never coerced into breaking a date/decimal cast.
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
-        $fields = RentalApplication::normalizeStillLiving($fields);
+        $fields = RentalApplication::clearRentingAnswersWhenNotRenting(RentalApplication::normalizeStillLiving($fields));
 
         // .ai/specs/rental-application-field-config.md §7, piece (c)(2) —
         // MERGE into the existing custom_field_values, never replace it.

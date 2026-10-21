@@ -324,15 +324,20 @@
                         required-expr="situation === 'renting' && {{ in_array('current_rental_due_day', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
                     @endif
                     @if($fieldConfig['current_rental_from']['shown'])
-                    <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text']" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')"
+                    <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text'] ?? 'The date you started renting here.'" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($application->current_rental_from)->format('Y-m-d')"
                         required-expr="situation === 'renting' && {{ in_array('current_rental_from', $requiredFieldKeys, true) ? 'true' : 'false' }}" />
                     @endif
-                    <div x-data="{ stillLiving: {{ old('current_rental_still_living', $application->current_rental_still_living) ? 'true' : 'false' }} }">
-                        <label class="block text-xs text-slate-500 mb-1">To</label>
+                    {{-- AT-487 - the end date sits AFTER "From": this wrapper carried no `order`, so in the grid it came before every
+                         field that does (the tester saw "To" as the first date). Label / help / order / shown come from the field config. --}}
+                    @if($fieldConfig['current_rental_to']['shown'])
+                    <div x-data="{ stillLiving: {{ old('current_rental_still_living', $application->current_rental_still_living) ? 'true' : 'false' }} }" style="order: {{ $fieldConfig['current_rental_to']['order'] }}">
+                        <label class="block text-xs text-slate-500 mb-1">{{ $fieldConfig['current_rental_to']['label'] }}@if(in_array('current_rental_to', $requiredFieldKeys, true)) <span x-show="!stillLiving">*</span>@endif</label>
                         <input type="date" name="current_rental_to" x-ref="currentRentalTo"
                                :disabled="stillLiving"
+                               :required="situation === 'renting' && !stillLiving && {{ in_array('current_rental_to', $requiredFieldKeys, true) ? 'true' : 'false' }}"
                                value="{{ old('current_rental_to', optional($application->current_rental_to)->format('Y-m-d')) }}"
                                class="w-full rounded-lg border px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-400 {{ $errors->has('current_rental_to') ? 'border-red-400' : 'border-slate-300' }}">
+                        <p class="text-[11px] text-slate-400 mt-1">{{ $fieldConfig['current_rental_to']['help_text'] ?? 'Leave empty and tick the box below if you have not moved out.' }}</p>
                         @error('current_rental_to') <p class="text-xs text-red-600 mt-1">{{ $message }}</p> @enderror
                         <label class="flex items-center gap-2 mt-2 text-xs text-slate-600 cursor-pointer">
                             <input type="hidden" name="current_rental_still_living" value="0">
@@ -341,6 +346,7 @@
                             Still living here — no end date
                         </label>
                     </div>
+                    @endif
                 </div>
 
                 {{--

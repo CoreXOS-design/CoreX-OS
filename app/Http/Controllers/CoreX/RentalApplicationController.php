@@ -1038,7 +1038,7 @@ class RentalApplicationController extends Controller
 
         $fields = collect($validated)->except(['property_id'])->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
-        $fields = RentalApplication::normalizeStillLiving($fields);
+        $fields = RentalApplication::clearRentingAnswersWhenNotRenting(RentalApplication::normalizeStillLiving($fields));
 
         // MERGE into existing custom_field_values, never replace — same
         // reasoning as submit()/autosave(): a retired custom field's
