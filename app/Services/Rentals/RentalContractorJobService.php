@@ -340,6 +340,7 @@ class RentalContractorJobService
         if (! in_array($response, [self::RESPONSE_ACCEPTED, self::RESPONSE_DECLINED, self::RESPONSE_QUOTE], true)) {
             return;
         }
+        $previous = (string) ($wo->contractor_response ?: self::RESPONSE_PENDING);
         $wo->forceFill([
             'contractor_response' => $response, 'contractor_responded_at' => now(),
             'contractor_decline_reason' => $response === self::RESPONSE_DECLINED ? ($reason ?: null) : null,
@@ -352,11 +353,15 @@ class RentalContractorJobService
         };
         $this->history($wo, null, 'contractor_response', $line);
         if ($response === self::RESPONSE_QUOTE) {
-            $this->tell($wo, self::EV_QUOTE, 'Quote received - ' . $name . ($quote ? ' R' . number_format((float) $quote->amount, 2) : '') . ' - ' . $this->address($wo), $this->quoteBody($wo, $quote));
+            // AT-492: a revised quote is a new fact - its own id and amount are its identity, so the 6-hour cooldown cannot swallow it
+            $this->tell($wo, self::EV_QUOTE, 'Quote received - ' . $name . ($quote ? ' R' . number_format((float) $quote->amount, 2) : '') . ' - ' . $this->address($wo), $this->quoteBody($wo, $quote),
+                $quote ? 'quote:' . $quote->id . ':' . number_format((float) $quote->amount, 2, '.', '') : null);
 
             return;
         }
-        $this->tell($wo, $response === self::RESPONSE_DECLINED ? self::EV_DECLINED : self::EV_ACCEPTED, $line . ' - ' . $this->address($wo) . ($response === self::RESPONSE_DECLINED ? ' - pick another contractor' : ''), $wo->title);
+        // AT-492: accepted -> declined -> accepted again is three different facts; the answer they changed FROM is part of the identity
+        $this->tell($wo, $response === self::RESPONSE_DECLINED ? self::EV_DECLINED : self::EV_ACCEPTED, $line . ' - ' . $this->address($wo) . ($response === self::RESPONSE_DECLINED ? ' - pick another contractor' : ''), $wo->title,
+            $response . ':from-' . $previous);
     }
 
     /** What the contractor wrote on the quote; a document-only quote says so, with the job it is for. */
@@ -555,12 +560,16 @@ class RentalContractorJobService
     }
 
     /** Both lease agents (and nobody twice) - the recipient rule lives in RentalWorkOrderService::notifyAgentOfOwnerAction() and nowhere else. */
-    private function tell(RentalWorkOrder $wo, string $eventKey, string $title, string $body): void
+    private function tell(RentalWorkOrder $wo, string $eventKey, string $title, string $body, ?string $occurrence = null): void
     {
         try {
-            app(RentalWorkOrderService::class)->notifyAgentOfOwnerAction($wo, $eventKey, $title, $body, now());
+            app(RentalWorkOrderService::class)->notifyAgentOfOwnerAction($wo, $eventKey, $title, $body, now(), $occurrence);
         } catch (\Throwable $e) {
-            Log::warning('Contractor job notification failed', ['work_order' => $wo->id, 'event' => $eventKey, 'error' => $e->getMessage()]);
+            // AT-492: say WHAT was lost and WHERE it broke - a failed alert used to leave one line with the message and nothing else
+            Log::error('Contractor job notification failed - the agent was NOT told', [
+                'work_order' => $wo->id, 'event' => $eventKey, 'title' => $title, 'exception' => get_class($e),
+                'error' => $e->getMessage(), 'at' => basename($e->getFile()) . ':' . $e->getLine(),
+            ]);
         }
     }
 

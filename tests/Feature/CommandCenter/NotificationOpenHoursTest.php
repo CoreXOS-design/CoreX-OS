@@ -255,6 +255,88 @@ final class NotificationOpenHoursTest extends TestCase
         Carbon::setTestNow();
     }
 
+    // ── AT-492: a person acting on a link is never held back by open hours; nothing is dropped silently ──
+
+    public function test_an_alert_caused_by_a_person_still_reaches_the_in_app_inbox_outside_open_hours_but_not_the_email(): void
+    {
+        [, $user] = $this->seedAgencyUser();
+        $type = $this->makeEventType();
+        UserNotificationPreference::updateOrCreate(
+            ['user_id' => $user->id, 'notification_event_type_id' => $type->id],
+            ['enabled' => true, 'threshold' => 24, 'channel_in_app' => true, 'channel_email' => true, 'channel_push' => false]
+        );
+        $now = Carbon::parse('2026-06-17 21:00', 'Africa/Johannesburg');
+        Carbon::setTestNow($now);
+        $this->setOpenHours($user, true, [$now->isoWeekday() => ['08:00', '17:00']]);
+
+        $fired = app(NotificationDispatcher::class)->fire($user, $type->key, $user, [
+            'title' => 'Quote received', 'body' => 'x', 'threshold_hit_at' => $now, 'person_triggered' => true,
+        ]);
+
+        $this->assertTrue($fired, 'the contractor sent the quote at 21:00 - the agent must still find it in the morning');
+        $this->assertSame(1, DB::table('notifications')->where('notifiable_id', $user->id)->count());
+        $channels = NotificationDispatchLog::where('user_id', $user->id)->pluck('channel')->all();
+        $this->assertSame(['in_app'], $channels, 'email keeps respecting open hours');
+        $this->assertSame(1, \App\Models\NotificationDropLog::where('user_id', $user->id)->where('reason', 'like', 'outside open hours%')->count(), 'the held-back email is on record');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_a_scanner_alert_dropped_outside_open_hours_leaves_a_drop_log_row(): void
+    {
+        [, $user] = $this->seedAgencyUser();
+        $type = $this->makeEventType();
+        $this->enablePref($user, $type);
+        $now = Carbon::parse('2026-06-17 12:00', 'Africa/Johannesburg');
+        Carbon::setTestNow($now);
+        $this->setOpenHours($user, true, [$now->isoWeekday() => ['08:00', '09:00']]);
+
+        $this->assertFalse(app(NotificationDispatcher::class)->fire($user, $type->key, $user, ['title' => 'x', 'body' => 'y', 'threshold_hit_at' => $now]));
+
+        $row = \App\Models\NotificationDropLog::where('user_id', $user->id)->sole();
+        $this->assertSame('outside open hours', $row->reason);
+        $this->assertSame($type->key, $row->event_key);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_the_cooldown_tells_a_revised_quote_apart_but_still_stops_a_repeat_and_records_the_drop(): void
+    {
+        [, $user] = $this->seedAgencyUser();
+        $type = $this->makeEventType();
+        $this->enablePref($user, $type);
+        $d = app(NotificationDispatcher::class);
+        $args = fn (?string $key) => ['title' => 'Quote', 'body' => 'x', 'threshold_hit_at' => now(), 'dedupe_key' => $key];
+
+        $this->assertTrue($d->fire($user, $type->key, $user, $args('quote:1:1000.00')));
+        $this->travel(5)->minutes();
+        $this->assertTrue($d->fire($user, $type->key, $user, $args('quote:2:900.00')), 'a revised quote is a different fact - inside the 6-hour window');
+        $this->travel(5)->minutes();
+        $this->assertFalse($d->fire($user, $type->key, $user, $args('quote:2:900.00')), 'the same quote twice is still one alert');
+        $this->assertSame('cooldown', \App\Models\NotificationDropLog::where('user_id', $user->id)->sole()->reason);
+
+        // an older caller with no key behaves exactly as before: the first is told, the repeat is held by the cooldown
+        $this->assertTrue($d->fire($user, $type->key, $user, $args(null)));
+        $this->travel(5)->minutes();
+        $this->assertFalse($d->fire($user, $type->key, $user, $args(null)));
+    }
+
+    public function test_an_alert_for_a_switched_off_or_unregistered_event_leaves_a_drop_log_row(): void
+    {
+        [, $user] = $this->seedAgencyUser();
+        $type = $this->makeEventType();
+        UserNotificationPreference::updateOrCreate(
+            ['user_id' => $user->id, 'notification_event_type_id' => $type->id],
+            ['enabled' => false, 'threshold' => 24, 'channel_in_app' => true, 'channel_email' => false, 'channel_push' => false]
+        );
+        $d = app(NotificationDispatcher::class);
+
+        $this->assertFalse($d->fire($user, $type->key, $user, ['title' => 'x', 'body' => 'y', 'threshold_hit_at' => now()]));
+        $this->assertFalse($d->fire($user, 'no.such_event_registered', $user, ['title' => 'x', 'body' => 'y', 'threshold_hit_at' => now()]));
+
+        $this->assertEqualsCanonicalizing(['event switched off', 'event type not registered'], \App\Models\NotificationDropLog::where('user_id', $user->id)->pluck('reason')->all());
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /** Build a 7-key day_windows map; $overrides keyed by ISO weekday => [start, end] (enabled). */
