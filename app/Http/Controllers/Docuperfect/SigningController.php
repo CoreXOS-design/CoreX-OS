@@ -404,7 +404,7 @@ class SigningController extends Controller
                 if (!empty($docTemplate->signing_parties)) {
                     $viewData['signing_parties'] = $docTemplate->signing_parties;
                 }
-                $fullHtml = view($docTemplate->blade_view, $viewData)->render();
+                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($docTemplate), $viewData)->render();
                 $styles = '';
                 preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches);
                 if (!empty($styleMatches[0])) {
