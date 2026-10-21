@@ -164,10 +164,10 @@ final class LeaseNoticeAuditFixesTest extends TestCase
     {
         $user = $this->agentWith(['leases.view', 'leases.renew']);
         $this->actingAs($user)->get(route('corex.leases.show', $this->lease))->assertOk()
-            ->assertDontSee(route('corex.leases.renewal.tenant-notice', $this->lease), false);
+            ->assertDontSee(route('corex.leases.notice-cases.store', $this->lease), false);
         $this->grant($user, ['rental_notices.review']);
         $this->actingAs($user)->get(route('corex.leases.show', $this->lease))->assertOk()
-            ->assertSee(route('corex.leases.renewal.tenant-notice', $this->lease), false);
+            ->assertSee(route('corex.leases.notice-cases.store', $this->lease), false);
     }
 
     // ── A28 ───────────────────────────────────────────────────────────────

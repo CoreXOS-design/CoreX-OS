@@ -138,7 +138,7 @@ final class ReosPropertyMatchTest extends TestCase
         $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
         self::assertStringContainsString('ZZ Uvongo', $html);
         self::assertStringContainsString('ZZ Margate', $html);
-        self::assertStringContainsString('None of these', $html);
+        self::assertStringContainsString('None — create new', html_entity_decode($html));
 
         // A property that is not one of the listed candidates is refused.
         $stranger = $this->property($agency, $branch, $agent, ['street_number' => '99', 'street_name' => 'ZZ Elsewhere Road', 'suburb' => 'ZZ Elsewhere']);
@@ -204,7 +204,7 @@ final class ReosPropertyMatchTest extends TestCase
         self::assertNull($row->decisions_json['property']['link_id']);
         self::assertContains('suburb_required', collect($row->blockers_json)->pluck('code')->all());
         self::assertSame(1, $run->fresh()->counts_json['property_not_in_corex']);
-        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->assertSee('Not in CoreX')->assertSee('Type the suburb');
+        $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->assertSee('Which suburb is the new property');
     }
 
     public function test_run_counts_separate_matched_to_pick_and_not_in_corex(): void

@@ -311,8 +311,10 @@
 
             @if(!$lease->hasActiveNotice() && auth()->user()?->hasPermission('rental_notices.review'))
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="tenant">
                         <input type="hidden" name="_lease_action" value="tenant-notice">
                         <h2 class="text-lg font-medium">Tenant gave notice</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the landlord until you have checked it against the lease and the law and accepted it.</p>
@@ -344,8 +346,10 @@
                 </x-modal>
 
                 <x-modal name="lease-dialog-landlord-notice" :show="$openDialog === 'landlord-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="landlord">
                         <input type="hidden" name="_lease_action" value="landlord-notice">
                         <h2 class="text-lg font-medium">Landlord gave notice (not renewing)</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the tenant until you have checked it against the lease and the law and accepted it.</p>

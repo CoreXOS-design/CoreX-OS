@@ -25,7 +25,10 @@
             $data = json_decode($n->data, true);
             $isUnread = !$n->read_at;
         @endphp
-        <div class="rounded-md px-4 py-3 flex items-start gap-3 list-row-hover" data-tour="cc-notifications-item" style="background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}">
+        {{-- AT-491: whole row opens the alert (same open route as the alert inbox); the tick keeps its own click. --}}
+        <div class="rounded-md px-4 py-3 flex items-start gap-3 list-row-hover" data-tour="cc-notifications-item" style="cursor:pointer;background:var(--surface);border:1px solid var(--border);{{ $isUnread ? 'border-left:3px solid var(--brand-button);' : '' }}"
+             data-href="{{ route('corex.alerts.open', $n->id) }}"
+             onclick="if (!event.target.closest('a, button, form')) { window.location.href = this.dataset.href; }">
             <div class="w-2 h-2 rounded-full flex-shrink-0 mt-1.5" style="{{ $isUnread ? 'background:var(--brand-button);' : 'background:var(--text-muted);opacity:0.3;' }}"></div>
             <div class="flex-1 min-w-0">
                 @php

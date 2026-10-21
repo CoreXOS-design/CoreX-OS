@@ -156,9 +156,9 @@
                 <input type="number" step="0.01" min="0.01" name="amount" required value="{{ old('amount') }}">
                 <label>Quote date</label>
                 <input type="date" name="quote_date" required value="{{ old('quote_date', now()->toDateString()) }}">
-                <label>Details of the quote <span class="muted">(needed if you do not attach a document)</span></label>
+                <label>Details of the quote <span class="muted">(optional)</span></label>
                 <textarea name="detail_text" rows="2">{{ old('detail_text') }}</textarea>
-                <label>Quote document <span class="muted">(needed if you do not write the details)</span></label>
+                <label>Quote document <span class="muted">(optional)</span></label>
                 <input type="file" name="document" accept=".pdf,.jpg,.jpeg,.png,.webp,.heic,.heif">
                 <button class="btn btn-primary" type="submit">Submit quote</button>
             </form>

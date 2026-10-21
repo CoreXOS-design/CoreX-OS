@@ -9,10 +9,13 @@ use App\Models\Lease;
 use App\Models\LeaseBreach;
 use App\Models\LeaseEvent;
 use App\Models\RentalNotice;
+use App\Models\RentalNoticeDelivery;
 use App\Models\RentalNoticeTemplate;
 use App\Models\User;
-use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -202,35 +205,139 @@ class RentalNoticeService
         return [$notice, $pdfContents, $filename];
     }
 
-    /** The older free-form "Send notice" screen: the agency's template, emailed to the tenant and/or the landlord. */
+    /**
+     * The older free-form "Send notice" screen: the agency's template, emailed to the tenant and/or the landlord.
+     *
+     * AT-495 - each email goes from the sending agent's OWN mailbox (RentalMailDispatcher: SMTP + a copy in their Sent items, the same as a
+     * breach notice), and what really happened to each person is written down (RentalNoticeDelivery): a contact with no email address, or an
+     * email that failed, is recorded as NOT sent - on the notice and on the lease's log - never as "sent".
+     */
     public function send(Lease $lease, RentalNoticeTemplate $template, array $figures, bool $toTenant, bool $toLandlord, User $by): RentalNotice
     {
         [$notice, $pdfContents, $filename] = $this->generate($lease, $template, $figures, $toTenant, $toLandlord, $by);
 
-        $names = [];
+        $deliveries = $this->deliver($notice, $lease, $by, $toTenant, $toLandlord, $pdfContents, $filename);
+        $this->logDelivery($lease, $notice, '"' . $template->name . '"', $deliveries, $by, false);
+
+        return $notice;
+    }
+
+    /**
+     * Email the notice again to the people it was addressed to (their addresses are read afresh, so a contact whose email has since been added
+     * is reached this time). The same PDF that was filed on the lease is the one attached. Logged on the lease.
+     *
+     * @return Collection<int, RentalNoticeDelivery> this attempt's rows
+     *
+     * @throws ValidationException the notice has no filed document to attach, or it is a breach notice (resent from the breach screen)
+     */
+    public function resend(RentalNotice $notice, User $by): Collection
+    {
+        if (! $notice->isResendable()) {
+            throw ValidationException::withMessages(['notice' => 'This notice cannot be resent from here.']);
+        }
+        $document = $notice->document;
+        if (! $document || ! Storage::disk($document->disk)->exists($document->storage_path)) {
+            throw ValidationException::withMessages(['notice' => 'The notice document could not be found, so it cannot be resent.']);
+        }
+        $lease = $notice->lease()->withoutGlobalScopes()->withTrashed()->firstOrFail();
+
+        $deliveries = $this->deliver($notice, $lease, $by, (bool) $notice->sent_to_tenant, (bool) $notice->sent_to_landlord,
+            Storage::disk($document->disk)->get($document->storage_path), $document->original_name);
+        $this->logDelivery($lease, $notice, '"' . $notice->documentTitle() . '"', $deliveries, $by, true);
+
+        return $deliveries;
+    }
+
+    /**
+     * One email per contact on the chosen side(s). Every contact gets a RentalNoticeDelivery row saying what happened; the notice's
+     * delivery_status becomes the summary of the latest answer per person.
+     *
+     * @return Collection<int, RentalNoticeDelivery>
+     */
+    public function deliver(RentalNotice $notice, Lease $lease, User $by, bool $toTenant, bool $toLandlord, string $pdfContents, string $filename): Collection
+    {
+        $parties = collect();
         if ($toTenant) {
-            foreach ($lease->tenantContacts() as $tenantContact) {
-                $names[] = trim((string) $tenantContact->full_name) ?: 'tenant';
-                if ($tenantContact->email) {
-                    Mail::to($tenantContact->email)->send(new RentalNoticeMail($notice, $tenantContact->first_name ?? '', $pdfContents, $filename));
-                }
+            foreach ($lease->tenantContacts() as $contact) {
+                $parties->push([Lease::NOTICE_BY_TENANT, $contact]);
             }
         }
         if ($toLandlord) {
-            foreach ($lease->landlordContacts() as $landlordContact) {
-                $names[] = trim((string) $landlordContact->full_name) ?: 'landlord';
-                if ($landlordContact->email) {
-                    Mail::to($landlordContact->email)->send(new RentalNoticeMail($notice, $landlordContact->first_name ?? '', $pdfContents, $filename));
+            foreach ($lease->landlordContacts() as $contact) {
+                $parties->push([Lease::NOTICE_BY_LANDLORD, $contact]);
+            }
+        }
+
+        $rows = collect();
+        foreach ($parties as [$role, $contact]) {
+            $email = trim((string) $contact->email);
+            $status = RentalNoticeDelivery::SENT;
+            $error = null;
+            if ($email === '') {
+                $status = RentalNoticeDelivery::NOT_SENT_NO_EMAIL;
+            } elseif (! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                $status = RentalNoticeDelivery::FAILED;
+                $error = 'That is not a valid email address.';
+            } else {
+                try {
+                    app(RentalMailDispatcher::class)->send($email, new RentalNoticeMail($notice, (string) ($contact->first_name ?? ''), $pdfContents, $filename, $by));
+                } catch (\Throwable $e) {
+                    $status = RentalNoticeDelivery::FAILED;
+                    $error = Str::limit($e->getMessage(), 500);
+                    Log::warning('Rental notice: email failed', ['notice' => $notice->id, 'to' => $email, 'error' => $e->getMessage()]);
                 }
             }
+
+            $rows->push(RentalNoticeDelivery::create([
+                'agency_id' => $notice->agency_id, 'rental_notice_id' => $notice->id, 'contact_id' => $contact->id, 'recipient_role' => $role,
+                'recipient_name' => trim((string) $contact->full_name) ?: $role, 'recipient_email' => $email !== '' ? $email : null,
+                'status' => $status, 'error' => $error, 'attempted_at' => now(), 'attempted_by_user_id' => $by->id,
+            ]));
+        }
+
+        $this->refreshDeliveryStatus($notice);
+
+        return $rows;
+    }
+
+    /** The notice's delivery_status: every recipient's latest answer was "emailed" -> sent; none -> not_sent (also when nobody was linked); else partial. */
+    public function refreshDeliveryStatus(RentalNotice $notice): string
+    {
+        $latest = $notice->unsetRelation('deliveries')->load('deliveries')->latestDeliveries();
+        $sent = $latest->filter(fn (RentalNoticeDelivery $d) => $d->wasSent())->count();
+        $status = $latest->isEmpty() || $sent === 0 ? RentalNotice::DELIVERY_NOT_SENT
+            : ($sent === $latest->count() ? RentalNotice::DELIVERY_SENT : RentalNotice::DELIVERY_PARTIAL);
+        $notice->forceFill(['delivery_status' => $status])->save();
+
+        return $status;
+    }
+
+    /** The lease's log line: who it was emailed to and, in so many words, who it was NOT (and why). */
+    private function logDelivery(Lease $lease, RentalNotice $notice, string $title, Collection $deliveries, User $by, bool $isResend): void
+    {
+        $sent = $deliveries->filter(fn (RentalNoticeDelivery $d) => $d->wasSent())->pluck('recipient_name')->unique()->values();
+        $noEmail = $deliveries->where('status', RentalNoticeDelivery::NOT_SENT_NO_EMAIL)->pluck('recipient_name')->unique()->values();
+        $failed = $deliveries->where('status', RentalNoticeDelivery::FAILED)->pluck('recipient_name')->unique()->values();
+
+        $text = RentalNoticeTemplate::labelFor($notice->notice_type) . ($isResend ? ' resent' : ' sent') . ' to ' . ($sent->isNotEmpty() ? $sent->implode(', ') : 'no one') . ' ' . $title;
+        if ($noEmail->isNotEmpty()) {
+            $text .= ' - NOT sent to ' . $noEmail->implode(', ') . ' (no email address on file)';
+        }
+        if ($failed->isNotEmpty()) {
+            $text .= ' - NOT sent to ' . $failed->implode(', ') . ' (the email failed)';
+        }
+        if ($deliveries->isEmpty()) {
+            $text .= ' - NOT sent: no one is linked to the lease on the side chosen';
         }
 
         LeaseEvent::create([
             'lease_id' => $lease->id, 'event_type' => LeaseEvent::TYPE_NOTICE_SENT, 'actor_user_id' => $by->id, 'occurred_at' => now(), 'created_at' => now(),
-            'description' => RentalNoticeTemplate::labelFor($template->notice_type) . ' sent to ' . ($names ? implode(', ', array_unique($names)) : 'no one') . ' ("' . $template->name . '")',
-            'metadata' => ['rental_notice_id' => $notice->id, 'to_tenant' => $toTenant, 'to_landlord' => $toLandlord],
+            'description' => $text,
+            'metadata' => [
+                'rental_notice_id' => $notice->id, 'to_tenant' => (bool) $notice->sent_to_tenant, 'to_landlord' => (bool) $notice->sent_to_landlord,
+                'resend' => $isResend, 'delivery_status' => $notice->delivery_status,
+                'emailed' => $sent->all(), 'not_sent_no_email' => $noEmail->all(), 'failed' => $failed->all(),
+            ],
         ]);
-
-        return $notice;
     }
 }

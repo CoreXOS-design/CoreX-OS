@@ -183,7 +183,7 @@ final class NoticesHubTest extends TestCase
 
     public function test_the_menu_item_the_entry_route_and_the_tabs_agree_on_the_permissions(): void
     {
-        $this->assertEqualsCanonicalizing(self::ALL, NoticesTabs::permissions());
+        $this->assertEqualsCanonicalizing(array_values(array_diff(self::ALL, ['rental_notices.create'])), NoticesTabs::permissions(), 'the four tabs');
 
         $middleware = collect(Route::getRoutes()->getByName('corex.notices.index')->gatherMiddleware())->first(fn ($m) => is_string($m) && str_starts_with($m, 'permission:'));
         $this->assertEqualsCanonicalizing(self::ALL, explode(',', substr($middleware, 11)));

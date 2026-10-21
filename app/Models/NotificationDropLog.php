@@ -17,6 +17,12 @@ class NotificationDropLog extends Model
     protected $table = 'notification_drop_log';
 
     public const REASON_ALL_CHANNELS_OFF = 'all channels off';
+    // AT-492 - every other way an alert can be dropped now leaves a row too (it used to be silent).
+    public const REASON_EVENT_OFF = 'event switched off';
+    public const REASON_UNKNOWN_EVENT = 'event type not registered';
+    public const REASON_NO_CHANNEL = 'no channel can carry it';
+    public const REASON_OPEN_HOURS = 'outside open hours';
+    public const REASON_COOLDOWN = 'cooldown';
 
     protected $fillable = [
         'agency_id', 'user_id', 'notification_event_type_id', 'event_key',

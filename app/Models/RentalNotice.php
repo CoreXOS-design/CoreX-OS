@@ -28,6 +28,7 @@ class RentalNotice extends Model
         'sent_at',
         'sent_by_user_id',
         'lease_breach_id',
+        'delivery_status',
     ];
 
     protected $casts = [
@@ -68,6 +69,44 @@ class RentalNotice extends Model
     public function breach(): BelongsTo
     {
         return $this->belongsTo(LeaseBreach::class, 'lease_breach_id')->withTrashed();
+    }
+
+    /** AT-495 - every attempt to email this notice, newest first (the first send and each resend). */
+    public function deliveries(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(RentalNoticeDelivery::class)->orderByDesc('id');
+    }
+
+    /** AT-495 - the summary of the latest attempt per recipient: 'sent' | 'partial' | 'not_sent', or null for a notice from before deliveries were recorded. */
+    public const DELIVERY_SENT = 'sent';
+    public const DELIVERY_PARTIAL = 'partial';
+    public const DELIVERY_NOT_SENT = 'not_sent';
+
+    public const DELIVERY_LABELS = [
+        self::DELIVERY_SENT => 'Emailed',
+        self::DELIVERY_PARTIAL => 'Partly sent',
+        self::DELIVERY_NOT_SENT => 'NOT sent',
+    ];
+
+    public function deliveryLabel(): string
+    {
+        return self::DELIVERY_LABELS[$this->delivery_status] ?? 'Not recorded';
+    }
+
+    /**
+     * The latest delivery row for each recipient (a resend replaces the earlier answer for that person), oldest recipient first.
+     *
+     * @return \Illuminate\Support\Collection<int, RentalNoticeDelivery>
+     */
+    public function latestDeliveries(): \Illuminate\Support\Collection
+    {
+        return $this->deliveries->unique(fn (RentalNoticeDelivery $d) => $d->recipient_role . '|' . ($d->contact_id ?? 'x' . $d->id))->reverse()->values();
+    }
+
+    /** A notice made by the breach flow is told and resent from the breach screen, not here. */
+    public function isResendable(): bool
+    {
+        return $this->lease_breach_id === null && ($this->sent_to_tenant || $this->sent_to_landlord);
     }
 
     public function sentByUser(): BelongsTo

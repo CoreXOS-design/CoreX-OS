@@ -76,9 +76,16 @@ class ReosAgentMatcher
         return $out;
     }
 
+    /** Roles that work the agency's people but are not agents of a property / lease. */
+    private const NOT_AGENT_ROLES = ['assistant', 'viewer', 'office_admin'];
+
+    /** Addresses on these endings can never be a real mailbox (RFC 2606 / 6761): test, throwaway and fixture accounts. */
+    private const FIXTURE_EMAIL_ENDINGS = ['.test', '.invalid', '.local', '.example', '.localhost'];
+
     /**
-     * People who can be picked as the agent of a property / lease: active users of the agency, minus system-owner
-     * accounts (the property observer refuses those as a property agent).
+     * People who can be picked as the agent of a property / lease: ACTIVE, not archived (soft-deleted users drop out of the query),
+     * agency members only (no system-owner accounts — the property observer refuses those as a property agent), not an assistant /
+     * viewer / office administrator, and not a test or fixture account (an address that can never be a real mailbox).
      *
      * @return list<array{id:int,name:string,key:string}>
      */
@@ -93,12 +100,27 @@ class ReosAgentMatcher
             ->withoutGlobalScope(AgencyScope::class)
             ->where('users.agency_id', $agencyId)
             ->where('users.is_active', true)
+            ->whereNull('users.deleted_at')
             ->when($ownerRoles !== [], fn ($q) => $q->whereNotIn('users.role', $ownerRoles))
+            ->whereNotIn('users.role', self::NOT_AGENT_ROLES)
             ->orderBy('users.name')
-            ->get(['users.id', 'users.name'])
+            ->get(['users.id', 'users.name', 'users.email'])
+            ->reject(fn (User $u) => self::isFixtureEmail((string) $u->email))
             ->map(fn (User $u) => ['id' => (int) $u->id, 'name' => trim((string) $u->name) ?: 'User #' . $u->id, 'key' => ReosContactNames::key($u->name)])
             ->values()
             ->all();
+    }
+
+    public static function isFixtureEmail(string $email): bool
+    {
+        $email = mb_strtolower(trim($email));
+        foreach (self::FIXTURE_EMAIL_ENDINGS as $end) {
+            if ($email !== '' && str_ends_with($email, $end)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<string> */

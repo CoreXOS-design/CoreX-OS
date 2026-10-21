@@ -1103,6 +1103,11 @@ return [
              'affects' => 'The selling price a new catalogue item gets when you type its cost. 0 (the default) means the selling price starts equal to the cost; for example 20 % turns a cost of R100 into R120.'],
             // BUILD 1 END
             // BUILD 2 BEGIN — approvals controls (.ai/specs/rental-work-orders.md §17.14)
+            // AT-494 (Johan's ruling) - one switch for who may approve quotes. Saved by RentalWorkOrderSettingsController::updateApprovals (has()-guarded, audited).
+            ['key' => 'agents_approve_quotes', 'source' => 'rental_work_orders', 'type' => 'toggle', 'default' => 1,
+             'label' => 'Agents can approve quotes and send them to the owner',
+             'explain' => 'When a repair needs a quote, someone has to choose the quote, send it to the owner and authorise the repair. This decides whether your ordinary agents can do that themselves, or whether it is left to branch managers and admins.',
+             'affects' => 'What an agent sees on a work order. On: the Select, Send to owner and Authorise buttons work for agents. Off: those buttons are replaced by "Ask your branch manager to approve". Branch managers and admins can always approve, and the owner\'s own repair limit still applies. On by default.'],
             ['key' => 'external_quote_markup_type', 'source' => 'rental_work_orders', 'type' => 'select', 'default' => 'percent',
              'options' => ['percent' => 'A percentage of the contractor\'s quote', 'amount' => 'A fixed amount (R)'],
              'label' => 'Your fee on an outside contractor\'s quote — how it is worked out',

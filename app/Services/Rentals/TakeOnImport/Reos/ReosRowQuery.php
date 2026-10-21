@@ -6,14 +6,16 @@ use App\Models\RentalTakeOnImportRow;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * AT-479 / rental-takeon-import.md R4 "List standard" — the review screen's search, filters and sort, in ONE place so the
- * list, the bulk actions ("tick all ready" under the current filter) and the tests all mean the same thing.
+ * AT-481 / rental-takeon-import.md "reOS review screen rebuild" — the review screen's search and its one "Show" switch, in ONE place so
+ * the page, the queue and the tests all mean the same thing. Order is always the sheet's own row order.
+ *
+ * Show: all | ready | needs | imported | failed — the states of ReosQuestions::state, as SQL over the columns ReosBlockers::refresh keeps.
  */
 final class ReosRowQuery
 {
-    public const SORTS = ['row' => 'row_number', 'address' => 'payload_json->address', 'owner' => 'payload_json->owner_name', 'tenant' => 'payload_json->tenant_name', 'status' => 'payload_json->lease_status', 'rent' => 'payload_json->rent'];
+    public const SHOWS = ['all' => 'All', 'ready' => 'Ready', 'needs' => 'Needs you', 'imported' => 'Imported', 'failed' => 'Failed'];
 
-    public const FILTER_KEYS = ['q', 'property', 'readiness', 'lease_status', 'state', 'names', 'sort', 'dir'];
+    public const FILTER_KEYS = ['q', 'show'];
 
     /** @param array<string,mixed> $p  request query values */
     public static function apply(Builder $query, array $p): Builder
@@ -29,46 +31,20 @@ final class ReosRowQuery
             });
         }
 
-        match ($p['property'] ?? '') {
-            'matched' => $query->where('property_match_action', RentalTakeOnImportRow::ACTION_MATCH),
-            'unmatched' => $query->where(fn (Builder $w) => $w->where('property_match_action', '!=', RentalTakeOnImportRow::ACTION_MATCH)->orWhereNull('property_match_action')),
+        $confirmed = RentalTakeOnImportRow::STATUS_CONFIRMED;
+        // failed = not imported and (the file rejected it, an import attempt said why not, or a hard stop no button answers)
+        $failed = fn (Builder $w) => $w->where('status', RentalTakeOnImportRow::STATUS_ERROR)->orWhereNotNull('import_error')->orWhere('decisions_json->hard', true);
+        $notFailed = fn (Builder $w) => $w->where('status', '!=', RentalTakeOnImportRow::STATUS_ERROR)->whereNull('import_error')
+            ->where(fn (Builder $h) => $h->whereNull('decisions_json->hard')->orWhere('decisions_json->hard', false));
+        $needsCount = "CAST(COALESCE(JSON_UNQUOTE(JSON_EXTRACT(decisions_json, '$.needs_count')), '0') AS UNSIGNED)";
+
+        match ($p['show'] ?? 'all') {
+            'imported' => $query->where('status', $confirmed),
+            'failed' => $query->where('status', '!=', $confirmed)->where($failed),
+            'needs' => $query->where('status', '!=', $confirmed)->where($notFailed)->whereRaw("{$needsCount} > 0"),
+            'ready' => $query->where('status', '!=', $confirmed)->where($notFailed)->whereRaw("{$needsCount} = 0"),
             default => null,
         };
-
-        match ($p['readiness'] ?? '') {
-            'blocked' => $query->where('is_blocked', true),
-            'ready' => $query->where('is_blocked', false)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED),
-            'ticked' => $query->where('selected', true),
-            'unticked' => $query->where('selected', false),
-            default => null,
-        };
-
-        if (in_array($p['lease_status'] ?? '', ['Active', 'Expiring', 'Draft'], true)) {
-            $query->whereRaw("LOWER(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.lease_status'))) = ?", [mb_strtolower($p['lease_status'])]);
-        }
-
-        match ($p['state'] ?? '') {
-            'waiting' => $query->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED),
-            'imported' => $query->where('status', RentalTakeOnImportRow::STATUS_CONFIRMED),
-            'failed' => $query->whereNotNull('import_error'),
-            'existing' => $query->whereNotNull('existing_lease_id'),
-            default => null,
-        };
-
-        // Contacts matched on a phone / e-mail under a different name than reOS gives (a warning, kept as a filter).
-        if (($p['names'] ?? '') === 'differs') {
-            $query->where('decisions_json->name_differs', true);
-        } elseif (($p['names'] ?? '') === 'spelling') {
-            $query->where('decisions_json->spelling_differs', true);   // the muted "Spelling differs" — not counted in the amber total
-        }
-
-        $sort = self::SORTS[$p['sort'] ?? 'row'] ?? self::SORTS['row'];
-        $dir = strtolower((string) ($p['dir'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';
-        if ($sort === 'payload_json->rent') {
-            $query->orderByRaw("CAST(JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.rent')) AS DECIMAL(14,2)) {$dir}");
-        } else {
-            $query->orderBy($sort, $dir);
-        }
 
         return $query->orderBy('row_number');
     }
@@ -76,6 +52,11 @@ final class ReosRowQuery
     /** @param array<string,mixed> $all */
     public static function only(array $all): array
     {
-        return array_filter(array_intersect_key($all, array_flip(self::FILTER_KEYS)), fn ($v) => $v !== null && $v !== '');
+        $f = array_filter(array_intersect_key($all, array_flip(self::FILTER_KEYS)), fn ($v) => $v !== null && $v !== '');
+        if (isset($f['show']) && ! array_key_exists($f['show'], self::SHOWS)) {
+            unset($f['show']);
+        }
+
+        return $f;
     }
 }

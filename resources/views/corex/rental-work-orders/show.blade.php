@@ -18,12 +18,9 @@
     $isInternal = $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_INTERNAL;
     $isOutside = $workOrder->assignment_type === \App\Models\RentalWorkOrder::ASSIGNMENT_OUTSIDE_SUPPLIER;
     $woUser = auth()->user();
-    $woCan = [
-        'create' => $woUser->hasPermission('rental_work_orders.create'),
-        'record_approval' => $woUser->hasPermission('rental_work_orders.record_approval'),
-        'complete' => $woUser->hasPermission('rental_work_orders.complete'),
-        'manage_completion' => $woUser->hasPermission('rental_work_orders.manage_completion'),
-    ];
+    // AT-494: ONE permission map - the Next bar, the panels and every button below read it (never a second hasPermission/@permission of their own).
+    $woCan = \App\Services\Rentals\RentalWorkOrderScreen::permissionsFor($woUser);
+    $woAsk = \App\Services\Rentals\RentalWorkOrderApprovalRules::ASK_MANAGER;
     $js = $contractorStatus;
     $screen = app(\App\Services\Rentals\RentalWorkOrderScreen::class)->build($workOrder, [
         'proceed' => $proceed, 'selectedQuote' => $selectedQuote, 'costActive' => $costActive, 'costRepair' => $costRepair, 'costMeasure' => $costMeasure,
@@ -41,6 +38,7 @@
     elseif ($errors->has('invoice') || $errors->has('document')) { $openKey = 'invoices'; }
     elseif ($errors->has('who_pays')) { $openKey = 'whopays'; }
     elseif ($errors->has('completion') || $errors->has('rental_work_order')) { $openKey = 'completion'; }
+    elseif ($errors->hasAny(['quote', 'amount', 'quote_date', 'agency_service_provider_id', 'detail_text'])) { $openKey = 'quotes'; }
     elseif ($errors->photo->any() || session('wo_photo_message')) { $openKey = 'photos'; }
     // the panel that holds a contractor / job card slot is the same slot for the strip's purposes
     if ($openKey === 'jobcard' && ! $isInternal) { $openKey = 'contractor'; }
@@ -164,7 +162,9 @@
         @php $nb2 = $woNext['secondary'] ?? null; @endphp
         <div class="wo-btnrow">
         @if($nb)
-            @if($nb['kind'] === 'form')
+            @if($nb['kind'] === 'note')
+                <span class="text-xs font-semibold" style="color: var(--text-muted);" data-ask-branch-manager>{{ $nb['label'] }}</span>
+            @elseif($nb['kind'] === 'form')
                 <button type="submit" form="{{ $nb['form'] }}" class="corex-btn-primary text-xs" data-next-button>{{ $nb['label'] }}</button>
             @elseif($nb['kind'] === 'link')
                 <a href="{{ $nb['href'] }}" class="corex-btn-primary text-xs" data-next-button>{{ $nb['label'] }}</a>
@@ -483,24 +483,30 @@
                                 <span class="text-xs" style="color: var(--text-muted);">&mdash; {{ $quote->detail_text }}</span>
                             @endif
                         </span>
-                        @permission('rental_work_orders.manage_quotes')
+                        @if($woCan['manage_quotes'] || $woCan['record_approval'])
                         <span class="wo-btnrow">
                             @unless($quote->is_selected)
+                                @if($woCan['record_approval'])
                                 <form method="POST" action="{{ route('corex.rental-work-orders.quotes.select', [$workOrder, $quote]) }}">
                                     @csrf
                                     <button type="submit" class="corex-btn-outline text-xs">Select</button>
                                 </form>
+                                @else
+                                    <span class="text-xs" style="color: var(--text-muted);" data-ask-branch-manager>{{ $woAsk }}</span>
+                                @endif
                             @endunless
+                            @if($woCan['manage_quotes'])
                             <button type="button" onclick="document.getElementById('edit-quote-form-{{ $quote->id }}').classList.toggle('hidden')" class="corex-btn-outline text-xs">Edit</button>
                             <form method="POST" action="{{ route('corex.rental-work-orders.quotes.destroy', [$workOrder, $quote]) }}" data-confirm="Archive this quote?" data-confirm-danger data-confirm-label="Archive">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="corex-btn-outline text-xs" style="color: var(--ds-red, #dc2626);">Archive</button>
                             </form>
+                            @endif
                         </span>
-                        @endpermission
+                        @endif
                     </li>
-                    @permission('rental_work_orders.manage_quotes')
+                    @if($woCan['manage_quotes'])
                     <li id="edit-quote-form-{{ $quote->id }}" class="hidden">
                         <form method="POST" action="{{ route('corex.rental-work-orders.quotes.update', [$workOrder, $quote]) }}" enctype="multipart/form-data" class="space-y-2 pt-1">
                             @csrf
@@ -537,11 +543,11 @@
                             </div>
                         </form>
                     </li>
-                    @endpermission
+                    @endif
                 @endforeach
             </ul>
         @endif
-        @permission('rental_work_orders.manage_quotes')
+        @if($woCan['manage_quotes'])
         @if($archivedQuotes->isNotEmpty())
             <div>
                 <button type="button" onclick="document.getElementById('archived-quotes').classList.toggle('hidden')" class="corex-btn-outline text-xs">{{ $archivedQuotes->count() }} archived quote(s)</button>
@@ -560,13 +566,22 @@
         @endif
         @if(! $woReportedFinished)
         @php
-            $captureCollapsed = $workOrder->quotes->isNotEmpty() && ! $errors->has('amount') && ! $errors->has('quote_date');
+            // AT-493: any refusal of the capture keeps the form open and shows the reason RIGHT HERE (it used to appear only in the banner at the top of the page)
+            $quoteFormErrors = collect(['quote', 'amount', 'quote_date', 'agency_service_provider_id', 'detail_text', 'document'])->flatMap(fn ($k) => $errors->get($k))->unique()->values();
+            $captureCollapsed = $workOrder->quotes->isNotEmpty() && $quoteFormErrors->isEmpty();
             $quotePickList = \App\Models\DealV2\AgencyServiceProvider::active()->maintenanceContractors()->pickerOrder()->get();
         @endphp
         <details data-capture-quote @unless($captureCollapsed) open @endunless>
             <summary class="corex-btn-outline text-xs cursor-pointer" style="{{ $captureCollapsed ? 'display:inline-flex; align-items:center; min-height:34px; list-style:none;' : 'display:none;' }}" data-capture-quote-toggle>Capture a quote</summary>
             <form method="POST" action="{{ route('corex.rental-work-orders.quotes.store', $workOrder) }}" enctype="multipart/form-data" class="space-y-3 pt-3" x-data="{ chosen: '{{ (int) old('agency_service_provider_id', $workOrder->agency_service_provider_id) ?: '' }}' }" data-quote-form>
                 @csrf
+                @if($quoteFormErrors->isNotEmpty())
+                    <div class="text-xs rounded-md px-3 py-2" style="border:1px solid var(--ds-red, #dc2626); color: var(--ds-red, #dc2626);" role="alert" data-quote-form-errors>
+                        @foreach($quoteFormErrors as $qe)<div>{{ $qe }}</div>@endforeach
+                    </div>
+                    {{-- AT-493: the page lands ON the reason, not at the top (and the global scroll-restore leaves it alone) --}}
+                    <script>window.cxKeepScroll = true; window.addEventListener('load', function () { var e = document.querySelector('[data-quote-form-errors]'); if (e) { e.scrollIntoView({ block: 'center' }); } });</script>
+                @endif
                 <div class="wo-grid-3">
                     <div>
                         <label class="wo-lbl" for="wo-quote-supplier">Supplier</label>
@@ -592,7 +607,7 @@
                     <label class="flex items-center gap-2 text-xs"><input type="checkbox" name="quoted_by_phone" value="1" x-model="phone" data-quoted-by-phone> Quoted by phone (no document or details to attach)</label>
                     <div class="wo-grid-2" x-show="!phone">
                         <div>
-                            <label class="wo-lbl" for="wo-quote-details">Details (optional &mdash; required if no document attached)</label>
+                            <label class="wo-lbl" for="wo-quote-details">Details (optional)</label>
                             <textarea id="wo-quote-details" name="detail_text" rows="2" class="wo-ctl wo-ta">{{ old('detail_text') }}</textarea>
                         </div>
                         <div>
@@ -613,7 +628,9 @@
             </form>
         </details>
         @endif
-        @endpermission
+        @elseif(! $woReportedFinished)
+            <p class="text-xs" style="color: var(--text-muted);" data-ask-branch-manager>{{ $woAsk }}</p>
+        @endif
         {{-- BUILD 2 (§17.9.1a) - per-work-order override of the agency's fee on this contractor's quote; locked once the owner approved an amount. --}}
         @permission('rental_job_cards.price')
         @if($canSeeFee && !$workOrder->hasApprovedBaseline() && $workOrder->quotes->isNotEmpty())
