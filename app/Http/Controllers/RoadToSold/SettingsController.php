@@ -127,6 +127,17 @@ class SettingsController extends Controller
             $request->merge(['default_targets' => $week]);
         }
 
+        // The four monthly-target defaults: each is optional, whatever the step did not post is left as it was.
+        $monthly = [];
+        foreach (array_keys(RtsSetting::DEFAULT_MONTHLY_TARGETS) as $key) {
+            if ($request->has("default_monthly_{$key}")) {
+                $monthly[$key] = $request->input("default_monthly_{$key}");
+            }
+        }
+        if ($monthly !== []) {
+            $request->merge(['default_monthly' => $monthly]);
+        }
+
         // The two portal toggles become the settings page's refresh_portals[] list, only when the step carried
         // both (a step that never rendered them must not touch the setting). Both off is refused by the saver.
         if ($request->has('refresh_portal_p24') && $request->has('refresh_portal_pp')) {
@@ -178,6 +189,12 @@ class SettingsController extends Controller
             'summary_steps'                => ['sometimes', 'array'],
             // The agency's default week: when sent, all seven days are required (0 is fine).
             'default_targets'              => ['sometimes', 'array'],
+            // The agency default for the monthly targets: any of the four may be sent; the rest keep their value.
+            'default_monthly'              => ['sometimes', 'array'],
+            'default_monthly.points'       => ['sometimes', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'default_monthly.deals'        => ['sometimes', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'default_monthly.listings'     => ['sometimes', 'integer', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_COUNT],
+            'default_monthly.value'        => ['sometimes', 'numeric', 'min:0', 'max:' . RtsSetting::MAX_MONTHLY_VALUE],
         ];
         // The four tick-lists: at least one choice, only known choices. A posted blank (the hidden marker
         // that lets "everything unticked" reach the server) is dropped before the check.
@@ -196,6 +213,11 @@ class SettingsController extends Controller
         }
 
         $messages = [];
+        foreach (['points' => 'points', 'deals' => 'deals', 'listings' => 'listings', 'value' => 'sales value'] as $k => $word) {
+            foreach (['integer', 'numeric', 'min', 'max'] as $rule) {
+                $messages["default_monthly.{$k}.{$rule}"] = "Agency default monthly {$word}: enter a number from 0 up (a whole number" . ($k === 'value' ? ' or an amount' : '') . ').';
+            }
+        }
         foreach (\App\Models\RoadToSold\RtsWeekdayTarget::WEEKDAYS as $day => $dayLabel) {
             $messages["default_targets.{$day}.required_with"] = "Agency default: enter a number for {$dayLabel} (0 if nobody works it).";
             $messages["default_targets.{$day}.integer"]       = "Agency default {$dayLabel}: enter a whole number from 0 to " . \App\Models\RoadToSold\RtsWeekdayTarget::MAX_TARGET . '.';
@@ -249,6 +271,15 @@ class SettingsController extends Controller
                 $week[$day] = (int) $data['default_targets'][$day];
             }
             $changes['default_weekday_targets'] = $week;
+        }
+        if (array_key_exists('default_monthly', $data)) {
+            $merged = $current->defaultMonthlyTargets();
+            foreach (array_keys(RtsSetting::DEFAULT_MONTHLY_TARGETS) as $key) {
+                if (array_key_exists($key, $data['default_monthly'])) {
+                    $merged[$key] = $key === 'value' ? round((float) $data['default_monthly'][$key], 2) : (int) $data['default_monthly'][$key];
+                }
+            }
+            $changes['default_monthly_targets'] = $merged;
         }
         if (array_key_exists('summary_steps', $data)) {
             $changes['summary_steps'] = RtsSetting::normaliseOrderedToggles($data['summary_steps'], RtsSetting::summaryStepCatalogue($this->track()));
@@ -319,7 +350,7 @@ class SettingsController extends Controller
                 foreach (RtsSetting::SCALAR_DEFAULTS as $field => $default) {
                     $row->{$field} = $default;
                 }
-                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets'] as $field) {
+                foreach ([...array_keys(RtsSetting::LIST_DEFAULTS), 'selections', 'summary_steps', 'default_weekday_targets', 'default_monthly_targets'] as $field) {
                     $row->{$field} = null; // NULL = the code default
                 }
             }
@@ -361,7 +392,7 @@ class SettingsController extends Controller
     {
         return RtsSetting::SCALAR_DEFAULTS
             + RtsSetting::LIST_DEFAULTS
-            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null];
+            + ['selections' => null, 'summary_steps' => null, 'default_weekday_targets' => null, 'default_monthly_targets' => null];
     }
 
     /** @return array<string,string> code => display name for every country the holidays table holds */
@@ -392,6 +423,7 @@ class SettingsController extends Controller
             'selections'    => RtsSetting::normaliseOrderedToggles(null, RtsSetting::selectionCatalogue($this->track())),
             'summary_steps' => RtsSetting::normaliseOrderedToggles(null, RtsSetting::summaryStepCatalogue($this->track())),
             'default_weekday_targets' => RtsSetting::DEFAULT_WEEKDAY_TARGETS,
+            'default_monthly_targets' => RtsSetting::DEFAULT_MONTHLY_TARGETS,
             default         => RtsSetting::SCALAR_DEFAULTS[$field] ?? RtsSetting::LIST_DEFAULTS[$field] ?? null,
         };
     }
@@ -416,12 +448,13 @@ class SettingsController extends Controller
         $defs = [
             ['general', 'General', 'road_to_sold.manage_settings', Routing::base() . 'index'],
             ['areas', 'Areas', 'road_to_sold.manage_areas', Routing::base() . 'areas.index'],
+            ['budgets', 'Budgets', 'road_to_sold.manage_targets|road_to_sold.manage_settings', Routing::base() . 'budgets.index'],
             ['targets', 'Targets', 'road_to_sold.manage_targets', Routing::base() . 'targets.index'],
         ];
 
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
-            if (\Illuminate\Support\Facades\Route::has($route) && $user->hasPermission($permission)) {
+            if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {
                 $tabs[] = ['key' => $key, 'label' => $label, 'href' => route($route), 'active' => $key === $active];
             }
         }

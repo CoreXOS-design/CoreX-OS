@@ -8,7 +8,7 @@ use App\Models\Agency;
 use App\Models\AssistantAssignment;
 use App\Models\Branch;
 use App\Models\Deal;
-use App\Models\MonthlyTargetGoal;
+use App\Models\RoadToSold\RtsBudget;
 use App\Models\Property;
 use App\Models\RolePermission;
 use App\Models\Scopes\AgencyScope;
@@ -99,14 +99,42 @@ final class MyPortalBlocksTest extends TestCase
         PermissionService::clearCache();
     }
 
+    /**
+     * A budget for the agent and month. Since re-home step 4 the budget lives in Road to Sold (rts_budgets); the
+     * legacy Worksheet row is still made too, because several tests compare My Portal with the old Worksheet maths.
+     */
     private function worksheet(User $u, string $period, float $personal, float $business): Worksheet
     {
         $make = fn () => Worksheet::create([
             'agency_id' => $u->agency_id, 'user_id' => $u->id, 'period' => $period,
             'personal_net_target' => $personal, 'business_net_target' => $business,
         ]);
+        $w = (int) $u->agency_id === (int) $this->agency->id ? $make() : $this->asNobody($make);
+        $this->mirror($w->fresh());
 
-        return (int) $u->agency_id === (int) $this->agency->id ? $make() : $this->asNobody($make);
+        return $w;
+    }
+
+    /** Write the Worksheet row's budget and planning figures to the Road to Sold store (what My Portal reads). */
+    private function mirror(Worksheet $w): void
+    {
+        DB::table('rts_budgets')->updateOrInsert(
+            ['agency_id' => $w->agency_id, 'track' => 'sales', 'scope_key' => 'user:' . $w->user_id, 'period' => $w->period],
+            [
+                'level' => 'agent', 'user_id' => $w->user_id, 'branch_id' => User::withoutGlobalScopes()->find($w->user_id)?->branch_id,
+                'personal_budget' => $w->personal_net_target, 'business_budget' => $w->business_net_target, 'requirement' => 0,
+                'avg_sale_price' => $w->avg_sale_price, 'commission_percent' => $w->commission_percent, 'paye_percent' => $w->paye_percent,
+                'agent_split_percent' => $w->agent_split_percent, 'correctly_priced_percent' => $w->correctly_priced_percent,
+                'created_at' => now(), 'updated_at' => now(),
+            ]
+        );
+    }
+
+    /** Change the Worksheet row, then keep the Road to Sold copy the same. */
+    private function tweak(Worksheet $w, array $attrs): void
+    {
+        $w->forceFill($attrs)->save();
+        $this->mirror($w->fresh());
     }
 
     /** A deal with the agent on it and one money line. */
@@ -184,7 +212,7 @@ final class MyPortalBlocksTest extends TestCase
     public function test_the_want_figure_is_not_part_of_the_budget(): void
     {
         $w = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $w->forceFill(['want_net_target' => 99999])->save();
+        $this->tweak($w, ['want_net_target' => 99999]);
 
         $this->assertSame(60000.0, app(BudgetService::class)->forUser($this->agent, '2026-10')['total']);
     }
@@ -217,7 +245,7 @@ final class MyPortalBlocksTest extends TestCase
 
     public function test_branch_requirement_per_agent_counts_only_active_agents_who_share_the_budget(): void
     {
-        MonthlyTargetGoal::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'period' => '2026-10', 'branch_budget' => 300000]);
+        RtsBudget::create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'track' => 'sales', 'level' => 'branch', 'scope_key' => 'branch:' . $this->branch->id, 'period' => '2026-10', 'requirement' => 300000]);
         $this->agent->forceFill(['counts_for_branch_split' => 1])->save();
         $this->colleague->forceFill(['counts_for_branch_split' => 1])->save();
         $this->user('agent')->forceFill(['counts_for_branch_split' => 0])->save();
@@ -388,7 +416,7 @@ final class MyPortalBlocksTest extends TestCase
     public function test_my_portal_equals_the_old_worksheet_figures_for_the_same_agent(array $override): void
     {
         $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill($override)->save();
+        $this->tweak($row, $override);
         $this->property($this->agent);
         $this->property($this->agent);
 
@@ -405,7 +433,7 @@ final class MyPortalBlocksTest extends TestCase
     public function test_my_portal_shows_the_same_numbers_as_the_old_worksheet_page(): void
     {
         $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50])->save();
+        $this->tweak($row, ['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50]);
         $this->actingAs($this->agent);
 
         $worksheet = html_entity_decode($this->get(route('worksheet.index'))->assertOk()->getContent());
@@ -421,7 +449,7 @@ final class MyPortalBlocksTest extends TestCase
     public function test_the_want_figure_stays_out_of_the_portal_calculation(): void
     {
         $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['want_net_target' => 90000])->save();
+        $this->tweak($row, ['want_net_target' => 90000]);
 
         $req = $this->svc()->requirement(app(BudgetService::class)->worksheetFor($this->agent, '2026-10'), 0);
 
@@ -431,7 +459,7 @@ final class MyPortalBlocksTest extends TestCase
     public function test_the_block_shows_the_planning_figures_it_works_from(): void
     {
         $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50])->save();
+        $this->tweak($row, ['avg_sale_price' => 2400000, 'commission_percent' => 6, 'paye_percent' => 25, 'agent_split_percent' => 70, 'correctly_priced_percent' => 50]);
 
         $html = $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->getContent();
 
@@ -443,7 +471,7 @@ final class MyPortalBlocksTest extends TestCase
         $this->assertSame('no_budget', $this->svc()->requirement(null, 3)['state']);
 
         $row = $this->worksheet($this->agent, '2026-10', 40000, 20000);
-        $row->forceFill(['avg_sale_price' => 0])->save();
+        $this->tweak($row, ['avg_sale_price' => 0]);
         $this->assertSame('incomplete', $this->svc()->requirement($row->fresh(), 3)['state']);
         $this->get(route('agent.portal', ['sub' => 'targets']))->assertOk()->assertSee('data-testid="requirement-incomplete"', false);
     }

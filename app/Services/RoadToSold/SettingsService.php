@@ -145,6 +145,19 @@ class SettingsService
         return $out;
     }
 
+    /** @return array{points:int,deals:int,listings:int,value:float} the agency default for the monthly targets (0 = none set) */
+    public function defaultMonthlyTargets(): array
+    {
+        $stored = $this->row->default_monthly_targets;
+        $out = [];
+        foreach (RtsSetting::DEFAULT_MONTHLY_TARGETS as $key => $fallback) {
+            $v = is_array($stored) ? ($stored[$key] ?? null) : null;
+            $out[$key] = is_numeric($v) ? max(0, $key === 'value' ? (float) $v : (int) $v) : $fallback;
+        }
+
+        return $out;
+    }
+
     public function missedItemsMode(): string
     {
         $mode = (string) $this->scalar('missed_items_mode');

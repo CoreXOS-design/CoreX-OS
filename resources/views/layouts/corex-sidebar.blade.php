@@ -126,7 +126,7 @@
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.
         'deals-dr2.*', 'corex.compliance.rcr.*',
-        'admin.monthly-goals*', 'admin.listing-targets*', 'admin.expenses*',
+        'admin.expenses*',
         // 'tools.cma*' (not the exact 'tools.cma') so the Evaluation
         // Certificate sub-pages under it — tools.cma.evaluation.mine,
         // .authorisations, etc. — also open this panel. Their own sidebar
@@ -1903,9 +1903,6 @@
                 @permission('access_worksheet_market')
                 <a href="{{ route('bm.worksheet.market') }}" class="corex-nav-subitem {{ request()->routeIs('bm.worksheet.market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission
-                @permission('manage_targets')
-                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                @endpermission
                 @feature('tv-display')
                 @permission('manage_tv_messages')
                 <a href="{{ route('bm.tv-messages') }}" class="corex-nav-subitem {{ request()->routeIs('bm.tv-messages*') ? 'active' : '' }}">TV Messages</a>
@@ -1981,11 +1978,6 @@
                     <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                     @endif
                 @endunless
-                @permission('manage_targets')
-                @unless(auth()->user()?->hasPermission('view_branch_stats'))
-                <a href="{{ route('admin.targets') }}" class="corex-nav-subitem {{ request()->routeIs('admin.targets') ? 'active' : '' }}">Targets</a>
-                @endunless
-                @endpermission
                 @permission('edit_worksheet')
                 <a href="{{ route('admin.worksheet-market') }}" class="corex-nav-subitem {{ request()->routeIs('admin.worksheet-market*') ? 'active' : '' }}">Worksheet Market</a>
                 @endpermission

@@ -61,9 +61,7 @@ class AgentPerformanceService
             (($derived['value_target'] ?? 0) <= 0) ||
             (($derived['deals_needed'] ?? 0) <= 0)
         ) {
-            $ws = \App\Models\Worksheet::where('user_id', $user->id)
-                ->where('period', $month->format('Y-m'))
-                ->first();
+            $ws = app(\App\Services\RoadToSold\BudgetService::class)->worksheetFor($user, $month->format('Y-m'));
 
             if ($ws) {
                 $calc = \App\Http\Controllers\WorksheetController::calculate($ws);
