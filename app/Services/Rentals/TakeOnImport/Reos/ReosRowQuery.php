@@ -13,7 +13,7 @@ final class ReosRowQuery
 {
     public const SORTS = ['row' => 'row_number', 'address' => 'payload_json->address', 'owner' => 'payload_json->owner_name', 'tenant' => 'payload_json->tenant_name', 'status' => 'payload_json->lease_status', 'rent' => 'payload_json->rent'];
 
-    public const FILTER_KEYS = ['q', 'property', 'readiness', 'lease_status', 'state', 'sort', 'dir'];
+    public const FILTER_KEYS = ['q', 'property', 'readiness', 'lease_status', 'state', 'names', 'sort', 'dir'];
 
     /** @param array<string,mixed> $p  request query values */
     public static function apply(Builder $query, array $p): Builder
@@ -54,6 +54,11 @@ final class ReosRowQuery
             'existing' => $query->whereNotNull('existing_lease_id'),
             default => null,
         };
+
+        // Contacts matched on a phone / e-mail under a different name than reOS gives (a warning, kept as a filter).
+        if (($p['names'] ?? '') === 'differs') {
+            $query->where('decisions_json->name_differs', true);
+        }
 
         $sort = self::SORTS[$p['sort'] ?? 'row'] ?? self::SORTS['row'];
         $dir = strtolower((string) ($p['dir'] ?? 'asc')) === 'desc' ? 'desc' : 'asc';

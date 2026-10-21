@@ -156,7 +156,7 @@ class ReosRowResolver
             $agencyId,
         )->first();
 
-        return [
+        $match = [
             'name' => $name,
             'kind' => $kind,
             'action' => $found ? 'match' : 'create',
@@ -165,6 +165,17 @@ class ReosRowResolver
                 ? 'In CoreX: ' . $found->full_name . ($found->phone ? ', ' . $found->phone : '')
                 : 'Not in CoreX',
         ];
+
+        // Matched on a phone / e-mail but under a different name? Say so (a warning on the cell, never a blocker).
+        if ($found) {
+            $flag = ReosNameCompare::flag($name, (string) $found->full_name, $found->isEntity());
+            if ($flag !== ReosNameCompare::OK) {
+                $match['name_flag'] = $flag;
+                $match['matched_name'] = (string) $found->full_name;
+            }
+        }
+
+        return $match;
     }
 
     /** @return array{action:string, contact_id:?int} */

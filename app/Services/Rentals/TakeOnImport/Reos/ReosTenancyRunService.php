@@ -43,7 +43,7 @@ class ReosTenancyRunService
 
         $parsed = iterator_to_array($this->schedule->rows($schedulePath), false);
         if ($parsed === []) {
-            throw new ReosLayoutException('The Tenancy Schedule has no leases in it (nothing from row ' . ReosWorkbookReader::FIRST_DATA_ROW . ' down).');
+            throw new ReosLayoutException('The Tenancy Schedule has no leases in it (nothing below its header row).');
         }
 
         $rollSummary = $rentRollFile !== null ? $this->merger->merge($parsed, $rollRows) : null;

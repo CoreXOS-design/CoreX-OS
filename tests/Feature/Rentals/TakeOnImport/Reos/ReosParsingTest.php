@@ -119,18 +119,15 @@ final class ReosParsingTest extends TestCase
         }
 
         $badHeaders = ReosTenancyScheduleParser::HEADERS;
-        $badHeaders[6] = 'Tenant Mail';
+        $badHeaders[6] = 'Tenant Mail';   // "Tenant Email" is gone, so no row holds the full header set
         try {
             $parser->assertLayout($this->scheduleFile([$this->reosRow()], 'Tenancy Schedule', $badHeaders));
             self::fail('a changed header must be refused');
         } catch (ReosLayoutException $e) {
-            self::assertStringContainsString('column 7', $e->getMessage());
-            self::assertStringContainsString('Tenant Mail', $e->getMessage());
+            self::assertStringContainsString('header row', $e->getMessage());
+            self::assertStringContainsString('Tenant Email', $e->getMessage(), 'the message names the expected headers');
+            self::assertStringContainsString('Lease ID', $e->getMessage());
         }
-
-        $headersOnRow3 = $this->scheduleFile([$this->reosRow()], 'Tenancy Schedule', null, 3);
-        $this->expectException(ReosLayoutException::class);
-        $parser->assertLayout($headersOnRow3);
     }
 
     public function test_something_that_is_not_an_excel_file_is_refused_plainly(): void
@@ -307,4 +304,108 @@ final class ReosParsingTest extends TestCase
         self::assertSame([], ReosContactNames::splitValues('', true));
         self::assertSame([], ReosContactNames::splitValues(null, false));
     }
+
+    // ── the header row is FOUND, not assumed ───────────────────────────────────────────────
+
+    /** @dataProvider headerRows */
+    public function test_the_tenancy_schedule_header_may_be_on_any_of_the_first_15_rows(int $headerRow): void
+    {
+        $path = $this->scheduleFile([$this->reosRow(['uuid' => self::UUID_A]), $this->reosRow(['uuid' => self::UUID_B, 'Tenant' => 'ZZ TEST Tenant Two'])], 'Tenancy Schedule', null, $headerRow);
+        $parser = new ReosTenancyScheduleParser();
+
+        $parser->assertLayout($path);
+        $rows = iterator_to_array($parser->rows($path), false);
+
+        self::assertCount(2, $rows);
+        self::assertSame([$headerRow + 1, $headerRow + 2], array_column($rows, 'row_number'), 'real spreadsheet row numbers, counted from below the header');
+        self::assertSame([self::UUID_A, self::UUID_B], array_map(fn ($r) => $r['payload']['external_id'], $rows));
+        self::assertSame(8500.0, $rows[0]['payload']['rent']);
+        self::assertSame('ZZ TEST Tenant Two', $rows[1]['payload']['tenant_name']);
+    }
+
+    public static function headerRows(): array
+    {
+        return ['row 3' => [3], 'row 4' => [4], 'row 5' => [5], 'row 8' => [8], 'row 15 (the last one scanned)' => [15]];
+    }
+
+    public function test_extra_metadata_rows_and_blank_rows_in_the_preamble_do_not_matter(): void
+    {
+        // Metadata lines of every kind above the header, with gaps — and a line that merely CONTAINS one header word.
+        $preamble = [1 => 'Tenancy Schedule / ZZ TEST Agency', 3 => 'Compiled: 2026-10-21 08:00', 4 => 'Date Range: 2026-10-01 to 2026-10-21', 6 => 'Lease ID totals below', 9 => 'Prepared by ZZ'];
+        $path = $this->scheduleFile([$this->reosRow(['uuid' => self::UUID_A])], 'Tenancy Schedule', null, 11, $preamble);
+
+        $rows = iterator_to_array((new ReosTenancyScheduleParser())->rows($path), false);
+
+        self::assertCount(1, $rows);
+        self::assertSame(12, $rows[0]['row_number']);
+        self::assertSame(self::UUID_A, $rows[0]['payload']['external_id']);
+    }
+
+    public function test_the_real_rent_roll_layout_title_blank_compiled_date_range_then_headers_on_row_5(): void
+    {
+        $path = $this->rentRollFile(
+            [['address' => '3 ZZ Aqua Breeze, 13 ZZ Stafford Avenue', 'tenant' => 'ZZ TEST Tenant One', 'wallet' => 'WLT-1001'], ['address' => '9 ZZ Marine Drive', 'tenant' => 'ZZ TEST Tenant Two', 'wallet' => 'WLT-1002']],
+            'Rent Roll', 5,
+            [1 => 'Rent Roll / ZZ TEST Agency', 3 => 'Compiled: 2026-10-21 08:00', 4 => 'Date Range: 2026-10-01 to 2026-10-21']   // row 2 blank
+        );
+        $parser = new ReosRentRollParser();
+
+        $parser->assertLayout($path);
+        $rows = $parser->rows($path);
+
+        self::assertSame([6, 7], array_column($rows, 'row_number'), 'data from row 6');
+        self::assertSame(['WLT-1001', 'WLT-1002'], array_column($rows, 'wallet'));
+        self::assertSame('ZZ TEST Tenant Two', $rows[1]['tenant']);
+    }
+
+    /** @dataProvider headerRows */
+    public function test_the_rent_roll_header_may_be_on_any_of_the_first_15_rows(int $headerRow): void
+    {
+        $path = $this->rentRollFile([['address' => '9 ZZ Marine Drive', 'tenant' => 'ZZ TEST Tenant Two', 'wallet' => 'WLT-1002']], 'Rent Roll', $headerRow);
+
+        $rows = (new ReosRentRollParser())->rows($path);
+
+        self::assertSame([$headerRow + 1], array_column($rows, 'row_number'));
+        self::assertSame('WLT-1002', $rows[0]['wallet']);
+    }
+
+    public function test_no_header_row_in_the_first_15_rows_is_refused_naming_the_expected_headers(): void
+    {
+        // The header is on row 16: one row too far down.
+        foreach ([
+            [new ReosTenancyScheduleParser(), $this->scheduleFile([$this->reosRow()], 'Tenancy Schedule', null, 16), ['Lease ID', 'Property Address', 'Lease Segment']],
+            [new ReosRentRollParser(), $this->rentRollFile([['address' => 'x', 'tenant' => 'y', 'wallet' => 'z']], 'Rent Roll', 16), ['Property Address', 'Tenant Wallet', 'Lease End']],
+        ] as [$parser, $path, $mustName]) {
+            try {
+                $parser->assertLayout($path);
+                self::fail('a header below row 15 must be refused');
+            } catch (ReosLayoutException $e) {
+                self::assertStringContainsString('first 15 rows', $e->getMessage());
+                foreach ($mustName as $header) {
+                    self::assertStringContainsString($header, $e->getMessage());
+                }
+            }
+        }
+    }
+
+    public function test_columns_are_found_by_their_heading_whatever_their_position_or_order(): void
+    {
+        // The Rent Roll with the six wanted headings shuffled, shifted two columns right, and money columns in between.
+        $headers = ['Rent', 'Tenant Wallet', 'Owner', 'Balance', 'Tenant', 'Lease End', 'Agent', 'Property Address'];
+        $rows = [['9999.00', 'WLT-77', 'ZZ O', '1.00', 'ZZ TEST Tenant Two', '2027-02-28', 'ZZ A', '9 ZZ Marine Drive']];
+        $path = $this->customSheetFile('Rent Roll', $headers, $rows, 5, 3);
+
+        $got = (new ReosRentRollParser())->rows($path);
+
+        self::assertSame([['row_number' => 6, 'address' => '9 ZZ Marine Drive', 'tenant' => 'ZZ TEST Tenant Two', 'wallet' => 'WLT-77']], $got);
+    }
+
+    public function test_an_empty_sheet_or_a_data_only_sheet_has_no_header_row(): void
+    {
+        $path = $this->customSheetFile('Rent Roll', ['Foo', 'Bar'], [['1', '2']], 2);
+
+        $this->expectException(ReosLayoutException::class);
+        (new ReosRentRollParser())->assertLayout($path);
+    }
 }
+
