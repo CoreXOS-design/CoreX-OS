@@ -3909,6 +3909,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.update');
         Route::post('/{lease}/notice-terms/confirm', [\App\Http\Controllers\CoreX\LeaseController::class, 'confirmNoticeTerms'])
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.confirm');
+        // AT-489 - the lease expiry notice to the tenant (Consumer Protection Act): send it now / record that it was handed over another way.
+        Route::post('/{lease}/expiry-notice/send', [\App\Http\Controllers\CoreX\LeaseController::class, 'sendExpiryNotice'])
+            ->middleware('permission:rental_notices.review')->name('corex.leases.expiry-notice.send');
+        Route::post('/{lease}/expiry-notice/mark-given', [\App\Http\Controllers\CoreX\LeaseController::class, 'markExpiryNoticeGiven'])
+            ->middleware('permission:rental_notices.review')->name('corex.leases.expiry-notice.mark-given');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // rental-renewals.md §22.1 - "Run today's lease date checks now" (system owner / agency admin; the controller checks the role).

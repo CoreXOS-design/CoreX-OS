@@ -42,6 +42,10 @@ Schedule::command('leases:auto-month-to-month')->dailyAt('05:30')->withoutOverla
 // lease's agents once ("was it fixed?"). The lease screen's Next bar asks the same question live.
 Schedule::command('breaches:check-remedy-dates')->dailyAt('06:15')->withoutOverlapping();
 
+// AT-489 (Johan, 21 Oct 2026) — the lease expiry notice to the tenant (Consumer Protection Act, business days): CoreX sends it on the agency's
+// send day in the agency's own template, and alerts the lease agents when it has not gone out by the alert day.
+Schedule::command('leases:expiry-notices')->dailyAt('06:30')->withoutOverlapping();
+
 // Lease expiry checks — runs daily at 06:00
 Schedule::command('signatures:check-lease-expiry')->dailyAt('06:00');
 

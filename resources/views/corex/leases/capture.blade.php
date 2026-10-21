@@ -330,8 +330,7 @@
                 'noticeValues' => $noticeValues ?? [],
                 'noticePrefix' => 'notice',
                 'noticeHide' => in_array('earliest_termination_date', $noticeAgreementKeys ?? [], true) ? ['earliest_termination_date'] : [],
-                'earliestNoticeMonths' => $earliestNoticeMonths ?? null,
-                'shiftWithStart' => ($noticeSource ?? null) === \App\Services\Rentals\LeaseNoticeTermsService::SOURCE_CARRIED_FORWARD,
+                'noticeSendBd' => $noticeSendBd ?? null,
             ])
         </div>
 

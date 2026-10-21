@@ -113,8 +113,9 @@ class LeaseNoticeTermsService
     // ── The agency's defaults ─────────────────────────────────────────────────────────────────
 
     /**
-     * What a lease starting on `$start` begins with, from the AGENCY's settings. The earliest termination date is not defaulted
-     * (it is a fact of that lease's agreement). The earliest notice date is the start plus the agency's "not before" months, when set.
+     * What a new lease begins with, from the AGENCY's settings. The earliest termination date is not defaulted (it is a fact of that
+     * lease's agreement), and neither is a "typed earliest notice date" any more: when the agency's expiry notice may be given is
+     * worked out from the lease's end date (expiryWindow()), not entered.
      *
      * @return array<string,mixed>
      */
@@ -123,7 +124,6 @@ class LeaseNoticeTermsService
         $length = LeaseSetting::tenantNoticePeriodDaysFor($agencyId);
         $unit = LeaseSetting::tenantNoticePeriodUnitFor($agencyId);
         $allowed = LeaseSetting::earlyCancellationAllowedFor($agencyId);
-        $months = LeaseSetting::earliestNoticeMonthsFor($agencyId);
 
         $ecNotice = LeaseSetting::earlyCancellationNoticeFor($agencyId);
         $ecUnit = LeaseSetting::earlyCancellationNoticeUnitFor($agencyId);
@@ -135,7 +135,7 @@ class LeaseNoticeTermsService
         return [
             'notice_period' => $length,
             'notice_period_unit' => $unit,
-            'earliest_notice_date' => $start && $months ? $this->addPeriod($start, $months, 'months')->toDateString() : null,
+            'earliest_notice_date' => null,
             'earliest_termination_date' => null,
             'early_cancellation_allowed' => $allowed,
             'early_cancellation_notice' => $allowed === 'yes' ? $ecNotice : null,
