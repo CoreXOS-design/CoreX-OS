@@ -15,6 +15,7 @@ final class ReosBlockers
     public const F_SUBURB = 'suburb';
     public const F_AGENT = 'agent';
     public const F_PROPERTY_CREATE = 'property-create';
+    public const F_PROPERTY_CHOICE = 'property-choice';
 
     /** @return list<array{code:string,message:string,field:?string}> */
     public static function compute(RentalTakeOnImportRow $row): array
@@ -38,7 +39,10 @@ final class ReosBlockers
             $matched = $row->property_match_action === RentalTakeOnImportRow::ACTION_MATCH;
             $createProperty = (bool) ($d['property']['create'] ?? true);
 
-            if (! $matched) {
+            if ($row->property_match_action === RentalTakeOnImportRow::ACTION_CHOOSE) {
+                // Several CoreX properties fit: the user must say which (or that it is none of them) before anything else is asked.
+                $out[] = ['code' => 'property_choice_required', 'message' => 'Several properties in CoreX fit this address — pick the right one, or "none of these".', 'field' => self::F_PROPERTY_CHOICE];
+            } elseif (! $matched) {
                 if (! $createProperty) {
                     $out[] = ['code' => 'property_required', 'message' => 'A lease needs a property — tick "Create this property".', 'field' => self::F_PROPERTY_CREATE];
                 } elseif (empty($d['property']['suburb_id']) && empty($d['property']['suburb'])) {
