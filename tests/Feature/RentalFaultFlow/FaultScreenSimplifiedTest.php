@@ -361,7 +361,7 @@ final class FaultScreenSimplifiedTest extends TestCase
 
     // ── 6. a phone quote ─────────────────────────────────────────────────────────────────────────────────────────
 
-    public function test_a_phone_quote_needs_no_document_and_no_details_but_a_bare_quote_is_still_refused(): void
+    public function test_a_quote_needs_no_document_and_no_details_and_a_phone_quote_still_gets_its_sentence(): void
     {
         $f = $this->fault();
         $s = $this->supplier();
@@ -370,8 +370,11 @@ final class FaultScreenSimplifiedTest extends TestCase
         $url = route('corex.rental-work-orders.quotes.store', $wo);
         $base = ['agency_service_provider_id' => $s->id, 'amount' => 1200, 'quote_date' => '2026-10-19'];
 
-        $this->actingAs($this->agent)->post($url, $base)->assertSessionHasErrors('quote');
-        $this->assertSame(0, $wo->quotes()->count());
+        // AT-493 (21 Oct 2026, Johan): the amount alone is a valid quote - the description is optional
+        $this->actingAs($this->agent)->post($url, $base)->assertSessionHasNoErrors();
+        $bare = $wo->fresh()->quotes()->firstOrFail();
+        $this->assertNull($bare->detail_text);
+        $bare->delete();
 
         $this->actingAs($this->agent)->post($url, $base + ['quoted_by_phone' => 1])->assertSessionHasNoErrors();
         $q = $wo->fresh()->quotes()->firstOrFail();

@@ -24,7 +24,8 @@
     $cdDeclined = $costActive && ! $costActive->isAuthorised();
     $cdLegacy = ! $costActive && $cdSvc->hasCostAuthority($workOrder);
     $cdCanAuthorise = auth()->user()->hasPermission('rental_work_orders.record_approval');
-    $cdCanEmergency = auth()->user()->hasPermission('rental_work_orders.record_emergency_approval');
+    // AT-494: emergency approval only counts together with approval (RentalWorkOrderApprovalRules) - never a tick box with no Authorise button behind it
+    $cdCanEmergency = $cdCanAuthorise && auth()->user()->hasPermission('rental_work_orders.record_emergency_approval');
     $cdPending = $workOrder->owner_approval_status === \App\Models\RentalWorkOrder::APPROVAL_PENDING;
     $cdNeedsDecision = $isOpen && ! $cdAuthorised && ! $cdLegacy && $costBlock === null;
     $cdMeasure = $costMeasure['amount'];
@@ -185,7 +186,7 @@
                             x-text="amount !== null ? 'Authorise ' + money(amount) + ' within the ' + word : 'Authorise within the ' + word">Authorise within the repair limit</button>
                     <button type="button" class="corex-btn-outline text-xs flex-1" x-on:click="open = true" data-cost-owner-decision-open>Record the owner's decision</button>
                 @else
-                    <p class="text-xs sm:col-span-2" style="color: var(--text-muted);">Only staff who may record approvals can authorise the cost.</p>
+                    <p class="text-xs sm:col-span-2 font-semibold" style="color: var(--text-muted);" data-ask-branch-manager>{{ \App\Services\Rentals\RentalWorkOrderApprovalRules::ASK_MANAGER }}</p>
                 @endif
             </div>
 

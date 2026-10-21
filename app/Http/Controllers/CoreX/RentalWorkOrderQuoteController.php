@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers\CoreX;
 
-use App\Http\Controllers\Concerns\EnforcesRecordVisibility;
+use App\Http\Controllers\Concerns\AuthorizesRentalRecordScope;
 use App\Http\Controllers\Controller;
 use App\Models\RentalWorkOrder;
 use App\Models\RentalWorkOrderQuote;
@@ -18,17 +18,22 @@ use Illuminate\Validation\Rule;
  */
 class RentalWorkOrderQuoteController extends Controller
 {
-    use EnforcesRecordVisibility;
+    use AuthorizesRentalRecordScope;
+
+    /** AT-494 - the same per-record own / branch / agency guard every other work order action uses (it answers 403, not 404). */
+    private function guardWorkOrder(RentalWorkOrder $workOrder): void
+    {
+        $this->guardRentalRecordScope($workOrder, 'rental_work_orders', $workOrder->property?->branch_id);
+    }
 
     /**
-     * Johan: "an upload or attach of the quote, or punching in the
-     * details is whats needed" — neither path mandatory over the other,
-     * but at least one is required (never let a bare amount+date reach
-     * the DB with no evidence at all).
+     * AT-493 (Johan): a quote needs only a supplier, an amount and a date. The written details and the document are both
+     * OPTIONAL - a quote given over the phone is just the amount. (It used to demand one of the three, and the refusal
+     * showed only as a banner at the top of a long page, so it looked like the button did nothing.)
      */
     public function store(Request $request, RentalWorkOrder $rentalWorkOrder): RedirectResponse
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         $validated = $request->validate([
             'agency_service_provider_id' => ['required', \App\Models\DealV2\AgencyServiceProvider::maintenanceExistsRule((int) $request->user()->effectiveAgencyId())],
             'amount' => ['required', 'numeric', 'min:0'],
@@ -46,10 +51,6 @@ class RentalWorkOrderQuoteController extends Controller
             $validated['detail_text'] = 'Quoted by phone on ' . \Illuminate\Support\Carbon::parse($validated['quote_date'])->format('j M Y') . '.';
         }
 
-        if (empty($validated['detail_text']) && !$request->hasFile('document')) {
-            return back()->withErrors(['quote' => 'Attach the quote document, enter its details, or tick "Quoted by phone" - at least one is required.'])->withInput();
-        }
-
         if ($request->hasFile('document')) {
             $validated['document_storage_path'] = $request->file('document')
                 ->store("rental-work-order-quotes/{$rentalWorkOrder->id}", 'local');
@@ -60,13 +61,16 @@ class RentalWorkOrderQuoteController extends Controller
         // the agent chooses (the page says loudly while none is chosen); "use this one instead" only exists once one is selected.
         $explicitlySelected = (bool) ($validated['is_selected'] ?? false);
         unset($validated['is_selected']);
+        // AT-494: choosing a quote sends it to the owner / through the owner's limit - that is the approval key, not the capture key.
+        // Someone who may only capture a quote records it and leaves the choosing to a person who may approve.
+        $mayChoose = $request->user()->hasPermission(\App\Services\Rentals\RentalWorkOrderApprovalRules::APPROVAL);
 
         $quote = $rentalWorkOrder->recordQuote($validated, $request->user());
 
         // Only quote on the work order (live ones; archived are out): there is nothing to choose between, so it IS the quote.
         $onlyQuote = $rentalWorkOrder->quotes()->whereNull('declined_at')->count() === 1;
         $selected = false;
-        if ($explicitlySelected || $onlyQuote) {
+        if ($mayChoose && ($explicitlySelected || $onlyQuote)) {
             try {
                 $rentalWorkOrder->selectQuote($quote, $request->user());
                 $selected = true;
@@ -79,7 +83,12 @@ class RentalWorkOrderQuoteController extends Controller
             }
         }
 
-        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', $this->capturedMessage($rentalWorkOrder->fresh(), $selected));
+        $message = $this->capturedMessage($rentalWorkOrder->fresh(), $selected);
+        if (! $mayChoose) {
+            $message = 'Quote captured. ' . \App\Services\Rentals\RentalWorkOrderApprovalRules::ASK_MANAGER . ' - choosing a quote and sending it to the owner is theirs to do.';
+        }
+
+        return redirect()->route('corex.rental-work-orders.show', $rentalWorkOrder)->with('success', $message);
     }
 
     /** What the capture did, in one plain sentence: who was asked, or that it was approved on the spot, or that nothing was chosen. */
@@ -122,7 +131,7 @@ class RentalWorkOrderQuoteController extends Controller
     /** Editable while the work order is still open — the reportable facts, not the lifecycle. */
     public function update(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
         abort_if(in_array($rentalWorkOrder->status, [RentalWorkOrder::STATUS_COMPLETED, RentalWorkOrder::STATUS_CANCELLED], true), 409, 'This work order has closed and its quotes can no longer be edited.');
 
@@ -133,10 +142,6 @@ class RentalWorkOrderQuoteController extends Controller
             'detail_text' => ['nullable', 'string', 'max:2000'],
             'document' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png,webp,heic,heif', 'max:20480'],
         ]);
-
-        if (empty($validated['detail_text']) && !$request->hasFile('document') && !$quote->document_storage_path) {
-            return back()->withErrors(['quote' => 'Attach the quote document, or enter its details — at least one is required.'])->withInput();
-        }
 
         if ($request->hasFile('document')) {
             $validated['document_storage_path'] = $request->file('document')
@@ -172,7 +177,7 @@ class RentalWorkOrderQuoteController extends Controller
 
     public function select(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
 
         // A quote that is already the selected one (a first quote is selected on capture) is not selected a second time: that would put it
@@ -192,7 +197,7 @@ class RentalWorkOrderQuoteController extends Controller
 
     public function destroy(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote): RedirectResponse
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
 
         try {
@@ -206,7 +211,7 @@ class RentalWorkOrderQuoteController extends Controller
 
     public function restore(Request $request, RentalWorkOrder $rentalWorkOrder, int $quote): RedirectResponse
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         $quoteModel = RentalWorkOrderQuote::withTrashed()->findOrFail($quote);
         abort_unless($quoteModel->rental_work_order_id === $rentalWorkOrder->id, 404);
 
@@ -228,7 +233,7 @@ class RentalWorkOrderQuoteController extends Controller
      */
     public function download(Request $request, RentalWorkOrder $rentalWorkOrder, RentalWorkOrderQuote $quote)
     {
-        $this->assertVisible($request, $rentalWorkOrder);
+        $this->guardWorkOrder($rentalWorkOrder);
         abort_unless($quote->rental_work_order_id === $rentalWorkOrder->id, 404);
         abort_unless($quote->document_storage_path, 404);
         abort_unless(Storage::disk('local')->exists($quote->document_storage_path), 404);

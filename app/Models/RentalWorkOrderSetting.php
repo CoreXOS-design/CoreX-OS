@@ -40,6 +40,8 @@ class RentalWorkOrderSetting extends Model
     public const DEFAULT_COMPLETION_RESPONSE_WINDOW_DAYS = 5;
     public const DEFAULT_TENANT_COMPLETION_CHECK_ENABLED = true;
     public const DEFAULT_NOTIFY_LANDLORD_ON_DISPUTE = true;
+    /** AT-494 (Johan) - may the default `agent` role approve quotes and send them to the owner? ON by default; branch manager / admin keep full rights either way. */
+    public const DEFAULT_AGENTS_APPROVE_QUOTES = true;
     /** §17.7.2 — information email when a variation is auto-approved (Decision 5). */
     /** §17.9.1a — the agency's fee on an outside contractor's quote (Decision 1). Value 0 = off. */
     public const EXTERNAL_MARKUP_PERCENT = 'percent';
@@ -88,6 +90,7 @@ class RentalWorkOrderSetting extends Model
         'external_quote_markup_type',
         'external_quote_markup_value',
         'dispute_notify_crew_immediately',
+        'agents_approve_quotes',
         'invoice_max_file_mb',
         'invoice_allowed_file_types',
         'internal_team_label',
@@ -110,6 +113,7 @@ class RentalWorkOrderSetting extends Model
         'notify_landlord_on_auto_variation' => 'boolean',
         'external_quote_markup_value' => 'decimal:2',
         'dispute_notify_crew_immediately' => 'boolean',
+        'agents_approve_quotes' => 'boolean',
         'invoice_max_file_mb' => 'integer',
         'catalogue_default_markup_value' => 'decimal:4',
     ];
@@ -249,6 +253,12 @@ class RentalWorkOrderSetting extends Model
     public static function tenantCompletionCheckEnabledFor(?int $agencyId): bool
     {
         return self::boolFor($agencyId, 'tenant_completion_check_enabled', self::DEFAULT_TENANT_COMPLETION_CHECK_ENABLED);
+    }
+
+    /** AT-494 - see DEFAULT_AGENTS_APPROVE_QUOTES. */
+    public static function agentsApproveQuotesFor(?int $agencyId): bool
+    {
+        return self::boolFor($agencyId, 'agents_approve_quotes', self::DEFAULT_AGENTS_APPROVE_QUOTES);
     }
 
     public static function notifyLandlordOnDisputeFor(?int $agencyId): bool

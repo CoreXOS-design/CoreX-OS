@@ -754,6 +754,7 @@ class AgencySetupWizardController extends Controller
                     'catalogue_default_markup_value' => \App\Models\RentalWorkOrderSetting::catalogueMarkupValueFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
+                    'agents_approve_quotes' => \App\Models\RentalWorkOrderSetting::agentsApproveQuotesFor($agency->id),
                     'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
                     'external_quote_markup_value' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($agency->id),
                     // BUILD 2 END

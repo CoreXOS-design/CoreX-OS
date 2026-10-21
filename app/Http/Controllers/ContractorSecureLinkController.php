@@ -293,10 +293,6 @@ class ContractorSecureLinkController extends Controller
             'amount.max' => 'A quote can be at most R' . number_format($max, 0, '.', ',') . ' here. If that is right, please phone the agency.',
         ]);
 
-        if (empty($data['detail_text']) && !$request->hasFile('document')) {
-            return back()->withErrors(['quote' => 'Attach the quote document, or enter its details — at least one is required.'])->withInput();
-        }
-
         if ($request->hasFile('document')) {
             $data['document_storage_path'] = $request->file('document')
                 ->store("rental-work-order-quotes/{$workOrder->id}", 'local');

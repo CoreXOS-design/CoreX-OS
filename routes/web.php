@@ -4624,8 +4624,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.store');
         Route::put('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'update'])
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.update');
+        // AT-494: choosing a quote is a MONEY decision (it puts the quote through the owner's limit and mails the owner) - the same key as authorising a cost.
         Route::post('/{rentalWorkOrder}/quotes/{quote}/select', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'select'])
-            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.select');
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.quotes.select');
         Route::delete('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'destroy'])
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.destroy');
         Route::post('/{rentalWorkOrder}/quotes/{quote}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'restore'])
