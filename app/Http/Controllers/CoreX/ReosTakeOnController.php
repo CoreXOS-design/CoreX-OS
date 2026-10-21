@@ -59,6 +59,10 @@ class ReosTakeOnController extends Controller
         $this->assertVisible($request, $run);
         abort_unless((int) $run->agency_id === (int) $request->user()->effectiveAgencyId(), 404);
 
+        // A batch parsed under older name-flag rules is re-checked once, so the screen never shows verdicts the current rules would not give.
+        app(\App\Services\Rentals\TakeOnImport\Reos\ReosRowResolver::class)->recheckNameFlags($run);
+        $run->refresh();
+
         $filters = ReosRowQuery::only($request->query());
         $rows = ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), $filters)
             ->paginate(25)->withQueryString();
