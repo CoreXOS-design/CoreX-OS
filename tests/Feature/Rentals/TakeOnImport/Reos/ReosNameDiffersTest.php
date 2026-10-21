@@ -14,6 +14,7 @@ use App\Services\Rentals\TakeOnImport\Reos\ReosNameCompare;
 use App\Services\Rentals\TakeOnImport\Reos\ReosRunSummary;
 use App\Services\Rentals\TakeOnImport\Reos\ReosTenancyRunService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
@@ -153,6 +154,128 @@ final class ReosNameDiffersTest extends TestCase
         $this->actingAs($admin)->get($url)->assertOk()->assertSee('3 ZZ Flagged Road')->assertSee('9 ZZ Clean Drive')->assertSee('Contact names');
         $this->actingAs($admin)->get($url . '?names=differs')->assertOk()->assertSee('3 ZZ Flagged Road')->assertDontSee('9 ZZ Clean Drive');
         self::assertSame(1, ReosRunSummary::for($run)['name_differs']);
+    }
+
+    // ── Johan's real-file check: spelling vs a real difference; companies are not people; the layout fits ──
+
+    public function test_spelling_differences_are_told_apart_from_real_ones_using_the_real_examples(): void
+    {
+        $spelling = [
+            ['Sipho Mkhozi', 'Sipho Mkozi'],                   // Mkhozi / Mkozi
+            ['Shaun Craig Mc Neil', 'Shaun McNeil'],           // "Mc Neil" = "McNeil", a middle name on one side
+            ['Desire Jones', 'Desiree Jones'],                 // Desire / Desiree
+            ['Exilite 104 CC', 'Exilite 140 CC'],              // a typo inside a company name
+        ];
+        foreach ($spelling as [$reos, $crm]) {
+            $company = \App\Services\Rentals\TakeOnImport\Reos\ReosContactNames::isCompany($reos);
+            self::assertSame(ReosNameCompare::SPELLING, ReosNameCompare::flag($reos, $crm, $company), "{$reos} ~ {$crm}");
+        }
+
+        $real = [['Aiesha Steady', 'Elana Reid'], ['Andre Esterhuizen', 'Johan Esterhuizen'], ['B Smith', 'Andre Smith'], ['Sipho Dlamini', 'Sipho Nkosi']];
+        foreach ($real as [$reos, $crm]) {
+            self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag($reos, $crm, false), "{$reos} != {$crm}");
+        }
+
+        // The same name, or only a middle name / legal suffix apart, is not flagged at all.
+        foreach ([['John Smith', 'John Peter Smith'], ['A Smith', 'Andre Smith'], ['BEBO Investments (PTY) LTD', 'BEBO Investments (PTY) LTY']] as [$a, $b]) {
+            self::assertNull(ReosNameCompare::flag($a, $b, \App\Services\Rentals\TakeOnImport\Reos\ReosContactNames::isCompany($a)), "{$a} = {$b}");
+        }
+
+        // Short names are not "a typo apart": Ben / Ken are different people.
+        self::assertSame(ReosNameCompare::DIFFERS, ReosNameCompare::flag('Ben Smith', 'Ken Smith', false));
+        self::assertContains(ReosNameCompare::DIFFERS, ReosNameCompare::AMBER);
+        self::assertNotContains(ReosNameCompare::SPELLING, ReosNameCompare::AMBER);
+    }
+
+    public function test_a_company_matched_to_a_company_is_a_company_match_even_when_corex_holds_it_as_a_person_record(): void
+    {
+        [$agency, $branch, $admin] = $this->reosAgency();
+        // As on QA1: a "natural person" record whose first name is the company, with a typo in the legal suffix.
+        $bebo = $this->contact($agency, $branch, 'BEBO Investments (PTY) LTY', '', '0815552014');
+        // A tenant company stored the same way.
+        $tenantCo = $this->contact($agency, $branch, 'ZZ Tenant Holdings Pty Ltd', '', '0635552015');
+        $run = $this->makeRun($admin, [$this->reosRow([
+            'Owner' => 'BEBO Investments (PTY) LTD', 'Owner Phone' => '+27815552014', 'Owner Email' => '',
+            'Tenant' => 'ZZ Tenant Holdings Pty Ltd', 'Tenant Phone' => '+27635552015', 'Tenant Email' => '',
+        ])]);
+        $row = $run->rows()->first();
+
+        self::assertSame($bebo->id, $row->landlord_match_json[1]['existing_contact_id']);
+        self::assertArrayNotHasKey('name_flag', $row->landlord_match_json[1], 'company to company: no "matched a person"');
+        self::assertArrayNotHasKey('name_flag', $row->tenant_match_json[1], 'same check for tenants');
+        self::assertSame($tenantCo->id, $row->tenant_match_json[1]['existing_contact_id']);
+        self::assertFalse($row->decisions_json['name_differs']);
+
+        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
+        self::assertStringNotContainsString('Matched a person', $html);
+        self::assertStringNotContainsString('as its contact person', html_entity_decode($html), 'an entity is never offered as somebody\'s contact person');
+        self::assertStringNotContainsString('data-test="convert-to-company"', $html);
+
+        // The one-click is refused for it, and a company-like record is refused as a "person" of another company.
+        try {
+            app(ReosDecisionService::class)->apply($row, $run, ['person' => ['party' => 'owner', 'op' => 'convert']]);
+            self::fail('convert must be refused');
+        } catch (ValidationException $e) {
+            self::assertStringContainsString('did not match a person', json_encode($e->errors()));
+        }
+        $other = $this->makeRun($admin, [$this->reosRow(['uuid' => self::UUID_B, 'Owner' => 'ZZ TEST Other Holdings Pty Ltd', 'Owner Phone' => '', 'Owner Email' => ''])]);
+        $this->expectException(ValidationException::class);
+        app(ReosDecisionService::class)->apply($other->rows()->first(), $other, ['person' => ['party' => 'owner', 'op' => 'add', 'contact_id' => $bebo->id]]);
+    }
+
+    public function test_spelling_is_grey_not_counted_and_has_its_own_filter_while_real_differences_stay_amber_and_counted(): void
+    {
+        [$agency, $branch, $admin] = $this->reosAgency();
+        $this->contact($agency, $branch, 'Sipho', 'Mkozi', '0635550201');          // spelling apart from the reOS "Mkhozi"
+        $this->contact($agency, $branch, 'Elana', 'Reid', '0635550202');           // a real difference from "Aiesha Steady"
+        $run = $this->makeRun($admin, [
+            $this->reosRow(['uuid' => self::UUID_A, 'Property Address' => '3 ZZ Spelling Road', 'Tenant' => 'Sipho Mkhozi', 'Tenant Phone' => '+27635550201', 'Tenant Email' => '', 'Owner' => 'ZZ O One', 'Owner Phone' => '', 'Owner Email' => '']),
+            $this->reosRow(['uuid' => self::UUID_B, 'Property Address' => '9 ZZ Real Drive', 'Tenant' => 'Aiesha Steady', 'Tenant Phone' => '+27635550202', 'Tenant Email' => '', 'Owner' => 'ZZ O Two', 'Owner Phone' => '', 'Owner Email' => '']),
+        ]);
+        $rows = $run->rows()->orderBy('row_number')->get();
+
+        self::assertSame('spelling', $rows[0]->tenant_match_json[1]['name_flag']);
+        self::assertTrue($rows[0]->decisions_json['spelling_differs']);
+        self::assertFalse($rows[0]->decisions_json['name_differs'], 'a spelling difference is not in the amber total');
+        self::assertSame('differs', $rows[1]->tenant_match_json[1]['name_flag']);
+        self::assertTrue($rows[1]->decisions_json['name_differs']);
+        self::assertFalse($rows[1]->decisions_json['spelling_differs']);
+
+        $sum = ReosRunSummary::for($run);
+        self::assertSame([1, 1], [$sum['name_differs'], $sum['spelling_differs']]);
+
+        $url = route('corex.rentals.take-on-import.preview', $run);
+        $page = $this->actingAs($admin)->get($url)->assertOk();
+        $page->assertSee('Spelling differs —', false)->assertSee('Name differs</strong> —', false)->assertSee('data-test="spelling-chip"', false);
+        $this->actingAs($admin)->get($url . '?names=spelling')->assertOk()->assertSee('3 ZZ Spelling Road')->assertDontSee('9 ZZ Real Drive');
+        $this->actingAs($admin)->get($url . '?names=differs')->assertOk()->assertSee('9 ZZ Real Drive')->assertDontSee('3 ZZ Spelling Road');
+        $this->actingAs($admin)->get($url)->assertSee('Spelling differs</option>', false);
+
+        // Settled by creating a new contact: the spelling note goes too.
+        $row = app(ReosDecisionService::class)->apply($rows[0], $run, ['tenant' => ['action' => 'create']]);
+        self::assertFalse($row->decisions_json['spelling_differs']);
+    }
+
+    public function test_the_review_screen_fits_the_page_and_the_sticky_header_is_solid_and_above_the_rows(): void
+    {
+        [, , $admin] = $this->reosAgency();
+        $run = $this->makeRun($admin, [$this->reosRow()]);
+
+        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
+
+        // 1. Sticky header: solid background, above every row control (their result lists are z-20).
+        self::assertMatchesRegularExpression('/id="reos-bar"[^>]*position: sticky[^>]*z-index: 50[^>]*background: var\(--surface/', $html);
+        // 4. Grid fits without a horizontal page scroll: fixed layout, percentage columns that add up to 100, no fixed minimum widths,
+        //    controls capped to their column, and the to-fix notes inside the agent cell (six columns, not seven).
+        self::assertStringContainsString('table-layout: fixed', $html);
+        preg_match_all('/<col style="width:(\d+)%">/', $html, $cols);
+        self::assertCount(6, $cols[1]);
+        self::assertSame(100, array_sum(array_map('intval', $cols[1])));
+        $table = substr($html, strpos($html, 'id="reos-table"'), strpos($html, '</table>') - strpos($html, 'id="reos-table"'));
+        self::assertStringNotContainsString('min-w-[', $table, 'no fixed minimum widths inside the review table');
+        self::assertSame(6, preg_match_all('/<th[ >]/', substr($html, strpos($html, 'id="reos-table"'), 1800)), 'six header cells');
+        self::assertDoesNotMatchRegularExpression('/max-width:\d+(\.\d+)?rem/', substr($html, strpos($html, '<tbody>'), strpos($html, '</tbody>') - strpos($html, '<tbody>')), 'no control wider than its column');
+        self::assertMatchesRegularExpression('/Agent · to fix \/ to know/', $html);
     }
 
     // ── helpers ────────────────────────────────────────────────────────────────────────────

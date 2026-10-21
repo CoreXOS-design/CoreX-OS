@@ -58,6 +58,8 @@ final class ReosRowQuery
         // Contacts matched on a phone / e-mail under a different name than reOS gives (a warning, kept as a filter).
         if (($p['names'] ?? '') === 'differs') {
             $query->where('decisions_json->name_differs', true);
+        } elseif (($p['names'] ?? '') === 'spelling') {
+            $query->where('decisions_json->spelling_differs', true);   // the muted "Spelling differs" — not counted in the amber total
         }
 
         $sort = self::SORTS[$p['sort'] ?? 'row'] ?? self::SORTS['row'];

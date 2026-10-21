@@ -38,7 +38,7 @@
     </td>
 
     {{-- The lease --}}
-    <td class="min-w-[11rem]">
+    <td>
         <div class="font-medium">Row {{ $row->row_number }}
             <span class="ds-badge {{ in_array(mb_strtolower((string) ($p['lease_status'] ?? '')), ['active','expiring'], true) ? 'ds-badge-success' : 'ds-badge-muted' }}">{{ $p['lease_status'] ?? '—' }}</span>
         </div>
@@ -62,7 +62,7 @@
     </td>
 
     {{-- Property --}}
-    <td class="min-w-[15rem]">
+    <td>
         <div class="font-medium">{{ $p['address'] ?? '—' }}</div>
         @if($existing || $imported)
             <div class="text-muted">{{ $imported ? 'Property: ' . ($row->property_match_action === 'create' ? 'created' : 'existing') : 'The lease\'s property is left as it is.' }}</div>
@@ -79,7 +79,7 @@
             @endif
             @if(count($cands) > 0 && $editable)
                 {{-- The properties already in CoreX that fit this address, in any suburb. --}}
-                <select id="row-{{ $id }}-property-choice" data-field="property_choice" class="prop-select mt-1" style="max-width:19rem;" data-test="property-choice">
+                <select id="row-{{ $id }}-property-choice" data-field="property_choice" class="prop-select mt-1" style="max-width:100%;" data-test="property-choice">
                     @if($choosing)<option value="" selected disabled>Pick the right property…</option>@endif
                     @foreach($cands as $c)
                         <option value="{{ $c['id'] }}" @selected($linkId === (int) $c['id'] && ! $choseNew)>{{ $c['label'] }}@if(($c['suburb'] ?? '') !== '') — {{ $c['suburb'] }}@endif</option>
@@ -101,7 +101,7 @@
                             <div data-test="suburb-chosen"><strong>{{ $loc['suburb'] }}</strong>@if(! empty($loc['town'])), {{ $loc['town'] }}@endif @if(! empty($loc['province'])) ({{ $loc['province'] }})@endif
                                 @if($editable)<button type="button" class="underline text-muted" data-clear-suburb>change</button>@endif</div>
                         @elseif($editable)
-                            <input type="text" id="row-{{ $id }}-suburb" data-suburb-input autocomplete="off" placeholder="Type the suburb…" class="prop-input" style="max-width:15rem;">
+                            <input type="text" id="row-{{ $id }}-suburb" data-suburb-input autocomplete="off" placeholder="Type the suburb…" class="prop-input" style="max-width:100%;">
                             <div data-suburb-results class="hidden absolute z-20 rounded-md p-1" style="background:var(--surface); border:1px solid var(--border); min-width:15rem;"></div>
                         @endif
                     </div>
@@ -112,7 +112,7 @@
 
     {{-- Owner / Tenant --}}
     @foreach([['owner', $owner, $ownerState, 'Owner'], ['tenant', $tenant, $tenantState, 'Tenant']] as [$party, $m, $state, $label])
-        <td class="min-w-[13rem]" data-party="{{ $party }}">
+        <td data-party="{{ $party }}">
             @if(! $m)
                 <span class="text-muted">No {{ strtolower($label) }} named</span>
             @else
@@ -125,7 +125,10 @@
                     @if(($m['action'] ?? '') === 'match')<div class="text-muted">{{ $m['label'] }}</div>@endif
                     {{-- Matched on a phone / e-mail under a different name than reOS gives: a warning, not a blocker. Only while the row
                          still uses that contact (creating a new one, leaving them out or linking another clears it). --}}
-                    @if(! empty($m['name_flag']) && $state === 'link-auto')
+                    @if(! empty($m['name_flag']) && $m['name_flag'] === 'spelling' && $state === 'link-auto')
+                        {{-- Only a spelling apart: muted grey, not counted in the amber total. --}}
+                        <div class="mt-1 text-muted" data-test="{{ $party }}-name-flag" data-name-flag="spelling">Spelling differs — CoreX has “{{ $m['matched_name'] ?? '' }}”, reOS has “{{ $m['name'] }}”.</div>
+                    @elseif(! empty($m['name_flag']) && $state === 'link-auto')
                         <div class="mt-1 rounded px-2 py-1" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 15%, transparent); color: var(--ds-amber, #b45309);" data-test="{{ $party }}-name-flag" data-name-flag="{{ $m['name_flag'] }}">
                             @if($m['name_flag'] === 'person_for_company')
                                 <strong>Matched a person</strong> (likely the company's contact person): CoreX has “{{ $m['matched_name'] ?? '' }}”, reOS has “{{ $m['name'] }}”.
@@ -135,7 +138,7 @@
                         </div>
                     @endif
                     @if($editable)
-                        <select data-field="{{ $party }}" data-auto-contact="{{ $m['existing_contact_id'] ?? '' }}" class="prop-select mt-1" style="max-width:14rem;">
+                        <select data-field="{{ $party }}" data-auto-contact="{{ $m['existing_contact_id'] ?? '' }}" class="prop-select mt-1" style="max-width:100%;">
                             @if(($m['action'] ?? '') === 'match')<option value="link-auto" @selected($state === 'link-auto')>Use the contact already in CoreX</option>@endif
                             @if($state === 'link-other')<option value="link-other" selected>Linked: {{ ($d[$party]['label'] ?? 'chosen contact') }}</option>@endif
                             <option value="create" @selected($state === 'create')>Create a new contact</option>
@@ -144,7 +147,7 @@
                         <div class="mt-1 relative" data-contact-wrap="{{ $party }}">
                             <button type="button" class="underline text-muted" data-open-contact-search>Link to another existing contact…</button>
                             <div data-contact-panel class="hidden mt-1">
-                                <input type="text" data-contact-input autocomplete="off" placeholder="Name, phone or e-mail…" class="prop-input" style="max-width:14rem;">
+                                <input type="text" data-contact-input autocomplete="off" placeholder="Name, phone or e-mail…" class="prop-input" style="max-width:100%;">
                                 <div data-contact-results class="rounded-md p-1" style="background:var(--surface); border:1px solid var(--border);"></div>
                             </div>
                         </div>
@@ -176,7 +179,7 @@
                                 <div class="flex flex-wrap items-center gap-1 mt-1" data-test="added-person" data-person-key="{{ $ap['key'] }}">
                                     <span>{{ $ap['label'] ?? trim(($ap['first_name'] ?? '') . ' ' . ($ap['last_name'] ?? '')) }}@if(($ap['via'] ?? '') === 'matched_person') <span class="text-muted">(matched by phone / e-mail; reused)</span>@elseif(! empty($ap['contact_id'])) <span class="text-muted">(already in CoreX)</span>@else <span class="text-muted">(new)</span>@endif</span>
                                     @if($editable)
-                                        <select data-person-capacity="{{ $ap['key'] }}" class="prop-select" style="max-width:8rem;" aria-label="Role">
+                                        <select data-person-capacity="{{ $ap['key'] }}" class="prop-select" style="max-width:100%;" aria-label="Role">
                                             @foreach($capacities as $cap)<option value="{{ $cap }}" @selected(($ap['capacity'] ?? '') === $cap)>{{ $cap }}</option>@endforeach
                                         </select>
                                         <button type="button" class="underline text-muted" data-person-remove="{{ $ap['key'] }}">remove</button>
@@ -193,19 +196,19 @@
                                 <div class="mt-2">
                                     <button type="button" class="underline" data-person-toggle>Add person</button>
                                     <div class="hidden mt-1 space-y-1" data-person-panel>
-                                        <input type="text" data-person-search autocomplete="off" placeholder="Find a person already in CoreX…" class="prop-input" style="max-width:15rem;">
+                                        <input type="text" data-person-search autocomplete="off" placeholder="Find a person already in CoreX…" class="prop-input" style="max-width:100%;">
                                         <div data-person-results class="rounded-md p-1" style="background:var(--surface); border:1px solid var(--border);"></div>
                                         <div class="text-muted">or add a new person:</div>
                                         <div class="flex flex-wrap gap-1">
-                                            <input type="text" data-person-first placeholder="First name" class="prop-input" style="max-width:7rem;">
-                                            <input type="text" data-person-last placeholder="Last name" class="prop-input" style="max-width:7rem;">
+                                            <input type="text" data-person-first placeholder="First name" class="prop-input" style="max-width:100%;">
+                                            <input type="text" data-person-last placeholder="Last name" class="prop-input" style="max-width:100%;">
                                         </div>
                                         <div class="flex flex-wrap gap-1">
-                                            <input type="text" data-person-phone placeholder="Phone" class="prop-input" style="max-width:7rem;">
-                                            <input type="email" data-person-email placeholder="E-mail" class="prop-input" style="max-width:9rem;">
+                                            <input type="text" data-person-phone placeholder="Phone" class="prop-input" style="max-width:100%;">
+                                            <input type="email" data-person-email placeholder="E-mail" class="prop-input" style="max-width:100%;">
                                         </div>
                                         <div class="flex flex-wrap items-center gap-1">
-                                            <select data-person-new-capacity class="prop-select" style="max-width:8rem;" aria-label="Role">
+                                            <select data-person-new-capacity class="prop-select" style="max-width:100%;" aria-label="Role">
                                                 @foreach($capacities as $cap)<option value="{{ $cap }}">{{ $cap }}</option>@endforeach
                                             </select>
                                             <button type="button" class="corex-btn-secondary text-xs" data-person-add-new>Add person</button>
@@ -220,19 +223,19 @@
             @if($party === 'tenant' && ! $imported)
                 <div class="mt-2">
                     <label class="text-muted" for="row-{{ $id }}-wallet">Tenant wallet reference</label>
-                    <input type="text" id="row-{{ $id }}-wallet" data-field="tenant_wallet_ref" maxlength="100" value="{{ $d['tenant_wallet_ref'] ?? '' }}" class="prop-input" style="max-width:14rem;" @disabled(! $editable)>
+                    <input type="text" id="row-{{ $id }}-wallet" data-field="tenant_wallet_ref" maxlength="100" value="{{ $d['tenant_wallet_ref'] ?? '' }}" class="prop-input" style="max-width:100%;" @disabled(! $editable)>
                 </div>
             @endif
         </td>
     @endforeach
 
     {{-- Agent --}}
-    <td class="min-w-[12rem]">
+    <td>
         <div class="text-muted">reOS: {{ $p['agent_text'] ?? '—' }}</div>
         @if($imported)
             <div class="text-muted">Agent set on the lease.</div>
         @else
-            <select id="row-{{ $id }}-agent" data-field="agent_user_id" class="prop-select mt-1" style="max-width:13rem;" @disabled(! $editable)>
+            <select id="row-{{ $id }}-agent" data-field="agent_user_id" class="prop-select mt-1" style="max-width:100%;" @disabled(! $editable)>
                 <option value="" @selected(empty($d['agent_user_id']))>{{ $existing ? '— keep the lease\'s agents —' : 'Choose…' }}</option>
                 @foreach($agents as $a)
                     <option value="{{ $a['id'] }}" @selected((int) ($d['agent_user_id'] ?? 0) === $a['id'])>{{ $a['name'] }}</option>
@@ -240,10 +243,9 @@
             </select>
             @if(! empty($d['agent_note']) && empty($d['agent_user_id']))<div class="text-muted">{{ $d['agent_note'] }}</div>@endif
         @endif
-    </td>
 
-    {{-- What stops it / what to know --}}
-    <td class="min-w-[14rem]" data-test="row-notes">
+        {{-- What stops it / what to know — kept in the agent cell (under the agent) so the row fits the page width. --}}
+        <div class="mt-2 pt-2" style="border-top: 1px dashed var(--border);" data-test="row-notes">
         @if($row->import_error)
             <div class="text-red-600" data-test="import-error">{{ $row->import_error }}</div>
         @endif
@@ -258,5 +260,6 @@
         @if(! $row->import_error && $blockers === [] && empty($row->warnings_json) && ! $imported)
             <span class="text-muted">Nothing to fix.</span>
         @endif
+        </div>
     </td>
 </tr>

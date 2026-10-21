@@ -19,6 +19,15 @@ final class ReosContactNames
         return (bool) preg_match(self::COMPANY, $name);
     }
 
+    /**
+     * Is this CoreX contact a company? A company record, OR a person-kind record whose name reads as a company: CoreX holds thousands of
+     * those (10,706 of 10,807 contacts on QA1 are "natural person" records, many named "… Pty Ltd" — Johan's BEBO Investments).
+     */
+    public static function isCompanyContact(\App\Models\Contact $c): bool
+    {
+        return $c->isEntity() || self::isCompany(trim((string) $c->full_name)) || self::isCompany(trim($c->first_name . ' ' . $c->last_name));
+    }
+
     /** "X & Y Smith", "X and Y Smith" — and not a company. */
     public static function isJoint(string $name): bool
     {

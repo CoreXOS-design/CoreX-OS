@@ -168,7 +168,7 @@ class ReosRowResolver
 
         // Matched on a phone / e-mail but under a different name? Say so (a warning on the cell, never a blocker).
         if ($found) {
-            $flag = ReosNameCompare::flag($name, (string) $found->full_name, $found->isEntity());
+            $flag = ReosNameCompare::flag($name, (string) $found->full_name, ReosContactNames::isCompanyContact($found));
             if ($flag !== ReosNameCompare::OK) {
                 $match['name_flag'] = $flag;
                 $match['matched_name'] = (string) $found->full_name;
