@@ -35,6 +35,12 @@
                         <div class="text-xs" style="color:var(--text-muted);">{{ $m['target'] > 0 ? 'target ' . $m['fmt']($m['target']) : 'no target set' }}</div>
                     </div>
                     <div class="ds-value-lg" data-testid="actual-{{ $m['key'] }}">{{ $m['fmt']($m['actual']) }}</div>
+                    @if($m['key'] === 'points')
+                        <div class="text-[11px] flex flex-wrap gap-x-3" style="color:var(--text-muted);" data-testid="points-split">
+                            <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--brand-icon, #0ea5e9);"></span>Manual {{ number_format($p['points']['monthSplit']['manual'], 0) }}</span>
+                            <span class="inline-flex items-center gap-1"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ds-amber, #f59e0b);"></span>Automatic {{ number_format($p['points']['monthSplit']['automatic'], 0) }}</span>
+                        </div>
+                    @endif
                     @if($bar !== null)
                         <div class="mt-2 ds-progress-track"><div class="ds-progress-bar {{ $bar >= 80 ? 'ds-bar-navy' : 'ds-bar-amber' }}" style="width: {{ $bar }}%"></div></div>
                         <div class="text-[11px] mt-1" style="color:var(--text-muted);">{{ $bar }}% of target</div>
@@ -70,16 +76,9 @@
         </div>
     </div>
 
-    @php $week = array_slice($p['points']['days'], -7, 7, true); $max = max(1, max($week)); @endphp
+    @php $weekSplit = array_slice($p['points']['daysSplit'], -7, 7, true); @endphp
     <div class="ds-status-card" data-testid="momentum">
         <h4 class="ds-section-header" style="margin-bottom:0.75rem;">Momentum &mdash; last 7 days (points)</h4>
-        <div class="flex items-end gap-2" style="height:72px;">
-            @foreach($week as $day => $pts)
-                <div class="flex-1 text-center" title="{{ \Carbon\CarbonImmutable::parse($day)->format('D j M') }}: {{ number_format($pts, 0) }} points">
-                    <div style="height: {{ max(2, (int) round($pts / $max * 60)) }}px; background: var(--brand-button, #0ea5e9); border-radius:3px 3px 0 0;"></div>
-                    <div class="text-[10px] mt-1" style="color:var(--text-muted);">{{ \Carbon\CarbonImmutable::parse($day)->format('D') }}</div>
-                </div>
-            @endforeach
-        </div>
+        <x-points-split-strip :days="$weekSplit" label="D" :height="60" testid="momentum-strip" />
     </div>
 </div>

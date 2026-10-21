@@ -147,6 +147,11 @@
                             <div class="text-sm font-semibold mt-1" style="color: var(--text-secondary);">
                                 Progress {{ $fmtPct($p['points_pct'] ?? null) }}
                             </div>
+                            @php $ps = $snapshot['points_split'] ?? ['manual' => 0, 'automatic' => 0]; @endphp
+                            <div class="text-[11px] mt-1 flex flex-wrap gap-x-3" style="color: var(--text-muted);" data-testid="points-split">
+                                <span class="inline-flex items-center gap-1" title="Captured by the agent"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--brand-icon, #0ea5e9);"></span>Manual {{ number_format((float) $ps['manual'], 1) }}</span>
+                                <span class="inline-flex items-center gap-1" title="Credited by CoreX work"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--ds-amber, #f59e0b);"></span>Automatic {{ number_format((float) $ps['automatic'], 1) }}</span>
+                            </div>
                         </div>
 
                         <div class="text-right">
@@ -413,22 +418,30 @@
             }
         @endphp
 
+        @php $pointsByDateSplit = $snapshot['points_by_date_split'] ?? []; @endphp
         <div class="grid grid-cols-7 gap-2">
             @foreach($last7 as $dt)
                 @php
                     $d = $dt->toDateString();
                     $pts = (float)($pointsByDate[$d] ?? 0);
-                    $h = (int)round(($pts / $maxPts) * 64);
+                    $mPts = (float)($pointsByDateSplit[$d]['manual'] ?? 0);
+                    $aPts = (float)($pointsByDateSplit[$d]['automatic'] ?? 0);
+                    $hm = $mPts > 0 ? max(2, (int)round(($mPts / $maxPts) * 64)) : 0;
+                    $ha = $aPts > 0 ? max(2, (int)round(($aPts / $maxPts) * 64)) : 0;
                 @endphp
-                <div class="ds-status-card p-2 text-center">
+                <div class="ds-status-card p-2 text-center" data-day="{{ $d }}" data-manual="{{ round($mPts, 2) }}" data-automatic="{{ round($aPts, 2) }}"
+                     title="{{ $dt->format('D j M') }}: manual {{ number_format($mPts, 1) }}, automatic {{ number_format($aPts, 1) }}">
                     <div class="text-xs font-semibold" style="color: var(--text-muted);">{{ $dt->format('D') }}</div>
-                    <div class="mt-2 h-16 flex items-end justify-center">
-                        <div class="w-6 rounded-md" style="height: {{ $h }}px; background: var(--brand-icon, #0ea5e9);"></div>
+                    <div class="mt-2 h-16 flex flex-col justify-end items-center">
+                        @if($ha > 0)<div class="w-6" style="height: {{ $ha }}px; background: var(--ds-amber, #f59e0b); border-radius: 6px 6px 0 0;"></div>@endif
+                        @if($hm > 0)<div class="w-6" style="height: {{ $hm }}px; background: var(--brand-icon, #0ea5e9); {{ $ha > 0 ? '' : 'border-radius: 6px 6px 0 0;' }}"></div>@endif
                     </div>
                     <div class="mt-2 text-xs font-bold" style="color: var(--text-primary);">{{ number_format($pts, 1) }}</div>
                 </div>
             @endforeach
         </div>
+
+        <div class="mt-3"><x-points-legend /></div>
 
         <div class="mt-4 flex items-center justify-between flex-wrap gap-2">
             <div class="text-sm" style="color: var(--text-secondary);">

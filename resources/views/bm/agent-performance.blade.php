@@ -150,6 +150,7 @@
                     </div>
                     <div class="mt-2 text-xs" style="color:var(--text-secondary)">
                         {{ number_format($pointsActual, 0) }} / {{ number_format($pointsTarget, 0) }} ({{ number_format($pointsPct, 1) }}%)
+                        <x-points-split-total :split="['manual' => (float)($actuals['points_manual'] ?? 0), 'automatic' => (float)($actuals['points_auto'] ?? 0)]" split-only class="mt-1" />
                         @if($pointsTarget > 0 && $pointsActual >= $pointsTarget) <span title="Target achieved">🏆</span> @endif
                     </div>
                 </div>
@@ -164,6 +165,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <div class="rounded-2xl border p-4" style="background:var(--surface); border-color:var(--border)">
                     <div class="ds-label">Momentum (last 7 days)</div>
+                    <div class="mt-1"><x-points-legend /></div>
                     <div class="mt-3 grid grid-cols-7 gap-2">
                         @foreach($m7 as $d)
                             @php
@@ -172,8 +174,16 @@
                             @endphp
                             <div class="rounded-xl border p-2 text-center" style="background:var(--surface-2); border-color:var(--border)">
                                 <div class="text-[10px]" style="color:var(--text-muted)">{{ \Carbon\Carbon::parse($d['date'])->format('D') }}</div>
-                                <div class="mt-2 h-20 flex items-end justify-center">
-                                    <div class="w-4 rounded" style="height: {{ $h }}px; background: {{ $v > 0 ? 'var(--text-primary)' : 'var(--border)' }};"></div>
+                                @php
+                                    $mV = (float)($d['manual'] ?? 0); $aV = (float)($d['automatic'] ?? 0);
+                                    $hM = $mV > 0 ? max(2, (int) round($mV / max(1, $v) * $h)) : 0;
+                                    $hA = $aV > 0 ? max(2, (int) round($aV / max(1, $v) * $h)) : 0;
+                                @endphp
+                                <div class="mt-2 h-20 flex flex-col justify-end items-center" data-day="{{ $d['date'] }}" data-manual="{{ round($mV, 2) }}" data-automatic="{{ round($aV, 2) }}"
+                                     title="Manual {{ number_format($mV, 0) }}, automatic {{ number_format($aV, 0) }}">
+                                    @if($hA > 0)<div class="w-4" style="height: {{ $hA }}px; background: var(--ds-amber, #f59e0b); border-radius: 4px 4px 0 0;"></div>@endif
+                                    @if($hM > 0)<div class="w-4" style="height: {{ $hM }}px; background: var(--brand-icon, #0ea5e9); {{ $hA > 0 ? '' : 'border-radius: 4px 4px 0 0;' }}"></div>@endif
+                                    @if($hM === 0 && $hA === 0)<div class="w-4 rounded" style="height: 4px; background: var(--border);"></div>@endif
                                 </div>
                                 <div class="text-xs font-extrabold mt-1" style="color:var(--text-primary)">{{ number_format($v, 0) }}</div>
                             </div>

@@ -128,6 +128,8 @@ class AgentPerformanceController extends Controller
                 'value' => (float)($agentRow['actuals']['value'] ?? ($agentRow['actuals']['sales_value'] ?? 0)),
                 'daily_rows' => (int)($agentRow['actuals']['daily_rows'] ?? 0),
                 'points' => (float)($agentRow['actuals']['points'] ?? 0),
+                'points_manual' => (float)($agentRow['actuals']['points_manual'] ?? 0),
+                'points_auto' => (float)($agentRow['actuals']['points_auto'] ?? 0),
 
                 // Money-first truth (ex VAT) — from deal_money_lines settlement
                 'company_income' => round((float)$dealsComputed->sum('company_income_ex_vat'), 2),

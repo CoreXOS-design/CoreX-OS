@@ -48,9 +48,13 @@
     {{-- Stats Cards --}}
     <div class="corex-kpi-grid">
         <x-corex-kpi-card title="Total Count" :value="number_format((int)$grandCount)" />
-        <x-corex-kpi-card title="Total Points" :value="number_format((float)$grandPoints, 0)" />
+        <div class="rounded-md p-4" style="background:var(--surface); border:1px solid var(--border);" data-testid="grand-split">
+            <x-points-split-total :split="$grandSplit" label="Total Points" />
+        </div>
         <x-corex-kpi-card title="Activities Tracked" :value="number_format(count($items))" />
     </div>
+
+    <div><x-points-legend /></div>
 
     {{-- Search Bar --}}
     <div class="relative">
@@ -90,7 +94,7 @@
                     <tr style="background: var(--surface-2);">
                         <th class="text-left px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Activity</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Count</th>
-                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Manual / Auto</th>
+                        <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Manual / Automatic points</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Points</th>
                         <th class="text-right px-4 py-2.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">% (Points)</th>
                     </tr>

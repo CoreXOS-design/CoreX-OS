@@ -286,6 +286,8 @@
                     </div>
                     <div class="mt-2 ds-label">
                         {{ number_format($pointsActual, 0) }} / {{ number_format($pointsTarget, 0) }} ({{ number_format($pointsPct, 1) }}%)
+                        <x-points-split-total :split="['manual' => (float)($pts['manual'] ?? 0), 'automatic' => (float)($pts['automatic'] ?? 0)]" split-only class="mt-1" />
+                        <div class="mt-1"><x-points-legend /></div>
                     </div>
                 </div>
 

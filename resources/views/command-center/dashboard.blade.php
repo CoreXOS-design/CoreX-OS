@@ -488,6 +488,7 @@
                         <p class="text-sm font-semibold" style="color:var(--text-primary);">
                             {{ number_format($mtdPoints) }}@if($monthlyTarget > 0) <span class="font-normal text-xs" style="color:var(--text-muted);"> / {{ number_format($monthlyTarget) }}</span>@endif
                         </p>
+                        <x-points-split-total :split="$mtdSplit" split-only class="mt-0.5" />
                         @if($monthlyTarget > 0)
                             <div class="ds-progress-track w-32 mt-1" style="height:4px;">
                                 <div class="ds-progress-bar" style="width:{{ $pct }}%; background:var(--brand-icon);"></div>

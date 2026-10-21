@@ -97,6 +97,15 @@ final class DailyActivityEntry extends Model
         self::SOURCE_AUTO_INSTANT,
     ];
 
+    /**
+     * Manual vs automatic - the ONE definition of the split shown beside points everywhere (Johan, 21 Oct 2026).
+     * Manual = captured by the agent (source 'manual'). Automatic = credited by CoreX's own work: a calendar event
+     * (auto_calendar) or an instant action such as a captured contact (auto_instant). Together they are exactly
+     * ACHIEVEMENT_TOTAL_SOURCES, so manual + automatic is always the combined total the shared rule gives.
+     */
+    public const MANUAL_SOURCES    = [self::SOURCE_MANUAL];
+    public const AUTOMATIC_SOURCES = [self::SOURCE_AUTO_CALENDAR, self::SOURCE_AUTO_INSTANT];
+
     protected $table = 'daily_activity_entries';
 
     protected $fillable = [
