@@ -30,7 +30,8 @@
      data-filters="{{ json_encode($filters) }}">
 
     {{-- Sticky header: counts, the next action, Import. --}}
-    <div id="reos-bar" class="corex-card p-3 space-y-2" style="position: sticky; top: 0; z-index: 30;">
+    {{-- Solid background and a stacking order above every row control (the suburb / contact result lists are z-20): the rows scroll UNDER it. --}}
+    <div id="reos-bar" class="corex-card p-3 space-y-2" style="position: sticky; top: 0; z-index: 50; background: var(--surface, #fff); box-shadow: 0 2px 6px rgba(0,0,0,.12);" data-test="reos-bar">
         <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
                 <h1 class="text-base font-semibold">Review reOS import — {{ $run->source_filename }}</h1>
@@ -49,6 +50,7 @@
             <span class="ds-badge ds-badge-muted">To update: <strong data-sum="to_update">{{ $summary['to_update'] }}</strong></span>
             <span class="ds-badge {{ $summary['blocked'] > 0 ? 'ds-badge-danger' : 'ds-badge-muted' }}" id="reos-blocked-chip">Blocked: <strong data-sum="blocked">{{ $summary['blocked'] }}</strong></span>
             <span class="ds-badge {{ ($summary['name_differs'] ?? 0) > 0 ? 'ds-badge-warning' : 'ds-badge-muted' }}" data-test="name-differs-chip">Name differs: <strong data-sum="name_differs">{{ $summary['name_differs'] ?? 0 }}</strong></span>
+            <span class="ds-badge ds-badge-muted" data-test="spelling-chip" title="Same name, spelled differently — not counted as a difference">Spelling: <strong data-sum="spelling_differs">{{ $summary['spelling_differs'] ?? 0 }}</strong></span>
             <span class="ds-badge ds-badge-success">Imported: <strong data-sum="imported">{{ $summary['imported'] }}</strong> of {{ $summary['total'] }}</span>
         </div>
 
@@ -86,7 +88,7 @@
             'readiness' => ['Readiness', ['blocked' => 'Blocked', 'ready' => 'Ready', 'ticked' => 'Ticked', 'unticked' => 'Not ticked']],
             'lease_status' => ['reOS status', ['Active' => 'Active', 'Expiring' => 'Expiring', 'Draft' => 'Draft']],
             'state' => ['Import state', ['waiting' => 'Waiting', 'imported' => 'Imported', 'failed' => 'Failed', 'existing' => 'Already in CoreX']],
-            'names' => ['Contact names', ['differs' => 'Name differs']],
+            'names' => ['Contact names', ['differs' => 'Name differs', 'spelling' => 'Spelling differs']],
         ] as $key => [$label, $options])
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" for="reos-f-{{ $key }}">{{ $label }}</label>
@@ -159,7 +161,18 @@
                 @endif
             </div>
         @else
+            {{-- Fits the page width without a horizontal scroll: fixed layout, percentage columns, controls 100% of their column; the
+                 "to fix / to know" notes sit under the agent. (The wrapper keeps its own scroll only as a safety on a phone.) --}}
+            <style>
+                #reos-table { table-layout: fixed; width: 100%; }
+                #reos-table th, #reos-table td { overflow-wrap: anywhere; vertical-align: top; }
+                #reos-table input[type=text], #reos-table input[type=email], #reos-table select { width: 100%; box-sizing: border-box; }
+                #reos-table input[type=checkbox] { width: auto; }
+            </style>
             <table class="ds-table w-full text-xs" id="reos-table">
+                <colgroup>
+                    <col style="width:3%"><col style="width:14%"><col style="width:23%"><col style="width:19%"><col style="width:19%"><col style="width:22%">
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Tick</th>
@@ -167,8 +180,7 @@
                         <th><a href="{{ $sortLink('address') }}">Property{{ $sortMark('address') }}</a></th>
                         <th><a href="{{ $sortLink('owner') }}">Owner{{ $sortMark('owner') }}</a></th>
                         <th><a href="{{ $sortLink('tenant') }}">Tenant{{ $sortMark('tenant') }}</a></th>
-                        <th>Agent</th>
-                        <th>To fix / to know</th>
+                        <th>Agent · to fix / to know</th>
                     </tr>
                 </thead>
                 <tbody>

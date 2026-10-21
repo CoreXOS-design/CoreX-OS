@@ -3,33 +3,50 @@
 namespace App\Services\Rentals\TakeOnImport\Reos;
 
 /**
- * AT-479 (Johan, 21 Oct) — a contact matched on phone / e-mail can be a DIFFERENT person than the one reOS names (a shared
- * number, a re-used e-mail, a company whose phone is its contact person's). The review screen flags it; this is the comparison.
+ * AT-479 (Johan, 21 Oct) — a contact matched on phone / e-mail can be a DIFFERENT person than the one reOS names. The review screen
+ * says so, in two strengths (Johan, after the real-file check: 26 of 46 rows flagged was noise):
  *
- * Names are compared normalised — case, spacing, punctuation, "&"/"and" and legal suffixes (Pty, Ltd, Limited) ignored — and
- * an initial matches a full first name ("A Smith" = "Andre Smith"). A name matches when every word of the SHORTER name is found in
- * the longer one, so a joint "William & Dorothy Geyser" matching one spouse, or a missing middle name, is not noise.
- * A flag is a WARNING for the person looking at the row, never a blocker.
+ *   SPELLING  muted grey, not counted — the same name written differently: same surname once spaces are squashed ("Mc Neil" =
+ *             "McNeil"), a middle name on one side only, or a small typo (edit distance ≤ 2) in the first name or surname
+ *             ("Mkhozi"/"Mkozi", "Desire"/"Desiree", "LTY"/"LTD").
+ *   DIFFERS   amber, counted — anything else ("Aiesha Steady" vs "Elana Reid", "Andre" vs "Johan Esterhuizen").
+ *   PERSON_FOR_COMPANY  amber, counted — reOS names a company and CoreX holds a person ("likely the company's contact person").
+ *
+ * Names are compared normalised — case, spacing, punctuation, "&"/"and" and the legal suffixes Pty/Ltd/Limited ignored — and an
+ * initial matches a full first name. A name matches outright when every word of the SHORTER name is found in the longer one. All of
+ * these are WARNINGS for the person looking at the row, never blockers.
  */
 final class ReosNameCompare
 {
     public const OK = null;
+    public const SPELLING = 'spelling';
     public const DIFFERS = 'differs';
     public const PERSON_FOR_COMPANY = 'person_for_company';
 
     private const IGNORED = ['and', 'the', 'pty', 'ltd', 'limited'];
 
+    /** Flags that count in the amber total (SPELLING does not). */
+    public const AMBER = [self::DIFFERS, self::PERSON_FOR_COMPANY];
+
     /**
-     * @param bool $contactIsEntity  the CoreX contact is a company / trust (contact_kind = entity)
-     * @return string|null  null = same name; DIFFERS; PERSON_FOR_COMPANY (reOS names a company, CoreX has a person)
+     * @param bool $contactIsCompany  the CoreX contact is a company — a company record, OR a person-kind record whose name reads as a
+     *                                company (CoreX is full of those: ReosContactNames::isCompanyContact())
+     * @return string|null  null = same name; SPELLING; DIFFERS; PERSON_FOR_COMPANY
      */
-    public static function flag(string $reosName, string $contactName, bool $contactIsEntity): ?string
+    public static function flag(string $reosName, string $contactName, bool $contactIsCompany): ?string
     {
-        if (ReosContactNames::isCompany($reosName) && ! $contactIsEntity) {
+        $reosIsCompany = ReosContactNames::isCompany($reosName);
+
+        // A company is only ever a "person's company" when CoreX really holds a person. A company matched to a company is a company
+        // match — at most a spelling difference — and an entity is never offered as somebody's contact person.
+        if ($reosIsCompany && ! $contactIsCompany) {
             return self::PERSON_FOR_COMPANY;
         }
+        if (self::sameName($reosName, $contactName)) {
+            return self::OK;
+        }
 
-        return self::sameName($reosName, $contactName) ? self::OK : self::DIFFERS;
+        return self::spellingOnly($reosName, $contactName, $reosIsCompany && $contactIsCompany) ? self::SPELLING : self::DIFFERS;
     }
 
     public static function sameName(string $a, string $b): bool
@@ -56,6 +73,83 @@ final class ReosNameCompare
         }
 
         return true;
+    }
+
+    /** Not the same name, but only a spelling apart (see the class note). */
+    public static function spellingOnly(string $a, string $b, bool $bothCompanies = false): bool
+    {
+        $x = self::words($a);
+        $y = self::words($b);
+        if ($x === [] || $y === []) {
+            return true;
+        }
+        $sx = implode('', $x);
+        $sy = implode('', $y);
+        if ($sx === $sy) {
+            return true;   // "Mc Neil" = "McNeil"
+        }
+
+        if ($bothCompanies) {
+            // Company names: a typo or two in the whole name, or every word of the shorter within one letter of a word of the longer.
+            if (self::near($sx, $sy, 2)) {
+                return true;
+            }
+            [$short, $long] = count($x) <= count($y) ? [$x, $y] : [$y, $x];
+            foreach ($short as $w) {
+                $hit = false;
+                foreach ($long as $i => $l) {
+                    if ($w === $l || self::near($w, $l, 1)) {
+                        unset($long[$i]);
+                        $hit = true;
+                        break;
+                    }
+                }
+                if (! $hit) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // People: the first name agrees (equal, an initial, or a small typo) AND the surname agrees once squashed — the surname being
+        // the last one or two words, so a middle name on one side only, or "Mc Neil", does not matter.
+        $firstOk = self::wordsAgree($x[0], $y[0]) || self::near($x[0], $y[0], 2);
+        if (! $firstOk) {
+            return false;
+        }
+        foreach ([1, 2] as $n) {
+            foreach ([1, 2] as $m) {
+                if (count($x) < $n || count($y) < $m) {
+                    continue;
+                }
+                if (self::near(implode('', array_slice($x, -$n)), implode('', array_slice($y, -$m)), 2)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /** equal, or within $max edits — but only for words long enough (4+) for an edit to mean "a typo" rather than "another name" */
+    private static function near(string $a, string $b, int $max): bool
+    {
+        if ($a === $b) {
+            return true;
+        }
+        if (mb_strlen($a) < 4 || mb_strlen($b) < 4) {
+            return false;
+        }
+
+        return levenshtein(self::ascii($a), self::ascii($b)) <= $max;
+    }
+
+    private static function ascii(string $s): string
+    {
+        $t = @iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $s);
+
+        return $t === false || $t === '' ? $s : $t;
     }
 
     /** equal, or one is a single-letter initial of the other */
