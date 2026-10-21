@@ -75,8 +75,19 @@ class ReosDecisionService
 
         foreach (['owner', 'tenant'] as $party) {
             if (isset($in[$party]) && is_array($in[$party])) {
-                $d[$party] = $this->party($in[$party], $agencyId);
+                $people = $d[$party]['people'] ?? [];
+                $d[$party] = array_merge($this->party($in[$party], $agencyId), ['people' => $people]);
+                // The people belong to a COMPANY: if this party is no longer one (left out, a person linked, …) they go with it.
+                $row->decisions_json = $d;
+                if (! ReosCompanyPeople::isCompanyParty($row, $party)) {
+                    $d[$party]['people'] = [];
+                }
             }
+        }
+
+        if (isset($in['person']) && is_array($in['person'])) {
+            $row->decisions_json = $d;
+            $d = $this->personOp($row, $d, $agencyId, $in['person']);
         }
 
         if (array_key_exists('agent_user_id', $in)) {
@@ -166,6 +177,100 @@ class ReosDecisionService
             });
 
         return $n;
+    }
+
+    /**
+     * The company ↔ people choices of one owner / tenant (spec R6a): add (an existing person, or a new one), remove, change the
+     * role, or the one-click "create the company and link the matched person as its contact person".
+     *
+     * @param array<string,mixed> $d  decisions
+     * @param array<string,mixed> $in  party, op, and the op's fields
+     * @return array<string,mixed> decisions
+     */
+    private function personOp(RentalTakeOnImportRow $row, array $d, int $agencyId, array $in): array
+    {
+        $party = (string) ($in['party'] ?? '');
+        $op = (string) ($in['op'] ?? '');
+        if (! in_array($party, ['owner', 'tenant'], true)) {
+            throw ValidationException::withMessages(['person' => 'Say whether this is for the owner or the tenant.']);
+        }
+        $matches = $party === 'owner' ? $row->landlord_match_json : $row->tenant_match_json;
+        $m = $matches[1] ?? null;
+        $people = $d[$party]['people'] ?? [];
+        $capacity = $in['capacity'] ?? null;
+        if ($capacity !== null && $capacity !== '' && ! in_array($capacity, ReosCompanyPeople::capacities(), true)) {
+            throw ValidationException::withMessages(['capacity' => 'Pick a role from the list.']);
+        }
+
+        if ($op === 'convert') {
+            // The company matched a PERSON by phone / e-mail: create the company, and link that person to it — reused, not duplicated.
+            $person = $m && ! empty($m['name_flag']) && $m['name_flag'] === ReosNameCompare::PERSON_FOR_COMPANY && ! empty($m['existing_contact_id'])
+                ? Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $m['existing_contact_id']) : null;
+            if (! $person || $person->isEntity()) {
+                throw ValidationException::withMessages(['person' => 'This company did not match a person, so there is nobody to link.']);
+            }
+            $entry = ['contact_id' => (int) $person->id, 'label' => (string) $person->full_name, 'capacity' => ReosCompanyPeople::CONTACT_PERSON_CAPACITY, 'via' => 'matched_person'];
+            $entry['key'] = ReosCompanyPeople::keyFor($entry);
+            $kept = array_values(array_filter($people, fn ($p) => $p['key'] !== $entry['key']));
+            $kept[] = $entry;
+            $d[$party] = ['action' => 'create', 'contact_id' => null, 'people' => $kept];
+
+            return $d;
+        }
+
+        if (! ReosCompanyPeople::isCompanyParty($row, $party)) {
+            throw ValidationException::withMessages(['person' => 'People can only be added to a company.']);
+        }
+
+        if ($op === 'add') {
+            if (count($people) >= 10) {
+                throw ValidationException::withMessages(['person' => 'A company can have at most 10 people added here.']);
+            }
+            if (! empty($in['contact_id'])) {
+                $c = Contact::withoutGlobalScopes()->where('agency_id', $agencyId)->whereNull('deleted_at')->find((int) $in['contact_id']);
+                if (! $c || $c->isEntity()) {
+                    throw ValidationException::withMessages(['contact_id' => 'Pick a person (not a company) from the list.']);
+                }
+                $entry = ['contact_id' => (int) $c->id, 'label' => (string) $c->full_name];
+            } else {
+                $first = trim((string) ($in['first_name'] ?? ''));
+                $email = trim((string) ($in['email'] ?? ''));
+                if ($first === '') {
+                    throw ValidationException::withMessages(['first_name' => 'Give the person\'s name.']);
+                }
+                if ($email !== '' && ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    throw ValidationException::withMessages(['email' => 'That e-mail address does not look right.']);
+                }
+                $entry = [
+                    'first_name' => mb_substr($first, 0, 100),
+                    'last_name' => mb_substr(trim((string) ($in['last_name'] ?? '')), 0, 100),
+                    'phone' => mb_substr(trim((string) ($in['phone'] ?? '')), 0, 30),
+                    'email' => mb_substr($email, 0, 150),
+                ];
+            }
+            $entry['capacity'] = $capacity ?: 'Director';
+            $entry['key'] = ReosCompanyPeople::keyFor($entry);
+            $people = array_values(array_filter($people, fn ($p) => $p['key'] !== $entry['key']));   // adding the same person again just updates the role
+            $people[] = $entry;
+        } elseif ($op === 'remove') {
+            $people = array_values(array_filter($people, fn ($p) => $p['key'] !== (string) ($in['key'] ?? '')));
+        } elseif ($op === 'set_capacity') {
+            if (! $capacity) {
+                throw ValidationException::withMessages(['capacity' => 'Pick a role from the list.']);
+            }
+            foreach ($people as &$p) {
+                if ($p['key'] === (string) ($in['key'] ?? '')) {
+                    $p['capacity'] = $capacity;
+                }
+            }
+            unset($p);
+        } else {
+            throw ValidationException::withMessages(['person' => 'That is not something that can be done with the people of a company.']);
+        }
+
+        $d[$party]['people'] = array_values($people);
+
+        return $d;
     }
 
     /** @return array<string,mixed> */
