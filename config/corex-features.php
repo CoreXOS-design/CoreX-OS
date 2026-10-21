@@ -634,7 +634,7 @@ return [
         'default' => true, 'core' => false, 'depends_on' => ['rentals', 'rental-leases'],
         'nav_permission' => ['rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view'], 'sidebar_section' => 'rental-applications',
         'settings_section' => null, 'route_prefixes' => ['corex/rental-notices', 'corex/lease-notices', 'corex/breaches'], 'global_flag' => null,
-        'route_names' => ['corex.rental-notices.*', 'corex.lease-notices.*', 'corex.leases.notice-cases.store', 'corex.breaches.*', 'corex.leases.breaches.*'],
+        'route_names' => ['corex.rental-notices.*', 'corex.lease-notices.*', 'corex.leases.notice-cases.store', 'corex.breaches.*', 'corex.leases.breaches.*', 'api.v1.rentals.notices.*'],
         'view_dirs' => ['corex/rental-notices/', 'corex/lease-notices/', 'corex/breaches/'],
         'permission_modules' => ['rental_notices', 'rental_breaches'],
     ],

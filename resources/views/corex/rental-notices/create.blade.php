@@ -1,7 +1,9 @@
 @extends('layouts.corex')
 
-@section('content')
-<div class="p-6 max-w-2xl space-y-4">
+@section('corex-content')
+<div class="w-full space-y-5">
+@include('corex.notices._tabs', ['active' => 'sent'])
+<div class="max-w-2xl space-y-4 rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">
     <h1 class="text-lg font-semibold">Send Notice — {{ $lease->property?->buildDisplayAddress() }}</h1>
 
     @if($errors->any())
@@ -15,7 +17,7 @@
     @if($templates->isEmpty())
         <p class="text-sm" style="color: var(--text-muted);" data-qa="notice-no-templates">Your agency has not added any notice templates yet. Notices are your own documents - upload your breach notice, notice to vacate and any other notice (a Word document with placeholders) under <a href="{{ route('corex.rental-notice-templates.index') }}" style="color: var(--brand-icon, #0ea5e9);">Settings &rarr; Rental Notice Templates</a>, then come back here.</p>
     @else
-        <form method="POST" action="{{ route('corex.leases.notices.store', $lease) }}" class="space-y-4" x-data="{ templateId: '{{ old('rental_notice_template_id') }}' }">
+        <form method="POST" action="{{ route('corex.leases.notices.store', $lease) }}" class="space-y-4" x-data="{ templateId: '{{ old('rental_notice_template_id', $templates->contains('id', $chosenTemplateId ?? 0) ? $chosenTemplateId : '') }}' }">
             @csrf
             <div>
                 <label class="prop-label">Template</label>
@@ -61,5 +63,6 @@
     @feature('rental-leases')
     <a href="{{ route('corex.leases.show', $lease) }}" class="text-xs" style="color: var(--brand-icon, #0ea5e9);">&larr; Back to Lease Hub</a>
     @endfeature
+</div>
 </div>
 @endsection

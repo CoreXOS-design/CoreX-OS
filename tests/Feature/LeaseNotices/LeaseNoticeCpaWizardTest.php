@@ -45,7 +45,7 @@ final class LeaseNoticeCpaWizardTest extends TestCase
 
         $this->actingAs($admin)->get(route('corex.agency-setup.step', ['step' => 'leases']))->assertOk()
             ->assertSee('name="cpa_early_cancel_business_days"', false)->assertSee('Business days&#039; notice a tenant may cancel a fixed term on', false)
-            ->assertSee('name="breach_remedy_business_days"', false)->assertSee('Business days a tenant has to put a breach right', false);
+            ->assertSee('name="breach_remedy_business_days"', false)->assertSee('Days a tenant has to put a breach right', false);
 
         $fields = array_replace($this->browserFormFields($admin, 'leases'), $this->alpineListRows($agency), ['cpa_early_cancel_business_days' => '16', 'breach_remedy_business_days' => '12']);
         $this->actingAs($admin)->post(route('corex.agency-setup.step.save', ['step' => 'leases']), $fields)->assertRedirect()->assertSessionHasNoErrors();
