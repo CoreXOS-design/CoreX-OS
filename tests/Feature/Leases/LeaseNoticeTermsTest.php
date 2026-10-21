@@ -281,7 +281,8 @@ final class LeaseNoticeTermsTest extends TestCase
         $this->svc()->save($lease, ['notice_period' => 30, 'notice_period_unit' => 'days', 'early_cancellation_allowed' => 'yes', 'early_cancellation_notice' => 20, 'early_cancellation_notice_unit' => 'days', 'earliest_termination_date' => '2027-02-28'], $this->admin, 'captured');
         $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
         $this->assertStringContainsString('30 days', $html);
-        $this->assertStringContainsString('2027-01-29', $html, 'earliest notice = 28 Feb 2027 less 30 days');
+        $this->assertStringNotContainsString('2027-01-29', $html, 'no earliest-notice date is worked out (28 Feb 2027 less 30 days) - the CPA expiry window is shown instead');
+        $this->assertStringNotContainsString('Earliest notice may be given', $html);
         $this->assertStringContainsString('2027-05-01', $html, 'notice to leave at the end date (31 May 2027 less 30 days)');
         $this->assertStringContainsString('allowed with 20 days notice', $html);
     }
@@ -431,7 +432,7 @@ final class LeaseNoticeTermsTest extends TestCase
         $a = $faq[0]['answer'];
         $this->assertStringContainsString('at least 2 months', $a);
         $this->assertStringContainsString('cannot end before 28 Feb 2027', $a);
-        $this->assertStringContainsString('give notice from 28 Dec 2026', $a, '28 Feb 2027 less 2 months');
+        $this->assertStringNotContainsString('give notice from', $a, 'nothing is worked out: the lease states no "notice may be given from" clause');
         $this->assertStringContainsString('runs until 31 May 2027', $a);
         $this->assertStringContainsString('give notice by 31 Mar 2027', $a, '31 May 2027 less 2 months');
         $b = $faq[1]['answer'];

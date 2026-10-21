@@ -1019,7 +1019,7 @@ return [
              'affects' => 'The heading of the first FAQ the tenant reads. It only appears when the tenant’s lease has a notice or cancellation term on record.'],
             ['key' => 'faq_tenant_notice_answer', 'source' => 'rental_portal', 'type' => 'textarea', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_notice_answer'],
              'label' => 'Tenant FAQ: answer 1',
-             'explain' => 'Your wording for the answer, with the lease’s own values merged in: {notice_days}, {earliest_termination_date}, {earliest_notice_date}, {lease_end_date}, {early_cancellation_terms}. Put a piece in [[double square brackets]] and it is left out whenever the lease does not have that value.',
+             'explain' => 'Your wording for the answer, with the lease’s own values merged in: {notice_days}, {earliest_termination_date}, {lease_end_date}, {early_cancellation_terms}. Put a piece in [[double square brackets]] and it is left out whenever the lease does not have that value.',
              'affects' => 'What a tenant is told about giving notice. A lease with no notice or cancellation terms shows no FAQ at all — CoreX never guesses a figure.'],
             ['key' => 'faq_tenant_early_question', 'source' => 'rental_portal', 'type' => 'text', 'default' => \App\Models\RentalPortalSetting::FAQ_DEFAULTS['faq_tenant_early_question'],
              'label' => 'Tenant FAQ: question 2',
