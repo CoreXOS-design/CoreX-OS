@@ -66,6 +66,11 @@ class ReosTakeOnController extends Controller
         $filters = ReosRowQuery::only($request->query());
         $canManage = $request->user()->hasPermission('rentals_take_on_import.manage');
 
+        // The "for all" choices shown in the defaults bar are always what the leases carry: a lease they never reached is caught up here.
+        if ($canManage && ! $run->trashed()) {
+            app(\App\Services\Rentals\TakeOnImport\Reos\ReosDecisionService::class)->reconcileDefaults($run);
+        }
+
         // ONE list of the leases (sheet order), 50 a page, narrowed by the search box and the Show switch.
         $rows = ReosRowQuery::apply(RentalTakeOnImportRow::query()->where('run_id', $run->id), $filters)->paginate(50)->withQueryString();
 

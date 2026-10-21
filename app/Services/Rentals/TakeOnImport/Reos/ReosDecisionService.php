@@ -171,6 +171,24 @@ class ReosDecisionService
         }
         ReosRunDefaults::store($run, $defaults);
 
+        return $this->applyDefaults($run, $defaults);
+    }
+
+    /**
+     * Lay the batch's saved "for all" choices into every lease that has none of its own. Safe to repeat: it only touches a lease
+     * whose answers differ from what the defaults say, so a lease the defaults never reached (or whose open question went stale)
+     * is caught up whenever the screen is opened. Returns how many leases changed.
+     */
+    public function reconcileDefaults(RentalTakeOnImportRun $run): int
+    {
+        $defaults = ReosRunDefaults::get($run);
+
+        return empty($defaults['agent_user_id']) && empty($defaults['suburb_id']) ? 0 : $this->applyDefaults($run, $defaults);
+    }
+
+    /** @param array<string,mixed> $defaults  ReosRunDefaults::get() */
+    private function applyDefaults(RentalTakeOnImportRun $run, array $defaults): int
+    {
         $n = 0;
         RentalTakeOnImportRow::query()
             ->where('run_id', $run->id)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED)
@@ -182,7 +200,9 @@ class ReosDecisionService
                     }
                     $before = $row->decisions_json;
                     [$d, $suburbChanged] = $this->fillDefaults($row, $defaults);
-                    if ($d === $before) {
+                    // A lease can hold an agent yet still list the agent among its open questions (worked out before the agent arrived).
+                    $stale = ! empty($d['agent_user_id']) && in_array('agent', $d['needs'] ?? [], true);
+                    if ($d === $before && ! $stale) {
                         continue;
                     }
                     $row->decisions_json = $d;
