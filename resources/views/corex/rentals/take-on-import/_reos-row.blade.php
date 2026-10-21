@@ -123,6 +123,17 @@
                     <span class="ds-badge {{ ($m['action'] ?? '') === 'match' ? 'ds-badge-success' : 'ds-badge-warning' }}" data-test="{{ $party }}-state">{{ ($m['action'] ?? '') === 'match' ? 'In CoreX' : 'Not in CoreX' }}</span>
                     @if(($m['kind'] ?? 'person') !== 'person')<span class="ds-badge ds-badge-muted">{{ $m['kind'] === 'company' ? 'Company' : 'Joint' }}</span>@endif
                     @if(($m['action'] ?? '') === 'match')<div class="text-muted">{{ $m['label'] }}</div>@endif
+                    {{-- Matched on a phone / e-mail under a different name than reOS gives: a warning, not a blocker. Only while the row
+                         still uses that contact (creating a new one, leaving them out or linking another clears it). --}}
+                    @if(! empty($m['name_flag']) && $state === 'link-auto')
+                        <div class="mt-1 rounded px-2 py-1" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 15%, transparent); color: var(--ds-amber, #b45309);" data-test="{{ $party }}-name-flag" data-name-flag="{{ $m['name_flag'] }}">
+                            @if($m['name_flag'] === 'person_for_company')
+                                <strong>Matched a person</strong> (likely the company's contact person): CoreX has “{{ $m['matched_name'] ?? '' }}”, reOS has “{{ $m['name'] }}”.
+                            @else
+                                <strong>Name differs</strong> — CoreX has “{{ $m['matched_name'] ?? '' }}”, reOS has “{{ $m['name'] }}”. Check it is the same person.
+                            @endif
+                        </div>
+                    @endif
                     @if($editable)
                         <select data-field="{{ $party }}" data-auto-contact="{{ $m['existing_contact_id'] ?? '' }}" class="prop-select mt-1" style="max-width:14rem;">
                             @if(($m['action'] ?? '') === 'match')<option value="link-auto" @selected($state === 'link-auto')>Use the contact already in CoreX</option>@endif

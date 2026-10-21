@@ -48,6 +48,7 @@
                 <strong data-sum="to_create_contacts">{{ $summary['to_create_contacts'] }}</strong> contacts</span>
             <span class="ds-badge ds-badge-muted">To update: <strong data-sum="to_update">{{ $summary['to_update'] }}</strong></span>
             <span class="ds-badge {{ $summary['blocked'] > 0 ? 'ds-badge-danger' : 'ds-badge-muted' }}" id="reos-blocked-chip">Blocked: <strong data-sum="blocked">{{ $summary['blocked'] }}</strong></span>
+            <span class="ds-badge {{ ($summary['name_differs'] ?? 0) > 0 ? 'ds-badge-warning' : 'ds-badge-muted' }}" data-test="name-differs-chip">Name differs: <strong data-sum="name_differs">{{ $summary['name_differs'] ?? 0 }}</strong></span>
             <span class="ds-badge ds-badge-success">Imported: <strong data-sum="imported">{{ $summary['imported'] }}</strong> of {{ $summary['total'] }}</span>
         </div>
 
@@ -85,6 +86,7 @@
             'readiness' => ['Readiness', ['blocked' => 'Blocked', 'ready' => 'Ready', 'ticked' => 'Ticked', 'unticked' => 'Not ticked']],
             'lease_status' => ['reOS status', ['Active' => 'Active', 'Expiring' => 'Expiring', 'Draft' => 'Draft']],
             'state' => ['Import state', ['waiting' => 'Waiting', 'imported' => 'Imported', 'failed' => 'Failed', 'existing' => 'Already in CoreX']],
+            'names' => ['Contact names', ['differs' => 'Name differs']],
         ] as $key => [$label, $options])
             <div class="flex flex-col gap-1">
                 <label class="text-xs font-medium" for="reos-f-{{ $key }}">{{ $label }}</label>
