@@ -265,6 +265,47 @@ final class PartialProxyRoutesTest extends PaperRouteFixtureCase
 
     // ---- existing flows unchanged -----------------------------------------------------------------------------
 
+    public function test_the_document_lists_the_proxy_first_then_who_they_sign_for_then_the_rest(): void
+    {
+        // Paula (covered) and Sam listed BEFORE Peter, who is proxy for Paula only.
+        $rows = $this->parties('none');
+        foreach ([[0, 'Paula', 'Partner'], [1, 'Sam', 'Separate'], [2, 'Peter', 'Proxy']] as [$i, $f, $l]) {
+            $rows[$i]['name'] = "$f $l"; $rows[$i]['first_name'] = $f; $rows[$i]['last_name'] = $l;
+        }
+        $rows[2]['_is_proxy'] = true;
+        $rows[2]['_proxy_excludes'] = ['key-1'];   // Sam is NOT covered
+        $step = ['property' => ['property_id' => $this->property->id, '_property_source' => 'properties'], 'recipients' => ['recipients' => $rows]];
+
+        $data = app(WebTemplateDataService::class)->resolve($this->templates[0]->id, $step, $this->agent);
+
+        $this->assertSame('Peter Proxy', $data['seller_name'], 'the proxy holder reads first');
+        $this->assertStringContainsString('Paula Partner (ID: ', $data['seller_name_2']);
+        $this->assertStringContainsString('herein represented by Peter Proxy', $data['seller_name_2']);
+        $this->assertSame('Sam Separate', $data['seller_name_3'] ?? 'Sam Separate');
+    }
+
+    public function test_wet_ink_screen_lists_only_real_recipients_and_one_line_for_the_represented_party(): void
+    {
+        $flow = $this->flowOf([$this->templates[0]], $this->parties('partial'), false);
+        $this->runRoute('docuperfect.esign.prepareWetInk', $flow);
+
+        $res = $this->actingAs($this->agent)->get(route('docuperfect.esign.wetInkConfirmation', $flow->id))->assertOk();
+        $recipients = $res->viewData('recipientRequests')->pluck('signer_name')->sort()->values()->all();
+
+        $this->assertSame([self::A, self::C], $recipients, 'the represented party is not a recipient');
+        $this->assertSame([['name' => self::B, 'by' => self::A]], $res->viewData('representedLines'));
+    }
+
+    public function test_a_represented_party_does_not_hold_the_wet_ink_document_in_waiting(): void
+    {
+        $flow = $this->flowOf([$this->templates[0]], $this->parties('full'), false);
+        $this->runRoute('docuperfect.esign.prepareWetInk', $flow);
+        $res = $this->actingAs($this->agent)->get(route('docuperfect.esign.wetInkConfirmation', $flow->id))->assertOk();
+
+        $this->assertSame([self::A], $res->viewData('recipientRequests')->pluck('signer_name')->all(), 'full proxy: the proxy is the only recipient');
+        $this->assertCount(2, $res->viewData('representedLines'));
+    }
+
     public function test_a_flow_with_no_proxy_and_a_flow_with_a_full_proxy_keep_their_existing_output(): void
     {
         // none: three plain parties — no wording, no caption, all three block entries.

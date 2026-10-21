@@ -372,6 +372,14 @@
 
                 <p class="wi-text-muted">Review your upload, then send the document to the recipient for their signature.</p>
 
+                @if(!empty($representedLines))
+                <div class="wi-text-sm" style="color:#64748b; margin-bottom:6px;">
+                    @foreach($representedLines as $line)
+                    <div data-represented-line>{{ $line['name'] }} &mdash; signed for by {{ $line['by'] ?? 'their proxy' }} (proxy)</div>
+                    @endforeach
+                </div>
+                @endif
+
                 @if($recipientRequests->isNotEmpty())
                 <div>
                     <div class="wi-text-sm" style="color:#64748b; margin-bottom:6px;">Sending to:</div>
@@ -416,6 +424,14 @@
                         The document has been sent. You will be notified when they upload their signed copy.
                     </p>
                 </div>
+
+                @if(!empty($representedLines))
+                <div class="wi-text-sm" style="color:#64748b; margin-bottom:6px;">
+                    @foreach($representedLines as $line)
+                    <div data-represented-line>{{ $line['name'] }} &mdash; signed for by {{ $line['by'] ?? 'their proxy' }} (proxy)</div>
+                    @endforeach
+                </div>
+                @endif
 
                 @if($recipientRequests->isNotEmpty())
                 @foreach($recipientRequests as $r)
