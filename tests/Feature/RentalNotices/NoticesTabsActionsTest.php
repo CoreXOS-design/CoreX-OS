@@ -199,7 +199,14 @@ final class NoticesTabsActionsTest extends TestCase
 
         $html = $this->actingAs($this->agent)->get(route('corex.rental-notice-templates.index'))->assertOk()->getContent();
         $this->assertStringContainsString(route('corex.rental-notice-templates.download-original', $tpl->id), $html);
-        $this->assertStringNotContainsString(route('corex.rental-notice-templates.download-original', $typed->id), $html, 'a typed template has no original');
+        $this->assertStringNotContainsString(route('corex.rental-notice-templates.download-original', $typed->id), $html, 'a typed template has no original to download');
+        $this->assertStringContainsString('data-qa="template-download-original-unavailable"', $html, 'but its row still has the button, greyed, saying why on hover');
+        $this->assertStringContainsString('No Word file was uploaded for this template', $html);
+        preg_match_all('/<(?:a|button)\b[^>]*data-qa="template-use"[^>]*>/', $html, $uses);
+        $this->assertCount(3, $uses[0], 'Use this template is on every row');
+        foreach ($uses[0] as $tag) {
+            $this->assertStringContainsString('corex-btn-outline text-xs', $tag, 'and it is the same standard button on each row');
+        }
         $this->assertStringContainsString('data-qa="template-use"', $html);
         $this->assertStringContainsString(route('corex.breaches.index', ['tile' => 'reached']), $html, 'a notice to vacate is used from a breach whose date has been reached');
         $this->assertSame($vacate->notice_type, 'notice_to_vacate');
@@ -361,7 +368,7 @@ final class NoticesTabsActionsTest extends TestCase
         $this->assertTrue((bool) LeaseEvent::where('event_type', LeaseEvent::TYPE_NOTICE_SENT)->latest('id')->first()->metadata['resend']);
     }
 
-    public function test_resend_is_for_those_who_may_send_and_see_the_lease_and_never_for_a_breach_notice(): void
+    public function test_resend_is_for_those_who_may_send_and_see_the_lease_and_never_without_a_filed_document(): void
     {
         $notice = RentalNotice::create(['agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'notice_type' => 'breach_other', 'sent_at' => now(), 'sent_to_tenant' => true]);
 
