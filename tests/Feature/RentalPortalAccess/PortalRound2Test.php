@@ -241,7 +241,7 @@ final class PortalRound2Test extends TestCase
         $a1 = $faq[0]['answer'];
         $this->assertStringContainsString('at least 60 days', $a1);
         $this->assertStringContainsString('cannot end before 28 Feb 2027', $a1);
-        $this->assertStringContainsString('You can give notice from 30 Dec 2026', $a1, '28 Feb 2027 less 60 days');
+        $this->assertStringNotContainsString('You can give notice', $a1, 'no earliest-notice date is worked out, and this lease states no such clause');
         $this->assertStringContainsString('runs until 31 May 2027', $a1);
         $this->assertStringContainsString('give notice by 1 Apr 2027', $a1, '31 May 2027 less 60 days');
         $this->assertStringContainsString('28 Feb 2027', $faq[1]['answer']);
@@ -293,8 +293,8 @@ final class PortalRound2Test extends TestCase
 
     public function test_an_earliest_notice_date_that_has_already_passed_reads_now(): void
     {
-        $this->terms(['earliest_termination_date' => '2026-11-15']);
-        LeaseSetting::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'tenant_notice_period_days' => 60]); // 15 Nov - 60d = 16 Sep: behind us
+        $this->terms(['earliest_termination_date' => '2026-11-15', 'earliest_notice_date' => '2026-09-16']); // the lease's own clause: 16 Sep is behind us
+        LeaseSetting::withoutGlobalScopes()->create(['agency_id' => $this->agency->id, 'tenant_notice_period_days' => 60]);
 
         $faq = $this->faqFor($this->tenant);
 

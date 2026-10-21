@@ -812,7 +812,9 @@
                     @else
                         @php $nv = $nt['values']; $w = $nt['worked']; @endphp
                         <div><span style="color: var(--text-muted);">Notice period:</span> {{ $nt['periodText'] ?? 'not on record' }}</div>
-                        <div><span style="color: var(--text-muted);">Earliest notice may be given:</span> {{ $w['earliest_notice'] ?? 'not on record' }}</div>
+                        @if($w['earliest_notice'])
+                            <div data-qa="lease-clause-notice-from"><span style="color: var(--text-muted);">Lease clause: notice may be given from</span> {{ \Illuminate\Support\Carbon::parse($w['earliest_notice'])->format('j M Y') }}</div>
+                        @endif
                         <div><span style="color: var(--text-muted);">Earliest the lease may end:</span> {{ $w['earliest_end'] ?? 'not on record' }}</div>
                         @if($w['notice_by'])
                             <div><span style="color: var(--text-muted);">Notice to leave at the end date, by:</span> {{ $w['notice_by'] }}</div>
