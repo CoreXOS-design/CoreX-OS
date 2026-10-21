@@ -875,8 +875,9 @@ A represented party is therefore still a party to the document (named, with addr
 party is indistinguishable from a party on a document with no proxy at all.
 
 ### 24.6 Recipients, signing order and notifications
-- **Every party gets a signature-request row** — nobody is dropped from the record. Covered parties' rows are created with status *not required*
-  (they are never emailed a link and never block completion); signers are *waiting/pending* as usual.
+- **Every party gets a signature-request row** — nobody is dropped from the record. A covered party's row is created like any other
+  (`isSigningParticipant()` = false, reason `proxy_collapsed`); when invitations go out the system skips it, marks it *not required* and logs
+  `send_skipped_not_signing_participant` — it is never emailed a link and never blocks completion. Signers are *waiting → pending* as usual.
 - In the example (A proxy for B only; C unrepresented) there are **2 people who sign**: A (for A and B) and C (for themself); B is a row
   that does not sign.
 - **Signing order** is unchanged (agent → acquiring party → owner party → witness, SA convention; the agent's per-document order within a role).
