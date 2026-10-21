@@ -5,6 +5,8 @@
 <div class="w-full space-y-5" x-data="rentalApplicationCreate({{ Js::from([
     'contactId' => old('contact_id', $oldContact?->id ?? ''),
     'contactName' => $oldContact ? trim($oldContact->first_name . ' ' . $oldContact->last_name) : '',
+    'contactHasEmail' => (bool) $oldContact?->email,
+    'contactEmail' => old('contact_email', ''),
     'propertyId' => old('property_id', $oldProperty?->id ?? ''),
     {{-- Johan, QA1 walk, 2026-09-21 — address first, never the listing's
          marketing title. Same fix as the search results below. --}}
@@ -18,6 +20,10 @@
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm max-w-3xl" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);">
             {{ $errors->first() }}
+            {{-- AT-485 - refused as a duplicate: link to the application that already exists. --}}
+            @if(session('duplicate_application'))
+                <a href="{{ session('duplicate_application')['url'] }}" class="underline font-medium ml-1" data-qa="duplicate-application-link">Open the existing application</a>
+            @endif
         </div>
     @endif
 
@@ -26,7 +32,10 @@
 
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Contact <span style="color: var(--ds-crimson);">*</span></label>
-            <input type="text" x-model="contactQuery" @input.debounce.300ms="searchContacts()"
+            {{-- AT-485 - typing a new search drops the contact picked before (it used to stay selected, so Create/Enter
+                 submitted the OLD contact); Enter in a search box never submits the form. --}}
+            <input type="text" x-model="contactQuery" @input="contactTyped()" @input.debounce.300ms="searchContacts()"
+                   @keydown.enter.prevent
                    placeholder="Search contacts by name, phone or email…"
                    class="prop-input">
             <input type="hidden" name="contact_id" x-model="selectedContactId" required>
@@ -42,9 +51,17 @@
             <button type="button" @click="openQuickCreate()" class="text-xs mt-1 underline" style="color: var(--brand-icon, #0ea5e9);">Can't find them? Create a new contact</button>
         </div>
 
+        {{-- AT-485 - the picked contact has no email: type one here, it is saved to the contact so the invite can be sent. --}}
+        <div x-show="selectedContactId && !selectedContactHasEmail" x-cloak data-qa="contact-email-field">
+            <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Applicant's email (this contact has none)</label>
+            <input type="email" name="contact_email" x-model="contactEmail" :disabled="!selectedContactId || selectedContactHasEmail"
+                   placeholder="name@example.com" class="prop-input">
+            <p class="text-xs mt-1" style="color: var(--text-muted);">Optional. It is saved to the contact, and is where the application is emailed. Leave it empty to share the link yourself instead.</p>
+        </div>
+
         <div>
             <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">Property (optional)</label>
-            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()"
+            <input type="text" x-model="propertyQuery" @input.debounce.300ms="searchProperties()" @keydown.enter.prevent
                    placeholder="Search properties…"
                    class="prop-input">
             <input type="hidden" name="property_id" x-model="selectedPropertyId">
@@ -138,6 +155,7 @@ function rentalApplicationCreate(old) {
     old = old || {};
     return {
         contactQuery: old.contactName || '', contactResults: [], selectedContactId: old.contactId || '', selectedContactName: old.contactName || '',
+        selectedContactHasEmail: !!old.contactHasEmail, contactEmail: old.contactEmail || '',
         propertyQuery: old.propertyLabel || '', propertyResults: [], selectedPropertyId: old.propertyId || '', selectedPropertyLabel: old.propertyLabel || '',
         quickCreateOpen: false, quickCreateBusy: false, quickCreateError: '', quickCreateDuplicates: [], quickCreateMode: '',
         quickCreate: { first_name: '', last_name: '', phone: '', email: '' },
@@ -146,9 +164,20 @@ function rentalApplicationCreate(old) {
             const res = await fetch('{{ route('corex.properties.contacts.search-global') }}?q=' + encodeURIComponent(this.contactQuery));
             this.contactResults = await res.json();
         },
+        // AT-485 - a changed search text means the previously picked contact is no longer the one being looked for.
+        contactTyped() {
+            if (this.selectedContactId && this.contactQuery.trim() !== this.selectedContactName.trim()) {
+                this.selectedContactId = '';
+                this.selectedContactName = '';
+                this.selectedContactHasEmail = false;
+                this.contactEmail = '';
+            }
+        },
         selectContact(c) {
             this.selectedContactId = c.id;
-            this.selectedContactName = c.first_name + ' ' + c.last_name;
+            this.selectedContactHasEmail = !!c.email;
+            this.contactEmail = '';
+            this.selectedContactName = (c.first_name + ' ' + c.last_name).trim();
             this.contactResults = [];
             this.contactQuery = this.selectedContactName;
         },
@@ -173,7 +202,7 @@ function rentalApplicationCreate(old) {
             this.quickCreateOpen = false;
         },
         useDuplicate(d) {
-            this.selectContact({ id: d.id, first_name: d.name, last_name: '' });
+            this.selectContact({ id: d.id, first_name: d.name, last_name: '', email: d.email });
             this.selectedContactName = d.name;
             this.closeQuickCreate();
         },
@@ -197,7 +226,7 @@ function rentalApplicationCreate(old) {
                     return;
                 }
                 const c = body.contact;
-                this.selectContact({ id: c.id, first_name: c.first_name, last_name: c.last_name });
+                this.selectContact({ id: c.id, first_name: c.first_name, last_name: c.last_name, email: this.quickCreate.email });
                 this.closeQuickCreate();
             } catch (e) {
                 this.quickCreateError = 'Something went wrong — try again.';
