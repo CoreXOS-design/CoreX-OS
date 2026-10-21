@@ -851,22 +851,25 @@ control only when it differs from the default or is missing (the line carries th
 **The agent list** (`ReosAgentMatcher::users`): active, not archived, agency members only, not an assistant / viewer / office
 administrator, and no test / fixture account (an e-mail on `.test`, `.invalid`, `.local`, `.example`, `.localhost`).
 
-**R14.4 Layout.** (1) Sticky header, flush to the top of the scroll area: "46 leases · 18 ready · 28 need you · 0 imported" (live;
-"· n failed" only when n > 0), **Back to batches** (secondary) and the primary **Import the N ready leases**. (2) The defaults bar.
-(3) Search + one **Show: All / Ready / Needs you / Imported / Failed** switch. (4) **Needs you**: a single card at a time — only the open
-questions, each with buttons, saved at once, then the next lease; "Lease 3 of 28", **Back** and **Skip**; an answered lease moves to
-Ready. (5) **Ready**: one line per lease — row, property, owner → tenant, rent (deposit only if there is one), dates, what will happen
-("Creates property · uses existing contacts"); the line opens into the Change controls (property, suburb, agent, each person, company
-people, wallet reference). (6) **Imported** / **Failed** lines: the result with a link to the lease; a failed one says why in plain words
-and links to the fix (the lease, the batch upload for a bad file, or **Fix it** — its card with the Change controls and **Try again**).
-No helper paragraphs; no fact printed twice. List standard: search = address, owner, tenant, agent text, reOS id; sort = sheet row;
-50 per page (Show: All lists the first 50 of each state with a link to the rest); real empty states; scoping unchanged (the run is
-checked with `visibleTo`; every API call re-checks it).
-Removed: the tick boxes, "Tick all ready / all / none", the six filter dropdowns + sort + Apply, and the bulk endpoint.
+**R14.4 Layout (revised 22 Oct: ONE list, not a one-at-a-time card).** (1) Sticky header, flush to the top of the scroll area: "46 leases ·
+18 ready · 28 need you · 0 imported" (live; "· n failed" only when n > 0), **Back to batches** (secondary) and the primary **Import the N
+ready leases**. (2) The defaults bar (Agent for all / Suburb for all new properties) — saving redraws the numbers and the list in place,
+no reload. (3) Search + one **Show: All / Ready / Needs you / Imported / Failed** switch. (4) **One list of the leases** (sheet order, 50 a
+page): a line each — row, property, owner → tenant, rent (deposit only if there is one), dates, a small "spelling differs" marker where one
+was accepted, and a status chip: **Ready** (green) · **Needs you · n** (amber, n = open questions) · **Imported/Updated** (with a link to
+the lease) · **Failed** (red). A line opens IN PLACE: a lease that needs you opens onto its open questions as standard CoreX buttons
+(`corex-btn-outline`; the property candidates and "None — create new" are the same full-width button) and "When imported: …" (what will
+happen: "Uses existing property · creates 2 contacts"), with "Change something else" folded under it; a ready lease opens onto its Change
+controls (property, suburb, agent, each person, company people, wallet reference); a failed lease onto why in plain words, a link to the
+fix (the lease, or the batch upload for a bad file) and **Try again**. Answering a question saves at once; answering the last one closes
+the line (it turns green) and the next amber line opens by itself (and the first one opens on load). No helper paragraphs; no fact printed
+twice. List standard: search = address, owner, tenant, agent text, reOS id; sort = sheet row; real empty state; scoping unchanged (the run
+is checked with `visibleTo`; every API call re-checks it). Removed: the tick boxes, "Tick all / all / none", the six filter dropdowns +
+sort + Apply, the bulk endpoint, and the one-at-a-time card with its Back / Skip / "Lease 3 of 28".
 
 **R14.5 API** (`/api/v1/rentals/take-on-import/…`, catalogued): `POST rows/{row}/decisions` (property_choice, person, suburb_id,
-owner, tenant, confirm, agent_user_id, tenant_wallet_ref, retry → the lease re-drawn as line + card and the header numbers);
-`GET rows/{row}/card`; `POST runs/{run}/defaults`; `GET runs/{run}/summary`; suburbs / contacts search (unchanged).
+owner, tenant, confirm, agent_user_id, tenant_wallet_ref, retry → the lease re-drawn as its line and the header numbers);
+`POST runs/{run}/defaults`; `GET runs/{run}/summary`; suburbs / contacts search (unchanged).
 
 **R14.6 Deposit.** The deposit is read from the **Deposit Required** column (found by its heading, like every other column). On the
 first real batch (QA1 batch 6, 46 leases) the cell held 0 on every lease. A 0 is "no deposit given", not a deposit of nothing: it is no
