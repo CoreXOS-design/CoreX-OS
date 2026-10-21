@@ -194,8 +194,8 @@ final class LeaseHubTest extends TestCase
 
         self::assertNotNull($nextStep);
         self::assertSame('Start out-inspection', $nextStep['label']);
-        self::assertSame('corex.rental-inspections.create', $nextStep['route_name']);
-        self::assertSame(['lease_id' => $lease->id, 'type' => 'out'], $nextStep['route_param']);
+        self::assertSame('corex.rental-inspections.start-for-lease', $nextStep['route_name']);
+        self::assertSame(['lease' => $lease->id, 'type' => 'out'], $nextStep['route_param']);
     }
 
     public function test_next_step_out_inspection_suppressed_once_out_inspection_completed(): void
