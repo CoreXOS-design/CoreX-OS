@@ -28,13 +28,19 @@ class RentalTakeOnImportRun extends Model
     public const STATUS_FAILED = 'failed';
     public const STATUS_CANCELLED = 'cancelled';
 
+    // AT-479 — import types. Every run that predates the reOS import is a corex_template run (the column default).
+    public const SOURCE_COREX_TEMPLATE = 'corex_template';
+    public const SOURCE_REOS_TENANCY_SCHEDULE = 'reos_tenancy_schedule';
+
     protected $fillable = [
         'agency_id',
         'branch_id',
         'user_id',
         'status',
+        'source',
         'source_filename',
         'source_file_path',
+        'rent_roll_filename',
         'column_mapping_id',
         'column_mapping_json',
         'counts_json',
@@ -49,6 +55,16 @@ class RentalTakeOnImportRun extends Model
         'confirmed_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
+
+    public function isReos(): bool
+    {
+        return $this->source === self::SOURCE_REOS_TENANCY_SCHEDULE;
+    }
+
+    public function sourceLabel(): string
+    {
+        return $this->isReos() ? 'reOS Tenancy Schedule' : 'CoreX template';
+    }
 
     public function user(): BelongsTo
     {

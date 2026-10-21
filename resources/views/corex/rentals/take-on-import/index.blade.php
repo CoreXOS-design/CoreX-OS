@@ -61,6 +61,31 @@
             for next time).
         </p>
     </div>
+
+    {{-- AT-479 — second upload option: the reOS Tenancy Schedule (and, optionally, the Rent Roll). Spec "reOS Tenancy Schedule import". --}}
+    @permission('rentals_take_on_import.manage')
+    <div class="corex-card p-4 space-y-3" data-test="reos-upload-card">
+        <h2 class="text-sm font-semibold">reOS Tenancy Schedule import</h2>
+        <p class="text-xs text-muted">
+            Moving from reOS? Upload the <strong>Tenancy Schedule</strong> report exactly as reOS exports it (.xlsx). Add the <strong>Rent Roll</strong>
+            as well if you want each tenant's wallet reference filled in. CoreX shows you every lease, what it already knows about the property,
+            owner and tenant, and you tick what to bring in. Nothing is created until you press Import, and importing never emails or messages anyone.
+            Uploading the schedule again later updates the leases already brought in instead of duplicating them.
+        </p>
+        <form method="POST" action="{{ route('corex.rentals.take-on-import.reos.upload') }}" enctype="multipart/form-data" class="flex flex-wrap items-end gap-4">
+            @csrf
+            <div class="flex flex-col gap-1">
+                <label for="reos-schedule" class="text-xs font-medium" style="color: var(--text-secondary);">Tenancy Schedule (required)</label>
+                <input type="file" id="reos-schedule" name="schedule" accept=".xlsx" required class="text-xs">
+            </div>
+            <div class="flex flex-col gap-1">
+                <label for="reos-rent-roll" class="text-xs font-medium" style="color: var(--text-secondary);">Rent Roll (optional)</label>
+                <input type="file" id="reos-rent-roll" name="rent_roll" accept=".xlsx" class="text-xs">
+            </div>
+            <button type="submit" class="corex-btn-primary text-xs">Upload &amp; review</button>
+        </form>
+    </div>
+    @endpermission
     @endunless
 
     <div class="rounded-md px-5 py-4" style="background:var(--surface); border:1px solid var(--border);">
@@ -115,6 +140,7 @@
                 <thead>
                     <tr>
                         <th><a href="{{ $sortLink('created_at') }}">Uploaded{{ $sortIndicator('created_at') }}</a></th>
+                        <th>Type</th>
                         <th>File</th>
                         <th>Uploaded by</th>
                         <th><a href="{{ $sortLink('status') }}">Status{{ $sortIndicator('status') }}</a></th>
@@ -126,6 +152,7 @@
                     @foreach ($runs as $run)
                         <tr>
                             <td>{{ $run->created_at->format('Y-m-d H:i') }}</td>
+                            <td>{{ $run->sourceLabel() }}</td>
                             <td>{{ $run->source_filename }}</td>
                             <td>{{ $run->user?->name }}</td>
                             <td><span class="ds-badge {{ $statusBadgeClass($run->status) }}">{{ ucfirst(str_replace('_', ' ', $run->status)) }}</span></td>

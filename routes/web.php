@@ -386,6 +386,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
+    // so they live here like the P24 ones above). Under /api/v1 so the Admin → API catalogue lists them (non-negotiable #7).
+    Route::prefix('api/v1/rentals/take-on-import')->middleware(['feature:rental-take-on-import', 'permission:rentals_take_on_import.manage'])->group(function () {
+        Route::get('/suburbs', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'suburbs'])->name('api.v1.rentals.take-on-import.suburbs');
+        Route::get('/contacts', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'contacts'])->name('api.v1.rentals.take-on-import.contacts');
+        Route::get('/runs/{run}/summary', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'summary'])->name('api.v1.rentals.take-on-import.summary');
+        Route::post('/runs/{run}/bulk', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'bulk'])->name('api.v1.rentals.take-on-import.bulk');
+        Route::post('/rows/{row}/decisions', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'decisions'])->name('api.v1.rentals.take-on-import.decisions');
+    });
+
     // AT-168 Part C — conversation-thread paging + in-thread search (JSON).
     // Under /api/v1 (URI starts with api/) so they appear in the Admin→API
     // catalogue (non-negotiable #7). Called from the thread Blade over fetch with
@@ -4032,6 +4042,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.template');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'upload'])
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.upload');
+        // AT-479 — the reOS Tenancy Schedule import (spec "reOS Tenancy Schedule import"). 'reos' is static, before /{run}.
+        Route::post('/reos', [\App\Http\Controllers\CoreX\ReosTakeOnController::class, 'upload'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.reos.upload');
+        Route::post('/{run}/reos-import', [\App\Http\Controllers\CoreX\ReosTakeOnController::class, 'import'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.reos.import');
         // Landing 2 (.ai/specs/rental-takeon-import.md §11) — saved column
         // mappings. Must sit before /{run} so 'mappings' never binds as a
         // run id, same reasoning as P24's own search-properties route.
