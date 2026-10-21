@@ -87,7 +87,8 @@
                         :title="dirty ? 'Save your changes first' : ({{ $canSend ? 'false' : 'true' }} ? 'Add an email address to send' : '')">
                     {{ $rentalApplication->status === 'draft' ? 'Send' : 'Resend' }}
                 </button>
-                <span class="text-xs hidden sm:inline" style="color: var(--text-muted);"
+                {{-- AT-485 - the reason Send is greyed out is always visible (it used to be hidden below the sm breakpoint). --}}
+                <span class="text-xs" style="color: var(--text-muted);" data-qa="send-disabled-reason"
                       x-show="dirty || {{ $canSend ? 'false' : 'true' }}">
                     <span x-show="dirty">Save your changes first</span>
                     <span x-show="!dirty" x-cloak>Add an email address to send</span>
@@ -117,6 +118,14 @@
     </x-sticky-action-bar>
 
     {{-- success / error flashes are shown ONCE, by the layout's toast — never again as an inline banner (they used to appear twice). --}}
+
+    {{-- AT-485 - a refused duplicate send: the toast says why, this is the link to the application that already exists. --}}
+    @if(session('duplicate_application'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);" data-qa="duplicate-application-banner">
+            This applicant already has an application.
+            <a href="{{ session('duplicate_application')['url'] }}" class="underline font-medium">Open the existing application</a>
+        </div>
+    @endif
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">

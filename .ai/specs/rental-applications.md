@@ -15013,3 +15013,13 @@ What was chosen, item by item (the audit's numbering). Tests: `tests/Feature/Ren
 - **A15 - FICA stays not-prefilled (Johan's ruling).** Only the duplicated find-or-create was merged: `ApplicantFicaLink::submissionFor/urlFor` is the one copy (the applicant's submit hand-off and the approval email both use it; the mail copy used to write a null `requested_by`).
 - **A25 - FICA link life.** The four hard-coded `addDays(14)` are gone; the life is the agency's existing FICA setting `FicaWindows::linkExpiryDays` (Settings -> FICA time windows and the Setup Wizard's Compliance step, default 14), in the one helper above.
 
+
+
+## QA1 testing fixes, 21 Oct 2026 (cc1) - AT-485 / AT-486 / AT-487 / AT-488 / AT-482 (Johan's morning test)
+
+**AT-485 - sending an application.** Tests: `tests/Feature/RentalApplications/RentalApplicationDuplicateGuardAt485Test.php`.
+- **One live application per applicant.** `RentalApplicationController::store()` and `send()` refuse when the same contact already has an application that is not declined, not withdrawn and not archived, on ANY property. `store()` counts an unsent draft (open the draft instead of starting a second); the FIRST send of a draft counts only applications that have gone out (a resend of the same application is never a duplicate). The refusal is on screen in plain words ("This applicant has already been sent an application." / "...already has an application started that has not been sent yet.") with an "Open the existing application" link - the link only appears when the user may see that application (`scopeVisibleTo`), so the warning never leaks a record.
+- **No-email reason always visible.** The "Add an email address to send" / "Save your changes first" text beside Send was `hidden sm:inline`; it now shows at every width.
+- **Email on create.** When the picked contact has no email the create screen shows an email box; what is typed is saved to the contact (its save observer builds the primary email row). Never overwrites an email the contact already has. Optional - without it the agent can still "Share the link myself".
+- **Stale picked contact.** Typing a new search on the create screen drops the previously picked contact; Enter in a search box no longer submits the form with the old contact.
+- **Failed send says why.** `RentalApplicationMailer::lastFailureReason()` carries the mail server's reason (and the log line now carries the recipient); `send()` shows it instead of "Could not send - please try again".
