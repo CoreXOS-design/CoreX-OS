@@ -928,6 +928,8 @@
                     </div>
                 </div>
 
+                @include('corex.settings._portal-commission-totals')
+
                 {{-- Save button --}}
                 <div class="flex justify-end">
                     <button type="submit" class="corex-btn-primary text-sm px-6 py-2.5">

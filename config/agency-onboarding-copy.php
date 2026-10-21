@@ -346,6 +346,12 @@ return [
         'savers' => [
             ['controller' => CommissionSettingsController::class, 'method' => 'update'],
         ],
+        'controls' => [
+            ['key' => 'portal_show_agency_commission_totals', 'source' => 'agency', 'type' => 'toggle', 'default' => 0,
+             'label' => 'Show agents their branch and agency commission totals',
+             'explain' => 'Every agent sees their own commission on My Portal — what they earned, what they take home after splits and deductions, and what is still in their pipeline. This decides whether they also see the combined commission totals for their branch and for the whole agency. It never shows another agent\'s figures, only totals, and only to people whose role already lets them see that branch or agency.',
+             'affects' => 'What this changes: when on, the "My commission" card on My Portal gains two extra lines — the branch total and the agency total for the month. When off (the default), agents see only their own commission.'],
+        ],
     ],
 
     // Gated on the proforma-invoices feature module (auto-derived toggle in the

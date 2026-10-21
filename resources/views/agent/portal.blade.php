@@ -26,7 +26,7 @@
 <div class="w-full space-y-5"
      x-data="{
         tab: (window.location.hash || '#overview').replace('#', ''),
-        sub: { overview: '{{ ($isAssistant ?? false) ? 'compliance' : 'earnings' }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: '{{ request('pane') === 'social' ? 'social' : 'theme' }}', documents: '', training: 'rmcp', password: 'update' },
+        sub: { overview: '{{ $overviewSub ?? (($isAssistant ?? false) ? 'compliance' : 'earnings') }}', profile: '{{ $portalProfileSub }}', favourites: 'intro', tools: '{{ request('pane') === 'social' ? 'social' : 'theme' }}', documents: '', training: 'rmcp', password: 'update' },
         setTab(t) { this.tab = t; history.replaceState(null, '', '#' + t); }
      }"
      x-init="window.addEventListener('hashchange', () => tab = (window.location.hash || '#overview').replace('#', ''))">
@@ -181,6 +181,11 @@
             @endphp
         <nav class="pg-subs" aria-label="Sections">
             @unless($isAssistant ?? false)
+            @if(! empty($myPortal))
+            <button type="button" class="pg-sub" @click="sub.overview = 'whereami'" :aria-current="sub.overview === 'whereami' ? 'page' : null">Where I Am</button>
+            <button type="button" class="pg-sub" @click="sub.overview = 'targets'" :aria-current="sub.overview === 'targets' ? 'page' : null">Targets &amp; Budget</button>
+            <button type="button" class="pg-sub" @click="sub.overview = 'myactivity'" :aria-current="sub.overview === 'myactivity' ? 'page' : null">My Activity</button>
+            @endif
             <button type="button" class="pg-sub" @click="sub.overview = 'earnings'" :aria-current="sub.overview === 'earnings' ? 'page' : null">My Earnings</button>
             @endunless
             <button type="button" class="pg-sub" @click="sub.overview = 'compliance'" :aria-current="sub.overview === 'compliance' ? 'page' : null">Compliance Overview</button>
@@ -195,6 +200,13 @@
             @endif
         </nav>
         <div>
+            @unless($isAssistant ?? false)
+            @if(! empty($myPortal))
+                @include('agent.portal-blocks._where-am-i')
+                @include('agent.portal-blocks._targets-budget')
+                @include('agent.portal-blocks._my-activity')
+            @endif
+            @endunless
             {{-- Earnings snapshot — AT-267 §10: hidden for assistants (no commission of their own) --}}
             @unless($isAssistant ?? false)
             <div x-show="sub.overview === 'earnings'" x-cloak class="pg-pane " data-tour="portal-home-earnings">
