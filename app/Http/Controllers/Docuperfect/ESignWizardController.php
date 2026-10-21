@@ -2960,7 +2960,7 @@ class ESignWizardController extends Controller
                 }
 
                 // Render the template and extract styles + body
-                $fullHtml = view($tpl->blade_view, $tplData)->render();
+                $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($tpl), $tplData)->render();
                 $bodyHtml = $fullHtml;
                 if (preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $m)) {
                     $bodyHtml = trim($m[1]);
@@ -3163,7 +3163,7 @@ class ESignWizardController extends Controller
                 $viewData['authorising_designation'] = 'Authorising Practitioner';
                 $viewData['authorising_identity']    = 'supervisor';
             }
-            $fullHtml = view($template->blade_view, $viewData)->render();
+            $fullHtml = view(app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($template), $viewData)->render();
 
             // Extract body HTML (between <body> and </body>)
             preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
