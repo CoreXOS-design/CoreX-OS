@@ -862,6 +862,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Contact\AddTenantTypeOnRentalApproval::class,
         );
 
+        // AT-482 (Johan, 21 Oct 2026) - approval sets the upper rent of the contact's active rental Core Matches to the
+        // approved amount (the model's cap alone only ever lowered a ceiling when a match happened to be saved later).
+        Event::listen(
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Listeners\Contact\SetRentalCoreMatchCeilingOnApproval::class,
+        );
+
         // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
         // AgentDeactivated (already logged via the wave6 map above through
         // LogAgentEvent). NOT added as a second key in $wave6 above — that
