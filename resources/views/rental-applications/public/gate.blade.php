@@ -60,22 +60,45 @@
             @else
                 <h1 class="text-xl font-bold text-slate-800 mb-2">Verify it's you</h1>
 
+                {{-- AT-486 - the submission-identity screen only: say plainly where the application stands. --}}
+                @if($identityGate ?? false)
+                    <p class="text-sm text-slate-600 mb-3" data-qa="identity-gate-saved-note">
+                        Your answers are saved. Your application reaches your agent once you confirm it's you below
+                        @if(($method ?? '') === 'email_otp')
+                            with the code we email you.
+                        @else
+                            .
+                        @endif
+                    </p>
+                @endif
+
                 @if($errors->has('gate'))
                     <p class="text-sm text-red-600 mb-3">{{ $errors->first('gate') }}</p>
                 @endif
-                @if(session('gate_status'))
+                @if(session('gate_status') && ! ($deliveryFailed ?? false))
                     <p class="text-sm text-emerald-600 mb-3">{{ session('gate_status') }}</p>
                 @endif
 
                 @if(($method ?? 'id_number') === 'email_otp')
-                    <p class="text-sm text-slate-500 mb-4">
-                        We've sent a 6-digit code to
-                        @if($maskedEmail ?? null)
-                            <strong>{{ $maskedEmail }}</strong>.
-                        @else
-                            your email.
-                        @endif
-                    </p>
+                    @if($deliveryFailed ?? false)
+                        {{-- AT-486 - honest: the email did not leave, so do not claim a code is on its way. --}}
+                        <p class="text-sm text-red-600 mb-4" data-qa="identity-gate-delivery-failed">
+                            We couldn't send the code
+                            @if($maskedEmail ?? null)
+                                to <strong>{{ $maskedEmail }}</strong>
+                            @endif
+                            just now. Press <strong>Resend code</strong> below to try again, or contact your agent.
+                        </p>
+                    @else
+                        <p class="text-sm text-slate-500 mb-4">
+                            We've sent a 6-digit code to
+                            @if($maskedEmail ?? null)
+                                <strong>{{ $maskedEmail }}</strong>.
+                            @else
+                                your email.
+                            @endif
+                        </p>
+                    @endif
                     <form method="POST" action="{{ route($verifyRouteName ?? 'rental-applications.public.verify-gate', $token) }}">
                         @csrf
                         <input type="text" name="otp_code" inputmode="numeric" autocomplete="one-time-code"

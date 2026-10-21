@@ -50,6 +50,8 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho@example.co.za',
         ]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        // AT-486: this test is about the submitted application, not the identity screen - switch the gate off so Submit completes.
+        \App\Models\RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], ['identity_gate_enabled' => false]);
     }
 
     private function application(array $attrs = []): RentalApplication
@@ -79,7 +81,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_field_ticked_both_required_and_hidden_never_blocks_submission(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['work_number']),
             'hidden_field_keys' => ['work_number'],
@@ -96,7 +98,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_the_public_form_never_renders_the_required_attribute_for_a_hidden_field(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['work_number']),
             'hidden_field_keys' => ['work_number'],
@@ -111,7 +113,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_field_required_but_not_hidden_is_unaffected_by_the_reconciliation(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['work_number']),
             'hidden_field_keys' => ['special_conditions'],
@@ -129,7 +131,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_hidden_field_does_not_appear_on_the_public_form(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'hidden_field_keys' => ['special_conditions'],
         ]);
@@ -143,7 +145,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_field_not_hidden_still_appears(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'hidden_field_keys' => ['special_conditions'],
         ]);
@@ -156,7 +158,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_hidden_fields_value_is_never_required_to_submit(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'hidden_field_keys' => ['special_conditions'],
         ]);
@@ -173,7 +175,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_label_override_replaces_the_default_wording_on_the_public_form(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_label_overrides' => ['full_name' => 'Applicant full legal name'],
         ]);
@@ -186,7 +188,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_help_text_override_appears_under_its_field(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_help_text_overrides' => ['id_number' => 'Enter your 13-digit RSA ID number exactly as it appears on your ID document.'],
         ]);
@@ -219,7 +221,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_within_section_ordering_places_named_fields_first_in_the_configured_sequence(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_order' => ['id_number', 'full_name'],
         ]);
@@ -234,7 +236,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
     {
         // Only id_number named — every other Personal Details field keeps
         // its original registry order, appended after the named ones.
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_order' => ['id_number'],
         ]);
@@ -250,7 +252,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
         // 'full_name' (Personal Details) named ahead of 'adults' (Lease
         // Requirement) must never cross section boundaries — each section
         // resolves its own order independently starting from 0.
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_order' => ['full_name', 'adults'],
         ]);
@@ -273,7 +275,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_submitting_freezes_the_resolved_config_at_that_moment(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'hidden_field_keys' => ['special_conditions'],
             'field_label_overrides' => ['full_name' => 'Applicant full legal name'],
@@ -291,7 +293,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
 
     public function test_a_later_config_change_never_alters_an_already_submitted_snapshot(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'field_label_overrides' => ['full_name' => 'Applicant full legal name'],
         ]);
@@ -314,7 +316,7 @@ final class RentalApplicationFieldDisplayConfigTest extends TestCase
         // SOURCE (effectiveRequiredFieldKeysFor() instead of
         // requiredFieldKeysFor()) must never alter conditional-group
         // behaviour when nothing is hidden.
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['employer_name']),
         ]);

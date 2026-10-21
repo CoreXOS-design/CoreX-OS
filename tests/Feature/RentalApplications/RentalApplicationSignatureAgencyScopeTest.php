@@ -72,6 +72,9 @@ final class RentalApplicationSignatureAgencyScopeTest extends TestCase
             'token_expires_at' => now()->addDays(14),
         ]);
 
+        // AT-486: this test is about agency stamping on a submitted application, not the identity screen.
+        \App\Models\RentalApplicationQualifyingSetting::withoutGlobalScopes()->updateOrCreate(['agency_id' => $agencyA->id], ['identity_gate_enabled' => false]);
+
         $png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
 
         // AT-392 round 5, 2026-09-13 — submit() now enforces the agency's
