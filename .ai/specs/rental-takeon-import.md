@@ -848,6 +848,10 @@ and **Suburb for all new properties**. `ReosDecisionService::setDefaults` gives 
 (`decisions_json.agent_source` = `default` | `reos` | `user`; `property.suburb_source`); a lease whose agent came from reOS or from the
 user keeps it; changing or clearing the default follows through on the leases that took it. A lease shows its own agent / suburb
 control only when it differs from the default or is missing (the line carries the agent's name when it differs).
+**The dropdown and the leases never disagree:** `ReosDecisionService::reconcileDefaults` runs every time the screen opens and gives the saved defaults to any lease they
+never reached (or whose agent question went stale). Choosing the value already shown in the dropdown fires no change, so without this the screen could sit on
+"Retha Kelly" while the leases still asked for an agent. The defaults bar shows "Saving…" / the error beside the controls (not in the far message strip), and a
+save with a stale page token fetches a fresh one and retries once.
 **The agent list** (`ReosAgentMatcher::users`): active, not archived, agency members only, not an assistant / viewer / office
 administrator, and no test / fixture account (an e-mail on `.test`, `.invalid`, `.local`, `.example`, `.localhost`).
 
