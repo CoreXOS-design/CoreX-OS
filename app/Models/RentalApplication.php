@@ -349,6 +349,28 @@ class RentalApplication extends Model
         return $fields;
     }
 
+    /**
+     * AT-487 - the landlord / rent / "From" / "To" / still-living answers only mean something while the applicant is
+     * CURRENTLY RENTING. The form hides them (x-show, so nothing typed is lost by toggling the dropdown back and forth in
+     * the browser), but a hidden input is still posted and autosaved - so switching to "Own my home" kept the old landlord
+     * on the record. Whenever a payload CARRIES a living situation other than 'renting' (including the empty "- Select -"),
+     * the renting-only answers are cleared here, server-side, for submit, autosave and the agent's edit alike. A payload
+     * without the situation key is left untouched (a partial autosave must not wipe anything).
+     */
+    public static function clearRentingAnswersWhenNotRenting(array $fields): array
+    {
+        if (! array_key_exists('current_living_situation', $fields) || ($fields['current_living_situation'] ?? null) === 'renting') {
+            return $fields;
+        }
+
+        foreach (self::SUBMISSION_FIELD_GROUP_RENTING as $key) {
+            $fields[$key] = null;
+        }
+        $fields['current_rental_still_living'] = false;
+
+        return $fields;
+    }
+
     public static function fieldValidationRules(): array
     {
         return [
@@ -425,14 +447,11 @@ class RentalApplication extends Model
      * both can be ticked together with no conflict.
      *
      * Deliberately EXCLUDED, flagged rather than silently dropped:
-     * `current_rental_to` and `current_rental_still_living`. The still-
-     * living checkbox is a modifier, not a fact to require, and
-     * current_rental_to's own requiredness is intrinsically conditional on
-     * that checkbox being false in a way a flat tick can't express (see
-     * normalizeStillLiving() — the date is always nulled when the box is
-     * checked, so a naive "required" tick would wrongly block an applicant
-     * who correctly left it blank). Needs a 4th conditional group if this
-     * turns out to matter in practice — not built speculatively here.
+     * `current_rental_still_living` - a modifier, not a fact to require.
+     * (AT-487: `current_rental_to` IS in the registry now, so it can be
+     * relabelled / hidden / ordered like its neighbours; when ticked
+     * compulsory it applies only while renting AND "Still living here" is
+     * not ticked - see submissionValidationRules().)
      * `property_address_override` — a read-only, disabled display field on
      * the public form (show.blade.php:135), never applicant-editable, so
      * it can never sensibly be "compulsory" from the applicant's side.
@@ -495,7 +514,10 @@ class RentalApplication extends Model
             'current_landlord_name' => 'Current landlord name',
             'current_landlord_tel' => 'Current landlord telephone',
             'current_rental_amount' => 'Current rental amount',
-            'current_rental_from' => 'Current rental start date',
+            // AT-487 - "From" / "To" read as a pair under "Currently renting" (the date they started renting, and the date it
+            // ends - or the "Still living here" tick for no end date). Agencies can still reword either in Settings.
+            'current_rental_from' => 'From',
+            'current_rental_to' => 'To',
             'current_rental_due_day' => 'Rent due day of the month',
             'employer_name' => 'Employer name',
             'employer_position' => 'Employer position',
@@ -568,7 +590,7 @@ class RentalApplication extends Model
         ],
         'Current Living Situation' => [
             'current_living_situation', 'current_landlord_name', 'current_landlord_tel',
-            'current_rental_amount', 'current_rental_due_day', 'current_rental_from',
+            'current_rental_amount', 'current_rental_due_day', 'current_rental_from', 'current_rental_to',
             'current_living_situation_notes',
         ],
         'Employment' => [
@@ -765,6 +787,10 @@ class RentalApplication extends Model
             }
 
             $applies = self::submissionGroupApplies($field['group'], $data, $agencyId);
+            // AT-487 - the end date is required only while the applicant has NOT ticked "Still living here".
+            if ($key === 'current_rental_to' && ! empty($data['current_rental_still_living'])) {
+                $applies = false;
+            }
             $rules[$key] = self::withRequiredIf($rules[$key], $applies);
         }
 
