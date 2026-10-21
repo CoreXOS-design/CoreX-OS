@@ -31,7 +31,13 @@
 
     {{-- Sticky header: counts, the next action, Import. --}}
     {{-- Solid background and a stacking order above every row control (the suburb / contact result lists are z-20): the rows scroll UNDER it. --}}
-    <div id="reos-bar" class="corex-card p-3 space-y-2" style="position: sticky; top: 0; z-index: 50; background: var(--surface, #fff); box-shadow: 0 2px 6px rgba(0,0,0,.12);" data-test="reos-bar">
+    {{-- The page scrolls inside <main id="appScroll"> which has its own padding (p-4, lg:p-6): a sticky bar at top:0 stops at the inside of
+         that padding and the rows show in the strip above it. A negative top equal to the padding sticks it flush with the scroll area. --}}
+    <style>
+        #reos-bar { top: -1rem; }
+        @media (min-width: 1024px) { #reos-bar { top: -1.5rem; } }
+    </style>
+    <div id="reos-bar" class="corex-card p-3 space-y-2" style="position: sticky; z-index: 50; background: var(--surface, #fff); box-shadow: 0 2px 6px rgba(0,0,0,.12);" data-test="reos-bar">
         <div class="flex flex-wrap items-center justify-between gap-2">
             <div>
                 <h1 class="text-base font-semibold">Review reOS import — {{ $run->source_filename }}</h1>
