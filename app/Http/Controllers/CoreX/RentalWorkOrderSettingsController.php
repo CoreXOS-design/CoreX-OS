@@ -124,6 +124,7 @@ class RentalWorkOrderSettingsController extends Controller
         $validated = $request->validate([
             'external_quote_markup_type' => ['nullable', 'in:' . RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT . ',' . RentalWorkOrderSetting::EXTERNAL_MARKUP_AMOUNT],
             'external_quote_markup_value' => ['nullable', 'numeric', 'min:0', 'max:99999999.99'],
+            'agents_approve_quotes' => ['nullable', 'boolean'],
         ], [
             'external_quote_markup_value.numeric' => 'The fee must be a number (0 switches it off).',
         ]);
@@ -136,6 +137,11 @@ class RentalWorkOrderSettingsController extends Controller
             $data['external_quote_markup_value'] = round((float) $validated['external_quote_markup_value'], 2);
         }
 
+        // AT-494 - has()-guarded like every field here: a wizard step that does not render the switch must not flip it. The toggle posts a hidden "0" companion.
+        if ($request->has('agents_approve_quotes')) {
+            $data['agents_approve_quotes'] = $request->boolean('agents_approve_quotes');
+        }
+
         $type = $data['external_quote_markup_type'] ?? RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agencyId);
         if (isset($data['external_quote_markup_value']) && $type === RentalWorkOrderSetting::EXTERNAL_MARKUP_PERCENT && $data['external_quote_markup_value'] > 1000) {
             return redirect()->route('corex.settings.rental-work-orders.edit')
@@ -143,7 +149,11 @@ class RentalWorkOrderSettingsController extends Controller
         }
 
         if ($data) {
+            $before = ['agents_approve_quotes' => RentalWorkOrderSetting::agentsApproveQuotesFor($agencyId)];
             RentalWorkOrderSetting::updateOrCreate(['agency_id' => $agencyId], $data);
+            if (array_key_exists('agents_approve_quotes', $data)) {
+                \App\Models\RentalSettingAuditEntry::record($agencyId, $request->user(), 'agents_approve_quotes', $before['agents_approve_quotes'], $data['agents_approve_quotes'], $request->routeIs('corex.settings.*') ? 'settings' : 'wizard');
+            }
         }
 
         return redirect()->route('corex.settings.rental-work-orders.edit')->with('success', 'Approval settings saved.');

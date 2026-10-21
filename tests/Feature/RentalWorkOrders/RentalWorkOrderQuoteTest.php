@@ -165,15 +165,34 @@ final class RentalWorkOrderQuoteTest extends TestCase
 
     // ── Full CRUD / input-space ─────────────────────────────────────
 
-    public function test_store_rejects_neither_document_nor_detail_text(): void
+    public function test_store_accepts_an_amount_alone_with_no_document_and_no_details(): void
     {
+        // AT-493 (Johan): a phone quote is just the amount - the description is optional.
         $workOrder = $this->workOrder();
 
         $this->actingAs($this->admin)->post(route('corex.rental-work-orders.quotes.store', $workOrder), [
             'agency_service_provider_id' => $this->supplier()->id, 'amount' => 100, 'quote_date' => now()->format('Y-m-d'),
-        ])->assertSessionHasErrors('quote');
+        ])->assertSessionHasNoErrors()->assertRedirect();
 
-        $this->assertSame(0, $workOrder->quotes()->count());
+        $this->assertSame(1, $workOrder->quotes()->count());
+        $this->assertNull($workOrder->quotes()->first()->detail_text);
+        // the screen, the PDF and the owner's view all cope with a quote that has no words on it
+        $this->actingAs($this->admin)->get(route('corex.rental-work-orders.show', $workOrder))->assertOk();
+    }
+
+    public function test_a_refused_capture_shows_its_reason_beside_the_form_and_keeps_the_form_open(): void
+    {
+        $workOrder = $this->workOrder();
+        $workOrder->recordQuote(['agency_service_provider_id' => $this->supplier()->id, 'amount' => 50, 'quote_date' => now()], $this->admin);
+
+        $page = $this->actingAs($this->admin)->from(route('corex.rental-work-orders.show', $workOrder))->followingRedirects()
+            ->post(route('corex.rental-work-orders.quotes.store', $workOrder), ['agency_service_provider_id' => $this->supplier()->id, 'amount' => '', 'quote_date' => now()->format('Y-m-d')])
+            ->assertOk();
+
+        $page->assertSee('data-quote-form-errors', false);       // the reason sits next to the form ...
+        $this->assertMatchesRegularExpression('#<details data-capture-quote\s+open#', $page->getContent()); // ... and the form stays open
+        $page->assertSee('Details (optional)', false);
+        $page->assertDontSee('required if no document attached', false);
     }
 
     public function test_store_accepts_detail_text_alone(): void

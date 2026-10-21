@@ -584,7 +584,9 @@ class PermissionService
             }
         }
 
-        return in_array($permissionKey, $permissions, true);
+        // AT-494 - the three work-order money-decision keys follow ONE rule (the agency's "agents can approve quotes" switch for the
+        // default agent role; emergency approval only counts together with approval). Every other key is exactly the role's grant.
+        return \App\Services\Rentals\RentalWorkOrderApprovalRules::resolve($role, $agencyId, $permissionKey, in_array($permissionKey, $permissions, true), $permissions);
     }
 
     /**

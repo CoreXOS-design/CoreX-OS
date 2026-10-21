@@ -7,6 +7,7 @@
     $apAgencyId = auth()->user()->effectiveAgencyId();
     $apFeeType = \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($apAgencyId);
     $apFeeValue = \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($apAgencyId);
+    $apAgentsApprove = \App\Models\RentalWorkOrderSetting::agentsApproveQuotesFor($apAgencyId);
 @endphp
 <form method="POST" action="{{ route('corex.settings.rental-work-orders.approvals') }}" class="space-y-3" id="approvals-settings">
     @csrf
@@ -19,6 +20,15 @@
                 The amount an agent or the owner authorises is a hard lock: anything above it, even R0.01, goes to the owner as a request for the extra, and the job cannot finish until they decide.
                 What an agent may authorise is the owner's own repair and emergency limit, set per property by the owner - never above it.
             </p>
+            {{-- AT-494 (Johan): one agency switch for who may approve quotes. Branch managers and admins keep full rights either way. --}}
+            <div data-agents-approve-quotes>
+                <label class="flex items-start gap-2 text-sm" style="color:var(--text-primary);">
+                    <input type="hidden" name="agents_approve_quotes" value="0">
+                    <input type="checkbox" name="agents_approve_quotes" value="1" class="mt-0.5" @checked(old('agents_approve_quotes', $apAgentsApprove))>
+                    <span><span class="font-semibold">Agents can approve quotes and send them to the owner</span><br>
+                    <span class="text-xs" style="color:var(--text-muted);">On: your agents can choose a quote, send it to the owner and authorise a repair inside the owner's limit. Off: they see "Ask your branch manager to approve" instead, and only branch managers and admins can. The owner's own limit and the authorised amount are not changed by this.</span></span>
+                </label>
+            </div>
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Your fee on an outside contractor's quote</label>
                 <div class="flex flex-wrap items-center gap-2">

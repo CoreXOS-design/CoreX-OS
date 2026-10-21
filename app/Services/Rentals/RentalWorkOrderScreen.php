@@ -21,6 +21,28 @@ final class RentalWorkOrderScreen
         return 'R' . number_format((float) $n, 2, '.', ',');
     }
 
+    /**
+     * AT-494 - THE ONE permission map for a work order screen. The Next bar, every panel and every button read it, so the same person
+     * can never see "Select" in one place and nothing in another. Each answer is PermissionService (which applies the agency's
+     * "agents can approve quotes" switch); the scope (own / branch / agency) is still enforced per record by the controllers.
+     *
+     * @return array{create: bool, record_approval: bool, manage_quotes: bool, complete: bool, manage_completion: bool, cancel: bool, emergency: bool}
+     */
+    public static function permissionsFor(?\App\Models\User $user): array
+    {
+        $has = fn (string $k) => $user ? $user->hasPermission('rental_work_orders.' . $k) : false;
+
+        return [
+            'create' => $has('create'),
+            'record_approval' => $has('record_approval'),
+            'manage_quotes' => $has('manage_quotes'),
+            'complete' => $has('complete'),
+            'manage_completion' => $has('manage_completion'),
+            'cancel' => $has('cancel'),
+            'emergency' => $has('record_emergency_approval'),
+        ];
+    }
+
     /** @return array{steps: array, next: array, panels: array, tz: string, cancelled: bool} */
     public function build(RentalWorkOrder $wo, array $c): array
     {
@@ -93,6 +115,10 @@ final class RentalWorkOrderScreen
         $sameCall = ($can['record_approval'] ?? false) && ! $internal && ! $ownerC ? app(RentalAuthorisationService::class)->sameCallOffer($wo) : null;
         $btnGo = fn (string $label, string $panel, ?string $click = null) => ['kind' => 'go', 'label' => $label, 'panel' => $panel, 'click' => $click];
         $btnForm = fn (string $label, string $form) => ['kind' => 'form', 'label' => $label, 'form' => $form];
+        // AT-494 - a money decision the person may not make: no dead button, the sentence that tells them who can
+        $ask = ['kind' => 'note', 'label' => RentalWorkOrderApprovalRules::ASK_MANAGER];
+        $canApprove = (bool) ($can['record_approval'] ?? false);
+        $canQuote = (bool) ($can['manage_quotes'] ?? false);
         $amount = $selected ? self::money($selected->ownerFacingAmount()) : null;
         $next = ['key' => 'none', 'tone' => 'info', 'text' => '', 'button' => null, 'panel' => 'history'];
 
@@ -111,7 +137,7 @@ final class RentalWorkOrderScreen
                 'button' => $pauseFault ? ['kind' => 'link', 'label' => 'Open the fault to resume it', 'href' => route('corex.rental-fault-reports.show', $pauseFault->id)] : null];
         } elseif ($variation) {
             $next = ['key' => 'extra_waiting', 'tone' => 'warn', 'text' => 'Extra work of ' . self::money($variation->extra_amount) . ' is waiting for the owner (new total ' . self::money($variation->new_total) . '). The job cannot close until the owner decides.', 'panel' => 'cost',
-                'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's reply", 'cost', '#variation-panel summary') : null];
+                'button' => $canApprove ? $btnGo("Record the owner's reply", 'cost', '#variation-panel summary') : $ask];
         } elseif ($tenantSays !== null && ! $internal && in_array($wo->status, [RentalWorkOrder::STATUS_ORDERED, RentalWorkOrder::STATUS_IN_PROGRESS], true)) {
             $tn = $tenantSays['name'] ?: 'The tenant';
             if ($tenantSays['fixed']) {
@@ -142,10 +168,10 @@ final class RentalWorkOrderScreen
                     'button' => $wo->jobCard ? ['kind' => 'link', 'label' => 'Open the job card', 'href' => route('corex.rental-job-cards.show', $wo->jobCard)] : null];
             } elseif ($wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING || ($m['amount'] !== null && ! ($repair['agent_can'] ?? false))) {
                 $next = ['key' => 'cost_owner', 'tone' => 'warn', 'text' => 'Our crew price of ' . self::money($m['amount']) . ' must be approved by the owner.' . ($sentToOwner ? ' Sent to the owner ' . $fmt($sentToOwner) . '.' : ''), 'panel' => 'cost',
-                    'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : null];
+                    'button' => $canApprove ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : $ask];
             } elseif ($m['amount'] !== null) {
                 $next = ['key' => 'cost_inside_limit', 'tone' => 'info', 'text' => 'Our crew price of ' . self::money($m['amount']) . " is inside the owner's repair limit.", 'panel' => 'cost',
-                    'button' => ($can['record_approval'] ?? false) ? $btnGo('Authorise ' . self::money($m['amount']), 'cost', '[data-cost-authorise]') : null];
+                    'button' => $canApprove ? $btnGo('Authorise ' . self::money($m['amount']), 'cost', '[data-cost-authorise]') : $ask];
             } else {
                 $next = ['key' => 'cost_none', 'tone' => 'info', 'text' => 'No price yet. Price the job card, or approve a small amount by typing it.', 'panel' => 'cost',
                     'button' => $btnGo('Approve the cost', 'cost')];
@@ -160,7 +186,7 @@ final class RentalWorkOrderScreen
             if ($declined) {
                 $next = ['key' => 'owner_declined', 'tone' => 'danger', 'text' => 'The owner declined the quote' . ($declinedQuote ? ' (' . ($declinedQuote->supplier?->name ?? 'supplier') . ', ' . self::money($declinedQuote->ownerFacingAmount()) . ')' : '')
                     . ($declinedQuote?->decline_reason ? ': ' . $declinedQuote->decline_reason : '.') . ' Capture another quote, or cancel the work order - that closes the fault as "owner declined".', 'panel' => 'quotes',
-                    'button' => $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]')];
+                    'button' => $canQuote ? $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]') : $ask];
             } elseif ($authorised && $goAheadAt && $wo->status === RentalWorkOrder::STATUS_ORDERED) {
                 $next = ['key' => 'go_ahead_sent', 'tone' => 'ok', 'text' => 'Approved. Go-ahead sent to ' . $contractor . ' ' . $fmt($goAheadAt) . '.', 'panel' => 'completion',
                     'button' => ($can['complete'] ?? false) ? $btnGo('Mark the work as complete', 'completion', '[data-complete-work-order]') : null];
@@ -170,19 +196,19 @@ final class RentalWorkOrderScreen
             } elseif ($selected && $sameCall && $sameCall['covers']) {
                 // section 28.3 - the owner already approved up to this amount on the same call as the go-ahead: one press, the same words
                 $next = ['key' => 'same_call', 'tone' => 'ok', 'text' => 'Quote ' . $amount . ' is in, and the owner approved up to ' . self::money($sameCall['figure']) . ' on the same call as the go-ahead (' . $sameCall['via'] . ', ' . $sameCall['when'] . ').', 'panel' => 'cost',
-                    'button' => $btnForm('Use it - approve ' . self::money($sameCall['figure']), 'wo-same-call-form')];
+                    'button' => $canApprove ? $btnForm('Use it - approve ' . self::money($sameCall['figure']), 'wo-same-call-form') : $ask];
             } elseif ($selected && $wo->owner_approval_status === RentalWorkOrder::APPROVAL_PENDING) {
                 $next = ['key' => 'waiting_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . ' is in. The owner must approve it' . ($sentToOwner ? ' - sent to the owner ' . $fmt($sentToOwner) : '') . '.', 'panel' => 'cost',
-                    'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : null];
+                    'button' => $canApprove ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : $ask];
             } elseif ($selected && ($repair['agent_can'] ?? false)) {
                 $next = ['key' => 'quote_inside_limit', 'tone' => 'info', 'text' => 'Quote ' . $amount . " is inside the owner's repair limit.", 'panel' => 'cost',
-                    'button' => ($can['record_approval'] ?? false) ? $btnGo('Authorise ' . $amount, 'cost', '[data-cost-authorise]') : null];
+                    'button' => $canApprove ? $btnGo('Authorise ' . $amount, 'cost', '[data-cost-authorise]') : $ask];
             } elseif ($selected) {
                 $next = ['key' => 'quote_needs_owner', 'tone' => 'warn', 'text' => 'Quote ' . $amount . " is above the owner's repair limit (or none is set), so the owner decides.", 'panel' => 'cost',
-                    'button' => ($can['record_approval'] ?? false) ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : null];
+                    'button' => $canApprove ? $btnGo("Record the owner's decision", 'cost', '[data-cost-owner-decision-open]') : $ask];
             } elseif ($wo->quotes->isNotEmpty()) {
                 $next = ['key' => 'quote_not_selected', 'tone' => 'warn', 'text' => 'No quote chosen yet - the owner has not been asked. Choose one of the quotes.', 'panel' => 'quotes',
-                    'button' => $btnGo('Choose a quote', 'quotes')];
+                    'button' => $canQuote ? $btnGo('Choose a quote', 'quotes') : $ask];
             } elseif (! $js['provider']) {
                 $next = ['key' => 'no_contractor', 'tone' => 'warn', 'text' => 'No contractor has been chosen for this job yet.', 'panel' => 'contractor',
                     'button' => ($can['create'] ?? false) ? $btnGo('Choose the contractor', 'contractor') : null];
@@ -199,7 +225,7 @@ final class RentalWorkOrderScreen
                 $answer = $js['response'] === 'accepted' ? $js['provider']->name . ' accepted the job and is preparing a quote.' : 'Waiting for ' . $js['provider']->name . ' to accept or quote.';
                 // what the agent does next is capture the contractor's quote; sending the job again is the secondary action beside it
                 $next = ['key' => 'waiting_contractor', 'tone' => 'info', 'text' => $answer, 'panel' => 'quotes',
-                    'button' => ($can['create'] ?? false) ? $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]') : null,
+                    'button' => $canQuote ? $btnGo('Capture a quote', 'quotes', '[data-capture-quote-toggle]; [data-quote-amount]') : $ask,
                     'secondary' => ($can['create'] ?? false) && $js['can_send'] ? $btnForm('Send the job again', 'wo-send-job-form') : null];
             }
         }
