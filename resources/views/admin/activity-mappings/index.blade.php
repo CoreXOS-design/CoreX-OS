@@ -87,7 +87,7 @@
 
                     {{-- Weight input --}}
                     <div class="flex items-center gap-2">
-                        <label class="text-xs font-semibold" style="color:var(--text-secondary);">Points</label>
+                        <label class="text-xs font-semibold" style="color:var(--text-secondary);" title="How many times this counts each time it happens (normally 1). Points earned = this count x the activity's points value.">Counts as</label>
                         <input
                             type="number"
                             min="0"
@@ -180,7 +180,7 @@ function spineSettings(config) {
             const row = this.rowState[id];
             const v   = Number.isInteger(row.value_per_event) ? row.value_per_event : parseInt(row.value_per_event, 10);
             if (!Number.isFinite(v) || v < 0 || v > 10000) {
-                this.flash('error', 'Points must be 0–10000.');
+                this.flash('error', 'The count must be a whole number from 0 to 10000.');
                 return;
             }
             row.savingValue  = true;

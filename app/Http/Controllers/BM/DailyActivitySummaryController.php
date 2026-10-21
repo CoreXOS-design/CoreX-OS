@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\BM;
 
 use App\Http\Controllers\Controller;
+use App\Services\Activity\ActivityPointsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -79,19 +80,16 @@ class DailyActivitySummaryController extends Controller
         // Source breakdown (manual vs auto) alongside the total — the achievement-
         // total filter above already restricts 'e.source' to manual/auto_calendar/
         // auto_instant, so anything not 'manual' within that set is auto.
-        $agg = DB::table('daily_activity_entries as e')
+        $agg = ActivityPointsService::counted($agencyId)
             ->selectRaw("e.activity_definition_id as def_id, SUM(e.value) as total_count, SUM(CASE WHEN e.source = 'manual' THEN e.value ELSE 0 END) as manual_count, SUM(CASE WHEN e.source != 'manual' THEN e.value ELSE 0 END) as auto_count")
             ->where('e.branch_id', $branchId)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('e.activity_definition_id', $defIds)
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
             ->groupBy('e.activity_definition_id')
             ->get()
             ->keyBy('def_id');
+
+        // Credit earned on an activity that is no longer offered still counts (ActivityPointsService).
+        $defs = ActivityPointsService::withCreditedDefinitions($defs, $agg, ['id','name','weight']);
 
         $items = [];
         $grandCount = 0;
@@ -99,7 +97,7 @@ class DailyActivitySummaryController extends Controller
 
         foreach ($defs as $d) {
             $count = (int)($agg[$d->id]->total_count ?? 0);
-            $points = $count * (float)$d->weight;
+            $points = ActivityPointsService::pointsFor($count, $d->weight);
             $items[] = [
                 'id' => (int)$d->id,
                 'name' => (string)$d->name,
@@ -137,16 +135,14 @@ class DailyActivitySummaryController extends Controller
         $branchId = (int)($u->effectiveBranchId() ?? ($u->branch_id ?? 0));
         abort_unless($branchId > 0, 403);
 
-        $def = DB::table('activity_definitions')
-            ->where('id', $definition)
-            ->where('is_enabled', 1)
-            ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'system')
+        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) use ($branchId) {
+            $o->where('ad.is_enabled', 1)->where(function ($q) use ($branchId) {
+                $q->where('ad.scope', 'system')
                   ->orWhere(function ($qq) use ($branchId) {
-                      $qq->where('scope', 'branch')->where('branch_id', $branchId);
+                      $qq->where('ad.scope', 'branch')->where('ad.branch_id', $branchId);
                   });
-            })
-            ->first(['id','name','weight']);
+            });
+        });
 
         abort_unless($def, 404);
 
@@ -157,17 +153,12 @@ class DailyActivitySummaryController extends Controller
 
         // Agent totals for this activity in this branch + range
         // M6.5 — achievement-total filter.
-        $rows = DB::table('daily_activity_entries as e')
+        $rows = ActivityPointsService::counted($agencyId)
             ->join('users as u', 'u.id', '=', 'e.user_id')
             ->selectRaw('e.user_id, u.name, SUM(e.value) as total_count')
             ->where('e.branch_id', $branchId)
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
-            ->when($agencyId, function ($q) use ($agencyId) {
-                $q->where('e.agency_id', $agencyId);
-            })
             ->groupBy('e.user_id', 'u.name')
             ->orderByRaw('SUM(e.value) DESC')
             ->get();
@@ -178,7 +169,7 @@ class DailyActivitySummaryController extends Controller
 
         foreach ($rows as $r) {
             $count = (int)$r->total_count;
-            $points = $count * (float)$def->weight;
+            $points = ActivityPointsService::pointsFor($count, $def->weight);
             $items[] = [
                 'user_id' => (int)$r->user_id,
                 'name' => (string)$r->name,
@@ -211,16 +202,14 @@ class DailyActivitySummaryController extends Controller
         }
         abort_unless($branchId > 0, 403);
 
-        $def = DB::table('activity_definitions')
-            ->where('id', $definition)
-            ->where('is_enabled', 1)
-            ->where(function ($q) use ($branchId) {
-                $q->where('scope', 'system')
+        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) use ($branchId) {
+            $o->where('ad.is_enabled', 1)->where(function ($q) use ($branchId) {
+                $q->where('ad.scope', 'system')
                   ->orWhere(function ($qq) use ($branchId) {
-                      $qq->where('scope', 'branch')->where('branch_id', $branchId);
+                      $qq->where('ad.scope', 'branch')->where('ad.branch_id', $branchId);
                   });
-            })
-            ->first(['id','name','weight']);
+            });
+        });
 
         abort_unless($def, 404);
 
@@ -232,14 +221,12 @@ class DailyActivitySummaryController extends Controller
         // Was missing here, so the drill-down total could exceed the summary-
         // level total (which does apply this filter) whenever provisional,
         // revoked, or auto_other entries existed for the activity.
-        $entries = DB::table('daily_activity_entries as e')
+        $entries = ActivityPointsService::counted($u->effectiveAgencyId())
             ->select(['e.activity_date','e.value'])
             ->where('e.branch_id', $branchId)
             ->where('e.user_id', $user)
             ->where('e.activity_definition_id', (int)$def->id)
             ->whereBetween('e.activity_date', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES)
             ->orderBy('e.activity_date', 'desc')
             ->get();
 
@@ -249,7 +236,7 @@ class DailyActivitySummaryController extends Controller
 
         foreach ($entries as $e) {
             $count = (int)$e->value;
-            $points = $count * (float)$def->weight;
+            $points = ActivityPointsService::pointsFor($count, $def->weight);
             $rows[] = ['date'=>(string)$e->activity_date,'count'=>$count,'points'=>$points];
             $totalCount += $count;
             $totalPoints += $points;

@@ -308,10 +308,10 @@ final class MyPortalNumbers
     // ── points (daily activity) ──────────────────────────────────────────────────────
 
     /**
-     * Points for the month, for today, and the last 14 days - the same rows and filters the old dashboard
-     * counted (confirmed / overridden, scored sources, enabled definitions visible to the user's branch), with
-     * the rule written once in ActivityPointsService. Days are looked up by date, not by month, so the strip
-     * stays correct across a month boundary.
+     * Points for the month, for today, and the last 14 days - the rows that count (confirmed / overridden,
+     * scored sources) and the rule (count x weight) are both written once in ActivityPointsService, so this
+     * block, the agent's daily page and the dashboards cannot disagree. Days are looked up by date, not by
+     * month, so the strip stays correct across a month boundary.
      *
      * @return array{month: float, today: float, days: array<string, float>, target: int}
      */
@@ -325,23 +325,12 @@ final class MyPortalNumbers
         $today = CarbonImmutable::today();
         $from = $today->subDays(13)->toDateString();
 
-        $base = fn () => DB::table('daily_activity_entries as e')
-            ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
-            ->where('e.agency_id', $agencyId)->whereIn('e.user_id', $u->dataIdentityIds())->where('d.is_enabled', 1)
-            ->where(function ($q) use ($u) {
-                $q->where('d.scope', 'system');
-                if ($u->branch_id) {
-                    $q->orWhere(fn ($q2) => $q2->where('d.scope', 'branch')->where('d.branch_id', (int) $u->branch_id));
-                }
-            })
-            ->whereIn('e.point_state', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
-            ->whereIn('e.source', \App\Models\DailyActivityEntry::ACHIEVEMENT_TOTAL_SOURCES);
-        $expr = ActivityPointsService::sqlPoints('e', 'd');
+        $base = fn () => ActivityPointsService::counted($agencyId)->whereIn('e.user_id', $u->dataIdentityIds());
 
-        $month = (float) $base()->where('e.period', $period)->sum(DB::raw($expr));
-        $days = $base()->where('e.activity_date', '>=', $from)->where('e.activity_date', '<=', $today->toDateString())
-            ->groupBy('e.activity_date')->selectRaw("e.activity_date as d, SUM($expr) as pts")->pluck('pts', 'd')
-            ->map(fn ($v) => round((float) $v, 2))->all();
+        $month = ActivityPointsService::sum($base()->where('e.period', $period));
+        $days = ActivityPointsService::sumByDate(
+            $base()->where('e.activity_date', '>=', $from)->where('e.activity_date', '<=', $today->toDateString())
+        );
 
         $strip = [];
         for ($i = 13; $i >= 0; $i--) {
