@@ -16,15 +16,29 @@ use Illuminate\Support\Str;
 class RentalApplicationMailer
 {
     /**
+     * AT-485 - why the last sendInvite() returned false, in words an agent can act on (null after a success). The send
+     * action shows this instead of the old "Could not send - please try again", which hid the real cause.
+     */
+    private ?string $lastFailureReason = null;
+
+    public function lastFailureReason(): ?string
+    {
+        return $this->lastFailureReason;
+    }
+
+    /**
      * Best-effort — a mail failure must never break the send action itself
      * (the record is already saved and the links are shown on-screen either
      * way, same "never Mail::to('') and die" posture as the e-sign mailer).
      */
     public function sendInvite(RentalApplication $application): bool
     {
+        $this->lastFailureReason = null;
         $recipientEmail = $application->recipientEmail();
 
         if (! $recipientEmail) {
+            $this->lastFailureReason = 'There is no email address on this application.';
+
             return false;
         }
 
@@ -37,8 +51,11 @@ class RentalApplicationMailer
         } catch (\Throwable $e) {
             Log::warning('AT-392 rental application invite mail failed', [
                 'rental_application_id' => $application->id,
+                'recipient' => $recipientEmail,
                 'error' => $e->getMessage(),
             ]);
+            $this->lastFailureReason = 'The email to ' . $recipientEmail . ' was not accepted by the mail server ('
+                . \Illuminate\Support\Str::limit(trim(preg_replace('/\s+/', ' ', strip_tags($e->getMessage()))), 160) . ').';
 
             return false;
         }
