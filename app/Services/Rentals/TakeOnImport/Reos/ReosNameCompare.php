@@ -8,7 +8,8 @@ namespace App\Services\Rentals\TakeOnImport\Reos;
  *
  *   SPELLING  muted grey, not counted — the same name written differently: same surname once spaces are squashed ("Mc Neil" =
  *             "McNeil"), a middle name on one side only, or a small typo (edit distance ≤ 2) in the first name or surname
- *             ("Mkhozi"/"Mkozi", "Desire"/"Desiree", "LTY"/"LTD").
+ *             ("Mkhozi"/"Mkozi", "Desire"/"Desiree", "LTY"/"LTD"), or the first name and surname written the other way round
+ *             ("Nkome Langelihle" / "Langelihle Nkomo" — the name as a set of words, each within the same small typo allowance).
  *   DIFFERS   amber, counted — anything else ("Aiesha Steady" vs "Elana Reid", "Andre" vs "Johan Esterhuizen").
  *   PERSON_FOR_COMPANY  amber, counted — reOS names a company and CoreX holds a person ("likely the company's contact person").
  *
@@ -114,6 +115,9 @@ final class ReosNameCompare
 
         // People: the first name agrees (equal, an initial, or a small typo) AND the surname agrees once squashed — the surname being
         // the last one or two words, so a middle name on one side only, or "Mc Neil", does not matter.
+        if (self::sameWordsAnyOrder($x, $y)) {
+            return true;   // first name and surname swapped (with the usual typo allowance on each word)
+        }
         $firstOk = self::wordsAgree($x[0], $y[0]) || self::near($x[0], $y[0], 2);
         if (! $firstOk) {
             return false;
@@ -130,6 +134,36 @@ final class ReosNameCompare
         }
 
         return false;
+    }
+
+    /**
+     * Every word of the shorter name is found, once each, in the longer one — equal, an initial, or within two edits — in ANY order.
+     * Needs two or more words on the shorter side: a single word has no order to swap, so "Mkozi" vs "Thabo Mkhozi" stays a real difference.
+     *
+     * @param list<string> $x
+     * @param list<string> $y
+     */
+    private static function sameWordsAnyOrder(array $x, array $y): bool
+    {
+        [$short, $long] = count($x) <= count($y) ? [$x, $y] : [$y, $x];
+        if (count($short) < 2) {
+            return false;
+        }
+        foreach ($short as $w) {
+            $hit = false;
+            foreach ($long as $i => $l) {
+                if (self::wordsAgree($w, $l) || self::near($w, $l, 2)) {
+                    unset($long[$i]);
+                    $hit = true;
+                    break;
+                }
+            }
+            if (! $hit) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** equal, or within $max edits — but only for words long enough (4+) for an edit to mean "a typo" rather than "another name" */

@@ -7061,6 +7061,221 @@ class ESignWizardController extends Controller
     }
 
     /**
+     * HOTFIX 2026-10-21 — the documents a paper route (download-and-sign / wet-ink) prints: every member of a Web
+     * Pack in PACK ORDER (step_data.template_ids — the same list the electronic pack loop walks), otherwise just the
+     * flow's own template. Mirrors the electronic loop: a member that no longer exists or has no web body is skipped,
+     * an inaccessible one 404s the whole request (never a silently shorter pack).
+     *
+     * @return list<Template>
+     */
+    private function paperRouteTemplates(array $stepData, Template $template, $user): array
+    {
+        if (empty($stepData['is_pack_flow']) || empty($stepData['template_ids'])) {
+            return [$template];
+        }
+
+        $members = [];
+        foreach ($stepData['template_ids'] as $tplId) {
+            $tpl = (int) $tplId === (int) $template->id ? $template : Template::find($tplId);
+            if (! $tpl || ! $tpl->blade_view || ($tpl->render_type ?? 'pdf') !== 'web') {
+                continue;
+            }
+            $tpl->assertAccessibleBy($user);
+            $members[] = $tpl;
+        }
+
+        return $members === [] ? [$template] : $members;
+    }
+
+    /**
+     * HOTFIX 2026-10-21 — one template's paper-route output: resolved data + Fill & Review overlay + the rendered
+     * body in `merged_html`. Shared by download-and-sign and wet-ink, for a single document and for each pack member.
+     *
+     * - $resolveStepData  what the data resolver reads (download: step_data; wet-ink: the display-expanded copy).
+     * - $signingRecipients the recipients the signature-block inputs are built from (signing participants only).
+     * - $expandRawRecipients  non-null = expand the per-party role blocks for print now (download-and-sign and the
+     *   non-first wet-ink pack documents, which have no compose()); null = leave merged_html un-expanded because
+     *   CanonicalDocumentRenderer::compose() starts from it and expands it itself (the first wet-ink document).
+     * - Fill & Review values are applied exactly as the electronic route applies them (overlayFillReviewValues) —
+     *   the paper routes used to drop everything the agent typed or confirmed there (Complex, District, header address…).
+     */
+    private function buildPaperSegment(
+        Template $tpl,
+        Flow $flow,
+        array $stepData,
+        array $resolveStepData,
+        array $signingRecipients,
+        $user,
+        ?array $expandRawRecipients,
+        bool $legacyClauses,
+        ?int $onlyPackTemplateId,
+    ): array {
+        $webTemplateData = app(WebTemplateDataService::class)->resolve($tpl->id, $resolveStepData, $user);
+
+        $stepForOverlay = $stepData;
+        if (empty($stepForOverlay['fields'])) {
+            $stepForOverlay['fields'] = $tpl->fields_json ?? [];
+        }
+        $webTemplateData = $this->overlayFillReviewValues($webTemplateData, $stepForOverlay, $onlyPackTemplateId);
+
+        $viewData = $webTemplateData;
+        if (!empty($tpl->signing_parties)) {
+            $viewData['signing_parties'] = $tpl->signing_parties;
+            $propSrc = $stepData['property']['_property_source'] ?? null;
+            $viewData['document_context'] = $tpl->isSalesDocument($propSrc) ? 'sales' : 'rental';
+        }
+
+        // Signature-block inputs — SIGNING participants only (flow 330 Finding A).
+        $signingParticipantRecipients = $this->filterToSigningParticipants($signingRecipients);
+
+        $partyNames = [];
+        foreach ($signingParticipantRecipients as $r) {
+            if (($r['role'] ?? '') === 'agent') continue;
+            $partyNames[] = $r['name'] ?? '';
+        }
+        $partyNames[] = $user->name;
+        $viewData['party_names'] = $partyNames;
+
+        $recipientsByRole = [];
+        foreach ($signingParticipantRecipients as $r) {
+            $role = $r['role'] ?? '';
+            $baseRole = preg_replace('/_\d+$/', '', $role);
+            $recipientsByRole[$baseRole][] = $r;
+        }
+        // Always include agent from authenticated user — recipients step doesn't have an agent entry
+        $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
+        $viewData['recipients_by_role'] = $recipientsByRole;
+
+        // A generated web-template blade is an untracked per-host artifact (missing files = 500 on the paper route
+        // while the preview, which regenerates it, still worked). Regenerate when missing; a genuine render failure
+        // still throws — a printed legal document never silently becomes a "preview" fallback.
+        $bladeView = app(\App\Services\Docuperfect\WebTemplateBladeEnsurer::class)->ensure($tpl);
+        $fullHtml = view($bladeView, $viewData)->render();
+
+        preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
+        $bodyHtml = $bodyMatch[1] ?? $fullHtml;
+        $styles = '';
+        if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
+            $styles = implode("\n", $styleMatches[0]);
+        }
+
+        // Inject field values and clauses
+        $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
+
+        $otherConditionsText = trim($stepData['fill_review']['other_conditions_text'] ?? '');
+        if (empty($otherConditionsText)) {
+            $legacyClauseRows = $stepData['fill_review']['clauses'] ?? [];
+            if (!empty($legacyClauseRows)) {
+                $otherConditionsText = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauseRows));
+            }
+        }
+        // Step 2 (Johan) — skip legacy injection when a marker is present (renderer expands it to rows; injecting here
+        // too = double render). In a pack the agent's additional conditions belong to the pack once, not once per
+        // member, so only the first document carries the legacy block.
+        if ($legacyClauses && !empty($otherConditionsText) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
+            $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText))));
+            $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
+            $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
+            foreach ($clauseBlocks as $idx => $block) {
+                $num = $idx + 1;
+                $clauseHtml .= '<div class="clause-block" data-clause-index="' . $idx . '" style="margin:6pt 0;"><p><strong>' . $num . '.</strong> '
+                    . e($block) . '</p></div>';
+            }
+            $clauseHtml .= '</div>';
+
+            $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
+        }
+
+        $webTemplateData['merged_html'] = $expandRawRecipients === null
+            ? $styles . $bodyHtml
+            : $this->expandRoleBlocksForPaper($tpl, $flow, $styles . $bodyHtml, $expandRawRecipients, $user, $webTemplateData);
+
+        return $webTemplateData;
+    }
+
+    /** One Document per pack member keeps the member's own name so it can be found and pulled on its own. */
+    private function paperPackDocumentName(array $stepData, Template $tpl, string $firstRecipientName): string
+    {
+        $custom = trim((string) ($stepData['document_name'] ?? ''));
+        if ($custom !== '') {
+            return $custom . ' — ' . $tpl->name;
+        }
+
+        return $tpl->name . ($firstRecipientName ? " — {$firstRecipientName}" : '') . ' — ' . now()->format('Y-m-d');
+    }
+
+    /** The wizard fields that belong to one pack member (merged pack fields carry `_pack_template_id`). */
+    private function fieldsForPackTemplate(array $fields, Template $tpl): array
+    {
+        return array_values(array_filter(
+            $fields,
+            fn ($f) => ! is_array($f) || ! isset($f['_pack_template_id']) || (int) $f['_pack_template_id'] === (int) $tpl->id
+        ));
+    }
+
+    /** Same Document-type mapping prepareWetInk() applies to its first document, for the other pack members. */
+    private function paperDocumentType(Template $tpl): string
+    {
+        $docType = $tpl->template_type;
+        if ($tpl->document_type_id) {
+            $tpl->loadMissing('documentType');
+            $dtName = $tpl->documentType->name ?? '';
+            $dtNameMap = [
+                'Mandates' => 'mandate', 'OTPs' => 'other', 'Addendums' => 'addendum',
+                'Condition Reports' => 'inspection_report', 'FICA' => 'disclosure',
+                'Rental Agreements' => 'lease_agreement', 'Other' => 'other',
+            ];
+            $docType = $dtNameMap[$dtName] ?? strtolower(str_replace(' ', '_', $dtName));
+        }
+
+        return (string) $docType;
+    }
+
+    /**
+     * What the PDF prints for ONE stored document: a wet-ink document's composed, per-party-expanded canonical (minus
+     * the on-screen add-condition controls), else the stored merged_html (download-and-sign, which is expanded when built).
+     */
+    private function paperPrintHtml(Document $document): string
+    {
+        $canonicalHtml = trim((string) ($document->web_template_data['canonical_html'] ?? ''));
+
+        return $canonicalHtml !== ''
+            ? '<style>.btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn{display:none !important;}</style>' . $canonicalHtml
+            : (string) ($document->web_template_data['merged_html'] ?? '');
+    }
+
+    /**
+     * HOTFIX 2026-10-21 — every document of the paper pack this document belongs to, in pack order. A document that is
+     * not part of a paper pack comes back alone, so single documents behave exactly as before.
+     *
+     * @return \Illuminate\Support\Collection<int, Document>
+     */
+    private function paperPackDocuments(Document $document, $user)
+    {
+        if (empty($document->pack_instance_id) || empty($document->web_template_data['paper_pack'])) {
+            return collect([$document]);
+        }
+
+        $siblings = Document::whereIn('owner_id', $user->dataIdentityIds())
+            ->where('pack_instance_id', $document->pack_instance_id)
+            ->get()
+            ->filter(fn (Document $d) => ! empty($d->web_template_data['paper_pack']))
+            ->sortBy(fn (Document $d) => (int) ($d->web_template_data['paper_pack']['position'] ?? 0))
+            ->values();
+
+        return $siblings->isEmpty() ? collect([$document]) : $siblings;
+    }
+
+    /** ONE combined body for the whole pack, each document on its own page, in pack order. */
+    private function combinedPaperPackHtml($documents): string
+    {
+        return $documents
+            ->map(fn (Document $d) => $this->paperPrintHtml($d))
+            ->filter(fn (string $html) => trim($html) !== '')
+            ->implode('<div style="page-break-after:always;"></div>');
+    }
+
+    /**
      * Map a canonical role token (owner_party / acquiring_party / agent)
      * back to the wizard-side aliases that may carry recipients.
      *
@@ -7396,112 +7611,66 @@ class ESignWizardController extends Controller
                 . ' — ' . now()->format('Y-m-d');
         }
 
-        // Render filled document HTML for web templates
-        $webTemplateData = null;
-        if ($renderType === 'web' && $template->blade_view) {
-            $webTemplateDataService = app(WebTemplateDataService::class);
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $stepData, $user);
+        // HOTFIX 2026-10-21 — a Web Pack on the paper routes prints EVERY pack document, in pack order (the
+        // electronic route already looped step_data.template_ids; this route only ever rendered the first).
+        // One Document record per pack member (so an agent can pull e.g. the Mandatory Disclosure alone); the
+        // PDF the agent downloads is ONE combined PDF of the whole pack (see combinedPaperPackHtml()).
+        $packTemplates = $this->paperRouteTemplates($stepData, $template, $user);
+        $isPaperPack = count($packTemplates) > 1;
+        $packInstanceId = $isPaperPack ? (int) round(microtime(true) * 1000) : null;
 
-            $viewData = $webTemplateData;
-            if (!empty($template->signing_parties)) {
-                $viewData['signing_parties'] = $template->signing_parties;
-                $propSrc = $stepData['property']['_property_source'] ?? null;
-                $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
+        $documents = [];
+        foreach ($packTemplates as $position => $segTemplate) {
+            // Render filled document HTML for web templates
+            $webTemplateData = null;
+            if (($segTemplate->render_type ?? 'pdf') === 'web' && $segTemplate->blade_view) {
+                // Signature-block inputs — SIGNING participants only (Johan, 2026-08-26, flow 330 Finding A) — same rule
+                // as prepareSigning() and prepareWetInk(). Download Only used to render straight off $recipients with no
+                // filter, so a deceased/proxy-collapsed party still got a blank, unexecutable signature block.
+                // HOTFIX 2026-10-19 — the printed copy carries one domicilium / address block per party exactly as the
+                // step-6 preview and the e-sign document do: Download-only has no SignatureTemplate (so no compose()),
+                // and merged_html is what the PDF prints, so the per-party expansion happens when it is built.
+                $webTemplateData = $this->buildPaperSegment(
+                    $segTemplate,
+                    $flow,
+                    $stepData,
+                    $stepData,
+                    $recipients,
+                    $user,
+                    expandRawRecipients: $recipients,
+                    legacyClauses: $position === 0,
+                    onlyPackTemplateId: $isPaperPack ? (int) $segTemplate->id : null,
+                );
             }
 
-            // Signature-block inputs — SIGNING participants only (Johan,
-            // 2026-08-26, flow 330 Finding A) — same rule as prepareSigning()
-            // and prepareWetInk(). This was the 4th of the four build sites
-            // and was missed in the original fix: Download Only rendered
-            // straight off $recipients with no filter, so a deceased/
-            // proxy-collapsed party still got a blank, unexecutable
-            // signature block on the printed PDF.
-            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
-
-            // Build party_names for signature-block component
-            $partyNames = [];
-            foreach ($signingParticipantRecipients as $r) {
-                if (($r['role'] ?? '') === 'agent') continue;
-                $partyNames[] = $r['name'] ?? '';
-            }
-            $partyNames[] = $user->name;
-            $viewData['party_names'] = $partyNames;
-
-            // Build recipients_by_role
-            $recipientsByRole = [];
-            foreach ($signingParticipantRecipients as $r) {
-                $role = $r['role'] ?? '';
-                $baseRole = preg_replace('/_\d+$/', '', $role);
-                $recipientsByRole[$baseRole][] = $r;
-            }
-            // Always include agent from authenticated user — recipients step doesn't have an agent entry
-            $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
-            $viewData['recipients_by_role'] = $recipientsByRole;
-
-            $fullHtml = view($template->blade_view, $viewData)->render();
-
-            // Extract body + styles
-            preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
-            $bodyHtml = $bodyMatch[1] ?? $fullHtml;
-            $styles = '';
-            if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
-                $styles = implode("\n", $styleMatches[0]);
+            if ($isPaperPack && is_array($webTemplateData)) {
+                $webTemplateData['paper_pack'] = [
+                    'instance_id' => $packInstanceId,
+                    'position'    => $position + 1,
+                    'count'       => count($packTemplates),
+                ];
             }
 
-            // Inject field values and clauses
-            $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
-
-            $otherConditionsText2 = trim($stepData['fill_review']['other_conditions_text'] ?? '');
-            if (empty($otherConditionsText2)) {
-                $legacyClauses = $stepData['fill_review']['clauses'] ?? [];
-                if (!empty($legacyClauses)) {
-                    $otherConditionsText2 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
-                }
-            }
-            // Step 2 (Johan) — skip legacy injection when a marker is present
-            // (renderer expands it to rows; injecting here too = double render).
-            if (!empty($otherConditionsText2) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
-                $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText2))));
-                $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
-                $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
-                foreach ($clauseBlocks as $idx => $block) {
-                    $num = $idx + 1;
-                    $clauseHtml .= '<div class="clause-block" data-clause-index="' . $idx . '" style="margin:6pt 0;"><p><strong>' . $num . '.</strong> '
-                        . e($block) . '</p></div>';
-                }
-                $clauseHtml .= '</div>';
-
-                $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
-            }
-
-            // HOTFIX 2026-10-19 — the printed copy must carry one domicilium / address block
-            // per party exactly as the step-6 preview and the e-sign document do. Download-only
-            // has no SignatureTemplate (so no compose()), and merged_html is what the PDF prints,
-            // so the per-party expansion has to happen here.
-            $webTemplateData['merged_html'] = $this->expandRoleBlocksForPaper(
-                $template,
-                $flow,
-                $styles . $bodyHtml,
-                $recipients,
-                $user,
-                $webTemplateData,
-            );
+            $documents[] = Document::create([
+                'name' => $isPaperPack ? $this->paperPackDocumentName($stepData, $segTemplate, $firstRecipientName) : $docName,
+                'template_id' => $segTemplate->id,
+                'fields_json' => $isPaperPack ? $this->fieldsForPackTemplate($fields, $segTemplate) : $fields,
+                'owner_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
+                'branch_id' => $user->effectiveBranchId(),
+                'document_type' => $segTemplate->template_type,
+                'property_address' => $propertyAddress,
+                'property_id' => $stepData['property']['property_id'] ?? null,
+                'pack_instance_id' => $packInstanceId,
+                'web_template_data' => $webTemplateData,
+            ]);
         }
-
-        $document = Document::create([
-            'name' => $docName,
-            'template_id' => $template->id,
-            'fields_json' => $fields,
-            'owner_id' => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
-            'branch_id' => $user->effectiveBranchId(),
-            'document_type' => $template->template_type,
-            'property_address' => $propertyAddress,
-            'property_id' => $stepData['property']['property_id'] ?? null,
-            'web_template_data' => $webTemplateData,
-        ]);
+        $document = $documents[0];
 
         // Update flow
         $stepData['document_id'] = $document->id;
+        if ($isPaperPack) {
+            $stepData['pack_document_ids'] = collect($documents)->pluck('id')->all();
+        }
         $stepData['delivery_mode'] = 'download';
         $flow->update([
             'step_data' => $stepData,
@@ -7510,7 +7679,7 @@ class ESignWizardController extends Controller
         ]);
 
         return redirect()->route('docuperfect.esign.downloadDocument', $document->id)
-            ->with('success', 'Document ready for download.');
+            ->with('success', $isPaperPack ? 'Pack ready for download.' : 'Document ready for download.');
     }
 
     /**
@@ -7670,76 +7839,49 @@ class ESignWizardController extends Controller
 
         $signatureService = app(SignatureService::class);
 
+        // HOTFIX 2026-10-21 — a Web Pack on the wet-ink route prints EVERY pack document, in pack order. One Document
+        // record per pack member; the FIRST carries the SignatureTemplate / requests / canonical (unchanged wet-ink
+        // machinery, one envelope per pack), the rest are plain paper documents expanded for print. The agent's PDF
+        // is ONE combined PDF of the pack (combinedPaperPackHtml()).
+        $packTemplates = $this->paperRouteTemplates($stepData, $template, $user);
+        $isPaperPack = count($packTemplates) > 1;
+        $packInstanceId = $isPaperPack ? (int) round(microtime(true) * 1000) : null;
+
         // Render filled document HTML for web templates (same as download mode)
         $webTemplateData = null;
-        if ($renderType === 'web' && $template->blade_view) {
-            $webTemplateDataService = app(WebTemplateDataService::class);
-            $webTemplateData = $webTemplateDataService->resolve($template->id, $bodyStepData, $user);
-
-            $viewData = $webTemplateData;
-            if (!empty($template->signing_parties)) {
-                $viewData['signing_parties'] = $template->signing_parties;
-                $propSrc = $stepData['property']['_property_source'] ?? null;
-                $viewData['document_context'] = $template->isSalesDocument($propSrc) ? 'sales' : 'rental';
+        $extraPackSegments = [];
+        foreach ($packTemplates as $position => $segTemplate) {
+            if (($segTemplate->render_type ?? 'pdf') !== 'web' || ! $segTemplate->blade_view) {
+                continue;
             }
-
-            // Signature-block inputs — SIGNING participants only (Johan,
-            // 2026-08-26, flow 330 Finding A) — same rule, print path.
-            $signingParticipantRecipients = $this->filterToSigningParticipants($recipients);
-
-            $partyNames = [];
-            foreach ($signingParticipantRecipients as $r) {
-                if (($r['role'] ?? '') === 'agent') continue;
-                $partyNames[] = $r['name'] ?? '';
+            $segData = $this->buildPaperSegment(
+                $segTemplate,
+                $flow,
+                $stepData,
+                $bodyStepData,
+                $recipients,
+                $user,
+                // The first document is composed (and expanded) by composeAndStore(); the others have no compose, so
+                // they expand per party here exactly as download-and-sign does.
+                expandRawRecipients: $position === 0 ? null : $recipientsPreExpansion,
+                legacyClauses: $position === 0,
+                onlyPackTemplateId: $isPaperPack ? (int) $segTemplate->id : null,
+            );
+            if ($isPaperPack) {
+                $segData['paper_pack'] = [
+                    'instance_id' => $packInstanceId,
+                    'position'    => $position + 1,
+                    'count'       => count($packTemplates),
+                ];
             }
-            $partyNames[] = $user->name;
-            $viewData['party_names'] = $partyNames;
-
-            $recipientsByRole = [];
-            foreach ($signingParticipantRecipients as $r) {
-                $role = $r['role'] ?? '';
-                $baseRole = preg_replace('/_\d+$/', '', $role);
-                $recipientsByRole[$baseRole][] = $r;
+            if ($position === 0) {
+                $webTemplateData = $segData;
+            } else {
+                $extraPackSegments[] = ['template' => $segTemplate, 'data' => $segData];
             }
-            // Always include agent from authenticated user — recipients step doesn't have an agent entry
-            $recipientsByRole['agent'] = [['name' => $user->name, 'role' => 'agent', 'email' => $user->email ?? '']];
-            $viewData['recipients_by_role'] = $recipientsByRole;
-
-            $fullHtml = view($template->blade_view, $viewData)->render();
-
-            preg_match('/<body[^>]*>(.*)<\/body>/si', $fullHtml, $bodyMatch);
-            $bodyHtml = $bodyMatch[1] ?? $fullHtml;
-            $styles = '';
-            if (preg_match_all('/<style[^>]*>.*?<\/style>/si', $fullHtml, $styleMatches)) {
-                $styles = implode("\n", $styleMatches[0]);
-            }
-
-            $bodyHtml = $this->injectFieldValues($bodyHtml, $webTemplateData);
-
-            $otherConditionsText3 = trim($stepData['fill_review']['other_conditions_text'] ?? '');
-            if (empty($otherConditionsText3)) {
-                $legacyClauses = $stepData['fill_review']['clauses'] ?? [];
-                if (!empty($legacyClauses)) {
-                    $otherConditionsText3 = implode("\n\n", array_map(fn($c) => $c['text'] ?? $c['content'] ?? '', $legacyClauses));
-                }
-            }
-            // Step 2 (Johan) — skip legacy injection when a marker is present
-            // (renderer expands it to rows; injecting here too = double render).
-            if (!empty($otherConditionsText3) && ! str_contains($bodyHtml, 'OTHER_CONDITIONS')) {
-                $clauseBlocks = array_values(array_filter(array_map('trim', preg_split('/\n\s*\n/', $otherConditionsText3))));
-                $clauseHtml = '<div class="corex-additional-clauses" style="margin-top:16pt;">';
-                $clauseHtml .= '<h3 style="font-weight:bold;margin-top:12pt;margin-bottom:8pt;">Additional Conditions</h3>';
-                foreach ($clauseBlocks as $idx => $block) {
-                    $num = $idx + 1;
-                    $clauseHtml .= '<div class="clause-block" data-clause-index="' . $idx . '" style="margin:6pt 0;"><p><strong>' . $num . '.</strong> '
-                        . e($block) . '</p></div>';
-                }
-                $clauseHtml .= '</div>';
-
-                $bodyHtml = $this->insertBeforeSignatureSection($bodyHtml, $clauseHtml);
-            }
-
-            $webTemplateData['merged_html'] = $styles . $bodyHtml;
+        }
+        if ($isPaperPack) {
+            $docName = $this->paperPackDocumentName($stepData, $template, $firstRecipientName);
         }
 
         // Resolve property_id and document_type (same as prepareSigning)
@@ -7768,19 +7910,38 @@ class ESignWizardController extends Controller
             'spouse' => 'spouse', 'other' => 'other',
         ];
 
-        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases, $stepData) {
+        $result = DB::transaction(function () use ($user, $flow, $template, $fields, $recipients, $signingSetup, $docName, $propertyAddress, $signatureService, $webTemplateData, $resolvedDocType, $resolvedPropertyId, $roleAliases, $stepData, $isPaperPack, $packInstanceId, $extraPackSegments, $firstRecipientName) {
             // 1. Create Document
             $document = Document::create([
                 'name'             => $docName,
                 'template_id'      => $template->id,
-                'fields_json'      => $fields,
+                'fields_json'      => $isPaperPack ? $this->fieldsForPackTemplate($fields, $template) : $fields,
                 'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null), // AT-267 / AUDIT 2026-07-26 (F3) — files as the agent
                 'branch_id'        => $user->effectiveBranchId(),
                 'property_address' => $propertyAddress,
                 'property_id'      => $resolvedPropertyId,
                 'document_type'    => $resolvedDocType,
+                'pack_instance_id' => $packInstanceId,
                 'web_template_data' => $webTemplateData,
             ]);
+
+            // HOTFIX 2026-10-21 — the rest of the pack: one plain Document per member (no envelope of their own;
+            // the first document's SignatureTemplate is the pack's single wet-ink envelope).
+            $packDocumentIds = [$document->id];
+            foreach ($extraPackSegments as $extra) {
+                $packDocumentIds[] = Document::create([
+                    'name'             => $this->paperPackDocumentName($stepData, $extra['template'], $firstRecipientName),
+                    'template_id'      => $extra['template']->id,
+                    'fields_json'      => $this->fieldsForPackTemplate($fields, $extra['template']),
+                    'owner_id'         => $user->ownershipUserId(request()->integer('acting_for_user_id') ?: null),
+                    'branch_id'        => $user->effectiveBranchId(),
+                    'property_address' => $propertyAddress,
+                    'property_id'      => $resolvedPropertyId,
+                    'document_type'    => $this->paperDocumentType($extra['template']),
+                    'pack_instance_id' => $packInstanceId,
+                    'web_template_data' => $extra['data'],
+                ])->id;
+            }
 
             // 2. Create SignatureTemplate
             $parties = [
@@ -7975,6 +8136,9 @@ class ESignWizardController extends Controller
             // 4. Link document to flow
             $flowStepData = $flow->step_data ?? [];
             $flowStepData['document_id'] = $document->id;
+            if ($isPaperPack) {
+                $flowStepData['pack_document_ids'] = $packDocumentIds;
+            }
             $flowStepData['signature_template_id'] = $sigTemplate->id;
             $flowStepData['delivery_mode'] = 'wet_ink';
             $flow->update([
@@ -8003,6 +8167,11 @@ class ESignWizardController extends Controller
         $document->load('template');
 
         $mergedHtml = $document->web_template_data['merged_html'] ?? null;
+        // HOTFIX 2026-10-21 — a paper pack shows (and prints) the whole pack, in pack order.
+        $packDocuments = $this->paperPackDocuments($document, $user);
+        if ($packDocuments->count() > 1) {
+            $mergedHtml = $this->combinedPaperPackHtml($packDocuments);
+        }
 
         return view('docuperfect.esign.download', [
             'document' => $document,
@@ -8026,10 +8195,11 @@ class ESignWizardController extends Controller
         // per role) and must stay that way, because compose() expands it. Print what was composed,
         // minus the on-screen add-condition controls. Download-only documents carry no canonical and
         // keep printing merged_html, which prepareDownloadOnly() expands when it is built.
-        $canonicalHtml = trim((string) ($document->web_template_data['canonical_html'] ?? ''));
-        $mergedHtml = $canonicalHtml !== ''
-            ? '<style>.btn-add-condition,.condition-add-guidance,[data-screen-only],.corex-propose-btn{display:none !important;}</style>' . $canonicalHtml
-            : ($document->web_template_data['merged_html'] ?? '');
+        // HOTFIX 2026-10-21 — a paper pack is ONE combined PDF of every pack document, in pack order.
+        $packDocuments = $this->paperPackDocuments($document, $user);
+        $mergedHtml = $packDocuments->count() > 1
+            ? $this->combinedPaperPackHtml($packDocuments)
+            : $this->paperPrintHtml($document);
 
         if (empty($mergedHtml)) {
             abort(404, 'Document content not available for PDF generation.');
@@ -8064,6 +8234,12 @@ class ESignWizardController extends Controller
         $document = $documentId ? Document::with('signatureTemplate.requests')->find($documentId) : null;
 
         $mergedHtml = $document ? ($document->web_template_data['merged_html'] ?? null) : null;
+        if ($document) {
+            $packDocuments = $this->paperPackDocuments($document, $user);
+            if ($packDocuments->count() > 1) {
+                $mergedHtml = $this->combinedPaperPackHtml($packDocuments);
+            }
+        }
 
         // Find the agent's signature request and all recipients
         $agentRequest = null;

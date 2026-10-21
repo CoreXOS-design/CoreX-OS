@@ -717,3 +717,95 @@ Exclusive and Open wording, 1 seller, no recipients).
 `~~~~OTHER_CONDITIONS~~~~` marker (InsertableBlockRenderer never runs on that route); a wet-ink document's
 confirmation-page preview still shows the un-expanded `merged_html`; documents already created keep their
 stored output until re-created.
+
+---
+
+## 21. Paper routes: whole pack, one combined PDF, Fill & Review honoured — HOTFIX 2026-10-21
+
+**Rule:** download-and-sign and wet-ink behave like the electronic route for what the agent configured: every
+document of a Web Pack, in pack order, and every value typed or confirmed in Fill & Review. N parties, never one seller.
+
+**Symptoms (Johan, QA1):** (1) a Web Pack on wet-ink / download-only gave only the FIRST document (QA1 flow 105 —
+pack [77,74,76] — stored Document 630 with only the Open Authority); (2) District / Complex typed in Fill & Review did
+not appear on the finished document.
+
+**Cause:** `prepareDownloadOnly` / `prepareWetInk` rendered `$flow->template` (the pack's first member) and never
+walked `step_data.template_ids` as `prepareSigning` does; and neither called `overlayFillReviewValues()`, so
+`web_template_data['_fill_review_overlay']` was empty and yesterday's `applyFillReviewAuthoritativeOverlay()` call in
+`expandRoleBlocksForPaper()` was a no-op. The paper routes also rendered the generated blade with a raw `view()`
+(an untracked per-host file — a missing one is a 500 there while the preview regenerated it).
+
+**Fix (`ESignWizardController` only):**
+- `paperRouteTemplates()` — the pack members in pack order (a single document is a list of one); same skip /
+  `assertAccessibleBy` rules as the electronic pack loop.
+- `buildPaperSegment()` — ONE shared builder for both routes and every member: resolve → `overlayFillReviewValues`
+  (scoped to the member via `_pack_template_id`) → render → inject values → role-block expansion for print.
+  The generated blade comes from `WebTemplateBladeEnsurer::ensure()` (regenerates when missing; a real render failure
+  still throws — a printed legal document never becomes a "preview" fallback).
+- **One Document per pack member** (own name, `pack_instance_id`, `web_template_data.paper_pack = {instance_id,
+  position, count}`), so an agent can pull e.g. the Mandatory Disclosure alone. Wet-ink: the FIRST document carries the
+  pack's single SignatureTemplate / requests / canonical (unchanged machinery); the others are plain paper documents
+  expanded for print. `step_data.pack_document_ids` lists them.
+- **The agent's download is ONE combined PDF** of the pack in pack order: `downloadDocumentPdf`, the download page
+  and the wet-ink confirmation page print `combinedPaperPackHtml()` (each document on its own page) when the
+  document belongs to a paper pack; a single document prints exactly as before.
+- The agent's legacy "Additional Conditions" block is added once per pack (first document), not once per member.
+- Electronic path untouched.
+
+**Tests:** `tests/Feature/Docuperfect/PaperRoutePackAndPropertyFieldsTest.php` (pack of 3 on both routes, combined
+print order, 2- and 3-seller domicilium in a pack, stand-alone unchanged, District typed in Fill & Review on both
+paper routes single + pack, missing blade regenerated).
+
+**Known, not changed here:** pack members that are not web templates are skipped (as the electronic loop does); a
+wet-ink pack still has ONE envelope (one set of recipient requests), not one per member.
+
+---
+
+## 22. Property fields fill from the Property record — HOTFIX 2026-10-21
+
+**Rule:** a property field the wizard snapshot lacks is filled from the linked Property record; a value the snapshot or
+Fill & Review holds is never overwritten. This is not a paper-route rule — District was blank on the electronic route
+too, which is a bug, not behaviour to preserve.
+
+**Cause:** the wizard saves only address, suburb, erf, complex, type and id for step 2, so `district`, `town`,
+`street_name` and `unit_number` never reached `WebTemplateDataService` (QA1 property 6060 has District "Ray Nkonyeni";
+its flow snapshot has none, so `property_district` resolved to "").
+
+**Fix:** `WebTemplateDataService::propertyForResolve()` (used by `resolve()`, `resolveCdsTemplate()`, `resolveBase()`)
+fills missing suburb / town / city / district / street_name / unit_number / complex_name / erf / property_type (and the
+address when both address and title are blank) from `Property::find(property_id)` — `properties` source only, the
+model's own agency scope applies. Fill & Review values are applied after `resolve()` and win over both.
+
+**Proof (before/after, 48 real QA1 resolutions, data layer):** 30 differ; every changed field was blank and is now
+filled (property_district, district, property_erf_number, erf_no, erf_unit_no, unit_no, complex_name,
+property_complex_name, property_type) EXCEPT `property_town`, 8 documents: it was "Shelly Beach" (the suburb used as a
+fallback) and is now "Margate" (the property's real town).
+
+**Lease documents (#88, #92):** lessor / lessee address and lease end already resolve from the linked contacts and the
+lease on lease flows (verified on flows 28, 32, 34, 35); nothing to fill. Lease agreements are e-sign only.
+
+**Tests:** `tests/Feature/Docuperfect/PropertyFieldsFromRecordTest.php` (sectional record fill on both paper routes,
+snapshot never overwritten, freehold blank and no bleed from another property, electronic route typed District + record fill).
+
+---
+
+## 23. Stand-alone Mandatory Disclosure carries the property header — HOTFIX 2026-10-21
+
+**Symptom (Johan):** the sales Mandatory Disclosure (#81) opens with "…the immovable property situated at <address>";
+the stand-alone Mandatory Disclosure (#74, a CDS import) had no property address anywhere, on any route.
+
+**Fix:** `php artisan esign:add-property-header {template} [--apply]` (`AddPropertyHeaderToTemplate`) adds that clause
+straight after the title as a BOUND Property Address tag — the CDS builder's own shape (a `doc-tag` span, `sf:property`
+mapping to the Property Address named field), not typed text — in both `editor_state` and `field_mappings`, then rebuilds
+the generated blade through `WebTemplateBladeEnsurer::regenerate()`. A template is data and its id differs per
+environment, so this is a command, not a migration: dry-run by default, idempotent (marker
+`data-corex-property-header`), refuses anything that is not a CDS "…Disclosure". It resolves like any property field, so
+it shows on electronic, download-and-sign and wet-ink, stand-alone and inside a pack, and appears in Fill & Review.
+
+**Run it on each environment** against that environment's stand-alone MDF id (QA1: #74).
+
+**Report only (not changed):** #76 "ADDENDUM B" (CDS import, no document type) and #80 "Addendum B" (sales, reference
+Addendum B) both record facts about "the property" (building plans, compliance certificates) and carry no property
+address header — they are property documents without one.
+
+**Tests:** `tests/Feature/Docuperfect/MandatoryDisclosurePropertyHeaderTest.php`.
