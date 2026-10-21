@@ -512,8 +512,10 @@ NOT NULL default 0 — the user's tick), `decisions_json` (the user's choices, R
 `result_action` (`created` | `updated`). `payload_json` holds the parsed values: reOS id, address text, owner /
 tenant name + email + phone, lease type, status, dates, rollover, deposit, rent, agent text, `tenant_wallet_ref`.
 The existing columns `property_match_*`, `landlord_match_json` (position 1 = the owner), `tenant_match_json`
-(position 1 = the tenant), `target_*`, `errors_json`, `warnings_json` are reused. The uploaded file itself stays on
-disk as for every take-on run (the existing behaviour), which is the only place the dropped money columns survive.
+(position 1 = the tenant), `target_*`, `errors_json`, `warnings_json` are reused. **The uploaded files are not kept**
+(unlike the CoreX-template import): they are read straight from PHP's temporary upload and discarded, so the money
+columns they carry (commission, invoices, the Rent Roll's amounts) are genuinely nowhere in CoreX. `source_file_path`
+is therefore empty on a reOS run; only the file names are recorded.
 
 ## R4. The review screen (the existing preview, extended for reOS runs)
 

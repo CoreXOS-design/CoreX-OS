@@ -45,6 +45,37 @@ class Property extends Model
     public bool $skipSyndicationAutomation = false;
 
     /**
+     * AT-479 — set (by the creating hook, see withoutNewListingSideEffects()) on a property that a bulk take-on brings in: the
+     * PropertyObserver then does not dispatch PropertyCaptured, so no "property captured" activity points are credited to the
+     * importing user for stock that already existed. Off for every other path. Declared (not dynamic) for PHP 8.2.
+     */
+    public bool $skipActivityPoints = false;
+
+    /** How many withoutNewListingSideEffects() calls are open right now (they may nest). */
+    private static int $suppressNewListingSideEffects = 0;
+
+    /**
+     * AT-479 — run $callback with every Property CREATED inside it marked as imported stock: no new-listing chase tasks
+     * (skipNewListingAutomation, AutoEventService::onPropertyCreated) and no activity points (skipActivityPoints). The
+     * rental take-on imports need this because TrackedPropertyMatchOrCreateService::promoteToStock() creates the property
+     * internally, so the flags cannot be set on the instance by the caller. Opt-in and scoped to the callback: nothing
+     * else on the box is affected, and it is restored even when the callback throws.
+     *
+     * @template T
+     * @param callable():T $callback
+     * @return T
+     */
+    public static function withoutNewListingSideEffects(callable $callback): mixed
+    {
+        self::$suppressNewListingSideEffects++;
+        try {
+            return $callback();
+        } finally {
+            self::$suppressNewListingSideEffects--;
+        }
+    }
+
+    /**
      * .ai/specs/other-agency-stock.md §8 — content lock bypass. Other Agency
      * Stock's imported advert content (description, photos, price, features,
      * sizes, address) is read-only in CoreX — PropertyObserver::saving()
@@ -1276,6 +1307,12 @@ class Property extends Model
 
             if (empty($property->external_id)) {
                 $property->external_id = (string) Str::uuid();
+            }
+
+            // AT-479 — imported stock inside withoutNewListingSideEffects(): no chase tasks, no activity points.
+            if (self::$suppressNewListingSideEffects > 0) {
+                $property->skipNewListingAutomation = true;
+                $property->skipActivityPoints = true;
             }
         });
 

@@ -57,7 +57,7 @@ class RentalTakeOnArchiveService
             $rows = $run->rows()->whereNotNull('archived_at')->get();
 
             foreach ($rows as $row) {
-                if ($row->target_lease_id) {
+                if ($row->target_lease_id && $row->result_action !== RentalTakeOnImportRow::RESULT_UPDATED) {
                     Lease::withTrashed()->whereKey($row->target_lease_id)->first()?->restore();
                 }
                 if ($row->target_property_id && $row->property_match_action === RentalTakeOnImportRow::ACTION_CREATE) {
@@ -77,13 +77,21 @@ class RentalTakeOnArchiveService
     {
         return ['archived' => ['leases' => 0, 'properties' => 0, 'contacts' => 0],
             'left_alone_edited' => ['leases' => 0, 'properties' => 0, 'contacts' => 0],
-            'left_alone_existing' => ['properties' => 0, 'contacts' => 0]];
+            'left_alone_existing' => ['leases' => 0, 'properties' => 0, 'contacts' => 0]];
     }
 
     private function archiveLease(RentalTakeOnImportRow $row, array &$counts): void
     {
         $lease = $row->target_lease_id ? Lease::withoutGlobalScopes()->find($row->target_lease_id) : null;
         if (!$lease) {
+            return;
+        }
+
+        // AT-479 — a reOS re-import UPDATED a lease that was already in CoreX before this batch: archiving the batch must
+        // not archive it. Its property and people are left alone too (an update touches terms only).
+        if ($row->result_action === RentalTakeOnImportRow::RESULT_UPDATED) {
+            $counts['left_alone_existing']['leases']++;
+
             return;
         }
 
