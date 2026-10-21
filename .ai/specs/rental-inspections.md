@@ -8268,3 +8268,12 @@ server's response, the live count line and what still blocks Apply are one stick
 row needs a note") update as rows are fixed and are links that step to the next offending row, focusing its control; server refusals after Apply are links to their
 rows. Apply is disabled, with the reason shown, while a blocker remains.
 
+
+## AT-490 - Start inspection from a lease starts it for THAT lease (21 Oct 2026, cc1)
+
+Tests: `tests/Feature/Leases/LeaseStartInspectionDirectAt490Test.php`.
+- **Cause.** The lease screen's "Start in-inspection / Start out-inspection" next step (and the Command Centre's "Start inspection" row) only linked to the generic "Start or Schedule an Inspection" form with `lease_id`, which merely pre-selected a dropdown that lists rental properties with an active lease (capped at 500) - blank when the property was not in that list - and the agent still had to press Start. The property tab starts straight away.
+- **Now.** Both are a button that POSTs to `corex.rental-inspections.start-for-lease` (`POST /corex/rental-inspections/start-for-lease/{lease}/{type}`, permission `rental_inspections.create`, `RentalInspectionController::startForLease`): the lease is resolved through `Lease::visibleTo` (404 outside the user's own/branch/agency ceiling), its property through `Property::visibleTo` (403, as `store()`), then `RentalInspection::start($property, $type, $user, $lease)` and the agent lands on the property's Inspections tab to record - no property picker. A refusal (already under way, one move-in only, lease not active) comes back on the lease screen in words.
+- **The right lease.** `RentalInspection::start()` / `schedule()` take an optional lease: it must be the property's and active. Without one they still take the property's active lease as before. A property with two active leases no longer gets the inspection on whichever came first.
+- **The generic form** (`corex.rental-inspections.create`, `store`) is still there for starting from nothing: opened with `lease_id` it carries it (hidden field) so the inspection attaches to that lease, and its property is always in the dropdown even past the 500 cap.
+- Command Centre queue rows may now carry `post => true` (rendered as a form button); `RentalCommandCentreLinkParityTest` checks those rows are POST routes instead of GETting them.

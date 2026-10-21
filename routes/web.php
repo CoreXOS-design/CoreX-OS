@@ -4113,6 +4113,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
+        // AT-490 - begin an inspection for a given lease straight away (lease screen / Command Centre), like the property tab's Start.
+        Route::post('/start-for-lease/{lease}/{type}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'startForLease'])
+            ->whereNumber('lease')->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-for-lease');
         // .ai/specs/rental-inspections.md §27.7 — a per-user UI preference for the
         // recording screen (photos shown/hidden, the problem filter), not inspection
         // data — no {rentalInspection} in the path, and no extra .create gate: same

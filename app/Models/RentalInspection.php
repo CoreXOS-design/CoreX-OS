@@ -1675,6 +1675,32 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
     }
 
     /**
+     * AT-490 - the lease an inspection attaches to: the one the agent clicked ($forLease - it must be this property's and
+     * active), else the property's active lease. start() used to take "the first active lease on the property", so a
+     * property with two active leases (a renewal chain, a data slip) could get the inspection on the wrong tenancy.
+     */
+    private static function resolveActiveLease(Property $property, ?Lease $forLease): Lease
+    {
+        if ($forLease !== null) {
+            if ((int) $forLease->property_id !== (int) $property->id) {
+                throw new \LogicException('That lease is not on this property - an inspection can only be started for the lease\'s own property.');
+            }
+            if ($forLease->status !== Lease::STATUS_ACTIVE) {
+                throw new \LogicException('That lease is not active, so it cannot have a new inspection started.');
+            }
+
+            return $forLease;
+        }
+
+        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
+        if (! $lease) {
+            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
+        }
+
+        return $lease;
+    }
+
+    /**
      * §0.5/§4 — the deliberate action that actually begins an inspection.
      * Refuses if one of this type is already under way for the property's
      * active lease (currentFor() would already have found it — starting a
@@ -1683,12 +1709,9 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * legitimately be open at once (§4), so there is no "already one
      * running" concept for it.
      */
-    public static function start(Property $property, string $type, User $by): self
+    public static function start(Property $property, string $type, User $by, ?Lease $forLease = null): self
     {
-        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
-        if (! $lease) {
-            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
-        }
+        $lease = self::resolveActiveLease($property, $forLease);
 
         self::assertTypeStartable($property, $lease, $type);
 
@@ -1723,16 +1746,13 @@ class RentalInspection extends Model implements ReportsUnreachableRecipients, Si
      * scheduled_duration_minutes (nullable), inspector_user_id (nullable —
      * defaults to $by), schedule_note (nullable).
      */
-    public static function schedule(Property $property, string $type, User $by, array $attrs): self
+    public static function schedule(Property $property, string $type, User $by, array $attrs, ?Lease $forLease = null): self
     {
         if (empty($attrs['scheduled_for'])) {
             throw new \InvalidArgumentException('A scheduled date is required.');
         }
 
-        $lease = Lease::where('property_id', $property->id)->where('status', Lease::STATUS_ACTIVE)->first();
-        if (! $lease) {
-            throw new \LogicException('This property has no active lease — an inspection needs one to attach to.');
-        }
+        $lease = self::resolveActiveLease($property, $forLease);
 
         self::assertTypeStartable($property, $lease, $type);
 

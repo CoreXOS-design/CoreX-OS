@@ -139,7 +139,7 @@ class LeaseHubService
         // move-out), not a catch-up in-inspection. Checked ahead of the
         // in-inspection branch below so an active notice always wins.
         if ($lease->status === Lease::STATUS_ACTIVE && $lease->hasActiveNotice() && !$hasCompletedOut) {
-            return ['label' => 'Start out-inspection', 'route_name' => 'corex.rental-inspections.create', 'route_param' => ['lease_id' => $lease->id, 'type' => 'out']];
+            return ['label' => 'Start out-inspection', 'route_name' => 'corex.rental-inspections.start-for-lease', 'route_param' => ['lease' => $lease->id, 'type' => 'out'], 'post' => true];
         }
 
         // A renewal is the same tenancy carrying on: the tenant is already in the property, so it never needs its own in-inspection
@@ -154,7 +154,7 @@ class LeaseHubService
                 return ['label' => 'Continue in-inspection', 'route_name' => 'corex.rental-inspections.show', 'route_param' => $open->id];
             }
 
-            return ['label' => 'Start in-inspection', 'route_name' => 'corex.rental-inspections.create', 'route_param' => ['lease_id' => $lease->id, 'type' => 'in']];
+            return ['label' => 'Start in-inspection', 'route_name' => 'corex.rental-inspections.start-for-lease', 'route_param' => ['lease' => $lease->id, 'type' => 'in'], 'post' => true];
         }
 
         $reminderWindowDays = \App\Models\LeaseSetting::expiryNoticeWindowDaysFor($lease->agency_id);
