@@ -31,13 +31,22 @@ class ReosRowResolver
 
         $existing = $row->external_id ? $this->existingLease($agencyId, (string) $row->external_id) : null;
 
-        $property = $this->matchProperty($agencyId, $p, []);
+        // Step 1 (Johan, 21 Oct): does the property exist? Looked for across every suburb, with no suburb needed.
+        $candidates = ReosPropertyCandidates::find($agencyId, $p['address'] ?? null);
+        $property = $this->propertyFromCandidates($candidates) ?? $this->matchProperty($agencyId, $p, []);
         $owner = $this->matchContact($p['owner_name'] ?? null, $p['owner_email'] ?? null, $p['owner_phone'] ?? null, $agencyId);
         $tenant = $this->matchContact($p['tenant_name'] ?? null, $p['tenant_email'] ?? null, $p['tenant_phone'] ?? null, $agencyId);
         $agent = $this->agents->match($p['agent_text'] ?? null, $agencyId);
 
         $decisions = [
-            'property' => ['create' => true, 'suburb_id' => null, 'suburb' => null, 'town' => null, 'province' => null, 'city_id' => null, 'province_id' => null],
+            'property' => [
+                'create' => true, 'suburb_id' => null, 'suburb' => null, 'town' => null, 'province' => null, 'city_id' => null, 'province_id' => null,
+                // The CoreX properties that fit this address (any suburb), and the one the row will use: the single match, or the
+                // user's pick from several; null = none yet / "none of these — create new".
+                'candidates' => $candidates,
+                'link_id' => count($candidates) === 1 ? $candidates[0]['id'] : null,
+                'choice' => count($candidates) === 1 ? 'link' : null,
+            ],
             'owner' => $this->defaultPartyDecision($owner),
             'tenant' => $this->defaultPartyDecision($tenant),
             'agent_user_id' => $agent['user_id'],
@@ -70,6 +79,10 @@ class ReosRowResolver
     public function rematchProperty(RentalTakeOnImportRow $row): RentalTakeOnImportRow
     {
         $d = $row->decisions_json ?? [];
+        // A property the user (or the suburb-less lookup) has settled on is not second-guessed; neither is an unanswered "which one?".
+        if (! empty($d['property']['link_id']) || ($d['property']['choice'] ?? null) === 'new' || $row->property_match_action === RentalTakeOnImportRow::ACTION_CHOOSE) {
+            return ReosBlockers::refresh($row);
+        }
         $m = $this->matchProperty((int) $row->agency_id, $row->payload_json ?? [], $d['property'] ?? []);
 
         $row->forceFill([
@@ -79,6 +92,24 @@ class ReosRowResolver
         ])->save();
 
         return ReosBlockers::refresh($row);
+    }
+
+    /**
+     * @param list<array{id:int,label:string,suburb:string,town:?string}> $candidates
+     * @return array{action:string, tracked_id:null, label:string, notes:list<string>}|null  null = none found, carry on with the suburb route
+     */
+    private function propertyFromCandidates(array $candidates): ?array
+    {
+        if ($candidates === []) {
+            return null;
+        }
+        if (count($candidates) === 1) {
+            $c = $candidates[0];
+
+            return ['action' => RentalTakeOnImportRow::ACTION_MATCH, 'tracked_id' => null, 'label' => 'In CoreX: ' . $c['label'] . ($c['suburb'] !== '' ? ' (' . $c['suburb'] . ')' : ''), 'notes' => []];
+        }
+
+        return ['action' => RentalTakeOnImportRow::ACTION_CHOOSE, 'tracked_id' => null, 'label' => count($candidates) . ' properties in CoreX fit this address — pick the right one', 'notes' => []];
     }
 
     public function existingLease(int $agencyId, string $externalId): ?Lease

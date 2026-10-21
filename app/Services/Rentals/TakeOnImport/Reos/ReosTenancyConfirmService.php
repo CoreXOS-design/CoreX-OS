@@ -203,6 +203,18 @@ class ReosTenancyConfirmService
     private function resolveProperty(RentalTakeOnImportRow $row, RentalTakeOnImportRun $run, User $agent, int $branchId): Property
     {
         $d = $row->decisions_json ?? [];
+
+        // A property the suburb-less lookup found (or the user picked from several): the lease goes on THAT property. Nothing is
+        // created or matched again, so it can never turn into a duplicate. The property itself is not changed.
+        if (! empty($d['property']['link_id']) && ($d['property']['choice'] ?? null) !== 'new') {
+            $linked = Property::withoutGlobalScopes()->where('agency_id', (int) $run->agency_id)->whereNull('deleted_at')->find((int) $d['property']['link_id']);
+            if (! $linked) {
+                throw new \DomainException('The property chosen for this lease can no longer be found — choose again.');
+            }
+
+            return $linked;
+        }
+
         // The SAME facts the preview matched on: the user's suburb/town/province when they gave one (a suburb pick can be what
         // makes CoreX recognise the property, so dropping it here could miss the match and create a duplicate). A property that
         // matched without any suburb simply has none to pass. The suburb control is only offered for a property that did not match.

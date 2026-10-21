@@ -25,6 +25,8 @@ class RentalTakeOnImportRow extends Model
 
     public const ACTION_CREATE = 'create';
     public const ACTION_MATCH = 'match';
+    // AT-479 — several CoreX properties fit a reOS address; the user picks (or says none of them).
+    public const ACTION_CHOOSE = 'choose';
 
     public const COMPLETENESS_COMPLETE = 'complete';
     public const COMPLETENESS_DRAFT = 'draft';

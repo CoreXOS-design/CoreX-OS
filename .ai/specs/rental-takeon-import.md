@@ -534,6 +534,26 @@ that says to restore it first, because the database key spans archived rows).
 - **agent** (default: the name match, R4.2);
 - tenant wallet reference (pre-filled from the Rent Roll; editable).
 
+**R4.0 Does the property exist? — no suburb needed (Johan, 21 Oct 2026).** Step 1 of every row. `ReosPropertyCandidates`
+looks across ALL suburbs of the agency's own (non-archived) properties on **street name + street number**, plus **unit /
+complex when the reOS address has them**, all normalised: case and punctuation ignored, "Ave" = "Avenue", and **"504/3
+Robin Road" = unit 504, no. 3, Robin Road** (whether CoreX holds it as unit 504 + no. 3 or as "504/3" in the number).
+Conservative rules: no street number in the reOS address = no lookup (a street alone is not a property); a unit in the reOS
+address needs the same unit in CoreX; an address with no unit does not match a CoreX flat in a block; a different complex
+rules a property out (a CoreX property that simply holds no complex name is not ruled out). Other agencies' and archived
+properties never match.
+- **Exactly one** → "In CoreX": the row shows the property with its suburb (read from the property); no suburb picker, nothing
+  created; Import puts the lease on THAT property and does not change it.
+- **Several** → the row says "Pick the property" and lists each (address + suburb) plus **"None of these — create a new
+  property"**; until one is chosen the row is blocked (`property_choice_required`, linked to the control). A pick must be one
+  of the listed properties (anything else is refused). "None of these" goes to the suburb-picker route below, and a later
+  suburb pick does not undo it.
+- **None** → "Not in CoreX" + the suburb picker (R4.1), exactly as before; once a suburb is picked CoreX's general matcher
+  looks again (it needs the suburb) and may still find a tracked property.
+Stored in `decisions_json.property`: `candidates`, `link_id`, `choice` (`link` | `new`); `property_match_action` is `match`,
+`choose` or `create`. The Import path never creates or re-matches a property whose `link_id` is set, so it cannot duplicate.
+The same unit/number reading is used when a NEW property is created ("504/3 Robin Road" is created as unit 504, no. 3).
+
 **R4.1 Suburb.** Only for a property CoreX does *not* match. A type-ahead over the existing P24 suburb list
 (`p24_suburbs` where `p24_verified_at` is set, the same source as `/api/v1/p24/suburbs`; the existing endpoint needs
 a city, so a thin search endpoint over the same tables is added). Picking a suburb fills town (the P24 city) and
@@ -684,7 +704,8 @@ existing confirm does for the property).
 | Rollover anything but true/false/1/0/yes/no | absorbed as "not known" with a warning |
 | Owner/tenant blank | absorbed — lease imported without that person, flagged |
 | Phone `+27815284719`, `+27 632941505`, blank; e-mail with spaces/caps | absorbed (`ContactDuplicateService` normalisers) |
-| Address without a parseable street | the suburb/create controls still work; a row the parser calls unreadable shows its note |
+| Address without a parseable street or number | no property lookup; the suburb/create controls still work; a row the parser calls unreadable shows its note |
+| Several CoreX properties fit one address | the user picks one or "none of these" (blocker until they do) |
 | Agent text: only the agency, empty, unknown person | user picks (blocker until they do) |
 | Same reOS id twice in one file | the second row is an error row ("appears twice in this file") |
 | Re-upload of the same file | rows show "In CoreX already — will update" |

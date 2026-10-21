@@ -59,7 +59,7 @@ class ReosTenancyRunService
                 'rent_roll_filename' => $rentRollFile?->getClientOriginalName(),
             ]);
 
-            $counts = ['total' => 0, 'property_matched' => 0, 'property_not_in_corex' => 0, 'owner_matched' => 0, 'tenant_matched' => 0,
+            $counts = ['total' => 0, 'property_matched' => 0, 'property_to_choose' => 0, 'property_not_in_corex' => 0, 'owner_matched' => 0, 'tenant_matched' => 0,
                 'already_in_corex' => 0, 'errors' => 0,
                 'rent_roll' => $rollSummary === null ? null : ['rows' => count($rollRows)] + $rollSummary,
                 'imported_created' => 0, 'imported_updated' => 0, 'imported_failed' => 0];
@@ -80,7 +80,11 @@ class ReosTenancyRunService
                 $row->refresh();
 
                 $counts['total']++;
-                $counts[$row->property_match_action === RentalTakeOnImportRow::ACTION_MATCH ? 'property_matched' : 'property_not_in_corex']++;
+                $counts[match ($row->property_match_action) {
+                    RentalTakeOnImportRow::ACTION_MATCH => 'property_matched',
+                    RentalTakeOnImportRow::ACTION_CHOOSE => 'property_to_choose',
+                    default => 'property_not_in_corex',
+                }]++;
                 if (($row->landlord_match_json[1]['action'] ?? null) === 'match') {
                     $counts['owner_matched']++;
                 }

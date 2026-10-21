@@ -267,6 +267,7 @@
             var p = {};
             if (field === 'selected') { p.selected = el.checked; }
             else if (field === 'property_create') { p.property_create = el.checked; }
+            else if (field === 'property_choice') { p.property_choice = el.value === 'new' ? 'new' : parseInt(el.value, 10); }
             else if (field === 'agent_user_id') { p.agent_user_id = el.value === '' ? null : parseInt(el.value, 10); }
             else if (field === 'tenant_wallet_ref') { p.tenant_wallet_ref = el.value; }
             else if (field === 'owner' || field === 'tenant') {
