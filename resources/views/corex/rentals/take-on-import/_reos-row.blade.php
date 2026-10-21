@@ -67,10 +67,30 @@
         @if($existing || $imported)
             <div class="text-muted">{{ $imported ? 'Property: ' . ($row->property_match_action === 'create' ? 'created' : 'existing') : 'The lease\'s property is left as it is.' }}</div>
         @else
-            <span class="ds-badge {{ $matched ? 'ds-badge-success' : 'ds-badge-warning' }}" data-test="property-state">{{ $matched ? 'In CoreX' : 'Not in CoreX' }}</span>
+            @php
+                $cands = $loc['candidates'] ?? [];
+                $choosing = $row->property_match_action === 'choose';
+                $linkId = (int) ($loc['link_id'] ?? 0);
+                $choseNew = ($loc['choice'] ?? null) === 'new';
+            @endphp
+            <span class="ds-badge {{ $matched ? 'ds-badge-success' : ($choosing ? 'ds-badge-info' : 'ds-badge-warning') }}" data-test="property-state">{{ $matched ? 'In CoreX' : ($choosing ? 'Pick the property' : 'Not in CoreX') }}</span>
             @if($matched)
                 <div class="text-muted">{{ $row->property_match_label }}</div>
-            @else
+            @endif
+            @if(count($cands) > 0 && $editable)
+                {{-- The properties already in CoreX that fit this address, in any suburb. --}}
+                <select id="row-{{ $id }}-property-choice" data-field="property_choice" class="prop-select mt-1" style="max-width:19rem;" data-test="property-choice">
+                    @if($choosing)<option value="" selected disabled>Pick the right property…</option>@endif
+                    @foreach($cands as $c)
+                        <option value="{{ $c['id'] }}" @selected($linkId === (int) $c['id'] && ! $choseNew)>{{ $c['label'] }}@if(($c['suburb'] ?? '') !== '') — {{ $c['suburb'] }}@endif</option>
+                    @endforeach
+                    <option value="new" @selected($choseNew)>None of these — create a new property</option>
+                </select>
+            @elseif($choosing)
+                <div class="text-muted">{{ $row->property_match_label }}</div>
+            @endif
+            @if(! $matched && ! $choosing)
+                @if($choseNew)<div class="text-muted">{{ $row->property_match_label }}</div>@endif
                 <label class="flex items-center gap-1 mt-1">
                     <input type="checkbox" id="row-{{ $id }}-property-create" data-field="property_create" @checked($d['property']['create'] ?? true) @disabled(! $editable)>
                     Create this property

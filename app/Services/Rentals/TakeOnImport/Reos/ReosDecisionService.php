@@ -34,6 +34,28 @@ class ReosDecisionService
         $agencyId = (int) $run->agency_id;
         $suburbChanged = false;
 
+        // Which CoreX property is this? One of the candidates the lookup found, or "none of these — create a new one".
+        if (array_key_exists('property_choice', $in)) {
+            $choice = $in['property_choice'];
+            $candidates = collect($d['property']['candidates'] ?? []);
+            if ($choice === 'new') {
+                $d['property']['link_id'] = null;
+                $d['property']['choice'] = 'new';
+                $d['property']['create'] = true;
+                $row->property_match_action = RentalTakeOnImportRow::ACTION_CREATE;
+                $row->property_match_label = 'Not in CoreX — you chose to create a new property';
+            } else {
+                $picked = $candidates->firstWhere('id', (int) $choice);
+                if (! $picked) {
+                    throw ValidationException::withMessages(['property_choice' => 'Pick one of the properties listed, or "none of these".']);
+                }
+                $d['property']['link_id'] = (int) $picked['id'];
+                $d['property']['choice'] = 'link';
+                $row->property_match_action = RentalTakeOnImportRow::ACTION_MATCH;
+                $row->property_match_label = 'In CoreX: ' . $picked['label'] . ($picked['suburb'] !== '' ? ' (' . $picked['suburb'] . ')' : '');
+            }
+        }
+
         if (array_key_exists('property_create', $in)) {
             $d['property']['create'] = (bool) $in['property_create'];
         }

@@ -38,7 +38,7 @@ class ReosTakeOnApiController extends Controller
         $run = $row->run()->withTrashed()->firstOrFail();
         $this->guardRun($request, $run);
 
-        $input = $request->only(['selected', 'property_create', 'suburb_id', 'owner', 'tenant', 'agent_user_id', 'tenant_wallet_ref']);
+        $input = $request->only(['selected', 'property_create', 'property_choice', 'suburb_id', 'owner', 'tenant', 'agent_user_id', 'tenant_wallet_ref']);
 
         try {
             $row = $service->apply($row, $run, $input);
