@@ -260,11 +260,14 @@ final class RentalCommandCentreLinkParityTest extends TestCase
         $this->assertGreaterThan(2, $items->count());
 
         // this agent may not start an inspection: that row stays (it still needs action) but shows no button that could only answer 403
-        $inspectionRow = $items->first(fn ($i) => $i['route'] === 'corex.rental-inspections.create');
+        // AT-490 - the start-inspection row is a POST straight into the inspection for THAT lease (no property picker).
+        $inspectionRow = $items->first(fn ($i) => $i['route'] === 'corex.rental-inspections.start-for-lease');
         $this->assertNotNull($inspectionRow);
-        $this->assertFalse($this->service()->canOpenRoute($this->agent, 'corex.rental-inspections.create'));
+        $this->assertTrue($inspectionRow['post']);
+        $this->assertSame(['lease' => $lease->id, 'type' => 'in'], $inspectionRow['route_params']);
+        $this->assertFalse($this->service()->canOpenRoute($this->agent, 'corex.rental-inspections.start-for-lease'));
         $html = $this->actingAs($this->agent)->get(route('corex.rentals.command-centre.index'))->assertOk()->getContent();
-        $this->assertStringNotContainsString(e(route('corex.rental-inspections.create', $inspectionRow['route_params'])), $html);
+        $this->assertStringNotContainsString(e(route('corex.rental-inspections.start-for-lease', $inspectionRow['route_params'])), $html);
 
         $opened = 0;
         foreach ($items as $item) {
@@ -272,6 +275,11 @@ final class RentalCommandCentreLinkParityTest extends TestCase
                 continue;
             }
             $opened++;
+            if ($item['post'] ?? false) {
+                // a form post, not a page: the route must exist and answer POST (the click itself is proven in the AT-490 test)
+                $this->assertContains('POST', \Illuminate\Support\Facades\Route::getRoutes()->getByName($item['route'])->methods(), "queue row '{$item['type']}' is a POST action");
+                continue;
+            }
             $url = route($item['route'], $item['route_params']);
             $status = $this->actingAs($this->agent)->get($url)->getStatusCode();
             $this->assertSame(200, $status, "queue row '{$item['type']}' -> {$item['route']} answered {$status}");
@@ -282,8 +290,9 @@ final class RentalCommandCentreLinkParityTest extends TestCase
         $this->grant($this->agent, ['rental_inspections' => 'all']);
         RolePermission::updateOrCreate(['role' => $this->agent->role, 'permission_key' => 'rental_inspections.create', 'agency_id' => $this->agency->id], ['scope' => 'all']);
         \App\Services\PermissionService::clearCache();
-        $this->assertTrue($this->service()->canOpenRoute($this->agent->fresh(), 'corex.rental-inspections.create'));
-        $this->actingAs($this->agent)->get(route('corex.rental-inspections.create', $inspectionRow['route_params']))->assertOk();
+        $this->assertTrue($this->service()->canOpenRoute($this->agent->fresh(), 'corex.rental-inspections.start-for-lease'));
+        $html = $this->actingAs($this->agent)->get(route('corex.rentals.command-centre.index'))->assertOk()->getContent();
+        $this->assertStringContainsString(route('corex.rental-inspections.start-for-lease', $inspectionRow['route_params']), $html);
     }
 
     // ── "Inspections due": the tile and the queue are one definition ─────────────

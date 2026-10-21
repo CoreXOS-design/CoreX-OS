@@ -862,6 +862,13 @@ class AppServiceProvider extends ServiceProvider
             \App\Listeners\Contact\AddTenantTypeOnRentalApproval::class,
         );
 
+        // AT-482 (Johan, 21 Oct 2026) - approval sets the upper rent of the contact's active rental Core Matches to the
+        // approved amount (the model's cap alone only ever lowered a ceiling when a match happened to be saved later).
+        Event::listen(
+            \App\Events\RentalApplication\RentalApplicationApproved::class,
+            \App\Listeners\Contact\SetRentalCoreMatchCeilingOnApproval::class,
+        );
+
         // 2026-08-24 (Johan) — public-link resilience: a SECOND listener on
         // AgentDeactivated (already logged via the wave6 map above through
         // LogAgentEvent). NOT added as a second key in $wave6 above — that
@@ -1253,9 +1260,13 @@ class AppServiceProvider extends ServiceProvider
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
                 ->by('rental-application-submit:' . $token)
-                ->response(fn () => response()->json([
-                    'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
-                ], 429));
+                // AT-486 - the applicant's submit is a plain form post, so a bare JSON body would be shown to them raw.
+                // A browser form post gets a proper page; a fetch/JSON caller still gets JSON.
+                ->response(fn (\Illuminate\Http\Request $r) => $r->expectsJson()
+                    ? response()->json([
+                        'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
+                    ], 429)
+                    : response()->view('rental-applications.public.unavailable', ['reason' => 'submit_rate_limited'], 429));
         });
 
         // SHOW — a real applicant reloading a slow page repeatedly on bad

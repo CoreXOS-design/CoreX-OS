@@ -2252,6 +2252,8 @@
                     </template>
                     <textarea x-model="sendBackNote" rows="4" class="corex-input text-xs w-full mb-3" style="resize: none;"
                               placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
+                    {{-- AT-488 - the page-level status line sits behind this overlay; a save/send failure must be seen right here. --}}
+                    <p class="text-xs mb-2" data-qa="send-back-status" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
                         <button type="button" data-qa="send-back-to-applicant-confirm" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
@@ -3454,6 +3456,28 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             const note = requested.length ? (this.sendBackNote.trim() + '\n\nPlease also send: ' + requested.join(', ')) : this.sendBackNote.trim();
             this.sendBackSending = true;
             this.agentActionStatus = '';
+
+            // AT-488 - send-back reloads the page, so anything not yet saved here (unsaved highlights / notes, a pending
+            // assessment edit) would be lost with it. Save it all first, exactly as Submit-for-approval does, and stop
+            // - with the reason on screen and the note kept - if any of it cannot be saved.
+            this.agentActionError = false;
+            this.agentActionStatus = 'Saving your work…';
+            const fieldsResult = await this.saveFieldsAwaitable();
+            if (!fieldsResult.ok) {
+                this.sendBackSending = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Not sent — saving the assessment failed (' + (fieldsResult.error || 'unknown error') + '). Nothing was sent to the applicant and nothing you captured was lost; fix this and try again.';
+                return;
+            }
+            const marksResult = await this.saveAllDirtyDocuments();
+            if (!marksResult.ok) {
+                this.sendBackSending = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Not sent — saving highlights/notes on "' + marksResult.label + '" failed (' + (marksResult.error || 'unknown error') + '). Nothing was sent to the applicant and nothing you captured was lost; fix this and try again.';
+                return;
+            }
+            this.agentActionStatus = '';
+
             try {
                 const url = this.canReopenNow ? reopenUrl : requestMoreInfoUrl;
                 const res = await fetch(url, {
@@ -3474,7 +3498,8 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                     this.sendBackModalOpen = false;
                     this.sendBackNote = '';
                     this.documentChecklist.forEach(d => d.checked = false);
-                    if (this.canReopenNow) setTimeout(() => window.location.reload(), 900);
+                    // AT-488 - everything is saved by now; the browser's "leave site?" prompt must not fire on this reload.
+                    if (this.canReopenNow) { window.__raSuppressUnloadGuard = true; setTimeout(() => window.location.reload(), 900); }
                 } else {
                     this.agentActionError = true;
                     this.agentActionStatus = data.error || 'Could not send — try again.';

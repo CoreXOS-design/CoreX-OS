@@ -87,7 +87,8 @@
                         :title="dirty ? 'Save your changes first' : ({{ $canSend ? 'false' : 'true' }} ? 'Add an email address to send' : '')">
                     {{ $rentalApplication->status === 'draft' ? 'Send' : 'Resend' }}
                 </button>
-                <span class="text-xs hidden sm:inline" style="color: var(--text-muted);"
+                {{-- AT-485 - the reason Send is greyed out is always visible (it used to be hidden below the sm breakpoint). --}}
+                <span class="text-xs" style="color: var(--text-muted);" data-qa="send-disabled-reason"
                       x-show="dirty || {{ $canSend ? 'false' : 'true' }}">
                     <span x-show="dirty">Save your changes first</span>
                     <span x-show="!dirty" x-cloak>Add an email address to send</span>
@@ -117,6 +118,21 @@
     </x-sticky-action-bar>
 
     {{-- success / error flashes are shown ONCE, by the layout's toast — never again as an inline banner (they used to appear twice). --}}
+
+    {{-- AT-486 - the applicant pressed Submit but has not confirmed their identity yet: saved, not submitted. --}}
+    @if($rentalApplication->identityHoldPending())
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #b45309) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #b45309) 30%, transparent); color: var(--text-primary);" data-qa="identity-hold-banner">
+            The applicant has filled in the form but has not confirmed their identity yet, so it is not submitted. It reaches you once they enter the code that was emailed to them.
+        </div>
+    @endif
+
+    {{-- AT-485 - a refused duplicate send: the toast says why, this is the link to the application that already exists. --}}
+    @if(session('duplicate_application'))
+        <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-crimson) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-crimson) 30%, transparent); color: var(--ds-crimson);" data-qa="duplicate-application-banner">
+            This applicant already has an application.
+            <a href="{{ session('duplicate_application')['url'] }}" class="underline font-medium">Open the existing application</a>
+        </div>
+    @endif
 
     @if($errors->any())
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-red-soft, #fef2f2); color: var(--ds-red, #dc2626);">
@@ -418,8 +434,10 @@
                 @if($fieldConfig['current_rental_from']['shown'])
                 <x-rental-application-field name="current_rental_from" :label="$fieldConfig['current_rental_from']['label']" :hint="$fieldConfig['current_rental_from']['help_text']" :order="$fieldConfig['current_rental_from']['order']" type="date" :value="optional($rentalApplication->current_rental_from)->format('Y-m-d')" />
                 @endif
-                <div x-data="{ stillLiving: {{ old('current_rental_still_living', $rentalApplication->current_rental_still_living) ? 'true' : 'false' }} }">
-                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">To</label>
+                {{-- AT-487 - same fix as the applicant's form: the end date carried no `order`, so it came before "From". --}}
+                @if($fieldConfig['current_rental_to']['shown'])
+                <div x-data="{ stillLiving: {{ old('current_rental_still_living', $rentalApplication->current_rental_still_living) ? 'true' : 'false' }} }" style="order: {{ $fieldConfig['current_rental_to']['order'] }}">
+                    <label class="block text-xs font-medium mb-1" style="color: var(--text-secondary);">{{ $fieldConfig['current_rental_to']['label'] }}</label>
                     <input type="date" name="current_rental_to" x-ref="currentRentalTo"
                            :disabled="stillLiving"
                            value="{{ old('current_rental_to', optional($rentalApplication->current_rental_to)->format('Y-m-d')) }}"
@@ -434,6 +452,7 @@
                         Still living here — no end date
                     </label>
                 </div>
+                @endif
             </div>
 
             @if($fieldConfig['current_living_situation_notes']['shown'])

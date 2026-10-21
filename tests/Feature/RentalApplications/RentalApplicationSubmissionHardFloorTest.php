@@ -50,6 +50,8 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
             'first_name' => 'Sipho', 'last_name' => 'Ndlovu', 'email' => 'sipho@example.co.za',
         ]);
         $this->agent = User::factory()->create(['agency_id' => $this->agency->id, 'branch_id' => $this->branch->id, 'role' => 'admin']);
+        // AT-486: this test is about the submitted application, not the identity screen - switch the gate off so Submit completes.
+        \App\Models\RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], ['identity_gate_enabled' => false]);
     }
 
     private function application(array $attrs = []): RentalApplication
@@ -142,7 +144,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_a_self_employed_applicant_is_never_blocked_by_a_ticked_employer_field(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['employer_name']),
         ]);
@@ -156,7 +158,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_a_permanently_employed_applicant_IS_blocked_by_a_ticked_employer_field_when_left_blank(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['employer_name']),
         ]);
@@ -170,7 +172,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_landlord_fields_only_apply_when_currently_renting(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['current_landlord_name']),
         ]);
@@ -188,7 +190,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_spouse_fields_only_apply_when_marital_status_implies_a_spouse(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => array_merge(RentalApplicationQualifyingSetting::DEFAULT_REQUIRED_FIELD_KEYS, ['spouse_name']),
         ]);
@@ -208,7 +210,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_an_agency_can_untick_id_number_and_a_signature_with_no_exception(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => ['full_name', 'current_residential_address', 'monthly_salary', 'rental_term_months', 'contact_method'],
         ]);
@@ -224,7 +226,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_an_agency_can_untick_everything_leaving_only_a_documented_choice(): void
     {
-        RentalApplicationQualifyingSetting::create(['agency_id' => $this->agency->id, 'required_field_keys' => []]);
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], ['agency_id' => $this->agency->id, 'required_field_keys' => []]);
         $application = $this->application();
 
         $response = $this->post(route('rental-applications.public.submit', $application->token), []);
@@ -262,7 +264,7 @@ final class RentalApplicationSubmissionHardFloorTest extends TestCase
 
     public function test_an_untied_optional_signature_left_blank_is_accepted(): void
     {
-        RentalApplicationQualifyingSetting::create([
+        RentalApplicationQualifyingSetting::updateOrCreate(['agency_id' => $this->agency->id], [
             'agency_id' => $this->agency->id,
             'required_field_keys' => ['full_name', 'id_number', 'contact_method', 'current_residential_address', 'monthly_salary', 'rental_term_months', 'tpn_consent_signature'],
         ]);

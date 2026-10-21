@@ -22,6 +22,17 @@ final class AuthorisationHandOffGate
      */
     public static function refusal(RentalApplication $application): ?array
     {
+        // AT-486 - the applicant has not confirmed who they are yet; what is on file is not a submission the agency can
+        // act on. (Never true for an application released by the identity step, or one the gate could not reach.)
+        if ($application->identityHoldPending()) {
+            return [
+                'error' => 'The applicant has not confirmed their identity yet, so this application has not been submitted to you. '
+                    . 'Ask them to enter the code that was sent to them, then try again.',
+                'reason' => 'identity_unverified',
+                'extra' => [],
+            ];
+        }
+
         $unsplit = $application->documents()
             ->whereNull('document_type_id')
             ->where('mime_type', 'application/pdf')

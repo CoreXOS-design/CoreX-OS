@@ -1017,8 +1017,10 @@ class RentalCommandCentreService
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
                 // AT-444/AT-441 follow-up (2026-10-05) — RentalInspectionController::create() pre-selects from
                 // lease_id/property_id (+ type); lease_id resolves through the controller's own Lease::visibleTo().
-                'route' => 'corex.rental-inspections.create',
-                'route_params' => ['property_id' => $lease->property_id, 'lease_id' => $lease->id, 'type' => $item['type']],
+                // AT-490 - starts the inspection for THIS lease straight away (a POST), no property picker.
+                'route' => 'corex.rental-inspections.start-for-lease',
+                'route_params' => ['lease' => $lease->id, 'type' => $item['type']],
+                'post' => true,
             ]);
         });
 

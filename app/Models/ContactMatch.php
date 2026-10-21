@@ -198,7 +198,8 @@ class ContactMatch extends Model
      */
     protected static function enforceRentalApprovedAmountCap(self $match): void
     {
-        if ($match->listing_type !== 'rental') {
+        // AT-482 - legacy rental spellings (rent, to_let, ...) are rentals too; the strict 'rental' test let them past the cap.
+        if (! self::listingTypeIsRental($match->listing_type)) {
             return;
         }
         if (empty($match->price_max) || (int) $match->price_max <= 0) {

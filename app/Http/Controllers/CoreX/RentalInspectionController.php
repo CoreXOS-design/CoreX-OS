@@ -74,9 +74,22 @@ class RentalInspectionController extends Controller
             $selectedPropertyId = $properties->firstWhere('id', (int) $propertyId)?->id;
         }
 
+        // AT-490 - the picker only lists rental properties with an active lease (capped at 500): a lease's own property that
+        // is not in that list used to leave the dropdown blank. Make sure the property the form was opened for is there.
+        if ($selectedPropertyId && ! $properties->contains('id', (int) $selectedPropertyId)) {
+            $extra = Property::query()->visibleTo($user)->find($selectedPropertyId);
+            if ($extra) {
+                $properties->push($extra);
+            }
+        }
+        $selectedLeaseId = $request->get('lease_id') && $selectedPropertyId
+            ? Lease::query()->visibleTo($user, null)->where('id', $request->get('lease_id'))->value('id')
+            : null;
+
         return view('corex.rental-inspections.create', [
             'properties' => $properties,
             'selectedPropertyId' => $selectedPropertyId,
+            'selectedLeaseId' => $selectedLeaseId,
             // §43 — the inspector picker on the Schedule form. Same agency
             // as the booking user; is_active only — a deactivated agent is
             // never offered a new booking.
@@ -104,6 +117,8 @@ class RentalInspectionController extends Controller
         $validated = $request->validate([
             'property_id' => ['required', 'integer', 'exists:properties,id'],
             'type' => ['required', 'in:' . implode(',', [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC])],
+            // AT-490 - the lease the form was opened for, when it was; the inspection attaches to THAT lease.
+            'lease_id' => ['nullable', 'integer'],
         ]);
 
         // §45.8 H3 — resolved through the same scopes the picker offers from (AgencyScope +
@@ -119,12 +134,20 @@ class RentalInspectionController extends Controller
             abort(403);
         }
 
+        $forLease = null;
+        if (! empty($validated['lease_id'])) {
+            $forLease = Lease::query()->visibleTo($request->user(), null)->find($validated['lease_id']);
+            if (! $forLease || (int) $forLease->property_id !== (int) $property->id) {
+                return back()->withInput()->withErrors(['rental_inspection' => 'That lease is not on the property you picked - pick the property again.']);
+            }
+        }
+
         if ($request->input('intent') === 'schedule') {
-            return $this->storeScheduled($request, $property, $validated['type']);
+            return $this->storeScheduled($request, $property, $validated['type'], $forLease);
         }
 
         try {
-            $inspection = RentalInspection::start($property, $validated['type'], $request->user());
+            $inspection = RentalInspection::start($property, $validated['type'], $request->user(), $forLease);
         } catch (\LogicException $e) {
             return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
         }
@@ -138,6 +161,39 @@ class RentalInspectionController extends Controller
         // away from immediately.
         return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
             ->with('success', RentalInspection::typeName($validated['type']) . ' started.');
+    }
+
+    /**
+     * AT-490 - "Start in-inspection" / "Start out-inspection" from a lease (the lease screen's next step, the Command
+     * Centre queue): begins the inspection for THAT lease straight away, exactly as the property tab's Start does
+     * (RentalInspectionRecordingController::start), and lands on the property's Inspections tab to record. No property
+     * picker - the lease already knows its property. A POST (it creates a record), the lease and type in the URL.
+     */
+    public function startForLease(Request $request, int $lease, string $type): RedirectResponse
+    {
+        abort_unless(in_array($type, [RentalInspection::TYPE_IN, RentalInspection::TYPE_OUT, RentalInspection::TYPE_INTERIM, RentalInspection::TYPE_AD_HOC], true), 404);
+
+        // Same own/branch/agency ceiling as the lease screens (Lease::visibleTo) - a lease outside it is a 404, never a leak.
+        $leaseModel = Lease::query()->visibleTo($request->user(), null)->findOrFail($lease);
+
+        // And the property must be inside the user's property scope, exactly as store() demands.
+        $property = Property::query()->visibleTo($request->user())->find($leaseModel->property_id);
+        if (! $property) {
+            \Illuminate\Support\Facades\Log::warning('AT-490: start inspection for lease refused - property outside the acting user\'s scope', [
+                'acting_user_id' => $request->user()->id, 'lease_id' => $leaseModel->id, 'property_id' => $leaseModel->property_id,
+            ]);
+            abort(403);
+        }
+
+        try {
+            $inspection = RentalInspection::start($property, $type, $request->user(), $leaseModel);
+        } catch (\LogicException $e) {
+            return redirect()->route('corex.leases.show', $leaseModel)->with('error', $e->getMessage());
+        }
+        $this->linkPlannedDate($request, $inspection);
+
+        return redirect()->route('corex.properties.show', ['property' => $inspection->property_id, 'tab' => 'inspections'])
+            ->with('success', RentalInspection::typeName($type) . ' started.');
     }
 
     /**
@@ -174,7 +230,7 @@ class RentalInspectionController extends Controller
         }
     }
 
-    private function storeScheduled(Request $request, Property $property, string $type): RedirectResponse
+    private function storeScheduled(Request $request, Property $property, string $type, ?Lease $forLease = null): RedirectResponse
     {
         $validated = $request->validate([
             'scheduled_for' => ['required', 'date'],
@@ -185,7 +241,7 @@ class RentalInspectionController extends Controller
         ]);
 
         try {
-            $inspection = RentalInspection::schedule($property, $type, $request->user(), $validated);
+            $inspection = RentalInspection::schedule($property, $type, $request->user(), $validated, $forLease);
         } catch (\LogicException|\InvalidArgumentException $e) {
             return back()->withInput()->withErrors(['rental_inspection' => $e->getMessage()]);
         }
