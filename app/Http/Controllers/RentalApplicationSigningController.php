@@ -322,6 +322,12 @@ class RentalApplicationSigningController extends Controller
         return "rental_application_identity_gate_otp_sent:{$token}";
     }
 
+    /** AT-486 - remembers that the last code email did not leave, so the page can say so on every reload until a resend works. */
+    private function identityGateSessionFailedKey(string $token): string
+    {
+        return "rental_application_identity_gate_otp_failed:{$token}";
+    }
+
     /**
      * Mirrors issueGateOtp() above exactly, EXCEPT this one actually
      * exercises the agency-configurable overrides (length/expiry/cooldown)
@@ -369,7 +375,9 @@ class RentalApplicationSigningController extends Controller
 
         $otpService->issue('rental_application_identity_gate', $email, $issueOpts);
 
-        return null;
+        // AT-486 - OtpService swallows a mail failure so issuance never throws; surface it so the page does not claim
+        // "we've sent a code" for an email that never left.
+        return $otpService->lastDeliveryFailed ? 'delivery_failed' : null;
     }
 
     /**
@@ -400,9 +408,10 @@ class RentalApplicationSigningController extends Controller
         if ($channel === 'email_otp') {
             $email = $application->recipientEmail();
             $sentKey = $this->identityGateSessionSentKey($token);
+            $failedKey = $this->identityGateSessionFailedKey($token);
             if ($email && ! session($sentKey)) {
-                $this->issueIdentityGateOtp($application, $email);
-                session([$sentKey => true]);
+                $outcome = $this->issueIdentityGateOtp($application, $email);
+                session([$sentKey => true, $failedKey => $outcome === 'delivery_failed']);
             }
 
             return view('rental-applications.public.gate', array_merge($agentInfo, [
@@ -412,6 +421,9 @@ class RentalApplicationSigningController extends Controller
                 'token' => $token,
                 'verifyRouteName' => 'rental-applications.public.verify-identity-gate',
                 'resendRouteName' => 'rental-applications.public.identity-gate.resend-otp',
+                // AT-486 - the page tells the truth about the code: saved-and-waiting, and honest when the email did not leave.
+                'identityGate' => true,
+                'deliveryFailed' => (bool) session($failedKey),
             ]));
         }
 
@@ -420,6 +432,8 @@ class RentalApplicationSigningController extends Controller
             'lockedOut' => false,
             'token' => $token,
             'verifyRouteName' => 'rental-applications.public.verify-identity-gate',
+            'identityGate' => true,
+            'deliveryFailed' => false,
         ]));
     }
 
@@ -467,7 +481,19 @@ class RentalApplicationSigningController extends Controller
                 ->withErrors(['gate' => $message]);
         }
 
-        $application->forceFill(['identity_verified_at' => now()])->save();
+        // AT-486 - a submission held behind this screen becomes a real submission now (status, submitted_at, history, audit),
+        // in one transaction with the verification stamp. An older row that was already marked submitted only gets stamped.
+        DB::transaction(function () use ($application) {
+            $application->forceFill(['identity_verified_at' => now()]);
+            if (! $application->isSubmitted()) {
+                $fromStatus = $application->status;
+                $this->markSubmitted($application, false);
+                $application->save();
+                $this->recordSubmission($application, $fromStatus, false, app(\App\Services\RentalApplications\RentalApplicationAuditService::class), ' Identity confirmed.');
+            } else {
+                $application->save();
+            }
+        });
 
         return $this->releaseSubmissionToAgency($application->fresh(), $token, false);
     }
@@ -501,9 +527,54 @@ class RentalApplicationSigningController extends Controller
             null => 'A new code has been sent.',
             'cooldown' => 'A code was just sent — please wait a moment before requesting another.',
             'hourly' => $this->tooManyOtpRequestsMessage($application),
+            'delivery_failed' => "We couldn't send the code just now. Please try Resend again in a minute, or contact your agent.",
         };
+        if ($throttled === null || $throttled === 'delivery_failed') {
+            session([$this->identityGateSessionFailedKey($token) => $throttled === 'delivery_failed']);
+        }
 
         return redirect()->route('rental-applications.public.identity-gate', $token)->with('gate_status', $message);
+    }
+
+    /**
+     * AT-486 - the state change that makes an application "submitted": returned status, submitted_at, and a clean slate
+     * for the hand-off / decision (nothing from a previous round may linger as "pending authorisation" or "applicant
+     * already told"). Called at submit time, or - for a submission held behind the identity screen - when the code is
+     * confirmed. Does not save.
+     */
+    private function markSubmitted(RentalApplication $application, bool $isResubmit): void
+    {
+        $application->status = 'returned';
+        $application->submitted_for_approval_at = null;
+        $application->applicant_notified_at = null;
+        $application->submitted_at = now();
+        if ($isResubmit) {
+            $application->current_generation = $application->current_generation + 1;
+        }
+    }
+
+    /**
+     * AT-486 - the evidentiary trail for a submission (status history + audit row), written when the application is
+     * actually submitted. Defect fix, AT-392 (Johan via cc5's journey walk): neither a first submission nor a
+     * resubmit-after-reopen ever wrote to the trail. No User actor exists on this public, unauthenticated route - both
+     * calls take null, same as any other applicant-originated event on this feature.
+     */
+    private function recordSubmission(RentalApplication $application, string $fromStatus, bool $isResubmit, \App\Services\RentalApplications\RentalApplicationAuditService $audit, string $suffix = ''): void
+    {
+        \App\Models\RentalApplicationStatusHistory::record(
+            $application, $fromStatus, 'returned', null,
+            ($isResubmit ? 'Applicant resubmitted online.' : 'Applicant submitted online.') . $suffix,
+        );
+        $audit->log(
+            $application,
+            eventCategory: 'applicant',
+            eventType: $isResubmit ? 'resubmitted' : 'submitted',
+            oldValues: ['status' => $fromStatus],
+            newValues: ['status' => 'returned'],
+            humanSummary: ($isResubmit
+                ? 'Applicant resubmitted online after a reopen.'
+                : 'Applicant submitted the application online.') . $suffix,
+        );
     }
 
     /**
@@ -967,19 +1038,26 @@ class RentalApplicationSigningController extends Controller
         // required to fix.
         $isResubmit = $application->submitted_at !== null;
 
-        DB::transaction(function () use ($application, $fields, $validated, $request, $audit, $isResubmit) {
+        $heldForIdentity = DB::transaction(function () use ($application, $fields, $validated, $request, $audit, $isResubmit) {
             $fromStatus = $application->status;
 
             $application->fill($fields);
             $application->delivery_mode = 'online';
-            $application->status = 'returned';
-            // A new submission needs a new hand-off and a new decision: nothing from the previous round may linger as
-            // "pending authorisation" or "applicant already told".
-            $application->submitted_for_approval_at = null;
-            $application->applicant_notified_at = null;
-            $application->submitted_at = now();
-            if ($isResubmit) {
-                $application->current_generation = $application->current_generation + 1;
+
+            // AT-486 (Johan, 21 Oct 2026) - a first-ever submission that the identity screen will intercept is NOT a
+            // submission yet: the answers and signatures are saved, but the application stays where it was (no `returned`,
+            // no submitted_at, nothing the agency can act on) until the applicant confirms the code. It used to be marked
+            // received first, so an applicant stuck on the code screen looked like a finished submission to the agent.
+            $heldForIdentity = ! $isResubmit
+                && RentalApplicationQualifyingSetting::identityGateEnabledFor($application->agency_id)
+                && $this->identityGateChannelFor($application) !== null;
+
+            if ($heldForIdentity) {
+                $application->identity_hold_at = now();
+            } else {
+                // Not (or no longer) behind the identity screen - never leave a stale hold that would block the agent.
+                $application->identity_hold_at = null;
+                $this->markSubmitted($application, $isResubmit);
             }
             // .ai/specs/rental-application-field-config.md §3 — historical
             // integrity. Frozen here, inside the same save/transaction, on
@@ -995,26 +1073,20 @@ class RentalApplicationSigningController extends Controller
 
             \App\Models\RentalApplicationGeneration::seal($application, $request);
 
-            // Defect fix, AT-392 (Johan via cc5's journey walk) — neither a
-            // first submission nor a resubmit-after-reopen ever wrote to the
-            // evidentiary trail; there was no way to tell an applicant had
-            // ever responded. No User actor exists on this public,
-            // unauthenticated route — both calls take null, same as any
-            // other applicant-originated event on this feature.
-            \App\Models\RentalApplicationStatusHistory::record(
-                $application, $fromStatus, 'returned', null,
-                $isResubmit ? 'Applicant resubmitted online.' : 'Applicant submitted online.',
-            );
-            $audit->log(
-                $application,
-                eventCategory: 'applicant',
-                eventType: $isResubmit ? 'resubmitted' : 'submitted',
-                oldValues: ['status' => $fromStatus],
-                newValues: ['status' => 'returned'],
-                humanSummary: $isResubmit
-                    ? 'Applicant resubmitted online after a reopen.'
-                    : 'Applicant submitted the application online.',
-            );
+            if ($heldForIdentity) {
+                $audit->log(
+                    $application,
+                    eventCategory: 'applicant',
+                    eventType: 'submission_held_for_identity',
+                    humanSummary: 'Applicant pressed Submit; the answers are saved and wait for the applicant to confirm their identity before the application is submitted.',
+                );
+
+                return true;
+            }
+
+            $this->recordSubmission($application, $fromStatus, $isResubmit, $audit);
+
+            return false;
         });
 
         // Outside the transaction, deliberately: this must never roll back
@@ -1030,11 +1102,20 @@ class RentalApplicationSigningController extends Controller
         // on file, same guard every other id_number-writing call site in
         // this codebase uses (see PropertyContactController for the
         // precedent this follows).
-        if ($application->id_number && $application->contact && ! $application->contact->id_number) {
-            $application->contact->update([
-                'id_number' => $application->id_number,
-                'id_number_captured_at' => now(),
-                'id_number_source' => 'rental_application',
+        // AT-486 - these run after the commit: a failure here must never turn a saved submission into an error page
+        // (the applicant would see "failed" for an application that is in fact recorded), so it is logged and carried on.
+        try {
+            if ($application->id_number && $application->contact && ! $application->contact->id_number) {
+                $application->contact->update([
+                    'id_number' => $application->id_number,
+                    'id_number_captured_at' => now(),
+                    'id_number_source' => 'rental_application',
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('AT-486 contact id_number backfill failed after a saved submission', [
+                'rental_application_id' => $application->id,
+                'error' => $e->getMessage(),
             ]);
         }
 
@@ -1045,7 +1126,14 @@ class RentalApplicationSigningController extends Controller
         // resubmit, or a first submission the identity gate below doesn't
         // intercept) the FICA hand-off, must not immediately re-ask
         // something they just proved seconds ago by the act of submitting.
-        $this->markReturnGatePassed($application, $request);
+        try {
+            $this->markReturnGatePassed($application, $request);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('AT-486 return-gate session mark failed after a saved submission', [
+                'rental_application_id' => $application->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         // Submission identity gate, 2026-09-13 — Johan walked the
         // applicant link himself, signed both pads, pressed submit, and
@@ -1059,10 +1147,11 @@ class RentalApplicationSigningController extends Controller
         // already proven identity via the Return Gate above to even
         // reach its editable reopened form, so re-asking here would be
         // pure friction, not protection.
+        if ($heldForIdentity) {
+            return redirect()->route('rental-applications.public.identity-gate', $token);
+        }
+
         if (! $isResubmit && RentalApplicationQualifyingSetting::identityGateEnabledFor($application->agency_id)) {
-            if ($this->identityGateChannelFor($application) !== null) {
-                return redirect()->route('rental-applications.public.identity-gate', $token);
-            }
 
             // Johan's ruling, verbatim: "the agency switched those fields
             // off deliberately... the person who gets stopped is the one

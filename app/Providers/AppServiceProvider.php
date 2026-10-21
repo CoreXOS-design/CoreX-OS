@@ -1240,9 +1240,13 @@ class AppServiceProvider extends ServiceProvider
 
             return \Illuminate\Cache\RateLimiting\Limit::perMinutes($windowMinutes, $max)
                 ->by('rental-application-submit:' . $token)
-                ->response(fn () => response()->json([
-                    'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
-                ], 429));
+                // AT-486 - the applicant's submit is a plain form post, so a bare JSON body would be shown to them raw.
+                // A browser form post gets a proper page; a fetch/JSON caller still gets JSON.
+                ->response(fn (\Illuminate\Http\Request $r) => $r->expectsJson()
+                    ? response()->json([
+                        'message' => "You've submitted a lot in a short time, so submitting is paused for a moment. Nothing has been lost — please wait a minute and try again.",
+                    ], 429)
+                    : response()->view('rental-applications.public.unavailable', ['reason' => 'submit_rate_limited'], 429));
         });
 
         // SHOW — a real applicant reloading a slow page repeatedly on bad
