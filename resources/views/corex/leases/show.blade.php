@@ -824,6 +824,8 @@
                                 'noticeValues' => $nt['has'] ? $nt['values'] : $nt['defaults'],
                                 'noticePrefix' => 'notice',
                                 'noticeHide' => [],
+                                'leaseStart' => $lease->start_date?->toDateString(),
+                                'earliestNoticeMonths' => $nt['earliestNoticeMonths'] ?? null,
                             ])
                             @if($nt['signedDocument'])
                                 <div>
