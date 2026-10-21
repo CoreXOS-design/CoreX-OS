@@ -2,6 +2,7 @@
 
 namespace App\Services\Rentals\TakeOnImport\Reos;
 
+use App\Models\Contact;
 use App\Models\Lease;
 use App\Models\RentalTakeOnImportRow;
 use App\Models\RentalTakeOnImportRun;
@@ -110,6 +111,56 @@ class ReosRowResolver
         }
 
         return ['action' => RentalTakeOnImportRow::ACTION_CHOOSE, 'tracked_id' => null, 'label' => count($candidates) . ' properties in CoreX fit this address — pick the right one', 'notes' => []];
+    }
+
+    /** Version of the name-flag rules the stored flags were worked out with (2 = Spelling / Name differs split, company-like contacts). */
+    public const NAME_FLAGS_VERSION = 2;
+
+    /**
+     * Re-work the name flags of a batch built under older rules (the flags are stored when a batch is parsed, so a batch uploaded before
+     * a rule changed would otherwise keep showing the old verdicts). Only rows not yet imported; the user's choices are untouched.
+     * Done once per batch (counts_json.name_flags_v).
+     */
+    public function recheckNameFlags(RentalTakeOnImportRun $run): void
+    {
+        $counts = $run->counts_json ?? [];
+        if ((int) ($counts['name_flags_v'] ?? 0) >= self::NAME_FLAGS_VERSION) {
+            return;
+        }
+
+        RentalTakeOnImportRow::query()->where('run_id', $run->id)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED)
+            ->orderBy('id')->chunkById(100, function ($rows) {
+                foreach ($rows as $row) {
+                    $changed = false;
+                    foreach (['landlord_match_json', 'tenant_match_json'] as $col) {
+                        $match = $row->{$col};
+                        $m = $match[1] ?? null;
+                        if (! $m || empty($m['existing_contact_id']) || ($m['action'] ?? '') !== 'match') {
+                            continue;
+                        }
+                        $contact = Contact::withoutGlobalScopes()->find((int) $m['existing_contact_id']);
+                        if (! $contact) {
+                            continue;
+                        }
+                        unset($m['name_flag'], $m['matched_name']);
+                        $flag = ReosNameCompare::flag((string) $m['name'], (string) $contact->full_name, ReosContactNames::isCompanyContact($contact));
+                        if ($flag !== ReosNameCompare::OK) {
+                            $m['name_flag'] = $flag;
+                            $m['matched_name'] = (string) $contact->full_name;
+                        }
+                        $match[1] = $m;
+                        $row->{$col} = $match;
+                        $changed = true;
+                    }
+                    if ($changed) {
+                        $row->save();
+                    }
+                    ReosBlockers::refresh($row);   // recomputes name_differs / spelling_differs from the new flags
+                }
+            });
+
+        $counts['name_flags_v'] = self::NAME_FLAGS_VERSION;
+        $run->forceFill(['counts_json' => $counts])->save();
     }
 
     public function existingLease(int $agencyId, string $externalId): ?Lease

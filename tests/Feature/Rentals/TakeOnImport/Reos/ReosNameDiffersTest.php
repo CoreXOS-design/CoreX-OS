@@ -278,6 +278,33 @@ final class ReosNameDiffersTest extends TestCase
         self::assertMatchesRegularExpression('/Agent · to fix \/ to know/', $html);
     }
 
+    public function test_a_batch_built_under_the_old_rules_is_rechecked_once_when_it_is_opened(): void
+    {
+        [$agency, $branch, $admin] = $this->reosAgency();
+        $this->contact($agency, $branch, 'BEBO Investments (PTY) LTY', '', '0815552014');
+        $this->contact($agency, $branch, 'Sipho', 'Mkozi', '0635550201');
+        $run = $this->makeRun($admin, [$this->reosRow(['Owner' => 'BEBO Investments (PTY) LTD', 'Owner Phone' => '+27815552014', 'Owner Email' => '', 'Tenant' => 'Sipho Mkhozi', 'Tenant Phone' => '+27635550201', 'Tenant Email' => ''])]);
+        $row = $run->rows()->first();
+
+        // Put the batch back as the OLD rules left it: the company read as "matched a person", the typo as an amber difference.
+        $lm = $row->landlord_match_json; $lm[1]['name_flag'] = 'person_for_company'; $lm[1]['matched_name'] = 'BEBO Investments (PTY) LTY';
+        $tm = $row->tenant_match_json; $tm[1]['name_flag'] = 'differs'; $tm[1]['matched_name'] = 'Sipho Mkozi';
+        $d = $row->decisions_json; $d['name_differs'] = true; unset($d['spelling_differs']);
+        $row->forceFill(['landlord_match_json' => $lm, 'tenant_match_json' => $tm, 'decisions_json' => $d])->save();
+        $counts = $run->counts_json; unset($counts['name_flags_v']); $run->forceFill(['counts_json' => $counts])->save();
+
+        $html = $this->actingAs($admin)->get(route('corex.rentals.take-on-import.preview', $run))->assertOk()->getContent();
+
+        $row = $run->rows()->first();
+        self::assertArrayNotHasKey('name_flag', $row->landlord_match_json[1], 'the company is no longer "a person"');
+        self::assertSame('spelling', $row->tenant_match_json[1]['name_flag']);
+        self::assertSame([false, true], [$row->decisions_json['name_differs'], $row->decisions_json['spelling_differs']]);
+        self::assertSame(2, $run->fresh()->counts_json['name_flags_v']);
+        self::assertStringNotContainsString('Matched a person', $html);
+        self::assertStringContainsString('Spelling differs —', $html);
+        self::assertSame(0, ReosRunSummary::for($run)['name_differs']);
+    }
+
     // ── helpers ────────────────────────────────────────────────────────────────────────────
 
     private function makeRun(User $user, array $rows): RentalTakeOnImportRun
