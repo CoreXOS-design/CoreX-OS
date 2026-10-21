@@ -97,6 +97,8 @@ class WebTemplateDataService
         // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
         // from the linked Contact, so the merge binds each party's REAL details.
         $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
+        // AT-498 — a party a proxy signs for reads "…, herein represented by <proxy> in terms of a proxy" (no-op without a proxy).
+        $recipients = \App\Support\Docuperfect\ProxyCoverage::withRepresentation($recipients);
 
         // Build contact lookup by wizard role (first + second per role for co-owners)
         $contactsByRole = [];
@@ -505,6 +507,8 @@ class WebTemplateDataService
         // Fill any party detail (address/phone/email/id) the wizard snapshot left blank
         // from the linked Contact, so the merge binds the seller's REAL details.
         $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
+        // AT-498 — a party a proxy signs for reads "…, herein represented by <proxy> in terms of a proxy" (no-op without a proxy).
+        $recipients = \App\Support\Docuperfect\ProxyCoverage::withRepresentation($recipients);
         $details = $stepData['details'] ?? [];
 
         // 2026-09-04 — is this document fundamentally a SALE? Template::isSalesDocument()
@@ -1504,6 +1508,8 @@ class WebTemplateDataService
         // Same enrichment as the CDS/base resolve paths, so the indexed party keys
         // (seller_address_1, seller_1_phone, …) also bind the linked Contact's details.
         $recipients = $this->enrichRecipientsFromContacts($recipients, $agent?->effectiveAgencyId());
+        // AT-498 — a party a proxy signs for reads "…, herein represented by <proxy> in terms of a proxy" (no-op without a proxy).
+        $recipients = \App\Support\Docuperfect\ProxyCoverage::withRepresentation($recipients);
 
         $contactsByRole = [];
         $secondContactByRole = [];

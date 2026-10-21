@@ -2793,6 +2793,12 @@ class ESignWizardController extends Controller
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
         $this->assertRecipientsHaveIdentityForSend($recipients);
+        // AT-498 — a proxy must sign for at least one other party, and each party a proxy signs for is named in the document
+        // as "herein represented by <proxy>" (their signature block is the proxy's; their own details still display).
+        if ($proxyProblem = \App\Support\Docuperfect\ProxyCoverage::violation($recipients)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['recipients' => $proxyProblem]);
+        }
+        $recipients = \App\Support\Docuperfect\ProxyCoverage::withRepresentation($recipients);
 
         // GENERATED-DOCUMENT BODY (Johan, 2026-08-25 — cc1's finding on
         // 93a10b6a2 — REVISED 2026-08-26, escalation of cc5's 547863fbb):
@@ -3694,6 +3700,7 @@ class ESignWizardController extends Controller
                     partyClauseText: $r['_party_clause_text'] ?? null,
                     isDeceased: (bool) ($r['_is_deceased'] ?? false),
                     isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    proxyExcludes: ! empty($r['_is_proxy']) ? ($r['_proxy_excludes'] ?? null) : null,
                     recipientLocalKey: $r['_recipient_local_key'] ?? null,
                     // cc2, 2026-08-25 (cc4's row 1506) — the identity the
                     // guard checks against (Contact ids via
@@ -4438,24 +4445,9 @@ class ESignWizardController extends Controller
      */
     private function filterToSigningParticipants(array $recipients): array
     {
-        $proxyRoles = [];
-        foreach ($recipients as $r) {
-            if (!empty($r['_is_proxy'])) {
-                $proxyRoles[strtolower($r['role'] ?? '')] = true;
-            }
-        }
-
-        return array_values(array_filter($recipients, function (array $r) use ($proxyRoles) {
-            if (!empty($r['_is_deceased'])) {
-                return false;
-            }
-            $role = strtolower($r['role'] ?? '');
-            if (!empty($proxyRoles[$role]) && empty($r['_is_proxy'])) {
-                return false; // collapsed by a proxy elsewhere in this same role group
-            }
-
-            return true;
-        }));
+        // AT-498 — one rule for "who does a proxy sign for": App\Support\Docuperfect\ProxyCoverage. A proxy covers every
+        // other party of the role except the ones the agent un-ticked (an empty exclusion list = everyone = the old rule).
+        return \App\Support\Docuperfect\ProxyCoverage::filterSigners($recipients);
     }
 
     /**
@@ -7008,6 +7000,10 @@ class ESignWizardController extends Controller
             // representative in the preview looked like a signer.
             $req->is_proxy    = (bool) ($r['_is_proxy'] ?? false);
             $req->is_deceased = (bool) ($r['_is_deceased'] ?? false);
+            // AT-498 — a proxy signs for the rest of its role except the parties the agent un-ticked; the transient rows need the same
+            // identity and exclusion list the persisted rows carry, or the preview would collapse everyone again.
+            $req->proxy_excludes = ($req->is_proxy && ! empty($r['_proxy_excludes'])) ? array_values($r['_proxy_excludes']) : null;
+            $req->recipient_local_key = $r['_recipient_local_key'] ?? null;
             // Johan, 2026-08-27 — a supplier-sourced recipient (an executor
             // standing in from the supplier directory) has no linked Contact,
             // so its domicilium address block resolves from
@@ -7593,6 +7589,10 @@ class ESignWizardController extends Controller
         }
 
         $recipients = $stepData['recipients']['recipients'] ?? [];
+        // AT-498 — same proxy rule as the electronic and wet-ink routes: a proxy must sign for at least one other party.
+        if ($proxyProblem = \App\Support\Docuperfect\ProxyCoverage::violation($recipients)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['recipients' => $proxyProblem]);
+        }
         $propertyAddress = $stepData['property']['address'] ?? $stepData['property']['title'] ?? '';
 
         // Johan, 2026-08-27 — a deceased party is not a party to the
@@ -7805,6 +7805,12 @@ class ESignWizardController extends Controller
         $this->assertSupplierRepresentativesHaveRegistrationNumber($recipients);
         $this->assertChainPartiesHaveIdNumbers($recipients);
         $this->assertRecipientsHaveIdentityForSend($recipients);
+        // AT-498 — a proxy must sign for at least one other party, and each party a proxy signs for is named in the document
+        // as "herein represented by <proxy>" (their signature block is the proxy's; their own details still display).
+        if ($proxyProblem = \App\Support\Docuperfect\ProxyCoverage::violation($recipients)) {
+            throw \Illuminate\Validation\ValidationException::withMessages(['recipients' => $proxyProblem]);
+        }
+        $recipients = \App\Support\Docuperfect\ProxyCoverage::withRepresentation($recipients);
 
         // GENERATED-DOCUMENT BODY — same reasoning as prepareSigning()
         // (ESignWizardController.php ~2586-2610): the printed document must
@@ -8099,6 +8105,7 @@ class ESignWizardController extends Controller
                     partyClauseText: $r['_party_clause_text'] ?? null,
                     isDeceased: (bool) ($r['_is_deceased'] ?? false),
                     isProxy: (bool) ($r['_is_proxy'] ?? false),
+                    proxyExcludes: ! empty($r['_is_proxy']) ? ($r['_proxy_excludes'] ?? null) : null,
                     recipientLocalKey: $r['_recipient_local_key'] ?? null,
                     representedContactId: isset($r['_entity_contact_id']) ? (int) $r['_entity_contact_id'] : null,
                     // Johan, 2026-08-28 — see prepareSigning()'s identical fix.
