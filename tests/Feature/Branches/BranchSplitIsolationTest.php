@@ -51,6 +51,11 @@ final class BranchSplitIsolationTest extends TestCase
         \App\Models\Compliance\AgencyComplianceProvision::class, // agency-level compliance config
         // 2026-10-14: agency storage locations for the title deed register - branch_id is an optional narrowing (null = every branch of the agency).
         \App\Models\TitleDeeds\TitleDeedStorageLocation::class,
+        // 2026-10-21 (re-home step 4): budgets and requirements - ONE table with three levels (agent / branch / agency). The agency
+        // row has no branch, and BelongsToBranch would stamp the acting manager's branch on it, hiding it from everyone else.
+        // Every read goes through BudgetService by scope_key, and the only list screen (Road to Sold > Budgets) takes its
+        // agents from VisibleAgents (own / branch / agency breadth in the query) and its branches from the viewer's breadth.
+        \App\Models\RoadToSold\RtsBudget::class,
     ];
 
     /**
