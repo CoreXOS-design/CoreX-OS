@@ -548,8 +548,8 @@ Route::middleware(['auth:sanctum', 'app_access', 'throttle:staff-api'])->group(f
             Route::post('/month-to-month/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseMonthToMonth'])->name('v1.leases.renewal.month-to-month.reverse');
             Route::post('/tenant-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'tenantNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.tenant-notice');
             Route::post('/landlord-notice', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'landlordNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.landlord-notice');
-            Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->name('v1.leases.renewal.notice.reverse');
-            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->name('v1.leases.renewal.notice.change-outcome');
+            Route::post('/notice/reverse', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'reverseNotice'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.notice.reverse');
+            Route::post('/notice/change-outcome', [\App\Http\Controllers\Api\V1\LeaseRenewalApiController::class, 'changeNoticeOutcome'])->middleware('permission:rental_notices.review')->name('v1.leases.renewal.notice.change-outcome');
         });
 
         // Session-authed "who am I" — fired automatically on every page

@@ -640,6 +640,11 @@ class RentalJobCardController extends Controller
         $create = function () use ($service, $rentalJobCard, $validated, $request, $task, $key) {
             // a retried tap: the first try got through and only the answer was lost - answer with that line, add nothing, attach nothing twice
             if ($existing = $service->lineForClientKey($rentalJobCard, $key)) {
+                if ($existing->trashed()) {
+                    // audit 2026-10-20 (L2): added, then archived - a replay must not answer "Line added" for a line that is still archived
+                    throw new \LogicException('That line was added and then archived, so it was not added again. Add it again (or restore it) if you still need it.');
+                }
+
                 return $existing;
             }
             $line = $service->addLine($rentalJobCard, $validated, $request->user(), $task);
@@ -653,6 +658,9 @@ class RentalJobCardController extends Controller
             $line = $key ? \Illuminate\Support\Facades\Cache::lock("office-line-key:{$rentalJobCard->id}:{$key}:lock", 15)->block(10, $create) : $create();
         } catch (\LogicException $e) {
             return $this->lineProblem($request, $e->getMessage());
+        } catch (\Illuminate\Contracts\Cache\LockTimeoutException) {
+            // audit 2026-10-20 (L1): a slow first save with the same key is still running - a plain message, not a 500
+            return $this->lineProblem($request, 'That is still being saved. Wait a few seconds, then press it again - it will not be added twice.');
         }
 
         // jc_focus_line — the show screen scrolls the changed line into view

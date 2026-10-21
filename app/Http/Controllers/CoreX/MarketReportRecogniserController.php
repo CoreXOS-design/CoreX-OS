@@ -9,7 +9,6 @@ use App\Models\Agency;
 use App\Models\DevSetting;
 use App\Models\MarketReports\MarketReport;
 use App\Models\MarketReports\MarketReportLearnedLayout;
-use App\Services\MarketReports\LayoutCaseResolver;
 use App\Services\MarketReports\MarketReportReprocessor;
 use App\Services\MarketReports\ReportReadSettings;
 use Illuminate\Http\RedirectResponse;
@@ -49,7 +48,6 @@ class MarketReportRecogniserController extends Controller
 
     public function __construct(
         private readonly MarketReportReprocessor $reprocessor,
-        private readonly LayoutCaseResolver $resolver,
     ) {}
 
     // ── queue ────────────────────────────────────────────────────────────
@@ -154,21 +152,19 @@ class MarketReportRecogniserController extends Controller
         $force = $request->boolean('force_new_ai');
 
         // A CoreX owner retrying: skips the "same layout already queued" block (the caps still apply).
-        if (!$this->reprocessor->rerun($report, $force, true, true)) {
+        // deferAi: if the report needs the paid AI read, that runs on a queue worker (never inside this request).
+        if (!$this->reprocessor->rerun($report, $force, true, true, true, (int) $request->user()->id)) {
             return redirect()->back()->with('error', 'The stored PDF is missing from disk — it cannot be re-run.');
         }
         $report->refresh();
 
-        $message = 'Re-run finished: ' . ($report->readBadge() ?? 'read by a built-in parser') . '.';
-        // The team has just "added" the layout by getting a good AI read of it: close the case the same way an approval does.
-        $learned = $report->read_method === MarketReport::READ_AI
-            ? MarketReportLearnedLayout::query()->where('learned_from_report_id', $report->id)->latest('id')->first()
-            : null;
-        if ($learned !== null) {
-            $message .= ' ' . $this->resolutionText($this->resolver->resolveForLayout($learned, (int) $request->user()->id));
+        if (in_array($report->parse_status, [MarketReport::PARSE_PENDING, MarketReport::PARSE_PARSING], true)) {
+            return redirect()->back()->with('status', 'Re-run started: the report is being read in the background. You will get a message here when it is finished.');
         }
 
-        return redirect()->back()->with('status', $message);
+        // Finished inline (no paid read was needed, or the queue runs inline): a read by AI has already closed the layout
+        // case the same way an approval does (ParseMarketReportJob::closeCaseAfterOwnerRerun) and told the owner.
+        return redirect()->back()->with('status', 'Re-run finished: ' . ($report->readBadge() ?? 'read by a built-in parser') . '.');
     }
 
     public function resolve(Request $request, int $id): RedirectResponse
@@ -228,10 +224,11 @@ class MarketReportRecogniserController extends Controller
         ])->save();
 
         // Johan's ruling 20 Oct: approving a layout resets the affected agencies' AI counters, re-runs their
-        // queued reports on it (no AI) and tells the agents.
-        $summary = $this->resolver->resolveForLayout($layout, (int) $request->user()->id);
+        // queued reports on it (no AI) and tells the agents. A case can hold many reports and each is a full
+        // re-parse, so it runs on a queue worker; the owner gets a message here with the outcome.
+        \App\Jobs\MarketReports\ResolveLayoutCasesJob::dispatch((int) $layout->id, (int) $request->user()->id);
 
-        return redirect()->back()->with('status', trim('Layout approved. ' . $this->resolutionText($summary)));
+        return redirect()->back()->with('status', 'Layout approved. Its queued reports are being re-run in the background; their agents are told as each one is imported, and you will get a message here when it is done.');
     }
 
     public function layoutRename(Request $request, int $id): RedirectResponse
@@ -282,18 +279,6 @@ class MarketReportRecogniserController extends Controller
     }
 
     // ── helpers ──────────────────────────────────────────────────────────
-
-    /** @param array{cases:int, agencies_reset:int, reports:int, imported:int, still_queued:int} $s */
-    private function resolutionText(array $s): string
-    {
-        if ($s['cases'] === 0) {
-            return '';
-        }
-
-        return "{$s['cases']} queued layout case(s) closed: {$s['agencies_reset']} agency AI counter(s) reset, "
-            . "{$s['imported']} of {$s['reports']} queued report(s) now imported and their agents told"
-            . ($s['still_queued'] > 0 ? ", {$s['still_queued']} still in the queue." : '.');
-    }
 
     private function authoriseOwner(Request $request): void
     {

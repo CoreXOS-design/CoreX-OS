@@ -79,3 +79,10 @@ Notice period default: existing `tenant_notice_period_days` + `_unit` (default 3
 
 ## Audit fix 2026-10-18 (A-M8)
 `POST /api/v1/leases/{lease}/renewal/tenant-notice` and `/landlord-notice` now go through `LeaseNoticeService::give(..., VIA_AGENT, ...)` exactly like the web action, so the review step applies. **Backward compatible:** the original mobile payload still works - `move_out_date` maps to `intended_end_date`, `note` to `reason`, `notice_date` defaults to today, `notice_outcome` / `show_available_from_on_portals` are accepted and ignored (the reviewer picks the outcome on acceptance). **Deprecated:** the old field names and the ignored outcome; new clients send `notice_date`, `intended_end_date`, `reason`, `attachment`. The response keeps `lease` and adds `notice`. Test: `LeaseNoticeStaffFlowTest`.
+
+## Audit fix 2026-10-20 (finding 5) - reverse and change-outcome need `rental_notices.review`
+
+Recording a notice already needed `rental_notices.review` on every entry (A17). Undoing one did not: `notice/reverse` and `notice/change-outcome` (web `corex.leases.renewal.notice.*`, mobile `v1.leases.renewal.notice.*`) needed only `leases.renew`, so a role that could not record a notice could still reverse an accepted one (which un-ends the lease and re-flips the property status). Both routes now carry `permission:rental_notices.review`, the two web and two API controller methods check it themselves, and the lease screen's "Lease actions" menu offers "Change notice outcome" / "Reverse notice" only to holders. Tests: `tests/Feature/LeaseNotices/NoticesPortalAuditFixesTest.php`.
+
+**Grant migration correction (finding 4).** `2026_11_19_100000` (A17/A28 backfill) used to RESTORE soft-deleted `rental_notices.view` / `.review` rows - handing back grants an administrator had deliberately revoked. It now creates only grants that never existed and leaves a trashed row alone; `down()` is a no-op. Checked on 2026-10-20 against QA1, QA2, Staging and live: the first version restored no revoked grant anywhere, so no clean-up migration was shipped.
+

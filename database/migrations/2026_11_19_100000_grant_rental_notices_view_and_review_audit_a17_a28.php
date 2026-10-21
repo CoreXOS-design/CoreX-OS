@@ -15,7 +15,13 @@ use Illuminate\Database\Migrations\Migration;
  *    `.review` (same scope), as lease-notices.md §8 always said it would be.
  *
  * BUILD_STANDARD §5a - role_permissions has a unique (role, permission_key, agency_id) index with no soft-delete awareness, so rows
- * are found with withTrashed()->firstOrNew() and restored, never blindly created. Idempotent.
+ * are looked up withTrashed() (a plain create would hit the unique index).
+ *
+ * AUDIT FIX 2026-10-20 (finding 4): a row that is SOFT-DELETED is a grant an administrator deliberately took away. The first version of
+ * this migration restored such rows, which handed the right straight back (e.g. an Agent role that had `rental_notices.review` removed
+ * but still held `leases.renew` got it back, silently). A trashed row is now left exactly as it is - only grants that never existed are
+ * created. Checked 2026-10-20 on QA1, QA2, Staging and live: the first version restored no row anywhere (no active view/review row has an
+ * updated_at later than its created_at), so no clean-up migration is needed. Idempotent.
  */
 return new class extends Migration
 {
@@ -33,19 +39,16 @@ return new class extends Migration
                 'role' => $source->role,
                 'permission_key' => $newKey,
             ]);
-            if ($row->trashed()) {
-                $row->restore();
+            if ($row->exists) {
+                continue; // already granted, or deliberately revoked (soft-deleted) - either way, leave it alone
             }
-            if (! $row->exists) {
-                $row->scope = $source->scope;
-            }
+            $row->scope = $source->scope;
             $row->save();
         }
     }
 
     public function down(): void
     {
-        // Not reversed: `.review` may legitimately have been granted by an admin before this ran, and removing it would lock people out.
-        RolePermission::where('permission_key', 'rental_notices.view')->delete();
+        // Not reversed: these grants cannot be told apart from ones an administrator made, and removing them would lock people out.
     }
 };

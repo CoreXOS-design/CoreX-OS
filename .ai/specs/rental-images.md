@@ -206,3 +206,11 @@ is a 404 (agency global scope). Tests: `tests/Feature/Api/MobileRentalImagesTest
   internal compliance records, not marketing photos.
 - Reordering images within a section (can be added later with the existing reorder pattern).
 - A formal inspection PDF report (future enhancement; the data model already supports it).
+
+## 11. Audit of 20 Oct 2026 - mobile contract additions (L1, L2, L3)
+
+Backward compatible; full list in `rental-inspections.md` section 69.
+
+- **`image_ids`** - each In/Out section now also returns `image_ids`, parallel to `images`: the inspection photo's id for an inspection-store image, `null` for a legacy image. Send an id back as **`photo_id`** on `POST /api/v1/mobile/properties/{id}/rental-images/delete` (`section` + `photo_id`, no `index`) to archive exactly that photo. The old `index` form still works (resolved to an id under a lock).
+- **Upload for a completed inspection** - with none under way, an upload carrying a real `captured_at` taken before the inspection was completed is stored and flagged (201, `added_after_signing: true`); otherwise the old 409 `no_inspection_under_way`.
+- **Unreadable HEIC** - a HEIC/HEIF the server cannot convert answers 422 `{code: "unreadable_image", message}` and stores nothing; the app should show the message (retake as Most Compatible/JPEG).

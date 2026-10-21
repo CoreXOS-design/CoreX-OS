@@ -242,6 +242,8 @@ final class BreachRegisterAndTemplatesTest extends TestCase
     /** Audit 2026-10-18 (A-L7): an arbitrary ?sort= column used to reach orderBy() (a 500 for a bad name, a probe for hidden columns). */
     public function test_the_sent_notices_list_ignores_a_sort_column_that_is_not_on_the_whitelist(): void
     {
+        // the sent-notices list needs rental_notices.view since audit A28 (the shared fixture grants create, not view)
+        $this->grant($this->agent, ['rental_notices.view']);
         // a row must exist, otherwise paginate() never runs the ordered select and a bad column goes unnoticed
         \App\Models\RentalNotice::create([
             'agency_id' => $this->agency->id, 'lease_id' => $this->lease->id, 'notice_type' => 'breach', 'sent_at' => now(), 'sent_by_user_id' => $this->agent->id,

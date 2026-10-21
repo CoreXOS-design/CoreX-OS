@@ -123,8 +123,12 @@ class RentalInspectionPublicController extends Controller
                 // to an EARLIER observation row (AT-433, §20.22), and the
                 // live recording screen's own itemPhotosForInspection()
                 // already flatMaps across every row for exactly this reason.
+                // Audit M3 - a photo that arrived after the report was signed or completed is NOT part of the body: it is listed
+                // only in the marked "added after signing" block (RentalInspectionAddedAfterSentService).
                 $photos = ($observationsByItem->get($item->id) ?? collect())
-                    ->flatMap(fn ($o) => $o->photos);
+                    ->flatMap(fn ($o) => $o->photos)
+                    ->reject(fn ($p) => $p->added_after_signing_at !== null)
+                    ->values();
 
                 $state = $conditionStates->get($observation->condition);
 
@@ -147,7 +151,7 @@ class RentalInspectionPublicController extends Controller
         // §45.3 — a room's general condition photos (tagged to the room, no single item). A room with
         // ONLY such photos and/or a room note, but no graded item, must still appear on the report.
         $roomPhotos = $inspection->photos
-            ->filter(fn ($p) => $p->property_room_id !== null && $p->rental_inspection_observation_id === null)
+            ->filter(fn ($p) => $p->property_room_id !== null && $p->rental_inspection_observation_id === null && $p->added_after_signing_at === null)
             ->groupBy('property_room_id');
 
         $extraRoomIds = $roomPhotos->keys()->merge($roomNotes->keys())

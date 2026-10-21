@@ -314,6 +314,8 @@ final class CrewLabourHoursAndReceiptTest extends TestCase
         $this->assertMatchesRegularExpression('/aria-label="Qty"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
         $this->assertMatchesRegularExpression('/aria-label="Cost"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
         $this->assertMatchesRegularExpression('/aria-label="Selling price"[^>]*onfocus="this\.dataset\.fresh=1;this\.select\(\)"/', $html);
-        $this->assertStringContainsString($receipt->storage_path, $html);
+        // audit 2026-10-20: a receipt is a private reference - the office screen carries a signed link to it, never the stored reference
+        $this->assertStringContainsString('/private-image/', $html);
+        $this->assertStringNotContainsString('private:', $html);
     }
 }

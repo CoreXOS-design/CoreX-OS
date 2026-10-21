@@ -140,9 +140,7 @@ final class RentalInspectionAllTypesSigningTest extends TestCase
     {
         $inspection = $this->ready(RentalInspection::TYPE_AD_HOC);
 
-        $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
-            'party_role' => 'agent', 'disposition' => 'signed', 'signature_image' => self::PNG, 'signing_method' => 'drawn',
-        ])->assertStatus(422);
+        $this->agentDrawsSignature($inspection)->assertStatus(422);
     }
 
     // ═══ One word per type ═════════════════════════════════════════════════════

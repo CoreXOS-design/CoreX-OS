@@ -134,12 +134,15 @@ final class RentalInspectionI4CopiesTest extends TestCase
             ]);
         }
         if ($agent) {
+            // audit M2: only the inspection's own agent (the inspector here) signs as the agent
+            $this->actingAs($this->inspector);
             $this->postJson(route('corex.rental-inspections.signatures.store', $inspection), [
                 'party_role' => RentalInspectionSignature::PARTY_AGENT,
                 'disposition' => RentalInspectionSignature::DISPOSITION_SIGNED,
                 'signature_image' => self::TEST_SIGNATURE_IMAGE,
                 'signing_method' => 'drawn',
             ])->assertStatus(201);
+            $this->actingAs($this->agent);
         }
     }
 

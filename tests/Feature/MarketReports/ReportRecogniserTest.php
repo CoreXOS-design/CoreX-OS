@@ -200,7 +200,8 @@ final class ReportRecogniserTest extends TestCase
 
         Http::assertNothingSent();
         $this->assertSame('unread', $report->refresh()->read_method);
-        $this->assertStringContainsString('ANTHROPIC_ENABLED', (string) $report->ai_read_note);
+        $this->assertStringContainsString('switched off for the whole platform', (string) $report->ai_read_note);
+        $this->assertStringNotContainsString('ANTHROPIC_ENABLED', (string) $report->ai_read_note, 'a plain message, no setting names');
     }
 
     public function test_report_over_the_page_limit_is_saved_but_not_sent_to_the_ai(): void
@@ -260,7 +261,10 @@ final class ReportRecogniserTest extends TestCase
 
         $this->assertSame('parsed', $report->parse_status);
         $this->assertSame('unread', $report->read_method);
-        $this->assertStringContainsString('AI read failed', (string) $report->ai_read_note);
+        // Audit fix A8: a plain message for agents and emails; the provider's error text stays in the log only.
+        $this->assertSame('The AI service could not read this report just now.', $report->ai_read_note);
+        $this->assertStringNotContainsString('overloaded', (string) $report->ai_read_note);
+        $this->assertStringNotContainsString('529', (string) $report->ai_read_note);
         $this->assertSame(0, MarketReportAiRead::query()->count(), 'a failed read is not cached as an answer');
         $this->assertTrue(class_exists(AiPausedException::class));
     }

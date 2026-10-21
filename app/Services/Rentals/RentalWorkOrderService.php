@@ -246,13 +246,18 @@ class RentalWorkOrderService
      * contractor uploading "after" photos through their no-login secure
      * link has no User actor at all.
      */
-    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null): \App\Models\RentalWorkOrderPhoto
+    public function storePhoto(RentalWorkOrder $workOrder, UploadedFile $file, string $photoType, ?User $uploadedBy = null, ?string $clientKey = null, bool $private = false, ?string $uploadedVia = null): \App\Models\RentalWorkOrderPhoto
     {
-        $url = app(PropertyImageStorer::class)->store($file, $workOrder->property_id);
+        // D14 (audit 2026-10-20): a picture a TENANT sent is stored on the private disk (a `private:` reference, read through a signed expiring URL),
+        // never at a permanent /storage address. Contractor / office uploads keep the public pipeline.
+        $url = $private
+            ? app(\App\Services\Images\PrivateImageService::class)->storeUpload($file, (int) $workOrder->property_id)
+            : app(PropertyImageStorer::class)->store($file, $workOrder->property_id);
 
         return $workOrder->photos()->create([
             'agency_id' => $workOrder->agency_id,
             'photo_type' => $photoType,
+            'uploaded_via' => $uploadedVia,
             'storage_path' => $url,
             'uploaded_by_user_id' => $uploadedBy?->id,
             'client_idempotency_key' => $clientKey,
@@ -640,7 +645,7 @@ class RentalWorkOrderService
     private function storeTenantPhotos(RentalWorkOrder $workOrder, array $photos): void
     {
         foreach (array_values(array_filter($photos, fn ($p) => $p instanceof UploadedFile)) as $file) {
-            $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null);
+            $this->storePhoto($workOrder, $file, RentalWorkOrder::PHOTO_COMPLETED, null, null, true, \App\Models\RentalWorkOrderPhoto::VIA_TENANT);
         }
     }
 
@@ -974,9 +979,16 @@ class RentalWorkOrderService
         if ($workOrder->status !== RentalWorkOrder::STATUS_COMPLETED || (int) $workOrder->final_statement_ruling_id === (int) $ruling->id) {
             return 0;
         }
-        $wasSent = $workOrder->updates()->where('update_type', 'note')->where('note', 'like', 'Final statement emailed to the owner%')->exists();
-        if (! $wasSent) {
+        $firstSent = $workOrder->updates()->where('update_type', 'note')->where('note', 'like', 'Final statement emailed to the owner%')->orderBy('id')->first();
+        if (! $firstSent) {
             return 0;   // the statement has not gone out yet (or never could): the first one will already show the ruling
+        }
+        // Audit 2026-10-20 (M5): nothing changed = nothing sent. If the statement the owner already holds shows exactly the payer this ruling names, an "updated" one
+        // would only repeat it (closing a card with "Owner" on a job whose statement already said "Owner"). The ruling is still recorded as covered.
+        if ($this->payerOnTheStatementOwnerHolds($workOrder, $ruling, $firstSent->created_at) === $ruling->summary()) {
+            RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrder->id)->update(['final_statement_ruling_id' => $ruling->id]);
+
+            return 0;
         }
         // claim first - two rulings racing, or a retry, cannot both send
         $claimed = RentalWorkOrder::withoutGlobalScopes()->whereKey($workOrder->id)
@@ -1003,6 +1015,22 @@ class RentalWorkOrderService
         $this->faultForRuling($workOrder)?->recordHistory(\App\Models\RentalFaultReportUpdate::TYPE_PAYER_RULED, null, $line);
 
         return $sent;
+    }
+
+    /** The "Paid by" text on the final statement the owner last received (the same wording the statement's own line uses). */
+    private function payerOnTheStatementOwnerHolds(RentalWorkOrder $workOrder, \App\Models\RentalPayerRuling $ruling, $firstSentAt): string
+    {
+        $lastResentFor = $workOrder->final_statement_ruling_id
+            ? \App\Models\RentalPayerRuling::withoutGlobalScopes()->find($workOrder->final_statement_ruling_id)
+            : null;
+        if ($lastResentFor) {
+            return $lastResentFor->summary();
+        }
+        // the original statement: the ruling that stood when it went out, else the work order's own "paid by"
+        $standing = \App\Models\RentalPayerRuling::withoutGlobalScopes()->where('rental_work_order_id', $workOrder->id)
+            ->where('id', '<', $ruling->id)->where('ruled_at', '<', $firstSentAt)->orderByDesc('id')->first();
+
+        return $standing ? $standing->summary() : ($workOrder->paid_by ? ucfirst(str_replace('_', ' ', $workOrder->paid_by)) : '—');
     }
 
     private function faultForRuling(RentalWorkOrder $workOrder): ?\App\Models\RentalFaultReport

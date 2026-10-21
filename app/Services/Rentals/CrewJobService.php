@@ -93,7 +93,7 @@ class CrewJobService
             ->orderByDesc('created_at')->orderByDesc('id')
             ->get()
             ->map(fn (RentalWorkOrderPhoto $p) => [
-                'url' => $p->storage_path,
+                'url' => $p->displayUrl(),
                 'type' => $p->photo_type,
                 'caption' => $p->caption,
                 'at' => $p->created_at?->copy()->setTimezone($tz)->format('j M, H:i'),

@@ -305,7 +305,7 @@ class LeaseBreachService
             throw ValidationException::withMessages(['breach' => 'A notice to vacate needs an open breach notice that has not been remedied.']);
         }
         if (! $breach->remedyWindowPassed()) {
-            throw ValidationException::withMessages(['breach' => 'The tenant still has until ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available from that date.']);
+            throw ValidationException::withMessages(['breach' => 'The tenant has the whole of ' . $breach->remedy_deadline?->format('j F Y') . ' to put this right. A notice to vacate is available from ' . $breach->vacateAvailableFrom()?->format('j F Y') . '.']);
         }
         if ($vacateDate === null || trim($vacateDate) === '') {
             throw ValidationException::withMessages(['vacate_date' => 'Choose the date the tenant must be out by.']);
@@ -320,9 +320,12 @@ class LeaseBreachService
         }
         $time = $vacateTime && preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $vacateTime) ? $vacateTime : LeaseSetting::vacateTimeFor((int) $breach->agency_id);
         $lease = $breach->lease;
+        // ONE value: the date and time stored on the breach are the very ones the notice prints - a typed override of either key is dropped
+        // (audit 2026-10-20 finding 7), whoever calls this.
+        $figures = $this->vacateFigures($vacateOn->toDateString(), $time, (int) $breach->agency_id) + array_diff_key($figures, ['vacate_date' => 1, 'vacate_time' => 1]);
 
         [$notice, $pdf, $filename] = DB::transaction(function () use ($breach, $template, $agent, $figures, $lease, $vacateOn, $time) {
-            // the date and time are filed on the breach first so the notice prints them (typed figures still win)
+            // the date and time are filed on the breach first so the notice prints them
             $breach->forceFill(['vacate_date' => $vacateOn->toDateString(), 'vacate_time' => $time])->save();
             $result = $this->notices->generate($lease, $template, $figures, true, true, $agent, $breach);
             $breach->update(['status' => LeaseBreach::STATUS_ESCALATED, 'vacate_issued_at' => now(), 'vacate_issued_by_user_id' => $agent->id, 'vacate_rental_notice_id' => $result[0]->id]);

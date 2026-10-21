@@ -5,10 +5,10 @@
 --}}
 @if(!empty($receipt))
     @include('partials.photo-viewer')
-    <button type="button" data-receipt-thumb data-open-receipt="{{ $receipt->storage_path }}" data-receipt-label="{{ $label ?? 'Receipt' }}"
+    <button type="button" data-receipt-thumb data-open-receipt="{{ $receipt->displayUrl() }}" data-receipt-label="{{ $label ?? 'Receipt' }}"
             title="Receipt — open" aria-label="Open the receipt{{ !empty($label) ? ' for ' . $label : '' }}"
             style="padding:0; border:1px solid var(--border); border-radius:6px; background:none; cursor:zoom-in; line-height:0; vertical-align:middle;">
-        <img src="{{ $receipt->storage_path }}" alt="Receipt" loading="lazy" style="width:36px; height:36px; object-fit:cover; border-radius:5px;">
+        <img src="{{ $receipt->displayUrl() }}" alt="Receipt" loading="lazy" style="width:36px; height:36px; object-fit:cover; border-radius:5px;">
     </button>
     @once
         <script>

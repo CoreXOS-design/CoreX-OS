@@ -178,7 +178,8 @@ final class CataloguePricingBlockTest extends TestCase
     {
         $this->world();
         foreach (['cost_excl', 'selling_excl', 'selling_incl', 'markup_value'] as $field) {
-            $this->actingAs($this->user)->post(route('corex.rental-catalogue-items.store'), $this->payload(['code' => 'NEG-' . $field, $field => -1]))->assertSessionHasErrors($field);
+            // a typed markup is only an INPUT when markup drives the price; for a selling-price item it is the derived figure (see the re-save test below)
+            $this->actingAs($this->user)->post(route('corex.rental-catalogue-items.store'), $this->payload(['code' => 'NEG-' . $field, 'pricing_driver' => 'markup', $field => -1]))->assertSessionHasErrors($field);
         }
 
         $item = $this->store(['code' => 'LOSS', 'cost_excl' => 100, 'selling_excl' => 80]);
@@ -405,5 +406,27 @@ final class CataloguePricingBlockTest extends TestCase
         foreach (['8765.43', '8,765.43', '10080.24', '10,080.24', 'R8 765', 'R8,765'] as $needle) {
             $this->assertStringNotContainsString($needle, $html, "crew page leaks {$needle}");
         }
+    }
+
+    /** Audit 2026-10-20 M1: the edit form posts the stored (derived, negative) markup back - a below-cost item must save again, unchanged. */
+    public function test_an_item_sold_below_cost_can_be_saved_again_with_the_markup_the_form_posts_back(): void
+    {
+        $this->world();
+        $item = $this->store(['code' => 'LOSS2', 'cost_excl' => 100, 'selling_excl' => 80]);
+        $this->assertSame('-20.0000', (string) $item->markup_value);
+
+        // exactly what the edit screen posts: the stored values, the selling-price driver, the derived markup
+        $this->actingAs($this->user)->put(route('corex.rental-catalogue-items.update', $item), $this->payload([
+            'code' => 'LOSS2', 'description' => 'Only the description changed',
+            'cost_excl' => '100.00', 'selling_excl' => '80.00', 'markup_type' => 'percent', 'markup_value' => '-20.00', 'pricing_driver' => 'selling_excl',
+        ]))->assertSessionHasNoErrors()->assertRedirect(route('corex.rental-catalogue-items.index'));
+
+        $item = $item->fresh();
+        $this->assertSame('Only the description changed', $item->description);
+        $this->assertSame('80.00', (string) $item->selling_excl);
+        $this->assertSame('-20.0000', (string) $item->markup_value, 'the derived markup is recalculated, not trusted from the post');
+
+        // and a typed negative markup on a markup-priced item is still refused
+        $this->actingAs($this->user)->put(route('corex.rental-catalogue-items.update', $item), $this->payload(['code' => 'LOSS2', 'cost_excl' => 100, 'markup_type' => 'percent', 'markup_value' => -5, 'pricing_driver' => 'markup']))->assertSessionHasErrors('markup_value');
     }
 }

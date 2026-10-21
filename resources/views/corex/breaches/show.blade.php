@@ -38,7 +38,7 @@
             <dt style="color: var(--text-muted);">Remedy by</dt>
             <dd class="col-span-2" data-qa="remedy-deadline">{{ $breach->remedy_deadline?->format('j F Y') ?? '—' }} ({{ $breach->remedyWindowLabel() }})
                 @if($breach->daysLeftText()) - <strong data-qa="days-left" style="color: {{ $breach->isOverdue() ? '#b91c1c' : ($breach->daysToRemedy() === 0 ? '#b45309' : 'inherit') }};">{{ $breach->daysLeftText() }}</strong>@endif
-                @if($breach->isIssued() && $breach->remedyWindowPassed()) - <strong style="color:#b91c1c;">date reached - was it fixed?</strong>@endif</dd>
+                @if($breach->isIssued() && $breach->remedyDateReached()) - <strong style="color:#b91c1c;">date reached - was it fixed?</strong>@endif</dd>
             <dt style="color: var(--text-muted);">Documents</dt>
             <dd class="col-span-2">
                 @if($breach->notice?->document)<a href="{{ route('corex.breaches.document', [$breach->id, 'breach']) }}" style="color: var(--brand-icon, #0ea5e9);">Breach notice (PDF)</a>@endif
@@ -71,13 +71,13 @@
                     @if($breach->breach_party !== 'tenant')
                         <p class="text-xs" style="color: var(--text-muted);">A notice to vacate is only for a tenant who is in breach.</p>
                     @elseif(!$canVacate)
-                        <p class="text-xs" style="color: var(--text-muted);" data-qa="vacate-not-yet">Not yet available. The tenant has until <strong>{{ $breach->remedy_deadline?->format('j F Y') }}</strong> to put this right; a notice to vacate can be issued from that date if the breach is still not remedied.</p>
+                        <p class="text-xs" style="color: var(--text-muted);" data-qa="vacate-not-yet">Not yet available. The tenant has the whole of <strong>{{ $breach->remedy_deadline?->format('j F Y') }}</strong> to put this right; a notice to vacate can be issued from <strong>{{ $breach->vacateAvailableFrom()?->format('j F Y') }}</strong> if the breach is still not remedied.</p>
                     @elseif($vacateTemplates->isEmpty())
                         <p class="text-xs" data-qa="no-templates">Your agency has not added a notice to vacate template yet - upload yours under <a href="{{ route('corex.rental-notice-templates.create', ['notice_type' => 'notice_to_vacate']) }}" style="color: var(--brand-icon, #0ea5e9);">Settings &rarr; Rental Notice Templates</a>.</p>
                     @else
                         <form method="POST" action="{{ route('corex.breaches.vacate', $breach->id) }}" class="space-y-2" data-qa="vacate-form">
                             @csrf
-                            <p class="text-xs" style="color: var(--text-muted);">The remedy-by date has been reached and the breach is not remedied. The notice is made from your template, sent from your mailbox to the tenant, and the landlord is told. The date starts {{ $vacateNoticeDays }} days from today (your "Days for notice to vacate"); change it if this tenant is different.</p>
+                            <p class="text-xs" style="color: var(--text-muted);">The remedy-by date has passed and the breach is not remedied. The notice is made from your template, sent from your mailbox to the tenant, and the landlord is told. The date starts {{ $vacateNoticeDays }} days from today (your "Days for notice to vacate"); change it if this tenant is different.</p>
                             <select name="rental_notice_template_id" required class="prop-input" style="max-width: 24rem;">
                                 @foreach($vacateTemplates as $t)<option value="{{ $t->id }}" @selected((int) old('rental_notice_template_id') === $t->id)>{{ $t->name }}</option>@endforeach
                             </select>

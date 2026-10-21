@@ -463,12 +463,6 @@ class AppServiceProvider extends ServiceProvider
         // Spec: .ai/specs/mic-complete-spec.md §3.2.1.
         \App\Models\Prospecting\TrackedPropertyAddress::observe(\App\Observers\TrackedPropertyAddressObserver::class);
 
-        // Road to Sold events (road-to-sold.md section 6.2, build log P2): owner found, presentation given,
-        // mandate filed. Each observer only RAISES a domain event; it changes no data.
-        \App\Models\Prospecting\TrackedProperty::observe(\App\Observers\TrackedPropertyObserver::class);
-        \App\Models\PresentationDelivery::observe(\App\Observers\PresentationDeliveryObserver::class);
-        \App\Models\DocumentProperty::observe(\App\Observers\DocumentPropertyObserver::class);
-
         // Register calendar source services (Phase 1)
         $registry = $this->app->make(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
         $registry->register(\App\Services\CommandCenter\Calendar\Sources\ComplianceCalendarSource::class);
@@ -1140,6 +1134,19 @@ class AppServiceProvider extends ServiceProvider
             \Illuminate\Cache\RateLimiting\Limit::perMinutes(10, (int) config('rental-public-links.heavy_per_token_per_ten_minutes', 60))->by('heavy:' . $tokenKey($r)),
             \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('rental-public-links.per_address_per_minute', 300))->by('ip:' . $r->ip()),
         ]);
+
+        // Rental-inspection audit H1: the private-picture route serves whole galleries, so it has its own limiter (per token, per signed-in browser
+        // or public viewer, per address - numbers and reasons in config/private-images.php) instead of the flat 120-per-address throttle.
+        \Illuminate\Support\Facades\RateLimiter::for('private-image', function (\Illuminate\Http\Request $r) {
+            $session = (string) $r->cookies->get((string) config('session.cookie'), '');
+
+            return [
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_token_per_minute', 60))->by('pimg-tok:' . substr(hash('sha256', (string) $r->route('token')), 0, 32)),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_browser_per_minute', 1500))
+                    ->by($session !== '' ? 'pimg-ses:' . substr(hash('sha256', $session), 0, 32) : 'pimg-ip:' . $r->ip()),
+                \Illuminate\Cache\RateLimiting\Limit::perMinute((int) config('private-images.per_address_per_minute', 4000))->by('pimg-addr:' . $r->ip()),
+            ];
+        });
 
         \Illuminate\Support\Facades\RateLimiter::for('website-api', function (\Illuminate\Http\Request $request) {
             $key = $request->user();

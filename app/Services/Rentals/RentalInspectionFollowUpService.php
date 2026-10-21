@@ -254,20 +254,17 @@ class RentalInspectionFollowUpService
     }
 
     /**
-     * Files an observation's own photos onto the new fault report. A legacy photo (public URL) is linked - same `storage_path`, a second DB
-     * row pointing at the same file; a private one is copied (audit B21), see the loop.
+     * Files an observation's own photos onto the new fault report. The fault photo row points at the SAME stored picture - a legacy photo
+     * (public URL) by its address, a private one by its `private:` reference (audit 2026-10-20: it is never copied to the public disk).
      */
     private function linkObservationPhotosToFaultReport(RentalInspectionObservation $observation, RentalFaultReport $faultReport, User $by): void
     {
         foreach ($observation->photos as $photo) {
-            // Audit B21 - an inspection photo is PRIVATE (a signed, expiring link); the fault report / work order / contractor and portal
-            // screens read a plain image address, so the evidence is handed over as its own copy of the picture, and the inspection's
-            // original stays private. A legacy photo that still holds a public URL is linked exactly as before.
-            $raw = $photo->rawStoragePath();
-            $path = \App\Services\Images\PrivateImageStore::isReference($raw)
-                ? app(\App\Services\Images\PrivateImageStore::class)->copyToPublic($raw, (int) $faultReport->property_id)
-                : $raw;
-            if (! $path) {
+            // An inspection photo is PRIVATE (audit B21). The fault photo REFERENCES the same private file - no public copy is ever made - and every
+            // fault / work-order / contractor / portal screen already reads a `private:` reference through a signed, expiring URL guarded by the
+            // fault photo's own row. A legacy photo that still holds a public URL is linked exactly as before.
+            $path = $photo->rawStoragePath();
+            if (! $path || (\App\Services\Images\PrivateImageStore::isReference($path) && ! app(\App\Services\Images\PrivateImageStore::class)->exists($path))) {
                 continue; // the original file is missing - never point a fault photo at nothing
             }
             RentalFaultReportPhoto::create([

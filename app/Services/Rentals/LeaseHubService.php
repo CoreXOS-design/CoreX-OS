@@ -128,7 +128,7 @@ class LeaseHubService
             return [
                 'label' => 'Breach remedy date reached — was it fixed?', 'route_name' => null, 'route_param' => null,
                 'breach_followup' => [
-                    'breach_id' => $breach->id, 'can_act' => $canAct, 'tenant' => $breach->breach_party === Lease::NOTICE_BY_TENANT,
+                    'breach_id' => $breach->id, 'can_act' => $canAct, 'tenant' => $breach->breach_party === Lease::NOTICE_BY_TENANT, 'can_vacate' => $breach->canIssueVacate(),
                     'detail' => 'Breach notice of ' . $breach->issued_on->format('j M Y') . ' - remedy by ' . $breach->remedy_deadline->format('j M Y'),
                 ],
             ];

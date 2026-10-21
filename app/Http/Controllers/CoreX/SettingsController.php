@@ -1056,9 +1056,14 @@ class SettingsController extends Controller
             'fic_no'           => ['nullable', 'string', 'max:255'],
             'email_disclaimer' => ['nullable', 'string', 'max:2000'],
             'popi_url'         => ['nullable', 'string', 'max:500'],
+            // Audit 2026-10-20 (L7): the agency's own timezone (IANA name). Written only when the form posted the box (CLAUDE.md 10a / wizard spec 6.1); blank = the application's.
+            'timezone'         => ['nullable', 'string', 'timezone:all'],
             'logo'             => ['nullable', new \App\Rules\AgencyLogoFile()],
             'remove_logo'      => ['nullable', 'boolean'],
         ]);
+        if (! $request->has('timezone')) {
+            unset($data['timezone']);
+        }
 
         // Guarded on vat_registered's own presence (a toggle always posts a
         // hidden 0 + checkbox 1 together) — only the Setup Wizard's identity

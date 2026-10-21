@@ -1269,7 +1269,7 @@
         {{-- Gate = ANY permission that puts an item in this panel (cross-cutting audit 2026-10-08): it used to be
              applications-only, so a user with leases / work orders / inspections access but no applications
              access never saw the Rentals menu at all. --}}
-        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', 'rental_notices.create', 'rental_notices.view', 'rental_notices.review', 'rental_breaches.view', 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
+        @if($user && ($user->hasAnyPermission(['rental_applications.view', 'rental_applications.view_returned', 'leases.view', 'rental_command_centre.view', 'rental_reports.view', 'rental_inspections.view', 'rental_fault_reports.view', 'rental_fault_types.view', 'rental_work_orders.view', 'rental_job_cards.view', ...\App\Support\Rentals\NoticesTabs::permissions(), 'rental_catalogue.view', 'rentals_take_on_import.view']) || $user->isRentalApplicationAuthoriser()))
         @feature('rentals')
         <div>
             <button type="button" @click="push('rental-applications')"
@@ -1334,7 +1334,7 @@
                 @endfeature
 
                 @feature('rental-applications')
-                @if($user->seesRentalAuthorisationQueue())
+                @if($user->seesRentalAuthorisationQueue() && $user->hasPermission('rental_applications.authorise'))
                 <a href="{{ route('corex.rental-applications.authorisation.index') }}" data-nav-group="Letting" class="corex-nav-subitem {{ request()->routeIs('corex.rental-applications.authorisation.*') ? 'active' : '' }}" data-nav-alias="Rental Application Authorisation">Application Authorisation</a>
                 @endif
                 @endfeature
@@ -1417,7 +1417,8 @@
                      own route and permission, so the item shows for anyone who may open at least one tab. The old names stay findable: data-nav-extra gives
                      the menu search one entry per old name, pointing at its tab. --}}
                 @feature('rental-notices')
-                @if($user && $user->hasAnyPermission(['rental_breaches.view', 'rental_notices.review', 'rental_notices.view', 'rental_notices.create', 'rental_notice_templates.manage_settings']))
+                {{-- the item shows exactly when a tab can open (audit 2026-10-20 finding 8): NoticesTabs::forUser() is the one list, the same the hub route lands on --}}
+                @if($user && $user->hasAnyPermission(['rental_breaches.view', 'rental_notices.review', 'rental_notices.view', 'rental_notice_templates.manage_settings']) && \App\Support\Rentals\NoticesTabs::forUser($user) !== [])
                 @php
                     $_noticesExtra = collect(\App\Support\Rentals\NoticesTabs::forUser($user))->map(fn ($t) => ['l' => $t['old'], 'h' => $t['url']])->values()->all();
                 @endphp
@@ -1766,6 +1767,9 @@
                 @endpermission
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
+                @endpermission
+                @permission('view_performance')
+                <a href="{{ route('bm.my.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('bm.my.dashboard') ? 'active' : '' }}">My Agent Dashboard</a>
                 @endpermission
                 @permission('view_deals')
                 @permission('create_deals')
