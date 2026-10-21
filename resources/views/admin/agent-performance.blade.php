@@ -162,6 +162,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 <div class="rounded-lg p-4" style="background:var(--surface-2); border:1px solid var(--border)">
                     <div class="text-sm font-semibold" style="color:var(--text-secondary)">Momentum (last 7 days)</div>
+                    <div class="mt-1"><x-points-legend /></div>
                     <div class="mt-3 grid grid-cols-7 gap-2">
                         @foreach($m7 as $d)
                             @php
@@ -170,8 +171,16 @@
                             @endphp
                             <div class="rounded-md p-2 text-center" style="background:var(--surface); border:1px solid var(--border)">
                                 <div class="text-[10px]" style="color:var(--text-muted)">{{ \Carbon\Carbon::parse($d['date'])->format('D') }}</div>
-                                <div class="mt-2 h-20 flex items-end justify-center">
-                                    <div class="w-4 rounded {{ $v > 0 ? 'ds-bar-navy' : '' }}" style="height: {{ $h }}px; {{ $v > 0 ? '' : 'background:var(--surface-2)' }}"></div>
+                                @php
+                                    $mV = (float)($d['manual'] ?? 0); $aV = (float)($d['automatic'] ?? 0);
+                                    $hM = $mV > 0 ? max(2, (int) round($mV / max(1, $v) * $h)) : 0;
+                                    $hA = $aV > 0 ? max(2, (int) round($aV / max(1, $v) * $h)) : 0;
+                                @endphp
+                                <div class="mt-2 h-20 flex flex-col justify-end items-center" data-day="{{ $d['date'] }}" data-manual="{{ round($mV, 2) }}" data-automatic="{{ round($aV, 2) }}"
+                                     title="Manual {{ number_format($mV, 0) }}, automatic {{ number_format($aV, 0) }}">
+                                    @if($hA > 0)<div class="w-4" style="height: {{ $hA }}px; background: var(--ds-amber, #f59e0b); border-radius: 4px 4px 0 0;"></div>@endif
+                                    @if($hM > 0)<div class="w-4" style="height: {{ $hM }}px; background: var(--brand-icon, #0ea5e9); {{ $hA > 0 ? '' : 'border-radius: 4px 4px 0 0;' }}"></div>@endif
+                                    @if($hM === 0 && $hA === 0)<div class="w-4 rounded" style="height: 4px; background: var(--border);"></div>@endif
                                 </div>
                                 <div class="text-xs ds-value mt-1" style="font-weight:700">{{ number_format($v, 0) }}</div>
                             </div>

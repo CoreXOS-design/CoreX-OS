@@ -118,11 +118,22 @@ class DailyActivityController extends Controller
         // every other daily_activity_entries call site fixed in this pass.
         $agencyId = $user->effectiveAgencyId();
 
-        $mtdPoints = (int) round(ActivityPointsService::sum(
+        // Month to date, split into what the agent captured (manual) and what CoreX credited (automatic) - the same
+        // rows and the same rule; the headline MTD is manual + automatic.
+        $mtdSplit = ActivityPointsService::sumSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->ownershipUserId())
                 ->where('e.period', $period)
-        ));
+        );
+        $mtdPoints = (int) round($mtdSplit['total']);
+
+        // Calendar markers for the 14-day strip: which days carry manual points, which carry automatic ones.
+        $markerFrom = \Carbon\Carbon::now(config('app.timezone') ?: 'UTC')->startOfDay()->subDays(13)->toDateString();
+        $dayMarkers = ActivityPointsService::entryRowsByDateSplit(
+            ActivityPointsService::counted($agencyId)
+                ->where('e.user_id', $user->ownershipUserId())
+                ->where('e.activity_date', '>=', $markerFrom)
+        );
 
         $remainingPoints = max($monthlyTarget - $mtdPoints, 0);
 
@@ -222,6 +233,8 @@ class DailyActivityController extends Controller
             'period'       => $period,
             'monthlyTarget'=> $monthlyTarget,
             'mtdPoints'    => $mtdPoints,
+            'mtdSplit'     => $mtdSplit,
+            'dayMarkers'   => $dayMarkers,
             'remainingPoints' => $remainingPoints,
             // M6.5 — auto display + integrity totals
             'todayAutoAcquired'      => $todayAutoAcquired,

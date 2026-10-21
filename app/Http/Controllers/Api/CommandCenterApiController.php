@@ -105,11 +105,12 @@ class CommandCenterApiController extends Controller
         // bypasses the BelongsToAgency scope.
         $agencyId = $user->effectiveAgencyId();
 
-        $mtdPoints = (int) round(ActivityPointsService::sum(
+        $mtdSplit = ActivityPointsService::sumSplit(
             ActivityPointsService::counted($agencyId)
                 ->where('e.user_id', $user->id)
                 ->where('e.period', $period)
-        ));
+        );
+        $mtdPoints = (int) round($mtdSplit['total']);
 
         $monthlyTarget = (int) (DB::table('targets')
             ->where('user_id', $user->id)->where('period', $period)
@@ -164,6 +165,7 @@ class CommandCenterApiController extends Controller
         return response()->json([
             'user'                => ['id' => $user->id, 'name' => $user->name],
             'mtd_points'          => $mtdPoints,
+            'mtd_points_split'    => $mtdSplit,
             'monthly_target'      => $monthlyTarget,
             'today_events'        => $this->formatEvents($todayEvents),
             'overdue_events'      => $this->formatEvents($overdueEvents),

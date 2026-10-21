@@ -112,6 +112,7 @@
                     <div>
                         <p class="text-xs mb-1" style="color: var(--text-muted);">Points this month</p>
                         <p class="text-[1.75rem] font-semibold leading-none" style="color: var(--text-primary);">{{ number_format($mtdPoints) }}</p>
+                        <x-points-split-total :split="$mtdSplit" split-only class="mt-1" />
                     </div>
                     @if($monthlyTarget > 0)
                         <div>
