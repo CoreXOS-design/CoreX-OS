@@ -1135,3 +1135,12 @@ configures agency settings, not the role matrix) — recorded in `agency-onboard
 Tests: `tests/Feature/Intelligence/BuyerNotesScopeTest.php` (each level on both surfaces + the address, Core
 Matches pill, independence from contact scope, other agency, assistant ceiling, Role Manager round trip, fresh
 agency defaults, migration defaults + idempotence), `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.
+
+## Won/Lost buyers on the buyer-portal match list (AT-500, 2026-10-22)
+The buyer-facing portal page (`BuyerPortalController::show`) reads the cached `property_buyer_matches` list through
+`PropertyMatchScoringService::getMatchesForBuyer()`, which did not ask the Won/Lost rule — so a Won or Lost buyer's
+portal link still listed matches. It now asks `CoreMatchBuyerGate::isExcluded()` (the same single rule, live from
+`buyer_state`, agency setting default Won + Lost) and returns nothing for an excluded buyer. Nothing is deleted: the
+cache rows and the buyer's saved searches stay, and the list returns the moment the buyer is back on the active board
+(e.g. after a fallen-through deal — see `buyer-pipeline.md`, "When a deal falls through"). Test:
+`tests/Feature/CoreMatches/CoreMatchWonLostBuyerPortalListTest.php`.
