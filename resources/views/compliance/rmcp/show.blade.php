@@ -65,7 +65,7 @@
                         @foreach($version->sections as $section)
                         <a href="#section-{{ $section->id }}" class="block text-xs py-1 px-2 rounded-md transition" style="color: var(--text-secondary); line-height:1.4;"
                            onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
-                            {{ $section->section_number }}. {{ Str::limit($section->title, 30) }}
+                            {{ Str::limit($section->heading(), 34) }}
                         </a>
                         @endforeach
                     </nav>
@@ -89,7 +89,7 @@
                         @foreach($version->sections as $section)
                         <div id="section-{{ $section->id }}" class="mb-8">
                             <h2 class="text-base font-bold pb-1.5 mb-3" style="color: var(--text-primary); border-bottom: 2px solid var(--brand-icon);">
-                                {{ $section->section_number }}. {{ $section->title }}
+                                {{ $section->heading() }}
                             </h2>
                             <div class="prose prose-sm max-w-none" style="color: var(--text-secondary); line-height:1.7; font-size:0.9375rem;">
                                 {!! $section->renderedBody($variables) !!}
@@ -98,7 +98,7 @@
                         @endforeach
 
                         {{-- Approval footer --}}
-                        @if($version->approved_at)
+                        @if($version->approved_at && ! $version->hasApprovalSection())
                         <div class="mt-8 pt-4" style="border-top: 2px solid var(--brand-icon);">
                             <div class="grid grid-cols-2 gap-4 text-sm" style="color: var(--text-secondary);">
                                 <div>

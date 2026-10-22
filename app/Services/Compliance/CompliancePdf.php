@@ -26,7 +26,7 @@ class CompliancePdf
     /**
      * Print an HTML string to PDF bytes; null (and a logged reason) when the PDF could not be made.
      */
-    public function render(string $html, string $footerLabel, string $tag): ?string
+    public function render(string $html, string $footerLabel, string $tag, ?string $pageWord = null, ?string $footerSuffix = null): ?string
     {
         $dir = storage_path('app/temp');
         if (! is_dir($dir)) {
@@ -40,6 +40,12 @@ class CompliancePdf
         file_put_contents($htmlPath, $html);
 
         $env = ['HOME' => '/tmp', 'PDF_PAGE_NUMBERS' => '1', 'PDF_FOOTER_LABEL' => $footerLabel];
+        if ($pageWord !== null) {
+            $env['PDF_FOOTER_PAGE_WORD'] = $pageWord;
+        }
+        if ($footerSuffix !== null) {
+            $env['PDF_FOOTER_SUFFIX'] = $footerSuffix;
+        }
         $browser = (string) config('services.pdf.puppeteer_browser_path', '');
         if ($browser !== '') {
             $env['PUPPETEER_BROWSER_PATH'] = $browser;
@@ -75,11 +81,12 @@ class CompliancePdf
      *
      * @param array<string,string> $variables
      */
-    public function versionHtml(string $kicker, ?string $legalLine, object $version, Agency $agency, array $variables, string $title): string
+    public function versionHtml(string $kicker, ?string $legalLine, object $version, Agency $agency, array $variables, string $title, ?string $coverLine = null): string
     {
         return view('compliance.pdf.version', [
             'kicker'    => $kicker,
             'legalLine' => $legalLine,
+            'coverLine' => $coverLine,
             'title'     => $title,
             'version'   => $version,
             'agency'    => $agency,

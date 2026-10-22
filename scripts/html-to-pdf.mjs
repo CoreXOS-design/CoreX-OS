@@ -143,8 +143,12 @@ try {
         const label = process.env.PDF_FOOTER_LABEL ? esc(process.env.PDF_FOOTER_LABEL) + ' &nbsp;&middot;&nbsp; ' : '';
         pdfOptions.displayHeaderFooter = true;
         pdfOptions.headerTemplate = '<span></span>';
+        // Optional (AT-506, the RMCP print): PDF_FOOTER_PAGE_WORD swaps "Page" for another word ("page"), and
+        // PDF_FOOTER_SUFFIX adds text after the page count ("Initials ____"). Unset = exactly the old footer.
+        const pageWord = process.env.PDF_FOOTER_PAGE_WORD ? esc(process.env.PDF_FOOTER_PAGE_WORD) : 'Page';
+        const suffix = process.env.PDF_FOOTER_SUFFIX ? ' &nbsp;&middot;&nbsp; ' + esc(process.env.PDF_FOOTER_SUFFIX) : '';
         pdfOptions.footerTemplate = '<div style="width:100%;font-size:8px;font-family:Arial,sans-serif;color:#64748b;text-align:center;">'
-            + label + 'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>';
+            + label + pageWord + ' <span class="pageNumber"></span> of <span class="totalPages"></span>' + suffix + '</div>';
     }
     await page.pdf(pdfOptions);
 

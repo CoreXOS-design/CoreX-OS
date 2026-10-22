@@ -80,6 +80,12 @@ class RmcpVersion extends Model
         return $this->status === 'draft';
     }
 
+    /** Does the text carry its own Approval block (v2 does)? Then the printed/on-screen page adds no second one. */
+    public function hasApprovalSection(): bool
+    {
+        return $this->sections->contains(fn (RmcpSection $s) => strcasecmp((string) $s->section_number, 'Approval') === 0);
+    }
+
     public function approve(User $user, string $title, ?string $documentPath, ?string $notes): void
     {
         // Supersede the current active version for this agency

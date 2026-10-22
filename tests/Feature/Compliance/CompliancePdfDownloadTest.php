@@ -95,7 +95,8 @@ final class CompliancePdfDownloadTest extends TestCase
             foreach (['Ramsgate Realty', 'Version 1', 'Active', '21 April 2026', 'Compliance Officer', 'Next review due', 'Purpose and scope', 'Customer due diligence', 'Record keeping', 'Body of Record keeping for Ramsgate Realty'] as $needle) {
                 self::assertStringContainsString($needle, $text, "missing in the PDF: {$needle}");
             }
-            self::assertMatchesRegularExpression('/Page 1 of \d+/', $text, 'page numbers in the footer');
+            // AT-506: the RMCP footer reads "<agency> · RMCP v1 · page 1 of N · Initials ____".
+            self::assertMatchesRegularExpression('/Ramsgate Realty\s+·\s+RMCP v1\s+·\s+page 1 of \d+\s+·\s+Initials/', $text, 'page numbers + initials in the footer');
             self::assertStringNotContainsString('RMCP List', $text, 'the app screen must not be in the PDF');
         }
 
