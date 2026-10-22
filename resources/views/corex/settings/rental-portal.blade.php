@@ -323,7 +323,7 @@
         </div>
         <form method="POST" action="{{ route('corex.settings.rental-portal.faq-texts') }}" class="p-5 space-y-5">
             @csrf
-            <p class="text-xs" style="color: var(--text-muted);">Your wording, with the lease's own values merged in: <code>{notice_period}</code> <code>{earliest_notice_date}</code> <code>{notice_from}</code> <code>{notice_by_date}</code> <code>{earliest_termination_date}</code> <code>{lease_end_date}</code> <code>{early_cancellation_terms}</code> <code>{early_cancellation_notice}</code> <code>{early_cancellation_penalty}</code>. Put a piece in double square brackets, <code>[[like this {lease_end_date}]]</code>, and it is left out whenever the lease does not have that value. A lease with no notice or cancellation terms shows no FAQ at all. Clear a box to go back to the default.</p>
+            <p class="text-xs" style="color: var(--text-muted);">Your wording, with the lease's own values merged in: <code>{notice_period}</code> <code>{notice_by_date}</code> <code>{earliest_termination_date}</code> <code>{lease_end_date}</code> <code>{early_cancellation_terms}</code> <code>{early_cancellation_notice}</code> <code>{early_cancellation_penalty}</code>. Put a piece in double square brackets, <code>[[like this {lease_end_date}]]</code>, and it is left out whenever the lease does not have that value. A lease with no notice or cancellation terms shows no FAQ at all. Clear a box to go back to the default.</p>
             @foreach([
                 'faq_tenant_notice' => 'Tenant &middot; question 1', 'faq_tenant_early' => 'Tenant &middot; question 2',
                 'faq_landlord_notice' => 'Owner &middot; question 1', 'faq_landlord_early' => 'Owner &middot; question 2',

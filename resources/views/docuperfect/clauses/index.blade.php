@@ -31,6 +31,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Clause Library is a tab of Documents > Library --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentLibraryTabs::class])
+
     {{-- Add Clause --}}
     @if($canEdit)
     <div x-show="showAdd" x-cloak x-transition class="rounded-md p-5" style="background: var(--surface); border: 1px solid var(--border);">

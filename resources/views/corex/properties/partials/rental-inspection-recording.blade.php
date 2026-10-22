@@ -100,7 +100,7 @@
     /* §27, 2026-09-27 — Johan: All/Needs attention/Not yet recorded reads as
        ONE compact segmented control, not three separate pill buttons with
        gaps. */
-    .rir-seg-group { display:flex; align-items:stretch; height:2.75rem; border:1px solid var(--border); border-radius:9999px; overflow:hidden; box-sizing:border-box; }
+    .rir-seg-group { display:flex; align-items:stretch; height:2.75rem; border:1px solid var(--border); border-radius:6px; overflow:hidden; box-sizing:border-box; }
     /* height:auto — .rir-nav-pill's own fixed 2.75rem would otherwise fight
        align-items:stretch here and overflow the group's own 1px border
        inset by 2px (border-box: the group's 44px already includes its
@@ -123,8 +123,8 @@
        is set explicitly (not min-height) on every control INCLUDING this
        row's own outer wrapper (see the markup's own docblock) so the
        scrollbar's extra height never leaks into the alignment math again. */
-    .rir-nav-pill { height:2.75rem; background:var(--surface-2); color:var(--text-secondary); border:none; box-sizing:border-box; }
-    .rir-nav-pill-active { background:var(--brand-button,#0ea5e9); color:#fff; }
+    .rir-nav-pill { height:2.75rem; background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); border-radius:6px; box-sizing:border-box; }
+    .rir-nav-pill-active { background:var(--brand-button,#0ea5e9); color:#fff; border-color:var(--brand-button,#0ea5e9); }
     .rir-tray-tile { position:relative; width:3rem; height:3rem; }
     /* §29, 2026-09-27 — Johan, property 5294: "keep them this size and have a
        resize option ... to enlarge them to the same size as the thumbnail
@@ -550,7 +550,7 @@
         <div class="rounded-md p-3 space-y-2" style="background:var(--surface-2);" x-show="activeItems().length">
             <div class="flex items-center justify-between gap-2">
                 <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
-                    <span>&#128247;</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
                     <span>Upload photos to this inspection</span>
                     <input type="file" accept="image/*" multiple class="hidden"
                            @change="photoUploader({{ $sectionJs }}).uploadFiles($event.target.files, {}); $event.target.value = null;">
@@ -977,7 +977,7 @@
                 <div class="flex items-center gap-2" style="flex-wrap:nowrap;">
                     <template x-for="group in roomGroups()" :key="'insp-nav-' + (group.room ? group.room.id : 'general')">
                         <button type="button"
-                                class="flex items-center gap-1.5 text-xs font-semibold px-3 rounded-full shrink-0 cv-touch rir-nav-pill"
+                                class="flex items-center gap-1.5 text-xs font-semibold px-3 rounded-md shrink-0 cv-touch rir-nav-pill"
                                 :class="!roomMatchesFilter({{ $sectionJs }}, group) ? 'rir-space-tab-empty' : ''"
                                 :disabled="!roomMatchesFilter({{ $sectionJs }}, group)"
                                 :style="'background:var(--surface-2); color:var(--text-secondary); white-space:nowrap;'"
@@ -1024,7 +1024,7 @@
                  (below, in the room heading); this is a genuinely
                  different, GLOBAL control that collapses the photo strips
                  entirely rather than just capping their thumbnail count. --}}
-            <button type="button" class="text-xs font-semibold px-3 rounded-full cv-touch rir-nav-pill flex-none"
+            <button type="button" class="text-xs font-semibold px-3 rounded-md cv-touch rir-nav-pill flex-none"
                     :class="photosVisible ? 'rir-nav-pill-active' : ''"
                     @click="togglePhotosVisible()"
                     x-text="photosVisible ? 'Photos: shown' : 'Photos: hidden'"></button>
@@ -1119,7 +1119,7 @@
                              for the tray's multi-select-and-drop (item 3). --}}
                         <template x-if="group.room">
                             <label class="text-xs font-semibold px-1.5 py-1 rounded-md cursor-pointer inline-flex items-center" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);" title="Add room photo(s)">
-                                <span>&#128247;</span>
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
                                 <input type="file" accept="image/*" multiple class="hidden"
                                        @change="onRoomPhotosSelected({{ $sectionJs }}, group.room, $event.target.files); $event.target.value = null;">
                             </label>

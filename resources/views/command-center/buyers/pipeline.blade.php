@@ -91,6 +91,11 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Buyer pipeline is a tab of Real Estate > Buyers (the Rentals pipeline route shows no bar) --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\BuyersTabs::class])
+    {{-- .ai/specs/rentals-menu-tabs.md - opened from Rentals (its own route) this is a tab of Rentals > Letting --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LettingTabs::class])
+
     {{-- Search + filters --}}
     <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route($indexRouteName ?? 'command-center.buyers.pipeline') }}" class="flex flex-wrap items-center gap-2">
@@ -397,7 +402,7 @@
             <span class="ds-badge ds-badge-pill ds-badge-success">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
         </div>
         @if($wonBuyers->isEmpty())
-            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a property, they move here automatically.</div>
+            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a deal in the Deal Register, they move here automatically.</div>
         @else
             <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 md:max-h-[30vh] overflow-y-auto corex-brand-scroll">
                 @foreach($wonBuyers as $buyer)

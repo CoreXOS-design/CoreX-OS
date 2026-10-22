@@ -330,7 +330,7 @@
                 'noticeValues' => $noticeValues ?? [],
                 'noticePrefix' => 'notice',
                 'noticeHide' => in_array('earliest_termination_date', $noticeAgreementKeys ?? [], true) ? ['earliest_termination_date'] : [],
-                'earliestNoticeMonths' => $earliestNoticeMonths ?? null,
+                'noticeSendBd' => $noticeSendBd ?? null,
             ])
         </div>
 

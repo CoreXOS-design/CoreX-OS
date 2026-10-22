@@ -25,6 +25,8 @@ class RentalTakeOnImportRow extends Model
 
     public const ACTION_CREATE = 'create';
     public const ACTION_MATCH = 'match';
+    // AT-479 — several CoreX properties fit a reOS address; the user picks (or says none of them).
+    public const ACTION_CHOOSE = 'choose';
 
     public const COMPLETENESS_COMPLETE = 'complete';
     public const COMPLETENESS_DRAFT = 'draft';
@@ -50,9 +52,26 @@ class RentalTakeOnImportRow extends Model
         'confirmed_at',
         'confirmed_by',
         'archived_at',
+        // AT-479 — the reOS review screen's state (spec R3).
+        'external_id',
+        'external_url',
+        'existing_lease_id',
+        'selected',
+        'decisions_json',
+        'blockers_json',
+        'is_blocked',
+        'import_error',
+        'result_action',
     ];
 
+    public const RESULT_CREATED = 'created';
+    public const RESULT_UPDATED = 'updated';
+
     protected $casts = [
+        'selected' => 'boolean',
+        'is_blocked' => 'boolean',
+        'decisions_json' => 'array',
+        'blockers_json' => 'array',
         'payload_json' => 'array',
         'landlord_match_json' => 'array',
         'tenant_match_json' => 'array',

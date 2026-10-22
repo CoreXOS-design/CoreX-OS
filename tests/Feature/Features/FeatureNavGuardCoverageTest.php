@@ -5,6 +5,7 @@ namespace Tests\Feature\Features;
 use App\Services\Features\AgencyFeatureService;
 use App\Support\Navigation\SidebarFeatureCoverage;
 use App\Support\Navigation\SidebarNavAuditor;
+use App\Support\Navigation\TabHubs;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -81,7 +82,8 @@ class FeatureNavGuardCoverageTest extends TestCase
             if (empty($def['sidebar_section'])) {
                 continue;                               // no nav item => nothing to guard
             }
-            if (! str_contains($sidebar, "@feature('{$key}')")) {
+            // A tab of a tabbed menu item (.ai/specs/real-estate-menu-tabs.md) is gated in its TabHub class, not by an @feature wrap.
+            if (! str_contains($sidebar, "@feature('{$key}')") && ! in_array($key, TabHubs::featureKeys(), true)) {
                 $missing[] = $key;
             }
         }
@@ -159,6 +161,27 @@ class FeatureNavGuardCoverageTest extends TestCase
     }
 
     // ── 4. exemptions are justified and cannot mask an owned route ──────────
+
+    public function test_every_tab_of_a_tabbed_menu_item_names_a_real_feature_or_is_a_core_screen(): void
+    {
+        $bad = [];
+        foreach (TabHubs::HUBS as $hub => $class) {
+            foreach ($class::tabs() as $tab => $def) {
+                $feature = $def['feature'] ?? null;
+                if ($feature === null) {
+                    // A core screen: its route must be one of the core exemptions.
+                    $core = array_filter(array_keys(SidebarFeatureCoverage::CORE_ROUTES), fn ($g) => SidebarNavAuditor::strIs($g, $def['route']));
+                    if ($core === []) {
+                        $bad[] = "{$hub}.{$tab}: no feature and {$def['route']} is not a core screen";
+                    }
+                } elseif (! isset($this->registry()[$feature])) {
+                    $bad[] = "{$hub}.{$tab}: unknown feature '{$feature}'";
+                }
+            }
+        }
+
+        $this->assertSame([], $bad);
+    }
 
     public function test_core_exemptions_are_justified_by_a_core_registry_key(): void
     {

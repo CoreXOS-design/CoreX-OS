@@ -40,6 +40,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Presentations is a tab of Real Estate > Presentations --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PresentationsTabs::class])
+
     {{-- Filter bar — directly under the header (AT-393). Header + filters are frozen: the
          page wrapper is a full-height flex column and ONLY the scroll region below
          (presentations table + pagination) scrolls. --}}

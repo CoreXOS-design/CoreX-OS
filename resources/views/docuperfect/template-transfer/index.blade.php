@@ -9,6 +9,9 @@
         <p class="text-xs" style="color: var(--text-muted);">Move an e-sign template between systems (for example from Staging to live) into the agency you choose. Export a template from Template Management; import it here.</p>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Template Packages is a tab of Documents > Templates --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentTemplatesTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('status') }}</div>
     @endif

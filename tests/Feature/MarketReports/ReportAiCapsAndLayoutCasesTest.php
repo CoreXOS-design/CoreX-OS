@@ -126,7 +126,8 @@ final class ReportAiCapsAndLayoutCasesTest extends TestCase
         $this->assertCount(1, $teamAlerts);
         $this->assertStringContainsString('fake_suburb_report_a.pdf', $teamAlerts->first()->body);
         $this->assertStringContainsString('Alpha Realty', $teamAlerts->first()->body);
-        $this->assertSame(route('market-intelligence.reports.recogniser.queue', [], false), $teamAlerts->first()->actionUrl);
+        // the link goes straight to that report's row in the queue (AT recogniser 22 Oct)
+        $this->assertStringStartsWith(route('market-intelligence.reports.recogniser.queue', [], false) . '?focus=', $teamAlerts->first()->actionUrl);
     }
 
     public function test_a_layout_the_ai_was_unsure_about_also_blocks_further_attempts(): void
@@ -426,7 +427,7 @@ final class ReportAiCapsAndLayoutCasesTest extends TestCase
             && str_contains($n->body, 'File: fake_suburb_report_a.pdf.')
             && str_contains($n->body, 'Publisher: Coastline Property Data.')
             && str_contains($n->body, 'new AI read')
-            && $n->actionUrl === route('market-intelligence.reports.recogniser.queue', [], false)
+            && str_starts_with((string) $n->actionUrl, route('market-intelligence.reports.recogniser.queue', [], false) . '?focus=')
             && in_array('mail', $n->channels, true) && in_array('database', $n->channels, true) && $n->mailer === 'corex');
         Notification::assertSentTo(User::find($this->userId), PillarEventNotification::class, fn ($n)
             => $n->body === "We couldn't read this layout with a known format, so CoreX read it with AI. Please check the figures.");

@@ -948,6 +948,8 @@ class SignatureService
         ?string $signerPhone = null,
         ?string $signerAddress = null,
         ?string $signerPassportNumber = null,
+        // AT-498 — the parties this proxy does NOT sign for (recipient_local_keys); null/empty = everyone else in the role.
+        ?array $proxyExcludes = null,
     ): SignatureRequest {
         $token = $this->generateToken();
 
@@ -998,6 +1000,7 @@ class SignatureService
             'party_clause_text' => $partyClauseText,
             'is_deceased' => $isDeceased,
             'is_proxy' => $isProxy,
+            'proxy_excludes' => ($isProxy && ! empty($proxyExcludes)) ? array_values($proxyExcludes) : null,
             // Every recipient gets a stable key on creation, whether or not
             // anything binds to it — cheap, and it's what a LATER-added
             // recipient's chain would need to point at. The wizard passes its

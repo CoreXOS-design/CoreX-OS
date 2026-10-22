@@ -73,7 +73,8 @@ class WebhookSsrfGuardTest extends TestCase
             'decimal ip'         => ['http://2130706433/hook'],
             'hostname to 10.x'   => ['https://sneaky.example.co.za/hook'],
             'file scheme'        => ['file:///etc/passwd'],
-            'custom port'        => ['https://site.example.co.za:6379/hook'],
+            'private ip on custom port' => ['http://10.1.2.3:1050/hook'],
+            'loopback on custom port'   => ['http://127.0.0.1:6379/hook'],
         ];
     }
 
@@ -86,6 +87,30 @@ class WebhookSsrfGuardTest extends TestCase
     public function test_guard_accepts_a_public_https_host(): void
     {
         $this->assertNull(app(SafeWebhookUrl::class)->error('https://site.example.co.za/api/corex-webhook'));
+    }
+
+    public function test_guard_accepts_a_public_host_on_a_custom_port(): void
+    {
+        // An agency's site receiver may listen on a custom port (HFC's does: http://<public ip>:1050/...).
+        // Refusing it failed every website delivery from 2026-10-21, so prices stopped updating on Refresh.
+        $this->assertNull(app(SafeWebhookUrl::class)->error('http://91.99.130.85:1050/api/corex-webhook'));
+        $this->assertNull(app(SafeWebhookUrl::class)->error('https://site.example.co.za:8443/api/corex-webhook'));
+    }
+
+    public function test_a_custom_port_webhook_is_actually_delivered(): void
+    {
+        Http::fake(['site.example.co.za:8443/*' => Http::response('', 200)]);
+
+        $response = app(SafeWebhookUrl::class)->post('https://site.example.co.za:8443/api/corex-webhook', '{}', []);
+
+        $this->assertTrue($response->successful());
+        Http::assertSentCount(1);
+    }
+
+    public function test_feed_guard_still_refuses_custom_ports(): void
+    {
+        // The relaxation is webhook-only: article feeds keep the 80/443 rule.
+        $this->assertNotNull(app(SafeFeedUrl::class)->error('https://site.example.co.za:6379/feed'));
     }
 
     /** @dataProvider blockedUrls */

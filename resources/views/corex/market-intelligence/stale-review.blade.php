@@ -10,6 +10,8 @@
         <x-mic-page-header
             title="Stale claims review"
             subtitle="Pitched/claimed properties sitting unworked. Warned at {{ $warnDays }} days; ready for move-or-keep at {{ $releaseDays }} days. Agents can't take these from each other — you decide." />
+        {{-- .ai/specs/real-estate-menu-tabs.md - Stale claims is a tab of Real Estate > Market intelligence --}}
+        @include('corex.market-intelligence.partials.tabs')
     </div>
 
     {{-- Filters — directly under the header. One GET form so every control composes

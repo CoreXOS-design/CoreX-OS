@@ -142,6 +142,9 @@ class RentalTakeOnImportController extends Controller
     public function mapColumns(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser, RentalTakeOnColumnMappingSuggester $suggester)
     {
         $this->assertVisible($request, $run);
+        if ($guard = $this->reosGuard($run)) {
+            return $guard;
+        }
 
         $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
 
@@ -164,6 +167,9 @@ class RentalTakeOnImportController extends Controller
     public function confirmMapping(Request $request, RentalTakeOnImportRun $run, RentalTakeOnRowParser $parser)
     {
         $this->assertVisible($request, $run);
+        if ($guard = $this->reosGuard($run)) {
+            return $guard;
+        }
 
         $headers = $parser->readHeaderRow(Storage::path($run->source_file_path), $this->extensionFor($run));
         $validKeys = RentalTakeOnFieldSchema::keys();
@@ -333,6 +339,11 @@ class RentalTakeOnImportController extends Controller
     {
         $this->assertVisible($request, $run);
 
+        // AT-479 — a reOS Tenancy Schedule batch has its own review screen (spec "reOS Tenancy Schedule import").
+        if ($run->isReos()) {
+            return app(ReosTakeOnController::class)->review($request, $run);
+        }
+
         $rows = $run->rows()->orderBy('row_number')->paginate(50);
 
         return view('corex.rentals.take-on-import.preview', compact('run', 'rows'));
@@ -343,6 +354,9 @@ class RentalTakeOnImportController extends Controller
         // The row's own agency is enforced by BelongsToAgency on route binding;
         // here the PARENT run's own/branch scope is enforced before any write.
         $this->assertVisible($request, $row->run()->withTrashed()->firstOrFail());
+        if ($guard = $this->reosGuard($row->run()->withTrashed()->firstOrFail())) {
+            return $guard;
+        }
 
         $result = $confirmService->confirmRow($row, $request->user()->id);
         $this->touchRunCompletion($row->run);
@@ -357,6 +371,9 @@ class RentalTakeOnImportController extends Controller
     public function confirmBulk(Request $request, RentalTakeOnImportRun $run, RentalTakeOnConfirmService $confirmService)
     {
         $this->assertVisible($request, $run);
+        if ($guard = $this->reosGuard($run)) {
+            return $guard;
+        }
 
         $ids = (array) $request->input('ids', []);
         $rows = $run->rows()
@@ -381,6 +398,9 @@ class RentalTakeOnImportController extends Controller
     public function excludeRow(Request $request, RentalTakeOnImportRow $row)
     {
         $this->assertVisible($request, $row->run()->withTrashed()->firstOrFail());
+        if ($guard = $this->reosGuard($row->run()->withTrashed()->firstOrFail())) {
+            return $guard;
+        }
 
         $row->update(['status' => RentalTakeOnImportRow::STATUS_EXCLUDED]);
         $this->touchRunCompletion($row->run);
@@ -405,6 +425,10 @@ class RentalTakeOnImportController extends Controller
     public function show(Request $request, RentalTakeOnImportRun $run)
     {
         $this->assertVisible($request, $run);
+
+        if ($run->isReos()) {
+            return app(ReosTakeOnController::class)->review($request, $run);
+        }
 
         $rows = $run->rows()->orderBy('row_number')->paginate(50);
 
@@ -464,6 +488,17 @@ class RentalTakeOnImportController extends Controller
         $archiveService->restore($run);
 
         return redirect()->route('corex.rentals.take-on-import.index')->with('status', 'Import batch restored.');
+    }
+
+    /**
+     * AT-479 — the CoreX-template actions above read the template's own payload; a reOS batch has its own screen and its own
+     * Import (ReosTakeOnController), so these are refused for one rather than half-working on the wrong payload.
+     */
+    private function reosGuard(RentalTakeOnImportRun $run): ?\Illuminate\Http\RedirectResponse
+    {
+        return $run->isReos()
+            ? redirect()->route('corex.rentals.take-on-import.preview', $run)->withErrors(['run' => 'That action belongs to the CoreX template import. Use the review screen for this reOS batch.'])
+            : null;
     }
 
     private function touchRunCompletion(RentalTakeOnImportRun $run): void

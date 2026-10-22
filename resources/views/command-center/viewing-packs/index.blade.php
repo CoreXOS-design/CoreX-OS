@@ -21,6 +21,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Viewing packs is a tab of Real Estate > Buyers --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\BuyersTabs::class])
+
     {{-- Filters (AT-393, spec .ai/specs/viewing-pack.md §"List page filters") — directly
          under the header; one GET form so search + agent + status compose with each other
          AND with the archived toggle (carried as a hidden field). --}}

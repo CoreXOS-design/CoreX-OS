@@ -14,7 +14,7 @@ class NotificationDispatchLog extends Model
     protected $fillable = [
         'user_id', 'notification_event_type_id',
         'subject_type', 'subject_id',
-        'threshold_hit_at', 'dispatched_at', 'channel',
+        'threshold_hit_at', 'dispatched_at', 'channel', 'dedupe_key',
     ];
 
     protected $casts = [

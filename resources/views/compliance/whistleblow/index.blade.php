@@ -23,6 +23,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - Compliance Reporting is a tab of Compliance > Reports & Logs --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceReportsTabs::class])
+
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
          style="background: color-mix(in srgb, var(--ds-green, #059669) 10%, transparent); border: 1px solid color-mix(in srgb, var(--ds-green, #059669) 30%, transparent); color: var(--text-primary);">

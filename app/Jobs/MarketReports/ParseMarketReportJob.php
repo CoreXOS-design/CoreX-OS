@@ -419,9 +419,10 @@ class ParseMarketReportJob implements ShouldQueue
                         'completed_at' => now()->toIso8601String(),
                     ],
                 ]);
-                event(new \App\Events\MarketReports\MarketReportReadByAi($report, fromCache: (bool) $aiOutcome?->fromCache));
                 SpotCheckMarketReportJob::dispatch($report->id);
+                // Learn the layout BEFORE the team is told, so the message can say whether one was saved.
                 $this->learnLayout($report, $aiOutcome, $absolutePath, $learner);
+                event(new \App\Events\MarketReports\MarketReportReadByAi($report, fromCache: (bool) $aiOutcome?->fromCache));
                 $this->closeCaseAfterOwnerRerun($report);
             } elseif ($isZeroCompWithSummary || $isGenericFallback || $isRecognizedButEmpty) {
                 $flaggedBy = $isZeroCompWithSummary
@@ -612,6 +613,12 @@ class ParseMarketReportJob implements ShouldQueue
                 \App\Models\MarketReports\MarketReportLayoutCase::query()->whereKey($report->layout_case_id)
                     ->update(['status' => \App\Models\MarketReports\MarketReportLayoutCase::STATUS_LEARNED, 'learned_layout_id' => $layout->id]);
             }
+            // The queue row must say what happened, in a plain sentence (a CoreX owner reads it; nothing technical).
+            $report->forceFill(['ai_read_note' => match (true) {
+                $layout === null                                      => 'No layout was saved from this read: ' . rtrim((string) ($why ?: 'it could not be learned'), '.') . '.',
+                (int) $layout->learned_from_report_id === (int) $report->id => null,
+                default                                               => 'This layout was already saved earlier as "' . $layout->name . '".',
+            }])->save();
             Log::info('ParseMarketReportJob: layout learning', [
                 'report_id' => $report->id,
                 'learned'   => $layout?->id,

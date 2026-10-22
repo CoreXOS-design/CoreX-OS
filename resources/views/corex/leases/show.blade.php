@@ -311,8 +311,10 @@
 
             @if(!$lease->hasActiveNotice() && auth()->user()?->hasPermission('rental_notices.review'))
                 <x-modal name="lease-dialog-tenant-notice" :show="$openDialog === 'tenant-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.tenant-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="tenant">
                         <input type="hidden" name="_lease_action" value="tenant-notice">
                         <h2 class="text-lg font-medium">Tenant gave notice</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the landlord until you have checked it against the lease and the law and accepted it.</p>
@@ -344,8 +346,10 @@
                 </x-modal>
 
                 <x-modal name="lease-dialog-landlord-notice" :show="$openDialog === 'landlord-notice'" focusable>
-                    <form method="POST" action="{{ route('corex.leases.renewal.landlord-notice', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
+                    <form method="POST" action="{{ route('corex.leases.notice-cases.store', $lease) }}" enctype="multipart/form-data" class="p-6 space-y-3">
                         @csrf
+                        {{-- AT-495 - the spec'd route (lease-notices.md §5.1): same rules and same result as the renewal route, which stays for the mobile app --}}
+                        <input type="hidden" name="given_by" value="landlord">
                         <input type="hidden" name="_lease_action" value="landlord-notice">
                         <h2 class="text-lg font-medium">Landlord gave notice (not renewing)</h2>
                         <p class="text-sm" style="color: var(--text-muted);">Records the notice for your review. Nothing is sent to the tenant until you have checked it against the lease and the law and accepted it.</p>
@@ -519,6 +523,33 @@
                 </div>
             @endif
 
+            {{-- AT-489 (Johan, 21 Oct 2026) - the agency's expiry notice to the tenant (Consumer Protection Act, business days). --}}
+            @php $ex = $noticeTerms['expiry'] ?? null; @endphp
+            @if($ex && in_array($ex['state'], ['due', 'alert', 'overdue'], true))
+                @php $overdue = $ex['state'] === 'overdue'; @endphp
+                <div class="rounded-md p-3 text-sm space-y-2" style="background: color-mix(in srgb, {{ $overdue ? 'var(--ds-crimson)' : 'var(--ds-amber, #d97706)' }} 12%, var(--surface)); border: 1px solid {{ $overdue ? 'var(--ds-crimson)' : 'var(--ds-amber, #d97706)' }};" data-qa="expiry-notice-banner" data-state="{{ $ex['state'] }}">
+                    <div class="font-medium">
+                        @if($overdue)
+                            Expiry notice OVERDUE - fewer than {{ $ex['dates']['min'] }} business days left and it has not gone out.
+                        @else
+                            Expiry notice has not gone out - {{ $ex['remaining'] }} business days left.
+                        @endif
+                    </div>
+                    <div class="text-xs">The tenant must be told this fixed term is ending between {{ \Illuminate\Support\Carbon::parse($ex['dates']['from'])->format('j M Y') }} and {{ \Illuminate\Support\Carbon::parse($ex['dates']['to'])->format('j M Y') }} ({{ $ex['dates']['max'] }} to {{ $ex['dates']['min'] }} business days before it ends on {{ \Illuminate\Support\Carbon::parse($ex['dates']['end'])->format('j M Y') }}). CoreX sends it from {{ \Illuminate\Support\Carbon::parse($ex['dates']['send_on'])->format('j M Y') }}.</div>
+                    @permission('rental_notices.review')
+                    <div class="flex flex-wrap items-center gap-2">
+                        <form method="POST" action="{{ route('corex.leases.expiry-notice.send', $lease) }}">@csrf<button type="submit" class="corex-btn-primary text-xs" data-qa="expiry-notice-send-now">Send the expiry notice now</button></form>
+                        <form method="POST" action="{{ route('corex.leases.expiry-notice.mark-given', $lease) }}" class="flex items-center gap-2">@csrf
+                            <input type="text" name="note" maxlength="500" placeholder="How was it given? (optional)" class="prop-input text-xs" style="min-width: 14rem;">
+                            <button type="submit" class="corex-btn-outline text-xs" data-qa="expiry-notice-mark-given">Mark as given</button>
+                        </form>
+                    </div>
+                    @endpermission
+                </div>
+            @elseif($ex && $ex['state'] === 'sent')
+                <div class="rounded-md p-2 text-xs" style="color: var(--text-muted); border: 1px solid var(--border);" data-qa="expiry-notice-sent">Expiry notice given to the tenant on {{ $ex['sent_at']->format('j M Y') }}{{ $ex['sent_via'] === 'corex' ? ' (sent by CoreX)' : ($ex['sent_via'] === 'manual' ? ' (marked as given)' : '') }}.</div>
+            @endif
+
             @if(!empty($propertyStatusWarning))
                 {{-- Audit A26 (2026-10-19): the lease is active but the property could not be given a let status in this agency's vocabulary. --}}
                 <div class="rounded-md p-3 text-sm" style="background: color-mix(in srgb, var(--ds-amber, #d97706) 12%, var(--surface)); border: 1px solid var(--ds-amber, #d97706);" data-qa="property-status-warning">{{ $propertyStatusWarning }}</div>
@@ -612,6 +643,28 @@
                     <div><span style="color: var(--text-muted);">Lease type:</span> {{ $lease->lease_type ?? '—' }}</div>
                 @endif
                 <div><span style="color: var(--text-muted);">Source:</span> {{ str_replace('_', ' ', ucfirst($lease->source)) }}</div>
+                {{-- AT-479 (rental-takeon-import.md R7) — where this lease came from in another system, whether it rolls over, and the
+                     payment references used to pay through reOS. Each line only when it has a value. --}}
+                @if($lease->external_id || $lease->external_url || $lease->rollover !== null || $lease->tenant_wallet_ref || $lease->owner_wallet_ref)
+                <div class="pt-1 mt-1" style="border-top: 1px dashed var(--border);" data-test="lease-reos-block">
+                    <div class="text-xs font-semibold" style="color: var(--text-muted);">{{ $lease->external_source === \App\Models\Lease::EXTERNAL_SOURCE_REOS ? 'Imported from reOS' : 'From another system' }}</div>
+                    @if($lease->external_url && preg_match('#^https?://#i', $lease->external_url))
+                        <div class="text-xs"><a href="{{ $lease->external_url }}" target="_blank" rel="noopener noreferrer" class="underline" data-test="open-in-reos">Open in {{ $lease->external_source === \App\Models\Lease::EXTERNAL_SOURCE_REOS ? 'reOS' : 'the other system' }}</a></div>
+                    @endif
+                    @if($lease->external_id)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Lease id there:</span> {{ $lease->external_id }}</div>
+                    @endif
+                    @if($lease->rollover !== null)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Rollover:</span> {{ $lease->rollover ? 'Yes' : 'No' }}</div>
+                    @endif
+                    @if($lease->tenant_wallet_ref)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Tenant wallet reference:</span> {{ $lease->tenant_wallet_ref }}</div>
+                    @endif
+                    @if($lease->owner_wallet_ref)
+                        <div class="text-xs"><span style="color: var(--text-muted);">Owner wallet reference:</span> {{ $lease->owner_wallet_ref }}</div>
+                    @endif
+                </div>
+                @endif
                 {{-- rental-takeon-import.md §6 — facts captured on take-on,
                      read-only, never fed into any calculation (no scheduled-
                      escalation feature, no rental ledger — neither exists).
@@ -750,12 +803,18 @@
                     <div class="text-xs" style="color: var(--ds-crimson);">{{ $errors->first('notice') }}</div>
                 @endif
                 <div x-show="!editing" class="space-y-1" data-qa="lease-notice-values">
+                    @if(!empty($nt['window']))
+                            <div data-qa="lease-expiry-notice-window"><span style="color: var(--text-muted);">Expiry notice due between:</span> {{ \Illuminate\Support\Carbon::parse($nt['window']['from'])->format('j M Y') }} and {{ \Illuminate\Support\Carbon::parse($nt['window']['to'])->format('j M Y') }} <span style="color: var(--text-muted);">({{ $nt['window']['max'] }} to {{ $nt['window']['min'] }} business days before the lease ends)</span></div>
+                            <div data-qa="lease-expiry-notice-send-on"><span style="color: var(--text-muted);">CoreX sends it on:</span> {{ \Illuminate\Support\Carbon::parse($nt['window']['send_on'])->format('j M Y') }} <span style="color: var(--text-muted);">({{ $nt['window']['send'] }} business days before the lease ends)</span></div>
+                        @endif
                     @if(! $nt['has'])
                         <div style="color: var(--text-muted);">Not on record — the portal FAQ shows nothing for this lease.</div>
                     @else
                         @php $nv = $nt['values']; $w = $nt['worked']; @endphp
                         <div><span style="color: var(--text-muted);">Notice period:</span> {{ $nt['periodText'] ?? 'not on record' }}</div>
-                        <div><span style="color: var(--text-muted);">Earliest notice may be given:</span> {{ $w['earliest_notice'] ?? 'not on record' }}</div>
+                        @if($w['earliest_notice'])
+                            <div data-qa="lease-clause-notice-from"><span style="color: var(--text-muted);">Lease clause: notice may be given from</span> {{ \Illuminate\Support\Carbon::parse($w['earliest_notice'])->format('j M Y') }}</div>
+                        @endif
                         <div><span style="color: var(--text-muted);">Earliest the lease may end:</span> {{ $w['earliest_end'] ?? 'not on record' }}</div>
                         @if($w['notice_by'])
                             <div><span style="color: var(--text-muted);">Notice to leave at the end date, by:</span> {{ $w['notice_by'] }}</div>
@@ -802,6 +861,9 @@
                                 'noticeValues' => $nt['has'] ? $nt['values'] : $nt['defaults'],
                                 'noticePrefix' => 'notice',
                                 'noticeHide' => [],
+                                'leaseStart' => $lease->start_date?->toDateString(),
+                                'leaseEnd' => $lease->is_month_to_month ? null : $lease->end_date?->toDateString(),
+                                'noticeSendBd' => $nt['window']['send'] ?? null,
                             ])
                             @if($nt['signedDocument'])
                                 <div>
@@ -914,6 +976,47 @@
                             </select>
                         </div>
                     @endif
+                    {{-- AT-479 (rental-takeon-import.md R7) — where the lease came from in another system, rollover, and the wallet references. --}}
+                    <div class="pt-2 space-y-2" style="border-top: 1px dashed var(--border);">
+                        <div class="text-xs font-semibold" style="color: var(--text-muted);">reOS / payment details</div>
+                        <div>
+                            <label class="prop-label" for="lease-rollover">Rollover</label>
+                            <select name="rollover" id="lease-rollover" @disabled($leaseLocked) class="prop-select">
+                                @php $rolloverNow = old('rollover', $lease->rollover === null ? '' : ($lease->rollover ? '1' : '0')); @endphp
+                                <option value="" @selected($rolloverNow === '' || $rolloverNow === null)>Not known</option>
+                                <option value="1" @selected((string) $rolloverNow === '1')>Yes</option>
+                                <option value="0" @selected((string) $rolloverNow === '0')>No</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-source">Came from</label>
+                            <select name="external_source" id="lease-external-source" @disabled($leaseLocked) class="prop-select">
+                                <option value="" @selected(! old('external_source', $lease->external_source))>— nowhere else —</option>
+                                <option value="{{ \App\Models\Lease::EXTERNAL_SOURCE_REOS }}" @selected(old('external_source', $lease->external_source) === \App\Models\Lease::EXTERNAL_SOURCE_REOS)>reOS</option>
+                                @if($lease->external_source && $lease->external_source !== \App\Models\Lease::EXTERNAL_SOURCE_REOS)
+                                    <option value="{{ $lease->external_source }}" selected>{{ $lease->external_source }}</option>
+                                @endif
+                            </select>
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-id">Lease id there</label>
+                            <input type="text" name="external_id" id="lease-external-id" maxlength="64" value="{{ old('external_id', $lease->external_id) }}" @disabled($leaseLocked) class="prop-input">
+                            @error('external_id')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-external-url">Link to the lease there</label>
+                            <input type="url" name="external_url" id="lease-external-url" maxlength="500" placeholder="https://…" value="{{ old('external_url', $lease->external_url) }}" @disabled($leaseLocked) class="prop-input">
+                            @error('external_url')<p class="text-xs" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-tenant-wallet">Tenant wallet reference</label>
+                            <input type="text" name="tenant_wallet_ref" id="lease-tenant-wallet" maxlength="100" value="{{ old('tenant_wallet_ref', $lease->tenant_wallet_ref) }}" @disabled($leaseLocked) class="prop-input">
+                        </div>
+                        <div>
+                            <label class="prop-label" for="lease-owner-wallet">Owner wallet reference</label>
+                            <input type="text" name="owner_wallet_ref" id="lease-owner-wallet" maxlength="100" value="{{ old('owner_wallet_ref', $lease->owner_wallet_ref) }}" @disabled($leaseLocked) class="prop-input">
+                        </div>
+                    </div>
                     <div class="flex items-center gap-2">
                         <button type="submit" @disabled($leaseLocked) class="corex-btn-primary text-xs">Save changes</button>
                         <button type="button" onclick="document.getElementById('lease-edit-panel').classList.add('hidden')" class="corex-btn-outline text-xs">Cancel</button>

@@ -208,6 +208,19 @@ final class AlertBellTest extends TestCase
         $this->assertTrue(strpos($html, 'Unread one') < strpos($html, 'Read one'), 'newest first by default');
     }
 
+    public function test_the_whole_inbox_row_opens_the_alert_and_mark_read_stays_its_own_control(): void
+    {
+        // AT-491: testers misclicked because only the title text was a link.
+        $me = $this->user();
+        $this->alert($me, 'Quote received - 8 Harbour View Road', now()->subMinute());
+
+        $html = $this->actingAs($me)->get(route('corex.alerts.index'))->assertOk()->getContent();
+
+        $this->assertMatchesRegularExpression('#<tr[^>]*data-qa="alert-row"[^>]*data-href="[^"]*/alerts/[0-9a-f-]{36}/open"#s', $html);
+        $this->assertStringContainsString("closest('a, button, form')", $html, 'a click on Mark read or the title link is not hijacked by the row');
+        $this->assertStringContainsString('Mark read', $html);
+    }
+
     public function test_the_inbox_filters_search_type_status_and_dates(): void
     {
         $me = $this->user();

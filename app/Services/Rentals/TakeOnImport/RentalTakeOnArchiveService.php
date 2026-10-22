@@ -41,6 +41,7 @@ class RentalTakeOnArchiveService
                 $this->archiveProperty($row, $counts);
                 $this->archiveContacts($row, $row->target_landlord_contact_ids_json ?? [], 'landlord', $counts);
                 $this->archiveContacts($row, $row->target_tenant_contact_ids_json ?? [], 'tenant', $counts);
+                $this->archivePeople($row, $counts);
 
                 $row->update(['archived_at' => now()]);
             }
@@ -57,7 +58,7 @@ class RentalTakeOnArchiveService
             $rows = $run->rows()->whereNotNull('archived_at')->get();
 
             foreach ($rows as $row) {
-                if ($row->target_lease_id) {
+                if ($row->target_lease_id && $row->result_action !== RentalTakeOnImportRow::RESULT_UPDATED) {
                     Lease::withTrashed()->whereKey($row->target_lease_id)->first()?->restore();
                 }
                 if ($row->target_property_id && $row->property_match_action === RentalTakeOnImportRow::ACTION_CREATE) {
@@ -65,6 +66,9 @@ class RentalTakeOnArchiveService
                 }
                 $this->restoreContacts($row->target_landlord_contact_ids_json ?? [], $row->landlord_match_json ?? []);
                 $this->restoreContacts($row->target_tenant_contact_ids_json ?? [], $row->tenant_match_json ?? []);
+                foreach (($row->decisions_json['created_people'] ?? []) as $personId) {
+                    Contact::withoutGlobalScopes()->withTrashed()->whereKey($personId)->first()?->restore();
+                }
 
                 $row->update(['archived_at' => null]);
             }
@@ -77,13 +81,21 @@ class RentalTakeOnArchiveService
     {
         return ['archived' => ['leases' => 0, 'properties' => 0, 'contacts' => 0],
             'left_alone_edited' => ['leases' => 0, 'properties' => 0, 'contacts' => 0],
-            'left_alone_existing' => ['properties' => 0, 'contacts' => 0]];
+            'left_alone_existing' => ['leases' => 0, 'properties' => 0, 'contacts' => 0]];
     }
 
     private function archiveLease(RentalTakeOnImportRow $row, array &$counts): void
     {
         $lease = $row->target_lease_id ? Lease::withoutGlobalScopes()->find($row->target_lease_id) : null;
         if (!$lease) {
+            return;
+        }
+
+        // AT-479 — a reOS re-import UPDATED a lease that was already in CoreX before this batch: archiving the batch must
+        // not archive it. Its property and people are left alone too (an update touches terms only).
+        if ($row->result_action === RentalTakeOnImportRow::RESULT_UPDATED) {
+            $counts['left_alone_existing']['leases']++;
+
             return;
         }
 
@@ -153,6 +165,23 @@ class RentalTakeOnArchiveService
 
             if ($this->untouchedSinceConfirm($contact, $row)) {
                 $contact->delete();
+                $counts['archived']['contacts']++;
+            } else {
+                $counts['left_alone_edited']['contacts']++;
+            }
+        }
+    }
+
+    /** AT-479 — the people a reOS import created for a company owner / tenant: archived with the batch, unless edited since. */
+    private function archivePeople(RentalTakeOnImportRow $row, array &$counts): void
+    {
+        foreach (($row->decisions_json['created_people'] ?? []) as $personId) {
+            $person = Contact::withoutGlobalScopes()->find($personId);
+            if (! $person) {
+                continue;
+            }
+            if ($this->untouchedSinceConfirm($person, $row)) {
+                $person->delete();
                 $counts['archived']['contacts']++;
             } else {
                 $counts['left_alone_edited']['contacts']++;

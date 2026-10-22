@@ -164,7 +164,8 @@ final class NoticesHubTest extends TestCase
             $this->assertStringNotContainsString($old, $html, "{$old} is no longer a menu item");
         }
 
-        preg_match('/data-nav-extra="([^"]*)"/', $html, $m);
+        // the Notices link's own extra entries (other tabbed items - Calendar, Letting... - carry theirs too, .ai/specs/*-menu-tabs.md)
+        preg_match('/<a href="[^"]*\/notices"[^>]*data-nav-extra="([^"]*)"/', $html, $m);
         $extra = json_decode(html_entity_decode($m[1]), true);
         $this->assertSame(['Breach Register', 'Notices Received', 'Rental Notices', 'Notice Templates'], array_column($extra, 'l'));
         $this->assertSame(
@@ -183,7 +184,7 @@ final class NoticesHubTest extends TestCase
 
     public function test_the_menu_item_the_entry_route_and_the_tabs_agree_on_the_permissions(): void
     {
-        $this->assertEqualsCanonicalizing(self::ALL, NoticesTabs::permissions());
+        $this->assertEqualsCanonicalizing(array_values(array_diff(self::ALL, ['rental_notices.create'])), NoticesTabs::permissions(), 'the four tabs');
 
         $middleware = collect(Route::getRoutes()->getByName('corex.notices.index')->gatherMiddleware())->first(fn ($m) => is_string($m) && str_starts_with($m, 'permission:'));
         $this->assertEqualsCanonicalizing(self::ALL, explode(',', substr($middleware, 11)));

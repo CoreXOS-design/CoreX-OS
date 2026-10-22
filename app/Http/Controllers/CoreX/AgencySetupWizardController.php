@@ -710,7 +710,8 @@ class AgencySetupWizardController extends Controller
                     'payment_proof_email' => LeaseSetting::paymentProofEmailSettingFor($agency->id) ?? '',
                     // leases.md §18.2 — the notice / early-cancellation defaults (each needs its own explicit arm, §6.2).
                     'tenant_notice_period_unit' => LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
-                    'default_earliest_notice_months' => LeaseSetting::earliestNoticeMonthsFor($agency->id),
+                    'expiry_notice_send_business_days' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agency->id),
+                    'expiry_notice_alert_business_days' => LeaseSetting::expiryNoticeAlertBusinessDaysFor($agency->id),
                     'default_early_cancellation_allowed' => LeaseSetting::earlyCancellationAllowedFor($agency->id),
                     'default_early_cancellation_notice' => LeaseSetting::earlyCancellationNoticeFor($agency->id),
                     'default_early_cancellation_notice_unit' => LeaseSetting::earlyCancellationNoticeUnitFor($agency->id) ?? LeaseSetting::tenantNoticePeriodUnitFor($agency->id),
@@ -754,6 +755,7 @@ class AgencySetupWizardController extends Controller
                     'catalogue_default_markup_value' => \App\Models\RentalWorkOrderSetting::catalogueMarkupValueFor($agency->id),
                     // BUILD 1 END
                     // BUILD 2 BEGIN — approvals keys
+                    'agents_approve_quotes' => \App\Models\RentalWorkOrderSetting::agentsApproveQuotesFor($agency->id),
                     'external_quote_markup_type' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupTypeFor($agency->id),
                     'external_quote_markup_value' => \App\Models\RentalWorkOrderSetting::externalQuoteMarkupValueFor($agency->id),
                     // BUILD 2 END

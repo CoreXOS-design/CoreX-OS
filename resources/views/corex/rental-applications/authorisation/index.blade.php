@@ -31,6 +31,9 @@
         </p>
     </div>
 
+    {{-- .ai/specs/rentals-menu-tabs.md - Application Authorisation is a tab of Rentals > Letting --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LettingTabs::class])
+
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: var(--ds-emerald-soft, #ecfdf5); color: var(--ds-emerald, #059669);">{{ session('success') }}</div>
     @endif

@@ -150,9 +150,6 @@ class LeaseNoticeReviewService
             $flags[] = $this->flag('terms_unconfirmed', self::SEV_INFO, 'The lease\'s notice terms have not been confirmed',
                 ($t['own_terms'] ? 'They were not checked against the signed lease.' : 'The lease holds none of its own - the agency\'s defaults are used.') . ' Check the signed lease before relying on them.');
         }
-        if (! $this->holidaysKnown($notice)) {
-            $flags[] = $this->flag('holidays_not_loaded', self::SEV_INFO, 'Public holidays for ' . $notice->year . ' are not loaded', 'Business days were counted as weekdays only.');
-        }
 
         return $flags;
     }
@@ -180,24 +177,9 @@ class LeaseNoticeReviewService
     /** Add business days: weekends and the South African public holidays in the leave module's table do not count. */
     public function addBusinessDays(CarbonInterface $from, int $days): Carbon
     {
-        $date = Carbon::instance($from)->startOfDay();
-        $holidays = PublicHoliday::forCountry('ZA')->between($date->copy()->addDay(), $date->copy()->addDays(max(60, $days * 3)))->pluck('holiday_date')
-            ->map(fn ($d) => Carbon::parse($d)->toDateString())->all();
-        $added = 0;
-        while ($added < $days) {
-            $date->addDay();
-            if ($date->isWeekend() || in_array($date->toDateString(), $holidays, true)) {
-                continue;
-            }
-            $added++;
-        }
-
-        return $date;
-    }
-
-    private function holidaysKnown(CarbonInterface $on): bool
-    {
-        return PublicHoliday::forCountry('ZA')->whereYear('holiday_date', $on->year)->exists();
+        // AT-489 - one business-day calculation for every lease rule (CPA s2(6): first day excluded, last included; weekends and the
+        // public holidays, Sunday -> Monday substitution included). The CPA early-cancellation check (s14(2)(b), 20 business days) uses it.
+        return app(BusinessDayService::class)->add($from, $days);
     }
 
     private function has(array $flags, string $code): bool

@@ -717,3 +717,247 @@ Exclusive and Open wording, 1 seller, no recipients).
 `~~~~OTHER_CONDITIONS~~~~` marker (InsertableBlockRenderer never runs on that route); a wet-ink document's
 confirmation-page preview still shows the un-expanded `merged_html`; documents already created keep their
 stored output until re-created.
+
+---
+
+## 21. Paper routes: whole pack, one combined PDF, Fill & Review honoured — HOTFIX 2026-10-21
+
+**Rule:** download-and-sign and wet-ink behave like the electronic route for what the agent configured: every
+document of a Web Pack, in pack order, and every value typed or confirmed in Fill & Review. N parties, never one seller.
+
+**Symptoms (Johan, QA1):** (1) a Web Pack on wet-ink / download-only gave only the FIRST document (QA1 flow 105 —
+pack [77,74,76] — stored Document 630 with only the Open Authority); (2) District / Complex typed in Fill & Review did
+not appear on the finished document.
+
+**Cause:** `prepareDownloadOnly` / `prepareWetInk` rendered `$flow->template` (the pack's first member) and never
+walked `step_data.template_ids` as `prepareSigning` does; and neither called `overlayFillReviewValues()`, so
+`web_template_data['_fill_review_overlay']` was empty and yesterday's `applyFillReviewAuthoritativeOverlay()` call in
+`expandRoleBlocksForPaper()` was a no-op. The paper routes also rendered the generated blade with a raw `view()`
+(an untracked per-host file — a missing one is a 500 there while the preview regenerated it).
+
+**Fix (`ESignWizardController` only):**
+- `paperRouteTemplates()` — the pack members in pack order (a single document is a list of one); same skip /
+  `assertAccessibleBy` rules as the electronic pack loop.
+- `buildPaperSegment()` — ONE shared builder for both routes and every member: resolve → `overlayFillReviewValues`
+  (scoped to the member via `_pack_template_id`) → render → inject values → role-block expansion for print.
+  The generated blade comes from `WebTemplateBladeEnsurer::ensure()` (regenerates when missing; a real render failure
+  still throws — a printed legal document never becomes a "preview" fallback).
+- **One Document per pack member** (own name, `pack_instance_id`, `web_template_data.paper_pack = {instance_id,
+  position, count}`), so an agent can pull e.g. the Mandatory Disclosure alone. Wet-ink: the FIRST document carries the
+  pack's single SignatureTemplate / requests / canonical (unchanged machinery); the others are plain paper documents
+  expanded for print. `step_data.pack_document_ids` lists them.
+- **The agent's download is ONE combined PDF** of the pack in pack order: `downloadDocumentPdf`, the download page
+  and the wet-ink confirmation page print `combinedPaperPackHtml()` (each document on its own page) when the
+  document belongs to a paper pack; a single document prints exactly as before.
+- The agent's legacy "Additional Conditions" block is added once per pack (first document), not once per member.
+- Electronic path untouched.
+
+**Tests:** `tests/Feature/Docuperfect/PaperRoutePackAndPropertyFieldsTest.php` (pack of 3 on both routes, combined
+print order, 2- and 3-seller domicilium in a pack, stand-alone unchanged, District typed in Fill & Review on both
+paper routes single + pack, missing blade regenerated).
+
+**Known, not changed here:** pack members that are not web templates are skipped (as the electronic loop does); a
+wet-ink pack still has ONE envelope (one set of recipient requests), not one per member.
+
+---
+
+## 22. Property fields fill from the Property record — HOTFIX 2026-10-21
+
+**Rule:** a property field the wizard snapshot lacks is filled from the linked Property record; a value the snapshot or
+Fill & Review holds is never overwritten. This is not a paper-route rule — District was blank on the electronic route
+too, which is a bug, not behaviour to preserve.
+
+**Cause:** the wizard saves only address, suburb, erf, complex, type and id for step 2, so `district`, `town`,
+`street_name` and `unit_number` never reached `WebTemplateDataService` (QA1 property 6060 has District "Ray Nkonyeni";
+its flow snapshot has none, so `property_district` resolved to "").
+
+**Fix:** `WebTemplateDataService::propertyForResolve()` (used by `resolve()`, `resolveCdsTemplate()`, `resolveBase()`)
+fills missing suburb / town / city / district / street_name / unit_number / complex_name / erf / property_type (and the
+address when both address and title are blank) from `Property::find(property_id)` — `properties` source only, the
+model's own agency scope applies. Fill & Review values are applied after `resolve()` and win over both.
+
+**Proof (before/after, 48 real QA1 resolutions, data layer):** 30 differ; every changed field was blank and is now
+filled (property_district, district, property_erf_number, erf_no, erf_unit_no, unit_no, complex_name,
+property_complex_name, property_type) EXCEPT `property_town`, 8 documents: it was "Shelly Beach" (the suburb used as a
+fallback) and is now "Margate" (the property's real town).
+
+**Lease documents (#88, #92):** lessor / lessee address and lease end already resolve from the linked contacts and the
+lease on lease flows (verified on flows 28, 32, 34, 35); nothing to fill. Lease agreements are e-sign only.
+
+**Tests:** `tests/Feature/Docuperfect/PropertyFieldsFromRecordTest.php` (sectional record fill on both paper routes,
+snapshot never overwritten, freehold blank and no bleed from another property, electronic route typed District + record fill).
+
+---
+
+## 23. Stand-alone Mandatory Disclosure carries the property header — HOTFIX 2026-10-21
+
+**Symptom (Johan):** the sales Mandatory Disclosure (#81) opens with "…the immovable property situated at <address>";
+the stand-alone Mandatory Disclosure (#74, a CDS import) had no property address anywhere, on any route.
+
+**Fix:** `php artisan esign:add-property-header {template} [--apply]` (`AddPropertyHeaderToTemplate`) adds that clause
+straight after the title as a BOUND Property Address tag — the CDS builder's own shape (a `doc-tag` span, `sf:property`
+mapping to the Property Address named field), not typed text — in both `editor_state` and `field_mappings`, then rebuilds
+the generated blade through `WebTemplateBladeEnsurer::regenerate()`. A template is data and its id differs per
+environment, so this is a command, not a migration: dry-run by default, idempotent (marker
+`data-corex-property-header`), refuses anything that is not a CDS "…Disclosure". It resolves like any property field, so
+it shows on electronic, download-and-sign and wet-ink, stand-alone and inside a pack, and appears in Fill & Review.
+
+**Run it on each environment** against that environment's stand-alone MDF id (QA1: #74).
+
+**Report only (not changed):** #76 "ADDENDUM B" (CDS import, no document type) and #80 "Addendum B" (sales, reference
+Addendum B) both record facts about "the property" (building plans, compliance certificates) and carry no property
+address header — they are property documents without one.
+
+**Tests:** `tests/Feature/Docuperfect/MandatoryDisclosurePropertyHeaderTest.php`.
+
+---
+
+## 24. Proxy / signing on behalf of — who signs for whom (AT-498, HOTFIX 2026-10-21)
+
+**Rule in one line:** a person marked **Proxy** signs for the *other parties the agent ticks* — not automatically for everyone.
+Parties who are not covered by a proxy stay full signatories. **Never assume one seller; never drop a party who is not covered.**
+This section is the single written source of truth for the rule. The code is `App\Support\Docuperfect\ProxyCoverage`
+(the only place the question is answered) and every route reads it.
+
+### 24.1 Words used
+- **Party / role group** — a recipient and the other recipients of the SAME role on the same document (sellers, buyers, landlords,
+  tenants, any role; sales and rental alike). Roles never mix: a proxy among the sellers has no effect on the buyers.
+- **Proxy** — a party who also signs on behalf of one or more other parties of their role (the agent ticks **Proxy — signs on behalf
+  of other parties in this role** on that person's card in the Recipients step).
+- **Represented party** — a party a proxy signs for. **Unrepresented party** — a party of the same role no proxy covers; they sign for themself.
+- **Covered set** of a proxy = every other living, non-company party of the same role **except the ones the agent un-ticked**.
+- A person can be a proxy **or** be represented, not both (a proxy always signs, so the picker does not offer a proxy, a deceased party
+  or a company as someone to be signed for).
+
+### 24.2 How the agent sets it (Recipients step)
+1. Tick **Proxy** on a person. A picker **"Signs on behalf of:"** appears listing every other party of that role. **All start ticked**
+   — that is exactly what a proxy always meant, so nothing changes unless the agent un-ticks someone.
+2. Un-tick the parties the proxy does **not** sign for. **At least one must stay ticked** — a proxy for nobody is refused (24.8).
+3. Below the picker the wizard shows the resulting recipient list **live**: *"A — signs for self and for B"*, *"C — signs for self"*.
+4. A party added to the role later is covered by default (as a proxy always covered everyone) — un-tick them if they should sign themself.
+5. **Step 6 (Signing Order) shows the real recipients before the agent presses Sign Document.** A party a proxy signs for is **not** listed as a
+   signer or email recipient there: they collapse to one non-editable line under the proxy — *"Paula Partner — signed for by Peter Proxy (proxy)"* — and
+   the proxy's own card is the one that signs. The numbers (1, 2, 3 …) and **Move up / Move down** run across the real signers only (the agent counts as
+   the first); a party with no email who is covered by a proxy raises no "no email" warning, because nothing is sent to them. The same rule as 24.3 decides who is covered.
+6. A company in the role: its signers are not offered in the picker. A proxy with **nothing un-ticked** covers them as it always did; once the
+   agent un-ticks anyone (a partial proxy) the company's own signers keep signing for the company. The picker says so.
+
+**Stored as** `recipients[]._proxy_excludes` — the list of parties the proxy does **not** sign for, each by its stable
+`_recipient_local_key`. **Empty / absent = signs for everyone else** (the original behaviour; every existing proxy and every flow with no
+proxy needs no change). Frozen on the signature request at send as `signature_requests.proxy_excludes` (JSON; migration
+`2026_11_27_100200`) so the rule never depends on live data afterwards. A party with no stable key can never be un-ticked, so a partial proxy never covers it.
+
+### 24.3 Who signs — the exact rule
+A party is **covered** (displayed, but not asked to sign) when a proxy of the same role covers them: the proxy has no exclusions, or the
+party is not in the proxy's exclusion list. A proxy, and everyone not covered, **signs**. A deceased party never signs (their replacement
+mechanism is separate and untouched). Several proxies in one role are allowed; each covers its own people.
+The rule exists once (`ProxyCoverage`) and is read by: the wizard's signing-participant filter (signature-block inputs), the role-block
+expansion (which signature/initial/attestation blocks print), `SignatureRequest::nonSigningReason()` (who is sent a link), the
+preview rows, and the renderer's initial-slot count.
+
+### 24.4 How the document reads
+- **Unrepresented party and the proxy:** their own plain name and ID, exactly as for any party.
+- **Represented party:** their entry reads **"{name} (ID: …), herein represented by {proxy name} (ID: …) in terms of a proxy"** — in the
+  "I/We …" party list, anywhere the document lists the role's parties, and in the Step 6 preview. A clause the party already has
+  (a deceased party's "Late Estate of … herein represented by …", or a company's representation clause) is **never overwritten**.
+- **The proxy's signature caption:** *"For self and as proxy for B"* (or *"… for B and C"* for several). A proxy who covers only B is never
+  described as signing for C.
+- **Order in the wording:** the proxy holder first, then the parties they sign for, then everyone else — *"Peter Proxy (ID…); Paula Partner (ID…), herein
+  represented by Peter Proxy (ID…); and Sam Separate (ID…)"*. A proxy and the parties it covers form one group, placed where the earliest of its members stood
+  (`ProxyCoverage::orderForWording`); everyone else keeps their place; no proxy → no reordering.
+- **A saved party list never overrides the derived order.** Fill & Review saves the party-list text the agent saw (the `field_group_display` value). When a saved
+  list holds exactly the same words as the freshly derived one — only the order differs, e.g. it was saved before the proxy order rule, or the agent changed who is
+  proxy afterwards — the derived list is used on the Step 5 form, the Step 6 preview and every sent / printed document (`ProxyCoverage::preferFreshOrder`,
+  `ESignWizardController::freshenStoredPartyLists` and `overlayFillReviewValues`). A list the agent genuinely edited (different words) is kept as typed.
+- Partial vs full is just the length of the covered list: full proxy → every other party reads "herein represented by A"; partial → only
+  the ticked ones do; the un-ticked party's entry is plain.
+- Wording is produced in one place (`ProxyCoverage::withRepresentation`, applied by `WebTemplateDataService` for every route and the preview),
+  never typed into a template.
+
+### 24.5 Which blocks appear (per party)
+| Block | Proxy (signs for self + covered) | Represented party | Unrepresented party |
+|---|---|---|---|
+| **Signature block** ("Thus done and signed by the Seller…") | **one**, in the proxy's own name (caption says "for self and as proxy for …") | **none of their own** | **their own** |
+| **Initials** (margin / per-condition) | the proxy initials once (initials count = signers) | none | their own |
+| **Domicilium / address-and-contact block** | their own details | **their own details still print** | their own details |
+| **Attestation block** | the proxy's | not split out for them | their own |
+| **Named in the party list / "herein represented by"** | plain name | "…, herein represented by {proxy}" | plain name |
+A represented party is therefore still a party to the document (named, with address and contact details) but is not a *signatory*; an unrepresented
+party is indistinguishable from a party on a document with no proxy at all.
+
+### 24.6 Recipients, signing order and notifications
+- **Every party gets a signature-request row** — nobody is dropped from the record. A covered party's row is created like any other
+  (`isSigningParticipant()` = false, reason `proxy_collapsed`); when invitations go out the system skips it, marks it *not required* and logs
+  `send_skipped_not_signing_participant` — it is never emailed a link and never blocks completion. Signers are *waiting → pending* as usual.
+- In the example (A proxy for B only; C unrepresented) there are **2 people who sign**: A (for A and B) and C (for themself); B is a row
+  that does not sign.
+- **Wherever recipients are listed, a represented party is not one.** Step 6 (24.2 point 5) and the wet-ink confirmation screen list only the people who
+  sign / are sent something; each represented party is one line under their proxy ("… signed for by … (proxy)"). On the wet-ink screen a represented party
+  never holds the document in "waiting for recipient" — completion looks only at the people who sign.
+- **Signing order** is unchanged (agent → acquiring party → owner party → witness, SA convention; the agent's per-document order within a role).
+  A proxy signs at their own position; a covered party has no position of their own. Completion waits for exactly the signers.
+- Signing-participant status is frozen on the row (`is_proxy`, `proxy_excludes`, `recipient_local_key`), so a later edit to a contact never changes who was required.
+
+### 24.7 Behaviour on every route (single documents and packs)
+| Route | What changes | Where |
+|---|---|---|
+| **Electronic** | requests built for all parties; covered ones *not required*; signature/initial/attestation blocks only for signers; wording per 24.4 | `prepareSigning` |
+| **Wet-ink** | same request rows (one envelope); printed copy carries the signers' blocks, every party's domicilium, and the wording | `prepareWetInk` |
+| **Download-and-sign** | no requests; printed document carries the same blocks and wording as wet-ink | `prepareDownloadOnly` |
+| **Packs** | the SAME recipients and the SAME rule apply to every document of the pack (each member prints/blocks for the same signers); wet-ink pack = one envelope on the first document | all three, per pack member |
+| **Step 6 preview** | shows the same wording and blocks the sent document will carry | `WebTemplateDataService` + preview rows |
+No route has its own proxy logic.
+
+### 24.8 Validation
+A proxy who signs for nobody (everyone un-ticked, or the only person in their role) is **refused on all three routes** with
+*"{name} is marked as a proxy but signs for nobody. Tick at least one other party they sign for, or untick Proxy."* (422 / validation error;
+nothing is created). The wizard also shows this beside the picker and the live list.
+
+### 24.9 Proof of authority (power of attorney / resolution) — **PENDING, not built**
+**Decision (Johan, 21 Oct 2026): left OUT of this hotfix; Johan is asking whether it is wanted.** Today the proxy flow captures **no** proof
+document (the existing POA link is only the company-representative relationship on a contact, `contact_representatives`). If it is wanted,
+the intended shape is one proof upload **per represented party** (a `Document` row attached to the represented contact and the property, linked
+from that party's entry on the proxy's card), required or optional by agency setting, shown on the proxy's signing screen. Nothing in 24.1–24.8 depends on it.
+
+### 24.10 Existing flows are unchanged (proved)
+- **No proxy:** `ProxyCoverage::withRepresentation` and `violation` are no-ops; the signer list is the full list — identical to before.
+- **Proxy with no exclusions (every proxy that exists today):** covers everyone else — identical to the old rule. Proved by
+  `ProxyCoverageRuleTest::test_every_existing_flow_resolves_identically_to_the_old_rule` (the old function reproduced verbatim and compared over
+  more than 1,000 generated recipient sets: up to 5 parties, two roles, plain / proxy / deceased, with and without keys), and against every flow on QA1.
+- Company (entity) proxies keep their own mechanism (`_entity_proxy_contact_id`, `EsignRecipientPreset` wording) untouched.
+
+### 24.11 Tests
+`tests/Feature/Docuperfect/SigningView/ProxyCoverageRuleTest.php` (the rule: legacy equivalence, 3 parties partial / full / none, 2–6 parties,
+sales and rental roles, two proxies in one role, keyless and company rows never dropped, wording, refusal) and
+`PartialProxyRoutesTest.php` (electronic, download-and-sign, wet-ink and a pack: who gets a request, whose signature blocks print, one domicilium per
+party, wording, exclusions frozen on the row, refusal on every route, existing shapes unchanged).
+
+---
+
+## 25. Template markers never print on a paper copy — HOTFIX 2026-10-21
+
+**Rule:** a `~~~~MARKER~~~~` in a template (clause 2.8 "Other: `~~~~OTHER_CONDITIONS~~~~`" of the Exclusive Authority To Sell, the Open mandate, the
+Mandatory Disclosure…) is replaced when the document is prepared. A paper copy **never** prints the tildes: an unfilled marker is **blank**; when the agent
+entered conditions in Fill & Review they print there. Electronic output is not touched.
+
+**Symptom (Johan, QA1):** `~~~~OTHER_CONDITIONS~~~~` printed in clause 2.8 — on the download-and-sign copy, and on the wet-ink confirmation screen (which also
+showed all sellers merged into one block).
+
+**Cause:** only the signing renderer (`CanonicalDocumentRenderer::compose` → `InsertableBlockRenderer`) fills markers. A download-and-sign document, and the
+non-first documents of a wet-ink pack, are never composed, so the marker stayed in `merged_html` and printed. The wet-ink confirmation screen displayed the raw
+`merged_html` (un-composed: marker present, sellers merged) instead of what the PDF prints (the composed `canonical_html`). The PDFs of an electronic and of a wet-ink
+document were already correct.
+
+**Fix (`ESignWizardController`, paper routes only):**
+- `resolvePaperConditionMarkers()` runs when a paper document's body is built (download-and-sign, and wet-ink pack documents that are not composed): `OTHER_CONDITIONS`
+  (same tolerance as the signing renderer — tags, case, spacing, a `__DOCKEY` suffix and a typo or two ignored) → the agent's conditions: this pack member's Fill & Review
+  frames (`other_condition_frames`; `target_doc_index` picks the document, none = the first), else the legacy `other_conditions_text` on the first document; a single
+  condition prints as written, several are numbered "1. … 2. …"; text is escaped (never markup). Every other marker (`INCLUDED_ITEMS`, `EXCLUDED_ITEMS`, `CUSTOM:…`, unknown)
+  and an `OTHER_CONDITIONS` with nothing entered → blank.
+- The first wet-ink document keeps its marker in the stored raw body (compose starts from it) — unchanged; its canonical is filled by the renderer as before.
+- `paperPrintHtml()` — what the PDF, the download page and the wet-ink confirmation screen show — is the composed canonical when there is one; a stored document without a
+  canonical has any marker blanked, so no surface can print a literal marker.
+- The wet-ink confirmation screen now shows what the PDF prints (per-party domicilium blocks, filled clause 2.8) instead of the raw body.
+
+**Tests:** `tests/Feature/Docuperfect/PaperOtherConditionsMarkerTest.php` (blank when empty; text printed once; escaped; numbered; pack members get only their own frames;
+misspelt / included-items / custom / HTML-wrapped markers; wet-ink first document composed + confirmation screen; no-canonical fallback).

@@ -45,7 +45,14 @@ class LeaseSettingsController extends Controller
             'agencyEmail' => (string) \App\Models\Agency::withoutGlobalScopes()->whereKey($agencyId)->value('email'),
             // leases.md §18.2 — the agency's default notice / early-cancellation terms.
             'tenantNoticePeriodUnit' => LeaseSetting::tenantNoticePeriodUnitFor($agencyId),
-            'earliestNoticeMonths' => LeaseSetting::earliestNoticeMonthsFor($agencyId),
+            // AT-489 - the lease expiry notice (Consumer Protection Act, business days): the day CoreX sends it and the day the agents are alerted.
+            'expirySend' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId),
+            'expiryAlert' => LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId),
+            'expirySendDefault' => LeaseSetting::DEFAULT_EXPIRY_NOTICE_SEND_BUSINESS_DAYS,
+            'expiryAlertDefault' => LeaseSetting::DEFAULT_EXPIRY_NOTICE_ALERT_BUSINESS_DAYS,
+            'expiryMin' => LeaseSetting::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS,
+            'expiryMax' => LeaseSetting::CPA_EXPIRY_NOTICE_MAX_BUSINESS_DAYS,
+            'hasExpiryTemplate' => app(\App\Services\Rentals\LeaseExpiryNoticeService::class)->templateFor($agencyId) !== null,
             'earlyCancellationAllowed' => LeaseSetting::earlyCancellationAllowedFor($agencyId),
             'earlyCancellationNotice' => LeaseSetting::earlyCancellationNoticeFor($agencyId),
             'earlyCancellationNoticeUnit' => LeaseSetting::earlyCancellationNoticeUnitFor($agencyId),
@@ -117,7 +124,10 @@ class LeaseSettingsController extends Controller
             'payment_proof_email' => ['nullable', 'email', 'max:191'],
             // leases.md §18.2 — the same §6.1 has()-guard reasoning for every notice default below.
             'tenant_notice_period_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
-            'default_earliest_notice_months' => ['nullable', 'integer', 'min:0', 'max:60'],
+            // AT-489 - the lease expiry notice, in business days before the lease ends (Consumer Protection Act window 40-80); same has()-guard
+            // reasoning; blank = the default (60 / 45). The alert day must sit between 40 and the send day (checked below).
+            'expiry_notice_send_business_days' => ['nullable', 'integer', 'min:' . LeaseSetting::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS, 'max:' . LeaseSetting::CPA_EXPIRY_NOTICE_MAX_BUSINESS_DAYS],
+            'expiry_notice_alert_business_days' => ['nullable', 'integer', 'min:' . LeaseSetting::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS, 'max:' . LeaseSetting::CPA_EXPIRY_NOTICE_MAX_BUSINESS_DAYS],
             'default_early_cancellation_allowed' => ['nullable', 'string', 'in:yes,no'],
             'default_early_cancellation_notice' => ['nullable', 'integer', 'min:1', 'max:999'],
             'default_early_cancellation_notice_unit' => ['nullable', 'string', 'in:' . implode(',', LeaseSetting::NOTICE_UNITS)],
@@ -185,10 +195,23 @@ class LeaseSettingsController extends Controller
                 $data[$field] = $validated[$field] ?? null ?: null; // blank = back to the default
             }
         }
-        foreach (['default_earliest_notice_months', 'default_early_cancellation_notice'] as $field) {
+        foreach (['default_early_cancellation_notice', 'expiry_notice_send_business_days', 'expiry_notice_alert_business_days'] as $field) {
             if ($request->has($field)) {
                 $v = $validated[$field] ?? null;
-                $data[$field] = $v === null || $v === '' || ($field === 'default_earliest_notice_months' && (int) $v === 0) ? null : (int) $v; // blank / 0 = none
+                $data[$field] = $v === null || $v === '' ? null : (int) $v; // blank = back to the default
+            }
+        }
+        // AT-489 - the alert day sits between 40 and the send day; checked on what would be saved (a blank is the default).
+        if (array_key_exists('expiry_notice_send_business_days', $data) || array_key_exists('expiry_notice_alert_business_days', $data)) {
+            $send = array_key_exists('expiry_notice_send_business_days', $data)
+                ? ($data['expiry_notice_send_business_days'] ?? LeaseSetting::DEFAULT_EXPIRY_NOTICE_SEND_BUSINESS_DAYS)
+                : LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId);
+            $alert = array_key_exists('expiry_notice_alert_business_days', $data)
+                ? ($data['expiry_notice_alert_business_days'] ?? LeaseSetting::DEFAULT_EXPIRY_NOTICE_ALERT_BUSINESS_DAYS)
+                : LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId);
+            if ($alert < LeaseSetting::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS || $alert > $send) {
+                return back()->withInput()->withErrors(['expiry_notice_alert_business_days' => 'The alert day (' . $alert . ' business days before the lease ends) must be between '
+                    . LeaseSetting::CPA_EXPIRY_NOTICE_MIN_BUSINESS_DAYS . ' and the day the notice is sent (' . $send . ').']);
             }
         }
         if ($request->has('default_early_cancellation_penalty')) {
@@ -235,6 +258,9 @@ class LeaseSettingsController extends Controller
             'restore_end_date_on_leaving_month_to_month' => LeaseSetting::restoreEndDateOnLeavingMonthToMonthFor($agencyId),
             'signed_copy_not_live_note' => LeaseSetting::signedCopyNotLiveNoteFor($agencyId),
             'end_tenancy_on_move_out_date' => LeaseSetting::endTenancyOnMoveOutDateFor($agencyId),
+            // AT-489 - these two move when every lease's expiry notice goes out, so who changed them, and from what, is on record like the others.
+            'expiry_notice_send_business_days' => LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId),
+            'expiry_notice_alert_business_days' => LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId),
         ];
 
         LeaseSetting::updateOrCreate(['agency_id' => $agencyId], $data);
@@ -242,7 +268,11 @@ class LeaseSettingsController extends Controller
         $source = str_contains((string) $request->route()?->getName(), 'agency-setup') ? 'wizard' : 'settings';
         foreach ($before as $key => $old) {
             if (array_key_exists($key, $data)) {
-                \App\Models\RentalSettingAuditEntry::record((int) $agencyId, $request->user(), $key, $old, $data[$key], $source);
+                // a blank is "back to the default": record the figure that now applies, not null
+                $new = in_array($key, ['expiry_notice_send_business_days', 'expiry_notice_alert_business_days'], true)
+                    ? ($key === 'expiry_notice_send_business_days' ? LeaseSetting::expiryNoticeSendBusinessDaysFor($agencyId) : LeaseSetting::expiryNoticeAlertBusinessDaysFor($agencyId))
+                    : $data[$key];
+                \App\Models\RentalSettingAuditEntry::record((int) $agencyId, $request->user(), $key, $old, $new, $source);
             }
         }
 

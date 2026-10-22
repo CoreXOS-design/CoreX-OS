@@ -163,11 +163,29 @@
                     </p>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Notice may not be given before (months into the lease)</label>
-                    <input type="number" name="default_earliest_notice_months" value="{{ old('default_earliest_notice_months', $earliestNoticeMonths) }}"
-                           min="0" max="60" placeholder="No rule"
-                           class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);">
-                    <p class="text-xs mt-2" style="color: var(--text-muted);">Blank = notice may be given from the start. Sets each new lease's "earliest date notice may be given" to its start date plus this many months.</p>
+                    {{-- AT-489 - the agency's expiry notice to the tenant, Consumer Protection Act (s14(2)(c); counted per s2(6)). --}}
+                    <div x-data="{ send: {{ \Illuminate\Support\Js::from((string) old('expiry_notice_send_business_days', $expirySend)) }}, alert: {{ \Illuminate\Support\Js::from((string) old('expiry_notice_alert_business_days', $expiryAlert)) }}, min: {{ $expiryMin }}, max: {{ $expiryMax }},
+                                 sendBad() { const n = parseInt(this.send); return this.send !== '' && (isNaN(n) || n < this.min || n > this.max); },
+                                 alertBad() { const a = parseInt(this.alert), s = this.send === '' ? {{ $expirySendDefault }} : parseInt(this.send); return this.alert !== '' && (isNaN(a) || a < this.min || a > s); } }" data-qa="expiry-notice-settings">
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Send the lease expiry notice ___ business days before the lease ends</label>
+                        <input type="number" name="expiry_notice_send_business_days" x-model="send" min="{{ $expiryMin }}" max="{{ $expiryMax }}" placeholder="{{ $expirySendDefault }}" data-qa="expiry-notice-send"
+                               class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" :style="sendBad() ? 'border: 1px solid var(--ds-crimson);' : 'border: 1px solid var(--border);'">
+                        <p class="text-xs mt-1" style="color: var(--ds-crimson);" x-show="sendBad()" x-cloak>Between {{ $expiryMin }} and {{ $expiryMax }} business days - the Consumer Protection Act window.</p>
+                        @error('expiry_notice_send_business_days')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        <label class="block text-xs font-semibold mb-1 mt-3" style="color:var(--text-muted);">If it has not gone out, alert the lease's agents when ___ business days remain</label>
+                        <input type="number" name="expiry_notice_alert_business_days" x-model="alert" min="{{ $expiryMin }}" max="{{ $expiryMax }}" placeholder="{{ $expiryAlertDefault }}" data-qa="expiry-notice-alert"
+                               class="w-full max-w-[120px] rounded-md px-3 py-2 text-sm" style="border: 1px solid var(--border);" :style="alertBad() ? 'border: 1px solid var(--ds-crimson);' : 'border: 1px solid var(--border);'">
+                        <p class="text-xs mt-1" style="color: var(--ds-crimson);" x-show="alertBad()" x-cloak>Between {{ $expiryMin }} and the day the notice is sent.</p>
+                        @error('expiry_notice_alert_business_days')<p class="text-xs mt-1" style="color: var(--ds-crimson);">{{ $message }}</p>@enderror
+                        <p class="text-xs mt-2" style="color: var(--text-muted);">
+                            The Consumer Protection Act says the agency must tell a tenant their fixed term is ending not more than {{ $expiryMax }} and not less than {{ $expiryMin }} business days before it ends
+                            (the first day is not counted, the last is; Saturdays, Sundays and public holidays do not count). CoreX sends the notice on the day you choose here (default {{ $expirySendDefault }}), in your own
+                            "Lease expiry notice" template. If it has not gone out by the alert day (default {{ $expiryAlertDefault }}) the lease's agents are told, and once fewer than {{ $expiryMin }} business days remain the lease is flagged overdue.
+                        </p>
+                        @unless($hasExpiryTemplate)
+                            <p class="text-xs mt-1" style="color: var(--ds-amber, #b45309);" data-qa="expiry-template-missing">You have no "Lease expiry notice" template yet, so CoreX cannot send it for you - it will alert your agents instead. Add one in Settings -> Rental Notice Templates.</p>
+                        @endunless
+                    </div>
                 </div>
                 <div>
                     <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);">Early cancellation of a fixed term is</label>

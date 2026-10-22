@@ -222,49 +222,26 @@
      @capture-entry-deleted.window="removeCaptureEntry($event.detail)"
 >
 
-    {{-- Sticky header, 2026-09-08 — second time today the same fault: controls
-         stranded off-screen while the user scrolls a long surface. Same fix as
-         the rental application form (resources/views/corex/rental-applications/
-         show.blade.php) — the shared x-sticky-action-bar component, not a new
-         invention. Its right slot swaps between the role's own primary action
-         (normal) and the highlighter's own toolbar + Save button (while a
-         document is open for marking) — Johan: "place them in a header so the
-         agent can scroll and see the highlighter as well as the save buttons
-         at all times." Unified screen, 2026-09-09 — the authoriser used to
-         have its own non-sticky banner with the highlighter toolbar rendered
-         inline per-document instead; moved onto this same shared header so
-         "same layout for both roles" is literally true, not just visually
-         similar. --}}
-    <x-sticky-action-bar>
-        <x-slot name="left">
+    {{-- Sticky header, 2026-09-08 — controls must never be stranded off-screen
+         while the user scrolls a long surface. Johan: "every primary action on
+         this screen belongs in the header where it is always visible."
+         Unified screen, 2026-09-09 — the same header serves both roles.
+
+         AT-501 restyle, 2026-10-22 — the standard flat page banner every other
+         page uses (`corex-page-banner`: bold title, muted subtitle line,
+         actions on the right, full-bleed bottom rule). Same content and
+         controls as the old x-sticky-action-bar version — only the look
+         changed. Keeps `sticky top-0 z-50`: rentalReviewLayout()'s recalc()
+         finds the header by exactly those classes to size the two columns. --}}
+    <div class="rr-review-header corex-page-banner sticky top-0 z-50">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div class="min-w-0">
-                {{--
-                    ROUND 4, 2026-09-11 — Johan: "this at the top... cut it
-                    down to 1 row. lots of wasted screen there as well."
-                    Was three stacked elements (h1 title, a plain subtitle
-                    <p>, and — agent-only — the property-link widget's own
-                    <p>/<div>) with "No property linked" independently
-                    computed and rendered by TWO of them. Now one flex row:
-                    bold title truncates on its own (a genuinely unbounded
-                    contact name is the only unbounded content here), the
-                    property/lock/submitted facts are flex-shrink-0 so they
-                    never get clipped, and the whole row carries a `title`
-                    with the full untruncated text — the same degrade-
-                    legibly fallback already used on the affordability rows,
-                    chosen deliberately over letting this wrap to a second
-                    row (which would just recreate the "lots of wasted
-                    screen" complaint one row lower).
-                --}}
-                <h1 class="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">
-                    <span class="truncate font-bold" style="min-width:0;">{{ $headerTitleText }}</span>
-                    <span class="text-xs font-normal flex-shrink-0 whitespace-nowrap" style="color: var(--text-muted);">
-                        &middot; {{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif
-                    </span>
-                    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — SAME
-                         badge classes/labels the Contact page already uses
-                         for this exact fact, so an agent reads it the same
-                         way in both places rather than learning a second
-                         visual language for it. --}}
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);" title="{{ $headerFullText }}">{{ $headerTitleText }}</h1>
+                    {{-- FICA-mandatory, AT-392 round 3, 2026-09-13 — the same
+                         shared <x-pill> the Contact page header uses for this
+                         exact fact, so an agent reads it the same way in both
+                         places rather than learning a second visual language. --}}
                     @php
                         $ficaStatus = $rentalApplication->contact?->ficaStatus() ?? 'incomplete';
                         // Approve modal start values (Sherry walk): the property's own rent and deposit, never 0.00 to retype.
@@ -275,11 +252,11 @@
                         // not finished verifying) is not "Outstanding" in red — they have done their part; it reads amber.
                         $ficaGateInfo = $rentalApplication->ficaGateDescribe();
                         $ficaSubmittedOnly = $ficaStatus === 'incomplete' && $ficaGateInfo['open'];
-                        $ficaBadgeClass = match(true) {
-                            $ficaSubmittedOnly => 'ds-badge-warning',
-                            $ficaStatus === 'complete' => 'ds-badge-success',
-                            $ficaStatus === 'expiring' => 'ds-badge-warning',
-                            default => 'ds-badge-danger',
+                        $ficaBadgeDot = match(true) {
+                            $ficaSubmittedOnly => 'var(--ds-amber)',
+                            $ficaStatus === 'complete' => 'var(--ds-green)',
+                            $ficaStatus === 'expiring' => 'var(--ds-amber)',
+                            default => 'var(--ds-crimson)',
                         };
                         $ficaBadgeLabel = match(true) {
                             $ficaSubmittedOnly => 'FICA Submitted',
@@ -288,150 +265,116 @@
                             default => 'FICA Outstanding',
                         };
                     @endphp
-                    <span class="ds-badge {{ $ficaBadgeClass }} flex-shrink-0" title="{{ $ficaSubmittedOnly ? 'The applicant has submitted FICA — it is with us for review.' : ($ficaGateInfo['warning'] ?? 'FICA status for ' . $rentalApplication->contact?->full_name) }}">{{ $ficaBadgeLabel }}</span>
+                    <x-pill :label="$ficaBadgeLabel" :dot="$ficaBadgeDot" :title="$ficaSubmittedOnly ? 'The applicant has submitted FICA — it is with us for review.' : ($ficaGateInfo['warning'] ?? 'FICA status for ' . $rentalApplication->contact?->full_name)" />
                     @if(! $ficaGateInfo['open'] && $ficaGateInfo['url'])
-                        <a href="{{ $ficaGateInfo['url'] }}" class="text-xs underline flex-shrink-0" style="color: var(--ds-amber, #b45309);" data-qa="fica-gate-link">Request / complete FICA</a>
+                        <a href="{{ $ficaGateInfo['url'] }}" class="text-xs font-semibold underline flex-shrink-0" style="color: var(--ds-amber, #b45309);" data-qa="fica-gate-link">Request / complete FICA</a>
                     @endif
                     {{-- Submission identity gate, 2026-09-13 — two DISTINCT
-                         states, never folded into one ambiguous tile:
+                         states, never folded into one ambiguous pill:
                          "still waiting on the applicant" vs "we can't even
-                         ask them, go chase this yourself." Same ds-badge
-                         convention as the FICA badge above so an agent
-                         reads it the same way. --}}
+                         ask them, go chase this yourself." --}}
                     @if($rentalApplication->identityVerificationAwaitingApplicantAction())
-                        <span class="ds-badge ds-badge-warning flex-shrink-0" title="The applicant has submitted but hasn't yet completed identity verification">Awaiting applicant identity confirmation</span>
+                        <x-pill label="Awaiting applicant identity confirmation" dot="var(--ds-amber)" title="The applicant has submitted but hasn't yet completed identity verification" />
                     @elseif($rentalApplication->identityVerificationUnreachable())
-                        <span class="ds-badge ds-badge-danger flex-shrink-0" title="No email or ID number on file to verify this applicant — contact them directly">Identity unreachable — action needed</span>
-                    @endif
-                </h1>
-
-                @if($viewerRole === 'agent')
-                    {{--
-                        AT-392, Johan (approved via conductor, 2026-09-08): "property
-                        linked should be an option then on review... if not linked and
-                        we want to test against it then we need to allow the agent to
-                        link it on this screen as well." The affordability check was
-                        silently testing the applicant's self-reported CURRENT rent
-                        when nothing was linked — meaningless. This picker reuses the
-                        exact same search-properties endpoint and Alpine pattern as
-                        the New Rental Application screen's property field
-                        (resources/views/corex/rental-applications/create.blade.php)
-                        — not a second implementation. A NESTED, independent x-data
-                        scope, deliberately not touching the shared rentalReview()
-                        component (cc4's affordability panel further down the page
-                        reads from that) — this widget only ever POSTs to its own
-                        link-property route and reloads. Agent-only, 2026-09-09: an
-                        authoriser reviewing someone else's application shouldn't be
-                        changing which property it's tested against — that's the
-                        agent's call, not a decision this merge hands the authoriser
-                        for free.
-                    --}}
-                    {{--
-                        AT-392 follow-up, Johan (QA1, item 4 of the post-test findings,
-                        2026-09-10): "if you did not select the property before the
-                        rental application opens you cannot add it on the application."
-                        Investigated by actually doing it, not by reading the source —
-                        the control was never broken: search-properties and
-                        link-property both work exactly as built, unconditionally, at
-                        every status, with no gate beyond the ordinary agent-viewer
-                        check already on this whole block. The real defect was that
-                        this control read as inert status text, not a button, and its
-                        copy ("Link a property to check against its rent") framed
-                        itself as an affordability side-calculator rather than what it
-                        actually is — the only way to attach a property to THIS
-                        application at all. A few lines away, the affordability panel
-                        (a different feature's screen real estate, not touched here)
-                        has its OWN static, non-clickable sentence that happens to
-                        start with the same three words — easy to mistake for the
-                        same control. Fix is copy + prominence only; the mechanism
-                        underneath (search-properties/link-property, agent-only,
-                        unconditional on status) is unchanged.
-                    --}}
-                    @if(!($propertyLinkLocked ?? false))
-                    {{--
-                        ROUND 4, 2026-09-11 — the locked branch's own copy of
-                        this fact was removed entirely (the h1 above already
-                        carries it — see this file's top PHP setup block). This
-                        unlocked branch's own "Property: X"/"No property
-                        linked yet." text is ALSO removed here for the same
-                        reason (the h1's fact covers it too, always, not just
-                        when locked) — only the interactive buttons remain,
-                        appended inline onto the same header row rather than
-                        a separate stacked line.
-                    --}}
-                    <div class="inline-flex items-center gap-1.5 flex-shrink-0" x-data="rentalReviewPropertyLink({{ Js::from([
-                        'searchUrl' => route('corex.rental-applications.search-properties'),
-                        'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),
-                        'currentLabel' => $propertyLabel,
-                    ]) }})">
-                        <template x-if="!searching">
-                            <span class="inline-flex items-center gap-1.5">
-                                <button type="button"
-                                        class="corex-btn-outline"
-                                        style="padding: 0.15rem 0.6rem; font-size: 0.7rem; line-height: 1.2;"
-                                        @click="searching = true">
-                                    <span x-text="currentLabel ? 'Change property' : 'Link a property'"></span>
-                                </button>
-                                <button type="button" class="underline text-xs" style="color: var(--ds-red, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
-                            </span>
-                        </template>
-                        <template x-if="searching">
-                            <div class="relative" style="max-width: 22rem;">
-                                <input type="text" x-model="query" @input.debounce.300ms="search()" @keydown.escape="searching = false"
-                                       placeholder="Search rental properties…" autofocus
-                                       class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
-                                <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
-                                {{-- Johan, QA1 walk, 2026-09-21 — same richer
-                                     result row as the PDF splitter's property
-                                     picker: address + status, then ref + agent. --}}
-                                <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
-                                    <template x-for="p in results" :key="p.id">
-                                        <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
-                                            <div class="flex items-center gap-1.5">
-                                                <span x-text="p.label"></span>
-                                                <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
-                                            </div>
-                                            <div style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
-                                        </button>
-                                    </template>
-                                </div>
-                            </div>
-                        </template>
-                        <form :action="linkUrl" method="POST" x-ref="linkForm" class="hidden">
-                            @csrf
-                            <input type="hidden" name="property_id" x-ref="propertyIdInput">
-                        </form>
-                    </div>
-                    @endif
-                @endif
-            </div>
-        </x-slot>
-        <x-slot name="right">
-                <div class="flex items-center gap-2 flex-wrap justify-end">
-                    @if($viewerRole === 'agent')
-                        {{-- 2026-09-08 — Johan, three times now: "same fight with placement
-                             of buttons - submit to auth should be on the header at the
-                             top, not off screen at the bottom... every primary action on
-                             this screen belongs in the header where it is always
-                             visible." Moved from the aside's own "Next step" block —
-                             same actions, same guard (hidden once a decision exists),
-                             just reachable regardless of scroll position now. --}}
-                        @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
-                            @if($unsplitCount > 0)
-                                <span class="ds-badge ds-badge-warning" title="{{ $unsplitCount === 1 ? 'One supporting document' : "{$unsplitCount} supporting documents" }} still need to be split into typed, filed pieces before this application can go to the authoriser.">{{ $unsplitCount }} unsorted</span>
-                            @endif
-                            @unless(($canApproveDirectly ?? false) || !empty($noAuthoriserWarning ?? null))
-                            <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
-                                    @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
-                            @endunless
-                        @endunless
-                        <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="corex-btn-outline text-xs">Back to application</a>
-                    @else
-                        <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+                        <x-pill label="Identity unreachable — action needed" dot="var(--ds-crimson)" title="No email or ID number on file to verify this applicant — contact them directly" />
                     @endif
                 </div>
-        </x-slot>
-    </x-sticky-action-bar>
+
+                {{-- Subtitle line — property + the application's ACTUAL current
+                     status (cc4, 2026-09-11: never a stale "submitted for
+                     authorisation" on a decided application) — see
+                     $headerPropertyFact / $headerExtraFact in this file's top
+                     PHP setup block. --}}
+                <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5 text-xs" style="color: var(--text-muted);">
+                    <span>{{ $headerPropertyFact }}@if($headerExtraFact) &middot; {{ $headerExtraFact }}@endif</span>
+
+                    @if($viewerRole === 'agent')
+                        {{--
+                            AT-392, Johan (approved via conductor, 2026-09-08): "property
+                            linked should be an option then on review... if not linked and
+                            we want to test against it then we need to allow the agent to
+                            link it on this screen as well." Reuses the exact same
+                            search-properties endpoint and Alpine pattern as the New Rental
+                            Application screen's property field — a NESTED, independent
+                            x-data scope that only ever POSTs to its own link-property
+                            route and reloads. Agent-only: an authoriser shouldn't be
+                            changing which property it's tested against.
+
+                            AT-392 follow-up, 2026-09-10 — this control must read as a
+                            button, not inert status text: it is the only way to attach a
+                            property to THIS application at all. Hidden once the property
+                            link is locked (the status text says so).
+                        --}}
+                        @if(!($propertyLinkLocked ?? false))
+                        <div class="inline-flex items-center gap-1.5 flex-shrink-0" x-data="rentalReviewPropertyLink({{ Js::from([
+                            'searchUrl' => route('corex.rental-applications.search-properties'),
+                            'linkUrl' => route('corex.rental-applications.review.link-property', $rentalApplication),
+                            'currentLabel' => $propertyLabel,
+                        ]) }})">
+                            <template x-if="!searching">
+                                <span class="inline-flex items-center gap-1.5">
+                                    <button type="button"
+                                            class="corex-btn-outline"
+                                            style="padding: 0.15rem 0.6rem; font-size: 0.7rem; line-height: 1.2;"
+                                            @click="searching = true">
+                                        <span x-text="currentLabel ? 'Change property' : 'Link a property'"></span>
+                                    </button>
+                                    <button type="button" class="underline text-xs" style="color: var(--ds-crimson, #dc2626);" x-show="currentLabel" @click="clear()">Clear</button>
+                                </span>
+                            </template>
+                            <template x-if="searching">
+                                <div class="relative" style="max-width: 22rem;">
+                                    <input type="text" x-model="query" @input.debounce.300ms="search()" @keydown.escape="searching = false"
+                                           placeholder="Search rental properties…" autofocus
+                                           class="w-full rounded-md px-2 py-1 text-xs" style="border: 1px solid var(--border);">
+                                    <button type="button" class="text-xs underline ml-1" style="color: var(--text-muted);" @click="searching = false">Cancel</button>
+                                    {{-- Johan, QA1 walk, 2026-09-21 — same richer
+                                         result row as the PDF splitter's property
+                                         picker: address + status, then ref + agent. --}}
+                                    <div class="absolute z-10 mt-1 w-full rounded-md max-h-72 overflow-y-auto" style="background: var(--surface); border: 1px solid var(--border);" x-show="results.length">
+                                        <template x-for="p in results" :key="p.id">
+                                            <button type="button" @click="select(p)" class="block w-full text-left px-2 py-1.5 text-xs hover:bg-slate-50">
+                                                <div class="flex items-center gap-1.5">
+                                                    <span x-text="p.label" style="color: var(--text-primary);"></span>
+                                                    <span x-show="p.status" x-text="p.status" class="text-[10px] px-1 py-0.5 rounded" style="background:var(--surface-2); color:var(--text-secondary); border:1px solid var(--border); white-space:nowrap;"></span>
+                                                </div>
+                                                <div style="color: var(--text-muted);" x-text="[p.ref ? ('Ref: ' + p.ref) : '', p.agent].filter(Boolean).join(' · ')"></div>
+                                            </button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
+                            <form :action="linkUrl" method="POST" x-ref="linkForm" class="hidden">
+                                @csrf
+                                <input type="hidden" name="property_id" x-ref="propertyIdInput">
+                            </form>
+                        </div>
+                        @endif
+                    @endif
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap md:justify-end flex-shrink-0">
+                @if($viewerRole === 'agent')
+                    {{-- 2026-09-08 — Johan: "submit to auth should be on the
+                         header at the top, not off screen at the bottom."
+                         Hidden once a decision exists. --}}
+                    @unless(in_array($rentalApplication->status, ['approved', 'declined'], true))
+                        @if($unsplitCount > 0)
+                            <x-pill :label="$unsplitCount . ' unsorted'" dot="var(--ds-amber)" :title="($unsplitCount === 1 ? 'One supporting document' : $unsplitCount . ' supporting documents') . ' still need to be split into typed, filed pieces before this application can go to the authoriser.'" />
+                        @endif
+                        @unless(($canApproveDirectly ?? false) || !empty($noAuthoriserWarning ?? null))
+                        <button type="button" class="corex-btn-primary text-xs" style="border: 1px solid transparent;" data-qa="submit-for-approval" :disabled="submittingForApproval"
+                                @click="submitForApproval()" x-text="submittingForApproval ? 'Submitting…' : ({{ $isPendingAuthorisation ? 'true' : 'false' }} ? 'Re-submit to authoriser' : 'Submit to authoriser')"></button>
+                        @endunless
+                    @endunless
+                    <a href="{{ route('corex.rental-applications.show', $rentalApplication) }}" class="corex-btn-outline text-xs">Back to application</a>
+                @else
+                    <a href="{{ route('corex.rental-applications.authorisation.index') }}" class="corex-btn-outline text-xs">Back to list</a>
+                @endif
+            </div>
+        </div>
+    </div>
 
     @if($viewerRole === 'authoriser' && $alreadyDecided)
         <div class="rounded-md px-4 py-3 text-sm mt-4" style="background: var(--ds-amber-soft, #fffbeb); color: var(--ds-amber, #92400e); border: 1px solid var(--ds-amber, #f59e0b);">
@@ -515,6 +458,15 @@
          Default (320px) matches Johan's own approved mockup: all four
          zones' content with three ledger rows visible before it scrolls. --}}
     <style>
+        /* AT-501 — the header is the standard corex-page-banner, made sticky.
+           It pins up INTO <main>'s own top padding (p-4 / lg:p-6) — a sticky
+           box otherwise stops at the padding edge, leaving a strip above it
+           where scrolled content showed through — and gets an opaque page
+           background (the banner class forces transparent) so content scrolling
+           underneath it never shows through. */
+        .rr-review-header.corex-page-banner { background: var(--bg) !important; }
+        .rr-review-header.top-0 { top: -1rem; }
+        @media (min-width: 1024px) { .rr-review-header.top-0 { top: -1.5rem; } }
         .rental-review-columns { display: flex; flex-direction: column; gap: 20px; }
         .rental-review-main    { flex: 1 1 auto; min-width: 0; }
         .rental-review-aside   { width: 100%; }
@@ -537,7 +489,7 @@
                to what it now actually holds. */
             .rental-review-aside  {
                 flex: 0 0 280px; width: 280px; align-self: stretch;
-                position: sticky; top: 72px;
+                position: sticky; top: var(--rr-header-h, 72px);
                 height: var(--rr-panel-h, calc(100vh - 160px)); max-height: var(--rr-panel-h, calc(100vh - 160px));
                 overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable;
                 /* HIT-AREA FIX, round 2 (conductor's own live-browser find,
@@ -583,7 +535,7 @@
         /* AT-430 §3.1 — the right-hand panel's own accordion (Finances,
            Checklist). Plain disclosure pattern, no JS library: a header
            button toggles an x-show'd body. */
-        .rr-accordion-section { border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; overflow: hidden; }
+        .rr-accordion-section { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 2px rgba(15,23,42,0.06); }
         .rr-accordion-header {
             width: 100%; display: flex; align-items: center; justify-content: space-between;
             gap: 6px; padding: 8px 10px; background: var(--surface-2, #f9fafb);
@@ -857,9 +809,9 @@
                  membership, and an authoriser reviewing someone else's
                  application isn't guaranteed to pass it — handing them a link
                  that can 403 isn't a real feature. --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);" x-data="{ summaryOpen: false }">
+            <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(15,23,42,0.06);" x-data="{ summaryOpen: false }">
                 <button type="button" class="w-full flex items-center justify-between text-left" @click="summaryOpen = !summaryOpen">
-                    <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Submitted Application</h2>
+                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">Submitted Application</h2>
                     <span class="text-xs" style="color: var(--ds-blue, #2563eb);" x-text="summaryOpen ? 'Hide' : 'Show'"></span>
                 </button>
                 <div x-show="summaryOpen" x-cloak class="mt-3">
@@ -1108,7 +1060,7 @@
                  — not bare `docsOpen`/`$nextTick` — since a method body's
                  `this` binding is genuinely different from a raw x-init
                  expression's. --}}
-            <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);"
+            <div class="rounded-lg p-4" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(15,23,42,0.06);"
                  {{-- Authoriser starts expanded, 2026-09-14 (cc4's walk, Johan
                       GO — authoriser-screen only). Agent's collapsed default is
                       Johan's own explicit instruction and stays untouched — the
@@ -1130,8 +1082,8 @@
                  x-init="restoreJustUploadedDocRow()">
                 <div class="flex items-center justify-between">
                     <button type="button" data-qa="docs-toggle" class="flex items-center gap-2 text-left" @click="docsOpen = !docsOpen">
-                        <h2 class="text-sm font-semibold" style="color: var(--text-primary);">
-                            Supporting Documents
+                        <h2 class="flex items-center gap-2 text-sm font-semibold" style="color: var(--text-primary);">
+                            <span class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">Supporting Documents</span>
                             <span class="ds-badge ds-badge-default">{{ $documents->count() }}</span>
                             @if($unsplitCount > 0)
                                 <span class="ds-badge ds-badge-warning" title="These documents must be split into typed, filed pieces before this application can be submitted for authorisation.">{{ $unsplitCount }} not yet sorted</span>
@@ -1347,9 +1299,9 @@
                  entirely. Johan: "An empty state that says so is the fix." The
                  card and its heading now always render; only the body inside
                  switches between the list and a plain-language empty state. --}}
-            <div class="rounded-md p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border);">
+            <div class="rounded-lg p-4" x-data="{ showAllAudit: false }" style="background: var(--surface); border: 1px solid var(--border); box-shadow: 0 1px 2px rgba(15,23,42,0.06);">
                 <div class="flex items-center justify-between mb-3">
-                    <h2 class="text-sm font-semibold" style="color: var(--text-primary);">Audit Trail ({{ $auditLogTotal }})</h2>
+                    <h2 class="text-xs font-bold uppercase tracking-widest" style="color: var(--text-muted);">Audit Trail ({{ $auditLogTotal }})</h2>
                     @if($auditLog->count() > 10)
                         <button type="button" class="text-xs underline" style="color: var(--text-muted);"
                                 @click="showAllAudit = !showAllAudit"
@@ -2252,6 +2204,8 @@
                     </template>
                     <textarea x-model="sendBackNote" rows="4" class="corex-input text-xs w-full mb-3" style="resize: none;"
                               placeholder="What do they need to fix or provide? e.g. ID number was typed incorrectly"></textarea>
+                    {{-- AT-488 - the page-level status line sits behind this overlay; a save/send failure must be seen right here. --}}
+                    <p class="text-xs mb-2" data-qa="send-back-status" x-show="agentActionStatus" x-text="agentActionStatus" :style="agentActionError ? 'color: var(--ds-red, #dc2626);' : 'color: var(--ds-emerald, #059669);'"></p>
                     <div class="flex justify-end gap-2">
                         <button type="button" class="corex-btn-outline text-xs" @click="sendBackModalOpen = false">Cancel</button>
                         <button type="button" data-qa="send-back-to-applicant-confirm" class="corex-btn-primary text-xs" :disabled="sendBackSending || !sendBackNote.trim()" @click="sendBackToApplicant()" x-text="sendBackSending ? 'Sending…' : 'Confirm and send'"></button>
@@ -3454,6 +3408,28 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
             const note = requested.length ? (this.sendBackNote.trim() + '\n\nPlease also send: ' + requested.join(', ')) : this.sendBackNote.trim();
             this.sendBackSending = true;
             this.agentActionStatus = '';
+
+            // AT-488 - send-back reloads the page, so anything not yet saved here (unsaved highlights / notes, a pending
+            // assessment edit) would be lost with it. Save it all first, exactly as Submit-for-approval does, and stop
+            // - with the reason on screen and the note kept - if any of it cannot be saved.
+            this.agentActionError = false;
+            this.agentActionStatus = 'Saving your work…';
+            const fieldsResult = await this.saveFieldsAwaitable();
+            if (!fieldsResult.ok) {
+                this.sendBackSending = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Not sent — saving the assessment failed (' + (fieldsResult.error || 'unknown error') + '). Nothing was sent to the applicant and nothing you captured was lost; fix this and try again.';
+                return;
+            }
+            const marksResult = await this.saveAllDirtyDocuments();
+            if (!marksResult.ok) {
+                this.sendBackSending = false;
+                this.agentActionError = true;
+                this.agentActionStatus = 'Not sent — saving highlights/notes on "' + marksResult.label + '" failed (' + (marksResult.error || 'unknown error') + '). Nothing was sent to the applicant and nothing you captured was lost; fix this and try again.';
+                return;
+            }
+            this.agentActionStatus = '';
+
             try {
                 const url = this.canReopenNow ? reopenUrl : requestMoreInfoUrl;
                 const res = await fetch(url, {
@@ -3474,7 +3450,8 @@ function rentalReview({ saveUrl, initial, initialCaptureEntries, manualCaptureCr
                     this.sendBackModalOpen = false;
                     this.sendBackNote = '';
                     this.documentChecklist.forEach(d => d.checked = false);
-                    if (this.canReopenNow) setTimeout(() => window.location.reload(), 900);
+                    // AT-488 - everything is saved by now; the browser's "leave site?" prompt must not fire on this reload.
+                    if (this.canReopenNow) { window.__raSuppressUnloadGuard = true; setTimeout(() => window.location.reload(), 900); }
                 } else {
                     this.agentActionError = true;
                     this.agentActionStatus = data.error || 'Could not send — try again.';
@@ -4108,6 +4085,9 @@ function rentalReviewLayout({ initialCvDocs } = {}) {
                 const columnsMarginTop = parseFloat(getComputedStyle(this.$el).marginTop || 0);
                 const available = scrollEl.clientHeight - headerSpace - columnsMarginTop - 8;
                 this.$el.style.setProperty('--rr-panel-h', Math.max(300, available) + 'px');
+                // AT-501 — the aside pins just below the header; its height is
+                // measured, not assumed, since the header is a two-band card now.
+                this.$el.style.setProperty('--rr-header-h', Math.max(0, headerSpace - parseFloat(getComputedStyle(scrollEl).paddingTop || 0)) + 'px');
             };
             recalc();
             window.addEventListener('resize', recalc);

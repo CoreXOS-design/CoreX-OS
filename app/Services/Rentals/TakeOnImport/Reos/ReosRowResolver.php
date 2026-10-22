@@ -1,0 +1,254 @@
+<?php
+
+namespace App\Services\Rentals\TakeOnImport\Reos;
+
+use App\Models\Contact;
+use App\Models\Lease;
+use App\Models\RentalTakeOnImportRow;
+use App\Models\RentalTakeOnImportRun;
+use App\Services\ContactDuplicateService;
+use App\Services\Prospecting\TrackedPropertyMatchOrCreateService;
+
+/**
+ * AT-479 / rental-takeon-import.md R4 — works out, for one parsed reOS row, what CoreX already knows (property, owner,
+ * tenant, the lease itself by reOS id) and the user's starting choices. Writes nothing to properties / contacts / leases:
+ * only to the staging row. The same two canonical services the existing take-on dry run uses do the matching
+ * (TrackedPropertyMatchOrCreateService, ContactDuplicateService) — no matching logic of its own.
+ */
+class ReosRowResolver
+{
+    public function __construct(
+        private readonly TrackedPropertyMatchOrCreateService $properties,
+        private readonly ContactDuplicateService $contacts,
+        private readonly ReosAgentMatcher $agents,
+    ) {
+    }
+
+    /** First resolution of a freshly parsed row (its payload_json and errors_json are already set). */
+    public function resolve(RentalTakeOnImportRow $row, RentalTakeOnImportRun $run): RentalTakeOnImportRow
+    {
+        $p = $row->payload_json ?? [];
+        $agencyId = (int) $run->agency_id;
+
+        $existing = $row->external_id ? $this->existingLease($agencyId, (string) $row->external_id) : null;
+
+        // Step 1 (Johan, 21 Oct): does the property exist? Looked for across every suburb, with no suburb needed.
+        $candidates = ReosPropertyCandidates::find($agencyId, $p['address'] ?? null);
+        $property = $this->propertyFromCandidates($candidates) ?? $this->matchProperty($agencyId, $p, []);
+        $owner = $this->matchContact($p['owner_name'] ?? null, $p['owner_email'] ?? null, $p['owner_phone'] ?? null, $agencyId);
+        $tenant = $this->matchContact($p['tenant_name'] ?? null, $p['tenant_email'] ?? null, $p['tenant_phone'] ?? null, $agencyId);
+        $agent = $this->agents->match($p['agent_text'] ?? null, $agencyId);
+
+        $decisions = [
+            'property' => [
+                'create' => true, 'suburb_id' => null, 'suburb' => null, 'town' => null, 'province' => null, 'city_id' => null, 'province_id' => null,
+                // The CoreX properties that fit this address (any suburb), and the one the row will use: the single match, or the
+                // user's pick from several; null = none yet / "none of these — create new".
+                'candidates' => $candidates,
+                'link_id' => count($candidates) === 1 ? $candidates[0]['id'] : null,
+                'choice' => count($candidates) === 1 ? 'link' : null,
+            ],
+            'owner' => $this->defaultPartyDecision($owner),
+            'tenant' => $this->defaultPartyDecision($tenant),
+            'agent_user_id' => $agent['user_id'],
+            'agent_source' => $agent['user_id'] ? 'reos' : null,
+            'agent_note' => $agent['reason'],
+            'tenant_wallet_ref' => $p['tenant_wallet_ref'] ?? null,
+        ];
+
+        $complete = ($p['owner_name'] ?? null) && ($p['tenant_name'] ?? null) && ($p['rent'] ?? null) !== null && ($p['lease_start_date'] ?? null) !== null;
+
+        $row->forceFill([
+            'existing_lease_id' => $existing?->id,
+            'property_match_action' => $property['action'],
+            'property_match_tracked_id' => $property['tracked_id'],
+            'property_match_label' => $property['label'],
+            'landlord_match_json' => $owner ? [1 => $owner] : null,
+            'tenant_match_json' => $tenant ? [1 => $tenant] : null,
+            'lease_completeness' => $complete ? RentalTakeOnImportRow::COMPLETENESS_COMPLETE : RentalTakeOnImportRow::COMPLETENESS_DRAFT,
+            'decisions_json' => $decisions,
+            'status' => empty($row->errors_json) ? RentalTakeOnImportRow::STATUS_PENDING : RentalTakeOnImportRow::STATUS_ERROR,
+            'selected' => false,
+        ])->save();
+
+        return ReosBlockers::refresh($row);
+    }
+
+    /**
+     * The user picked (or cleared) a suburb: look again, now that CoreX knows the suburb — a property that was "not in
+     * CoreX" only for want of one may well be there. A match drops the suburb requirement.
+     */
+    public function rematchProperty(RentalTakeOnImportRow $row): RentalTakeOnImportRow
+    {
+        $d = $row->decisions_json ?? [];
+        // A property the user (or the suburb-less lookup) has settled on is not second-guessed; neither is an unanswered "which one?".
+        if (! empty($d['property']['link_id']) || ($d['property']['choice'] ?? null) === 'new' || $row->property_match_action === RentalTakeOnImportRow::ACTION_CHOOSE) {
+            return ReosBlockers::refresh($row);
+        }
+        $m = $this->matchProperty((int) $row->agency_id, $row->payload_json ?? [], $d['property'] ?? []);
+
+        $row->forceFill([
+            'property_match_action' => $m['action'],
+            'property_match_tracked_id' => $m['tracked_id'],
+            'property_match_label' => $m['label'],
+        ])->save();
+
+        return ReosBlockers::refresh($row);
+    }
+
+    /**
+     * @param list<array{id:int,label:string,suburb:string,town:?string}> $candidates
+     * @return array{action:string, tracked_id:null, label:string, notes:list<string>}|null  null = none found, carry on with the suburb route
+     */
+    private function propertyFromCandidates(array $candidates): ?array
+    {
+        if ($candidates === []) {
+            return null;
+        }
+        if (count($candidates) === 1) {
+            $c = $candidates[0];
+
+            return ['action' => RentalTakeOnImportRow::ACTION_MATCH, 'tracked_id' => null, 'label' => 'In CoreX: ' . $c['label'] . ($c['suburb'] !== '' ? ' (' . $c['suburb'] . ')' : ''), 'notes' => []];
+        }
+
+        return ['action' => RentalTakeOnImportRow::ACTION_CHOOSE, 'tracked_id' => null, 'label' => count($candidates) . ' properties in CoreX fit this address — pick the right one', 'notes' => []];
+    }
+
+    /** Version of the name-flag rules the stored flags were worked out with (2 = Spelling / Name differs split, company-like contacts; 3 = first name and surname swapped counts as spelling; 4 = review-queue fields: open questions, ready, the contact's phone on the flag). */
+    public const NAME_FLAGS_VERSION = 4;
+
+    /**
+     * Re-work the name flags of a batch built under older rules (the flags are stored when a batch is parsed, so a batch uploaded before
+     * a rule changed would otherwise keep showing the old verdicts). Only rows not yet imported; the user's choices are untouched.
+     * Done once per batch (counts_json.name_flags_v).
+     */
+    public function recheckNameFlags(RentalTakeOnImportRun $run): void
+    {
+        $counts = $run->counts_json ?? [];
+        if ((int) ($counts['name_flags_v'] ?? 0) >= self::NAME_FLAGS_VERSION) {
+            return;
+        }
+
+        RentalTakeOnImportRow::query()->where('run_id', $run->id)->where('status', '!=', RentalTakeOnImportRow::STATUS_CONFIRMED)
+            ->orderBy('id')->chunkById(100, function ($rows) {
+                foreach ($rows as $row) {
+                    $changed = false;
+                    foreach (['landlord_match_json', 'tenant_match_json'] as $col) {
+                        $match = $row->{$col};
+                        $m = $match[1] ?? null;
+                        if (! $m || empty($m['existing_contact_id']) || ($m['action'] ?? '') !== 'match') {
+                            continue;
+                        }
+                        $contact = Contact::withoutGlobalScopes()->find((int) $m['existing_contact_id']);
+                        if (! $contact) {
+                            continue;
+                        }
+                        unset($m['name_flag'], $m['matched_name'], $m['matched_phone']);
+                        $flag = ReosNameCompare::flag((string) $m['name'], (string) $contact->full_name, ReosContactNames::isCompanyContact($contact));
+                        if ($flag !== ReosNameCompare::OK) {
+                            $m['name_flag'] = $flag;
+                            $m['matched_name'] = (string) $contact->full_name;
+                            $m['matched_phone'] = self::contactPhone($contact);
+                        }
+                        $match[1] = $m;
+                        $row->{$col} = $match;
+                        $changed = true;
+                    }
+                    if ($changed) {
+                        $row->save();
+                    }
+                    ReosBlockers::refresh($row);   // recomputes name_differs / spelling_differs from the new flags
+                }
+            });
+
+        $counts['name_flags_v'] = self::NAME_FLAGS_VERSION;
+        $run->forceFill(['counts_json' => $counts])->save();
+    }
+
+    public function existingLease(int $agencyId, string $externalId): ?Lease
+    {
+        return Lease::withoutGlobalScopes()->withTrashed()
+            ->where('agency_id', $agencyId)
+            ->where('external_source', Lease::EXTERNAL_SOURCE_REOS)
+            ->where('external_id', $externalId)
+            ->first();
+    }
+
+    /** @return array{action:string, tracked_id:?int, label:string, notes:list<string>} */
+    private function matchProperty(int $agencyId, array $payload, array $location): array
+    {
+        $built = ReosPropertyFacts::build($payload['address'] ?? null, $location);
+        $tp = $this->properties->findExistingMatch($agencyId, $built['facts']);
+
+        if (! $tp) {
+            return ['action' => RentalTakeOnImportRow::ACTION_CREATE, 'tracked_id' => null, 'label' => 'Not in CoreX', 'notes' => $built['notes']];
+        }
+
+        $why = $this->properties->describeLastMatch($built['facts'], $tp);
+
+        return [
+            'action' => RentalTakeOnImportRow::ACTION_MATCH,
+            'tracked_id' => (int) $tp->id,
+            'label' => 'In CoreX: ' . ($tp->displayAddress() ?? "#{$tp->id}") . (($why['reason'] ?? null) ? ' (' . $why['reason'] . ')' : ''),
+            'notes' => $built['notes'],
+        ];
+    }
+
+    /** How the question on the review screen tells two people with similar names apart: their phone, else their e-mail. */
+    private static function contactPhone(Contact $c): ?string
+    {
+        $v = trim((string) ($c->phone ?: $c->email));
+
+        return $v === '' ? null : $v;
+    }
+
+    /** @return array<string,mixed>|null  null when the cell named nobody */
+    private function matchContact(?string $name, ?string $email, ?string $phone, int $agencyId): ?array
+    {
+        $name = trim((string) $name);
+        if ($name === '') {
+            return null;
+        }
+        $kind = ReosContactNames::classify($name)['kind'];
+        $found = $this->contacts->findDuplicatesForIdentifiers(
+            ReosContactNames::splitValues($phone, false),
+            ReosContactNames::splitValues($email, true),
+            null,
+            $agencyId,
+        )->first();
+
+        $match = [
+            'name' => $name,
+            'kind' => $kind,
+            'action' => $found ? 'match' : 'create',
+            'existing_contact_id' => $found?->id,
+            'label' => $found
+                ? 'In CoreX: ' . $found->full_name . ($found->phone ? ', ' . $found->phone : '')
+                : 'Not in CoreX',
+        ];
+
+        // Matched on a phone / e-mail but under a different name? Say so (a warning on the cell, never a blocker).
+        if ($found) {
+            $flag = ReosNameCompare::flag($name, (string) $found->full_name, ReosContactNames::isCompanyContact($found));
+            if ($flag !== ReosNameCompare::OK) {
+                $match['name_flag'] = $flag;
+                $match['matched_name'] = (string) $found->full_name;
+                $match['matched_phone'] = self::contactPhone($found);
+            }
+        }
+
+        return $match;
+    }
+
+    /** @return array{action:string, contact_id:?int} */
+    private function defaultPartyDecision(?array $match): array
+    {
+        if ($match === null) {
+            return ['action' => 'none', 'contact_id' => null];
+        }
+
+        return $match['action'] === 'match'
+            ? ['action' => 'link', 'contact_id' => (int) $match['existing_contact_id']]
+            : ['action' => 'create', 'contact_id' => null];
+    }
+}

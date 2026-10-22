@@ -1135,3 +1135,70 @@ configures agency settings, not the role matrix) — recorded in `agency-onboard
 Tests: `tests/Feature/Intelligence/BuyerNotesScopeTest.php` (each level on both surfaces + the address, Core
 Matches pill, independence from contact scope, other agency, assistant ceiling, Role Manager round trip, fresh
 agency defaults, migration defaults + idempotence), `tests/Feature/Intelligence/BuyerSignalNotesViewTest.php`.
+
+## Won/Lost buyers on the buyer-portal match list (AT-500, 2026-10-22)
+The buyer-facing portal page (`BuyerPortalController::show`) reads the cached `property_buyer_matches` list through
+`PropertyMatchScoringService::getMatchesForBuyer()`, which did not ask the Won/Lost rule — so a Won or Lost buyer's
+portal link still listed matches. It now asks `CoreMatchBuyerGate::isExcluded()` (the same single rule, live from
+`buyer_state`, agency setting default Won + Lost) and returns nothing for an excluded buyer. Nothing is deleted: the
+cache rows and the buyer's saved searches stay, and the list returns the moment the buyer is back on the active board
+(e.g. after a fallen-through deal — see `buyer-pipeline.md`, "When a deal falls through"). Test:
+`tests/Feature/CoreMatches/CoreMatchWonLostBuyerPortalListTest.php`.
+
+## A sent match is sent (AT-503, 2026-10-22)
+
+Johan's rule: **a sent match is sent; "new" means only a property that has never been sent to this buyer.**
+Three bugs broke it; reported as gaps 1-3, fixed here. Gaps 4-7 of that report (a new composer link per
+render, a widened saved search or a price drop surfacing already-unsent properties, the agent's separate
+bell/digest not clearing on a buyer send) are deliberately left as they are.
+
+**What "sent" is (unchanged).** A `contact_match_shares` row with `confirmed_at` set, plus one
+`contact_match_share_properties` row per property in the live set at that moment. There is no
+`status`/`sent_at` on the match itself.
+
+1. **One property set.** The board's "Send N new" now diffs `propertyCountsForMatches()['visible_ids']`
+   (the resolved set minus the match's hidden properties) against everything ever sent. That is the exact
+   set `ContactMatchShare::confirmSent()` snapshots (`ClientMatchResolver::resolve($match, false)` drops
+   hidden). Before, the board diffed ALL resolved ids including hidden ones, which can never be in a
+   snapshot, so a hidden matching property showed "Send 1 new" for ever, while the quick view (which uses
+   the snapshot set) listed nothing. A hidden property is now counted in neither; un-hiding it later makes
+   it count as never sent, because it was never sent.
+2. **Every send records a confirmed share, the composer's way.**
+   - Match composer (match results page): unchanged - mint at render, confirm on the Email/WhatsApp click.
+   - **Buyer-level Share button** (buyer detail header, Email and WhatsApp): new
+     `POST /corex/core-matches/buyers/{contactId}/shares/confirm` (`corex.core-matches.buyer-shares.confirm`,
+     `core_matches.view`, buyer scoped by `ContactScope` so a buyer outside the viewer's scope is a 404).
+     The buyer's client page shows every ACTIVE wishlist, so one confirmed share (`ContactMatchShare::
+     recordConfirmed()` = mint + `confirmSent()`) is recorded per active wishlist, in ONE transaction -
+     all or none. Paused/fulfilled/expired wishlists are not recorded. "Client Page" (the agent's own
+     preview) is still never a share.
+   - **Mobile WhatsApp** (`POST /api/mobile/core-matches/{match}/share-whatsapp`): the POST is the send, so it
+     now records a confirmed share (channel `whatsapp`) BEFORE logging the provisional communication or
+     returning the wa.me link, and swaps the plain link in the message for the share's dated link. If the
+     record fails the reply is HTTP 500 `{error:'share_not_recorded', share_recorded:false, message}` with
+     nothing logged, so the app can show the message and retry without a duplicate communication row. A
+     success adds `share_recorded:true` and `never_sent_count`. The GET stays a preview and records nothing.
+3. **The screen updates in place, and failures are visible.**
+   - Both confirm endpoints return the fresh status (`CoreMatchShareHistoryService::statusFor()`:
+     `match_id`, `never_sent_count`, `last_shared_at`, `last_shared_human`) - the same
+     `neverSentProperties()` set the quick view lists.
+   - New component `<x-core-match-share-status>` renders "Never shared" / "Shared 3 minutes ago" /
+     "Send N new" on the board (replacing the inline block, same look) and on the match results page. It
+     updates on the `core-match-sent` window event and on a `BroadcastChannel('core-match-sent')`, so a
+     board open in another tab changes without a reload. On the buyer-detail wishlist cards it stays hidden
+     until a buyer-level send reports in.
+   - The composer and the buyer-level Share no longer swallow a failed confirm: they show a visible alert
+     "This send was NOT recorded, so the buyer's "new" count has not changed" with **Retry** (re-posts the
+     same confirm; idempotent for a minted share) and a dismiss.
+
+**Second divergence found on QA1 real data and fixed (same ticket):** `propertyCountsForMatches()` scored
+candidates with NO price band while `propertiesForMatch()` (what a send and the buyer's link use) hands the
+scorer the relaxed +/-30% band (`RELAXED_PRICE_BAND`) - the 2026-09-10 drift again, in the second copy of the
+loop. A near-miss over budget was in every send but never counted by the board, so a never-sent property
+could be missing from "Send N new" (QA1 test buyer: board 2, quick view 3). It now passes the same band.
+Side effect, intended: the board's per-match total/visible counts now equal the results page for near-misses.
+
+**Not changed:** the buyer's own live link, share history being internal-only, property-identity rule for
+relists, the Setup Wizard (no new setting, so nothing to surface - rule 10a not triggered).
+
+**Tests:** `tests/Feature/CoreMatches/SentIsSentAt503Test.php`.

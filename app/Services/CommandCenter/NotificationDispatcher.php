@@ -89,8 +89,18 @@ class NotificationDispatcher
         array $args,
         ?Notification $given,
     ): bool {
+        // AT-492 - NOTHING is dropped silently any more: every early return below leaves a drop-log row saying why.
         $eff = $this->prefs->effective($user, $eventKey);
-        if (! $eff || ! $eff['enabled']) return false;
+        if (! $eff) {
+            $this->recordDrop($user, $eventKey, null, $subject, $args, NotificationDropLog::REASON_UNKNOWN_EVENT);
+
+            return false;
+        }
+        if (! $eff['enabled']) {
+            $this->recordDrop($user, $eventKey, $eff['event_type'], $subject, $args, NotificationDropLog::REASON_EVENT_OFF);
+
+            return false;
+        }
 
         // What the USER wants.
         $channels = [];
@@ -142,15 +152,36 @@ class NotificationDispatcher
             }));
         }
 
-        if (empty($channels)) return false;
+        if (empty($channels)) {
+            $this->recordDrop($user, $eventKey, $type, $subject, $args, NotificationDropLog::REASON_NO_CHANNEL);
 
-        // Open-hours schedule gates ALL channels (in-app, email, push). When the
-        // user's per-weekday window is closed for "now" (evaluated in the user's
-        // timezone), suppress the alert entirely — there is no queue-for-later, so
-        // we drop rather than defer. The next scan tick re-evaluates and will fire
-        // once the window reopens (the threshold predicate is still true).
-        if (! $this->prefs->withinOpenHours($user)) {
             return false;
+        }
+
+        // Open-hours schedule gates the alert. When the user's per-weekday window is closed for "now"
+        // (evaluated in the user's timezone) a SCANNER-raised alert is dropped (no queue-for-later; the next scan tick
+        // re-evaluates and fires once the window reopens, because the threshold predicate is still true).
+        //
+        // AT-492 - an alert caused by a PERSON ('person_triggered': a contractor, owner or tenant pressed a button on a
+        // link) is a one-off fact no scan will ever re-offer, and those people act in the evening and at weekends. The
+        // in-app alert and the phone push still arrive - they wait quietly for the agent; only EMAIL keeps respecting
+        // open hours. Either way the drop leaves a row.
+        if (! $this->prefs->withinOpenHours($user)) {
+            if (empty($args['person_triggered'])) {
+                $this->recordDrop($user, $eventKey, $type, $subject, $args, NotificationDropLog::REASON_OPEN_HOURS);
+
+                return false;
+            }
+            $withoutMail = array_values(array_diff($channels, ['mail']));
+            if (empty($withoutMail)) {
+                $this->recordDrop($user, $eventKey, $type, $subject, $args, NotificationDropLog::REASON_OPEN_HOURS);
+
+                return false;
+            }
+            if (count($withoutMail) !== count($channels)) {
+                $this->recordDrop($user, $eventKey, $type, $subject, $args, NotificationDropLog::REASON_OPEN_HOURS . ' (email only)');
+            }
+            $channels = $withoutMail;
         }
 
         // AT-235 (R3) — THE DEDUP KEY MUST BE STABLE. This line used to read
@@ -202,26 +233,38 @@ class NotificationDispatcher
         $subjectType = $subject->getMorphClass();
         $subjectId   = $subject->getKey();
 
-        $alreadySent = NotificationDispatchLog::where('user_id', $user->id)
+        // AT-492 - an optional `dedupe_key` names WHICH occurrence this is (the quote id, the completion round id), so a
+        // revised quote or a second finish report is a different fact from the first. Null (every older caller) matches
+        // only rows that also have none - behaviour unchanged.
+        $dedupeKey = isset($args['dedupe_key']) && $args['dedupe_key'] !== '' ? mb_substr((string) $args['dedupe_key'], 0, 120) : null;
+        $sameFact = static function ($q) use ($dedupeKey) {
+            return $dedupeKey === null ? $q->whereNull('dedupe_key') : $q->where('dedupe_key', $dedupeKey);
+        };
+
+        $alreadySent = $sameFact(NotificationDispatchLog::where('user_id', $user->id)
             ->where('notification_event_type_id', $eff['event_type']->id)
             ->where('subject_type', $subjectType)
             ->where('subject_id', $subjectId)
-            ->where('threshold_hit_at', '>=', $thresholdHit)
+            ->where('threshold_hit_at', '>=', $thresholdHit))
             ->exists();
         if ($alreadySent) return false;
 
-        // Cooldown: skip if the same (user, event-type, subject) was dispatched
+        // Cooldown: skip if the same (user, event-type, subject[, occurrence]) was dispatched
         // within the user's min_minutes_between_same window. Stops the hourly-spam
         // where scheduler scans re-fire the same alert each tick.
         $cooldown = $this->prefs->cooldownMinutes($user);
         if ($cooldown > 0) {
-            $recent = NotificationDispatchLog::where('user_id', $user->id)
+            $recent = $sameFact(NotificationDispatchLog::where('user_id', $user->id)
                 ->where('notification_event_type_id', $eff['event_type']->id)
                 ->where('subject_type', $subjectType)
                 ->where('subject_id', $subjectId)
-                ->where('dispatched_at', '>=', now()->subMinutes($cooldown))
+                ->where('dispatched_at', '>=', now()->subMinutes($cooldown)))
                 ->exists();
-            if ($recent) return false;
+            if ($recent) {
+                $this->recordDrop($user, $eventKey, $type, $subject, $args, NotificationDropLog::REASON_COOLDOWN);
+
+                return false;
+            }
         }
 
         // The channels the GATEWAY has resolved — preference ∩ agency ∩ open-hours.
@@ -315,6 +358,7 @@ class NotificationDispatcher
                 'threshold_hit_at' => $thresholdHit,
                 'dispatched_at'    => now(),
                 'channel'          => $logChannel,
+                'dedupe_key'       => $dedupeKey,
             ]);
         }
 

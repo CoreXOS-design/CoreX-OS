@@ -144,7 +144,7 @@ final class LeaseNoticeTermsTest extends TestCase
     public function test_the_agencys_own_settings_decide_the_defaults_nothing_is_hardcoded(): void
     {
         $this->setting([
-            'tenant_notice_period_days' => 2, 'tenant_notice_period_unit' => 'months', 'default_earliest_notice_months' => 3,
+            'tenant_notice_period_days' => 2, 'tenant_notice_period_unit' => 'months',
             'default_early_cancellation_allowed' => 'yes', 'default_early_cancellation_notice' => 20, 'default_early_cancellation_notice_unit' => 'weeks',
             'default_early_cancellation_penalty' => 'One month rent',
         ]);
@@ -153,7 +153,7 @@ final class LeaseNoticeTermsTest extends TestCase
 
         $t = $this->terms(Lease::withoutGlobalScopes()->latest('id')->first());
         $this->assertSame([2, 'months'], [$t->notice_period, $t->notice_period_unit]);
-        $this->assertSame('2027-02-01', $t->earliest_notice_date->toDateString(), 'start date + 3 months');
+        $this->assertNull($t->earliest_notice_date, 'AT-489: the earliest notice date is not defaulted or typed any more - the expiry notice window is worked out from the end date');
         $this->assertSame([20, 'weeks'], [$t->early_cancellation_notice, $t->early_cancellation_notice_unit]);
         $this->assertSame('One month rent', $t->early_cancellation_penalty);
     }
@@ -179,7 +179,8 @@ final class LeaseNoticeTermsTest extends TestCase
         $this->assertStringContainsString('data-qa="lease-notice-terms"', $html);
         $this->assertStringContainsString('name="notice[notice_period]"', $html);
         $this->assertStringContainsString('name="notice[early_cancellation_allowed]"', $html);
-        $this->assertStringContainsString('name="notice[earliest_notice_date]"', $html);
+        $this->assertStringContainsString('Expiry notice due between', $html, 'AT-489: the typed earliest-notice date is replaced by the computed expiry notice window');
+        $this->assertStringNotContainsString('name="notice[earliest_notice_date]"', $html);
         $this->assertStringContainsString('From your agency defaults', $html);
         $this->assertMatchesRegularExpression('/name="notice\[notice_period\]"[^>]*value="30"/', $html);
         $this->assertStringContainsString('name="notice[earliest_termination_date]"', $html, 'shown here when no linked agreement already asks for it');
@@ -251,7 +252,7 @@ final class LeaseNoticeTermsTest extends TestCase
         $new = Lease::withoutGlobalScopes()->where('previous_lease_id', $current->id)->first();
         $t = $this->terms($new);
         $this->assertSame([2, 'months'], [$t->notice_period, $t->notice_period_unit]);
-        $this->assertSame('2027-02-01', $t->earliest_notice_date->toDateString(), '1 Feb 2026 moved by the 365 days between the two starts (1 Nov 2025 -> 1 Nov 2026)');
+        $this->assertNull($t->earliest_notice_date, 'AT-489: a renewal no longer carries the old term\'s earliest notice date - the expiry notice window is worked out from the new end date');
         $this->assertSame('One month rent', $t->early_cancellation_penalty);
         $this->assertSame('carried_forward', $t->notice_terms_source);
     }
@@ -280,7 +281,8 @@ final class LeaseNoticeTermsTest extends TestCase
         $this->svc()->save($lease, ['notice_period' => 30, 'notice_period_unit' => 'days', 'early_cancellation_allowed' => 'yes', 'early_cancellation_notice' => 20, 'early_cancellation_notice_unit' => 'days', 'earliest_termination_date' => '2027-02-28'], $this->admin, 'captured');
         $html = $this->actingAs($this->admin)->get(route('corex.leases.show', $lease))->assertOk()->getContent();
         $this->assertStringContainsString('30 days', $html);
-        $this->assertStringContainsString('2027-01-29', $html, 'earliest notice = 28 Feb 2027 less 30 days');
+        $this->assertStringNotContainsString('2027-01-29', $html, 'no earliest-notice date is worked out (28 Feb 2027 less 30 days) - the CPA expiry window is shown instead');
+        $this->assertStringNotContainsString('Earliest notice may be given', $html);
         $this->assertStringContainsString('2027-05-01', $html, 'notice to leave at the end date (31 May 2027 less 30 days)');
         $this->assertStringContainsString('allowed with 20 days notice', $html);
     }
@@ -430,7 +432,7 @@ final class LeaseNoticeTermsTest extends TestCase
         $a = $faq[0]['answer'];
         $this->assertStringContainsString('at least 2 months', $a);
         $this->assertStringContainsString('cannot end before 28 Feb 2027', $a);
-        $this->assertStringContainsString('give notice from 28 Dec 2026', $a, '28 Feb 2027 less 2 months');
+        $this->assertStringNotContainsString('give notice from', $a, 'nothing is worked out: the lease states no "notice may be given from" clause');
         $this->assertStringContainsString('runs until 31 May 2027', $a);
         $this->assertStringContainsString('give notice by 31 Mar 2027', $a, '31 May 2027 less 2 months');
         $b = $faq[1]['answer'];
@@ -573,12 +575,11 @@ final class LeaseNoticeTermsTest extends TestCase
     {
         $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), [
             'expiry_notice_window_days' => '60', 'tenant_notice_period_days' => '2', 'tenant_notice_period_unit' => 'months',
-            'default_earliest_notice_months' => '3', 'default_early_cancellation_allowed' => 'no', 'default_early_cancellation_penalty' => ' One month ',
+            'default_early_cancellation_allowed' => 'no', 'default_early_cancellation_penalty' => ' One month ',
         ])->assertSessionHasNoErrors();
 
         $this->assertSame(2, LeaseSetting::tenantNoticePeriodDaysFor($this->agency->id));
         $this->assertSame('months', LeaseSetting::tenantNoticePeriodUnitFor($this->agency->id));
-        $this->assertSame(3, LeaseSetting::earliestNoticeMonthsFor($this->agency->id));
         $this->assertSame('no', LeaseSetting::earlyCancellationAllowedFor($this->agency->id));
         $this->assertSame('One month', LeaseSetting::earlyCancellationPenaltyFor($this->agency->id));
 
@@ -588,21 +589,21 @@ final class LeaseNoticeTermsTest extends TestCase
         $this->assertSame('no', LeaseSetting::earlyCancellationAllowedFor($this->agency->id));
 
         $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => '45', 'tenant_notice_period_unit' => 'years'])->assertSessionHasErrors('tenant_notice_period_unit');
-        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => '45', 'default_earliest_notice_months' => '0'])->assertSessionHasNoErrors();
-        $this->assertNull(LeaseSetting::earliestNoticeMonthsFor($this->agency->id), '0 / blank = no rule');
+        $this->actingAs($this->admin)->post(route('corex.settings.leases.update'), ['expiry_notice_window_days' => '45', 'expiry_notice_send_business_days' => '70'])->assertSessionHasNoErrors();
+        $this->assertSame(70, LeaseSetting::expiryNoticeSendBusinessDaysFor($this->agency->id));
     }
 
     public function test_every_new_default_reaches_the_settings_page_and_the_setup_wizard(): void
     {
         $page = $this->actingAs($this->admin)->get(route('corex.settings.leases.edit'))->assertOk()->getContent();
-        foreach (['tenant_notice_period_unit', 'default_earliest_notice_months', 'default_early_cancellation_allowed', 'default_early_cancellation_notice', 'default_early_cancellation_notice_unit', 'default_early_cancellation_penalty'] as $field) {
+        foreach (['tenant_notice_period_unit', 'expiry_notice_send_business_days', 'expiry_notice_alert_business_days', 'default_early_cancellation_allowed', 'default_early_cancellation_notice', 'default_early_cancellation_notice_unit', 'default_early_cancellation_penalty'] as $field) {
             $this->assertStringContainsString('name="' . $field . '"', $page, $field);
         }
 
         $keys = [];
         $all = config('agency-onboarding-copy');
         array_walk_recursive($all, function ($v, $k) use (&$keys) { if ($k === 'key') { $keys[] = $v; } });
-        foreach (['tenant_notice_period_unit', 'default_earliest_notice_months', 'default_early_cancellation_allowed', 'default_early_cancellation_notice', 'default_early_cancellation_notice_unit', 'default_early_cancellation_penalty', 'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no'] as $key) {
+        foreach (['tenant_notice_period_unit', 'expiry_notice_send_business_days', 'expiry_notice_alert_business_days', 'default_early_cancellation_allowed', 'default_early_cancellation_notice', 'default_early_cancellation_notice_unit', 'default_early_cancellation_penalty', 'faq_tenant_cancel_yes', 'faq_tenant_cancel_no', 'faq_landlord_cancel_yes', 'faq_landlord_cancel_no'] as $key) {
             $this->assertContains($key, $keys, "{$key} reaches the Setup Wizard (non-negotiable #10a)");
         }
     }

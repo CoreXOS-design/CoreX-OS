@@ -1017,8 +1017,10 @@ class RentalCommandCentreService
                 'detail' => 'Tenant: ' . $lease->tenantNames(),
                 // AT-444/AT-441 follow-up (2026-10-05) — RentalInspectionController::create() pre-selects from
                 // lease_id/property_id (+ type); lease_id resolves through the controller's own Lease::visibleTo().
-                'route' => 'corex.rental-inspections.create',
-                'route_params' => ['property_id' => $lease->property_id, 'lease_id' => $lease->id, 'type' => $item['type']],
+                // AT-490 - starts the inspection for THIS lease straight away (a POST), no property picker.
+                'route' => 'corex.rental-inspections.start-for-lease',
+                'route_params' => ['lease' => $lease->id, 'type' => $item['type']],
+                'post' => true,
             ]);
         });
 
@@ -1121,6 +1123,38 @@ class RentalCommandCentreService
                 'detail' => ucfirst(str_replace('_', ' ', (string) $inspection->type)) . ' inspection ' . str_replace('_', ' ', (string) $inspection->status),
                 'route' => 'corex.rental-inspections.show',
                 'route_params' => ['rentalInspection' => $inspection->id],
+            ]);
+        });
+
+        // AT-489 (Johan, 21 Oct 2026): the lease EXPIRY NOTICE to the tenant (Consumer Protection Act) has not gone out and fewer than 40 business
+        // days remain - the lease is OVERDUE. (The alert before that is a notification to the lease's agents, not a row here.) Live, not stored.
+        $expiryNotices = app(LeaseExpiryNoticeService::class);
+        $this->applyPropertyIdScope(
+            $applyQueueFilters(
+                Lease::query()->where('status', Lease::STATUS_ACTIVE)->whereNotNull('end_date')->whereNull('expiry_notice_sent_at')
+                    ->whereDate('end_date', '>=', $today->toDateString())
+                    ->whereDate('end_date', '<=', $today->copy()->addDays(120)->toDateString()), // 40 business days is about 56 calendar days; room for holidays
+                'end_date'
+            )->with('property'),
+            $user,
+            $scope,
+            'property_id'
+        )->with('tenants.contact')->get()->each(function (Lease $lease) use (&$items, $today, $expiryNotices) {
+            $st = $expiryNotices->status($lease, $today);
+            if ($st['state'] !== LeaseExpiryNoticeService::STATE_OVERDUE) {
+                return;
+            }
+            $items->push([
+                'type' => 'expiry_notice_overdue',
+                'urgency' => 2,
+                'age_days' => 0,
+                'item_date' => $lease->end_date,
+                'property' => $lease->property,
+                'lease' => $lease,
+                'label' => 'Expiry notice overdue',
+                'detail' => 'Not sent - ' . $st['remaining'] . ' business days left (CPA: at least ' . $st['dates']['min'] . ')',
+                'route' => 'corex.leases.show',
+                'route_params' => ['lease' => $lease->id],
             ]);
         });
 

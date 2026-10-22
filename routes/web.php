@@ -386,6 +386,23 @@ Route::middleware('auth')->group(function () {
     Route::get('/api/v1/p24/cities',    [\App\Http\Controllers\Api\V1\P24LocationController::class, 'cities'])->name('api.v1.p24.cities');
     Route::get('/api/v1/p24/suburbs',   [\App\Http\Controllers\Api\V1\P24LocationController::class, 'suburbs'])->name('api.v1.p24.suburbs');
 
+    // AT-479 — the reOS review screen's saves and pickers (called from the Blade page over fetch with the session cookie,
+    // so they live here like the P24 ones above). Under /api/v1 so the Admin → API catalogue lists them (non-negotiable #7).
+    Route::prefix('api/v1/rentals/take-on-import')->middleware(['feature:rental-take-on-import', 'permission:rentals_take_on_import.manage'])->group(function () {
+        Route::get('/suburbs', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'suburbs'])->name('api.v1.rentals.take-on-import.suburbs');
+        Route::get('/contacts', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'contacts'])->name('api.v1.rentals.take-on-import.contacts');
+        Route::get('/runs/{run}/summary', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'summary'])->name('api.v1.rentals.take-on-import.summary');
+        Route::post('/runs/{run}/defaults', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'defaults'])->name('api.v1.rentals.take-on-import.defaults');
+        Route::post('/rows/{row}/decisions', [\App\Http\Controllers\CoreX\ReosTakeOnApiController::class, 'decisions'])->name('api.v1.rentals.take-on-import.decisions');
+    });
+
+    // AT-495 — the lease picker behind the Notices tabs' "Record a received notice" / "Send notice" / "Issue breach notice" buttons (JSON, called from the
+    // Blade pages over fetch with the session cookie, so it lives here like the ones above). Under /api/v1 so the Admin → API catalogue lists it (#7).
+    // The purpose's own permission + leases.view are checked in the controller; the leases returned are Lease::visibleTo() (own / branch / agency).
+    Route::get('/api/v1/rentals/notices/leases', [\App\Http\Controllers\CoreX\NoticeLeasePickerController::class, 'search'])
+        ->middleware(['feature:rental-notices', 'permission:rental_notices.review,rental_notices.create,rental_breaches.manage', 'agency.required'])
+        ->name('api.v1.rentals.notices.leases');
+
     // AT-168 Part C — conversation-thread paging + in-thread search (JSON).
     // Under /api/v1 (URI starts with api/) so they appear in the Admin→API
     // catalogue (non-negotiable #7). Called from the thread Blade over fetch with
@@ -2866,6 +2883,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('index')->middleware('permission:access_rmcp');
         Route::get('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'variables'])
             ->name('variables')->middleware('permission:edit_rmcp');
+        Route::post('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'storeVariable'])
+            ->name('variables.store')->middleware('permission:edit_rmcp');
         Route::patch('/variables/{variable}', [\App\Http\Controllers\Compliance\RmcpController::class, 'updateVariable'])
             ->name('variables.update')->middleware('permission:edit_rmcp');
         Route::get('/create', [\App\Http\Controllers\Compliance\RmcpController::class, 'create'])
@@ -3899,6 +3918,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.update');
         Route::post('/{lease}/notice-terms/confirm', [\App\Http\Controllers\CoreX\LeaseController::class, 'confirmNoticeTerms'])
             ->middleware('permission:lease_notice_terms.edit')->name('corex.leases.notice-terms.confirm');
+        // AT-489 - the lease expiry notice to the tenant (Consumer Protection Act): send it now / record that it was handed over another way.
+        Route::post('/{lease}/expiry-notice/send', [\App\Http\Controllers\CoreX\LeaseController::class, 'sendExpiryNotice'])
+            ->middleware('permission:rental_notices.review')->name('corex.leases.expiry-notice.send');
+        Route::post('/{lease}/expiry-notice/mark-given', [\App\Http\Controllers\CoreX\LeaseController::class, 'markExpiryNoticeGiven'])
+            ->middleware('permission:rental_notices.review')->name('corex.leases.expiry-notice.mark-given');
         Route::post('/{lease}/activate', [\App\Http\Controllers\CoreX\LeaseController::class, 'activate'])
             ->middleware('permission:leases.create')->name('corex.leases.activate');
         // rental-renewals.md §22.1 - "Run today's lease date checks now" (system owner / agency admin; the controller checks the role).
@@ -4018,8 +4042,14 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     // audit 2026-10-19 (A28): reading the history of notices sent needs rental_notices.view, not the right to draft and send.
     Route::prefix('rental-notices')->middleware('permission:rental_notices.view')->group(function () {
         Route::get('/', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'index'])->name('corex.rental-notices.index');
-        Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->name('corex.rental-notices.show');
-        Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->name('corex.rental-notices.download-document');
+        Route::get('/{rentalNotice}', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'show'])->withTrashed()->name('corex.rental-notices.show');
+        Route::get('/{rentalNotice}/document', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'downloadDocument'])->withTrashed()->name('corex.rental-notices.download-document');
+        // AT-495 - resend / archive / restore a sent notice (drafting and sending is rental_notices.create).
+        Route::middleware('permission:rental_notices.create')->group(function () {
+            Route::post('/{rentalNotice}/resend', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'resend'])->name('corex.rental-notices.resend');
+            Route::post('/{rentalNotice}/archive', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'archive'])->name('corex.rental-notices.archive');
+            Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalNoticeController::class, 'restore'])->whereNumber('id')->name('corex.rental-notices.restore');
+        });
     });
 
     // .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
@@ -4032,6 +4062,11 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.template');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalTakeOnImportController::class, 'upload'])
             ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.upload');
+        // AT-479 — the reOS Tenancy Schedule import (spec "reOS Tenancy Schedule import"). 'reos' is static, before /{run}.
+        Route::post('/reos', [\App\Http\Controllers\CoreX\ReosTakeOnController::class, 'upload'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.reos.upload');
+        Route::post('/{run}/reos-import', [\App\Http\Controllers\CoreX\ReosTakeOnController::class, 'import'])
+            ->middleware('permission:rentals_take_on_import.manage')->name('corex.rentals.take-on-import.reos.import');
         // Landing 2 (.ai/specs/rental-takeon-import.md §11) — saved column
         // mappings. Must sit before /{run} so 'mappings' never binds as a
         // run id, same reasoning as P24's own search-properties route.
@@ -4071,6 +4106,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         Route::post('/', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'store'])->name('corex.rental-notice-templates.store');
         Route::get('/{rentalNoticeTemplate}/edit', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'edit'])->name('corex.rental-notice-templates.edit');
         Route::put('/{rentalNoticeTemplate}', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'update'])->name('corex.rental-notice-templates.update');
+        // AT-495 - the Word document the template was made from, as it was uploaded.
+        Route::get('/{id}/original', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'downloadOriginal'])->whereNumber('id')->name('corex.rental-notice-templates.download-original');
         Route::post('/{rentalNoticeTemplate}/archive', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'archive'])->name('corex.rental-notice-templates.archive');
         Route::post('/{id}/restore', [\App\Http\Controllers\CoreX\RentalNoticeTemplateController::class, 'restore'])->name('corex.rental-notice-templates.restore');
     });
@@ -4089,6 +4126,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.create');
         Route::post('/', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'store'])
             ->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.store');
+        // AT-490 - begin an inspection for a given lease straight away (lease screen / Command Centre), like the property tab's Start.
+        Route::post('/start-for-lease/{lease}/{type}', [\App\Http\Controllers\CoreX\RentalInspectionController::class, 'startForLease'])
+            ->whereNumber('lease')->middleware('permission:rental_inspections.create')->name('corex.rental-inspections.start-for-lease');
         // .ai/specs/rental-inspections.md §27.7 — a per-user UI preference for the
         // recording screen (photos shown/hidden, the problem filter), not inspection
         // data — no {rentalInspection} in the path, and no extra .create gate: same
@@ -4597,8 +4637,9 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.store');
         Route::put('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'update'])
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.update');
+        // AT-494: choosing a quote is a MONEY decision (it puts the quote through the owner's limit and mails the owner) - the same key as authorising a cost.
         Route::post('/{rentalWorkOrder}/quotes/{quote}/select', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'select'])
-            ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.select');
+            ->middleware('permission:rental_work_orders.record_approval')->name('corex.rental-work-orders.quotes.select');
         Route::delete('/{rentalWorkOrder}/quotes/{quote}', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'destroy'])
             ->middleware('permission:rental_work_orders.manage_quotes')->name('corex.rental-work-orders.quotes.destroy');
         Route::post('/{rentalWorkOrder}/quotes/{quote}/restore', [\App\Http\Controllers\CoreX\RentalWorkOrderQuoteController::class, 'restore'])
@@ -6321,6 +6362,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.shares.confirm');
 
+    // AT-503 — the buyer-level Share button (buyer detail header): records a
+    // confirmed share against each ACTIVE wishlist the buyer's client page shows.
+    Route::post('/core-matches/buyers/{contactId}/shares/confirm', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'confirmBuyer'])
+        ->whereNumber('contactId')
+        ->middleware(['permission:core_matches.view', 'agency.required'])
+        ->name('corex.core-matches.buyer-shares.confirm');
+
     // AT-Core-Matches, share-history piece — read-only: the share log, the
     // separate "opened" signal, and "properties not seen since last send"
     // (today's live matches minus everything ever shared). Same gate as
@@ -6351,6 +6399,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
     Route::get('/rentals/contacts', [\App\Http\Controllers\CoreX\ContactController::class, 'index'])
         ->middleware(['permission:access_contacts', 'agency.required'])
         ->name('corex.rentals.contacts.index');
+
+    // .ai/specs/real-estate-menu-tabs.md + dashboard-menu-tabs.md - the tabbed menu items: each lands on the first tab the user may open (?tab=<key>).
+    // The tabs are existing screens with their own routes and access checks (App\Support\Navigation\TabHubs); no tab open = 403.
+    foreach (array_keys(\App\Support\Navigation\TabHubs::HUBS) as $tabHub) {
+        Route::get('hub/' . $tabHub, [\App\Http\Controllers\CoreX\TabHubController::class, 'show'])
+            ->defaults('hub', $tabHub)->middleware('agency.required')->name('corex.hubs.' . $tabHub);
+    }
 
     // Portal Leads (P24 + PP unified). Spec: .ai/specs/portal-leads.md
     // The toast poll sits OUTSIDE the agency.required/feature group: with no agency context (an owner who has not picked an
@@ -7959,6 +8014,8 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
                     Route::get('/layouts',                  [$c, 'layouts'])->name('layouts');
                     Route::post('/settings',                [$c, 'settingsUpdate'])->name('settings');
                     Route::get('/reports/{id}/download',    [$c, 'download'])->whereNumber('id')->name('download');
+                    Route::get('/reports/{id}/pdf',         [$c, 'pdf'])->whereNumber('id')->name('pdf');
+                    Route::get('/reports/{id}/figures',     [$c, 'figures'])->whereNumber('id')->name('figures');
                     Route::post('/reports/{id}/rerun',      [$c, 'rerun'])->whereNumber('id')->name('rerun');
                     Route::post('/reports/{id}/resolve',    [$c, 'resolve'])->whereNumber('id')->name('resolve');
                     Route::post('/reports/{id}/reopen',     [$c, 'reopen'])->whereNumber('id')->name('reopen');

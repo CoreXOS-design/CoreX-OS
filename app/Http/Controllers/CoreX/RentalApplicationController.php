@@ -658,9 +658,17 @@ class RentalApplicationController extends Controller
         $validated = $request->validate([
             'contact_id' => ['required', 'integer', new \App\Rules\ExistsInScope(Contact::class)],
             'property_id' => ['nullable', 'integer'],
+            // AT-485 - typed on the create screen when the picked contact has no email; saved to the contact below.
+            'contact_email' => ['nullable', 'email', 'max:150'],
         ]);
 
         $contact = Contact::findOrFail($validated['contact_id']);
+
+        // AT-485 - one live application per applicant (any property). A second one is refused with a link to the first,
+        // so a double-click or a second agent never starts a duplicate the applicant would receive twice.
+        if ($existing = $this->existingApplicationFor($contact->id)) {
+            return $this->duplicateApplicationResponse($request, $existing, true);
+        }
 
         $requestedPropertyId = $validated['property_id'] ?? null;
         $property = Property::findLinkableForRentalApplication($requestedPropertyId, $request->user());
@@ -674,6 +682,14 @@ class RentalApplicationController extends Controller
             return back()->withInput()->withErrors([
                 'property_id' => "That property isn't available to link — it may have been removed, or you may not have access to it. Search for it again above.",
             ]);
+        }
+
+        // AT-485 - a contact with no email gets the one the agent typed on the create screen, saved to the contact itself
+        // (the contact's save observer builds the primary email row). Never overwrites an address the contact already has.
+        $typedEmail = trim((string) ($validated['contact_email'] ?? ''));
+        if ($typedEmail !== '' && ! $contact->email && ! $contact->emails()->exists()) {
+            $contact->email = $typedEmail;
+            $contact->save();
         }
 
         // Johan, QA1 — "have not even sent anything, yet top left shows
@@ -1022,7 +1038,7 @@ class RentalApplicationController extends Controller
 
         $fields = collect($validated)->except(['property_id'])->all();
         $fields = array_map(fn ($v) => $v === '' ? null : $v, $fields);
-        $fields = RentalApplication::normalizeStillLiving($fields);
+        $fields = RentalApplication::clearRentingAnswersWhenNotRenting(RentalApplication::normalizeStillLiving($fields));
 
         // MERGE into existing custom_field_values, never replace — same
         // reasoning as submit()/autosave(): a retired custom field's
@@ -1246,7 +1262,7 @@ class RentalApplicationController extends Controller
      *     event ContactPropertyController::link() fires, per non-negotiable
      *     #9 (cross-pillar reactivity uses domain events, never a second
      *     ad-hoc path) — any future listener keyed on that event (the way
-     *     MarkBuyerWonOnPropertyLink already reacts to 'buyer'/'purchaser')
+     *     the old MarkBuyerWonOnPropertyLink listener, removed in AT-500, reacted to 'buyer'/'purchaser')
      *     sees a rental-sourced tenant link exactly like any other.
      *
      * DOES NOT TOUCH PROPERTY STATUS. Johan's original ask ("the property
@@ -1469,6 +1485,13 @@ class RentalApplicationController extends Controller
                 ->with('error', 'This application is ' . $rentalApplication->status . ', so the applicant\'s link is closed. Use Reopen if they should be able to continue.');
         }
 
+        // AT-485 - the first send of a draft is refused when the same applicant already has another live application
+        // that has gone out (a resend of this one is not a duplicate).
+        if ($rentalApplication->status === 'draft'
+            && ($existing = $this->existingApplicationFor((int) $rentalApplication->contact_id, $rentalApplication->id, true))) {
+            return $this->duplicateApplicationResponse($request, $existing, false, $rentalApplication);
+        }
+
         $expiryDays = RentalApplicationQualifyingSetting::reopenLinkExpiryDaysFor($rentalApplication->agency_id);
         if (! $rentalApplication->token) {
             $rentalApplication->token = $this->generateToken();
@@ -1483,12 +1506,14 @@ class RentalApplicationController extends Controller
             $rentalApplication->save();
         }
 
-        $mailSent = app(RentalApplicationMailer::class)->sendInvite($rentalApplication);
+        $mailer = app(RentalApplicationMailer::class);
+        $mailSent = $mailer->sendInvite($rentalApplication);
 
         if (! $mailSent) {
+            // AT-485 - say WHY (the old generic message hid a missing email / a refused mail server).
             return redirect()
                 ->route('corex.rental-applications.show', $rentalApplication)
-                ->with('error', 'Could not send — please try again.');
+                ->with('error', 'Could not send. ' . ($mailer->lastFailureReason() ?: 'The mail server did not accept it.') . ' Nothing was marked as sent; fix the cause and press Send again, or use "Share the link myself".');
         }
 
         // A resend of an application the applicant has already progressed
@@ -1954,6 +1979,53 @@ class RentalApplicationController extends Controller
      * spouse_id, citizenship and a distinct work number do NOT exist on
      * contacts — only these five genuinely map).
      */
+    /**
+     * AT-485 - the applicant's live application, if any: not declined, not withdrawn, not archived (SoftDeletes), any
+     * property, this agency (AgencyScope). With $sentOnly a still-unsent draft does not count - used by send(), where
+     * "already sent one" is the question; store() counts drafts too so a second draft is never started.
+     */
+    private function existingApplicationFor(int $contactId, ?int $exceptId = null, bool $sentOnly = false): ?RentalApplication
+    {
+        $closed = RentalApplication::DOCUMENT_UPLOADS_ALWAYS_CLOSED_STATUSES;
+        if ($sentOnly) {
+            $closed = array_merge($closed, ['draft']);
+        }
+
+        return RentalApplication::query()
+            ->where('contact_id', $contactId)
+            ->whereNotIn('status', $closed)
+            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->orderByDesc('id')
+            ->first();
+    }
+
+    /**
+     * AT-485 - the on-screen refusal: plain words plus a link to the existing application (the link only when this
+     * user may open it - the same visibleTo scope the list uses - so the warning never leaks a record they cannot see).
+     */
+    private function duplicateApplicationResponse(Request $request, RentalApplication $existing, bool $fromCreate, ?RentalApplication $current = null)
+    {
+        $canOpen = RentalApplication::query()->visibleTo($request->user())->whereKey($existing->id)->exists();
+        $message = $existing->status === 'draft'
+            ? 'This applicant already has an application started that has not been sent yet.'
+            : 'This applicant has already been sent an application.';
+
+        \Illuminate\Support\Facades\Log::info('AT-485 rental application duplicate refused', [
+            'user_id' => $request->user()->id,
+            'contact_id' => $existing->contact_id,
+            'existing_application_id' => $existing->id,
+            'from' => $fromCreate ? 'store' : 'send',
+        ]);
+
+        $redirect = $fromCreate
+            ? back()->withInput()->withErrors(['contact_id' => $message])
+            : redirect()->route('corex.rental-applications.show', $current)->with('error', $message);
+
+        return $canOpen
+            ? $redirect->with('duplicate_application', ['id' => $existing->id, 'url' => route('corex.rental-applications.show', $existing), 'status' => $existing->status])
+            : $redirect;
+    }
+
     private function prefillFromContact(Contact $contact): array
     {
         return [

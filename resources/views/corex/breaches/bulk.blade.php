@@ -6,6 +6,7 @@
 --}}
 
 @section('content')
+<div class="mb-4">@include('corex.notices._tabs', ['active' => 'breaches'])</div>
 <div class="p-6 space-y-4 max-w-6xl">
     <div class="flex items-center justify-between gap-3">
         <h1 class="text-lg font-semibold">Breach notice - payment</h1>

@@ -24,6 +24,10 @@
         @csrf
         {{-- §45.7 (Build I-5) — set when this form was opened from "Book from this date" on a loaded interim date; the
              server re-checks it (same agency/lease/type, still planned) before linking — never trusted as posted. --}}
+        {{-- AT-490 - opened for a particular lease: the inspection attaches to THAT lease, not the property's first active one. --}}
+        @if(old('lease_id', $selectedLeaseId ?? null))
+            <input type="hidden" name="lease_id" value="{{ old('lease_id', $selectedLeaseId) }}">
+        @endif
         @if(old('planned_date_id', request()->query('planned_date_id')))
             <input type="hidden" name="planned_date_id" value="{{ old('planned_date_id', request()->query('planned_date_id')) }}">
         @endif

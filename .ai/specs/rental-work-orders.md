@@ -864,6 +864,8 @@ but does not answer.
 
 ## 3.4c Quotes — the value approval actually rides on, NEW 2026-09-29
 
+> **21 Oct 2026 (AT-493, Johan) - supersedes any "upload OR details, at least one required" wording below: a quote needs only a supplier, an amount and a date; the description and the document are both optional (amount alone is valid). Who may choose/send a quote and who may only capture one: rentals-faults-work-orders.md §28.10 (AT-494).**
+
 Johan's ruling, verbatim: *"agents will obtain quotes and thats the value that approval will ride
 against. so an upload or attach of the quote, or punching in the details is whats needed."* This closes
 a real gap: before this amendment, `cost_amount` was the only money figure anywhere on a

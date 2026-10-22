@@ -84,6 +84,17 @@ class ContactMatchShare extends Model
     }
 
     /**
+     * AT-503 — mint and confirm in one step, for senders that have no composer
+     * round-trip (the buyer-level Share button, the mobile WhatsApp share).
+     * Exactly the composer's two phases back to back, so the recorded effects
+     * (channel, property snapshot, working-clock reset) are identical.
+     */
+    public static function recordConfirmed(ContactMatch $match, int $userId, ?string $channel = null): self
+    {
+        return static::mint($match, $userId)->confirmSent($channel);
+    }
+
+    /**
      * The actual send action. Snapshots the live match set (the EXACT same
      * query the link itself runs, via ClientMatchResolver::resolve() —
      * never a second, parallel query) so the recorded baseline is provably

@@ -69,8 +69,12 @@ class OtpService
      *   attributes?: array<string,mixed>
      * } $opts
      */
+    /** AT-486 - true when the last issue() could not hand its email to the mail server (issuance itself still succeeded). */
+    public bool $lastDeliveryFailed = false;
+
     public function issue(string $purpose, string $destination, array $opts = []): Otp
     {
+        $this->lastDeliveryFailed = false;
         $destination = trim($destination);
         $code        = $this->generateCode(isset($opts['length']) ? (int) $opts['length'] : null);
         $subject     = $opts['subject'] ?? null;
@@ -200,6 +204,7 @@ class OtpService
             // Delivery failure must never be fatal to issuance (matches the
             // proven client-auth behaviour) — report and carry on.
             report($e);
+            $this->lastDeliveryFailed = true;
         }
     }
 

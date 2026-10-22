@@ -47,6 +47,9 @@ class Lease extends Model
     // just a new recognised value, no schema change.
     public const SOURCE_MIGRATED_TAKEON = 'migrated_takeon';
 
+    // AT-479 — leases.external_source for a lease brought in from reOS.
+    public const EXTERNAL_SOURCE_REOS = 'reos';
+
     // LEASE-AGREEMENT BEGIN (leases.md §15.5 — Build L1). `signing_status` runs beside `status`
     // (which keeps its meaning); it says where the lease's e-sign agreement is, never whether the
     // lease is in force.
@@ -103,6 +106,8 @@ class Lease extends Model
         'rental_application_id',
         'source_document_id',
         'previous_lease_id',
+        // AT-489 - the agency's expiry notice to the tenant (CPA s14(2)(c)): whether / when / how it went out, and whether the agents were alerted.
+        'expiry_notice_sent_at', 'expiry_notice_sent_via', 'expiry_notice_sent_by_user_id', 'expiry_notice_note', 'expiry_notice_alerted_at',
         'renewed_lease_id',
         'created_by_user_id',
         // leases.md §17 — the lease's own two agents (owner's side / tenant's side).
@@ -116,6 +121,14 @@ class Lease extends Model
         'archived_from_status',
         'migrated_from_table',
         'migrated_from_id',
+        // AT-479 — where the lease came from in another system (the reOS lease id + link), whether it rolls over, and the
+        // payment references used to pay through reOS. All editable on the lease (rental-takeon-import.md R7).
+        'external_source',
+        'external_id',
+        'external_url',
+        'rollover',
+        'tenant_wallet_ref',
+        'owner_wallet_ref',
         // rental-takeon-import.md §6 — read-only, display-only facts about
         // the tenancy as it stood on the day it was taken on. Never written
         // by any other flow.
@@ -149,9 +162,12 @@ class Lease extends Model
     protected $casts = [
         'rental_amount' => 'decimal:2',
         'deposit_amount' => 'decimal:2',
+        'expiry_notice_sent_at' => 'datetime',
+        'expiry_notice_alerted_at' => 'datetime',
         'start_date' => 'date',
         'end_date' => 'date',
         'is_month_to_month' => 'boolean',
+        'rollover' => 'boolean',
         'cancelled_at' => 'datetime',
         'overdue_alerted_at' => 'datetime',
         'notice_date' => 'date',

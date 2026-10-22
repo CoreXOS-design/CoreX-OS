@@ -6,6 +6,7 @@
 --}}
 
 @section('content')
+<div class="mb-4">@include('corex.notices._tabs', ['active' => 'received'])</div>
 @php
     $address = $lease->property?->buildDisplayAddress() ?: ('Lease #' . $lease->id);
     $unit = fn ($v) => $v ?: 'not stated';
@@ -76,7 +77,9 @@
                 <dt style="color: var(--text-muted);">Lease term</dt>
                 <dd class="col-span-2">{{ $terms['lease_start'] ? \Carbon\Carbon::parse($terms['lease_start'])->format('j M Y') : '?' }} to {{ $terms['month_to_month'] ? 'month-to-month' : ($terms['lease_end'] ? \Carbon\Carbon::parse($terms['lease_end'])->format('j M Y') : 'no end date') }}</dd>
                 <dt style="color: var(--text-muted);">Notice period</dt><dd class="col-span-2" data-term="notice-period">{{ $terms['period_text'] ?: 'not stated' }}</dd>
-                <dt style="color: var(--text-muted);">Earliest date notice may be given</dt><dd class="col-span-2">{{ $terms['earliest_notice_date'] ? \Carbon\Carbon::parse($terms['earliest_notice_date'])->format('j M Y') : 'no restriction' }}</dd>
+                @if($terms['earliest_notice_date'])
+                    <dt style="color: var(--text-muted);">Lease clause: notice may be given from</dt><dd class="col-span-2" data-term="lease-clause-notice-from">{{ \Carbon\Carbon::parse($terms['earliest_notice_date'])->format('j M Y') }}</dd>
+                @endif
                 <dt style="color: var(--text-muted);">Early cancellation</dt>
                 <dd class="col-span-2" data-term="early-cancellation">
                     @if($terms['early_allowed'])

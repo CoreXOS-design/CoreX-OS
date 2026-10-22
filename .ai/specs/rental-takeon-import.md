@@ -355,9 +355,14 @@ Per-row downloadable error report (`GET .../runs/{run}/errors.csv`) — every ro
 
 ## 8. Permissions
 
-New key, following the `leases.*` naming convention: `rentals.take_on_import` — agency-admin only
-(not every agent — this is a one-time, high-stakes bulk operation per agency, not a day-to-day
-action). Gates the sidebar entry, every route, and controller-level `authorize()`.
+Two keys, module `rentals_take_on_import` (`config/corex-permissions.php:177-178`): `rentals_take_on_import.view`
+(batch list, review screen, issues download) and `rentals_take_on_import.manage` (upload, map columns, confirm,
+exclude, cancel, archive/restore, saved mappings). Agency-admin only by default (not every agent — a one-time,
+high-stakes bulk operation per agency). They gate the sidebar entry, every route (`routes/web.php:4038-4073`) and,
+through `RentalTakeOnImportRun::scopeVisibleTo`, the own/branch/agency level. The whole feature also sits behind the
+agency feature toggle `rental-take-on-import` (`config/corex-features.php:588`).
+*(Corrected 2026-10-21, AT-479: this section used to say the key was `rentals.take_on_import`. That key never
+existed; the two above are what the code has always used.)*
 
 No new agency **setting** is introduced by this feature (template shape, column mapping, archive
 behaviour are all fixed logic, not something an agency configures) — non-negotiable #10a therefore
@@ -431,3 +436,451 @@ month-to-month row with no end date.
 
 ## Audit fix 2026-10-18 (A-M2)
 `rental_take_on_import_rows` now carries its own `agency_id` (`BelongsToAgency`; migration `2026_11_16_100000_add_agency_id_to_rental_take_on_import_rows`, backfilled from the parent run). Every run and row action in `RentalTakeOnImportController` (show, preview, issues CSV, map/confirm mapping, confirm-bulk, confirm/exclude row, cancel, archive, restore) first checks the parent run with `RentalTakeOnImportRun::visibleTo($user)` (own/branch/agency) and answers 404 otherwise, before any read or write. Tests: `RentalTakeOnImportHttpTest`.
+
+---
+
+# reOS Tenancy Schedule import (AT-479)
+
+**Status:** Spec — approved for build (Johan, via conductor, 2026-10-21). Lands on QA1 only.
+**Pillars:** Property (match-or-create via `TrackedPropertyMatchOrCreateService`), Contact (owner + tenant,
+de-duped through `ContactDuplicateService`), Deal: not touched, Agent (`User`, matched by name, or picked).
+**Investigation this follows:** the 2026-10-21 report on the existing take-on import (in the conversation; the
+file references below are the exact ones it cited).
+
+## R0. Why, in one sentence
+
+An agency moving from reOS exports its "Tenancy Schedule" (and optionally its "Rent Roll"); CoreX brings the
+leases in as a reviewed batch — every property, owner and tenant matched against what CoreX already knows, the user
+choosing exactly what is imported — and a second upload of a newer export updates the leases it already brought
+in instead of duplicating them. **No email, WhatsApp or notification is sent on any path of this feature.**
+
+## R1. Import type
+
+`rental_take_on_import_runs.source` (varchar 30, NOT NULL, default `corex_template`): `corex_template` (everything
+that exists today — unchanged) or `reos_tenancy_schedule`. Constants on `RentalTakeOnImportRun`. Every existing run
+reads as `corex_template`. The reOS path never goes through the column-mapping screen: a file is either exactly the
+reOS layout or it is rejected with a plain message.
+
+`/corex/rentals/take-on-import` (`index.blade.php`) gets a second card beside the existing upload:
+"reOS Tenancy Schedule import" — a Tenancy Schedule file (required) and a Rent Roll file (optional) in one form.
+Same permissions (`rentals_take_on_import.view` / `.manage`), same `visibleTo` scoping, same feature toggle, same
+batch list (a "Type" column is added so the two kinds are told apart). No new menu entry (the page is the entry).
+
+## R2. Recognising and reading the files
+
+Both files are `.xlsx` (the CSV path is not offered for reOS — the Lease ID is a formula cell). Read with OpenSpout
+(`SHOULD_PRESERVE_EMPTY_ROWS = true` so a row's index is its real spreadsheet row number).
+
+**The header row is FOUND, not assumed** (corrected 21 Oct 2026 after Johan's real files: the Rent Roll has a "Date Range"
+line, so its headers are on row 5, the Accounts Receivable report has them on row 3). Both parsers scan the first **15 rows**
+of the sheet for the row that holds every expected header (compared normalised) and read the data from the row below it;
+blank rows and any metadata lines above it (title, "Compiled", "Date Range", …) are ignored. The columns are found by their
+heading too, so extra columns, a shifted first column or a different order do not matter. A file is refused only when no row
+in the first 15 holds the full header set, with a message that names the sheet or the expected headers. The row number quoted
+on the review screen is always the real spreadsheet row.
+
+**Tenancy Schedule** — sheet named exactly `Tenancy Schedule` (case/space-insensitive); the 21 headers below; fully blank
+rows skipped. Anything else is rejected before a run exists with a message that says what was found ("The sheet 'Tenancy
+Schedule' was not found — this file has: X, Y." / "The header row … was not found in the first 15 rows … It should have
+these columns: …").
+
+Lease ID | Property Address | Owner | Owner Email | Owner Phone | Tenant | Tenant Email | Tenant Phone |
+Lease Type | Lease Status | Lease Start | Lease End | Rollover | Deposit Required | Current Rent | Fixed Invoices |
+Variable Invoices | Current Commission (including VAT) | Current Commission (excluding VAT) | Agent | Lease Segment
+
+**Rent Roll (optional)** — sheet `Rent Roll`. Only these six columns are looked for: Property Address, Agent, Owner, Tenant, Tenant Wallet, Lease End. **Only Tenant Wallet is used**;
+every money column is ignored (not read, not kept).
+
+**Lease ID cell** is the formula `=HYPERLINK("https://app.reos.co.za/leases/<uuid>", "<uuid>")`. OpenSpout returns a
+formula cell's formula text (`Row::toArray()` → `FormulaCell::getValue()`), not the cached value — proven in
+`ReosTenancyScheduleParserTest` on a synthetic workbook, not assumed. Argument separator `,` or `;` both accepted.
+The uuid and the URL are extracted (uuid = the `…/leases/<uuid>` tail of the URL, checked against the friendly-text
+argument when both are present; lower-cased). A cell holding only a bare uuid is accepted for matching and keeps no
+URL (CoreX does not invent a link). A row with no readable Lease ID is an error row (it could never be matched on a
+re-import).
+
+Cell parsing: dates `YYYY-MM-DD` strings (Excel date cells also tolerated, via the existing
+`RentalTakeOnRowParser::parseDate`); Rollover `"True"/"False"` (also real booleans, 1/0, yes/no); money as decimals
+(`RentalTakeOnRowParser::parseNumber`: absorbs `R`, spaces, thousands commas). Commission cells (`"759.00"` or
+`"0.00%"`) are parsed so a malformed one is noticed, then **dropped — never stored** (R7).
+
+Lease Status → CoreX: `Active`, `Expiring` → activate; `Draft` → stays draft. Any other value is an error row
+("Lease status 'X' is not one CoreX imports (Active, Expiring, Draft)") — prevent, not guess.
+
+## R3. Staging: what is stored on a run and its rows
+
+Run: `source`, `rent_roll_filename` (nullable). `counts_json` gains rent-roll matched/unmatched counts and the
+import result counts (created / updated / failed).
+
+Row (`rental_take_on_import_rows`, all new columns nullable except as noted): `external_id` (reOS uuid, indexed),
+`external_url`, `existing_lease_id` (the lease already in CoreX with this reOS id, withTrashed), `selected` (bool,
+NOT NULL default 0 — the user's tick), `decisions_json` (the user's choices, R4), `blockers_json` + `is_blocked`
+(bool, NOT NULL default 0 — computed, R5), `import_error` (text — why the last import attempt of this row failed),
+`result_action` (`created` | `updated`). `payload_json` holds the parsed values: reOS id, address text, owner /
+tenant name + email + phone, lease type, status, dates, rollover, deposit, rent, agent text, `tenant_wallet_ref`.
+The existing columns `property_match_*`, `landlord_match_json` (position 1 = the owner), `tenant_match_json`
+(position 1 = the tenant), `target_*`, `errors_json`, `warnings_json` are reused. **The uploaded files are not kept**
+(unlike the CoreX-template import): they are read straight from PHP's temporary upload and discarded, so the money
+columns they carry (commission, invoices, the Rent Roll's amounts) are genuinely nowhere in CoreX. `source_file_path`
+is therefore empty on a reOS run; only the file names are recorded.
+
+## R4. The review screen (the existing preview, extended for reOS runs)
+
+> **Superseded in layout and interaction by R14 (AT-481, 22 Oct 2026)** — the per-row table, the tick boxes, the six filters and the
+> bulk buttons described below are gone. What R4 says about *what is decided, how it is matched and what blocks a lease* still holds.
+
+`preview` renders `preview-reos.blade.php` when `run.source = reos_tenancy_schedule`; the existing view is untouched
+for `corex_template`. Plain JavaScript, no Alpine (the existing preview's rule).
+
+**Per row it shows**, matched vs not-in-CoreX for property, owner and tenant; and whether the lease already exists
+by reOS id ("In CoreX already — will be updated", never created twice; an *archived* lease with that id is a blocker
+that says to restore it first, because the database key spans archived rows).
+
+**What the user decides, per row (stored in `decisions_json`, saved the moment it changes):**
+- tick the lease to import (`selected`; default: none ticked);
+- property not matched → "Create this property" (default ticked) + **suburb** (required to create);
+- owner / tenant not matched → "Create this contact" (default ticked), or **link an existing contact** (search);
+  a matched contact is linked by default;
+- **agent** (default: the name match, R4.2);
+- tenant wallet reference (pre-filled from the Rent Roll; editable).
+
+**R4.0b Review-screen corrections after Johan's real-file check (21 Oct 2026, batch 6).**
+1. *Sticky header* now has a solid background and `z-index: 50` (above every row control, whose result lists are z-20): rows scroll
+   under it. **Flush to the top (22 Oct follow-up):** the page scrolls inside `<main id="appScroll">`, which has its own padding
+   (1rem, 1.5rem from 1024 px); a sticky bar at `top: 0` stops inside that padding and a strip of rows showed above it. The bar's
+   `top` is now the negative of that padding (`-1rem`, `-1.5rem` at lg) so it sits flush with the scroll area.
+2. *A company matched to a company is a company match.* A CoreX contact counts as a **company** when it is a company record
+   (`contact_kind = entity`) **or its name reads as a company** (`ReosContactNames::isCompanyContact` — CoreX holds 10,706 "natural
+   person" records on QA1, many named "… Pty Ltd", e.g. "BEBO Investments (PTY) LTY"). Such a match is never "matched a person" and the
+   one-click is never offered for it; an entity-like contact is refused as somebody's "person" (decision API and import). Same for tenants.
+3. *Name differs is split in two* (`ReosNameCompare`): **Spelling differs** (muted grey, NOT in the amber total) = same surname once
+   squashed ("Mc Neil" = "McNeil"), a middle name on one side only, or an edit distance ≤ 2 on first name or surname (only for words
+   of 4+ letters, so Ben/Ken stay different) — "Mkhozi/Mkozi", "Desire/Desiree"; and **Name differs** (amber, counted) = everything
+   else, plus "matched a person" for a company. **Swapped first name / surname (22 Oct follow-up)** is also Spelling: the name is
+   treated as a set of words, each found once in the other name (equal, an initial, or ≤ 2 edits) in any order — CoreX "Nkome
+   Langelihle" vs reOS "Langelihle Nkomo". Needs two words on the shorter side (a single word has no order to swap). Stored flags
+   re-worked once per batch (`NAME_FLAGS_VERSION` 3). Filter options for both; the header shows the amber count and a separate muted
+   "Spelling" count. `decisions_json.name_differs` (amber) and `.spelling_differs`.
+5. *Batches parsed under older rules are re-checked.* The name flags are stored when a batch is parsed, so the first time a batch is
+   opened after the rules change `ReosRowResolver::recheckNameFlags` re-works the flags of its not-yet-imported rows (the user's
+   choices untouched) and stamps `counts_json.name_flags_v`. Without it Johan's existing batch 6 would have kept the old verdicts.
+4. *The row grid fits the page without a horizontal scroll* (checked at 1523 px): `table-layout: fixed`, six percentage columns
+   (3/14/23/19/19/22), controls capped to their column, and the "to fix / to know" notes sit under the agent instead of in a
+   seventh column.
+
+**R4.0a Contact matched under a different name (Johan, 21 Oct 2026).** A contact matched on phone / e-mail can be someone
+else (a shared number, a re-used e-mail, a company whose phone is its contact person's). When the matched CoreX contact's
+name does not match the reOS name — compared normalised: case, spacing, punctuation, "&"/"and" and Pty/Ltd/Limited ignored,
+an initial = a full first name ("A Smith" = "Andre Smith"), and every word of the shorter name must be found in the longer so a
+joint name matching one spouse or a missing middle name is not noise (`ReosNameCompare`) — the cell shows an amber
+**"Name differs — CoreX has “X”, reOS has “Y”. Check it is the same person."** When the reOS name is a company and the CoreX
+contact is a person it shows **"Matched a person (likely the company's contact person)"** instead. "Use the contact already in
+CoreX" stays the default; the flag is a warning, never a blocker, and it clears when the user creates a new contact, leaves
+the person out or links another contact by hand. The review list has a **Contact names → Name differs** filter and the header
+a "Name differs: n" count. Stored: `name_flag` / `matched_name` on the owner/tenant match, and `decisions_json.name_differs`.
+
+**R4.0 Does the property exist? — no suburb needed (Johan, 21 Oct 2026).** Step 1 of every row. `ReosPropertyCandidates`
+looks across ALL suburbs of the agency's own (non-archived) properties on **street name + street number**, plus **unit /
+complex when the reOS address has them**, all normalised: case and punctuation ignored, "Ave" = "Avenue", and **"504/3
+Robin Road" = unit 504, no. 3, Robin Road** (whether CoreX holds it as unit 504 + no. 3 or as "504/3" in the number).
+Conservative rules: no street number in the reOS address = no lookup (a street alone is not a property); a unit in the reOS
+address needs the same unit in CoreX; an address with no unit does not match a CoreX flat in a block; a different complex
+rules a property out (a CoreX property that simply holds no complex name is not ruled out). Other agencies' and archived
+properties never match.
+- **Exactly one** → "In CoreX": the row shows the property with its suburb (read from the property); no suburb picker, nothing
+  created; Import puts the lease on THAT property and does not change it.
+- **Several** → the row says "Pick the property" and lists each (address + suburb) plus **"None of these — create a new
+  property"**; until one is chosen the row is blocked (`property_choice_required`, linked to the control). A pick must be one
+  of the listed properties (anything else is refused). "None of these" goes to the suburb-picker route below, and a later
+  suburb pick does not undo it.
+- **None** → "Not in CoreX" + the suburb picker (R4.1), exactly as before; once a suburb is picked CoreX's general matcher
+  looks again (it needs the suburb) and may still find a tracked property.
+Stored in `decisions_json.property`: `candidates`, `link_id`, `choice` (`link` | `new`); `property_match_action` is `match`,
+`choose` or `create`. The Import path never creates or re-matches a property whose `link_id` is set, so it cannot duplicate.
+The same unit/number reading is used when a NEW property is created ("504/3 Robin Road" is created as unit 504, no. 3).
+
+**R4.1 Suburb.** Only for a property CoreX does *not* match. A type-ahead over the existing P24 suburb list
+(`p24_suburbs` where `p24_verified_at` is set, the same source as `/api/v1/p24/suburbs`; the existing endpoint needs
+a city, so a thin search endpoint over the same tables is added). Picking a suburb fills town (the P24 city) and
+province automatically and records `p24_suburb_id` / `p24_city_id` / `p24_province_id`. "Apply suburb to all
+selected" sets it on every ticked row that still needs one. A matched property needs no suburb.
+
+**R4.2 Agent.** `agent` text such as `Retha Kelly (0%),Home Finders Coastal (100%)`: split on commas, strip the
+`(n%)`, drop entries equal to the agency's own name (agency display name / trade name — never a hard-coded string:
+non-negotiable #9), take the **first person** left and match it to an active user of the agency by normalised name
+(exact normalised name, else every token present). No match, or only the agency named → the user picks (people on
+the existing `LeaseAgentService::selectableAgents` list, minus system-owner accounts, who cannot be a property
+agent). "Apply agent to all selected". The chosen agent becomes the lease's owner's agent **and** tenant's agent
+(editable afterwards on the lease). The split percentages are not stored.
+
+**R5. Blockers** (computed on every change; stored in `blockers_json`; each carries the id of the control that
+fixes it, and the message is a link to it):
+1. parse errors (bad/missing rent, start date, Lease ID, unknown status) — fixed in the file, no control;
+2. property unmatched, "create" ticked, no suburb → the suburb control;
+3. property unmatched and "create" not ticked (a lease needs a property) → the create tick;
+4. no agent chosen → the agent control;
+5. archived lease with this reOS id → none (restore it from the Leases list).
+A row whose lease already exists (the update path) is blocked only by 1 and 5 — an update touches terms only (R6).
+`is_blocked` = any blocker. Unmatched owner/tenant with "create" unticked is *not* a blocker (the lease is imported
+without that person, and says so).
+
+**Sticky header** — always visible: the run name, live counts (**selected**, **to create** — properties and
+contacts, **to update**, **blocked** = selected rows with a blocker), the **next action** in a sentence ("Tick the
+leases you want to import" / "Fix 3 blocked rows" / "Ready — import 12 leases"), and the **Import** button (enabled
+only when ≥1 row is ticked and none of the ticked rows is blocked). The counts come from the server after each
+change, so they are the truth, not a guess.
+
+**List standard (BUILD_STANDARD §1b):**
+- *Search* (one box): address text, owner name, tenant name, agent text, reOS lease id.
+- *Sort*: sheet row (**default, ascending**), address, owner, tenant, status, rent.
+- *Filter*: match (all / property matched / property not in CoreX), readiness (all / blocked / ready / ticked /
+  not ticked), lease status (Active / Expiring / Draft), import state (waiting / imported / failed / already in
+  CoreX), plus the existing run-level date range on the batch list.
+- *Pagination*: 25 per page; choices survive paging (they are saved, not in the page). Bulk actions act on the whole
+  run, not just the visible page ("Tick all ready", "Untick all", "Apply suburb/agent to all selected").
+- *Empty state*: distinct copy for "this file had no rows" vs "no rows match these filters".
+
+**R4.3 Scoping, per screen.** List, review, JSON endpoints, import, issues download all begin with
+`RentalTakeOnImportRun::visibleTo($user)` on the parent run (own / branch / agency by the role's
+`rentals_take_on_import` scope) and answer **404** otherwise — by direct URL as well as by menu; rows are also
+`BelongsToAgency`. Contact search and suburb search are agency-scoped.
+
+**JSON endpoints** live under `/api/v1/rentals/take-on-import/…`, named `api.v1.rentals.take-on-import.*`, so the
+Admin → API catalogue lists them (non-negotiable #7): row decisions (`POST rows/{row}/decisions`), bulk actions
+(`POST runs/{run}/bulk`), run summary (`GET runs/{run}/summary`), suburb search, contact search. Registered in
+`routes/web.php` next to the existing `/api/v1/p24/*` ones (they need the session `web` group). All need
+`rentals_take_on_import.manage`. The Import itself is an ordinary form POST + redirect.
+
+## R6. Import (confirm) — `ReosTenancyConfirmService`
+
+Imports every ticked, unblocked, not-yet-imported row, **each row in its own transaction**; a failure rolls that row
+back clean and is written to the row's `import_error` (plain language), the other rows carry on. The request works
+in chunks (≈20 rows or ≈25 s) and the page continues itself, so a 300-row book cannot hit a request time limit.
+Re-running Import retries failed rows. The result banner reports **created**, **updated** and **failed** separately.
+
+**Contacts.** For every owner/tenant to be created: first re-match **now** with `ContactDuplicateService::
+findDuplicatesForIdentifiers` (phones/emails; picks up anything created since the preview, including earlier rows of
+this batch), then — only when there is no identifier to match on, or none matched — reuse a contact an earlier row of
+this *same batch* created for the same normalised name (and no conflicting email/phone). So an owner on five leases
+is **one** contact linked to all five. Contacts the user linked by hand are used as chosen.
+- *Company names* — a name containing (whole word, case-insensitive) `Pty`, `(Pty)`, `Ltd`, `Limited`, `CC`, `Trust`,
+  `Inc`, `NPC`, `Investments`, `Holdings`, `Church` or `JV` becomes an **entity** contact
+  (`contact_kind = entity`, `entity_name` = the name, `first_name` = the name, `last_name` = '' — the exact shape of
+  `ComposeSellerService::resolveOrCreateEntitySellerContact`). **Checked: the entity path does not require a
+  registration number** (`entity_reg_no` is `nullable` in every validator and in the model), so none is needed.
+- *Joint names* — `X & Y Surname`, `X and Y Surname` (not a company) → **one** contact, full name kept: last word =
+  surname, the rest = first name(s) ("William & Dorothy" / "Geyser"). Never split on the first space.
+- *Everyone else* — first word / rest, as the existing take-on does.
+- Email/phone cells holding several values (`a@x.test; b@y.test`) → the first valid value is the contact's own;
+  all are used for matching.
+- Owner → linked to the property as `landlord` (`ContactPropertyLinker`); tenant → `lease_tenants`.
+
+**R6a. People for a company owner / tenant (Johan, 21 Oct 2026).** A company contact is linked to its natural people through
+the **existing** relation `contact_representatives` (`Contact::representatives()` / `representedEntities()`,
+`app/Models/Contact.php:942-975`; pivot model `ContactRepresentative`, whose role vocabulary is
+`ContactRepresentative::CAPACITIES` = Director, Executor, Trustee, Member, Other; written today by
+`ContactRepresentativeController`, `:86-150` and `attachRepresentative` `:235-282`). No new table. *(Correction to the
+brief's premise: FICA TFS screening does **not** use this relation — `TfsScreeningService::` `:237-246` screens a company by its
+name only, from the FICA form's own data; the directors/beneficial owners there are typed on the FICA form.)* The import reuses
+the relation and ONE new write helper, `App\Services\Contacts\ContactRepresentativeLinker`, which applies the same rules as
+`attachRepresentative` (restore-a-soft-deleted-link rather than re-insert, one primary / one proxy, new person goes to the end of
+the list) so the reOS import does not depend on a private controller method; the controller itself is unchanged.
+- **On the review screen**, every owner or tenant that is, or will be, a company contact (reOS name is a company and the choice is
+  "create", or the row links an entity contact) gets **"People for this company"**: the people already linked in CoreX (read from
+  `Contact::representatives()`), the people added for this import (each with a role selector and *remove*), and **Add person**:
+  search existing contacts (a natural person only) or type a new one — first name, last name, phone, e-mail, role (the existing
+  capacity list; default Director). The choices are saved as `decisions_json[owner|tenant].people[]`.
+- **One click for a company that matched a person** (`Wildevy Properties Pty Ltd` → Arne Nel by shared phone): the cell offers
+  **"Create the company and link Arne Nel as its contact person"**. It switches the party to "create a new contact" and adds
+  that person (reused, never duplicated) with the role **Other** — CoreX has no "contact person" capacity, and Johan's
+  instruction was to use the existing list; "Other" is its free-form entry. The "Name differs" warning is settled by it.
+- **Import**, in the same per-row transaction as the lease: create or link the company; for each person, an existing one is used
+  as chosen and a new one is looked for first by phone / e-mail (a natural person only), then by the same name already brought
+  in by this batch, and only then created (`contact_kind = natural_person`); then each company↔person link is written. So **one
+  person on two companies in one batch is one contact with two links**. A company is never "satisfied" at import by a person who
+  merely shares its phone / e-mail (the old re-match would have reused Arne as the owner). Nothing is sent to anyone.
+- **Guards:** people can only be added to a company party (a person party, a left-out party, or a link to a non-company contact
+  refuses it, and changing a party so it is no longer a company drops its people); the role must be in the list; an entity is
+  refused as a "person"; at most 10 people per company here. A lease that is being UPDATED (re-import) touches terms only — no people.
+- **Archive:** the people this import created are recorded (`decisions_json.created_people`) and archived / restored with the
+  batch (if unedited since), like the owners and tenants it creates; people it only reused are left alone.
+
+**Property.** Facts from `AddressParser` over the address text (street number, street name, unit, complex) +
+the chosen suburb/town/province → `matchOrCreate` then `promoteToStock(listing_type = rental, branch, agent)`. The
+Universal Match-or-Create Rule holds. **Imported properties skip the new-listing automation and activity points**:
+a new opt-in switch on `Property` (`Property::withoutNewListingSideEffects(callable)`) makes the `creating` hook set
+the existing `skipNewListingAutomation` flag (no `AutoEventService::onPropertyCreated` chase tasks) and a new
+`skipActivityPoints` flag that `PropertyObserver::created()` honours (no `PropertyCaptured` event → no points). The
+switch is off unless a caller opts in, so every other path is unchanged. `promoteToStock` creates the property
+internally, which is why an ambient switch is needed rather than a flag on the instance.
+
+**Lease — create.** `status` draft; `rental_amount`, `deposit_amount`, `start_date`, `end_date`,
+`is_month_to_month` (= no end date), `lease_type` = the reOS Lease Type text as given, `rollover`,
+`tenant_wallet_ref`, `external_source = reos`, `external_id`, `external_url`, `source = migrated_takeon`
+(`migrated_from_*` as the existing import), owner's/tenant's agent = the chosen agent. Status `Active`/`Expiring` →
+activated through `LeaseActivationService::activate` (a conflict — another active lease on the property — leaves it
+draft with the reason on the row, as today). `Draft` → **never activated**.
+
+**Lease — update (re-import).** Found by `agency_id + external_source + external_id` (archived rows included).
+Updates only what reOS owns: rent, deposit, end date, month-to-month, lease type, rollover, tenant wallet ref, the
+reOS link, and the agents *only if the user chose one*. It does **not** touch the property, the people, or the
+status — except a CoreX *draft* whose reOS status is now Active/Expiring is activated. Every changed field is written
+to the lease history (`LeaseEvent::TYPE_LEASE_EDITED`, who/what/old→new). A lease out for signing is skipped with a
+message (its terms are governed by the agreement). The row records `result_action = updated`.
+
+**No mail, no notification.** Nothing in the path mails, notifies, or invites anyone; tested with `Mail::fake()` /
+`Notification::fake()` + `assertNothingSent`. Known and unchanged: creating a *contact* still fires the existing
+`ContactCreated` event, which credits "contact captured" activity points to the importing user — the same as the
+existing take-on; reported to the conductor, not changed here (out of scope).
+
+## R7. New lease fields (migration `…_add_reos_and_wallet_fields_to_leases_table`)
+
+`external_source` varchar(30) null, `external_id` varchar(64) null, `external_url` varchar(500) null,
+`rollover` boolean null (null = not known — every non-reOS lease), `tenant_wallet_ref` varchar(100) null,
+`owner_wallet_ref` varchar(100) null. **Unique** `(agency_id, external_source, external_id)` (MySQL allows many
+NULL pairs; archived rows are included by the database, which is why the import looks with trashed).
+
+- **Edit form** (`show.blade.php` edit panel + `LeaseController::update`): all six editable; `external_id` needs a
+  source; the reOS id is validated unique per agency+source (plain message, never a SQL error); `external_url` must
+  be a URL.
+- **Lease view** ("Lease terms" card): an "Imported from reOS" block — "Open in reOS" link when `external_url` is set,
+  rollover Yes/No, tenant and owner wallet references; nothing is printed for an empty field.
+- **Portals** (`RentalPortalOverviewService::home()` → `pay_reference`; `rentals/portal/_home.blade.php`): the tenant's
+  Home shows the **tenant wallet**, the owner's Home shows the **owner wallet**, as
+  **"Pay via reOS — your payment reference: <ref>"**. Nothing at all when the field is empty. The owner wallet is
+  typed in by hand (no reOS report carries it); the tenant wallet comes from the Rent Roll when supplied, else by hand.
+
+**Not stored — stays in reOS (Johan's money-side ruling):** commission incl/excl VAT, fixed and variable invoices,
+lease segment, agent split %. No columns, no fields, no screens. (The Rent Roll's money columns likewise.)
+
+## R8. Rent Roll merge
+
+Matched to a schedule row on **normalised property address + normalised tenant name** (lower-case, punctuation and
+spacing removed; tenant words sorted so `A & B Smith` = `B and A Smith`). Exactly one Rent Roll row must match: no
+match → the schedule row simply has no wallet; two rows match → ignored with a warning on the schedule row (never
+guessed). A wallet found is written into the row's `tenant_wallet_ref` (shown, editable). The run records how many
+Rent Roll rows matched and how many did not.
+
+## R9. Archive / restore of a reOS batch
+
+The existing archive service is reused, with one addition: a row whose `result_action` is `updated` is left alone
+(the lease existed before this batch; archiving the batch must not archive it). Contacts/properties are archived
+only when the row's stored outcome says this batch created them (the confirm writes the real outcome back, as the
+existing confirm does for the property).
+
+## R10. Input space (BUILD_STANDARD §2/§3) — prevent or absorb
+
+| Input | Decision |
+|---|---|
+| wrong sheet name / header row / column order | **prevent** — rejected before a run exists, message names what was found |
+| Lease ID: formula (`,` or `;`), bare uuid, empty, garbage | formula + bare uuid accepted; empty/garbage → error row |
+| Rent 0 / negative / non-numeric / `R 12 500` | `R 12 500` absorbed; non-numeric, ≤ 0 → error row |
+| Start date missing/malformed | error row; End date missing → month-to-month (absorbed) |
+| Rollover anything but true/false/1/0/yes/no | absorbed as "not known" with a warning |
+| Owner/tenant blank | absorbed — lease imported without that person, flagged |
+| Phone `+27815284719`, `+27 632941505`, blank; e-mail with spaces/caps | absorbed (`ContactDuplicateService` normalisers) |
+| Address without a parseable street or number | no property lookup; the suburb/create controls still work; a row the parser calls unreadable shows its note |
+| Several CoreX properties fit one address | the user picks one or "none of these" (blocker until they do) |
+| Agent text: only the agency, empty, unknown person | user picks (blocker until they do) |
+| Same reOS id twice in one file | the second row is an error row ("appears twice in this file") |
+| Re-upload of the same file | rows show "In CoreX already — will update" |
+| Archived lease with the same reOS id | blocker (restore it first) |
+| Row fails mid-import | that row rolls back; `import_error` set; others continue; retry works |
+| Two users editing one run | last write wins per field (decisions are per-field merges) |
+
+## R11. Tests (`tests/Feature/Rentals/TakeOnImport/Reos/`) — synthetic data only
+
+Names "ZZ TEST …", e-mails `@example.test`, phones in the real SA shapes; **no real client data anywhere**.
+Parser (formula cell with `,` and `;`, bare uuid, layout rejection, row numbers, dropped money columns, bad
+status); name classifier; agent matcher; Rent Roll merge (match / none / ambiguous); resolver (matched vs unmatched,
+existing lease by reOS id, archived-lease blocker, suburb needed only for unmatched); confirm (batch de-dupe of one
+owner across rows, company + joint names, Draft stays draft and Active activates, re-import updates and does not
+duplicate, failure rolls back, wallet fill); no mail/notification; no chore tasks / activity points for imported
+properties; lease edit form fields; portal `pay_reference`; scoping (another agency's / an own-scope colleague's run
+→ 404).
+
+## R12. Settings / wizard (non-negotiable #10a)
+
+No new *agency setting* is introduced (the new lease fields are record fields, not configuration), so the Setup
+Wizard is not touched — noted here so it is a decision on the record, not an omission. Multi-agency (#9): nothing
+here names an agency; the agency's own name is read from the agency record when the agent text is parsed.
+
+## R13. Files
+
+**New:** migrations (import columns; lease columns), `app/Services/Rentals/TakeOnImport/Reos/` (`ReosTenancyScheduleParser`,
+`ReosRentRollParser`, `ReosLeaseIdCell`, `ReosRowNormaliser`, `ReosContactNames`, `ReosAgentMatcher`,
+`ReosRentRollMerger`, `ReosRowResolver`, `ReosBlockers`, `ReosTenancyConfirmService`), `ReosTakeOnController` (upload,
+review, decisions, bulk, import) + `ReosTakeOnApiController` (JSON), `preview-reos.blade.php`, tests.
+**Modified:** `RentalTakeOnImportRun`/`Row` models, `RentalTakeOnImportController` (preview switch, source),
+`index.blade.php`, `show.blade.php`, `RentalTakeOnArchiveService` (R9), `Property` + `PropertyObserver` (R6 switch),
+`Lease` model, `LeaseController::update`, lease `show.blade.php`, `RentalPortalOverviewService`, portal `_home`,
+`routes/web.php`, `database/schema/mysql-schema.sql` (regenerated with `scripts/schema-dump.sh`).
+
+## R14. The review screen, rebuilt around "what needs me" (AT-481, Johan 22 Oct 2026)
+
+Johan: *"such a confusing screen. how do we expect any human to understand this"*. The table of 25 six-column rows with a tick box, a
+dropdown and a note on every row is replaced by a screen that shows only what a person has to do. Existing import logic is untouched:
+never duplicates, updates by reOS lease id, per-lease transaction, never mails or messages anyone.
+
+**R14.1 Four states** (one definition, `ReosQuestions::state`): **imported** · **failed** (the file itself is wrong, the lease is archived
+in CoreX, or an import attempt said why not — nothing a button answers) · **needs you** (one or more questions open) · **ready** (nothing
+open). A lease already in CoreX (same reOS id) is *ready* by default and only has its terms updated; it is asked nothing.
+`ReosBlockers::refresh` stores `decisions_json.needs` / `needs_count` / `hard` and sets `selected` = ready, so Import takes exactly the
+ready leases; there are no tick boxes.
+
+**R14.2 The open questions** (`ReosQuestions::open`, asked in this order, only when open):
+1. *Which property?* — several CoreX properties fit the address (`property_choice_required`). One button per candidate with suburb, kind /
+   beds / erf / complex and how many leases it already has; two candidates that are the same address in the same suburb are labelled
+   "Same property entered twice in CoreX (also #id)" (`ReosCandidateDetails`). **None — create new** is always offered.
+2. *Same person?* — a contact matched on phone / e-mail under a genuinely different name (`name_flag = differs`): "Is CoreX's 'X' (phone)
+   the same person as reOS's 'Y'?" **Same person** · **New contact** · **Pick another contact…**. A pure spelling difference
+   (`name_flag = spelling`, incl. a swapped first name / surname) is NOT a question: the existing contact is used and the line carries a
+   small "spelling differs" marker, expandable to change.
+3. *Company matched a person* (`person_for_company`): "Create company 'X' with P as contact person?" **Yes** (the existing one-click
+   convert: the company is created and P linked as contact person) · **Use P as is** · **New contact**.
+4. *Which suburb?* — a new property with no suburb, only when the batch default did not cover it.
+5. *Which agent?* — only when no agent matched from reOS and no batch default covers it.
+Answering "same person" / "use as is" stores `decisions_json.<party>.confirmed = true`; choosing the matched contact on purpose from the
+Change controls counts as the same answer. Any other choice (new contact, another contact, left out) leaves nothing to ask.
+
+**R14.3 The "for all" defaults** (once, at the top; stored on the run in `counts_json.defaults` — `ReosRunDefaults`): **Agent for all**
+and **Suburb for all new properties**. `ReosDecisionService::setDefaults` gives them to every waiting lease that has none of its own
+(`decisions_json.agent_source` = `default` | `reos` | `user`; `property.suburb_source`); a lease whose agent came from reOS or from the
+user keeps it; changing or clearing the default follows through on the leases that took it. A lease shows its own agent / suburb
+control only when it differs from the default or is missing (the line carries the agent's name when it differs).
+**The dropdown and the leases never disagree:** `ReosDecisionService::reconcileDefaults` runs every time the screen opens and gives the saved defaults to any lease they
+never reached (or whose agent question went stale). Choosing the value already shown in the dropdown fires no change, so without this the screen could sit on
+"Retha Kelly" while the leases still asked for an agent. The defaults bar shows "Saving…" / the error beside the controls (not in the far message strip), and a
+save with a stale page token fetches a fresh one and retries once.
+**The agent list** (`ReosAgentMatcher::users`): active, not archived, agency members only, not an assistant / viewer / office
+administrator, and no test / fixture account (an e-mail on `.test`, `.invalid`, `.local`, `.example`, `.localhost`).
+
+**R14.4 Layout (revised 22 Oct: ONE list, not a one-at-a-time card).** (1) Sticky header, flush to the top of the scroll area: "46 leases ·
+18 ready · 28 need you · 0 imported" (live; "· n failed" only when n > 0), **Back to batches** (secondary) and the primary **Import the N
+ready leases**. (2) The defaults bar (Agent for all / Suburb for all new properties) — saving redraws the numbers and the list in place,
+no reload. (3) Search + one **Show: All / Ready / Needs you / Imported / Failed** switch. (4) **One list of the leases** (sheet order, 50 a
+page): a line each — row, property, owner → tenant, rent (deposit only if there is one), dates, a small "spelling differs" marker where one
+was accepted, and a status chip: **Ready** (green) · **Needs you · n** (amber, n = open questions) · **Imported/Updated** (with a link to
+the lease) · **Failed** (red). A line opens IN PLACE: a lease that needs you opens onto its open questions as standard CoreX buttons
+(`corex-btn-outline`; the property candidates and "None — create new" are the same full-width button) and "When imported: …" (what will
+happen: "Uses existing property · creates 2 contacts"), with "Change something else" folded under it; a ready lease opens onto its Change
+controls (property, suburb, agent, each person, company people, wallet reference); a failed lease onto why in plain words, a link to the
+fix (the lease, or the batch upload for a bad file) and **Try again**. Answering a question saves at once; answering the last one closes
+the line (it turns green) and the next amber line opens by itself (and the first one opens on load). No helper paragraphs; no fact printed
+twice. List standard: search = address, owner, tenant, agent text, reOS id; sort = sheet row; real empty state; scoping unchanged (the run
+is checked with `visibleTo`; every API call re-checks it). Removed: the tick boxes, "Tick all / all / none", the six filter dropdowns +
+sort + Apply, the bulk endpoint, and the one-at-a-time card with its Back / Skip / "Lease 3 of 28".
+
+**R14.5 API** (`/api/v1/rentals/take-on-import/…`, catalogued): `POST rows/{row}/decisions` (property_choice, person, suburb_id,
+owner, tenant, confirm, agent_user_id, tenant_wallet_ref, retry → the lease re-drawn as its line and the header numbers);
+`POST runs/{run}/defaults`; `GET runs/{run}/summary`; suburbs / contacts search (unchanged).
+
+**R14.6 Deposit.** The deposit is read from the **Deposit Required** column (found by its heading, like every other column). On the
+first real batch (QA1 batch 6, 46 leases) the cell held 0 on every lease. A 0 is "no deposit given", not a deposit of nothing: it is no
+longer stored as R0.00 on the lease or shown on the line, and a re-import never overwrites a deposit CoreX already holds with an empty
+or 0 one. What the column held across the file (blank / 0 / an amount) is recorded on the batch (`counts_json.deposit_column`).
+
+**R14.7 Tests** (`tests/Feature/Rentals/TakeOnImport/Reos/ReosReviewQueueTest.php` plus the existing files updated): states and
+counts, each question and its answers, spelling auto-accept with marker, defaults inherited / overridden / followed, the agent list,
+duplicates label, failed lines and Try again, Show/search, import takes exactly the ready leases, deposit 0.
+

@@ -42,6 +42,14 @@ class RmcpSection extends Model
 
     // ── Methods ──
 
+    /** "12. Legal persons" — or just "Approval" when the number IS the title (the approval block, AT-506). */
+    public function heading(): string
+    {
+        return strcasecmp((string) $this->section_number, (string) $this->title) === 0
+            ? (string) $this->title
+            : $this->section_number . '. ' . $this->title;
+    }
+
     public function renderedBody(array $variables): string
     {
         $html = $this->body_html;

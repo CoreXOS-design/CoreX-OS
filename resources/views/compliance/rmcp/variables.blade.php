@@ -19,8 +19,29 @@
 
     <div>
         <div class="mb-4 text-sm" style="color: var(--text-secondary);">
-            These variables are substituted into every RMCP section. Agency fields are pulled from Settings. Compliance Officer fields are pulled from the current appointed officer. Only <strong>Manual</strong> values can be edited here.
+            These variables are substituted into every RMCP section. Agency fields are pulled from Settings. Compliance Officer fields are pulled from the current appointed officer. <strong>Manual</strong> values can be edited here, and a <strong>Computed</strong> value (such as the number of active leases) can be replaced by a figure you state yourself — add its key below and your figure is used instead.
         </div>
+
+        @if(session('success'))
+            <div class="mb-4 rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ session('success') }}</div>
+        @endif
+        @if($errors->any())
+            <div class="mb-4 rounded-md px-4 py-3 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">{{ $errors->first() }}</div>
+        @endif
+
+        {{-- AT-506 — add a variable (or an override of a computed one). A plain form: no script needed. --}}
+        <form method="POST" action="{{ route('compliance.rmcp.variables.store') }}" class="mb-4 rounded-md px-4 py-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto] md:items-end" style="background: var(--surface); border: 1px solid var(--border);">
+            @csrf
+            <label class="block">
+                <span class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">New variable key</span>
+                <input type="text" name="variable_key" value="{{ old('variable_key') }}" required maxlength="120" placeholder="profile.active_leases" class="w-full rounded-md px-3 py-2 text-sm font-mono" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </label>
+            <label class="block">
+                <span class="block text-xs font-semibold mb-1" style="color: var(--text-muted);">Value</span>
+                <input type="text" name="value" value="{{ old('value') }}" maxlength="2000" placeholder="55" class="w-full rounded-md px-3 py-2 text-sm" style="background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);">
+            </label>
+            <button type="submit" class="corex-btn-primary text-xs">Add variable</button>
+        </form>
 
         <div class="rounded-md overflow-hidden" style="background: var(--surface); border: 1px solid var(--border);">
             <div class="overflow-x-auto">
