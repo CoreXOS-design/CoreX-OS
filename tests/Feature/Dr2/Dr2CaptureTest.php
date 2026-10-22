@@ -494,4 +494,25 @@ class Dr2CaptureTest extends TestCase
         $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $wrong->id, 'from_state' => 'won', 'reason' => 'deal_fell_through']);
         $this->assertSame('won', $right->fresh()->buyer_state);
     }
+
+    /** AT-500 — with the property-link listener gone, a DR2 deal WITH a property still makes its buyer Won. */
+    public function test_a_dr2_deal_with_a_property_marks_its_buyer_won_without_the_link_listener(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonprop');
+        $property = Property::create([
+            'title' => 'Won Prop Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '2 Won Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $this->giveOwner($property, $agency);
+        $buyer = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Pia', 'last_name' => 'Propbuyer']);
+        $buyer->forceFill(['is_buyer' => true, 'buyer_state' => 'new'])->saveQuietly();
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'property_id' => $property->id, 'buyer_contact_ids' => (string) $buyer->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $buyer->id, 'role' => 'buyer']);
+        $this->assertSame('won', $buyer->fresh()->buyer_state);
+    }
 }

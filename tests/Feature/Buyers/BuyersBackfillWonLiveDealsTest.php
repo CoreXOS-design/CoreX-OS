@@ -23,6 +23,7 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
     use RefreshDatabase;
 
     private int $agencyId;
+    private int $userId;
 
     protected function setUp(): void
     {
@@ -36,7 +37,9 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
             'id' => $this->agencyId, 'agency_id' => $this->agencyId, 'name' => 'Default',
             'created_at' => now(), 'updated_at' => now(),
         ]);
-        $this->actingAs(User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'admin']));
+        $user = User::factory()->create(['agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'role' => 'admin']);
+        $this->userId = $user->id;
+        $this->actingAs($user);
     }
 
     public function test_default_run_moves_only_buyers_on_live_deals_and_any_deal_also_counts_declined(): void
@@ -48,10 +51,10 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
 
         Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--agency' => $this->agencyId]);
         $liveOut = Artisan::output();
-        $this->assertStringContainsString('2 buyer(s) WOULD move', $liveOut);
+        $this->assertStringContainsString('2 buyer(s) WOULD move to Won;', $liveOut);
 
         Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--any-deal' => true, '--agency' => $this->agencyId]);
-        $this->assertStringContainsString('3 buyer(s) WOULD move', Artisan::output(), 'declined counts only in the comparison run');
+        $this->assertStringContainsString('3 buyer(s) WOULD move to Won;', Artisan::output(), 'declined counts only in the comparison run');
 
         foreach ([$live, $granted, $declined, $archived] as $b) {
             $this->assertSame('warm', $b->fresh()->buyer_state, 'a dry run writes nothing');
@@ -63,6 +66,55 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
         $this->assertSame('won', $granted->fresh()->buyer_state);
         $this->assertSame('warm', $declined->fresh()->buyer_state, 'fell through: not Won');
         $this->assertSame('warm', $archived->fresh()->buyer_state, 'archived deal: not Won');
+    }
+
+    /** PART 2 — Won with no live deal and not moved by hand goes back on the board; manual Won and live-deal Won stay. */
+    public function test_part_two_returns_won_buyers_with_no_basis_and_leaves_manual_and_live_deal_won_alone(): void
+    {
+        $states = app(\App\Services\BuyerStateService::class);
+        $onLiveDeal = $this->buyerOnDeal('P');
+        $states->markWon($onLiveDeal->fresh(), null);                                   // Won, live deal
+
+        $oldRule = $this->plainBuyer();
+        $states->markWon($oldRule->fresh(), null);                                      // Won via the old property-link rule, no deal
+
+        $manual = $this->plainBuyer();
+        // The UI has no "move to Won" yet; the back-fill's contract is about the audit reason a manual move writes.
+        $states->transitionTo($manual->fresh(), 'won', 'manual_override', $this->userId);           // Won by hand, no deal
+
+        $noTrail = $this->plainBuyer();
+        $noTrail->updateQuietly(['buyer_state' => 'won']);                              // Won with no transition row at all
+
+        $endedDeal = $this->buyerOnDeal('P');
+        $states->markWon($endedDeal->fresh(), null);
+        DB::table('deals')->whereIn('id', DB::table('deal_contacts')->where('contact_id', $endedDeal->id)->pluck('deal_id'))->update(['accepted_status' => 'D']);
+
+        Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--agency' => $this->agencyId]);
+        $out = Artisan::output();
+        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 3 Won buyer(s) WOULD go back to the board', $out, 'dry-run shows BOTH counts');
+        foreach ([$oldRule, $noTrail, $endedDeal] as $b) {
+            $this->assertSame('won', $b->fresh()->buyer_state, 'a dry run writes nothing');
+        }
+
+        Artisan::call('buyers:backfill-won', ['--agency' => $this->agencyId]);
+
+        $this->assertSame('won', $onLiveDeal->fresh()->buyer_state, 'live deal: stays Won');
+        $this->assertSame('won', $manual->fresh()->buyer_state, 'moved by hand: stays Won');
+        foreach ([$oldRule, $noTrail, $endedDeal] as $b) {
+            $this->assertContains($b->fresh()->buyer_state, ['new', 'warm', 'cold'], 'back on the board, never Lost');
+        }
+        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $oldRule->id, 'from_state' => 'won', 'reason' => 'won_without_live_deal']);
+
+        Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--agency' => $this->agencyId]);
+        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 0 Won buyer(s) WOULD go back to the board', Artisan::output(), 'second run changes nothing');
+    }
+
+    private function plainBuyer(): Contact
+    {
+        return Contact::withoutGlobalScopes()->create([
+            'agency_id' => $this->agencyId, 'branch_id' => $this->agencyId, 'is_buyer' => true, 'buyer_state' => 'warm',
+            'last_activity_at' => now()->subDays(2), 'first_name' => 'Pat', 'last_name' => 'Plain ' . Str::random(4),
+        ]);
     }
 
     private function buyerOnDeal(string $status, bool $archive = false): Contact

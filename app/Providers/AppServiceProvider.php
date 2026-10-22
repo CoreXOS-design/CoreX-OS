@@ -370,12 +370,10 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Contact\ContactLinkedToProperty::class,
             \App\Listeners\Contact\PromoteOwnerToSellerOnPropertyLink::class,
         );
-        // Buyer WON (Johan 2026-08-13) — a buyer linked to a property converts: mark buyer_state 'won'
-        // and move them into the pipeline's success section. Covers property-page links AND DR2 deals.
-        Event::listen(
-            \App\Events\Contact\ContactLinkedToProperty::class,
-            \App\Listeners\Contact\MarkBuyerWonOnPropertyLink::class,
-        );
+        // Buyer WON — AT-500 (Johan, 22 Oct 2026, hard rule): a buyer leaves the pipeline only two ways —
+        // Won = on a live DR2 deal (BuyerStateService::markBuyersWonForLiveDeal, called by the DR2 save), or
+        // a manual move; Lost = manual. Linking a contact to a property (property page, contact page, imports)
+        // no longer marks anyone Won, so the old MarkBuyerWonOnPropertyLink listener is gone.
         Event::listen(
             \App\Events\Mandate\MandateExpired::class,
             \App\Listeners\Mandate\DesyndicateExpiredMandate::class,
