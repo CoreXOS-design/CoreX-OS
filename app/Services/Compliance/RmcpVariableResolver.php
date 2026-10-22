@@ -110,9 +110,27 @@ class RmcpVariableResolver
         $subsidiaries = trim((string) ($manuals['agency.subsidiaries_statement'] ?? ''));
         $variables['agency.branches_statement'] = $this->branchesStatement($agency, $offices, $subsidiaries);
 
+        // A stated value wins over the computed one. That is how an agency states its own offices sentence
+        // (agency.branches_statement) and who is responsible at each office (agency.branches_and_responsible)
+        // when its branch records do not describe the real offices.
+        $stated = [];
         foreach ($manuals as $key => $value) {
             if ($value !== null && $value !== '') {
-                $variables[$key] = $value;
+                $stated[$key] = (string) $value;
+                $variables[$key] = (string) $value;
+            }
+        }
+
+        // A stated value may refer to other fields — "Shelly Beach: {{compliance_officer.full_name}}" keeps
+        // following the Compliance Officer on file instead of freezing a name in. One pass, no nesting.
+        $known = $variables;
+        foreach ($stated as $key => $value) {
+            if (str_contains($value, '{{')) {
+                $variables[$key] = preg_replace_callback(
+                    '/\{\{\s*([a-z0-9_.]+)\s*\}\}/i',
+                    fn (array $m) => array_key_exists($m[1], $known) && $m[1] !== $key ? (string) $known[$m[1]] : $m[0],
+                    $value
+                );
             }
         }
 

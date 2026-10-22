@@ -104,7 +104,15 @@ class RmcpImportVersion extends Command
         }
 
         if ($plan['exists']) {
-            $this->warn("Version {$number} already exists for this agency ({$plan['existing_status']}) — nothing to do.");
+            $this->warn("Version {$number} already exists for this agency ({$plan['existing_status']}) — it is left exactly as it is.");
+            if ($apply && $vars !== []) {
+                // The stated variables are still filled in where the agency has none (never overwritten).
+                $result = $importer->applyVariables($agency, $vars);
+                $this->line('Variables set: ' . ($result['variables_created'] !== [] ? implode(', ', $result['variables_created']) : '(none)'));
+                if ($result['variables_kept'] !== []) {
+                    $this->line('Variables left as the agency has them: ' . implode(', ', $result['variables_kept']));
+                }
+            }
 
             return self::SUCCESS;
         }
