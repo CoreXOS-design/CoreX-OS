@@ -42,6 +42,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - To File (attorney emails) is a tab of Communications > Messages --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MessagesTabs::class])
+
     @if(session('status'))
         <div class="flex-shrink-0 rounded-md px-4 py-2.5 text-sm" style="background:color-mix(in srgb, var(--ds-green, #059669) 12%, transparent); color:var(--ds-green, #059669); border:1px solid color-mix(in srgb, var(--ds-green, #059669) 25%, transparent);">{{ session('status') }}</div>
     @endif

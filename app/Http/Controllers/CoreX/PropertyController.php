@@ -772,8 +772,11 @@ class PropertyController extends Controller
         // Role scope only (not the other filters), so the ends do not move when a price is picked.
         // Off-market rows are left out: a withdrawn or expired listing with a placeholder price
         // would otherwise set the top of the slider.
+        // Listing type IS applied (Rentals entry forces 'rental'): a monthly rent and a sale
+        // price are different scales, so a R1.7m sale must not set the top of a rentals slider.
         $priceBounds = tap(Property::query(), fn ($q) => $this->applyRoleScope($q, $user, $dataScope, $canPickAgent, $viewScope))
             ->ownStock()
+            ->when($listingType !== '', fn ($q) => $q->where('listing_type', $listingType))
             ->where(fn ($q) => $q->whereNull('status')->orWhereNotIn('status', Property::OFF_MARKET_STATUSES))
             ->where('price', '>', 0)
             ->selectRaw('MIN(price) as lo, MAX(price) as hi')

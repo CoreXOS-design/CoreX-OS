@@ -16,6 +16,9 @@ namespace App\Support\Navigation;
  *                  registry key that makes it core; the guard test asserts that key
  *                  really has `'core' => true`, so an exemption can't quietly outlive
  *                  its reason.
+ *   tab hubs     — a tabbed menu item (corex.hubs.<key>, .ai/specs/real-estate-menu-tabs.md). It has no single switch: each of its
+ *                  tabs carries its own feature key in its TabHub class, and the item disappears when every tab is switched off. The
+ *                  guard test asserts every hub tab names a real registry key (or is a core screen).
  *   owner-only   — a link inside an `@if($isOwner)` block, or in one of PLATFORM_GROUPS: the CoreX
  *                  system owner's System Developer section. They are not an agency's features; an
  *                  agency never sees them, so there is nothing for an agency to switch.
@@ -103,6 +106,9 @@ final class SidebarFeatureCoverage
         }
 
         $route = $entry['route_name'] ?? null;
+        if ($route !== null && str_starts_with($route, 'corex.hubs.') && TabHubs::find(substr($route, strlen('corex.hubs.'))) !== null) {
+            return 'hub:' . substr($route, strlen('corex.hubs.'));
+        }
         if ($route !== null) {
             foreach (self::CORE_ROUTES as $glob => $coreKey) {
                 if (SidebarNavAuditor::strIs($glob, $route)) {

@@ -20,6 +20,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Commercial evaluations is a tab of Real Estate > Presentations --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PresentationsTabs::class])
+
     {{-- Filter bar --}}
     <div class="rounded-md px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3" style="background: var(--surface); border: 1px solid var(--border);" data-tour="re-commercial-evals-filter">
         <div class="text-sm" style="color: var(--text-secondary);">

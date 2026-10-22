@@ -18,6 +18,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - Review Incoming Messages is a tab of Communications > Messages --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MessagesTabs::class])
+
     <div class="flex-shrink-0 mt-3">
         @include('communications.partials._consent-crosslinks', ['current' => 'triage'])
     </div>

@@ -190,6 +190,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Deeds capture is a tab of Real Estate > Market intelligence --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MarketIntelligenceTabs::class])
+
     @if(session('success'))
         {{-- success_link (2026-08-14) — optional, set only by promote() (and,
              2026-08-17, ingestTva()) alongside 'success'; dismiss actions keep
@@ -444,12 +447,12 @@
                     $deedsQueueIds[] = 'tp-' . $tp->id;
                 @endphp
                 @push('deedsInspectorPanels')
-                <div x-show="selected === 'tp-{{ $tp->id }}'" x-cloak class="flex-1 min-h-0 flex flex-col">
+                <div x-show="selected === 'tp-{{ $tp->id }}'" x-cloak class="flex-1 min-h-0 flex flex-col overflow-y-auto corex-brand-scroll">
                     {{-- Inspector header — spans the full inspector width so the address has
                          room (Andre, 2026-09-13: "stretch it out, otherwise it is very squished").
-                         What this is + what to do about it live here and stay put; the
-                         evidence (owners, comparison, changes, Virtual Agent numbers) scrolls
-                         underneath in its own region. --}}
+                         What this is + what to do about it live here; the evidence (owners,
+                         comparison, changes, Virtual Agent numbers) follows underneath, and the
+                         whole panel scrolls as one so nothing can be pushed out of reach. --}}
                     <div class="px-5 py-4 flex-shrink-0" style="border-bottom: 1px solid var(--border);">
                         <div class="min-w-0">
                             <div class="text-[10px] uppercase tracking-wider font-semibold mb-1" style="color: var(--text-muted);">Property</div>
@@ -626,29 +629,35 @@
                                          "so" moment. Purely informational: still an honest "Add as new" below,
                                          but the agent now sees this first. --}}
                                     <div class="text-xs rounded-md p-2.5 basis-full" style="background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 35%, var(--border)); color: var(--ds-amber, #f59e0b);">
-                                        @if(!empty($stockStatus['ambiguousCandidates']))
-                                            <div class="font-semibold">{{ $stockStatus['ambiguousCandidates']->count() }} possible matches — none picked automatically</div>
-                                            <ul class="mt-1 space-y-0.5">
-                                                @foreach($stockStatus['ambiguousCandidates'] as $cand)
+                                        {{-- 2026-10-22 (agent feedback) — this box sits in the fixed header, so a
+                                             long list (12 units of one scheme at one GPS point) pushed the owners and
+                                             contact numbers below out of sight. Collapsed to its one-line summary by
+                                             default; opened, the list scrolls inside a capped height. Each line uses
+                                             buildDisplayAddress() so units of the same scheme are told apart instead
+                                             of repeating the identical street address. --}}
+                                        @php
+                                            $candList = $stockStatus['ambiguousCandidates'] ?? $stockStatus['gpsOnlyCandidates'];
+                                            $candCount = $candList->count();
+                                        @endphp
+                                        <details>
+                                            <summary class="font-semibold cursor-pointer select-none">
+                                                @if(!empty($stockStatus['ambiguousCandidates']))
+                                                    {{ $candCount }} possible matches — none picked automatically
+                                                @else
+                                                    {{ $candCount }} {{ $candCount === 1 ? 'property is' : 'properties are' }} within 25m — worth checking
+                                                @endif
+                                                <span class="font-normal opacity-80">(click to {{ $candCount === 1 ? 'show it' : 'show them' }})</span>
+                                            </summary>
+                                            <ul class="mt-1 space-y-0.5 max-h-28 overflow-y-auto corex-brand-scroll pr-1">
+                                                @foreach($candList as $cand)
                                                     <li>
                                                         <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
-                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
+                                                            {{ $cand->buildDisplayAddress() ?: ('Property #' . $cand->id) }}
                                                         </a>
                                                     </li>
                                                 @endforeach
                                             </ul>
-                                        @elseif(!empty($stockStatus['gpsOnlyCandidates']))
-                                            <div class="font-semibold">{{ $stockStatus['gpsOnlyCandidates']->count() }} {{ $stockStatus['gpsOnlyCandidates']->count() === 1 ? 'property is' : 'properties are' }} within 25m — worth checking</div>
-                                            <ul class="mt-1 space-y-0.5">
-                                                @foreach($stockStatus['gpsOnlyCandidates'] as $cand)
-                                                    <li>
-                                                        <a href="{{ route('corex.properties.show', $cand->id) }}" target="_blank" rel="noopener" class="no-underline" style="color: inherit; text-decoration: underline;">
-                                                            {{ trim(($cand->street_number ?? '') . ' ' . ($cand->street_name ?? '')) ?: ('Property #' . $cand->id) }}{{ $cand->suburb ? ', ' . $cand->suburb : '' }}
-                                                        </a>
-                                                    </li>
-                                                @endforeach
-                                            </ul>
-                                        @endif
+                                        </details>
                                     </div>
                                 @endif
                                 @if(!empty($stockStatus['possibleMatches']))
@@ -677,9 +686,10 @@
                         </div>
                     </div>
 
-                    {{-- Inspector body — the evidence. Scrolls inside itself; the header
-                         above and the queue beside it never move. --}}
-                    <div class="flex-1 min-h-0 overflow-y-auto px-5 py-4 corex-brand-scroll">
+                    {{-- Inspector body — the evidence. Scrolls together with the header above
+                         (2026-10-22: a tall header — nearby list + "may be the same" comparison —
+                         left this region zero height, so the owners could not be reached). --}}
+                    <div class="flex-shrink-0 px-5 py-4">
                     <div class="flex flex-wrap items-start gap-6">
 
                         {{-- Owner(s) — multi-owner (2026-08-12): CMA properties can list more than

@@ -90,6 +90,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Outcomes is a tab of Real Estate > Presentations --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PresentationsTabs::class])
+
     {{-- Filter bar — below the header, labelled fields, Apply / Clear --}}
     <div class="rounded-md px-5 py-4 flex-shrink-0" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex items-end gap-3 flex-wrap" data-tour="pres-outcomes-filters">

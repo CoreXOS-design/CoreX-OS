@@ -21,6 +21,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - Flagged Messages is a tab of Communications > Messages --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MessagesTabs::class])
+
     {{-- Filter bar (§3.8) --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-wrap items-end gap-3">

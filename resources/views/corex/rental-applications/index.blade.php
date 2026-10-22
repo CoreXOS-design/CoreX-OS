@@ -118,6 +118,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/rentals-menu-tabs.md - Applications is a tab of Rentals > Letting --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LettingTabs::class])
+
     {{-- AT-402 — advertises the SEPARATE Authorisation decision queue to
          RO/CO users only (RentalApplicationController::index()'s own
          docblock explains why this stays a distinct screen/route rather

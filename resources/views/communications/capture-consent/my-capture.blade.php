@@ -16,6 +16,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - My WhatsApp Consent is a tab of Communications > WhatsApp --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\WhatsAppTabs::class])
+
     @include('communications.partials._consent-crosslinks', ['current' => 'my'])
 
     @if(session('success'))
