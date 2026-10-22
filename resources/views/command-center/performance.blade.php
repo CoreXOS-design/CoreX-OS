@@ -25,6 +25,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Performance is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
         {{-- Scorecard --}}

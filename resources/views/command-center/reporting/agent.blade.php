@@ -20,6 +20,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - My Performance is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     {{-- Activity Metrics --}}
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4" data-tour="cc-my-performance-activity">
         <div class="rounded-md p-4 text-center" style="background: var(--surface); border: 1px solid var(--border);">

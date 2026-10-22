@@ -17,6 +17,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - WhatsApp Consent — Review is a tab of Communications > WhatsApp --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\WhatsAppTabs::class])
+
     @include('communications.partials._consent-crosslinks', ['current' => 'review'])
 
     @if(session('success'))

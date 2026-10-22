@@ -198,12 +198,6 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "agent.portal": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "The root-level 'My Portal' item and the Communications panel's 'Link My WhatsApp' link (which deep-links to agent.portal#tools) both technically match this route name (fragment is not part of routeIs()). Cosmetic, pre-existing; same class as the documented favourites nav_key fragment-collapsing limitation in .ai/specs/sidebar-favourites.md \u00a711a."
-  },
   "ai.buddy": {
     "flags": [
       "NO_ITEM"
@@ -348,61 +342,7 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "compliance.policy.dashboard.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.policy.dashboard.report": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
   "compliance.rmcp": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.rmcp.dashboard.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.rmcp.dashboard.report": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.screenings.create": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.index": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.my": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.overdue": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.show": {
     "flags": [
       "NO_ITEM"
     ],
@@ -486,53 +426,11 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
-  "corex.properties.imported-stock": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Properties' (broad corex.properties.* pattern) and 'Imported Stock' (its own specific link) both light up on this one sub-page. Cosmetic double-highlight within the same (correct) Real Estate panel."
-  },
   "corex.property-take-requests.index": {
     "flags": [
       "NO_ITEM"
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "corex.rental-applications.authorisation.documents.highlight-data.first": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.highlight-data.remaining": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.highlighted-file": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.view": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.show": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
   },
   "corex.rental-inventories.signatures.wet-ink-file": {
     "flags": [
@@ -901,12 +799,6 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "docuperfect.esign.myDocuments": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Documented pre-existing limitation: 'My E-Sign Documents' and 'Authorise Documents' are the same route distinguished only by a query string (?filter=authorisation), which routeIs() cannot see. Already documented in .ai/specs/sidebar-favourites.md \u00a711a (\"Known limitation, stated rather than hidden\")."
-  },
   "docuperfect.esign.signingComplete": {
     "flags": [
       "NO_ITEM"
@@ -1117,12 +1009,6 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('evaluation') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "market-intelligence.stale-review": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition already excludes market-intelligence.stale-review* at runtime; this tool's per-item parser does not evaluate the compound exclusion. Verified by reading the source directly."
-  },
   "market-intelligence.suburb-report": {
     "flags": [
       "MULTI_MATCH",
@@ -1259,42 +1145,6 @@
       "NO_ITEM"
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('company') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.buyer-matches": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.segment.buyers": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.segment.listings": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.show": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.snapshot": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.thumbnail": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
   "rental.active-leases": {
     "flags": [

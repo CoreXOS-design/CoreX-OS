@@ -24,6 +24,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - RMCP is a tab of Compliance > RMCP & Policies --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\RmcpPoliciesTabs::class])
+
     {{-- Filter / search bar --}}
     <div class="rounded-md p-4" data-tour="comp-rmcp-search" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-col sm:flex-row sm:items-center gap-3">

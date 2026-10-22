@@ -164,7 +164,8 @@ final class NoticesHubTest extends TestCase
             $this->assertStringNotContainsString($old, $html, "{$old} is no longer a menu item");
         }
 
-        preg_match('/data-nav-extra="([^"]*)"/', $html, $m);
+        // the Notices link's own extra entries (other tabbed items - Calendar, Letting... - carry theirs too, .ai/specs/*-menu-tabs.md)
+        preg_match('/<a href="[^"]*\/notices"[^>]*data-nav-extra="([^"]*)"/', $html, $m);
         $extra = json_decode(html_entity_decode($m[1]), true);
         $this->assertSame(['Breach Register', 'Notices Received', 'Rental Notices', 'Notice Templates'], array_column($extra, 'l'));
         $this->assertSame(

@@ -17,6 +17,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - Communications Log is a tab of Compliance > Reports & Logs --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceReportsTabs::class])
+
     {{-- Filter bar (§3.8) --}}
     <div class="rounded-md px-4 py-3" style="background:var(--surface); border:1px solid var(--border);">
         <form method="GET" class="flex items-center gap-3 flex-wrap">

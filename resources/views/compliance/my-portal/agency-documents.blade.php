@@ -27,6 +27,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Agency Documents is a tab of Documents > My Documents --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MyDocumentsTabs::class])
+
     @if($documents->isEmpty())
         {{-- Empty state --}}
         <div class="rounded-md py-12 px-6 text-center" style="background:var(--surface); border:1px solid var(--border);">

@@ -17,6 +17,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Oversight is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);

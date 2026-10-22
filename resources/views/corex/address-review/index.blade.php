@@ -25,6 +25,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Address review is a tab of Real Estate > Market intelligence --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MarketIntelligenceTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-3 py-2 text-sm" style="background:#f0fdf4; color:#166534;">{{ session('status') }}</div>
     @endif

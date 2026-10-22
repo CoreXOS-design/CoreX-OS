@@ -17,6 +17,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - Message Archive is a tab of Communications > Messages --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MessagesTabs::class])
+
     @if($contact)
     <div class="rounded-md px-4 py-2 mt-3 flex-shrink-0 text-sm" style="background: color-mix(in srgb, var(--brand-icon) 10%, transparent); border:1px solid color-mix(in srgb, var(--brand-icon) 30%, transparent); color: var(--text-primary);">
         Filtered to contact: <strong>{{ $contact->first_name }} {{ $contact->last_name }}</strong>

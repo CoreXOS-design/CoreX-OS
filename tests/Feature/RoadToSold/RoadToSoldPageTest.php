@@ -161,6 +161,17 @@ final class RoadToSoldPageTest extends TestCase
             ->assertOk()->assertSee('No list for today.');
     }
 
+    // .ai/specs/real-estate-menu-tabs.md - the "Road to Sold settings" menu item became a Settings button on this page, with the same check.
+    public function test_the_settings_button_shows_only_to_someone_who_may_manage_the_settings(): void
+    {
+        $settingsUrl = route('road-to-sold.settings.index');
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertDontSee('href="' . $settingsUrl . '"', false);
+
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'road_to_sold.manage_targets', 'agency_id' => $this->agencyId]);
+        PermissionService::clearCache();
+        $this->actingAs($this->agent)->get(route('road-to-sold.index'))->assertOk()->assertSee('href="' . $settingsUrl . '"', false);
+    }
+
     public function test_capture_over_http_saves_the_outcome_and_marks_the_row_worked(): void
     {
         $owner = $this->owner();

@@ -21,6 +21,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Shared Drive is a tab of Documents > My Documents --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MyDocumentsTabs::class])
+
     {{-- Drives grid --}}
     @if($drives->count())
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-tour="docs-shared-drive-drives">
