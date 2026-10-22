@@ -86,6 +86,18 @@
     #inv-sticky-shell { position: sticky; top: 0; z-index: 15; background: var(--surface); }
     .inv-room-panel { scroll-margin-top: var(--inv-sticky-offset, 160px); }
 
+    /* AT-501 restyle — the shared property header's action buttons sit side
+       by side here exactly as on properties/show.blade.php (that page carries
+       this same rule; without it .prop-action-btn's own width:100% stacked
+       them). */
+    .corex-props-v2 .prop-identity-strip .prop-action-btn { width: auto; white-space: nowrap; }
+    /* Buttons that sit beside a .prop-input match its 42px height. */
+    .inv-btn-h { height: 42px; padding-left: 1rem; padding-right: 1rem; }
+    /* Room strip + condition buttons — the standard 6px-corner bordered
+       button shape, not a rounded-full pill. Colours stay on each element's
+       own :style binding. */
+    .inv-chip { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; white-space: nowrap; }
+
     /* §13.9 layout pass — one inventory line = one row on desktop.
        Mobile/tablet (<1024px) wraps to 2 lines: qty+desc+actions, then
        chips+photos — done with `order` + a forced flex-basis:100% break,
@@ -151,17 +163,20 @@
            7.5rem for actions, matched to "Tag photo" + "Remove") make
            every grid instance on the page compute the IDENTICAL column
            layout regardless of instance or content — the actual fix;
-           these values must stay in sync between the two rules below. */
+           these values must stay in sync between the two rules below.
+           AT-501 — chips column 12.5rem -> 13.5rem: the condition buttons
+           are bordered .inv-chip boxes now, a little wider than the old
+           borderless pills. */
         .inv-header-row {
             display: grid;
-            grid-template-columns: 4.5rem minmax(0,1fr) 12.5rem minmax(0,13rem) 7.5rem;
+            grid-template-columns: 4.5rem minmax(0,1fr) 13.5rem minmax(0,13rem) 7.5rem;
             gap: 0.5rem;
             padding: 0 0 0.375rem 0;
             border-bottom: 1px solid var(--border);
         }
         .inv-line {
             display: grid;
-            grid-template-columns: 4.5rem minmax(0,1fr) 12.5rem minmax(0,13rem) 7.5rem;
+            grid-template-columns: 4.5rem minmax(0,1fr) 13.5rem minmax(0,13rem) 7.5rem;
             gap: 0.5rem;
             align-items: center;
             min-height: 44px;
@@ -182,6 +197,10 @@
         .inv-cell-chips { grid-column: 3; order: 3; flex-basis: auto; flex-wrap: nowrap; }
         .inv-cell-photos { grid-column: 4; order: 4; }
         .inv-cell-actions { grid-column: 5; order: 5; margin-left: 0; }
+        /* AT-501 — the blank add-item row has no condition/photos cells, so
+           its description runs across those columns and "Add" sits right
+           after it instead of stranded at the far edge. */
+        .inv-draft-row .inv-cell-desc { grid-column: 2 / 5; }
     }
 </style>
 @php
@@ -251,8 +270,8 @@
                          one bound :style expression, not as a co-located
                          static style="..." on this same button. --}}
                     <button type="button" @click="scrollToRoom(room.id)"
-                            class="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-full shrink-0"
-                            :style="(room.id === activeRoomId ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);') + ' white-space:nowrap;'">
+                            class="inv-chip gap-1.5 text-xs font-semibold px-3 py-1.5 shrink-0"
+                            :style="(room.id === activeRoomId ? 'background:var(--brand-button,#0ea5e9); color:#fff; border-color:var(--brand-button,#0ea5e9);' : 'background:var(--surface-2); color:var(--text-secondary);') + ' white-space:nowrap;'">
                         {{-- Alpine's :style clobber trap (rental-inspections.md
                              §22.3b): a bound :style REPLACES the whole style
                              attribute on every reactive render, so a co-located
@@ -271,14 +290,21 @@
 
         <div class="p-4 sm:p-6 space-y-4">
 
-            <div class="min-w-0">
-                <h1 class="text-lg font-semibold truncate">Inventory — {{ $property->buildDisplayAddress() }}</h1>
-                @if($inventory)
-                    <p class="text-xs mt-0.5" style="color: var(--text-muted);">
-                        <span class="ds-badge {{ $inventory->status === 'completed' ? 'ds-badge-success' : ($inventory->status === 'cancelled' ? 'ds-badge-danger' : 'ds-badge-muted') }}">
-                            {{ ucfirst(str_replace('_', ' ', $inventory->status)) }}
-                        </span>
-                    </p>
+            {{-- AT-501 — "Signatures & complete" moved up beside the title
+                 (was a lone link on its own row below it). --}}
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div class="min-w-0">
+                    <h1 class="text-lg font-semibold truncate" style="color: var(--text-primary);">Inventory — {{ $property->buildDisplayAddress() }}</h1>
+                    @if($inventory)
+                        <p class="text-xs mt-0.5" style="color: var(--text-muted);">
+                            <span class="ds-badge {{ $inventory->status === 'completed' ? 'ds-badge-success' : ($inventory->status === 'cancelled' ? 'ds-badge-danger' : 'ds-badge-muted') }}">
+                                {{ ucfirst(str_replace('_', ' ', $inventory->status)) }}
+                            </span>
+                        </p>
+                    @endif
+                </div>
+                @if($inventory && $isDraft)
+                    <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="corex-btn-outline text-xs no-underline shrink-0">Signatures &amp; complete →</a>
                 @endif
             </div>
 
@@ -321,10 +347,6 @@
                             for signatures and the move-out comparison.
                         @endif
                     </div>
-                @else
-                    <div class="flex items-center justify-end">
-                        <a href="{{ route('corex.rental-inventories.show', $inventory) }}" class="text-xs font-semibold" style="color: var(--brand-button,#0ea5e9);">Signatures &amp; complete →</a>
-                    </div>
                 @endif
 
                 @if($isDraft)
@@ -347,7 +369,7 @@
                      inspections sees, not a second space model. Always available,
                      not just when blank — an agent adds more spaces as the walk-
                      through finds them, same as on the inspection side. --}}
-                <div class="rounded-md p-3" style="background: var(--surface-2);">
+                <div class="rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <template x-if="!rooms.length">
                         <div class="pb-2 space-y-2">
                             <p class="text-xs" style="color: var(--text-secondary);">
@@ -380,7 +402,7 @@
                                    class="prop-input w-full" @keydown.enter.prevent="addSpace()">
                         </div>
                         <button type="submit" :disabled="spaceBusy || !newSpace.label.trim() || !newSpace.space_type"
-                                class="text-xs font-semibold rounded-md text-white px-3 py-1.5" style="background:var(--brand-button,#0ea5e9);"
+                                class="inv-btn-h text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9);"
                                 x-text="spaceBusy ? 'Adding…' : 'Add space'"></button>
                     </form>
                     <p x-show="spaceError" x-cloak class="text-xs pt-1" style="color:#ef4444;" x-text="spaceError"></p>
@@ -392,7 +414,7 @@
                      gate either way, this just avoids offering a control that can
                      only ever 404. --}}
                 @if($hasPriorInventory)
-                <div class="flex items-center justify-between gap-2 rounded-md p-3" style="background: var(--surface-2);">
+                <div class="flex items-center justify-between gap-2 rounded-md p-3" style="background: var(--surface-2); border: 1px solid var(--border);">
                     <p class="text-xs" style="color: var(--text-secondary);">This property has an earlier inventory on record.</p>
                     <button type="button" :disabled="copyBusy" @click="copyFromLastInventory()"
                             class="text-xs font-semibold rounded-md px-3 py-1.5 shrink-0" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);"
@@ -410,7 +432,7 @@
                         <div class="inv-room-panel rounded-md p-4 space-y-3" style="background: var(--surface); border: 1px solid var(--border);"
                              :id="'room-panel-' + room.id" :data-room-id="room.id">
                             <div class="flex items-center justify-between gap-2">
-                                <h2 class="text-sm font-semibold" x-text="room.label"></h2>
+                                <h2 class="text-sm font-semibold" style="color: var(--text-primary);" x-text="room.label"></h2>
                                 <span class="text-xs shrink-0" style="color: var(--text-muted);" x-text="linesFor(room.id).length + ' item' + (linesFor(room.id).length === 1 ? '' : 's')"></span>
                             </div>
 
@@ -472,8 +494,8 @@
                                         <div class="inv-cell-chips">
                                             <template x-for="state in conditionStates" :key="state.key">
                                                 <button type="button" tabindex="-1" @click="setLineCondition(line, state.key)"
-                                                        class="text-[11px] font-semibold px-2 py-0.5 rounded-full shrink-0"
-                                                        :style="line.condition_key === state.key ? 'background:var(--brand-button,#0ea5e9); color:#fff;' : 'background:var(--surface-2); color:var(--text-secondary);'"
+                                                        class="inv-chip text-[11px] font-semibold px-2 shrink-0"
+                                                        :style="line.condition_key === state.key ? 'height:30px; background:var(--brand-button,#0ea5e9); color:#fff; border-color:var(--brand-button,#0ea5e9);' : 'height:30px; background:var(--surface-2); color:var(--text-secondary);'"
                                                         x-text="state.label"></button>
                                             </template>
                                         </div>
@@ -565,7 +587,7 @@
                                  explicit grid-column placement on qty/desc/actions (not
                                  auto-placement) keeps them aligned to the same columns
                                  regardless. --}}
-                            <form @submit.prevent="commitDraftRow(room)" class="inv-line" style="padding-top:0.5rem;">
+                            <form @submit.prevent="commitDraftRow(room)" class="inv-line inv-draft-row" style="padding-top:0.5rem;">
                                 <input type="text" inputmode="numeric" pattern="[0-9]*" x-model="newLine[room.id].quantity" placeholder="Qty"
                                        class="prop-input inv-cell-qty"
                                        data-row="draft" data-cell="qty"
@@ -578,7 +600,7 @@
                                        @blur="commitRow(room, 'draft', null)">
                                 <div class="inv-cell-actions">
                                     <button type="submit" tabindex="-1" :disabled="lineBusy[room.id]"
-                                            class="text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9); padding:0.375rem 0.75rem;">Add</button>
+                                            class="inv-btn-h text-xs font-semibold rounded-md text-white" style="background:var(--brand-button,#0ea5e9);">Add</button>
                                 </div>
                             </form>
                             {{-- §7 — quiet, in-place feedback, never a toast: a
@@ -618,7 +640,7 @@
                                             class="text-xs font-semibold underline" style="color:var(--text-secondary);"
                                             x-text="roomPhotosExpanded[room.id] ? 'Show less' : ('Show all ' + photoUploader().roomPhotos(room.id).length)"></button>
                                     <label class="text-xs font-semibold px-3 py-1.5 rounded-md cursor-pointer inline-flex items-center gap-1" style="background:var(--surface); color:var(--text-secondary); border:1px solid var(--border);">
-                                        <span>&#128247;</span>
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-4 h-4" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
                                         <span>Add photo(s)</span>
                                         <input type="file" accept="image/*,.heic,.heif" multiple class="hidden" @change="photoUploader().uploadFiles($event.target.files, { property_room_id: room.id }); $event.target.value = ''">
                                     </label>

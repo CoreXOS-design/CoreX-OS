@@ -128,10 +128,10 @@ change explicitly does not do. Each needs its own ticket and decision:
 2. **Core Matches route and menu disagree**: the route checks `access_contacts`; the menu checks
    `access_core_matches` + `access_contacts` + `matches_enabled`. A user without `access_core_matches`
    can open it by URL.
-3. **Presentation Analytics and Outcomes routes have no `feature:presentations` check** — with
-   Presentations switched off they still open by URL.
-4. **Deeds Capture and Address Review routes have no `feature:` check** — the switch only hides the
-   menu item.
+3. ~~Presentation Analytics / Outcomes and Deeds Capture / Address Review open with their feature off~~ —
+   **WRONG, withdrawn (2026-10-22 switch audit):** all four return 404 with the feature off; the app-wide
+   `EnforceFeatureRoutes` middleware locks every route a feature owns. The full, measured list of screens that do
+   still open by direct URL is in `.ai/audits/tab-hub-switch-audit-2026-10-22.md`.
 
 ## 8. User flow
 
