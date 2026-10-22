@@ -191,6 +191,12 @@ class BuyerStateService
         $contact->updateQuietly(['last_activity_at' => now()]);
         $contact->refresh();
 
+        // AT-500 — Won is terminal: activity on a converted buyer is logged (above) but never
+        // moves them back onto the active board.
+        if ($contact->buyer_state === self::WON) {
+            return;
+        }
+
         // Recompute state
         $newState = $this->resolveState($contact);
         if ($newState) {
@@ -259,21 +265,36 @@ class BuyerStateService
      */
     public function recomputeState(Contact $contact): void
     {
-        // 'won' is a TERMINAL state (Johan 2026-08-13) — a converted buyer must never be decayed
-        // back to warm/cold/lost by the nightly recompute. resolveState() only ever yields
-        // new/warm/cold/lost, so without this short-circuit the cron would clobber the win.
+        $newState = $this->nextAutoState($contact);
+        if ($newState !== null) {
+            $this->transitionTo($contact, $newState, 'auto_recompute');
+        }
+    }
+
+    /**
+     * AT-500 — the ONE answer to "what may the automatic recompute do to this buyer?".
+     * Returns the state to move them to, or null for "leave them alone". Everything that
+     * recomputes buyer state — recomputeState(), the nightly `buyers:recompute-states`
+     * command and its --dry-run report — asks this, so a rule added here applies everywhere.
+     *
+     * 'won' is a TERMINAL state (Johan 2026-08-13) — a converted buyer must never be decayed
+     * back to warm/cold/lost. resolveState() only ever yields new/warm/cold/lost, so without
+     * this short-circuit the cron clobbers the win the next morning (it did, for every Won
+     * buyer, from 13 Aug until AT-500). A recent manual placement is also left alone (AT-74).
+     */
+    public function nextAutoState(Contact $contact): ?string
+    {
         if ($contact->buyer_state === self::WON) {
-            return;
+            return null;
         }
 
         if ($this->isManualPlacementProtected($contact)) {
-            return;
+            return null;
         }
 
         $newState = $this->resolveState($contact);
-        if ($newState && $newState !== $contact->buyer_state) {
-            $this->transitionTo($contact, $newState, 'auto_recompute');
-        }
+
+        return ($newState && $newState !== $contact->buyer_state) ? $newState : null;
     }
 
     /**
