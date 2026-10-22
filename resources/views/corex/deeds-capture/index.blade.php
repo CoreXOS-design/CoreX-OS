@@ -190,6 +190,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Deeds capture is a tab of Real Estate > Market intelligence --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MarketIntelligenceTabs::class])
+
     @if(session('success'))
         {{-- success_link (2026-08-14) — optional, set only by promote() (and,
              2026-08-17, ingestTva()) alongside 'success'; dismiss actions keep

@@ -91,6 +91,11 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Buyer pipeline is a tab of Real Estate > Buyers (the Rentals pipeline route shows no bar) --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\BuyersTabs::class])
+    {{-- .ai/specs/rentals-menu-tabs.md - opened from Rentals (its own route) this is a tab of Rentals > Letting --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\LettingTabs::class])
+
     {{-- Search + filters --}}
     <div class="props-filter-panel rounded-md px-4 py-3" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" action="{{ route($indexRouteName ?? 'command-center.buyers.pipeline') }}" class="flex flex-wrap items-center gap-2">

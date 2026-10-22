@@ -14,6 +14,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Lost Deals is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     {{-- Summary cards --}}
     @php
         $lostDealsAgencyId = auth()->user()?->effectiveAgencyId();

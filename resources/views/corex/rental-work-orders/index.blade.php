@@ -48,6 +48,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/rentals-menu-tabs.md - Rental Work Orders is a tab of Rentals > Maintenance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MaintenanceTabs::class])
+
     {{-- AT-439 Part 3 — shared rental list standard (status tiles + toolbar):
          .ai/specs/rentals-rebuild.md §1.1. First tile = Total. --}}
     @php

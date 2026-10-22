@@ -46,7 +46,7 @@ return [
     ],
     'command-center.calendar' => [
         'label' => 'Calendar',
-        'category' => 'Command Center',
+        'category' => 'Dashboard › Calendar',
         'blurb' => 'View and manage appointments, viewings, and scheduled events.',
         'keywords' => ['calendar', 'diary', 'appointments', 'schedule', 'viewings', 'events', 'meetings'],
     ],
@@ -58,13 +58,13 @@ return [
     ],
     'command-center.buyers.pipeline' => [
         'label' => 'Buyer Pipeline',
-        'category' => 'Command Center',
+        'category' => 'Real Estate › Buyers',
         'blurb' => 'Track buyers through the pipeline from lead to matched to offer.',
         'keywords' => ['buyer pipeline', 'buyers', 'leads', 'buyer leads', 'pipeline', 'prospective buyers'],
     ],
     'command-center.performance' => [
         'label' => 'Performance',
-        'category' => 'Command Center',
+        'category' => 'Dashboard › Performance',
         'blurb' => 'See your targets, activity points, and how you are tracking this month.',
         'keywords' => ['performance', 'my performance', 'targets', 'stats', 'kpi', 'points', 'how am i doing'],
     ],
@@ -72,7 +72,7 @@ return [
     // ── Property & Market Intelligence ──────────────────────────────────
     'corex.properties.index' => [
         'label' => 'Properties (My Listings)',
-        'category' => 'Properties',
+        'category' => 'Real Estate › Properties',
         'blurb' => 'Agency stock / mandated listings — add, edit, and manage properties you are selling. '
             . 'This is also where you start a presentation: open the property and click "Generate Presentation" '
             . '(that is the only way to create a presentation / CMA — there is no standalone presentation builder).',
@@ -83,43 +83,43 @@ return [
     ],
     'corex.map.index' => [
         'label' => 'Map',
-        'category' => 'Properties',
+        'category' => 'Real Estate › Properties',
         'blurb' => 'See properties and market intelligence plotted on a map.',
         'keywords' => ['map', 'map view', 'location', 'plot', 'geographic'],
     ],
     'market-intelligence.work' => [
         'label' => 'Market Intelligence Centre (MIC)',
-        'category' => 'Market Intelligence',
+        'category' => 'Real Estate › Market intelligence',
         'blurb' => 'Buyer-to-property matching, market narratives, and suburb intelligence.',
         'keywords' => ['market intelligence', 'mic', 'matching', 'matches', 'market', 'suburb intelligence', 'narratives', 'intelligence centre'],
     ],
     'corex.core-matches.index' => [
         'label' => 'Core Matches',
-        'category' => 'Market Intelligence',
+        'category' => 'Real Estate › Buyers',
         'blurb' => 'The strongest buyer↔property matches surfaced by the matching engine.',
         'keywords' => ['core matches', 'matches', 'best matches', 'buyer matches', 'property matches'],
     ],
     'corex.outreach-canvassing.index' => [
         'label' => 'Prospecting / Canvassing',
-        'category' => 'Prospecting',
+        'category' => 'Real Estate › Outreach',
         'blurb' => 'Work tracked properties and canvassing lists to win new mandates.',
         'keywords' => ['prospecting', 'canvassing', 'tracked properties', 'outreach', 'farming', 'door knocking', 'seller outreach'],
     ],
     'corex.outreach-queue.index' => [
         'label' => 'Outreach Queue',
-        'category' => 'Prospecting',
+        'category' => 'Real Estate › Outreach',
         'blurb' => 'Your queued outreach actions to owners and prospects.',
         'keywords' => ['outreach queue', 'queue', 'outreach', 'contact queue'],
     ],
     'corex.viewing-packs.index' => [
         'label' => 'Viewing Packs',
-        'category' => 'Properties',
+        'category' => 'Real Estate › Buyers',
         'blurb' => 'Prepare and manage viewing packs for property showings.',
         'keywords' => ['viewing packs', 'viewing pack', 'show house pack', 'viewings pack'],
     ],
     'corex.portal-leads.index' => [
         'label' => 'Portal Leads',
-        'category' => 'Prospecting',
+        'category' => 'Real Estate › Buyers',
         'blurb' => 'Leads captured from Property24 / portals, ready to convert to contacts.',
         'keywords' => ['portal leads', 'p24 leads', 'property24 leads', 'web leads', 'portal enquiries'],
     ],
@@ -131,26 +131,26 @@ return [
     // browsing presentations you have already made.
     'presentations.index' => [
         'label' => 'Presentations',
-        'category' => 'Presentations',
+        'category' => 'Real Estate › Presentations',
         'blurb' => 'Browse and manage presentations you have already created. To make a NEW one, open a property under '
             . 'Properties and click "Generate Presentation".',
         'keywords' => ['presentations', 'my presentations', 'view presentations', 'presentation list', 'existing presentations'],
     ],
     'corex.presentations.analytics.index' => [
         'label' => 'Presentation Analytics',
-        'category' => 'Presentations',
+        'category' => 'Real Estate › Presentations',
         'blurb' => 'See how recipients engaged with your presentations.',
         'keywords' => ['presentation analytics', 'presentation views', 'engagement', 'who viewed'],
     ],
     'corex.presentations.outcomes.index' => [
         'label' => 'Presentation Outcomes',
-        'category' => 'Presentations',
+        'category' => 'Real Estate › Presentations',
         'blurb' => 'Record and review the outcomes of your presentations.',
         'keywords' => ['presentation outcomes', 'outcomes', 'presentation results', 'won lost'],
     ],
     'commercial-evaluations.index' => [
         'label' => 'Commercial Evaluations',
-        'category' => 'Presentations',
+        'category' => 'Real Estate › Presentations',
         'blurb' => 'Build evaluations for commercial, agricultural, and specialised properties.',
         'keywords' => ['commercial evaluations', 'commercial', 'agricultural', 'industrial', 'evaluation'],
     ],

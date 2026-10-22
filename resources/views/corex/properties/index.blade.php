@@ -282,6 +282,14 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Real Estate > Properties tab bar (Properties | Imported stock | Map). Renders only on the sales
+         routes; the Rentals / Auctions entries of this same screen have their own route names and show none. --}}
+    @if(\App\Support\Navigation\Hubs\PropertiesTabs::activeKey() !== null)
+    <div class="mt-3">
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PropertiesTabs::class])
+    </div>
+    @endif
+
     {{-- KPI stats --}}
     @php
         $kpiIcons = [

@@ -20,6 +20,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/dashboard-menu-tabs.md - Agency Report is a tab of Dashboard > Performance --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PerformanceTabs::class])
+
     {{-- Agency At a Glance --}}
     <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
         <div class="rounded-md p-3 text-center" style="background: var(--surface); border: 1px solid var(--border);">

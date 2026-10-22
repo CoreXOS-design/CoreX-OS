@@ -158,6 +158,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Map is a tab of Real Estate > Properties --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PropertiesTabs::class])
+
     {{-- ── Seller View banner ────────────────────────────────────────────── --}}
     <div id="seller-banner" class="map-body" style="display: none; margin-top: 0; margin-bottom: 12px; padding: 6px 16px; background: color-mix(in srgb, var(--ds-amber, #f59e0b) 12%, transparent); color: var(--ds-amber, #f59e0b); border: 1px solid color-mix(in srgb, var(--ds-amber, #f59e0b) 30%, transparent); border-radius: 6px; font-size: 0.75rem; text-align: center; flex-shrink: 0;">
         Seller view active — owner/contact info hidden

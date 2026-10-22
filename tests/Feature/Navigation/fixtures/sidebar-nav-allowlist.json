@@ -486,53 +486,11 @@
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
   },
-  "corex.properties.imported-stock": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Properties' (broad corex.properties.* pattern) and 'Imported Stock' (its own specific link) both light up on this one sub-page. Cosmetic double-highlight within the same (correct) Real Estate panel."
-  },
   "corex.property-take-requests.index": {
     "flags": [
       "NO_ITEM"
     ],
     "reason": "No sidebar link at all for this route, and no group auto-opens for it either. Likely a page reached only via direct link/redirect from elsewhere rather than top-level nav (or missing a nav entry per CLAUDE.md Non-negotiable #2 \u2014 a separate finding from this audit's scope, see the audit report's 'Orphan pages' note)."
-  },
-  "corex.rental-applications.authorisation.documents.highlight-data.first": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.highlight-data.remaining": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.highlighted-file": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.documents.view": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
-  },
-  "corex.rental-applications.authorisation.show": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "'Rental Applications' (broad corex.rental-applications.* pattern) and 'Rental Application Authorisation' (its own specific link) both light up on this sub-page. Cosmetic double-highlight within the same (correct) Rentals panel."
   },
   "corex.rental-inventories.signatures.wet-ink-file": {
     "flags": [
@@ -1117,12 +1075,6 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('evaluation') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "market-intelligence.stale-review": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Known audit-tool limitation, not a real bug: the 'Market intelligence' item's routeIs() condition already excludes market-intelligence.stale-review* at runtime; this tool's per-item parser does not evaluate the compound exclusion. Verified by reading the source directly."
-  },
   "market-intelligence.suburb-report": {
     "flags": [
       "MULTI_MATCH",
@@ -1259,42 +1211,6 @@
       "NO_ITEM"
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('company') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.buyer-matches": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.segment.buyers": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.segment.listings": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.show": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.snapshot": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "prospecting.thumbnail": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('real-estate') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
   "rental.active-leases": {
     "flags": [

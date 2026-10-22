@@ -49,6 +49,12 @@
                 @if($canManageOutcomes)
                     <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
                 @endif
+                {{-- .ai/specs/real-estate-menu-tabs.md - the "Road to Sold settings" menu item moved here (it is also on the Settings page).
+                     Same check the menu item had; sales track only, as the menu item only ever opened the sales settings. --}}
+                @if($track === \App\Models\RoadToSold\RtsSetting::TRACK_SALES && \Illuminate\Support\Facades\Route::has('road-to-sold.settings.index')
+                    && auth()->user()?->hasAnyPermission(['road_to_sold.manage_settings', 'road_to_sold.manage_areas', 'road_to_sold.manage_targets']))
+                    <a href="{{ route('road-to-sold.settings.index') }}" class="corex-btn-outline corex-btn-xs">Settings</a>
+                @endif
             </div>
         </div>
     </div>

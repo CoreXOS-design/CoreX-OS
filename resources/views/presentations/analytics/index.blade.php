@@ -28,6 +28,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Analytics is a tab of Real Estate > Presentations --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PresentationsTabs::class])
+
     {{-- Filters (§3.8 / §3.6) — inline row, no card: the box around three
          inputs was pure chrome. Labels sit beside their inputs at the compact
          32px control height. --}}

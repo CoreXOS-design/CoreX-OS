@@ -30,6 +30,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Queue is a tab of Real Estate > Outreach --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\OutreachTabs::class])
+
     {{-- Send-window closed banner --}}
     @unless($sendAllowed)
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
