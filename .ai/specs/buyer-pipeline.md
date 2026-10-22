@@ -75,3 +75,10 @@ Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
   their saved searches were never touched.
 - Tests: `tests/Feature/Buyers/BuyerWonFallsThroughTest.php`, `tests/Feature/Dr2/Dr2CaptureTest.php`
   (`…removing_a_buyer_from_a_deal_takes_them_off_won…`).
+
+## Won back-fill counts live deals only (AT-500, 2026-10-22)
+`php artisan buyers:backfill-won [--dry-run] [--agency=N]` moves existing buyers who are on a **live** DR2 deal
+(pending / granted / registered; not declined, not archived) to Won. A buyer whose only deals fell through is not
+moved. `--any-deal` widens the count to declined deals too — for a comparison dry-run only. Buyers linked only on
+the property page (no deal) are no longer candidates; they become Won going forward by the live listener.
+Held until Johan orders the real run (manual, not part of deploy). Test: `tests/Feature/Buyers/BuyersBackfillWonLiveDealsTest.php`.
