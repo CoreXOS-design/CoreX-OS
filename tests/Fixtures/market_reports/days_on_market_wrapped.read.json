@@ -1,0 +1,139 @@
+{
+    "publisher": "Tidewater Market Data",
+    "report_title": "Sales (Days on Market)",
+    "suburb": "Ramsgate",
+    "town": null,
+    "subject": [],
+    "valuation": {
+        "average": 2756500,
+        "average_r_per_m2": 4079
+    },
+    "comps": [
+        {
+            "kind": "comp",
+            "address": "16 Pine Street, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Estate",
+            "extent_m2": 1144,
+            "sale_date": "2026-02-23",
+            "sale_price": 3435000,
+            "r_per_m2": 3002,
+            "list_price": 3455000,
+            "days_on_market": 118
+        },
+        {
+            "kind": "comp",
+            "address": "13 Marine Drive, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Freehold",
+            "extent_m2": 1120,
+            "sale_date": "2026-09-11",
+            "sale_price": 3055000,
+            "r_per_m2": 2727,
+            "list_price": 3145000,
+            "days_on_market": 79
+        },
+        {
+            "kind": "comp",
+            "address": "66 Pine Street, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Freehold",
+            "extent_m2": 860,
+            "sale_date": "2026-05-28",
+            "sale_price": 1510000,
+            "r_per_m2": 1755
+        },
+        {
+            "kind": "comp",
+            "address": "47 Tucker Avenue, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Estate",
+            "extent_m2": 1389,
+            "sale_date": "2026-03-11",
+            "sale_price": 2875000,
+            "r_per_m2": 2069
+        },
+        {
+            "kind": "comp",
+            "address": "24 Edward Avenue, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Estate",
+            "extent_m2": 471,
+            "sale_date": "2026-04-18",
+            "sale_price": 3330000,
+            "r_per_m2": 7070,
+            "list_price": 3420000,
+            "days_on_market": 129
+        },
+        {
+            "kind": "comp",
+            "address": "44 Pine Street, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Sectional",
+            "extent_m2": 902,
+            "sale_date": "2026-05-08",
+            "sale_price": 2245000,
+            "r_per_m2": 2488,
+            "list_price": 2365000,
+            "days_on_market": 187
+        },
+        {
+            "kind": "comp",
+            "address": "17 Pine Street, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Freehold",
+            "extent_m2": 1201,
+            "sale_date": "2026-03-24",
+            "sale_price": 3525000,
+            "r_per_m2": 2935,
+            "list_price": 3595000,
+            "days_on_market": 136
+        },
+        {
+            "kind": "comp",
+            "address": "42 Beach Road, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Estate",
+            "extent_m2": 357,
+            "sale_date": "2026-05-08",
+            "sale_price": 3830000,
+            "r_per_m2": 10728
+        },
+        {
+            "kind": "comp",
+            "address": "36 Pine Street, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Sectional",
+            "extent_m2": 1043,
+            "sale_date": "2026-09-16",
+            "sale_price": 1010000,
+            "r_per_m2": 968
+        },
+        {
+            "kind": "comp",
+            "address": "68 Albatross Close, Ramsgate Beach, KwaZulu-Natal",
+            "property_type": "Freehold",
+            "extent_m2": 390,
+            "sale_date": "2026-03-24",
+            "sale_price": 2750000,
+            "r_per_m2": 7051
+        }
+    ],
+    "suburb_stats": [],
+    "layout": {
+        "publisher_signature": "Tidewater Market Data",
+        "column_headings": [
+            "Property",
+            "Address",
+            "Type",
+            "Usage",
+            "Extent",
+            "Sale Date",
+            "Sale Price",
+            "List Date",
+            "List Price",
+            "Days on Market",
+            "Change in Price",
+            "R/m²"
+        ],
+        "header_phrases": [
+            "Sales (Days on Market)",
+            "No of sales",
+            "Average price",
+            "Total spend"
+        ]
+    },
+    "confidence": 0.91,
+    "notes": null
+}

@@ -11,12 +11,24 @@ namespace App\Services\MarketReports;
  *
  * Mapping shape (built by LayoutLearner):
  *   tables[] : {type:'comps', kind:'comp'|'listing', cells:int, columns:[{i,field,format?}]}
+ *              {type:'comps', kind, text_slots:[{field,from,to}], entries:[{type:'date'|'num'|'pct', c:int, field?, format?}],
+ *               min_fields:int, wrap:bool}   (version 2, for tables whose rows have blank cells or tight columns, where a
+ *               cell COUNT is not stable)
  *              {type:'stats', cells:int, year_col:int, metrics:[{i,metric}]}
  *   scalars[]: {field:'valuation.lower'|'suburb'|…, label:string, type:'money'|'text'}
  *
  * A table row is a line that splits (on runs of 2+ spaces) into exactly `cells` cells
  * AND whose price/date/year cells parse. Anything else — headers, footers, wrapped
  * rows — is skipped, never guessed.
+ *
+ * A version-2 table reads a row by what is IN it, not by how many cells it splits into. The text columns
+ * (address, property type…) are the character windows they occupied when the layout was learned; every other
+ * word on the line that is a date, an amount, a size, a percentage or a number is a typed token, and the tokens
+ * are matched, in order and to the nearest by position, to the layout's typed columns (`entries`). A column left
+ * blank in this row (a sale that was never listed has no list date / list price / days on market) simply has no
+ * token. A row is a data row only when every token fits a column, its price (and sale date, if the layout has
+ * one) parse, and at least `min_fields` fields hold a value. With `wrap`, a line just below a data row that
+ * holds text only inside the address-type windows is that row's wrapped address and is joined onto it.
  */
 final class LearnedLayoutReader
 {
@@ -37,7 +49,8 @@ final class LearnedLayoutReader
 
         foreach ((array) ($mapping['tables'] ?? []) as $table) {
             if (($table['type'] ?? null) === 'comps') {
-                foreach ($this->readComps($lines, $table) as $row) {
+                $rowsRead = isset($table['entries']) ? $this->readCompsPositional($lines, $table) : $this->readComps($lines, $table);
+                foreach ($rowsRead as $row) {
                     $out['comps'][] = $row;
                 }
             } elseif (($table['type'] ?? null) === 'stats') {
@@ -195,6 +208,334 @@ final class LearnedLayoutReader
         }
 
         return $rows;
+    }
+
+    /**
+     * The words of one line with the character columns they occupy: [text, from, to) — `to` exclusive,
+     * counted in characters (not bytes), so "m²" and accented letters keep the columns straight.
+     *
+     * @return array<int, array{0: string, 1: int, 2: int}>
+     */
+    public static function atoms(string $line): array
+    {
+        $chars = preg_split('//u', $line, -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $atoms = [];
+        $cur = '';
+        $start = 0;
+        foreach ($chars as $i => $ch) {
+            if (preg_match('/\s/u', $ch)) {
+                if ($cur !== '') {
+                    $atoms[] = [$cur, $start, $i];
+                    $cur = '';
+                }
+
+                continue;
+            }
+            if ($cur === '') {
+                $start = $i;
+            }
+            $cur .= $ch;
+        }
+        if ($cur !== '') {
+            $atoms[] = [$cur, $start, count($chars)];
+        }
+
+        return $atoms;
+    }
+
+    private static function inWindow(array $atom, int $from, int $to): bool
+    {
+        $mid = ($atom[1] + $atom[2]) / 2;
+
+        return $mid >= $from && $mid < $to;
+    }
+
+    /** The words of $atoms whose middle lies in [from, to), joined by single spaces. */
+    private static function textInWindow(array $atoms, int $from, int $to): string
+    {
+        $parts = [];
+        foreach ($atoms as $atom) {
+            if (self::inWindow($atom, $from, $to)) {
+                $parts[] = $atom[0];
+            }
+        }
+
+        return implode(' ', $parts);
+    }
+
+    /**
+     * The typed values on a line: dates, percentages and numbers (an amount, a size such as "613 m²", a count),
+     * each with the character column it sits in. Words are not tokens and are ignored; words inside $skip windows
+     * (the text columns) are never looked at, so "1 Beach Road" never yields a number.
+     *
+     * @param  array<int, array{0: string, 1: int, 2: int}> $atoms
+     * @param  array<int, array{0: int, 1: int}> $skip  [from, to) windows to leave alone
+     * @return array<int, array{type: string, text: string, c: float}>
+     */
+    public static function typedTokens(array $atoms, array $skip = []): array
+    {
+        $n = count($atoms);
+        $skipped = function (int $i) use ($atoms, $skip): bool {
+            foreach ($skip as [$from, $to]) {
+                if (self::inWindow($atoms[$i], $from, $to)) {
+                    return true;
+                }
+            }
+
+            return false;
+        };
+        $join = fn (int $from, int $to) => implode(' ', array_map(fn ($a) => $a[0], array_slice($atoms, $from, $to - $from + 1)));
+        $centre = fn (int $from, int $to) => ($atoms[$from][1] + $atoms[$to][2]) / 2;
+
+        $tokens = [];
+        $i = 0;
+        while ($i < $n) {
+            if ($skipped($i)) {
+                $i++;
+
+                continue;
+            }
+            foreach ([3, 1] as $len) {
+                $end = $i + $len - 1;
+                if ($end >= $n) {
+                    continue;
+                }
+                $clear = true;
+                for ($k = $i; $k <= $end; $k++) {
+                    $clear = $clear && !$skipped($k);
+                }
+                if ($clear && self::parseDate($join($i, $end)) !== null) {
+                    $tokens[] = ['type' => 'date', 'text' => $join($i, $end), 'c' => $centre($i, $end)];
+                    $i = $end + 1;
+
+                    continue 2;
+                }
+            }
+            if (preg_match('/^-?\d+(?:[.,]\d+)?%$/u', $atoms[$i][0])) {
+                $tokens[] = ['type' => 'pct', 'text' => $atoms[$i][0], 'c' => $centre($i, $i)];
+                $i++;
+
+                continue;
+            }
+            $k = $i;
+            if (preg_match('/^R$/iu', $atoms[$i][0]) && $i + 1 < $n && !$skipped($i + 1) && preg_match('/^\d/u', $atoms[$i + 1][0])) {
+                $k = $i + 1;
+            }
+            if (preg_match('/^R?\d[\d,]*(?:\.\d+)?$/iu', $atoms[$k][0])) {
+                $end = $k;
+                // thousands groups ("1 015 000"): a first group of 1-3 digits, then at most two groups of exactly 3,
+                // each one space apart (so a 3-digit count printed right after an amount stays its own value)
+                if (preg_match('/^R?\d{1,3}$/iu', $atoms[$k][0])) {
+                    $groups = 0;
+                    while ($groups < 2 && $end + 1 < $n && !$skipped($end + 1) && preg_match('/^\d{3}(?:\.\d+)?$/u', $atoms[$end + 1][0]) && $atoms[$end + 1][1] - $atoms[$end][2] <= 1) {
+                        $end++;
+                        $groups++;
+                    }
+                }
+                if ($end + 1 < $n && !$skipped($end + 1) && preg_match('/^(?:m²|m2|sqm|m)$/iu', $atoms[$end + 1][0])) {
+                    $end++;
+                }
+                $tokens[] = ['type' => 'num', 'text' => $join($i, $end), 'c' => $centre($i, $end)];
+                $i = $end + 1;
+
+                continue;
+            }
+            $i++; // a word
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * Version-2 table: see the class note.
+     *
+     * @param  array<int, string> $lines
+     * @param  array<string, mixed> $table
+     * @return array<int, array<string, mixed>>
+     */
+    private function readCompsPositional(array $lines, array $table): array
+    {
+        $kind       = ($table['kind'] ?? 'comp') === 'listing' ? 'listing' : 'comp';
+        $priceField = $kind === 'comp' ? 'sale_price' : 'list_price';
+        $textSlots  = (array) ($table['text_slots'] ?? []);
+        $entries    = array_values((array) ($table['entries'] ?? []));
+        $minFields  = max(1, (int) ($table['min_fields'] ?? 2));
+        $wrap       = !empty($table['wrap']);
+        $skip       = array_map(fn ($s) => [(int) $s['from'], (int) $s['to']], $textSlots);
+        $needsDate  = (bool) array_filter($entries, fn ($e) => ($e['field'] ?? null) === 'sale_date');
+
+        $rows = [];
+        $lastRow = null;   // index into $rows of the data row a wrapped line may belong to
+        $lastLine = -9;
+        $wrappedLines = 0;
+
+        foreach ($lines as $li => $line) {
+            $atoms = self::atoms($line);
+            if ($atoms === []) {
+                continue;
+            }
+
+            $row = $this->readRowByEntries($atoms, $textSlots, $entries, $skip, $kind);
+            if ($row !== null && isset($row['row'][$priceField]) && (!$needsDate || isset($row['row']['sale_date'])) && $row['found'] >= $minFields) {
+                $rows[] = $row['row'];
+                $lastRow = count($rows) - 1;
+                $lastLine = $li;
+                $wrappedLines = 0;
+
+                continue;
+            }
+
+            // Not a data row. With `wrap`, a line just under a data row that holds text ONLY inside the
+            // text windows is the rest of that row's address.
+            if ($wrap && $lastRow !== null && $li - $lastLine <= 2 && $wrappedLines < 2) {
+                $extra = $this->wrappedText($atoms, $textSlots);
+                if ($extra !== null) {
+                    foreach ($extra as $field => $text) {
+                        $rows[$lastRow][$field] = mb_substr(trim(($rows[$lastRow][$field] ?? '') . ' ' . $text), 0, 160);
+                    }
+                    $wrappedLines++;
+                    $lastLine = $li;
+                }
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * One line, read by the layout's text windows and typed columns. Null when the line cannot be a row of this
+     * table (a typed value that fits no column, or more values than the table has columns).
+     *
+     * @param  array<int, array{0: string, 1: int, 2: int}> $atoms
+     * @param  array<int, array<string, mixed>> $textSlots
+     * @param  array<int, array<string, mixed>> $entries
+     * @param  array<int, array{0: int, 1: int}> $skip
+     * @return array{row: array<string, mixed>, found: int}|null
+     */
+    private function readRowByEntries(array $atoms, array $textSlots, array $entries, array $skip, string $kind): ?array
+    {
+        $tokens = self::typedTokens($atoms, $skip);
+        if ($tokens === []) {
+            return null;
+        }
+        $assign = self::alignTokens($tokens, $entries);
+        if ($assign === null) {
+            return null;
+        }
+
+        $row = ['kind' => $kind];
+        $found = 0;
+        foreach ($textSlots as $slot) {
+            $text = self::textInWindow($atoms, (int) $slot['from'], (int) $slot['to']);
+            if ($text !== '') {
+                $row[(string) $slot['field']] = mb_substr($text, 0, 160);
+                $found++;
+            }
+        }
+        foreach ($assign as $ti => $ei) {
+            $field = $entries[$ei]['field'] ?? null;
+            if ($field === null) {
+                continue;
+            }
+            $value = self::parseCell((string) $field, $tokens[$ti]['text'], $entries[$ei]['format'] ?? null);
+            if ($value !== null) {
+                $row[(string) $field] = $value;
+                $found++;
+            }
+        }
+
+        return ['row' => $row, 'found' => $found];
+    }
+
+    /**
+     * Match a line's typed tokens to the layout's typed columns: in order, each token to one column of its own
+     * type, columns left over are blank in this row, and the nearest-by-position arrangement wins. Null when the
+     * tokens cannot all be placed.
+     *
+     * @param  array<int, array{type: string, text: string, c: float}> $tokens
+     * @param  array<int, array<string, mixed>> $entries
+     * @return array<int, int>|null  token index => entry index
+     */
+    public static function alignTokens(array $tokens, array $entries): ?array
+    {
+        $a = count($tokens);
+        $b = count($entries);
+        if ($a === 0 || $a > $b) {
+            return null;
+        }
+        $inf = INF;
+        $dp = array_fill(0, $a + 1, array_fill(0, $b + 1, $inf));
+        $from = array_fill(0, $a + 1, array_fill(0, $b + 1, null));
+        for ($j = 0; $j <= $b; $j++) {
+            $dp[0][$j] = 0.0;
+        }
+        for ($i = 1; $i <= $a; $i++) {
+            for ($j = 1; $j <= $b; $j++) {
+                $skipCost = $dp[$i][$j - 1];
+                if ($skipCost < $dp[$i][$j]) {
+                    $dp[$i][$j] = $skipCost;
+                    $from[$i][$j] = 'skip';
+                }
+                if ($tokens[$i - 1]['type'] === ($entries[$j - 1]['type'] ?? '') && $dp[$i - 1][$j - 1] < $inf) {
+                    $cost = $dp[$i - 1][$j - 1] + abs($tokens[$i - 1]['c'] - (float) $entries[$j - 1]['c']);
+                    if ($cost < $dp[$i][$j]) {
+                        $dp[$i][$j] = $cost;
+                        $from[$i][$j] = 'take';
+                    }
+                }
+            }
+        }
+        if ($dp[$a][$b] === $inf) {
+            return null;
+        }
+        $assign = [];
+        $i = $a;
+        $j = $b;
+        while ($i > 0 && $j > 0) {
+            if ($from[$i][$j] === 'take') {
+                $assign[$i - 1] = $j - 1;
+                $i--;
+                $j--;
+            } else {
+                $j--;
+            }
+        }
+
+        if ($i !== 0) {
+            return null;
+        }
+        ksort($assign);
+
+        return $assign;
+    }
+
+    /**
+     * @param  array<int, array{0: string, 1: int, 2: int}> $atoms
+     * @param  array<int, array<string, mixed>> $slots
+     * @return array<string, string>|null  text per text-slot, or null when ANY word sits outside a text slot
+     */
+    private function wrappedText(array $atoms, array $slots): ?array
+    {
+        $textSlots = array_values(array_filter($slots, fn ($s) => in_array($s['field'], ['address', 'scheme_name'], true)));
+        if ($textSlots === []) {
+            return null;
+        }
+        $out = [];
+        foreach ($atoms as $atom) {
+            $placed = false;
+            foreach ($textSlots as $slot) {
+                if (self::inWindow($atom, (int) $slot['from'], (int) $slot['to'])) {
+                    $out[$slot['field']] = trim(($out[$slot['field']] ?? '') . ' ' . $atom[0]);
+                    $placed = true;
+                    break;
+                }
+            }
+            if (!$placed) {
+                return null;
+            }
+        }
+
+        return $out === [] ? null : $out;
     }
 
     /**
