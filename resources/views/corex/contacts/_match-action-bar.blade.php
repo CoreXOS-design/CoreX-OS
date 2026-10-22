@@ -95,14 +95,32 @@
                 return await res.json();
             } catch (e) { return null; }
         },
-        confirmShare(channel) {
-            if (!this.confirmShareUrl) return;
-            fetch(this.confirmShareUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
-                body: JSON.stringify({ channel: channel }),
-            }).catch(() => {}); // Best-effort: a failed history write must never block the actual send.
+        // AT-503 — awaited, and never silent. A failed record shows an alert the agent can see
+        // and retry (the minted share is the same row, so a retry is safe); a good one updates
+        // the Shared / Send N new status in place and tells any other open tab.
+        shareError: '',
+        lastShareChannel: null,
+        async confirmShare(channel) {
+            if (!this.confirmShareUrl) return true;
+            this.lastShareChannel = channel;
+            this.shareError = '';
+            try {
+                const res = await fetch(this.confirmShareUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ channel: channel }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.ok) throw new Error(data.message || ('HTTP ' + res.status));
+                window.dispatchEvent(new CustomEvent('core-match-sent', { detail: data.status }));
+                try { if ('BroadcastChannel' in window) { const bc = new BroadcastChannel('core-match-sent'); bc.postMessage(data.status); bc.close(); } } catch (e) {}
+                return true;
+            } catch (e) {
+                this.shareError = 'This send was NOT recorded, so the buyer\u2019s \u201Cnew\u201D count has not changed. Press Retry.';
+                return false;
+            }
         },
+        retryShare() { return this.confirmShare(this.lastShareChannel); },
         async confirmSent(didSend) {
             const commId = this.sentConfirm.communicationId;
             this.sentConfirm.open = false;
@@ -205,6 +223,17 @@
 
         {{-- Action buttons --}}
         <div class="flex items-center gap-2">
+            {{-- AT-503 — Shared / Send N new, updated in place after a confirmed send. Only where a
+                 single match is composed (share actions shown); the buyer-detail wishlist bars show
+                 it once a buyer-level send reports in. --}}
+            <x-core-match-share-status :match-id="$match->id"
+                :status="$showShareActions ? app(\App\Services\Matching\CoreMatchShareHistoryService::class)->statusFor($match) : null" />
+            <div x-show="shareError" x-cloak role="alert" class="fixed bottom-4 right-4 z-50 max-w-sm rounded-md px-4 py-3 text-sm flex items-start gap-3"
+                 style="background: var(--surface); border: 1px solid var(--ds-crimson, #c41e3a); color: var(--ds-crimson, #c41e3a); box-shadow: 0 8px 30px rgba(0,0,0,0.18);">
+                <span x-text="shareError"></span>
+                <button type="button" @click="retryShare()" class="corex-btn-outline text-xs flex-shrink-0">Retry</button>
+                <button type="button" @click="shareError = ''" class="text-xs flex-shrink-0" style="color: var(--text-muted);" aria-label="Dismiss">✕</button>
+            </div>
             @if($showShareActions && $waPhone)
             <button type="button" @click="showWaModal = true" class="corex-btn-primary" style="background: #25d366; box-shadow: none;">
                 <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">

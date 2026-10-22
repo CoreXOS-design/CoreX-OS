@@ -207,20 +207,10 @@
             {{-- Share status — Johan's rule: no badge lit on every row. Never-shared is
                  an honest fact; shared with nothing unseen is silence; shared WITH unseen
                  matches earns the one action: Send N new. --}}
-            <div class="flex items-center gap-2 ml-auto text-xs" style="color:var(--text-secondary);">
-                @if(!$match->lastSharedAt)
-                <span class="font-medium" style="{{ $attnStyle }}"><span style="{{ $ringStyle }}"></span>Never shared</span>
-                @else
-                <span title="Last shared {{ $match->lastSharedAt->format('d M Y, H:i') }}">Shared {{ $match->lastSharedAt->diffForHumans() }}</span>
-                @if($match->neverSharedCount > 0)
-                <button type="button" x-data
-                        @click="$dispatch('open-new-since-share', { url: '{{ route('corex.core-matches.new-since-share', $match) }}' })"
-                        class="text-xs font-semibold border-0 bg-transparent cursor-pointer p-0" style="color:var(--brand-icon,#0ea5e9);">
-                    Send {{ $match->neverSharedCount }} new
-                </button>
-                @endif
-                @endif
-            </div>
+            <x-core-match-share-status class="ml-auto" :match-id="$match->id"
+                :status="['match_id' => $match->id, 'never_sent_count' => (int) $match->neverSharedCount, 'last_shared_at' => $match->lastSharedAt?->toIso8601String(), 'last_shared_human' => $match->lastSharedAt?->diffForHumans()]"
+                :quick-view-url="route('corex.core-matches.new-since-share', $match)"
+                :never-style="$attnStyle" :ring-style="$ringStyle" />
         </div>
     </div>
     @endforeach

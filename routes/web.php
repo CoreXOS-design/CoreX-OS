@@ -6369,6 +6369,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.shares.confirm');
 
+    // AT-503 — the buyer-level Share button (buyer detail header): records a
+    // confirmed share against each ACTIVE wishlist the buyer's client page shows.
+    Route::post('/core-matches/buyers/{contactId}/shares/confirm', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'confirmBuyer'])
+        ->whereNumber('contactId')
+        ->middleware(['permission:core_matches.view', 'agency.required'])
+        ->name('corex.core-matches.buyer-shares.confirm');
+
     // AT-Core-Matches, share-history piece — read-only: the share log, the
     // separate "opened" signal, and "properties not seen since last send"
     // (today's live matches minus everything ever shared). Same gate as
