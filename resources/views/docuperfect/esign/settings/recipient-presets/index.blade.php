@@ -16,6 +16,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Recipient Presets is a tab of Documents > E-Sign Settings --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ESignSettingsTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">

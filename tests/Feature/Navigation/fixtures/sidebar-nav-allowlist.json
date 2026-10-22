@@ -198,12 +198,6 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('agency-tracker') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "agent.portal": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "The root-level 'My Portal' item and the Communications panel's 'Link My WhatsApp' link (which deep-links to agent.portal#tools) both technically match this route name (fragment is not part of routeIs()). Cosmetic, pre-existing; same class as the documented favourites nav_key fragment-collapsing limitation in .ai/specs/sidebar-favourites.md \u00a711a."
-  },
   "ai.buddy": {
     "flags": [
       "NO_ITEM"
@@ -348,61 +342,7 @@
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
   },
-  "compliance.policy.dashboard.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.policy.dashboard.report": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('Policies' and 'Policy Register') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
   "compliance.rmcp": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.rmcp.dashboard.index": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.rmcp.dashboard.report": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Two sidebar links ('RMCP' and 'RMCP Dashboard') share an overlapping routeIs() prefix and both light up together. Cosmetic double-highlight within a single already-correct panel; not a 'wrong location' bug. Flagged for Johan to consider tightening the two patterns to be mutually exclusive."
-  },
-  "compliance.screenings.create": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.index": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.my": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.overdue": {
-    "flags": [
-      "NO_ITEM"
-    ],
-    "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('compliance') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "compliance.screenings.show": {
     "flags": [
       "NO_ITEM"
     ],
@@ -858,12 +798,6 @@
       "NO_ITEM"
     ],
     "reason": "No dedicated sidebar link for this sub-page (no own routeIs() pattern on any item), but its owning group ('documents') still opens correctly \u2014 not a 'wrong location' bug, just an unlinked sub-page. Pre-existing; outside this audit's active-state-resolver fix scope."
-  },
-  "docuperfect.esign.myDocuments": {
-    "flags": [
-      "MULTI_MATCH"
-    ],
-    "reason": "Documented pre-existing limitation: 'My E-Sign Documents' and 'Authorise Documents' are the same route distinguished only by a query string (?filter=authorisation), which routeIs() cannot see. Already documented in .ai/specs/sidebar-favourites.md \u00a711a (\"Known limitation, stated rather than hidden\")."
   },
   "docuperfect.esign.signingComplete": {
     "flags": [

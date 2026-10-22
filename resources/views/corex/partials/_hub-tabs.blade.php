@@ -33,7 +33,9 @@
                    style="{{ $hubKey === $hubActive ? $hubOn : $hubBase }}">
             @endif
                 <span>{{ $hubTab['label'] }}</span>
-                @if(($hubTab['badge'] ?? 0) > 0)
+                @if(($hubTab['badge'] ?? 0) > 0 && ! empty($hubTab['dot']))
+                    <span class="w-2 h-2 rounded-full flex-shrink-0 inline-block" style="background: {{ $hub::badgeColor() }};"></span>
+                @elseif(($hubTab['badge'] ?? 0) > 0)
                     <span class="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
                           style="background: color-mix(in srgb, {{ $hub::badgeColor() }} 15%, transparent); color: {{ $hub::badgeColor() }};">{{ $hubTab['badge'] > 99 ? '99+' : $hubTab['badge'] }}</span>
                 @endif

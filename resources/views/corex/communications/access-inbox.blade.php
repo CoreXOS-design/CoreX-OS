@@ -13,6 +13,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - Archive Access Requests is a tab of Communications > Messages --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MessagesTabs::class])
+
     @forelse($requests as $req)
         <div class="rounded-md px-5 py-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3"
              style="background:var(--surface); border:1px solid var(--border);"

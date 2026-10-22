@@ -99,6 +99,15 @@ final class TabHubSwitchesTest extends TestCase
         PermissionService::clearCache();
     }
 
+    /** Tabs an agency admin never sees whatever the switches: Template Packages and Agent Compliance are System-Owner-only (their old menu items were too). */
+    private const OWNER_ONLY = ['doc-templates' => ['packages'], 'compliance-agents' => ['agents']];
+
+    /** @return list<string> */
+    private function adminTabs(string $hub, string $class): array
+    {
+        return array_values(array_diff(array_keys($class::tabs()), self::OWNER_ONLY[$hub] ?? []));
+    }
+
     private function visible(string $class): array
     {
         return array_keys($class::forUser($this->admin));
@@ -107,7 +116,7 @@ final class TabHubSwitchesTest extends TestCase
     public function test_every_tab_starts_visible_for_an_admin_holding_every_key(): void
     {
         foreach (TabHubs::HUBS as $hub => $class) {
-            $this->assertSame(array_keys($class::tabs()), $this->visible($class), "{$hub}: every tab visible to start with");
+            $this->assertSame($this->adminTabs($hub, $class), $this->visible($class), "{$hub}: every tab visible to start with");
         }
     }
 
@@ -116,6 +125,9 @@ final class TabHubSwitchesTest extends TestCase
         $checked = 0;
         foreach (TabHubs::HUBS as $hub => $class) {
             foreach ($class::tabs() as $tab => $def) {
+                if (! in_array($tab, $this->adminTabs($hub, $class), true)) {
+                    continue;
+                }
                 if (empty($def['feature'])) {
                     continue; // a core screen (Properties, Map, Calendar, Invitations) has no switch - it cannot be turned off
                 }
@@ -134,6 +146,9 @@ final class TabHubSwitchesTest extends TestCase
         $checked = 0;
         foreach (TabHubs::HUBS as $hub => $class) {
             foreach ($class::tabs() as $tab => $def) {
+                if (! in_array($tab, $this->adminTabs($hub, $class), true)) {
+                    continue;
+                }
                 foreach ($def['permissions'] ?? [] as $key) {
                     $this->permission($key, false);
                     $this->assertNotContains($tab, $this->visible($class), "{$hub} > {$tab}: hidden without '{$key}'");

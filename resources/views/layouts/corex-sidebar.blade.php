@@ -159,10 +159,14 @@
         // match 'training-help.*' (routeIs globs the whole name), so Training Help
         // is listed separately — it also lives in the Hidden panel now.
         $activeGroup = 'hidden';
-    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')) {
+    } elseif ((request()->routeIs('docuperfect.*') && !request()->routeIs('docuperfect.sales*', 'docuperfect.rental*')) || request()->routeIs('my-portal.agency-documents*') || request()->routeIs('documents.shared-drive.*')
+        // .ai/specs/documents-menu-tabs.md - the tabbed Documents items' landing routes
+        || request()->routeIs('corex.hubs.my-documents', 'corex.hubs.doc-library', 'corex.hubs.doc-templates', 'corex.hubs.esign-settings')) {
         $activeGroup = 'documents';
-    } elseif (request()->routeIs('compliance.*')
-        && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*')) {
+    } elseif ((request()->routeIs('compliance.*')
+        && !request()->routeIs('compliance.comm-archive.*', 'compliance.comm-flags.*', 'compliance.comm-mailboxes.*'))
+        || request()->routeIs('corex.hubs.rmcp-policies', 'corex.hubs.compliance-agents', 'corex.hubs.compliance-reports')) {
+        // .ai/specs/compliance-menu-tabs.md - the tabbed Compliance items' landing routes open this panel too.
         // AT-161 IA re-cut — the compliance.comm-* routes (Message Archive, Flagged
         // Messages, Archive Mailboxes) live in the COMMUNICATIONS group, not
         // Compliance. Exclude them here so they fall through to the communication
@@ -374,7 +378,8 @@
         'compliance.comm-mailboxes.*',
         'corex.comms-access.inbox',
         'corex.comms-suspense.*',
-        'settings.email-setup.*'
+        'settings.email-setup.*',
+        'corex.hubs.messages', 'corex.hubs.whatsapp', 'corex.hubs.comms-setup' // .ai/specs/communications-menu-tabs.md - landing routes
     )) {
         $activeGroup = 'communication';
     } elseif (request()->routeIs(
@@ -816,7 +821,7 @@
                      findable in the menu search (data-nav-extra). --}}
                 @php $_calTabs = \App\Support\Navigation\Hubs\CalendarTabs::forUser($user); $_calCount = \App\Support\Navigation\Hubs\CalendarTabs::badgeTotal($_calTabs); @endphp
                 @if($_calTabs !== [])
-                <a href="{{ route('corex.hubs.calendar') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\CalendarTabs::searchEntries($_calTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.calendar', 'command-center.calendar', 'command-center.calendar.invitations*') ? 'active' : '' }}">
+                <a href="{{ route('corex.hubs.calendar') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\CalendarTabs::searchEntries($_calTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.calendar', 'command-center.calendar', 'command-center.calendar.invitations*') ? 'active' : '' }}">
                     Calendar @if($_calCount > 0) <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold" style="background:#ef444420; color:#ef4444;">{{ $_calCount }}</span> @endif
                 </a>
                 @endif
@@ -826,7 +831,7 @@
                 @feature('performance-dashboards')
                 @php $_perfTabs = \App\Support\Navigation\Hubs\PerformanceTabs::forUser($user); @endphp
                 @if($_perfTabs !== [])
-                <a href="{{ route('corex.hubs.performance') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PerformanceTabs::searchEntries($_perfTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.performance', 'command-center.performance*', 'command-center.reporting.agent', 'command-center.reporting.branch', 'command-center.reporting.agency', 'command-center.lost-deals', 'corex.dashboard.oversight') ? 'active' : '' }}">Performance</a>
+                <a href="{{ route('corex.hubs.performance') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PerformanceTabs::searchEntries($_perfTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.performance', 'command-center.performance*', 'command-center.reporting.agent', 'command-center.reporting.branch', 'command-center.reporting.agency', 'command-center.lost-deals', 'corex.dashboard.oversight') ? 'active' : '' }}">Performance</a>
                 @endif
                 @endfeature
                 <a href="{{ route('command-center.user-settings') }}" class="corex-nav-subitem {{ request()->routeIs('command-center.user-settings*') ? 'active' : '' }}">User Settings</a>
@@ -926,7 +931,7 @@
                      lands on the first such tab (corex.hubs.<key>). The old names stay findable: data-nav-extra gives the menu search one entry per old
                      name, pointing at its tab (same mechanism as AT-466's Rentals > Notices). The tab bar is corex/partials/_hub-tabs. --}}
 
-                {{-- Market intelligence: MIC's own tabs + Deeds capture, Address review, Stale claims. The count badge is unchanged (F.2: the
+                {{-- "Real Estate Features" (Andre, 22 Oct 2026 - was "Market intelligence", kept as its search alias): MIC's own tabs + Deeds capture, Address review, Stale claims. The count badge is unchanged (F.2: the
                      canvass-pool size, our own on-market stock excluded, cached per agency for 300s - see the 2026-08-11 fix and 2026-08-23 perf
                      notes in git history for why whereNotCompanyStock() and the 5-minute TTL) and still only shown to users who may open MIC itself.
                      Suburb Report (2026-08-25) lives in the Reports panel, so it never lights this item. --}}
@@ -947,8 +952,8 @@
                     }
                 @endphp
                 @if($_miTabs !== [])
-                <a href="{{ route('corex.hubs.market-intelligence') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MarketIntelligenceTabs::searchEntries($_miTabs)) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.market-intelligence', 'market-intelligence.*', 'prospecting.*', 'corex.deeds-capture.*', 'corex.address-review.*') && !request()->routeIs('market-intelligence.suburb-report*')) ? 'active' : '' }}">
-                    <span>Market intelligence</span>
+                <a href="{{ route('corex.hubs.market-intelligence') }}" data-nav-alias="Market intelligence" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MarketIntelligenceTabs::searchEntries($_miTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.market-intelligence', 'market-intelligence.*', 'prospecting.*', 'corex.deeds-capture.*', 'corex.address-review.*') && !request()->routeIs('market-intelligence.suburb-report*')) ? 'active' : '' }}">
+                    <span>Real Estate Features</span>
                     @if($miCount > 0)
                     <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
                           style="background:color-mix(in srgb, var(--brand-icon, #0ea5e9) 15%, transparent); color:var(--brand-icon, #0ea5e9);">{{ number_format($miCount) }}</span>
@@ -960,7 +965,7 @@
                      (corex.lens.properties) lens lights Rentals instead, as before. --}}
                 @php $_propTabs = \App\Support\Navigation\Hubs\PropertiesTabs::forUser($user); @endphp
                 @if($_propTabs !== [])
-                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs)) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
+                <a href="{{ route('corex.hubs.properties') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PropertiesTabs::searchEntries($_propTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.properties', 'corex.properties.*', 'corex.map.*') && ! session('corex.lens.properties', false)) ? 'active' : '' }}">Properties</a>
                 @endif
 
                 @permission('access_contacts')
@@ -977,14 +982,14 @@
                      (corex.lens.pipeline / corex.lens.core_matches) lights Rentals instead, as before. --}}
                 @php $_buyerTabs = \App\Support\Navigation\Hubs\BuyersTabs::forUser($user); @endphp
                 @if($_buyerTabs !== [])
-                <a href="{{ route('corex.hubs.buyers') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\BuyersTabs::searchEntries($_buyerTabs)) }}" class="corex-nav-subitem {{ ((request()->routeIs('corex.hubs.buyers', 'command-center.buyers*', 'corex.core-matches.*', 'corex.portal-leads.*', 'corex.viewing-packs.*') || request()->routeIs('corex.contacts.matches.*')) && ! (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) && ! (request()->routeIs('corex.core-matches.*', 'corex.contacts.matches.*') && session('corex.lens.core_matches', false))) ? 'active' : '' }}">Buyers</a>
+                <a href="{{ route('corex.hubs.buyers') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\BuyersTabs::searchEntries($_buyerTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ ((request()->routeIs('corex.hubs.buyers', 'command-center.buyers*', 'corex.core-matches.*', 'corex.portal-leads.*', 'corex.viewing-packs.*') || request()->routeIs('corex.contacts.matches.*')) && ! (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) && ! (request()->routeIs('corex.core-matches.*', 'corex.contacts.matches.*') && session('corex.lens.core_matches', false))) ? 'active' : '' }}">Buyers</a>
                 @endif
 
                 {{-- Outreach: Activity Feed | Consent Funnel | Queue. The WhatsApp Outreach board is the Consent Funnel tab (same board, same
                      permission); its own route still opens and lights this item. --}}
                 @php $_outreachTabs = \App\Support\Navigation\Hubs\OutreachTabs::forUser($user); @endphp
                 @if($_outreachTabs !== [])
-                <a href="{{ route('corex.hubs.outreach') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\OutreachTabs::searchEntries($_outreachTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.outreach', 'corex.outreach-canvassing.*', 'corex.outreach-summary.*', 'corex.outreach-queue.*') ? 'active' : '' }}">Outreach</a>
+                <a href="{{ route('corex.hubs.outreach') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\OutreachTabs::searchEntries($_outreachTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.outreach', 'corex.outreach-canvassing.*', 'corex.outreach-summary.*', 'corex.outreach-queue.*') ? 'active' : '' }}">Outreach</a>
                 @endif
                 {{-- AT-454 - Road to Sold: the agent's daily call list. --}}
                 {{-- Its settings (formerly a separate "Road to Sold settings" item - .ai/specs/real-estate-menu-tabs.md) open from the Settings
@@ -1002,7 +1007,7 @@
                      what that screen is for; outcomes are recorded on the presentation's own page). --}}
                 @php $_presTabs = \App\Support\Navigation\Hubs\PresentationsTabs::forUser($user); $_presCount = \App\Support\Navigation\Hubs\PresentationsTabs::badgeTotal($_presTabs); @endphp
                 @if($_presTabs !== [])
-                <a href="{{ route('corex.hubs.presentations') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PresentationsTabs::searchEntries($_presTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.presentations', 'presentations.*', 'corex.presentations.*', 'commercial-evaluations.*') ? 'active' : '' }}">
+                <a href="{{ route('corex.hubs.presentations') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\PresentationsTabs::searchEntries($_presTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.presentations', 'presentations.*', 'corex.presentations.*', 'commercial-evaluations.*') ? 'active' : '' }}">
                     <span>Presentations</span>
                     @if($_presCount > 0)
                         <span class="ml-auto inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full text-[0.6875rem] font-bold"
@@ -1147,13 +1152,13 @@
                      (corex.lens.core_matches / corex.lens.pipeline) keeps this item lit, as the old items did. --}}
                 @php $_lettingTabs = \App\Support\Navigation\Hubs\LettingTabs::forUser($user); @endphp
                 @if($_lettingTabs !== [])
-                <a href="{{ route('corex.hubs.letting') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\LettingTabs::searchEntries($_lettingTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.letting', 'corex.rental-applications.*', 'corex.rentals.core-matches.*', 'corex.rentals.pipeline.index') || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false)) || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Letting</a>
+                <a href="{{ route('corex.hubs.letting') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\LettingTabs::searchEntries($_lettingTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.letting', 'corex.rental-applications.*', 'corex.rentals.core-matches.*', 'corex.rentals.pipeline.index') || ((request()->routeIs('corex.core-matches.*') || request()->routeIs('corex.contacts.matches.*')) && session('corex.lens.core_matches', false)) || (request()->routeIs('command-center.buyers*') && session('corex.lens.pipeline', false)) ? 'active' : '' }}">Letting</a>
                 @endif
 
                 {{-- Leases: Leases | Inspections. Notices stays its own item - it is itself a tabbed screen (AT-466), and a tab never holds tabs. --}}
                 @php $_leasesTabs = \App\Support\Navigation\Hubs\LeasesTabs::forUser($user); @endphp
                 @if($_leasesTabs !== [])
-                <a href="{{ route('corex.hubs.leases') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\LeasesTabs::searchEntries($_leasesTabs)) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.leases', 'corex.leases.*', 'corex.rental-inspections.*') ? 'active' : '' }}">Leases</a>
+                <a href="{{ route('corex.hubs.leases') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\LeasesTabs::searchEntries($_leasesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.leases', 'corex.leases.*', 'corex.rental-inspections.*') ? 'active' : '' }}">Leases</a>
                 @endif
 
                 {{-- AT-445 — .ai/specs/rental-portal-access.md §10. Same-day
@@ -1176,7 +1181,7 @@
                      The supplier directory is the Deals screen - it lights this item only when opened from here (?nav=rentals), as before. --}}
                 @php $_maintenanceTabs = \App\Support\Navigation\Hubs\MaintenanceTabs::forUser($user); @endphp
                 @if($_maintenanceTabs !== [])
-                <a href="{{ route('corex.hubs.maintenance') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MaintenanceTabs::searchEntries($_maintenanceTabs)) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.maintenance', 'corex.rental-fault-reports.*', 'corex.rental-job-cards.*', 'corex.rental-crews.*', 'corex.rental-catalogue-items.*', 'corex.rental-work-orders.*', 'corex.rental-fault-types.*', 'deals-v2.suppliers.*') && (! request()->routeIs('deals-v2.suppliers.*') || request()->query('nav') === 'rentals')) ? 'active' : '' }}">Maintenance</a>
+                <a href="{{ route('corex.hubs.maintenance') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MaintenanceTabs::searchEntries($_maintenanceTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ (request()->routeIs('corex.hubs.maintenance', 'corex.rental-fault-reports.*', 'corex.rental-job-cards.*', 'corex.rental-crews.*', 'corex.rental-catalogue-items.*', 'corex.rental-work-orders.*', 'corex.rental-fault-types.*', 'deals-v2.suppliers.*') && (! request()->routeIs('deals-v2.suppliers.*') || request()->query('nav') === 'rentals')) ? 'active' : '' }}">Maintenance</a>
                 @endif
 
                 {{-- .ai/specs/rental-takeon-import.md — one-time, agency-admin-only bulk
@@ -1296,87 +1301,29 @@
                 </button>
                 <div class="corex-nav-panel-title">Communications</div>
 
-                {{-- AT-161 re-cut IA — sub-sections. Section labels use inline styles
-                     (blade-only deploy safe). Every item keeps its existing gate. --}}
-                @php $navSection = 'padding:10px 16px 4px; font-size:0.6875rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--text-muted);'; @endphp
+                {{-- .ai/specs/communications-menu-tabs.md (Andre, 22 Oct 2026): the Capture / Archive & Review / WhatsApp / Email / My Setup
+                     headings (AT-161) are gone - the twelve links are THREE items, each opening a screen with tabs (App\Support\Navigation\TabHubs,
+                     the same mechanism as Real Estate, Dashboard and Rentals). Each tab keeps its route and the exact check its old link had (the
+                     old $canCapture / $canWa wrappers are implied by each tab's own permission); every old label stays findable in the menu search
+                     (data-nav-extra). Routes, permissions, the communications feature switch and favourites are unchanged. --}}
 
-                {{-- ── Capture — what gets imported (AT-195 findability hotfix) ──
-                     Johan: "cannot find the screen where I mark to import or not for
-                     emails and whatsapps." These ARE those screens — they already existed
-                     but were scattered under WhatsApp/Email with consent-framed labels.
-                     Consolidated here, first, with plain labels. Gates unchanged per page. --}}
-                @php $canCapture = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review') || $u->hasPermission('manage_communication_mailboxes') || $u->hasPermission('triage_communications'); @endphp
-                @if($canCapture)
-                <div style="{{ $navSection }}">Capture — what gets imported</div>
-                @permission('access_communication')
-                {{-- AT-136/AT-274 — per-agent WhatsApp consent: which contacts' WhatsApp you archive. --}}
-                <a href="{{ route('communications.capture.my') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.my') ? 'active' : '' }}">My WhatsApp Consent</a>
-                @endpermission
-                @permission('triage_communications')
-                {{-- AT-274 — moved up from "Archive & Review": the per-agent incoming-message
-                     triage queue is an ingestion surface, so it belongs with capture/consent. --}}
-                <a href="{{ route('communications.triage.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.triage.*') ? 'active' : '' }}">Review Incoming Messages</a>
-                @endpermission
-                @permission('communications.capture_review')
-                {{-- AT-136/AT-274 — BM/admin review of agents' capture decisions (declaration, never content). --}}
-                @permission('access_communication')
-                <a href="{{ route('communications.capture.review') }}" class="corex-nav-subitem {{ request()->routeIs('communications.capture.review') ? 'active' : '' }}">WhatsApp Consent — Review</a>
-                @endpermission
-                @endpermission
-                @permission('manage_communication_mailboxes')
-                {{-- Email is mailbox-level (no per-contact choice): which mailboxes are imported. --}}
-                <a href="{{ route('compliance.comm-mailboxes.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-mailboxes.*') ? 'active' : '' }}">Email Mailboxes (import)</a>
-                @endpermission
+                {{-- Messages: Review Incoming Messages | Message Archive | Flagged Messages | Archive Access Requests | To File (attorney emails) --}}
+                @php $_messagesTabs = \App\Support\Navigation\Hubs\MessagesTabs::forUser($user); @endphp
+                @if($_messagesTabs !== [])
+                <a href="{{ route('corex.hubs.messages') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MessagesTabs::searchEntries($_messagesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.messages', 'communications.triage.*', 'compliance.comm-archive.*', 'compliance.comm-flags.*', 'corex.comms-access.inbox', 'corex.comms-suspense.*') ? 'active' : '' }}">Messages</a>
                 @endif
 
-                {{-- ── Archive & Review ── --}}
-                <div style="{{ $navSection }}">Archive &amp; Review</div>
-                @permission('access_communication_archive')
-                <a href="{{ route('compliance.comm-archive.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-archive.*') ? 'active' : '' }}">Message Archive</a>
-                @endpermission
-                {{-- AT-274 — "Review Incoming Messages" (triage) relocated up into the
-                     "Capture — what gets imported" section for findability. --}}
-                @permission('view_communication_flag_register')
-                <a href="{{ route('compliance.comm-flags.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.comm-flags.*') ? 'active' : '' }}">Flagged Messages</a>
-                @endpermission
-                {{-- AT-118 — Communications Access Gate: approver inbox (owning agents + grant_access holders) --}}
-                @permission('communications.view')
-                <a href="{{ route('corex.comms-access.inbox') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-access.inbox') ? 'active' : '' }}">Archive Access Requests</a>
-                @endpermission
-                {{-- AT-231 P2b — inbound attorney-email review queue (same screen as Deals → Comms Suspense) --}}
-                @permission('deal_comms_suspense.view')
-                @if(\Illuminate\Support\Facades\Route::has('corex.comms-suspense.index'))
-                <a href="{{ route('corex.comms-suspense.index') }}" class="corex-nav-subitem {{ request()->routeIs('corex.comms-suspense.*') ? 'active' : '' }}">To File (attorney emails)</a>
-                @endif
-                @endpermission
-
-                {{-- ── WhatsApp ── --}}
-                @php $canWa = $u->hasPermission('access_communication') || $u->hasPermission('communications.capture_review'); @endphp
-                @if($canWa)
-                <div style="{{ $navSection }}">WhatsApp</div>
-                @permission('access_communication')
-                {{-- AT-156 — self-link QR lives on My Portal → Tools; deep-link to that tab. --}}
-                @permission('access_my_portal')
-                <a href="{{ route('agent.portal') }}#tools" class="corex-nav-subitem">Link My WhatsApp</a>
-                @endpermission
-                {{-- Capture decisions (My WhatsApp Capture / Capture Review) moved up to the
-                     Capture section (AT-195). This section is the WhatsApp CONNECTION setup. --}}
-                <a href="{{ route('communications.wa-devices.index') }}" class="corex-nav-subitem {{ request()->routeIs('communications.wa-devices.*') ? 'active' : '' }}">WhatsApp Capture (Browser Extension)</a>
-                @endpermission
+                {{-- WhatsApp: My WhatsApp Consent | WhatsApp Consent — Review | WhatsApp Capture (Browser Extension) | Link My WhatsApp (jumps to My Portal > Tools, as before) --}}
+                @php $_whatsappTabs = \App\Support\Navigation\Hubs\WhatsAppTabs::forUser($user); @endphp
+                @if($_whatsappTabs !== [])
+                <a href="{{ route('corex.hubs.whatsapp') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\WhatsAppTabs::searchEntries($_whatsappTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.whatsapp', 'communications.capture.my', 'communications.capture.review', 'communications.wa-devices.*') ? 'active' : '' }}">WhatsApp</a>
                 @endif
 
-                {{-- ── Email ── (mailbox IMPORT toggle lives in the Capture section above) --}}
-                @permission('manage_communication_mailboxes')
-                <div style="{{ $navSection }}">Email</div>
-                <a href="{{ route('settings.email-setup.index') }}" class="corex-nav-subitem {{ request()->routeIs('settings.email-setup.*') ? 'active' : '' }}">Email Capture Setup</a>
-                @endpermission
-
-                {{-- ── Personal setup ── --}}
-                @permission('access_communication')
-                <div style="{{ $navSection }}">My Setup</div>
-                {{-- Communication Capture (AT-39) — user email self-service --}}
-                <a href="{{ route('my-portal.comm-capture.index') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.comm-capture.*') ? 'active' : '' }}">My Communication Setup</a>
-                @endpermission
+                {{-- Setup: My Communication Setup | Email Mailboxes (import) | Email Capture Setup --}}
+                @php $_commssetupTabs = \App\Support\Navigation\Hubs\CommsSetupTabs::forUser($user); @endphp
+                @if($_commssetupTabs !== [])
+                <a href="{{ route('corex.hubs.comms-setup') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\CommsSetupTabs::searchEntries($_commssetupTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.comms-setup', 'my-portal.comm-capture.*', 'compliance.comm-mailboxes.*', 'settings.email-setup.*') ? 'active' : '' }}">Setup</a>
+                @endif
             </div>
         </div>
         @endfeature
@@ -1757,60 +1704,41 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Documents</div>
+                {{-- .ai/specs/documents-menu-tabs.md (Andre, 22 Oct 2026): 20 links became 6 items. The two actions that START something (Create
+                     Document, E-Sign Document) stay plain links; everything else is FOUR items that each open a screen with tabs
+                     (App\Support\Navigation\TabHubs - same mechanism as Real Estate, Dashboard, Rentals, Communications). Each tab keeps its route and
+                     the exact check its old link had (incl. the owner-only Template Packages and the candidate-practitioner Authorise Documents);
+                     every old label stays findable in the menu search (data-nav-extra). --}}
                 @permission('create_docuperfect_docs')
                 @permission('access_docuperfect')
                 <a href="{{ route('docuperfect.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.create') ? 'active' : '' }}">Create Document</a>
                 <a href="{{ route('docuperfect.esign.create') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.create') ? 'active' : '' }}">E-Sign Document</a>
-                <a href="{{ route('docuperfect.esign.myDocuments') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') !== 'authorisation' ? 'active' : '' }}">My E-Sign Documents</a>
-                @if(app(\App\Services\CandidatePractitionerService::class)->canAuthorise(auth()->user()))
-                <a href="{{ route('docuperfect.esign.myDocuments', ['filter' => 'authorisation']) }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.myDocuments') && request()->query('filter') === 'authorisation' ? 'active' : '' }}">Authorise Documents</a>
+                @endpermission
+                @endpermission
+
+                {{-- My Documents: My Documents | My E-Sign Documents | Authorise Documents (?filter=authorisation) | Agency Documents | Shared Drive --}}
+                @php $_mydocumentsTabs = \App\Support\Navigation\Hubs\MyDocumentsTabs::forUser($user); @endphp
+                @if($_mydocumentsTabs !== [])
+                <a href="{{ route('corex.hubs.my-documents') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\MyDocumentsTabs::searchEntries($_mydocumentsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.my-documents', 'docuperfect.dashboard', 'docuperfect.esign.myDocuments', 'my-portal.agency-documents*', 'documents.shared-drive.*') ? 'active' : '' }}">My Documents</a>
                 @endif
-                @endpermission
-                @endpermission
-                @permission('access_docuperfect')
-                <a href="{{ route('docuperfect.dashboard') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.dashboard') ? 'active' : '' }}">My Documents</a>
-                @endpermission
-                @permission('access_docuperfect_packs')
-                @permission('access_docuperfect')
-                <a href="{{ route('docuperfect.packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.packs.*') ? 'active' : '' }}">Packs</a>
-                <a href="{{ route('docuperfect.web-packs.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.web-packs.*') ? 'active' : '' }}">Web Packs</a>
-                @endpermission
-                @endpermission
-                @permission('access_clause_library')
-                @permission('access_docuperfect')
-                <a href="{{ route('docuperfect.clauses.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.clauses.*') ? 'active' : '' }}">Clause Library</a>
-                @endpermission
-                @endpermission
-                @permission('esign.compiler.view')
-                <a href="{{ route('docuperfect.compiler.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.compiler.*') ? 'active' : '' }}">Compile Studio</a>
-                @endpermission
-                @permission('esign.settings')
-                <a href="{{ route('docuperfect.esign.recipient-presets.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.recipient-presets.*') ? 'active' : '' }}">Recipient Presets</a>
-                <a href="{{ route('docuperfect.recipient-templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.recipient-templates.*') ? 'active' : '' }}">Recipient Templates</a>
-                <a href="{{ route('docuperfect.esign.settings.finalization') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.esign.settings.finalization*') ? 'active' : '' }}">Finalisation Settings</a>
-                @endpermission
-                @permission('manage_templates')
-                @permission('access_docuperfect')
-                <a href="{{ route('docuperfect.templates.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.templates.*') ? 'active' : '' }}">Template Management</a>
-                <a href="{{ route('docuperfect.field-groups.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.field-groups.*') ? 'active' : '' }}">Field Groups</a>
-                <a href="{{ route('docuperfect.settings.namedFields') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.namedFields*') ? 'active' : '' }}">Named Fields</a>
-                <a href="{{ route('docuperfect.settings.types') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.settings.types*') ? 'active' : '' }}">Document Types</a>
-                <a href="{{ route('docuperfect.import.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.import.*') ? 'active' : '' }}">Import Document</a>
-                @endpermission
-                @endpermission
-                @if(auth()->user()->isOwnerRole())
-                @permission('templates.transfer')
-                <a href="{{ route('docuperfect.template-transfer.index') }}" class="corex-nav-subitem {{ request()->routeIs('docuperfect.template-transfer.*') ? 'active' : '' }}">Template Packages</a>
-                @endpermission
+
+                {{-- Library: Packs | Web Packs | Clause Library | Compile Studio --}}
+                @php $_doclibraryTabs = \App\Support\Navigation\Hubs\DocumentLibraryTabs::forUser($user); @endphp
+                @if($_doclibraryTabs !== [])
+                <a href="{{ route('corex.hubs.doc-library') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentLibraryTabs::searchEntries($_doclibraryTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-library', 'docuperfect.packs.*', 'docuperfect.web-packs.*', 'docuperfect.clauses.*', 'docuperfect.compiler.*') ? 'active' : '' }}">Library</a>
                 @endif
-                @permission('view_agency_documents')
-                <a href="{{ route('my-portal.agency-documents') }}" class="corex-nav-subitem {{ request()->routeIs('my-portal.agency-documents*') ? 'active' : '' }}">Agency Documents</a>
-                @endpermission
-                @feature('shared-drive')
-                @permission('access_shared_drive')
-                <a href="{{ route('documents.shared-drive.index') }}" class="corex-nav-subitem {{ request()->routeIs('documents.shared-drive.*') ? 'active' : '' }}">Shared Drive</a>
-                @endpermission
-                @endfeature
+
+                {{-- Templates: Template Management | Field Groups | Named Fields | Document Types | Import Document | Template Packages (System Owner only) --}}
+                @php $_doctemplatesTabs = \App\Support\Navigation\Hubs\DocumentTemplatesTabs::forUser($user); @endphp
+                @if($_doctemplatesTabs !== [])
+                <a href="{{ route('corex.hubs.doc-templates') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\DocumentTemplatesTabs::searchEntries($_doctemplatesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.doc-templates', 'docuperfect.templates.*', 'docuperfect.field-groups.*', 'docuperfect.settings.namedFields*', 'docuperfect.settings.types*', 'docuperfect.import.*', 'docuperfect.template-transfer.*') ? 'active' : '' }}">Templates</a>
+                @endif
+
+                {{-- E-Sign Settings: Recipient Presets | Recipient Templates | Finalisation Settings --}}
+                @php $_esignsettingsTabs = \App\Support\Navigation\Hubs\ESignSettingsTabs::forUser($user); @endphp
+                @if($_esignsettingsTabs !== [])
+                <a href="{{ route('corex.hubs.esign-settings') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ESignSettingsTabs::searchEntries($_esignsettingsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.esign-settings', 'docuperfect.esign.recipient-presets.*', 'docuperfect.recipient-templates.*', 'docuperfect.esign.settings.finalization*') ? 'active' : '' }}">E-Sign Settings</a>
+                @endif
             </div>
         </div>
         @endif
@@ -1841,85 +1769,52 @@
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Compliance</div>
+                {{-- .ai/specs/compliance-menu-tabs.md (Andre, 22 Oct 2026): 13 links became 5 items. FICA (the daily work) and Send Standalone
+                     Info Pack (an action) stay plain links; the rest are THREE items that each open a screen with tabs (App\Support\Navigation\TabHubs
+                     - same mechanism as the other menus). Each tab keeps its route and the exact check its old link had, plus this panel's own
+                     access_compliance + compliance-feature gate; the counts moved onto their tabs (and total on the item; Agent Compliance keeps its
+                     dot); every old label stays findable in the menu search (data-nav-extra). --}}
                 <a href="{{ route('compliance.fica.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.fica.*') ? 'active' : '' }}">FICA</a>
-                @permission('access_rmcp')
-                <a href="{{ route('compliance.rmcp.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.*') && !request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP</a>
-                @endpermission
-                @permission('access_compliance_dashboard')
-                <a href="{{ route('compliance.rmcp.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.rmcp.dashboard.*') ? 'active' : '' }}">RMCP Dashboard</a>
-                @endpermission
-                @permission('access_policy')
-                <a href="{{ route('compliance.policy.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.policy.*') && !request()->routeIs('compliance.policy.dashboard.*') ? 'active' : '' }}">Policies</a>
-                @endpermission
-                @permission('access_compliance_dashboard')
-                <a href="{{ route('compliance.policy.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.policy.dashboard.*') ? 'active' : '' }}">Policy Register</a>
-                @endpermission
-                @permission('manage_employee_screenings')
-                @permission('access_compliance_dashboard')
-                <a href="{{ route('compliance.screening.dashboard.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.screening.*') || request()->routeIs('compliance.screenings.*') ? 'active' : '' }}">Staff Screening</a>
-                @endpermission
-                @endpermission
-                @if($isOwner || $effectiveRole === 'super_admin')
-                @php $nonCompliantAgents = \App\Models\User::where('is_active', true)->whereNull('deleted_at')->whereNull('ffc_number')->count(); @endphp
-                <a href="{{ route('compliance.agents') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agents') ? 'active' : '' }}">
-                    Agent Compliance
-                    @if($nonCompliantAgents > 0)
+
+                {{-- RMCP & Policies: RMCP | RMCP Dashboard | Policies | Policy Register --}}
+                @php $_rmcppoliciesTabs = \App\Support\Navigation\Hubs\RmcpPoliciesTabs::forUser($user); $_rmcppoliciesCount = \App\Support\Navigation\Hubs\RmcpPoliciesTabs::badgeTotal($_rmcppoliciesTabs); $_rmcppoliciesDot = \App\Support\Navigation\Hubs\RmcpPoliciesTabs::hasDot($_rmcppoliciesTabs); @endphp
+                @if($_rmcppoliciesTabs !== [])
+                <a href="{{ route('corex.hubs.rmcp-policies') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\RmcpPoliciesTabs::searchEntries($_rmcppoliciesTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.rmcp-policies', 'compliance.rmcp.*', 'compliance.policy.*') ? 'active' : '' }}">
+                    <span>RMCP &amp; Policies</span>
+                    @if($_rmcppoliciesCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $_rmcppoliciesCount > 99 ? '99+' : $_rmcppoliciesCount }}</span>
+                    @elseif($_rmcppoliciesDot)
                     <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 inline-block"></span>
                     @endif
                 </a>
                 @endif
-                @permission('verify_user_documents')
-                {{-- Perf (2026-08-23): was cache()->remember(60s) — cache store is the
-                     database here, so a warm hit is still a real MySQL round trip (~1ms)
-                     and a cold miss pays that PLUS this query PLUS a write (~25ms
-                     measured, 7-8 queries). Direct computation measured ~10-12ms, 5-6
-                     queries — cheaper than the cache wrapper in every case, not just the
-                     cold one. Same pattern as $nonCompliantAgents just above. --}}
-                @php $pendingVerificationCount = \App\Models\UserDocument::pending()->count(); @endphp
-                <a href="{{ route('compliance.verification.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.verification.*') ? 'active' : '' }}">
-                    Verification Queue
-                    @if($pendingVerificationCount > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber) 15%, transparent); color:var(--ds-amber);">{{ number_format($pendingVerificationCount) }}</span>
+
+                {{-- Agents & Staff: Verification Queue | Agent Compliance (System Owner) | Staff Screening | Document Types | Agency Documents --}}
+                @php $_complianceagentsTabs = \App\Support\Navigation\Hubs\ComplianceAgentsTabs::forUser($user); $_complianceagentsCount = \App\Support\Navigation\Hubs\ComplianceAgentsTabs::badgeTotal($_complianceagentsTabs); $_complianceagentsDot = \App\Support\Navigation\Hubs\ComplianceAgentsTabs::hasDot($_complianceagentsTabs); @endphp
+                @if($_complianceagentsTabs !== [])
+                <a href="{{ route('corex.hubs.compliance-agents') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ComplianceAgentsTabs::searchEntries($_complianceagentsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.compliance-agents', 'compliance.verification.*', 'compliance.agents', 'compliance.screening.*', 'compliance.screenings.*', 'compliance.document-types.*', 'compliance.agency-settings.*') ? 'active' : '' }}">
+                    <span>Agents &amp; Staff</span>
+                    @if($_complianceagentsCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $_complianceagentsCount > 99 ? '99+' : $_complianceagentsCount }}</span>
+                    @elseif($_complianceagentsDot)
+                    <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 inline-block"></span>
                     @endif
                 </a>
-                @endpermission
-                @permission('manage_agency_compliance')
-                <a href="{{ route('compliance.document-types.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.document-types.*') ? 'active' : '' }}">Document Types</a>
-                @endpermission
-                @permission('manage_agency_compliance')
-                <a href="{{ route('compliance.agency-settings.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.agency-settings.*') ? 'active' : '' }}">Agency Documents</a>
-                @endpermission
-                @permission('compliance.whistleblow.view')
-                {{-- Perf (2026-08-23): was cache()->remember(60s) — ~24ms/7 queries cold,
-                     vs ~10-12ms/5 queries computed directly (measured); a warm hit is only
-                     marginally cheaper (~1.5ms) than computing fresh, and this app's cache
-                     store is itself the database, so caching bought little here. Removing
-                     it also closes a pre-existing bug: the cache KEY was agency-only but
-                     the QUERY varies by viewer's own permission (agency-wide vs own-only),
-                     so two users in the same agency could read each other's cached scope.
-                     Computing fresh removes that collision as a side effect. --}}
-                @php
-                    $wbPendingCount = (function () {
-                        $q = \App\Models\Compliance\WhistleblowComplaint::where('status', 'pending_approval');
-                        $u = auth()->user();
-                        if (!$u->hasPermission('compliance.whistleblow.view_all_agency')) {
-                            $q->where('reported_by_user_id', $u->id);
-                        }
-                        return $q->count();
-                    })();
-                @endphp
-                <a href="{{ route('compliance.whistleblow.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.whistleblow.*') ? 'active' : '' }}">
-                    Compliance Reporting
-                    @if($wbPendingCount > 0)
-                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ number_format($wbPendingCount) }}</span>
+                @endif
+
+                {{-- Reports & Logs: Compliance Reporting | Communications Log --}}
+                @php $_compliancereportsTabs = \App\Support\Navigation\Hubs\ComplianceReportsTabs::forUser($user); $_compliancereportsCount = \App\Support\Navigation\Hubs\ComplianceReportsTabs::badgeTotal($_compliancereportsTabs); $_compliancereportsDot = \App\Support\Navigation\Hubs\ComplianceReportsTabs::hasDot($_compliancereportsTabs); @endphp
+                @if($_compliancereportsTabs !== [])
+                <a href="{{ route('corex.hubs.compliance-reports') }}" data-nav-extra="{{ json_encode(\App\Support\Navigation\Hubs\ComplianceReportsTabs::searchEntries($_compliancereportsTabs), JSON_UNESCAPED_UNICODE) }}" class="corex-nav-subitem {{ request()->routeIs('corex.hubs.compliance-reports', 'compliance.whistleblow.*', 'compliance.communications.*') ? 'active' : '' }}">
+                    <span>Reports &amp; Logs</span>
+                    @if($_compliancereportsCount > 0)
+                    <span class="ml-auto flex-shrink-0 inline-flex items-center justify-center rounded-full text-[0.6875rem] font-bold px-1.5" style="min-width:18px; height:18px; background:color-mix(in srgb, var(--ds-amber, #f59e0b) 15%, transparent); color:var(--ds-amber, #f59e0b);">{{ $_compliancereportsCount > 99 ? '99+' : $_compliancereportsCount }}</span>
+                    @elseif($_compliancereportsDot)
+                    <span class="ml-auto w-2 h-2 rounded-full bg-amber-500 flex-shrink-0 inline-block"></span>
                     @endif
                 </a>
-                @endpermission
-                {{-- AT-161 — these stay in Compliance (audit/legal) but move OFF the
-                     borrowed `compliance.whistleblow.view` onto proper own gates. --}}
-                @permission('access_communication_archive')
-                <a href="{{ route('compliance.communications.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.communications.*') ? 'active' : '' }}">Communications Log</a>
-                @endpermission
+                @endif
+
                 @permission('outreach.compose')
                 <a href="{{ route('compliance.seller-info.index') }}" class="corex-nav-subitem {{ request()->routeIs('compliance.seller-info.*') ? 'active' : '' }}">Send Standalone Info Pack</a>
                 @endpermission

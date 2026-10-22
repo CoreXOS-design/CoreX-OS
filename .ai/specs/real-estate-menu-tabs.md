@@ -176,6 +176,7 @@ change explicitly does not do. Each needs its own ticket and decision:
 - Mechanism: `App\Support\Navigation\TabHub` (base) + `TabHubs` (the list) + `Hubs\{MarketIntelligence,Properties,Buyers,Outreach,Presentations}Tabs`.
   Landing routes `corex.hubs.<key>` (`/corex/hub/<key>`, `TabHubController`): first tab the user may open, `?tab=` honoured,
   403 when none. Tab bar: `resources/views/corex/partials/_hub-tabs.blade.php` (MIC tab-bar styling, scrolls sideways on phones).
+- Menu label (Andre, 22 Oct 2026): item 1 reads **Real Estate Features** (it opens MIC and its tabs); "Market intelligence" stays its menu-search alias (`data-nav-alias`) and Ellie's category for MIC is "Real Estate › Real Estate Features". The MIC screens' own headings are unchanged.
 - Outreach tabs keep the screen's own labels: **Activity Feed · Consent Funnel · Queue**. Activity Feed / Consent Funnel still switch
   in place without a reload (the page's own Alpine `tab`); the old WhatsApp Outreach route shows the bar with Consent Funnel active.
 - Road to Sold's settings pages now light the Road to Sold item; the Settings button shows on the sales track only (the old item only

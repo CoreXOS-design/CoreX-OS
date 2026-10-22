@@ -193,9 +193,11 @@ final class RealEstateMenuTabsTest extends TestCase
             'access_viewing_packs', 'outreach.summary.view', 'outreach_queue.view', 'access_road_to_sold', 'access_presentations', 'deeds_capture.access', 'address_review.manage']);
 
         $this->assertSame(
-            ['Market intelligence', 'Properties', 'Contacts', 'Buyers', 'Outreach', 'Road to Sold', 'Presentations'],
+            ['Real Estate Features', 'Properties', 'Contacts', 'Buyers', 'Outreach', 'Road to Sold', 'Presentations'],
             $this->realEstateItems($admin)
         );
+        // Andre, 22 Oct 2026: the MIC hub item reads "Real Estate Features"; its old name stays findable in the menu search
+        $this->assertMatchesRegularExpression('/data-nav-alias="Market intelligence"[^>]*>\s*<span>Real Estate Features<\/span>/', $this->actingAs($admin)->get(route('agent.portal'))->getContent());
     }
 
     public function test_an_item_shows_only_when_one_of_its_tabs_can_open_and_lands_on_the_first_one(): void
@@ -204,8 +206,8 @@ final class RealEstateMenuTabsTest extends TestCase
         $this->actingAs($deedsOnly)->get(route('corex.hubs.market-intelligence'))->assertRedirect(route('corex.deeds-capture.index'));
         // Buyers too: the sales Buyer Pipeline checks no permission, only its feature (spec §7, reported, not changed here)
         $this->assertSame(
-            ['Market intelligence', 'Buyers'],
-            array_values(array_intersect($this->realEstateItems($deedsOnly, route('corex.deeds-capture.index')), ['Market intelligence', 'Properties', 'Buyers', 'Outreach', 'Presentations']))
+            ['Real Estate Features', 'Buyers'],
+            array_values(array_intersect($this->realEstateItems($deedsOnly, route('corex.deeds-capture.index')), ['Real Estate Features', 'Properties', 'Buyers', 'Outreach', 'Presentations']))
         );
 
         $nothing = $this->userWith([]);

@@ -89,7 +89,7 @@ return [
     ],
     'market-intelligence.work' => [
         'label' => 'Market Intelligence Centre (MIC)',
-        'category' => 'Real Estate › Market intelligence',
+        'category' => 'Real Estate › Real Estate Features',
         'blurb' => 'Buyer-to-property matching, market narratives, and suburb intelligence.',
         'keywords' => ['market intelligence', 'mic', 'matching', 'matches', 'market', 'suburb intelligence', 'narratives', 'intelligence centre'],
     ],

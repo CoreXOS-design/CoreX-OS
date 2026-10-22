@@ -15,6 +15,8 @@ use Illuminate\Support\Facades\Route;
  *     'label'       => tab label,
  *     'route'       => the screen's own route (the tab's link),
  *     'query'       => optional query parameters for the link,
+ *     'fragment'    => optional #anchor for the link (a tab that jumps to a section of another screen; give it 'match' => [] so no bar
+ *                      claims that screen),
  *     'match'       => routeIs() patterns that make this tab the active one (default: [route]); a tab bar only renders on a route one
  *                      of its tabs matches, so a screen shared with Rentals / Auctions (another route name) never shows it,
  *     'feature'     => the features-registry key that switches the old menu item, or null for a core screen,
@@ -42,6 +44,12 @@ abstract class TabHub
     public static function badge(string $key, User $user): ?int
     {
         return null;
+    }
+
+    /** Whether this tab's badge is a plain dot (something needs a look) rather than a number - e.g. Compliance > Agent Compliance. */
+    public static function dotOnly(string $key): bool
+    {
+        return false;
     }
 
     /** The colour of the tab / menu-item count (default: the amber the Refresh Requests count always used). */
@@ -77,9 +85,10 @@ abstract class TabHub
             }
             $out[$key] = [
                 'label' => $t['label'],
-                'url' => route($t['route'], $t['query'] ?? []),
+                'url' => route($t['route'], $t['query'] ?? []) . (! empty($t['fragment']) ? '#' . $t['fragment'] : ''),
                 'old' => $t['old'] ?? null,
                 'badge' => static::badge($key, $user),
+                'dot' => static::dotOnly($key),
             ];
         }
 
@@ -98,7 +107,8 @@ abstract class TabHub
     public static function activeKey(): ?string
     {
         foreach (static::tabs() as $key => $t) {
-            if (request()->routeIs(...($t['match'] ?? [$t['route']])) && static::activeAlso($key)) {
+            $match = $t['match'] ?? [$t['route']];
+            if ($match !== [] && request()->routeIs(...$match) && static::activeAlso($key)) {
                 return $key;
             }
         }
@@ -140,6 +150,16 @@ abstract class TabHub
      */
     public static function badgeTotal(array $tabs): int
     {
-        return (int) array_sum(array_map(fn ($t) => $t['badge'] ?? 0, $tabs));
+        return (int) array_sum(array_map(fn ($t) => empty($t['dot']) ? ($t['badge'] ?? 0) : 0, $tabs));
+    }
+
+    /**
+     * Whether a dot-only tab has something to show (for the menu item, when there is no number to show instead).
+     *
+     * @param  array<string, array<string, mixed>>  $tabs  forUser()'s result
+     */
+    public static function hasDot(array $tabs): bool
+    {
+        return (bool) array_filter($tabs, fn ($t) => ! empty($t['dot']) && ($t['badge'] ?? 0) > 0);
     }
 }
