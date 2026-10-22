@@ -10,9 +10,14 @@ use Illuminate\Support\Facades\Http;
 /**
  * The one door for CoreX to POST to an agency-entered webhook address (SSRF guard). Spec: agency-public-api.md §6.4.
  *
- * Built on SafeFeedUrl (the same checks the article feeds use): http/https only, standard ports only,
- * no user:password, and the host must resolve to PUBLIC addresses only — loopback, private (RFC 1918),
- * link-local (incl. 169.254.169.254), CGNAT, multicast, reserved and the IPv6 equivalents are refused.
+ * Built on SafeFeedUrl (the same checks the article feeds use): http/https only, no user:password, and
+ * the host must resolve to PUBLIC addresses only — loopback, private (RFC 1918), link-local
+ * (incl. 169.254.169.254), CGNAT, multicast, reserved and the IPv6 equivalents are refused.
+ *
+ * Unlike feeds, ANY valid port is accepted: an agency's site receiver may legitimately listen on a custom
+ * port (HFC's does). The public-address checks and the IP pin are what keep the post off CoreX's own
+ * network; the feeds' 80/443-only rule silently failed every delivery to such a site from 2026-10-21
+ * (website prices stopped updating on Refresh).
  *
  * It is used at three places so no route to the address is left unguarded: when the address is saved
  * (validation), when the "Test connection" button posts to it, and when the queued webhook delivery
@@ -25,7 +30,7 @@ class SafeWebhookUrl
     /** A plain-words problem with the address, or null when it is fine to post to. */
     public function error(string $url): ?string
     {
-        $check = app(SafeFeedUrl::class)->inspect($url);
+        $check = app(SafeFeedUrl::class)->inspect($url, allowedPorts: null);
 
         return $check['ok'] ? null : $this->reword((string) $check['error']);
     }
@@ -38,7 +43,7 @@ class SafeWebhookUrl
      */
     public function post(string $url, string $body, array $headers, int $timeoutSeconds = 10): Response
     {
-        $check = app(SafeFeedUrl::class)->inspect($url);
+        $check = app(SafeFeedUrl::class)->inspect($url, allowedPorts: null);
         if (! $check['ok']) {
             $why = $this->reword((string) $check['error']);
 
