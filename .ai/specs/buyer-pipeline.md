@@ -82,3 +82,22 @@ Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
 moved. `--any-deal` widens the count to declined deals too — for a comparison dry-run only. Buyers linked only on
 the property page (no deal) are no longer candidates; they become Won going forward by the live listener.
 Held until Johan orders the real run (manual, not part of deploy). Test: `tests/Feature/Buyers/BuyersBackfillWonLiveDealsTest.php`.
+
+## Won only via a live deal or by hand — the hard rule (AT-500, 2026-10-22, Johan)
+- **A buyer leaves the pipeline only two ways.** **Won** = the buyer is on a live/registered DR2 deal, **or** an agent
+  moved them there by hand. **Lost** = manual. Nothing else moves a buyer to Won.
+- **Linking a contact to a property no longer marks anyone Won** — property page ("Add contact" / "Link existing"),
+  contact page ("Link to property"), imports, leads, mobile. `MarkBuyerWonOnPropertyLink` was removed and
+  unhooked; `ContactLinkedToProperty` itself is unchanged (other listeners use it). DR2 is unaffected: the DR2 save
+  calls `BuyerStateService::markBuyersWonForLiveDeal()` directly (and re-opening/restoring a deal re-marks Won via
+  `reconcileDealBuyers()`).
+- **Won column empty-state** now reads "No won buyers yet. When a buyer is linked to a deal in the Deal Register,
+  they move here automatically."
+- **Note:** the board has no manual "move to Won" control today (`updateState` accepts new/warm/cold only); the rule
+  keeps a hand-made Won (audit reason `manual_override`) safe from the back-fill for when one exists.
+- **Back-fill part 2** (`buyers:backfill-won`, same command, `--dry-run` shows both counts): any buyer who is Won with
+  NO live deal **and** whose most recent move into Won was not `manual_override` goes back on the board, recomputed to
+  New/Warm/Cold (never Lost), audited as `won_without_live_deal` (migration `2026_10_22_100000_…`; it also gets the
+  AT-74 protection window). Idempotent: a second run changes nothing.
+- Tests: `tests/Feature/Buyers/BuyerWonOnlyViaDealOrManualTest.php`, `tests/Feature/Buyers/BuyersBackfillWonLiveDealsTest.php`
+  (part 2), `tests/Feature/Dr2/Dr2CaptureTest.php` (`…with_a_property_marks_its_buyer_won_without_the_link_listener`).

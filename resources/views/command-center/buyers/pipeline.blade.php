@@ -397,7 +397,7 @@
             <span class="ds-badge ds-badge-pill ds-badge-success">{{ number_format($counts['won'] ?? $wonBuyers->count()) }}</span>
         </div>
         @if($wonBuyers->isEmpty())
-            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a property, they move here automatically.</div>
+            <div class="px-4 py-4 text-xs" style="color: var(--text-muted);">No won {{ $personNounPlural }} yet. When a {{ $personNoun }} is linked to a deal in the Deal Register, they move here automatically.</div>
         @else
             <div class="p-2 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2 md:max-h-[30vh] overflow-y-auto corex-brand-scroll">
                 @foreach($wonBuyers as $buyer)

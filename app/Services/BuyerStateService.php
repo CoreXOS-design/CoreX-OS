@@ -20,6 +20,9 @@ class BuyerStateService
     /** Audit reason written when a Won buyer goes back to the active pipeline because their deal ended (AT-500). */
     public const DEAL_FELL_THROUGH_REASON = 'deal_fell_through';
 
+    /** Audit reason written when the back-fill returns a Won buyer who is on no live deal (and was not moved by hand) to the board (AT-500). */
+    public const WON_WITHOUT_LIVE_DEAL_REASON = 'won_without_live_deal';
+
     /** Every Buyer / Rental Pipeline status, in pipeline order. */
     public const PIPELINE_STATES = ['new', 'warm', 'cold', 'lost', self::WON];
 
@@ -408,12 +411,54 @@ class BuyerStateService
             return false;
         }
 
+        $this->returnToBoard($contact, self::DEAL_FELL_THROUGH_REASON, $userId);
+
+        return true;
+    }
+
+    /**
+     * AT-500 — take a Won buyer off Won and recompute them into New / Warm / Cold from their activity
+     * (never straight into Lost: they are for the agent to work, not to write off). Audited with $reason.
+     */
+    private function returnToBoard(Contact $contact, string $reason, ?int $userId): void
+    {
         $target = $this->resolveState($contact) ?? 'new';
         if ($target === 'lost') {
             $target = 'cold';
         }
 
-        $this->transitionTo($contact, $target, self::DEAL_FELL_THROUGH_REASON, $userId);
+        $this->transitionTo($contact, $target, $reason, $userId);
+    }
+
+    /**
+     * AT-500 (Johan, 22 Oct 2026, hard rule) — Won means exactly two things: the buyer is on a live DR2 deal,
+     * or an agent moved them there by hand. A Won buyer who is on NO live deal and whose most recent move into
+     * Won was not manual_override got there some other way (the old property-link rule, a deal that has since
+     * ended) and belongs back on the board. Used by the back-fill's second part.
+     */
+    public function isWonWithoutBasis(Contact $contact): bool
+    {
+        if ($contact->buyer_state !== self::WON || $this->isOnLiveDeal((int) $contact->id)) {
+            return false;
+        }
+
+        $lastWonReason = BuyerStateTransition::withoutGlobalScopes()
+            ->where('contact_id', $contact->id)
+            ->where('to_state', self::WON)
+            ->orderByDesc('occurred_at')->orderByDesc('id')
+            ->value('reason');
+
+        return $lastWonReason !== 'manual_override';
+    }
+
+    /** @return bool true iff the buyer was returned to the board by this call */
+    public function returnWonWithoutBasisToBoard(Contact $contact, ?int $userId = null): bool
+    {
+        if (! $this->isWonWithoutBasis($contact)) {
+            return false;
+        }
+
+        $this->returnToBoard($contact, self::WON_WITHOUT_LIVE_DEAL_REASON, $userId);
 
         return true;
     }
@@ -477,7 +522,7 @@ class BuyerStateService
     {
         $manualAt = BuyerStateTransition::withoutGlobalScopes()
             ->where('contact_id', $contact->id)
-            ->whereIn('reason', ['manual_override', self::DEAL_FELL_THROUGH_REASON])   // AT-500: a buyer sent back by a fallen-through deal gets the same window to be worked
+            ->whereIn('reason', ['manual_override', self::DEAL_FELL_THROUGH_REASON, self::WON_WITHOUT_LIVE_DEAL_REASON])   // AT-500: a buyer sent back to the board by a fallen-through deal / the back-fill gets the same window to be worked
             ->latest('occurred_at')
             ->value('occurred_at');
 
