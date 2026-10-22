@@ -35,6 +35,34 @@
         incrementUrl: @js(route('corex.contacts.increment', $buyer)),
         commBase: @js(url('corex/contacts/'.$buyer->id.'/communications')),
         csrf: @js(csrf_token()),
+        // AT-503 - a confirmed send is recorded against each active wishlist the client page shows.
+        // Awaited, never silent: a failure shows an alert with Retry; a success updates the
+        // Shared / Send N new status on every wishlist card in place (and any other open tab).
+        confirmBuyerUrl: @js(route('corex.core-matches.buyer-shares.confirm', $buyer->id)),
+        shareError: '',
+        lastShareChannel: null,
+        async confirmShare(channel) {
+            this.lastShareChannel = channel;
+            this.shareError = '';
+            try {
+                const res = await fetch(this.confirmBuyerUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json', 'X-CSRF-TOKEN': this.csrf, 'X-Requested-With': 'XMLHttpRequest' },
+                    body: JSON.stringify({ channel: channel }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok || !data.ok) throw new Error(data.message || ('HTTP ' + res.status));
+                (data.statuses || []).forEach((st) => {
+                    window.dispatchEvent(new CustomEvent('core-match-sent', { detail: st }));
+                    try { if ('BroadcastChannel' in window) { const bc = new BroadcastChannel('core-match-sent'); bc.postMessage(st); bc.close(); } } catch (e) {}
+                });
+                return true;
+            } catch (e) {
+                this.shareError = 'This send was NOT recorded, so the buyer\u2019s \u201Cnew\u201D count has not changed. Press Retry.';
+                return false;
+            }
+        },
+        retryShare() { return this.confirmShare(this.lastShareChannel); },
         sentConfirm: { open: false, communicationId: null },
         emailAddress: @js($buyer->email),
         emailSubject: {{ Js::from($shareEmailSubject) }},
@@ -66,6 +94,7 @@
             if (!this.emailAddress) { alert('This contact has no email address.'); return; }
             window.location.href = 'mailto:' + encodeURIComponent(this.emailAddress) + '?subject=' + encodeURIComponent(this.emailSubject) + '&body=' + encodeURIComponent(this.emailBody);
             this.increment('email', { subject: this.emailSubject, body: this.emailBody });
+            this.confirmShare('email');
         },
         async sendWhatsApp() {
             if (!this.waPhone) return;
@@ -75,6 +104,7 @@
             }
             window.open('https://wa.me/' + this.waPhone + '?text=' + encodeURIComponent(this.waMessage), '_blank', 'noopener');
             this.showWaModal = false;
+            this.confirmShare('whatsapp');
             const data = await this.increment('whatsapp', { body: this.waMessage });
             if (data && data.communication_id) {
                 this.sentConfirm = { open: true, communicationId: data.communication_id };
@@ -83,6 +113,13 @@
     }" class="relative inline-block" @keydown.escape.window="shareOpen = false">
 
     @include('partials.whatsapp-send-confirm-modal')
+
+    <div x-show="shareError" x-cloak role="alert" class="fixed bottom-4 right-4 z-50 max-w-sm rounded-md px-4 py-3 text-sm flex items-start gap-3"
+         style="background: var(--surface); border: 1px solid var(--ds-crimson, #c41e3a); color: var(--ds-crimson, #c41e3a); box-shadow: 0 8px 30px rgba(0,0,0,0.18);">
+        <span x-text="shareError"></span>
+        <button type="button" @click="retryShare()" class="corex-btn-outline text-xs flex-shrink-0">Retry</button>
+        <button type="button" @click="shareError = ''" class="text-xs flex-shrink-0" style="color: var(--text-muted);" aria-label="Dismiss">✕</button>
+    </div>
 
     <button type="button" @click="shareOpen = !shareOpen" class="corex-btn-outline text-xs inline-flex items-center gap-1.5">
         <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 1 0 0 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186 9.566-5.314m-9.566 7.5 9.566 5.314m0 0a2.25 2.25 0 1 0 3.935 2.186 2.25 2.25 0 0 0-3.935-2.186Zm0-12.814a2.25 2.25 0 1 0 3.933-2.185 2.25 2.25 0 0 0-3.933 2.185Z"/></svg>

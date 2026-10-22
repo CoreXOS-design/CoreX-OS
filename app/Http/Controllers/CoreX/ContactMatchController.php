@@ -427,7 +427,8 @@ class ContactMatchController extends Controller
             ->pluck('last_shared_at', 'contact_match_id');
 
         foreach ($allMatches as $match) {
-            $resolvedIds = $matchCounts[$match->id]['ids'] ?? [];
+            // AT-503 — visible_ids, the exact set a send snapshots (hidden properties are in neither).
+            $resolvedIds = $matchCounts[$match->id]['visible_ids'] ?? [];
             $everShared = $everSharedByMatch->get($match->id, []);
             $match->neverSharedCount = collect($resolvedIds)->diff($everShared)->count();
             $match->lastSharedAt = $lastSharedByMatch->has($match->id)

@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Contact;
 use App\Models\ContactMatch;
 use App\Models\ContactMatchFeedback;
+use App\Models\ContactMatchShare;
 use App\Models\Property;
 use App\Models\User;
+use App\Services\Matching\CoreMatchShareHistoryService;
 use App\Services\Matching\MatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -198,6 +200,27 @@ class MobileCoreMatchController extends Controller
         // Allow the mobile UI to override the body before sending
         $message = $request->input('message', $rendered);
 
+        // AT-503 — a POST is the agent actually sending: record a confirmed share exactly
+        // as the web composer does (mint a dated link, snapshot the live set, reset the
+        // buyer's clock) BEFORE anything is logged or returned, so a failure here is a
+        // clean error the app can show and retry — nothing half-recorded, no duplicate
+        // communication row on retry. The dated link replaces the plain link in the text.
+        $share = null;
+        if ($request->isMethod('post')) {
+            try {
+                $share = ContactMatchShare::recordConfirmed($match, $request->user()->id, ContactMatchShare::CHANNEL_WHATSAPP);
+            } catch (\Throwable $e) {
+                report($e);
+                return response()->json([
+                    'error'          => 'share_not_recorded',
+                    'message'        => 'Could not record this send. Nothing was sent or logged — please try again.',
+                    'share_recorded' => false,
+                ], 500);
+            }
+            $message = str_replace($shareUrl, $share->url(), $message);
+            $shareUrl = $share->url();
+        }
+
         $digits = preg_replace('/\D+/', '', (string) $contact->phone);
         if ($digits && str_starts_with($digits, '0')) {
             $digits = '27' . substr($digits, 1);
@@ -231,6 +254,8 @@ class MobileCoreMatchController extends Controller
             'contact_name'    => trim(($contact->first_name ?? '') . ' ' . ($contact->last_name ?? '')),
             'first_name'      => $contact->first_name,
             'whatsapp_count'  => $contact->outboundCommCount(\App\Models\Communications\Communication::CHANNEL_WHATSAPP),
+            'share_recorded'  => $share !== null,
+            'never_sent_count' => $share !== null ? app(CoreMatchShareHistoryService::class)->neverSentProperties($match)->count() : null,
         ]);
     }
 
