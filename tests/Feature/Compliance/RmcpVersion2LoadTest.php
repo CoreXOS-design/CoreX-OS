@@ -217,6 +217,47 @@ final class RmcpVersion2LoadTest extends TestCase
         self::assertSame('55', $val('profile.active_leases'));
     }
 
+    public function test_stated_variables_are_filled_in_on_a_draft_that_already_exists_without_touching_it(): void
+    {
+        Artisan::call('rmcp:import-version', ['agency' => (string) $this->agencyId, '--apply' => true]);
+        $v2 = RmcpVersion::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('version_number', 2)->firstOrFail();
+        $sectionIds = RmcpSection::withoutGlobalScopes()->where('rmcp_version_id', $v2->id)->orderBy('id')->pluck('id')->all();
+
+        Artisan::call('rmcp:import-version', ['agency' => (string) $this->agencyId, '--apply' => true,
+            '--var' => ['agency.branches_statement=one office, Ramsgate, to which all agents are attached']]);
+
+        self::assertStringContainsString('left exactly as it is', Artisan::output());
+        self::assertSame('one office, Ramsgate, to which all agents are attached',
+            RmcpVariable::withoutGlobalScopes()->where('agency_id', $this->agencyId)->where('variable_key', 'agency.branches_statement')->value('value'));
+        self::assertSame($sectionIds, RmcpSection::withoutGlobalScopes()->where('rmcp_version_id', $v2->id)->orderBy('id')->pluck('id')->all(), 'the draft itself is untouched');
+        self::assertSame(1, RmcpVersion::withoutGlobalScopes()->where('agency_id', $this->agencyId)->count(), 'still one version row for this agency');
+    }
+
+    public function test_an_agency_can_state_its_offices_and_who_is_responsible_and_that_wins_over_the_branch_records(): void
+    {
+        // The branch records say two offices; the agency has ONE.
+        DB::table('branches')->where('id', $this->agencyId)->update(['name' => 'Ramsgate', 'address' => '12 Marine Drive, Ramsgate']);
+        DB::table('branches')->insert(['agency_id' => $this->agencyId, 'name' => 'Old shop', 'address' => 'Somewhere', 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('fica_officer_appointments')->insert([
+            'agency_id' => $this->agencyId, 'role' => 'primary_compliance_officer', 'full_name' => 'Officer One',
+            'title' => 'FICA Compliance Officer', 'appointed_on' => '2026-03-01', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $resolve = fn () => app(RmcpVariableResolver::class)->resolve($this->agency());
+        self::assertStringStartsWith('two offices', $resolve()['agency.branches_statement']);
+
+        RmcpVariable::create(['agency_id' => $this->agencyId, 'variable_key' => 'agency.branches_statement', 'value' => 'one office, Ramsgate, to which all agents are attached', 'data_source' => 'manual']);
+        RmcpVariable::create(['agency_id' => $this->agencyId, 'variable_key' => 'agency.branches_and_responsible', 'value' => 'Ramsgate: {{compliance_officer.full_name}} (Compliance Officer)', 'data_source' => 'manual']);
+
+        $vars = $resolve();
+        self::assertSame('one office, Ramsgate, to which all agents are attached', $vars['agency.branches_statement']);
+        self::assertSame('Ramsgate: Officer One (Compliance Officer)', $vars['agency.branches_and_responsible'], 'a stated value follows the Compliance Officer on file');
+
+        // The unknown field is left visible, not blanked; a value never refers to itself.
+        RmcpVariable::where('variable_key', 'agency.branches_and_responsible')->update(['value' => 'X {{no.such_field}} {{agency.branches_and_responsible}}']);
+        self::assertSame('X {{no.such_field}} {{agency.branches_and_responsible}}', $resolve()['agency.branches_and_responsible']);
+    }
+
     // ── The merge fields ─────────────────────────────────────────────────
 
     public function test_the_business_profile_is_worked_out_per_agency_and_an_override_wins(): void

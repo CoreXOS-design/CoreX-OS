@@ -153,7 +153,8 @@ class RmcpVersionImporter
         $exists = RmcpVersion::withoutGlobalScopes()
             ->where('agency_id', $agency->id)->where('version_number', $versionNumber)->exists();
         if ($exists) {
-            return ['version' => null, 'variables_created' => [], 'variables_kept' => array_keys($manualVariables)];
+            // The version is left exactly as it is; the stated variables are still filled in where the agency has none.
+            return ['version' => null] + $this->applyVariables($agency, $manualVariables);
         }
 
         $parsed = $this->parse($markdown);
@@ -182,22 +183,33 @@ class RmcpVersionImporter
                 ]);
             }
 
-            $created = [];
-            $kept = [];
-            foreach ($manualVariables as $key => $value) {
-                $row = RmcpVariable::withoutGlobalScopes()->where('agency_id', $agency->id)->where('variable_key', $key)->first();
-                if ($row && trim((string) $row->value) !== '') {
-                    $kept[] = $key;   // never overwrite what the agency has already set
-                    continue;
-                }
-                RmcpVariable::withoutGlobalScopes()->updateOrCreate(
-                    ['agency_id' => $agency->id, 'variable_key' => $key],
-                    ['value' => $value, 'data_source' => 'manual']
-                );
-                $created[] = $key;
-            }
-
-            return ['version' => $version, 'variables_created' => $created, 'variables_kept' => $kept];
+            return ['version' => $version] + $this->applyVariables($agency, $manualVariables);
         });
+    }
+
+    /**
+     * Set each manual variable only where the agency has no value for it yet — never overwrite what it has set.
+     *
+     * @param  array<string,string> $manualVariables
+     * @return array{variables_created:list<string>, variables_kept:list<string>}
+     */
+    public function applyVariables(Agency $agency, array $manualVariables): array
+    {
+        $created = [];
+        $kept = [];
+        foreach ($manualVariables as $key => $value) {
+            $row = RmcpVariable::withoutGlobalScopes()->where('agency_id', $agency->id)->where('variable_key', $key)->first();
+            if ($row && trim((string) $row->value) !== '') {
+                $kept[] = $key;
+                continue;
+            }
+            RmcpVariable::withoutGlobalScopes()->updateOrCreate(
+                ['agency_id' => $agency->id, 'variable_key' => $key],
+                ['value' => $value, 'data_source' => 'manual']
+            );
+            $created[] = $key;
+        }
+
+        return ['variables_created' => $created, 'variables_kept' => $kept];
     }
 }
