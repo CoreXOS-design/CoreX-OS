@@ -91,7 +91,7 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
 
         Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--agency' => $this->agencyId]);
         $out = Artisan::output();
-        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 3 Won buyer(s) WOULD go back to the board', $out, 'dry-run shows BOTH counts');
+        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 2 Won buyer(s) WOULD go back to the board; 1 WOULD go to Lost', $out, 'dry-run shows BOTH counts');
         foreach ([$oldRule, $noTrail, $endedDeal] as $b) {
             $this->assertSame('won', $b->fresh()->buyer_state, 'a dry run writes nothing');
         }
@@ -100,13 +100,15 @@ final class BuyersBackfillWonLiveDealsTest extends TestCase
 
         $this->assertSame('won', $onLiveDeal->fresh()->buyer_state, 'live deal: stays Won');
         $this->assertSame('won', $manual->fresh()->buyer_state, 'moved by hand: stays Won');
-        foreach ([$oldRule, $noTrail, $endedDeal] as $b) {
+        foreach ([$oldRule, $noTrail] as $b) {
             $this->assertContains($b->fresh()->buyer_state, ['new', 'warm', 'cold'], 'back on the board, never Lost');
         }
+        $this->assertSame('lost', $endedDeal->fresh()->buyer_state, 'the deal was declined: it fell through, so Lost');
+        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $endedDeal->id, 'from_state' => 'won', 'to_state' => 'lost', 'reason' => 'deal_fell_through']);
         $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $oldRule->id, 'from_state' => 'won', 'reason' => 'won_without_live_deal']);
 
         Artisan::call('buyers:backfill-won', ['--dry-run' => true, '--agency' => $this->agencyId]);
-        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 0 Won buyer(s) WOULD go back to the board', Artisan::output(), 'second run changes nothing');
+        $this->assertStringContainsString('0 buyer(s) WOULD move to Won; 0 Won buyer(s) WOULD go back to the board; 0 WOULD go to Lost', Artisan::output(), 'second run changes nothing');
     }
 
     private function plainBuyer(): Contact

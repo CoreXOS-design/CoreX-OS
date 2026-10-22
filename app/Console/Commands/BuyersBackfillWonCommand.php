@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\Contact;
-use App\Models\Scopes\AgencyScope;
-use App\Models\Scopes\BranchScope;
 use App\Services\BuyerStateService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -73,59 +71,27 @@ class BuyersBackfillWonCommand extends Command
             return self::INVALID;
         }
 
-        // Candidate contact ids — a BUYER party on a DR2 deal that is live (AT-500): not archived and,
-        // unless --any-deal, not declined. BuyerStateService::isOnLiveDeal() is the same definition in SQL.
-        $dealBuyers = DB::table('deal_contacts')
-            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
-            ->where('deal_contacts.role', 'buyer')
-            ->whereNotNull('deal_contacts.contact_id')
-            ->whereNull('deals.deleted_at')
-            ->when(! $anyDeal, fn ($q) => $q->whereRaw("COALESCE(deals.accepted_status, '') <> 'D'"))
-            ->distinct()->pluck('deal_contacts.contact_id')->map(fn ($v) => (int) $v)->all();
+        // PART 1 — buyers on a live deal who are not Won. Part 2 — Won buyers with no basis. Both come from
+        // BuyerStateService (the same selectors the nightly self-heal uses), and both are chosen BEFORE anything
+        // is written so the two sets can never overlap (a part-1 target is on a live deal; a part-2 one is not).
+        $targets = $states->liveDealBuyersNotWon($agencyFilter, $anyDeal);
+        $returns = $states->wonBuyersWithoutBasis($agencyFilter);
+        $toLost  = $returns->filter(fn (Contact $c) => $states->wonWithoutBasisDestination($c) === 'lost');
 
-        $candidateIds = array_values(array_unique($dealBuyers));
-        // (No early return on an empty list: part 2 below must still run. whereIn([]) matches nothing.)
-
-        // Targets: candidates not already 'won' (idempotent). Keep SoftDeletes (skip trashed contacts).
-        $targets = Contact::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
-            ->whereIn('id', $candidateIds)
-            ->when($agencyFilter !== null, fn ($q) => $q->where('agency_id', $agencyFilter))
-            ->where(function ($q) {
-                $q->where('buyer_state', '!=', BuyerStateService::WON)->orWhereNull('buyer_state');
-            })
-            ->get();
-
-        $wonAlready = Contact::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
-            ->whereIn('id', $candidateIds)
-            ->when($agencyFilter !== null, fn ($q) => $q->where('agency_id', $agencyFilter))
-            ->where('buyer_state', BuyerStateService::WON)->count();
-
-        $byState = $targets->groupBy(fn ($c) => $c->buyer_state ?? 'NULL')->map->count()->toArray();
-
-        $this->line(sprintf('  candidates (buyer on a %s deal): %d  (already won, skipped: %d)', $anyDeal ? 'non-archived' : 'live', count($candidateIds), $wonAlready));
-        $this->line('  targets to move -> won: ' . $targets->count());
-        $this->line('  by current state: ' . json_encode($byState));
-        $this->line('  sample:');
+        $this->line('  PART 1 — on a ' . ($anyDeal ? 'non-archived' : 'live') . ' deal and not Won -> Won: ' . $targets->count());
+        $this->line('  by current state: ' . json_encode($targets->groupBy(fn ($c) => $c->buyer_state ?? 'NULL')->map->count()->toArray()));
         foreach ($targets->take(10) as $t) {
             $this->line(sprintf('    #%d  %s  [%s] agency=%s', $t->id, $t->full_name ?: '(no name)', $t->buyer_state ?? 'NULL', $t->agency_id));
         }
-
-        // PART 2 — Won buyers with no basis (no live deal, not moved there by hand) go back on the board.
-        // Chosen BEFORE part 1 writes anything, so the two sets can never overlap (a part-1 target is on a live deal).
-        $returns = Contact::withoutGlobalScopes([AgencyScope::class, BranchScope::class])
-            ->where('buyer_state', BuyerStateService::WON)
-            ->when($agencyFilter !== null, fn ($q) => $q->where('agency_id', $agencyFilter))
-            ->get()
-            ->filter(fn (Contact $c) => $states->isWonWithoutBasis($c))
-            ->values();
-
-        $this->line('  PART 2 — Won with no live deal and not moved by hand -> back to the board: ' . $returns->count());
+        $this->line(sprintf('  PART 2 — Won with no live deal and not moved by hand: %d  (-> Lost, deal fell through: %d; -> back to the board: %d)',
+            $returns->count(), $toLost->count(), $returns->count() - $toLost->count()));
         foreach ($returns->take(10) as $r) {
-            $this->line(sprintf('    #%d  %s  [won] agency=%s', $r->id, $r->full_name ?: '(no name)', $r->agency_id));
+            $this->line(sprintf('    #%d  %s  [won -> %s] agency=%s', $r->id, $r->full_name ?: '(no name)', $states->wonWithoutBasisDestination($r), $r->agency_id));
         }
 
         if ($dryRun) {
-            $this->warn(sprintf("$tag — %d buyer(s) WOULD move to Won; %d Won buyer(s) WOULD go back to the board. Re-run without --dry-run to apply.", $targets->count(), $returns->count()));
+            $this->warn(sprintf("$tag — %d buyer(s) WOULD move to Won; %d Won buyer(s) WOULD go back to the board; %d WOULD go to Lost (deal fell through). Re-run without --dry-run to apply.",
+                $targets->count(), $returns->count() - $toLost->count(), $toLost->count()));
             return self::SUCCESS;
         }
 
@@ -136,15 +102,15 @@ class BuyersBackfillWonCommand extends Command
             }
         }
 
-        $returned = 0;
+        $board = 0;
+        $lost = 0;
         foreach ($returns as $contact) {
-            if ($states->returnWonWithoutBasisToBoard($contact, null)) {
-                $returned++;
-            }
+            $where = $states->healWonWithoutBasis($contact, null);
+            $where === 'lost' ? $lost++ : ($where === 'board' ? $board++ : null);
         }
 
-        $this->info(sprintf('Done. %d buyer(s) moved to Won (of %d targets; %d already won); %d Won buyer(s) returned to the board.', $moved, $targets->count(), $wonAlready, $returned));
-        $this->info('Re-running is safe (idempotent — an already-won buyer is never re-applied).');
+        $this->info(sprintf('Done. %d buyer(s) moved to Won; %d Won buyer(s) returned to the board; %d moved to Lost (deal fell through).', $moved, $board, $lost));
+        $this->info('Re-running is safe (idempotent — a second run changes nothing).');
 
         return self::SUCCESS;
     }

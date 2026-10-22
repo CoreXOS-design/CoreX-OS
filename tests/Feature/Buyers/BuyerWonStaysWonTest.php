@@ -38,7 +38,8 @@ final class BuyerWonStaysWonTest extends TestCase
         $won = $this->buyer($agencyId, $agent->id, 'new');
         $won->updateQuietly(['last_activity_at' => now()->subDays(90)]); // stale: the recompute WOULD move a non-Won buyer
 
-        $this->assertTrue(app(BuyerStateService::class)->markWon($won->fresh(), $agent->id));
+        // Won by hand (AT-500: with no live deal, only a manual Won has a basis the nightly will keep).
+        app(BuyerStateService::class)->transitionTo($won->fresh(), 'won', 'manual_override', $agent->id);
         $this->assertSame('won', $won->fresh()->buyer_state);
 
         $stale = $this->buyer($agencyId, $agent->id, 'warm');
@@ -57,7 +58,7 @@ final class BuyerWonStaysWonTest extends TestCase
         [$agencyId, $agent] = $this->fixture();
         $won = $this->buyer($agencyId, $agent->id, 'new');
         $won->updateQuietly(['last_activity_at' => now()->subDays(90)]);
-        app(BuyerStateService::class)->markWon($won->fresh(), $agent->id);
+        app(BuyerStateService::class)->transitionTo($won->fresh(), 'won', 'manual_override', $agent->id); // Won by hand
 
         Artisan::call('buyers:recompute-states', ['--dry-run' => true]);
 
