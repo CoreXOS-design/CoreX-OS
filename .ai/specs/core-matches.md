@@ -1191,6 +1191,13 @@ bell/digest not clearing on a buyer send) are deliberately left as they are.
      "This send was NOT recorded, so the buyer's "new" count has not changed" with **Retry** (re-posts the
      same confirm; idempotent for a minted share) and a dismiss.
 
+**Second divergence found on QA1 real data and fixed (same ticket):** `propertyCountsForMatches()` scored
+candidates with NO price band while `propertiesForMatch()` (what a send and the buyer's link use) hands the
+scorer the relaxed +/-30% band (`RELAXED_PRICE_BAND`) - the 2026-09-10 drift again, in the second copy of the
+loop. A near-miss over budget was in every send but never counted by the board, so a never-sent property
+could be missing from "Send N new" (QA1 test buyer: board 2, quick view 3). It now passes the same band.
+Side effect, intended: the board's per-match total/visible counts now equal the results page for near-misses.
+
 **Not changed:** the buyer's own live link, share history being internal-only, property-identity rule for
 relists, the Setup Wizard (no new setting, so nothing to surface - rule 10a not triggered).
 

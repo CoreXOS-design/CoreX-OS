@@ -113,6 +113,21 @@ final class SentIsSentAt503Test extends TestCase
         $this->assertSame(1, $this->boardSendNew($this->boardHtml()), 'board and quick view agree: exactly the one never-sent property');
     }
 
+    public function test_a_near_miss_over_budget_that_the_send_includes_is_counted_by_the_board_too(): void
+    {
+        $match = $this->match(); // price_max 2,500,000
+        $this->property(['title' => 'In range']);
+        $match->mintShareLink($this->agent->id)->confirmSent(ContactMatchShare::CHANNEL_EMAIL);
+
+        // 10% over the stated ceiling: inside the relaxed +/-30% band, so the buyer's link and every
+        // send include it. The board used to score it with no band and never count it as new.
+        $nearMiss = $this->property(['title' => 'Slightly over budget', 'price' => 2_750_000]);
+
+        $unsent = app(CoreMatchShareHistoryService::class)->neverSentProperties($match);
+        $this->assertTrue($unsent->contains('id', $nearMiss->id), 'precondition: the send set includes the near-miss');
+        $this->assertSame($unsent->count(), $this->boardSendNew($this->boardHtml()), 'board and send agree on the near-miss');
+    }
+
     public function test_after_sending_the_new_property_the_count_drops_and_stays_down(): void
     {
         $match = $this->match();

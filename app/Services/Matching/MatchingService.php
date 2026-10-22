@@ -531,7 +531,11 @@ class MatchingService
             $resolved = $candidates
                 ->filter(fn (Property $p) => $this->matchSurvivesFilters($p, $match))
                 ->map(function (Property $p) use ($match) {
-                    $sc = $this->score($p, $match);
+                    // AT-503 — the SAME price band propertiesForMatch() hands the scorer. Without it
+                    // the gate re-cut at the exact stated ceiling, so a near-miss the buyer's link
+                    // and a send DO include was missing here: a never-sent property that the board
+                    // never counted as new (the 2026-09-10 drift, in this second copy of the loop).
+                    $sc = $this->score($p, $match, self::RELAXED_PRICE_BAND);
                     $p->setAttribute('match_score', $sc);
                     return $p;
                 })
