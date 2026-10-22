@@ -518,7 +518,7 @@ class MatchingService
 
         foreach ($matches as $match) {
             if (!$match->isCountable()) {
-                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => []];
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => [], 'visible_ids' => []];
                 continue;
             }
 
@@ -548,6 +548,11 @@ class MatchingService
                 // against "ever shared" without a second, per-match resolve pass
                 // (the exact N+1 this method's own batching was built to kill).
                 'ids'     => $resolved->pluck('id')->all(),
+                // AT-503 — the SAME set a send snapshots (resolve(..., false) drops
+                // hidden properties). The board's "Send N new" must diff THIS, never
+                // 'ids': a hidden property is never in any snapshot, so diffing
+                // 'ids' made "Send 1 new" stick forever.
+                'visible_ids' => $resolved->reject(fn ($p) => in_array($p->id, $hiddenIds, true))->pluck('id')->values()->all(),
             ];
         }
 
