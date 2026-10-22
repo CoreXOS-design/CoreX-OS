@@ -32,6 +32,13 @@
         <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem; background: color-mix(in srgb, var(--ds-crimson, #dc2626) 12%, transparent); color: var(--ds-crimson, #dc2626); border: 1px solid var(--ds-crimson, #dc2626); border-radius: 4px;">{{ session('error') }}</div>
     @endif
 
+    @if($focus !== null)
+        <div style="margin-bottom: 12px; padding: 8px 12px; font-size: 0.8125rem; display: flex; justify-content: space-between; align-items: center; gap: 12px; background: var(--surface-2); color: var(--text-secondary); border: 1px solid var(--border); border-radius: 4px;">
+            <span>Showing one report (opened from a message). </span>
+            <a href="{{ route('market-intelligence.reports.recogniser.queue') }}" class="corex-btn-outline text-xs">Show the whole queue</a>
+        </div>
+    @endif
+
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; margin-bottom: 16px;">
         <div style="padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px;">
             <div style="font-size: 0.625rem; text-transform: uppercase; font-weight: 600; color: var(--text-muted);">Read by AI — to check</div>
@@ -98,7 +105,10 @@
     @if($reports->isEmpty())
         <div style="padding: 24px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: 6px;">
             <p style="font-size: 0.875rem; color: var(--text-muted); margin: 0;">
-                @if($f['q'] !== '' || $f['agency'] !== '' || $f['publisher'] !== '' || $f['from'] !== '' || $f['to'] !== '' || $f['how'] !== 'all' || $f['status'] !== 'open')
+                @if($focus !== null)
+                    This report is no longer in the queue (it has since been read by a known format or a learned layout).
+                    <a href="{{ route('market-intelligence.reports.show', $focus) }}" style="color: var(--brand-button);">Open the report</a>
+                @elseif($f['q'] !== '' || $f['agency'] !== '' || $f['publisher'] !== '' || $f['from'] !== '' || $f['to'] !== '' || $f['how'] !== 'all' || $f['status'] !== 'open')
                     No reports match these filters.
                 @else
                     Nothing to look at — every uploaded report was read by a known format or a learned layout.
@@ -122,7 +132,8 @@
                 </thead>
                 <tbody>
                     @foreach($reports as $r)
-                        <tr style="border-top: 1px solid var(--border); {{ $r->resolved_at ? 'opacity: 0.65;' : '' }}">
+                        @php($layout = $layoutByReport->get($r->id))
+                        <tr id="report-{{ $r->id }}" style="border-top: 1px solid var(--border); {{ $r->resolved_at ? 'opacity: 0.65;' : '' }} {{ $focus === (int) $r->id ? 'background: color-mix(in srgb, var(--ds-amber, #d97706) 10%, transparent);' : '' }}">
                             <td style="padding: 8px 12px; max-width: 260px;">
                                 <a href="{{ route('market-intelligence.reports.show', $r->id) }}" style="color: var(--brand-button); text-decoration: none; word-break: break-word;">{{ $r->file_name }}</a>
                                 @if($r->ai_read_note)
@@ -144,7 +155,23 @@
                                 {{ $r->created_at?->format('j M Y H:i') }}<br>{{ $r->uploader_name ?? '—' }}
                             </td>
                             <td style="padding: 8px 12px; white-space: nowrap;">
-                                <a href="{{ route('market-intelligence.reports.recogniser.download', $r->id) }}" class="corex-btn-outline text-xs">Download</a>
+                                @if($r->read_method === 'ai')
+                                    <a href="{{ route('market-intelligence.reports.recogniser.figures', $r->id) }}" class="corex-btn-primary text-xs">View figures</a>
+                                    @if($layout && !$layout->trashed() && $layout->status === 'learned')
+                                        <form method="POST" action="{{ route('market-intelligence.reports.recogniser.layouts.approve', $layout->id) }}" style="display: inline-block; margin-left: 4px;"
+                                              onsubmit="return confirm('Approve this layout? Its queued reports are re-run on it and their agents are told.');">
+                                            @csrf <button type="submit" class="corex-btn-outline text-xs" title="Same action as Approve on Learned layouts">Approve layout</button>
+                                        </form>
+                                    @elseif($layout && !$layout->trashed())
+                                        <span style="font-size: 0.6875rem; color: var(--ds-green, #10b981); margin-left: 4px;">Layout approved</span>
+                                    @elseif($layout)
+                                        <span style="font-size: 0.6875rem; color: var(--text-muted); margin-left: 4px;">Layout retired</span>
+                                    @else
+                                        <span style="font-size: 0.6875rem; color: var(--text-muted); margin-left: 4px;" title="{{ $r->ai_read_note }}">No layout saved</span>
+                                    @endif
+                                    <br>
+                                @endif
+                                <a href="{{ route('market-intelligence.reports.recogniser.download', $r->id) }}" class="corex-btn-outline text-xs" style="margin-top: 4px; display: inline-block;">Download</a>
                                 <form method="POST" action="{{ route('market-intelligence.reports.recogniser.rerun', $r->id) }}" style="display: inline-block; margin-left: 4px;"
                                       onsubmit="return confirm('Re-run this report through the whole reading pipeline?');">
                                     @csrf

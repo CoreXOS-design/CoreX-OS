@@ -122,6 +122,8 @@ class NotifyOnMarketReportParseFailure
             $reportUrl = $this->routeUrl('market-intelligence.reports.show', [$report->id])
                 ?? $this->routeUrl('market-intelligence.reports.index');
             $queueUrl  = $this->routeUrl('market-intelligence.reports.recogniser.queue') ?? $reportUrl;
+            // The team's link goes straight to this report's row (figures, Approve layout), not to the whole list.
+            $rowUrl    = $this->routeUrl('market-intelligence.reports.recogniser.queue', ['focus' => $report->id]) ?? $queueUrl;
 
             // ── Report recogniser (mic-complete-spec §8.9, "AI cost protection") ─────
             // AI-read and not-recognised reports: the uploader gets plain words for an agent,
@@ -148,13 +150,16 @@ class NotifyOnMarketReportParseFailure
 
                 $teamNotification = null;
                 if ($flaggedBy === 'ai_read') {
+                    $saved = \App\Models\MarketReports\MarketReportLearnedLayout::query()->where('learned_from_report_id', $report->id)->exists();
                     $teamNotification = $this->notification($report, 'market_report.read_by_ai_team',
                         "AI read a report: {$fileName} ({$agencyName})",
                         $facts . ' ' . ($event instanceof MarketReportReadByAi && $event->fromCache
                             ? "The AI's earlier answer for this exact file was reused (no new AI cost)."
                             : "This was a new AI read and it counts toward the agency's monthly limit.")
-                          . ' Open the admin queue to add this layout permanently.',
-                        $queueUrl, 'info', $flaggedBy);
+                          . ($saved
+                              ? ' A layout was saved from this read, so the next report in it is read free. Open the report to check the figures against the PDF and approve the layout.'
+                              : ' ' . ($report->ai_read_note ?: 'No layout was saved from this read.') . ' The next report in this layout will need the AI again. Open the report to check the figures against the PDF.'),
+                        $rowUrl, 'info', $flaggedBy);
                 } elseif ($code === 'layout_case_open') {
                     // Queued under a layout case that is already open: the team already has it. No second alert.
                 } elseif ($code === 'ai_platform_daily_cap') {
@@ -175,7 +180,7 @@ class NotifyOnMarketReportParseFailure
                         "Report layout needs adding: {$fileName} ({$agencyName})",
                         $facts . ' Reason: ' . ($report->ai_read_note ?: 'none recorded')
                           . ' It is saved in the admin queue. Add or approve the layout and this agency gets its AI reads back, and its queued reports are re-run on the new layout.',
-                        $queueUrl, 'warning', $flaggedBy);
+                        $rowUrl, 'warning', $flaggedBy);
                 }
 
                 if ($teamNotification !== null) {

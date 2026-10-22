@@ -1,0 +1,185 @@
+{
+    "publisher": "Tidewater Market Data",
+    "report_title": "Sales (Days on Market)",
+    "suburb": "Margate",
+    "town": null,
+    "subject": [],
+    "valuation": {
+        "average": 2226071,
+        "average_r_per_m2": 3692
+    },
+    "comps": [
+        {
+            "kind": "comp",
+            "address": "3 Beach Road, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 444,
+            "sale_date": "2026-05-14",
+            "sale_price": 3930000,
+            "r_per_m2": 8851,
+            "list_price": 4040000,
+            "days_on_market": 110
+        },
+        {
+            "kind": "comp",
+            "address": "59 Hibiscus Lane, Margate",
+            "property_type": "Sectional",
+            "extent_m2": 602,
+            "sale_date": "2026-07-10",
+            "sale_price": 1635000,
+            "r_per_m2": 2715
+        },
+        {
+            "kind": "comp",
+            "address": "3 Marine Drive, Margate",
+            "property_type": "Estate",
+            "extent_m2": 1388,
+            "sale_date": "2026-07-14",
+            "sale_price": 2625000,
+            "r_per_m2": 1891,
+            "list_price": 2665000,
+            "days_on_market": 170
+        },
+        {
+            "kind": "comp",
+            "address": "35 Marine Drive, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 320,
+            "sale_date": "2026-08-24",
+            "sale_price": 3645000,
+            "r_per_m2": 11390,
+            "list_price": 3705000,
+            "days_on_market": 77
+        },
+        {
+            "kind": "comp",
+            "address": "38 Albatross Close, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 1059,
+            "sale_date": "2026-04-27",
+            "sale_price": 1445000,
+            "r_per_m2": 1364,
+            "list_price": 1555000,
+            "days_on_market": 17
+        },
+        {
+            "kind": "comp",
+            "address": "81 Albatross Close, Margate",
+            "property_type": "Estate",
+            "extent_m2": 667,
+            "sale_date": "2026-01-19",
+            "sale_price": 1060000,
+            "r_per_m2": 1589,
+            "list_price": 1170000,
+            "days_on_market": 25
+        },
+        {
+            "kind": "comp",
+            "address": "58 Tucker Avenue, Margate",
+            "property_type": "Estate",
+            "extent_m2": 621,
+            "sale_date": "2026-02-28",
+            "sale_price": 1475000,
+            "r_per_m2": 2375
+        },
+        {
+            "kind": "comp",
+            "address": "87 Tucker Avenue, Margate",
+            "property_type": "Sectional",
+            "extent_m2": 998,
+            "sale_date": "2026-03-17",
+            "sale_price": 1065000,
+            "r_per_m2": 1067,
+            "list_price": 1115000,
+            "days_on_market": 153
+        },
+        {
+            "kind": "comp",
+            "address": "88 Edward Avenue, Margate",
+            "property_type": "Estate",
+            "extent_m2": 858,
+            "sale_date": "2026-02-01",
+            "sale_price": 1005000,
+            "r_per_m2": 1171,
+            "list_price": 1015000,
+            "days_on_market": 176
+        },
+        {
+            "kind": "comp",
+            "address": "43 Beach Road, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 851,
+            "sale_date": "2026-05-25",
+            "sale_price": 2990000,
+            "r_per_m2": 3513,
+            "list_price": 3010000,
+            "days_on_market": 53
+        },
+        {
+            "kind": "comp",
+            "address": "8 Pine Street, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 909,
+            "sale_date": "2026-05-28",
+            "sale_price": 4070000,
+            "r_per_m2": 4477,
+            "list_price": 4140000,
+            "days_on_market": 7
+        },
+        {
+            "kind": "comp",
+            "address": "53 Edward Avenue, Margate",
+            "property_type": "Sectional",
+            "extent_m2": 701,
+            "sale_date": "2026-01-06",
+            "sale_price": 2445000,
+            "r_per_m2": 3487
+        },
+        {
+            "kind": "comp",
+            "address": "85 Albatross Close, Margate",
+            "property_type": "Freehold",
+            "extent_m2": 439,
+            "sale_date": "2026-09-12",
+            "sale_price": 2940000,
+            "r_per_m2": 6697
+        },
+        {
+            "kind": "comp",
+            "address": "81 Marine Drive, Margate",
+            "property_type": "Sectional",
+            "extent_m2": 751,
+            "sale_date": "2026-07-08",
+            "sale_price": 835000,
+            "r_per_m2": 1111,
+            "list_price": 945000,
+            "days_on_market": 169
+        }
+    ],
+    "suburb_stats": [],
+    "layout": {
+        "publisher_signature": "Tidewater Market Data",
+        "column_headings": [
+            "Property",
+            "Address",
+            "Type",
+            "Usage",
+            "Extent",
+            "Sale Date",
+            "Sale Price",
+            "List Date",
+            "List Price",
+            "Days on Market",
+            "Change in Price",
+            "R/m²"
+        ],
+        "header_phrases": [
+            "Sales (Days on Market)",
+            "No of sales",
+            "Average price",
+            "Total spend"
+        ]
+    },
+    "confidence": 0.91,
+    "notes": null
+}

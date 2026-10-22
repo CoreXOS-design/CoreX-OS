@@ -8007,6 +8007,8 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
                     Route::get('/layouts',                  [$c, 'layouts'])->name('layouts');
                     Route::post('/settings',                [$c, 'settingsUpdate'])->name('settings');
                     Route::get('/reports/{id}/download',    [$c, 'download'])->whereNumber('id')->name('download');
+                    Route::get('/reports/{id}/pdf',         [$c, 'pdf'])->whereNumber('id')->name('pdf');
+                    Route::get('/reports/{id}/figures',     [$c, 'figures'])->whereNumber('id')->name('figures');
                     Route::post('/reports/{id}/rerun',      [$c, 'rerun'])->whereNumber('id')->name('rerun');
                     Route::post('/reports/{id}/resolve',    [$c, 'resolve'])->whereNumber('id')->name('resolve');
                     Route::post('/reports/{id}/reopen',     [$c, 'reopen'])->whereNumber('id')->name('reopen');

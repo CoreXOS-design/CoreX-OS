@@ -1,0 +1,315 @@
+{
+    "publisher": "Tidewater Market Data",
+    "report_title": "Sales (Days on Market)",
+    "suburb": "Uvongo",
+    "town": null,
+    "subject": [],
+    "valuation": {
+        "average": 2730192,
+        "average_r_per_m2": 3419
+    },
+    "comps": [
+        {
+            "kind": "comp",
+            "address": "28 Beach Road, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 648,
+            "sale_date": "2026-06-25",
+            "sale_price": 1995000,
+            "r_per_m2": 3078,
+            "list_price": 2005000,
+            "days_on_market": 106
+        },
+        {
+            "kind": "comp",
+            "address": "62 Pine Street, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 1310,
+            "sale_date": "2026-01-19",
+            "sale_price": 4225000,
+            "r_per_m2": 3225
+        },
+        {
+            "kind": "comp",
+            "address": "72 Pine Street, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 829,
+            "sale_date": "2026-02-01",
+            "sale_price": 1065000,
+            "r_per_m2": 1284,
+            "list_price": 1175000,
+            "days_on_market": 146
+        },
+        {
+            "kind": "comp",
+            "address": "78 Marine Drive, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 453,
+            "sale_date": "2026-05-15",
+            "sale_price": 3880000,
+            "r_per_m2": 8565,
+            "list_price": 3900000,
+            "days_on_market": 152
+        },
+        {
+            "kind": "comp",
+            "address": "35 Albatross Close, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 771,
+            "sale_date": "2026-03-25",
+            "sale_price": 910000,
+            "r_per_m2": 1180,
+            "list_price": 970000,
+            "days_on_market": 142
+        },
+        {
+            "kind": "comp",
+            "address": "80 Marine Drive, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 727,
+            "sale_date": "2026-05-24",
+            "sale_price": 3955000,
+            "r_per_m2": 5440,
+            "list_price": 4025000,
+            "days_on_market": 145
+        },
+        {
+            "kind": "comp",
+            "address": "80 Hibiscus Lane, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 823,
+            "sale_date": "2026-02-24",
+            "sale_price": 3885000,
+            "r_per_m2": 4720,
+            "list_price": 3915000,
+            "days_on_market": 84
+        },
+        {
+            "kind": "comp",
+            "address": "20 Pine Street, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 1129,
+            "sale_date": "2026-02-24",
+            "sale_price": 3420000,
+            "r_per_m2": 3029,
+            "list_price": 3530000,
+            "days_on_market": 29
+        },
+        {
+            "kind": "comp",
+            "address": "86 Tucker Avenue, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 1052,
+            "sale_date": "2026-07-27",
+            "sale_price": 2000000,
+            "r_per_m2": 1901
+        },
+        {
+            "kind": "comp",
+            "address": "43 Hibiscus Lane, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 639,
+            "sale_date": "2026-06-13",
+            "sale_price": 3630000,
+            "r_per_m2": 5680,
+            "list_price": 3640000,
+            "days_on_market": 149
+        },
+        {
+            "kind": "comp",
+            "address": "86 Albatross Close, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 1167,
+            "sale_date": "2026-02-25",
+            "sale_price": 3920000,
+            "r_per_m2": 3359,
+            "list_price": 3960000,
+            "days_on_market": 156
+        },
+        {
+            "kind": "comp",
+            "address": "44 Marine Drive, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 1041,
+            "sale_date": "2026-03-10",
+            "sale_price": 4085000,
+            "r_per_m2": 3924,
+            "list_price": 4105000,
+            "days_on_market": 86
+        },
+        {
+            "kind": "comp",
+            "address": "38 Albatross Close, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 742,
+            "sale_date": "2026-04-11",
+            "sale_price": 3920000,
+            "r_per_m2": 5283,
+            "list_price": 3980000,
+            "days_on_market": 190
+        },
+        {
+            "kind": "comp",
+            "address": "65 Edward Avenue, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 752,
+            "sale_date": "2026-09-23",
+            "sale_price": 1620000,
+            "r_per_m2": 2154,
+            "list_price": 1680000,
+            "days_on_market": 78
+        },
+        {
+            "kind": "comp",
+            "address": "55 Hibiscus Lane, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 786,
+            "sale_date": "2026-01-20",
+            "sale_price": 2835000,
+            "r_per_m2": 3606
+        },
+        {
+            "kind": "comp",
+            "address": "16 Tucker Avenue, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 876,
+            "sale_date": "2026-08-21",
+            "sale_price": 2615000,
+            "r_per_m2": 2985
+        },
+        {
+            "kind": "comp",
+            "address": "83 Ocean View Road, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 860,
+            "sale_date": "2026-02-16",
+            "sale_price": 1050000,
+            "r_per_m2": 1220,
+            "list_price": 1120000,
+            "days_on_market": 62
+        },
+        {
+            "kind": "comp",
+            "address": "50 Albatross Close, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 1271,
+            "sale_date": "2026-09-27",
+            "sale_price": 1790000,
+            "r_per_m2": 1408,
+            "list_price": 1820000,
+            "days_on_market": 118
+        },
+        {
+            "kind": "comp",
+            "address": "63 Pine Street, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 853,
+            "sale_date": "2026-05-14",
+            "sale_price": 3675000,
+            "r_per_m2": 4308,
+            "list_price": 3685000,
+            "days_on_market": 146
+        },
+        {
+            "kind": "comp",
+            "address": "46 Beach Road, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 938,
+            "sale_date": "2026-07-28",
+            "sale_price": 950000,
+            "r_per_m2": 1012,
+            "list_price": 1040000,
+            "days_on_market": 92
+        },
+        {
+            "kind": "comp",
+            "address": "80 Ocean View Road, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 655,
+            "sale_date": "2026-05-18",
+            "sale_price": 3090000,
+            "r_per_m2": 4717
+        },
+        {
+            "kind": "comp",
+            "address": "62 Marine Drive, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 878,
+            "sale_date": "2026-02-14",
+            "sale_price": 3215000,
+            "r_per_m2": 3661,
+            "list_price": 3295000,
+            "days_on_market": 13
+        },
+        {
+            "kind": "comp",
+            "address": "56 Edward Avenue, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 547,
+            "sale_date": "2026-06-27",
+            "sale_price": 3175000,
+            "r_per_m2": 5804,
+            "list_price": 3185000,
+            "days_on_market": 147
+        },
+        {
+            "kind": "comp",
+            "address": "77 Hibiscus Lane, Uvongo",
+            "property_type": "Sectional",
+            "extent_m2": 1283,
+            "sale_date": "2026-02-10",
+            "sale_price": 2455000,
+            "r_per_m2": 1913,
+            "list_price": 2495000,
+            "days_on_market": 43
+        },
+        {
+            "kind": "comp",
+            "address": "15 Albatross Close, Uvongo",
+            "property_type": "Freehold",
+            "extent_m2": 1276,
+            "sale_date": "2026-08-02",
+            "sale_price": 905000,
+            "r_per_m2": 709,
+            "list_price": 985000,
+            "days_on_market": 112
+        },
+        {
+            "kind": "comp",
+            "address": "5 Edward Avenue, Uvongo",
+            "property_type": "Estate",
+            "extent_m2": 575,
+            "sale_date": "2026-07-12",
+            "sale_price": 2720000,
+            "r_per_m2": 4730,
+            "list_price": 2750000,
+            "days_on_market": 50
+        }
+    ],
+    "suburb_stats": [],
+    "layout": {
+        "publisher_signature": "Tidewater Market Data",
+        "column_headings": [
+            "Property",
+            "Address",
+            "Type",
+            "Usage",
+            "Extent",
+            "Sale Date",
+            "Sale Price",
+            "List Date",
+            "List Price",
+            "Days on Market",
+            "Change in Price",
+            "R/m²"
+        ],
+        "header_phrases": [
+            "Sales (Days on Market)",
+            "No of sales",
+            "Average price",
+            "Total spend"
+        ]
+    },
+    "confidence": 0.91,
+    "notes": null
+}
