@@ -33,3 +33,13 @@ receive the buyer's lead, changed afterwards only by a user by hand (see `contac
 ## Acceptance
 Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
 (`test_the_buyer_pipeline_offers_move_to_another_agent_to_managers_only` and the move tests).
+
+## Won stays Won (AT-500, 2026-10-22)
+- **Bug:** every buyer marked Won (linked to a DR2 deal) was put back on the active board at 04:00 the
+  next morning. The nightly `buyers:recompute-states` re-derived New/Warm/Cold/Lost for all buyers and had
+  no Won check — the guard existed only in `BuyerStateService::recomputeState()`, which the command never called.
+- **Rule (one place):** `BuyerStateService::nextAutoState()` answers "what may the automatic recompute do to
+  this buyer?" — nothing for a Won buyer, nothing for a buyer an agent placed by hand recently (AT-74), otherwise
+  the freshly derived state. `recomputeState()`, `buyers:recompute-states` and its `--dry-run` all ask it, so a
+  rule added there applies everywhere. `markActivity()` also leaves a Won buyer alone (the activity is still logged).
+- Tests: `tests/Feature/Buyers/BuyerWonStaysWonTest.php`.
