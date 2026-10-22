@@ -54,3 +54,24 @@ Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
   deal had no property yet. The existing link is never re-roled. Sellers are never marked Won.
 - Tests: `tests/Feature/Dr2/Dr2CaptureTest.php` (`…already_linked_to_the_property_in_another_role…`,
   `…no_property_still_marks_its_buyer_won`, `…seller_on_the_deal_is_not_marked_won`).
+
+## When a deal falls through, its buyer leaves Won (AT-500, 2026-10-22, Johan)
+- **Rule:** Won lasts only while the buyer is on a **live** deal (see above). When the deal is **declined**
+  (`accepted_status` → D), **archived** (soft-deleted), or the buyer is **taken off the deal** on the DR2 edit, the
+  buyer leaves Won **unless they are a buyer on another live deal**. They go back to the active pipeline,
+  recomputed from their activity into **New / Warm / Cold** — never straight into Lost, even if idle (a cold
+  buyer who has just lost a deal is for the agent to work, not to write off).
+- Audited in `buyer_state_transitions` with reason **`deal_fell_through`** (from `won`). That reason also gets the
+  AT-74 protection window (`isManualPlacementProtected`), so the nightly job does not decay them the same night.
+- The reverse holds: re-opening a declined deal, or restoring an archived one, makes its buyers Won again.
+- A buyer who is Won with **no deal at all** (marked Won by linking them to a property on the property page) is
+  left alone by any deal ending — there is no deal for them to have fallen through. (Open point: a buyer who is
+  Won through BOTH a property-page link and a now-ended deal does leave Won.)
+- Where: `BuyerStateService::reconcileDealBuyers()` / `revertWonAfterDealEnded()` / `revertWonForBuyers()`,
+  called from `DealObserver` (updated D↔other, deleted, restored — failure-isolated) and `DealRegisterController::syncDealParties`.
+  Migration `2026_10_22_090000_…` adds the enum value (reads the live column definition; works on every box).
+- **Core Matches follow Won/Lost with nothing to restore:** the exclusion is read live from `buyer_state`
+  (`CoreMatchBuyerGate`, see `core-matches.md`), so a buyer sent back to the active board is matched again, and
+  their saved searches were never touched.
+- Tests: `tests/Feature/Buyers/BuyerWonFallsThroughTest.php`, `tests/Feature/Dr2/Dr2CaptureTest.php`
+  (`…removing_a_buyer_from_a_deal_takes_them_off_won…`).

@@ -466,4 +466,32 @@ class Dr2CaptureTest extends TestCase
 
         $this->assertSame('warm', $seller->fresh()->buyer_state);
     }
+
+    /** AT-500 — correcting a mis-captured buyer off the deal takes the wrong buyer off Won (they are on no live deal). */
+    public function test_removing_a_buyer_from_a_deal_takes_them_off_won_and_the_right_buyer_is_won(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonfix');
+        $mk = function (string $first) use ($agency) {
+            $c = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => $first, 'last_name' => 'Fix']);
+            $c->forceFill(['is_buyer' => true, 'buyer_state' => 'warm'])->saveQuietly();
+
+            return $c;
+        };
+        $wrong = $mk('Wrong');
+        $right = $mk('Right');
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $wrong->id,
+        ]))->assertSessionHasNoErrors();
+        $deal = Deal::where('agency_id', $agency->id)->latest('id')->firstOrFail();
+        $this->assertSame('won', $wrong->fresh()->buyer_state);
+
+        $this->actingAs($admin)->post(route('deals-dr2.update', $deal), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $right->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertNotSame('won', $wrong->fresh()->buyer_state);
+        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $wrong->id, 'from_state' => 'won', 'reason' => 'deal_fell_through']);
+        $this->assertSame('won', $right->fresh()->buyer_state);
+    }
 }

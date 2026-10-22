@@ -41,6 +41,11 @@ class DealObserver
                     event(new DealClosed($deal, $outcome, Auth::id()));
                 }
 
+                // AT-500 — declined (fell through) takes its buyers off Won; re-opened puts them back.
+                if ((string) $to === 'D' || (string) $from === 'D') {
+                    $this->reconcileBuyers($deal);
+                }
+
                 // DealStageAdvanced — forward progression only (P → G → R).
                 // Spec: .ai/specs/corex-domain-events-spec.md (Wave 6).
                 $rank = ['P' => 1, 'G' => 2, 'R' => 3];
@@ -102,6 +107,8 @@ class DealObserver
      */
     public function deleted(Deal $deal): void
     {
+        $this->reconcileBuyers($deal); // AT-500 — a cancelled (archived) deal's buyers leave Won
+
         try {
             $svc = app(\App\Services\Activity\InstantPointService::class);
             foreach (['deal.created', 'deal.stage_advanced', 'deal.registered'] as $slug) {
@@ -119,6 +126,27 @@ class DealObserver
             \Illuminate\Support\Facades\Log::warning('SPINE-2 deal soft-delete revoke setup failed (swallowed)', [
                 'deal_id' => $deal->id,
                 'message' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /** AT-500 — an archived deal that is restored makes its buyers Won again (if it is live). */
+    public function restored(Deal $deal): void
+    {
+        $this->reconcileBuyers($deal);
+    }
+
+    /**
+     * AT-500 — failure-isolated: a problem moving a buyer between Won and the active board must never
+     * break the deal save, decline or archive that triggered it.
+     */
+    private function reconcileBuyers(Deal $deal): void
+    {
+        try {
+            app(\App\Services\BuyerStateService::class)->reconcileDealBuyers($deal, Auth::id());
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('AT-500 buyer Won reconcile failed (swallowed)', [
+                'deal_id' => $deal->id, 'message' => $e->getMessage(),
             ]);
         }
     }

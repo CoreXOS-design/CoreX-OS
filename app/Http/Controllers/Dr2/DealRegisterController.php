@@ -1481,6 +1481,12 @@ class DealRegisterController extends Controller
                 ->where('deal_id', $deal->id)->where('role', $role)
                 ->whereIn('contact_id', $toRemove)
                 ->delete();
+
+            // (AT-500) A buyer taken off the deal is no longer Won on this deal's account — unless
+            // they are a buyer on another live deal.
+            if ($role === 'buyer') {
+                app(\App\Services\BuyerStateService::class)->revertWonForBuyers($deal, array_values($toRemove), auth()->id());
+            }
         }
 
         foreach ($toAdd as $cid) {
