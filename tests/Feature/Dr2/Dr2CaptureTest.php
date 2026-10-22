@@ -467,7 +467,7 @@ class Dr2CaptureTest extends TestCase
         $this->assertSame('warm', $seller->fresh()->buyer_state);
     }
 
-    /** AT-500 — correcting a mis-captured buyer off the deal takes the wrong buyer off Won (they are on no live deal). */
+    /** AT-500 — correcting a mis-captured buyer off the deal takes the wrong buyer off Won and back to the board (a correction). */
     public function test_removing_a_buyer_from_a_deal_takes_them_off_won_and_the_right_buyer_is_won(): void
     {
         [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonfix');
@@ -490,8 +490,8 @@ class Dr2CaptureTest extends TestCase
             'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $right->id,
         ]))->assertSessionHasNoErrors();
 
-        $this->assertNotSame('won', $wrong->fresh()->buyer_state);
-        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $wrong->id, 'from_state' => 'won', 'reason' => 'deal_fell_through']);
+        $this->assertContains($wrong->fresh()->buyer_state, ['new', 'warm', 'cold'], 'a correction: back on the board, not Lost');
+        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $wrong->id, 'from_state' => 'won', 'reason' => 'deal_corrected']);
         $this->assertSame('won', $right->fresh()->buyer_state);
     }
 
