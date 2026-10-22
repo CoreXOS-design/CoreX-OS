@@ -8,6 +8,7 @@ use App\Models\Compliance\RmcpSection;
 use App\Models\Compliance\RmcpVariable;
 use App\Models\Compliance\RmcpVersion;
 use App\Services\Compliance\CompliancePdf;
+use App\Services\Compliance\RmcpReSignService;
 use App\Services\Compliance\RmcpVariableResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -210,8 +211,12 @@ class RmcpController extends Controller
             'user_id'    => Auth::id(),
         ]);
 
+        // AT-506 — staff must re-sign the new version: the earlier acknowledgements are marked superseded and every
+        // active staff member is told in-app. A failure here never undoes the approval (the service logs it).
+        $resign = app(RmcpReSignService::class)->afterApproval($version->fresh(), Auth::user());
+
         return redirect()->route('compliance.rmcp.show', $version)
-            ->with('success', "RMCP v{$version->version_number} approved and now active.");
+            ->with('success', "RMCP v{$version->version_number} approved and now active. {$resign['notified']} staff member(s) have been asked to acknowledge it.");
     }
 
     /**
@@ -225,6 +230,12 @@ class RmcpController extends Controller
         $agency = Agency::findOrFail($version->agency_id);
         $variables = $this->resolver->resolve($agency, $version);
 
+        // Cover line of the approved text — "… · FIC registration number … · PPRA FFC …" — under the agency name already on the cover.
+        $coverLine = implode(' · ', array_filter([
+            ($variables['agency.fic_no'] ?? '') !== '' ? 'FIC registration number ' . $variables['agency.fic_no'] : null,
+            ($variables['agency.ffc_no'] ?? '') !== '' ? 'PPRA FFC ' . $variables['agency.ffc_no'] : null,
+        ]));
+
         $pdf   = app(CompliancePdf::class);
         $title = 'Risk Management & Compliance Programme';
         $html  = $pdf->versionHtml(
@@ -234,8 +245,16 @@ class RmcpController extends Controller
             $agency,
             $variables,
             $version->title ?: $title,
+            $coverLine,
         );
-        $bytes = $pdf->render($html, 'RMCP v' . $version->version_number . ' — ' . $agency->name, 'rmcp-' . $version->id);
+        // Footer of every page: "<agency> · RMCP v2 · page x of y · Initials ____" (AT-506).
+        $bytes = $pdf->render(
+            $html,
+            ($variables['agency.name'] ?? $agency->name) . ' · RMCP v' . $version->version_number,
+            'rmcp-' . $version->id,
+            'page',
+            'Initials ____'
+        );
 
         $response = $pdf->download($bytes, CompliancePdf::fileName(
             'rmcp', $version->version_number, $agency->name,
@@ -263,9 +282,9 @@ class RmcpController extends Controller
 
         // Build display list with source info
         $variableList = [];
-        $agencyFields = ['agency.name', 'agency.trading_name', 'agency.reg_no', 'agency.vat_no', 'agency.ffc_no', 'agency.fic_no', 'agency.address', 'agency.phone', 'agency.email'];
+        $agencyFields = ['agency.name', 'agency.trading_name', 'agency.reg_no', 'agency.vat_no', 'agency.ffc_no', 'agency.ppra_number', 'agency.fic_no', 'agency.address', 'agency.phone', 'agency.email'];
         $coFields = ['compliance_officer.full_name', 'compliance_officer.id_number', 'compliance_officer.cell', 'compliance_officer.email', 'compliance_officer.title', 'compliance_officer.appointed_on'];
-        $computedFields = ['today.date', 'today.year', 'rmcp.version_number', 'rmcp.approved_on', 'rmcp.effective_from', 'rmcp.next_review_due'];
+        $computedFields = RmcpVariableResolver::COMPUTED_KEYS;
 
         foreach ($variables as $key => $value) {
             $source = 'manual';
@@ -283,12 +302,40 @@ class RmcpController extends Controller
                 'key'       => $key,
                 'value'     => $value,
                 'source'    => $source,
-                'editable'  => $source === 'manual',
+                // A computed value (e.g. the lease count) can be overridden: it is editable once its override row exists.
+                'editable'  => $source === 'manual' || ($source === 'computed' && $manualVar !== null),
                 'db_id'     => $manualVar ? $manualVar->id : null,
             ];
         }
 
         return view('compliance.rmcp.variables', compact('variableList', 'agency'));
+    }
+
+    /**
+     * AT-506 — add a variable (or an override of a computed one) for this agency. The key is group.name in lowercase;
+     * adding a key that already has a manual row updates that row instead of duplicating it.
+     */
+    public function storeVariable(Request $request)
+    {
+        abort_unless(Auth::user()->hasPermission('edit_rmcp'), 403);
+
+        $agencyId = Auth::user()->effectiveAgencyId();
+        abort_unless($agencyId, 403, 'No agency context.');
+
+        $validated = $request->validate([
+            'variable_key' => ['required', 'string', 'max:120', 'regex:/^[a-z0-9_]+(\.[a-z0-9_]+)+$/'],
+            'value'        => 'nullable|string|max:2000',
+        ], [
+            'variable_key.regex' => 'Use a key like profile.active_leases — lowercase letters, digits and underscores, with a dot between the parts.',
+        ], ['variable_key' => 'key']);
+
+        RmcpVariable::updateOrCreate(
+            ['agency_id' => $agencyId, 'variable_key' => $validated['variable_key']],
+            ['value' => $validated['value'] ?? '', 'data_source' => 'manual']
+        );
+
+        return redirect()->route('compliance.rmcp.variables')
+            ->with('success', 'Variable {{' . $validated['variable_key'] . '}} saved.');
     }
 
     /**

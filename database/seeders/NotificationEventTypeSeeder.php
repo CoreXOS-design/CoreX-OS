@@ -116,6 +116,8 @@ class NotificationEventTypeSeeder extends Seeder implements SyncableReferenceSee
             // AT-236 — company document expiry engine. Lead time is the doc-type's own renewal_days (agency-configurable), NOT a per-user threshold → unit 'none'.
             $this->row('compliance.document_expiring', 'agent', 'Compliance', 'Company document expiring soon', 'none', null, null, null, 42, false, null, inApp: true, email: true, push: false),
             $this->row('compliance.document_expired',  'agent', 'Compliance', 'Company document expired', 'none', null, null, null, 43, false, null, inApp: true, email: true, push: false),
+            // AT-506 — a new RMCP version was approved: every active staff member is asked to re-acknowledge it. In-app only.
+            $this->row('rmcp.version_approved', 'agent', 'Compliance', 'A new RMCP version needs your acknowledgement', 'none', null, null, null, 44, false, null, inApp: true, email: false, push: false),
 
             // AT-265 — the permission system is unavailable (role_permissions empty → every
             // non-owner denied). In-app + email so it reaches an owner who is not at a screen; no

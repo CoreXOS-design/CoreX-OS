@@ -2883,6 +2883,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('index')->middleware('permission:access_rmcp');
         Route::get('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'variables'])
             ->name('variables')->middleware('permission:edit_rmcp');
+        Route::post('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'storeVariable'])
+            ->name('variables.store')->middleware('permission:edit_rmcp');
         Route::patch('/variables/{variable}', [\App\Http\Controllers\Compliance\RmcpController::class, 'updateVariable'])
             ->name('variables.update')->middleware('permission:edit_rmcp');
         Route::get('/create', [\App\Http\Controllers\Compliance\RmcpController::class, 'create'])

@@ -40,11 +40,17 @@
     </style>
 </head>
 <body>
+    @php
+        // "12. Legal persons" — or just "Approval" when the number IS the title. Plain closures: this view is shared with policy versions.
+        $headingOf = fn ($s) => strcasecmp((string) $s->section_number, (string) $s->title) === 0 ? $s->title : $s->section_number . '. ' . $s->title;
+        $hasApprovalSection = $version->sections->contains(fn ($s) => strcasecmp((string) $s->section_number, 'Approval') === 0);
+    @endphp
     <div class="cover">
         @if($logo)<img class="logo" src="{{ $logo }}" alt="">@endif
         <div class="kicker">{{ $kicker }}</div>
         <h1>{{ $title }}</h1>
         @if($legalLine)<p class="legal">{{ $legalLine }}</p>@endif
+        @if(!empty($coverLine))<p class="legal">{{ $coverLine }}</p>@endif
         <p class="ver">Version {{ $version->version_number }}</p>
         <p class="agency">{{ $variables['agency.name'] ?? $agency->name }}</p>
 
@@ -60,7 +66,7 @@
         <div class="toc">
             <h3>Contents</h3>
             @foreach($version->sections as $section)
-                <div>{{ $section->section_number }}. {{ $section->title }}</div>
+                <div>{{ $headingOf($section) }}</div>
             @endforeach
         </div>
         @endif
@@ -68,12 +74,13 @@
 
     @foreach($version->sections as $section)
     <div class="section-block">
-        <h2 class="section">{{ $section->section_number }}. {{ $section->title }}</h2>
+        <h2 class="section">{{ $headingOf($section) }}</h2>
         <div class="body">{!! $section->renderedBody($variables) !!}</div>
     </div>
     @endforeach
 
-    @if($version->approved_at)
+    {{-- A version whose text carries its own Approval block (RMCP v2) does not get a second one here. --}}
+    @if($version->approved_at && ! $hasApprovalSection)
     <div class="approval">
         <table>
             <tr>
