@@ -953,6 +953,11 @@ class DealRegisterController extends Controller
         $this->syncDealParties($deal, $sellerIds, 'seller');
         $this->syncDealParties($deal, $buyerIds, 'buyer');
 
+        // (AT-500) A buyer named on a live deal is Won — whether or not the deal has a property, and
+        // whether or not the buyer was already linked to that property in another role (no link event
+        // fires then). The link event's listener covers the property page; this covers the deal itself.
+        app(\App\Services\BuyerStateService::class)->markBuyersWonForLiveDeal($deal, $buyerIds, auth()->id());
+
         // (DR2 reverse link — property-spine doctrine) Deal capture is often the
         // moment a buyer/seller enters the story. Linking a party on the deal
         // MUST also link them to the PROPERTY with the correct role, so the
