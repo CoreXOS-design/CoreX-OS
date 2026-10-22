@@ -8,7 +8,9 @@ use App\Models\AgencyContactSettings;
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerStateTransition;
 use App\Models\Contact;
+use App\Models\Deal;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class BuyerStateService
 {
@@ -324,6 +326,62 @@ class BuyerStateService
 
         $this->transitionTo($contact, self::WON, $reason, $userId);
         return true;
+    }
+
+    /**
+     * AT-500 — is this deal "live" for the purposes of the buyer's Won state? (Johan, 22 Oct 2026:
+     * Won = linked to a live or registered deal only.) Pending, granted and registered deals are
+     * live; a declined deal (accepted_status 'D') or an archived (soft-deleted) one is not.
+     */
+    public function dealIsLive(Deal $deal): bool
+    {
+        return $deal->deleted_at === null && (string) $deal->accepted_status !== 'D';
+    }
+
+    /**
+     * AT-500 — is this contact a buyer party on at least one LIVE deal? The same definition as
+     * dealIsLive(), as one query, so the fall-through reversal and the back-fill share it.
+     */
+    public function isOnLiveDeal(int $contactId): bool
+    {
+        return DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->where('deal_contacts.role', 'buyer')
+            ->where('deal_contacts.contact_id', $contactId)
+            ->whereNull('deals.deleted_at')
+            ->whereRaw("COALESCE(deals.accepted_status, '') <> 'D'")
+            ->exists();
+    }
+
+    /**
+     * AT-500 — a DR2 deal names these contacts as its buyers: if the deal is live, each becomes Won.
+     * This is the DR2 save's own call, independent of the property link, so it holds when the buyer
+     * was already linked to the property in another role (no new link event fires) and when the deal
+     * has no property yet. Idempotent. Contacts are limited to the deal's own agency.
+     *
+     * @param  int[]  $contactIds
+     * @return int  how many buyers were moved to Won by this call
+     */
+    public function markBuyersWonForLiveDeal(Deal $deal, array $contactIds, ?int $userId = null): int
+    {
+        if ($contactIds === [] || ! $this->dealIsLive($deal)) {
+            return 0;
+        }
+
+        $moved = 0;
+        $buyers = Contact::withoutGlobalScopes()
+            ->whereIn('id', $contactIds)
+            ->where('agency_id', $deal->agency_id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($buyers as $buyer) {
+            if ($this->markWon($buyer, $userId)) {
+                $moved++;
+            }
+        }
+
+        return $moved;
     }
 
     /**

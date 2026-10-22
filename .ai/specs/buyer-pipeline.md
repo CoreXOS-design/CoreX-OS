@@ -43,3 +43,14 @@ Tests: `tests/Feature/CoreMatches/BuyerPrimaryAgentRulingsTest.php`
   the freshly derived state. `recomputeState()`, `buyers:recompute-states` and its `--dry-run` all ask it, so a
   rule added there applies everywhere. `markActivity()` also leaves a Won buyer alone (the activity is still logged).
 - Tests: `tests/Feature/Buyers/BuyerWonStaysWonTest.php`.
+
+## Won on any live DR2 deal (AT-500, 2026-10-22)
+- **Rule (Johan):** a buyer named on a **live** DR2 deal is Won. Live = pending, granted or registered;
+  a declined deal (`accepted_status = 'D'`) or an archived (soft-deleted) one is not live
+  (`BuyerStateService::dealIsLive()` / `isOnLiveDeal()` — the one definition).
+- The DR2 save (`DealRegisterController`, right after the deal's buyers are written) now calls
+  `BuyerStateService::markBuyersWonForLiveDeal()`. Before this, Won came only from the property-link event, so it
+  was missed when the buyer was already linked to the property in another role (no new link, no event) and when the
+  deal had no property yet. The existing link is never re-roled. Sellers are never marked Won.
+- Tests: `tests/Feature/Dr2/Dr2CaptureTest.php` (`…already_linked_to_the_property_in_another_role…`,
+  `…no_property_still_marks_its_buyer_won`, `…seller_on_the_deal_is_not_marked_won`).
