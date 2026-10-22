@@ -291,7 +291,7 @@ new status is introduced, no status is renamed, no status list is reordered.
 
 ### 5.3 The trigger mechanism — a new, separate listener
 
-**`MarkBuyerWonOnPropertyLink` (`app/Listeners/Contact/MarkBuyerWonOnPropertyLink.php`)
+**`MarkBuyerWonOnPropertyLink` (`app/Listeners/Contact/MarkBuyerWonOnPropertyLink.php`) — REMOVED in AT-500 (22 Oct 2026); see `buyer-pipeline.md`, "Won only via a live deal or by hand"
 is NOT widened.** Its `BUYER_ROLES = ['buyer', 'purchaser']` stays exactly as-is. Its
 docblock already states tenant/lessee is deliberately excluded from sale-side "won"
 logic — that exclusion is correct and must remain. **The rental trigger is a brand-new,

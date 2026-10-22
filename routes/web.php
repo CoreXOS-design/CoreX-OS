@@ -2883,6 +2883,8 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             ->name('index')->middleware('permission:access_rmcp');
         Route::get('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'variables'])
             ->name('variables')->middleware('permission:edit_rmcp');
+        Route::post('/variables', [\App\Http\Controllers\Compliance\RmcpController::class, 'storeVariable'])
+            ->name('variables.store')->middleware('permission:edit_rmcp');
         Route::patch('/variables/{variable}', [\App\Http\Controllers\Compliance\RmcpController::class, 'updateVariable'])
             ->name('variables.update')->middleware('permission:edit_rmcp');
         Route::get('/create', [\App\Http\Controllers\Compliance\RmcpController::class, 'create'])
@@ -6360,6 +6362,13 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
         ->middleware('permission:core_matches.view')
         ->name('corex.core-matches.shares.confirm');
 
+    // AT-503 — the buyer-level Share button (buyer detail header): records a
+    // confirmed share against each ACTIVE wishlist the buyer's client page shows.
+    Route::post('/core-matches/buyers/{contactId}/shares/confirm', [\App\Http\Controllers\CoreX\ContactMatchShareController::class, 'confirmBuyer'])
+        ->whereNumber('contactId')
+        ->middleware(['permission:core_matches.view', 'agency.required'])
+        ->name('corex.core-matches.buyer-shares.confirm');
+
     // AT-Core-Matches, share-history piece — read-only: the share log, the
     // separate "opened" signal, and "properties not seen since last send"
     // (today's live matches minus everything ever shared). Same gate as
@@ -7998,6 +8007,8 @@ Route::middleware(['auth', 'permission:access_prospecting', 'feature:prospecting
                     Route::get('/layouts',                  [$c, 'layouts'])->name('layouts');
                     Route::post('/settings',                [$c, 'settingsUpdate'])->name('settings');
                     Route::get('/reports/{id}/download',    [$c, 'download'])->whereNumber('id')->name('download');
+                    Route::get('/reports/{id}/pdf',         [$c, 'pdf'])->whereNumber('id')->name('pdf');
+                    Route::get('/reports/{id}/figures',     [$c, 'figures'])->whereNumber('id')->name('figures');
                     Route::post('/reports/{id}/rerun',      [$c, 'rerun'])->whereNumber('id')->name('rerun');
                     Route::post('/reports/{id}/resolve',    [$c, 'resolve'])->whereNumber('id')->name('resolve');
                     Route::post('/reports/{id}/reopen',     [$c, 'reopen'])->whereNumber('id')->name('reopen');

@@ -65,6 +65,26 @@ class CoreMatchShareHistoryService
     }
 
     /**
+     * AT-503 — what the screen shows for one match right now: the unsent
+     * count (the SAME neverSentProperties() set the quick view lists and the
+     * send snapshot is taken from) and the last confirmed send. Returned by
+     * every confirm endpoint so the page can update without a reload.
+     *
+     * @return array{match_id:int, never_sent_count:int, last_shared_at:?string, last_shared_human:?string}
+     */
+    public function statusFor(ContactMatch $match): array
+    {
+        $last = $this->lastSharedAt($match);
+
+        return [
+            'match_id'          => $match->id,
+            'never_sent_count'  => $this->neverSentProperties($match)->count(),
+            'last_shared_at'    => $last?->toIso8601String(),
+            'last_shared_human' => $last?->diffForHumans(),
+        ];
+    }
+
+    /**
      * Full CONFIRMED share event log for this match, latest first. A minted
      * but never-sent link (confirmed_at null) never appears here — it isn't
      * a share, it's an abandoned composer.

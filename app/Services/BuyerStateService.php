@@ -8,12 +8,23 @@ use App\Models\AgencyContactSettings;
 use App\Models\BuyerActivityLog;
 use App\Models\BuyerStateTransition;
 use App\Models\Contact;
+use App\Models\Deal;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class BuyerStateService
 {
     /** Terminal "converted" state — set when a buyer is linked to a property (Johan 2026-08-13). */
     public const WON = 'won';
+
+    /** Audit reason written when a Won buyer goes back to the active pipeline because their deal ended (AT-500). */
+    public const DEAL_FELL_THROUGH_REASON = 'deal_fell_through';
+
+    /** Audit reason written when a Won buyer is taken off Won because an agent CORRECTED a deal (buyer removed from it, or the deal archived) (AT-500). */
+    public const DEAL_CORRECTED_REASON = 'deal_corrected';
+
+    /** Audit reason written when the back-fill returns a Won buyer who is on no live deal (and was not moved by hand) to the board (AT-500). */
+    public const WON_WITHOUT_LIVE_DEAL_REASON = 'won_without_live_deal';
 
     /** Every Buyer / Rental Pipeline status, in pipeline order. */
     public const PIPELINE_STATES = ['new', 'warm', 'cold', 'lost', self::WON];
@@ -191,6 +202,12 @@ class BuyerStateService
         $contact->updateQuietly(['last_activity_at' => now()]);
         $contact->refresh();
 
+        // AT-500 — Won is terminal: activity on a converted buyer is logged (above) but never
+        // moves them back onto the active board.
+        if ($contact->buyer_state === self::WON) {
+            return;
+        }
+
         // Recompute state
         $newState = $this->resolveState($contact);
         if ($newState) {
@@ -259,21 +276,39 @@ class BuyerStateService
      */
     public function recomputeState(Contact $contact): void
     {
-        // 'won' is a TERMINAL state (Johan 2026-08-13) — a converted buyer must never be decayed
-        // back to warm/cold/lost by the nightly recompute. resolveState() only ever yields
-        // new/warm/cold/lost, so without this short-circuit the cron would clobber the win.
-        if ($contact->buyer_state === self::WON) {
-            return;
+        $newState = $this->nextAutoState($contact);
+        if ($newState !== null) {
+            $this->transitionTo($contact, $newState, 'auto_recompute');
+        }
+    }
+
+    /**
+     * AT-500 — the ONE answer to "what may the automatic recompute do to this buyer?".
+     * Returns the state to move them to, or null for "leave them alone". Everything that
+     * recomputes buyer state — recomputeState(), the nightly `buyers:recompute-states`
+     * command and its --dry-run report — asks this, so a rule added here applies everywhere.
+     *
+     * 'won' is a TERMINAL state (Johan 2026-08-13) — a converted buyer must never be decayed
+     * back to warm/cold/lost. resolveState() only ever yields new/warm/cold/lost, so without
+     * this short-circuit the cron clobbers the win the next morning (it did, for every Won
+     * buyer, from 13 Aug until AT-500). A recent manual placement is also left alone (AT-74).
+     */
+    public function nextAutoState(Contact $contact): ?string
+    {
+        // Won is terminal, and so is Lost (AT-500, Johan 22 Oct 2026): the nightly job never moves a Won or a
+        // Lost buyer into New/Warm/Cold - Lost is a manual decision or a deal that fell through, and only a
+        // person (or a live deal -> Won) takes a buyer out of it.
+        if (in_array($contact->buyer_state, [self::WON, 'lost'], true)) {
+            return null;
         }
 
         if ($this->isManualPlacementProtected($contact)) {
-            return;
+            return null;
         }
 
         $newState = $this->resolveState($contact);
-        if ($newState && $newState !== $contact->buyer_state) {
-            $this->transitionTo($contact, $newState, 'auto_recompute');
-        }
+
+        return ($newState && $newState !== $contact->buyer_state) ? $newState : null;
     }
 
     /**
@@ -306,6 +341,255 @@ class BuyerStateService
     }
 
     /**
+     * AT-500 — is this deal "live" for the purposes of the buyer's Won state? (Johan, 22 Oct 2026:
+     * Won = linked to a live or registered deal only.) Pending, granted and registered deals are
+     * live; a declined deal (accepted_status 'D') or an archived (soft-deleted) one is not.
+     */
+    public function dealIsLive(Deal $deal): bool
+    {
+        return $deal->deleted_at === null && (string) $deal->accepted_status !== 'D';
+    }
+
+    /**
+     * AT-500 — is this contact a buyer party on at least one LIVE deal? The same definition as
+     * dealIsLive(), as one query, so the fall-through reversal and the back-fill share it.
+     */
+    public function isOnLiveDeal(int $contactId): bool
+    {
+        return DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->where('deal_contacts.role', 'buyer')
+            ->where('deal_contacts.contact_id', $contactId)
+            ->whereNull('deals.deleted_at')
+            ->whereRaw("COALESCE(deals.accepted_status, '') <> 'D'")
+            ->exists();
+    }
+
+    /**
+     * AT-500 — a DR2 deal names these contacts as its buyers: if the deal is live, each becomes Won.
+     * This is the DR2 save's own call, independent of the property link, so it holds when the buyer
+     * was already linked to the property in another role (no new link event fires) and when the deal
+     * has no property yet. Idempotent. Contacts are limited to the deal's own agency.
+     *
+     * @param  int[]  $contactIds
+     * @return int  how many buyers were moved to Won by this call
+     */
+    public function markBuyersWonForLiveDeal(Deal $deal, array $contactIds, ?int $userId = null): int
+    {
+        if ($contactIds === [] || ! $this->dealIsLive($deal)) {
+            return 0;
+        }
+
+        $moved = 0;
+        $buyers = Contact::withoutGlobalScopes()
+            ->whereIn('id', $contactIds)
+            ->where('agency_id', $deal->agency_id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($buyers as $buyer) {
+            if ($this->markWon($buyer, $userId)) {
+                $moved++;
+            }
+        }
+
+        return $moved;
+    }
+
+    /**
+     * AT-500 (Johan, 22 Oct 2026) — a Won buyer whose deal ENDS leaves Won unless they are a buyer on another
+     * live deal. WHERE they go depends on WHY the deal ended — the distinction is deliberate:
+     *
+     *   - FELL THROUGH (the deal was marked Declined): the buyer goes to LOST — the purchase did not happen.
+     *     Audited 'deal_fell_through'. (Their saved searches are set aside by the usual Lost rule, untouched.)
+     *   - CORRECTED (the buyer was taken off the deal, or the deal was archived): an agent fixed a capture
+     *     mistake, nothing fell through. The buyer goes back to the board, recomputed from their activity into
+     *     New / Warm / Cold (never straight to Lost). Audited 'deal_corrected'.
+     *
+     * A Won buyer with no deal at all (a hand-made Won) is left alone unless the caller says they were just
+     * taken off a deal ($wasDealBuyer).
+     *
+     * @return bool  true iff the buyer was moved off Won by this call
+     */
+    public function releaseWonBuyer(Contact $contact, bool $fellThrough, ?int $userId = null, bool $wasDealBuyer = false): bool
+    {
+        if ($contact->buyer_state !== self::WON || $this->isOnLiveDeal((int) $contact->id)) {
+            return false;
+        }
+
+        if (! $wasDealBuyer && ! DB::table('deal_contacts')->where('contact_id', $contact->id)->where('role', 'buyer')->exists()) {
+            return false;
+        }
+
+        if ($fellThrough) {
+            $this->transitionTo($contact, 'lost', self::DEAL_FELL_THROUGH_REASON, $userId);
+        } else {
+            $this->returnToBoard($contact, self::DEAL_CORRECTED_REASON, $userId);
+        }
+
+        return true;
+    }
+
+    /**
+     * AT-500 — take a Won buyer off Won and recompute them into New / Warm / Cold from their activity
+     * (never straight into Lost: they are for the agent to work, not to write off). Audited with $reason.
+     */
+    private function returnToBoard(Contact $contact, string $reason, ?int $userId): void
+    {
+        $target = $this->resolveState($contact) ?? 'new';
+        if ($target === 'lost') {
+            $target = 'cold';
+        }
+
+        $this->transitionTo($contact, $target, $reason, $userId);
+    }
+
+    /**
+     * AT-500 (Johan, 22 Oct 2026, hard rule) — Won means exactly two things: the buyer is on a live DR2 deal,
+     * or an agent moved them there by hand. A Won buyer who is on NO live deal and whose most recent move into
+     * Won was not manual_override got there some other way (the old property-link rule, a deal that has since
+     * ended) and belongs back on the board. Used by the back-fill's second part.
+     */
+    public function isWonWithoutBasis(Contact $contact): bool
+    {
+        if ($contact->buyer_state !== self::WON || $this->isOnLiveDeal((int) $contact->id)) {
+            return false;
+        }
+
+        $lastWonReason = BuyerStateTransition::withoutGlobalScopes()
+            ->where('contact_id', $contact->id)
+            ->where('to_state', self::WON)
+            ->orderByDesc('occurred_at')->orderByDesc('id')
+            ->value('reason');
+
+        return $lastWonReason !== 'manual_override';
+    }
+
+    /**
+     * AT-500 — where a Won buyer with no basis goes: LOST if one of their deals was DECLINED (it fell through
+     * and the event was missed), otherwise back to the board (the old property-link rule, an archived deal, or a
+     * buyer removed from a deal — nothing fell through).
+     *
+     * @return 'lost'|'board'
+     */
+    public function wonWithoutBasisDestination(Contact $contact): string
+    {
+        $declined = DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->where('deal_contacts.role', 'buyer')
+            ->where('deal_contacts.contact_id', $contact->id)
+            ->whereNull('deals.deleted_at')
+            ->where('deals.accepted_status', 'D')
+            ->exists();
+
+        return $declined ? 'lost' : 'board';
+    }
+
+    /**
+     * AT-500 — heal ONE Won buyer who has no basis (see isWonWithoutBasis): Lost if their deal fell through,
+     * otherwise back to the board. Audited ('deal_fell_through' / 'won_without_live_deal'). Idempotent.
+     *
+     * @return 'lost'|'board'|null  where they went, or null when nothing was done
+     */
+    public function healWonWithoutBasis(Contact $contact, ?int $userId = null): ?string
+    {
+        if (! $this->isWonWithoutBasis($contact)) {
+            return null;
+        }
+
+        $destination = $this->wonWithoutBasisDestination($contact);
+        if ($destination === 'lost') {
+            $this->transitionTo($contact, 'lost', self::DEAL_FELL_THROUGH_REASON, $userId);
+        } else {
+            $this->returnToBoard($contact, self::WON_WITHOUT_LIVE_DEAL_REASON, $userId);
+        }
+
+        return $destination;
+    }
+
+    /**
+     * AT-500 — buyers on a LIVE DR2 deal who are not Won (a missed event, or the pre-fix history). The ONE
+     * selector behind both buyers:backfill-won (part 1) and the nightly self-heal. Cross-agency unless limited.
+     *
+     * @return \Illuminate\Support\Collection<int,Contact>
+     */
+    public function liveDealBuyersNotWon(?int $agencyId = null, bool $anyDeal = false): \Illuminate\Support\Collection
+    {
+        $ids = DB::table('deal_contacts')
+            ->join('deals', 'deals.id', '=', 'deal_contacts.deal_id')
+            ->where('deal_contacts.role', 'buyer')
+            ->whereNotNull('deal_contacts.contact_id')
+            ->whereNull('deals.deleted_at')
+            ->when(! $anyDeal, fn ($q) => $q->whereRaw("COALESCE(deals.accepted_status, '') <> 'D'"))
+            ->distinct()->pluck('deal_contacts.contact_id')->map(fn ($v) => (int) $v)->all();
+
+        return Contact::withoutGlobalScopes([\App\Models\Scopes\AgencyScope::class, \App\Models\Scopes\BranchScope::class])
+            ->whereIn('id', $ids)
+            ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
+            ->where(fn ($q) => $q->where('buyer_state', '!=', self::WON)->orWhereNull('buyer_state'))
+            ->get();
+    }
+
+    /**
+     * AT-500 — Won buyers with no basis (no live deal, not moved there by hand). Shared by the back-fill (part 2)
+     * and the nightly self-heal.
+     *
+     * @return \Illuminate\Support\Collection<int,Contact>
+     */
+    public function wonBuyersWithoutBasis(?int $agencyId = null): \Illuminate\Support\Collection
+    {
+        return Contact::withoutGlobalScopes([\App\Models\Scopes\AgencyScope::class, \App\Models\Scopes\BranchScope::class])
+            ->where('buyer_state', self::WON)
+            ->when($agencyId !== null, fn ($q) => $q->where('agency_id', $agencyId))
+            ->get()
+            ->filter(fn (Contact $c) => $this->isWonWithoutBasis($c))
+            ->values();
+    }
+
+    /**
+     * AT-500 — a deal changed (declined / re-opened / archived / restored): bring every buyer on it in line.
+     *   live deal            → its buyers are Won (a Lost buyer too — Lost never blocks a live deal)
+     *   archived (deleted)   → a CORRECTION: each buyer on no other live deal goes back to the board
+     *   declined (not live)  → FELL THROUGH: each buyer on no other live deal goes to Lost
+     */
+    public function reconcileDealBuyers(Deal $deal, ?int $userId = null): void
+    {
+        $ids = DB::table('deal_contacts')->where('deal_id', $deal->id)->where('role', 'buyer')
+            ->pluck('contact_id')->map(fn ($id) => (int) $id)->all();
+
+        if ($this->dealIsLive($deal)) {
+            $this->markBuyersWonForLiveDeal($deal, $ids, $userId);
+
+            return;
+        }
+
+        $this->releaseWonForBuyers($deal, $ids, $deal->deleted_at === null, $userId, false);
+    }
+
+    /**
+     * AT-500 — release these contacts from Won because of $deal (see releaseWonBuyer for fell-through vs corrected).
+     * Called with $wasDealBuyer = true when they were just taken off the deal's buyer list (a correction).
+     *
+     * @param  int[]  $contactIds
+     */
+    public function releaseWonForBuyers(Deal $deal, array $contactIds, bool $fellThrough, ?int $userId = null, bool $wasDealBuyer = true): void
+    {
+        if ($contactIds === []) {
+            return;
+        }
+
+        $buyers = Contact::withoutGlobalScopes()
+            ->whereIn('id', $contactIds)
+            ->where('agency_id', $deal->agency_id)
+            ->whereNull('deleted_at')
+            ->get();
+
+        foreach ($buyers as $buyer) {
+            $this->releaseWonBuyer($buyer, $fellThrough, $userId, $wasDealBuyer);
+        }
+    }
+
+    /**
      * AT-74 — is this buyer protected from auto-recompute because an agent
      * manually placed/moved them recently?
      *
@@ -323,7 +607,7 @@ class BuyerStateService
     {
         $manualAt = BuyerStateTransition::withoutGlobalScopes()
             ->where('contact_id', $contact->id)
-            ->where('reason', 'manual_override')
+            ->whereIn('reason', ['manual_override', self::DEAL_FELL_THROUGH_REASON, self::DEAL_CORRECTED_REASON, self::WON_WITHOUT_LIVE_DEAL_REASON])   // AT-500: a buyer sent back to the board by a fallen-through deal / the back-fill gets the same window to be worked
             ->latest('occurred_at')
             ->value('occurred_at');
 

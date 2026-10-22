@@ -411,4 +411,108 @@ class Dr2CaptureTest extends TestCase
         $this->assertContains($seller->id, array_column($res['sellers'] ?? [], 'id'),
             'a sale seller must still be offered');
     }
+
+    // ── AT-500 — a buyer named on a live DR2 deal is Won ──
+
+    /** Gap (a): the buyer was ALREADY linked to the property in another role, so no link event fires. */
+    public function test_a_buyer_already_linked_to_the_property_in_another_role_still_becomes_won(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonlinked');
+        $property = Property::create([
+            'title' => 'Won Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '1 Won Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $this->giveOwner($property, $agency);
+        $buyer = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Elsa', 'last_name' => 'Linked']);
+        $buyer->forceFill(['is_buyer' => true, 'buyer_state' => 'warm'])->saveQuietly();
+        \App\Services\Property\ContactPropertyLinker::link($buyer->id, $property->id, 'lead');
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'property_id' => $property->id, 'buyer_contact_ids' => (string) $buyer->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertSame('won', $buyer->fresh()->buyer_state);
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $buyer->id, 'role' => 'lead']);
+    }
+
+    /** Gap (b): a deal captured with no property still marks its buyer Won. */
+    public function test_a_deal_with_no_property_still_marks_its_buyer_won(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonnoprop');
+        $buyer = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Terry', 'last_name' => 'Buyer']);
+        $buyer->forceFill(['is_buyer' => true, 'buyer_state' => 'new'])->saveQuietly();
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $buyer->id,
+        ]))->assertSessionHasNoErrors();
+
+        $deal = Deal::where('agency_id', $agency->id)->latest('id')->firstOrFail();
+        $this->assertNull($deal->property_id);
+        $this->assertSame('won', $buyer->fresh()->buyer_state);
+        $this->assertSame(1, DB::table('buyer_state_transitions')->where('contact_id', $buyer->id)->where('to_state', 'won')->count());
+    }
+
+    /** A seller named on the deal is not a buyer conversion. */
+    public function test_a_seller_on_the_deal_is_not_marked_won(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonseller');
+        $seller = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Sue', 'last_name' => 'Seller']);
+        $seller->forceFill(['is_buyer' => true, 'buyer_state' => 'warm'])->saveQuietly();
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'seller_contact_ids' => (string) $seller->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertSame('warm', $seller->fresh()->buyer_state);
+    }
+
+    /** AT-500 — correcting a mis-captured buyer off the deal takes the wrong buyer off Won and back to the board (a correction). */
+    public function test_removing_a_buyer_from_a_deal_takes_them_off_won_and_the_right_buyer_is_won(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonfix');
+        $mk = function (string $first) use ($agency) {
+            $c = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => $first, 'last_name' => 'Fix']);
+            $c->forceFill(['is_buyer' => true, 'buyer_state' => 'warm'])->saveQuietly();
+
+            return $c;
+        };
+        $wrong = $mk('Wrong');
+        $right = $mk('Right');
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $wrong->id,
+        ]))->assertSessionHasNoErrors();
+        $deal = Deal::where('agency_id', $agency->id)->latest('id')->firstOrFail();
+        $this->assertSame('won', $wrong->fresh()->buyer_state);
+
+        $this->actingAs($admin)->post(route('deals-dr2.update', $deal), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'buyer_contact_ids' => (string) $right->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertContains($wrong->fresh()->buyer_state, ['new', 'warm', 'cold'], 'a correction: back on the board, not Lost');
+        $this->assertDatabaseHas('buyer_state_transitions', ['contact_id' => $wrong->id, 'from_state' => 'won', 'reason' => 'deal_corrected']);
+        $this->assertSame('won', $right->fresh()->buyer_state);
+    }
+
+    /** AT-500 — with the property-link listener gone, a DR2 deal WITH a property still makes its buyer Won. */
+    public function test_a_dr2_deal_with_a_property_marks_its_buyer_won_without_the_link_listener(): void
+    {
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-wonprop');
+        $property = Property::create([
+            'title' => 'Won Prop Listing', 'agency_id' => $agency->id, 'agent_id' => $l->id,
+            'branch_id' => $branch->id, 'listing_type' => 'sale', 'address' => '2 Won Rd',
+            'suburb' => 'Uvongo', 'price' => 1000000, 'property_type' => 'House',
+        ]);
+        $this->giveOwner($property, $agency);
+        $buyer = \App\Models\Contact::create(['agency_id' => $agency->id, 'first_name' => 'Pia', 'last_name' => 'Propbuyer']);
+        $buyer->forceFill(['is_buyer' => true, 'buyer_state' => 'new'])->saveQuietly();
+
+        $this->actingAs($admin)->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, [
+            'branch_id' => $branch->id, 'property_id' => $property->id, 'buyer_contact_ids' => (string) $buyer->id,
+        ]))->assertSessionHasNoErrors();
+
+        $this->assertDatabaseHas('contact_property', ['property_id' => $property->id, 'contact_id' => $buyer->id, 'role' => 'buyer']);
+        $this->assertSame('won', $buyer->fresh()->buyer_state);
+    }
 }

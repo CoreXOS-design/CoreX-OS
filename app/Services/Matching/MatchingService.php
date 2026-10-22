@@ -518,7 +518,7 @@ class MatchingService
 
         foreach ($matches as $match) {
             if (!$match->isCountable()) {
-                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => []];
+                $counts[$match->id] = ['total' => 0, 'hidden' => 0, 'visible' => 0, 'ids' => [], 'visible_ids' => []];
                 continue;
             }
 
@@ -531,7 +531,11 @@ class MatchingService
             $resolved = $candidates
                 ->filter(fn (Property $p) => $this->matchSurvivesFilters($p, $match))
                 ->map(function (Property $p) use ($match) {
-                    $sc = $this->score($p, $match);
+                    // AT-503 — the SAME price band propertiesForMatch() hands the scorer. Without it
+                    // the gate re-cut at the exact stated ceiling, so a near-miss the buyer's link
+                    // and a send DO include was missing here: a never-sent property that the board
+                    // never counted as new (the 2026-09-10 drift, in this second copy of the loop).
+                    $sc = $this->score($p, $match, self::RELAXED_PRICE_BAND);
                     $p->setAttribute('match_score', $sc);
                     return $p;
                 })
@@ -548,6 +552,11 @@ class MatchingService
                 // against "ever shared" without a second, per-match resolve pass
                 // (the exact N+1 this method's own batching was built to kill).
                 'ids'     => $resolved->pluck('id')->all(),
+                // AT-503 — the SAME set a send snapshots (resolve(..., false) drops
+                // hidden properties). The board's "Send N new" must diff THIS, never
+                // 'ids': a hidden property is never in any snapshot, so diffing
+                // 'ids' made "Send 1 new" stick forever.
+                'visible_ids' => $resolved->reject(fn ($p) => in_array($p->id, $hiddenIds, true))->pluck('id')->values()->all(),
             ];
         }
 

@@ -169,6 +169,14 @@ class PropertyMatchScoringService
 
     public function getMatchesForBuyer(int $contactId, ?string $tier = null, int $limit = 20): Collection
     {
+        // AT-500 — a buyer in an excluded pipeline status (default Won + Lost; agency setting) has no
+        // Core Matches on ANY surface, including the public buyer-portal page that reads this cache.
+        // The same single rule every other surface asks (CoreMatchBuyerGate), read live from buyer_state.
+        $buyer = DB::table('contacts')->where('id', $contactId)->first(['buyer_state', 'agency_id']);
+        if ($buyer && \App\Services\Matching\CoreMatchBuyerGate::isExcluded($buyer->buyer_state, (int) $buyer->agency_id)) {
+            return collect();
+        }
+
         $query = DB::table('property_buyer_matches')
             ->where('contact_id', $contactId)
             ->where('score', '>=', self::MIN_SCORE_TO_CACHE)

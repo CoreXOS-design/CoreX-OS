@@ -7,7 +7,9 @@ namespace App\Http\Controllers\CoreX;
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\DevSetting;
+use App\Models\MarketReports\MarketDataPoint;
 use App\Models\MarketReports\MarketReport;
+use App\Models\MarketReports\MarketReportCompRow;
 use App\Models\MarketReports\MarketReportLearnedLayout;
 use App\Services\MarketReports\MarketReportReprocessor;
 use App\Services\MarketReports\ReportReadSettings;
@@ -78,31 +80,37 @@ class MarketReportRecogniserController extends Controller
                 'case_reports'
             );
 
-        if ($status === 'open') {
+        // A link from an email / bell ("Open the report"): show just that report's row, whatever its status.
+        $focus = $request->filled('focus') && ctype_digit((string) $request->query('focus')) ? (int) $request->query('focus') : null;
+        if ($focus !== null) {
+            $query->where('market_reports.id', $focus);
+        } elseif ($status === 'open') {
             $query->whereNull('market_reports.resolved_at');
         } elseif ($status === 'resolved') {
             $query->whereNotNull('market_reports.resolved_at');
         }
-        if ($how === 'held') {
+        if ($focus !== null) {
+            // the other filters do not apply to one report
+        } elseif ($how === 'held') {
             // Queued without an AI read: a cap was reached, or the same layout is already with CoreX.
             $query->where('market_reports.read_method', MarketReport::READ_UNREAD)
                 ->whereIn('market_reports.spot_check_results->reason_code', ['ai_monthly_cap', 'ai_platform_daily_cap', 'layout_case_open']);
         } elseif ($how !== 'all') {
             $query->where('market_reports.read_method', $how);
         }
-        if ($request->filled('agency')) {
+        if ($focus === null && $request->filled('agency')) {
             $query->where('market_reports.agency_id', (int) $request->query('agency'));
         }
-        if ($request->filled('publisher')) {
+        if ($focus === null && $request->filled('publisher')) {
             $query->where('market_reports.read_publisher', (string) $request->query('publisher'));
         }
-        if ($request->filled('from')) {
+        if ($focus === null && $request->filled('from')) {
             $query->whereDate('market_reports.created_at', '>=', (string) $request->query('from'));
         }
-        if ($request->filled('to')) {
+        if ($focus === null && $request->filled('to')) {
             $query->whereDate('market_reports.created_at', '<=', (string) $request->query('to'));
         }
-        if ($request->filled('q')) {
+        if ($focus === null && $request->filled('q')) {
             $like = '%' . trim((string) $request->query('q')) . '%';
             $query->where(function ($q) use ($like) {
                 $q->where('market_reports.file_name', 'like', $like)
@@ -126,7 +134,13 @@ class MarketReportRecogniserController extends Controller
             'resolved'    => (clone $base)->whereNotNull('resolved_at')->count(),
         ];
 
+        // The layout each AI-read report taught CoreX (if any): the row's "Approve layout" acts on it.
+        $layoutByReport = MarketReportLearnedLayout::withTrashed()
+            ->whereIn('learned_from_report_id', $reports->pluck('id'))
+            ->orderBy('id')->get()->keyBy('learned_from_report_id');
+
         return view('corex.market-intelligence.reports.recogniser.queue', [
+            'focus' => $focus, 'layoutByReport' => $layoutByReport,
             'reports' => $reports, 'agencies' => $agencies, 'publishers' => $publishers, 'counts' => $counts,
             'filters' => ['q' => (string) $request->query('q', ''), 'status' => $status, 'how' => $how,
                 'agency' => (string) $request->query('agency', ''), 'publisher' => (string) $request->query('publisher', ''),
@@ -143,6 +157,45 @@ class MarketReportRecogniserController extends Controller
         }
 
         return Storage::disk('local')->download($report->file_path, $report->file_name ?: 'report.pdf');
+    }
+
+    /** The stored PDF shown inside the page (the "View figures" screen puts it beside the figures). Owner-gated like Download. */
+    public function pdf(Request $request, int $id)
+    {
+        $this->authoriseOwner($request);
+        $report = $this->find($id);
+        if (empty($report->file_path) || !Storage::disk('local')->exists($report->file_path)) {
+            abort(404, 'The stored PDF is missing from disk.');
+        }
+
+        return Storage::disk('local')->response($report->file_path, $report->file_name ?: 'report.pdf', [
+            'Content-Type'        => 'application/pdf',
+            'Content-Disposition' => 'inline; filename="' . addslashes(basename((string) ($report->file_name ?: 'report.pdf'))) . '"',
+        ]);
+    }
+
+    /**
+     * "View figures": what the AI read from this report, beside the PDF it read it from, so a person can check them.
+     * Read-only. The comparable-sale rows and the summary figures are the very rows that were imported.
+     */
+    public function figures(Request $request, int $id): View
+    {
+        $this->authoriseOwner($request);
+        $report = $this->find($id);
+
+        $comps = MarketReportCompRow::query()->withoutGlobalScopes()
+            ->where('market_report_id', $report->id)->whereNull('deleted_at')
+            ->orderBy('row_index')->orderBy('id')->get();
+        $points = MarketDataPoint::query()->withoutGlobalScopes()
+            ->where('report_id', $report->id)
+            ->where('metric_key', 'not like', 'comparable\\_%')
+            ->orderBy('metric_key')->orderBy('metric_date')->get();
+        $layout = MarketReportLearnedLayout::withTrashed()->where('learned_from_report_id', $report->id)->orderBy('id')->first();
+        $agency = Agency::query()->withoutGlobalScopes()->whereKey($report->agency_id)->value('name');
+
+        return view('corex.market-intelligence.reports.recogniser.figures', [
+            'report' => $report, 'comps' => $comps, 'points' => $points, 'layout' => $layout, 'agencyName' => $agency,
+        ]);
     }
 
     public function rerun(Request $request, int $id): RedirectResponse

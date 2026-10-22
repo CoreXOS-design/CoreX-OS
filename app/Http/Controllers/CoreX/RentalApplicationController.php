@@ -1262,7 +1262,7 @@ class RentalApplicationController extends Controller
      *     event ContactPropertyController::link() fires, per non-negotiable
      *     #9 (cross-pillar reactivity uses domain events, never a second
      *     ad-hoc path) — any future listener keyed on that event (the way
-     *     MarkBuyerWonOnPropertyLink already reacts to 'buyer'/'purchaser')
+     *     the old MarkBuyerWonOnPropertyLink listener, removed in AT-500, reacted to 'buyer'/'purchaser')
      *     sees a rental-sourced tenant link exactly like any other.
      *
      * DOES NOT TOUCH PROPERTY STATUS. Johan's original ask ("the property
