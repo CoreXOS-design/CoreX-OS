@@ -1891,19 +1891,37 @@ Route::get('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::c
 
 Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::class, 'index'])->middleware(['permission:access_listing_stock', 'permission:view_branch_stats'])->name('bm.listings');
 
-    // ===== TV MESSAGES (Admin + BM) =====
-    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
-        Route::get('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminIndex'])->name('admin.tv-messages');
-        Route::post('/admin/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'adminStore'])->name('admin.tv-messages.store');
-        Route::post('/admin/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'adminUpdate'])->name('admin.tv-messages.update');
-        Route::post('/admin/tv-messages/{tvMessage}/delete', [\App\Http\Controllers\TvMessageController::class, 'adminDelete'])->name('admin.tv-messages.delete');
-        Route::post('/admin/tv-messages/{tvMessage}/restore', [\App\Http\Controllers\TvMessageController::class, 'adminRestore'])->name('admin.tv-messages.restore')->withTrashed();
+    // ===== TV DISPLAY (codes + messages) - one settings screen (agency-tracker-rehome.md 10.2, step 8; Johan 20 Oct 2026) =====
+    // Lives in the settings hub: Settings > Operations > TV Display. Whole-agency viewers work the company code, every branch and every
+    // message; a branch manager works their own branch (breadth enforced in the controller, at the query layer).
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->prefix('corex/settings/tv-display')->name('corex.settings.tv-display.')->group(function () {
+        $c = \App\Http\Controllers\Settings\TvDisplaySettingsController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/codes/generate', [$c, 'generateCode'])->name('codes.generate');
+        Route::post('/codes/revoke', [$c, 'revokeCode'])->name('codes.revoke');
+        Route::post('/messages', [$c, 'storeMessage'])->name('messages.store');
+        Route::post('/messages/{tvMessage}', [$c, 'updateMessage'])->name('messages.update');
+        Route::post('/messages/{tvMessage}/archive', [$c, 'archiveMessage'])->name('messages.archive');
+        Route::post('/messages/{id}/restore', [$c, 'restoreMessage'])->whereNumber('id')->name('messages.restore');
+    });
 
-        // Admin: TV Code Management (all branches)
-        Route::post('/admin/tv-code/generate', [\App\Http\Controllers\Admin\TvCodeController::class, 'generate'])->name('admin.tv-code.generate');
-        Route::post('/admin/tv-code/revoke', [\App\Http\Controllers\Admin\TvCodeController::class, 'revoke'])->name('admin.tv-code.revoke');
-        Route::post('/admin/tv-code/generate-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'generateCompany'])->name('admin.tv-code.generate-company');
-        Route::post('/admin/tv-code/revoke-company', [\App\Http\Controllers\Admin\TvCodeController::class, 'revokeCompany'])->name('admin.tv-code.revoke-company');
+    // The two old TV Messages screens and the TV code buttons that sat on the Performance pages: every old route NAME is kept and
+    // every old URL answers (GET 301 with the query kept, POST 308 with the body kept), never a 404. Same permission + feature gate as before.
+    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
+        $toIndex = fn (\Illuminate\Http\Request $request) => redirect()->route('corex.settings.tv-display.index', $request->query(), 301);
+        Route::get('/admin/tv-messages', $toIndex)->name('admin.tv-messages');
+        Route::get('/bm/tv-messages', $toIndex)->name('bm.tv-messages');
+        foreach (['admin', 'bm'] as $who) {
+            Route::post("/{$who}/tv-messages", fn () => redirect()->route('corex.settings.tv-display.messages.store', [], 308))->name("{$who}.tv-messages.store");
+            Route::post("/{$who}/tv-messages/{tvMessage}", fn ($tvMessage) => redirect()->route('corex.settings.tv-display.messages.update', ['tvMessage' => $tvMessage], 308))->name("{$who}.tv-messages.update");
+            Route::post("/{$who}/tv-messages/{tvMessage}/delete", fn ($tvMessage) => redirect()->route('corex.settings.tv-display.messages.archive', ['tvMessage' => $tvMessage], 308))->name("{$who}.tv-messages.delete");
+        }
+        Route::post('/admin/tv-messages/{tvMessage}/restore', fn ($tvMessage) => redirect()->route('corex.settings.tv-display.messages.restore', ['id' => $tvMessage], 308))->name('admin.tv-messages.restore')->withTrashed();
+
+        Route::post('/admin/tv-code/generate', fn () => redirect()->route('corex.settings.tv-display.codes.generate', [], 308))->name('admin.tv-code.generate');
+        Route::post('/admin/tv-code/revoke', fn () => redirect()->route('corex.settings.tv-display.codes.revoke', [], 308))->name('admin.tv-code.revoke');
+        Route::post('/admin/tv-code/generate-company', fn () => redirect()->route('corex.settings.tv-display.codes.generate', ['company' => 1], 308))->name('admin.tv-code.generate-company');
+        Route::post('/admin/tv-code/revoke-company', fn () => redirect()->route('corex.settings.tv-display.codes.revoke', ['company' => 1], 308))->name('admin.tv-code.revoke-company');
     });
 
     // ── Agency / branch context switchers ──
@@ -1937,12 +1955,7 @@ Route::get('/bm/listings', [\App\Http\Controllers\BM\ListingStockController::cla
         Route::post('/agency/select/{agency}', [\App\Http\Controllers\Admin\AgencySwitcherController::class, 'selectAndRedirect'])->name('agency.select.submit');
     });
 
-    Route::middleware(['permission:manage_tv_messages', 'feature:tv-display'])->group(function () {
-        Route::get('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmIndex'])->name('bm.tv-messages');
-        Route::post('/bm/tv-messages', [\App\Http\Controllers\TvMessageController::class, 'bmStore'])->name('bm.tv-messages.store');
-        Route::post('/bm/tv-messages/{tvMessage}', [\App\Http\Controllers\TvMessageController::class, 'bmUpdate'])->name('bm.tv-messages.update');
-        Route::post('/bm/tv-messages/{tvMessage}/delete', [\App\Http\Controllers\TvMessageController::class, 'bmDelete'])->name('bm.tv-messages.delete');
-    });
+    // (the branch manager's TV Messages routes are redirects now - see the TV DISPLAY block above)
 
 
     Route::post('/bm/performance', [\App\Http\Controllers\BM\PerformanceController::class, 'save'])->middleware('permission:manage_targets')->name('bm.performance.save');
@@ -2012,9 +2025,10 @@ Route::post('bm/performance/set-agent-targets', [\App\Http\Controllers\BM\Perfor
     ->middleware(['auth', 'permission:manage_targets'])->name('bm.performance.setAgentTargets');
 
 // --- BM: TV Code Management ---
-Route::post('/bm/tv-code/generate', [\App\Http\Controllers\BM\TvCodeController::class, 'generate'])
+// Retired as controls (the code now lives in Settings > TV Display); names and URLs answer with a 308 so a page left open still works.
+Route::post('/bm/tv-code/generate', fn () => redirect()->route('corex.settings.tv-display.codes.generate', [], 308))
     ->middleware(['auth', 'permission:manage_tv_messages'])->name('bm.tv-code.generate');
-Route::post('/bm/tv-code/revoke', [\App\Http\Controllers\BM\TvCodeController::class, 'revoke'])
+Route::post('/bm/tv-code/revoke', fn () => redirect()->route('corex.settings.tv-display.codes.revoke', [], 308))
     ->middleware(['auth', 'permission:manage_tv_messages'])->name('bm.tv-code.revoke');
 
 Route::post('bm/performance/align-agent-to-company', [\App\Http\Controllers\BM\PerformanceController::class, 'alignAgentToCompany'])

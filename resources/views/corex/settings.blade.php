@@ -197,6 +197,14 @@
                     $can('deals_v2.manage_pipeline')
                         ? ['key'=>'coc-service-types', 'label'=>'COC / Service Types', 'type'=>'link', 'href'=>route('deals-v2.settings.service-types.index'), 'keywords'=>'coc certificate compliance electrical gas beetle plumbing electric fence supplier work order service type deal pipeline certificates']
                         : null,
+                    // Step 8 (agency-tracker-rehome.md, Johan 20 Oct 2026): the TV codes and TV messages (they sat on the Performance pages and in
+                    // Agency Tracker) and the P24 Auto-Import controls (Agency Tracker > Admin) now live here, in the hub.
+                    ($u && $u->hasFeature('tv-display') && $can('manage_tv_messages'))
+                        ? ['key'=>'tv-display', 'label'=>'TV Display', 'type'=>'link', 'href'=>route('corex.settings.tv-display.index'), 'keywords'=>'tv television screen office display code codes messages ticker hero branch']
+                        : null,
+                    $can('access_settings')
+                        ? ['key'=>'p24-auto-import', 'label'=>'P24 Auto-Import', 'type'=>'link', 'href'=>route('admin.minion.setup'), 'keywords'=>'property24 p24 import capture minion areas towns suburbs schedule run refresh listings']
+                        : null,
                     ['key'=>'leave-visibility',      'label'=>'Leave Visibility',      'type'=>'section', 'keywords'=>'leave calendar matrix roles branch'],
                     ($u && $u->hasFeature('leave') && $can('manage_leave_types'))
                         ? ['key'=>'leave-types', 'label'=>'Leave Types', 'type'=>'section', 'keywords'=>'leave types annual sick family responsibility bcea entitlement accrual cycle public holidays']
