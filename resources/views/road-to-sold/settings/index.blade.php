@@ -263,14 +263,21 @@
                     @foreach([
                         ['summary_green_from_pct', 'Green when at or above', $settings->summaryGreenFromPct()],
                         ['summary_red_below_pct', 'Red when below', $settings->summaryRedBelowPct()],
+                        ['summary_ahead_from_pct', 'Ahead from', $settings->summaryAheadFromPct()],
                     ] as [$name, $label, $value])
                         <div>
                             <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="{{ $name }}">{{ $label }}</label>
-                            <input id="{{ $name }}" type="number" min="1" max="100" name="{{ $name }}" value="{{ old($name, $value) }}"
+                            <input id="{{ $name }}" type="number" min="{{ $name === 'summary_ahead_from_pct' ? 100 : 1 }}" max="{{ $name === 'summary_ahead_from_pct' ? 500 : 100 }}" name="{{ $name }}" value="{{ old($name, $value) }}"
                                    class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
                             <span class="text-xs ml-2" style="color:var(--text-muted);">% of target (standard: {{ $defaults[$name] }})</span>
                         </div>
                     @endforeach
+                    <div>
+                        <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="capture_back_date_hours">Captured tasks may be back-dated by</label>
+                        <input id="capture_back_date_hours" type="number" min="1" max="720" name="capture_back_date_hours" value="{{ old('capture_back_date_hours', $settings->captureBackDateHours()) }}"
+                               class="w-28 rounded-md px-3 py-2 text-sm" style="background:var(--surface); border:1px solid var(--border); color:var(--text-primary);">
+                        <span class="text-xs ml-2" style="color:var(--text-muted);">hours (standard: {{ $defaults['capture_back_date_hours'] }})</span>
+                    </div>
                 </div>
             </div>
         </div>

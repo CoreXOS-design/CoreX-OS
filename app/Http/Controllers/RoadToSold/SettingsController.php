@@ -185,6 +185,8 @@ class SettingsController extends Controller
             'hold_days'                    => ['sometimes', 'integer', 'min:1', 'max:365'],
             'summary_green_from_pct'       => ['sometimes', 'integer', 'min:1', 'max:100'],
             'summary_red_below_pct'        => ['sometimes', 'integer', 'min:1', 'max:100'],
+            'summary_ahead_from_pct'       => ['sometimes', 'integer', 'min:100', 'max:500'],
+            'capture_back_date_hours'      => ['sometimes', 'integer', 'min:1', 'max:720'],
             'selections'                   => ['sometimes', 'array'],
             'summary_steps'                => ['sometimes', 'array'],
             // The agency's default week: when sent, all seven days are required (0 is fine).
@@ -508,6 +510,8 @@ class SettingsController extends Controller
         'hold_days'               => 'Days an agent keeps a property after an outcome',
         'summary_green_from_pct'  => 'Green from (%)',
         'summary_red_below_pct'   => 'Red below (%)',
+        'summary_ahead_from_pct'  => 'Ahead from (%)',
+        'capture_back_date_hours' => 'Hours a captured task may be back-dated',
         'missed_items_mode'       => 'Missed items',
         'public_holiday_country'  => 'Public holidays of',
         'add_to_day_max'          => 'Most properties one "Add to my day" adds',

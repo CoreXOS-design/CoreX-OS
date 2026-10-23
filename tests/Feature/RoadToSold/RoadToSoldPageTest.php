@@ -140,15 +140,17 @@ final class RoadToSoldPageTest extends TestCase
         $this->item($this->agent, $b, ['position' => 2, 'status' => 'worked']);
 
         $get = fn (array $q) => $this->actingAs($this->agent)->get(route('road-to-sold.index', $q));
+        // The list's own rows - "do this next" names the first open property whatever filter the list is on.
+        $rows = fn (array $q) => collect($get($q)->viewData('rows')->items())->pluck('street')->map(fn ($v) => preg_replace('/^\d+\s+/', '', $v))->values()->all();
 
-        $get([])->assertSee('Marine Drive')->assertDontSee('Ocean View Road');                       // open only by default
-        $get(['status' => 'all'])->assertSee('Marine Drive')->assertSee('Ocean View Road');
-        $get(['status' => 'worked'])->assertDontSee('Marine Drive')->assertSee('Ocean View Road');
-        $get(['status' => 'all', 'q' => 'ocean'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');
-        $get(['status' => 'all', 'q' => 'Shelly'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');   // town
-        $get(['status' => 'all', 'q' => '0731112222'])->assertSee('Marine Drive')->assertDontSee('Ocean View Road'); // owner phone
-        $get(['status' => 'all', 'q' => 'Sipho'])->assertSee('Marine Drive')->assertDontSee('Ocean View Road');      // owner name
-        $get(['status' => 'all', 'view' => 'no_owner'])->assertSee('Ocean View Road')->assertDontSee('Marine Drive');
+        $this->assertSame(['Marine Drive'], $rows([]));                                                  // open only by default
+        $this->assertEqualsCanonicalizing(['Marine Drive', 'Ocean View Road'], $rows(['status' => 'all']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'worked']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'q' => 'ocean']));
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'q' => 'Shelly']));              // town
+        $this->assertSame(['Marine Drive'], $rows(['status' => 'all', 'q' => '0731112222']));             // owner phone
+        $this->assertSame(['Marine Drive'], $rows(['status' => 'all', 'q' => 'Sipho']));                  // owner name
+        $this->assertSame(['Ocean View Road'], $rows(['status' => 'all', 'view' => 'no_owner']));
         $get(['status' => 'all', 'selection' => 'price_drops'])->assertSee('Marine Drive');
         $get(['status' => 'all', 'q' => 'zzz-nothing'])->assertSee('Nothing matches this search.');
         $get(['sort' => 'address', 'dir' => 'desc', 'status' => 'all'])->assertOk();

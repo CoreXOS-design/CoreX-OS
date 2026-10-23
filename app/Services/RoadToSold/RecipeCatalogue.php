@@ -89,6 +89,30 @@ final class RecipeCatalogue
     ];
 
     /**
+     * Where an agent goes to do the work that completes a core task (phase 2: the "do this next" button). event class => route name.
+     * Only routes that exist are ever linked (screenUrl()).
+     */
+    public const SCREENS = [
+        \App\Events\Prospecting\OwnerLinkedToTrackedProperty::class => 'corex.deeds-capture.index',
+        \App\Events\RoadToSold\RoadToSoldOutcomeRecorded::class     => 'road-to-sold.index',
+        \App\Events\Evaluation\EvaluationBooked::class              => 'command-center.calendar',
+        \App\Events\Evaluation\EvaluationCompleted::class           => 'command-center.calendar',
+        \App\Events\Presentation\PresentationPresented::class       => 'presentations.index',
+        \App\Events\Document\DocumentFiledToProperty::class         => 'corex.properties.index',
+        \App\Events\Property\PropertyWentLiveOnPortal::class        => 'corex.properties.index',
+        \App\Events\Marketing\MarketingPostPublished::class         => 'corex.properties.index',
+        \App\Events\Deal\DealCreated::class                         => 'deals-dr2.index',
+        \App\Events\Deal\DealClosed::class                          => 'deals-dr2.index',
+    ];
+
+    public static function screenUrl(?string $eventClass): ?string
+    {
+        $route = $eventClass ? (self::SCREENS[$eventClass] ?? null) : null;
+
+        return $route && \Illuminate\Support\Facades\Route::has($route) ? route($route) : null;
+    }
+
+    /**
      * The neutral recipe a new agency starts from (spec 5.5). Level 1 holds a small set; the rest are in the task list ready to be
      * placed in a level, and levels 2 and 3 are empty shells. `level1` = [target per period, points] or null (not in Level 1).
      *

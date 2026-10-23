@@ -102,7 +102,10 @@ class TaskCompletionService
      * Write one completion of $task for $user (the list owner).
      *
      * @param  array{0:string,1:int|string}|null $subject  [class, id] of the real record this is about
-     * @param  array{recorded_by?:?User,kind?:string,occurred_at?:?CarbonInterface,event_id?:?string,source?:string,quantity?:int,evidence_note?:?string,evidence?:?array} $context
+     * @param  array{recorded_by?:?User,kind?:string,occurred_at?:?CarbonInterface,event_id?:?string,source?:string,quantity?:int,evidence_note?:?string,evidence?:?array,token?:?string,records?:array<int,array{0:string,1:int}>} $context
+     *   token   one submission's own id (a captured task): the same submission pressed twice completes once. Stands in for the event id
+     *           when nothing names a record.
+     *   records every real record the completion produced, [class, id] each (the subject is always one of them)
      * @return RtsTaskCompletion|null null = already completed for this record in this period, or the task is not in the agent's recipe
      */
     public function complete(RtsTask $task, User $user, ?array $subject = null, array $context = []): ?RtsTaskCompletion
@@ -130,8 +133,12 @@ class TaskCompletionService
         $subjectType = $subject[0] ?? null;
         $subjectId   = isset($subject[1]) ? (int) $subject[1] : null;
         $eventId     = $context['event_id'] ?? null;
+        $token       = $context['token'] ?? null;
 
-        $key = $this->idempotencyKey((int) $user->id, (int) $task->id, $periodStart, $subjectType, $subjectId, $eventId);
+        // A captured task is told apart by its submission, never by the record alone: two drives in one week are two completions.
+        $key = $token !== null
+            ? self::submissionKey((int) $user->id, (int) $task->id, $token)
+            : $this->idempotencyKey((int) $user->id, (int) $task->id, $periodStart, $subjectType, $subjectId, $eventId);
         if (RtsTaskCompletion::query()->withoutGlobalScopes()->withTrashed()->where('idempotency_key', $key)->exists()) {
             return null;
         }
@@ -169,12 +176,22 @@ class TaskCompletionService
                     'confirmed_at'        => now(),
                 ]));
 
+                $records = $context['records'] ?? [];
                 if ($subjectType !== null && $subjectId !== null) {
+                    array_unshift($records, [$subjectType, $subjectId]);
+                }
+                $seen = [];
+                foreach ($records as [$recordType, $recordId]) {
+                    $id = (int) $recordId;
+                    if ($id <= 0 || isset($seen[$recordType . ':' . $id])) {
+                        continue;
+                    }
+                    $seen[$recordType . ':' . $id] = true;
                     RtsTaskCompletionRecord::withoutAgencyStamping(fn () => RtsTaskCompletionRecord::create([
                         'agency_id'     => $agencyId,
                         'completion_id' => $completion->id,
-                        'record_type'   => $subjectType,
-                        'record_id'     => $subjectId,
+                        'record_type'   => $recordType,
+                        'record_id'     => $id,
                     ]));
                 }
 
@@ -187,6 +204,18 @@ class TaskCompletionService
             }
             throw $e;
         }
+    }
+
+    public static function submissionKey(int $userId, int $taskId, string $token): string
+    {
+        return sha1($userId . '|' . $taskId . '|submission:' . $token);
+    }
+
+    /** Has this exact submission (one press of Save on a capture form) already been saved? Archived completions count: it must not come back. */
+    public function hasSubmission(int $userId, int $taskId, string $token): bool
+    {
+        return RtsTaskCompletion::query()->withoutGlobalScopes()->withTrashed()
+            ->where('idempotency_key', self::submissionKey($userId, $taskId, $token))->exists();
     }
 
     /** The completions $viewer may see - own / branch / agency breadth (road_to_sold.view) applied in the query. */

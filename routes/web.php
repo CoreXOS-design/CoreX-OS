@@ -6475,6 +6475,17 @@ Route::middleware(['auth', 'verified'])->prefix('corex')->group(function () {
             Route::get('/', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'index'])->name('index');
             Route::post('/outcomes', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'recordOutcome'])->name('outcomes.record');
             Route::post('/add-to-day', [\App\Http\Controllers\RoadToSold\RoadToSoldController::class, 'addToDay'])->name('add-to-day');
+
+            // Captured tasks (v2 phase 2): save, change the note, archive, restore, view a photo. Always the signed-in person's own list;
+            // an id outside their breadth is a 404.
+            Route::prefix('captures')->name('captures.')->group(function () {
+                $c = \App\Http\Controllers\RoadToSold\CaptureController::class;
+                Route::post('/', [$c, 'store'])->name('store');
+                Route::put('/{completion}', [$c, 'update'])->whereNumber('completion')->name('update');
+                Route::delete('/{completion}', [$c, 'archive'])->whereNumber('completion')->name('archive');
+                Route::post('/{completion}/restore', [$c, 'restore'])->whereNumber('completion')->name('restore');
+                Route::get('/{completion}/photos/{n}', [$c, 'photo'])->whereNumber('completion')->whereNumber('n')->name('photo');
+            });
             Route::get('/drilldown', [\App\Http\Controllers\RoadToSold\ReportController::class, 'drilldown'])->name('drilldown');
             Route::get('/report', [\App\Http\Controllers\RoadToSold\ReportController::class, 'index'])->name('report');
             Route::get('/report/print', [\App\Http\Controllers\RoadToSold\ReportController::class, 'print'])->name('report.print');

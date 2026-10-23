@@ -17,11 +17,20 @@
         'oldAppointment' => old('appointment_at'),
         'addresses' => $addresses,
         'history'   => $history,
+        'captureTasks' => $captureTasks->map(fn ($t) => ['id' => $t->id, 'label' => $t->label, 'kind' => $t->capture_kind, 'evidence' => $t->evidence_required])->values()->all(),
+        'captureReopen' => old('task_id'),
+        'captureOld' => [
+            'area' => old('area_label'), 'when' => old('occurred_at'), 'qty' => old('quantity'), 'note' => old('note'),
+            'properties' => array_values((array) old('properties', [])), 'contacts' => array_values((array) old('contacts', [])),
+        ],
     ];
     $money = fn ($v) => $v ? 'R ' . number_format((int) $v, 0, '.', ',') : '';
-    $viewLabels = ['today' => 'Today\'s list', 'no_answer' => 'No answer', 'wrong_number' => 'Wrong number', 'no_owner' => 'No owner'];
+    $viewLabels = ['today' => 'Today\'s list', 'no_answer' => 'No answer', 'wrong_number' => 'Wrong number', 'no_owner' => 'No owner', 'captures' => 'Captures'];
     $statusLabels = ['open' => 'Open', 'worked' => 'Worked', 'missed' => 'Missed', 'all' => 'All'];
-    $sortLabels = ['order' => 'List order', 'address' => 'Address', 'price' => 'Price', 'dom' => 'Days on market', 'last_outcome' => 'Last outcome'];
+    $sortLabels = $isCaptures
+        ? \App\Services\RoadToSold\CompletionListService::SORTS
+        : ['order' => 'List order', 'address' => 'Address', 'price' => 'Price', 'dom' => 'Days on market', 'last_outcome' => 'Last outcome'];
+    $cf = $captureFilters;
     $inputStyle = 'background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);';
     $listView = in_array($filters['view'], ['today', 'no_owner'], true);
 @endphp
@@ -29,12 +38,21 @@
 <div class="w-full space-y-4 rts-page" x-data="rtsPage(@js($pageConfig))">
     @include('road-to-sold._controls')
 
-    <div class="rounded-md px-6 py-4 corex-page-banner">
+    <div class="rounded-md px-6 py-3 corex-page-banner rts-sticky">
         <div class="flex items-center justify-between flex-wrap gap-3">
-            <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold</h1>
+            <div class="flex items-center gap-3 flex-wrap">
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Road to Sold</h1>
+                @if($progress['level'])<span class="ds-badge ds-badge-info">{{ $progress['level']['name'] }}</span>@endif
+                @if($counts['any'] > 0 && ! $isCaptures)
+                    <span class="text-xs" style="color: var(--text-primary);"><strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}@if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif</span>
+                @endif
+                @if($progress['counted'] > 0)<span class="text-xs" style="color: var(--text-primary);"><strong>{{ $progress['met'] }} of {{ $progress['counted'] }}</strong> targets met</span>@endif
+                @if($progress['level'])<span class="text-xs" style="color: var(--text-primary);"><strong>{{ rtrim(rtrim(number_format($progress['points'], 2), '0'), '.') }}</strong> points in {{ $progress['points_label'] }}</span>@endif
+            </div>
             <div class="flex items-center gap-2 flex-wrap">
                 @if($agents->count() > 1)
                     <form method="GET" class="flex items-center gap-2">
+                        @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
                         <label class="text-xs font-semibold" style="color: var(--text-muted);" for="rts-agent">Agent</label>
                         <select id="rts-agent" name="agent" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
                             @foreach($agents as $a)
@@ -43,11 +61,17 @@
                         </select>
                     </form>
                 @endif
+                @if($captureTasks->isNotEmpty())
+                    <button type="button" class="corex-btn-primary corex-btn-xs" @click="openCapture()">Capture</button>
+                @endif
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.report'))
                     <a href="{{ route('road-to-sold.report', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Report</a>
                 @endif
                 @if($canManageOutcomes)
                     <a href="{{ route('road-to-sold.settings.outcomes.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Outcomes</a>
+                @endif
+                @if($canManageRecipe && \Illuminate\Support\Facades\Route::has('road-to-sold.settings.recipe.index'))
+                    <a href="{{ route('road-to-sold.settings.recipe.index', \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Recipe</a>
                 @endif
             </div>
         </div>
@@ -60,12 +84,26 @@
         <div class="rounded-md px-4 py-3 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">{{ session('rts_error') }}</div>
     @endif
     @if($errors->any())
+        @php $capErr = old('task_id') !== null; @endphp
         <div class="rounded-md px-4 py-3 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
-            @foreach($errors->all() as $m)<div>{{ $m }}</div>@endforeach
+            @foreach($errors->getMessages() as $field => $messages)
+                @foreach($messages as $m)
+                    {{-- A message from the capture form links to the field to fix (the form opens if it is closed). --}}
+                    @if($capErr)
+                        <div><a href="#cap-{{ str_replace('.', '-', $field) }}" class="underline" @click.prevent="focusCapture('cap-{{ str_replace('.', '-', $field) }}')">{{ $m }}</a></div>
+                    @else
+                        <div>{{ $m }}</div>
+                    @endif
+                @endforeach
+            @endforeach
         </div>
     @endif
 
+    @include('road-to-sold._recipe', ['part' => 'next'])
+
     @include('road-to-sold._summary-bar')
+
+    @include('road-to-sold._recipe', ['part' => 'tasks'])
 
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
@@ -79,8 +117,45 @@
         </div>
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-q">Search</label>
-            <input id="rts-q" type="text" name="q" value="{{ $filters['q'] }}" placeholder="Address, suburb, owner or phone" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} min-width: 14rem;">
+            <input id="rts-q" type="text" name="q" value="{{ $isCaptures ? ($cf['q'] ?? '') : $filters['q'] }}" placeholder="{{ $isCaptures ? 'Task or note' : 'Address, suburb, owner or phone' }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} min-width: 14rem;">
         </div>
+        @if($isCaptures)
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-task">Task</label>
+                <select id="rts-task" name="task" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    <option value="">All tasks</option>
+                    @foreach($captureChoices['tasks'] as $k => $l)<option value="{{ $k }}" @selected((string) ($cf['task'] ?? '') === (string) $k)>{{ $l }}</option>@endforeach
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-step">Step</label>
+                <select id="rts-step" name="step" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    <option value="">All steps</option>
+                    @foreach($captureChoices['steps'] as $k => $l)<option value="{{ $k }}" @selected((string) ($cf['step'] ?? '') === (string) $k)>{{ $l }}</option>@endforeach
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-source">Made</label>
+                <select id="rts-source" name="source" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    <option value="">Any</option>
+                    @foreach(\App\Services\RoadToSold\CompletionListService::SOURCES as $k => $l)<option value="{{ $k }}" @selected(($cf['source'] ?? '') === $k)>{{ $l }}</option>@endforeach
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-cstatus">Status</label>
+                <select id="rts-cstatus" name="status" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+                    @foreach(\App\Services\RoadToSold\CompletionListService::STATUSES as $k => $l)<option value="{{ $k }}" @selected(($cf['status'] ?? 'active') === $k)>{{ $l }}</option>@endforeach
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-from">From</label>
+                <input id="rts-from" type="date" name="from" value="{{ $cf['from'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-to">To</label>
+                <input id="rts-to" type="date" name="to" value="{{ $cf['to'] ?? '' }}" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
+            </div>
+        @endif
         @if($listView)
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sel">Selection</label>
@@ -103,41 +178,39 @@
         <div>
             <label class="block text-xs font-semibold mb-1" style="color: var(--text-muted);" for="rts-sort">Sort</label>
             <select id="rts-sort" name="sort" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                @foreach($sortLabels as $v => $l)<option value="{{ $v }}" @selected($filters['sort'] === $v)>{{ $l }}</option>@endforeach
+                @foreach($sortLabels as $v => $l)<option value="{{ $v }}" @selected(($isCaptures ? ($cf['sort'] ?? 'when') : $filters['sort']) === $v)>{{ $l }}</option>@endforeach
             </select>
         </div>
         <div>
             <select name="dir" aria-label="Sort direction" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}" onchange="this.form.submit()">
-                <option value="asc" @selected($filters['dir'] === 'asc')>Ascending</option>
-                <option value="desc" @selected($filters['dir'] === 'desc')>Descending</option>
+                @php $dirNow = $isCaptures ? (($cf['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc') : $filters['dir']; @endphp
+                <option value="asc" @selected($dirNow === 'asc')>Ascending</option>
+                <option value="desc" @selected($dirNow === 'desc')>Descending</option>
             </select>
         </div>
         <button type="submit" class="corex-btn-outline corex-btn-xs">Search</button>
-        @if($filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
+        @if($isCaptures || $filters['q'] !== '' || $filters['selection'] !== '' || $filters['status'] !== 'open' || $filters['view'] !== 'today')
             <a href="{{ route('road-to-sold.index', ($viewingOwn ? [] : ['agent' => $agentId]) + \App\Services\RoadToSold\Track::params($track)) }}" class="corex-btn-outline corex-btn-xs">Clear</a>
         @endif
     </form>
 
-    @if($listView && $counts['any'] > 0)
-        <div class="flex items-center justify-between flex-wrap gap-3 text-xs" style="color: var(--text-primary);">
-            <div>
-                <strong>{{ $counts['worked'] }} of {{ $counts['target_items'] }}</strong> worked {{ $date->isToday() ? 'today' : 'on ' . $date->format('j M') }}
-                @if($counts['added'] > 0)<span style="color: var(--text-muted);"> · {{ $counts['added_worked'] }} of {{ $counts['added'] }} added on top</span>@endif
-            </div>
-            @if($canAddToDay && $date->isToday() && count($addChoices))
-                <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
-                    @csrf
-                    @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
-                    <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
-                        @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
-                    </select>
-                    <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
-                    <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
-                </form>
-            @endif
+    @if($listView && $counts['any'] > 0 && $canAddToDay && $date->isToday() && count($addChoices))
+        <div class="flex items-center justify-end text-xs">
+            <form method="POST" action="{{ route('road-to-sold.add-to-day') }}" class="flex items-center gap-2">
+                @csrf
+                @if($track !== 'sales')<input type="hidden" name="track" value="{{ $track }}">@endif
+                <select name="selection" aria-label="Selection to add from" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }}">
+                    @foreach($addChoices as $k => $l)<option value="{{ $k }}">{{ $l }}</option>@endforeach
+                </select>
+                <input type="number" name="count" min="1" max="{{ $addMax ?? 100 }}" value="5" aria-label="How many to add" class="rounded-md px-3 py-2 text-xs" style="{{ $inputStyle }} width: 5rem;">
+                <button type="submit" class="corex-btn-outline corex-btn-xs">Add to my day</button>
+            </form>
         </div>
     @endif
 
+    @if($isCaptures)
+        @include('road-to-sold._captures')
+    @else
     {{-- The list --}}
     <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-xs ds-table">
@@ -231,6 +304,7 @@
         <div class="text-xs" style="color: var(--text-muted);">Showing the first {{ \App\Services\RoadToSold\CallListService::MAX_ROWS }}. Narrow the search to see the rest.</div>
     @endif
     {{ $rowsPage->links() }}
+    @endif
 
     {{-- Other work, not counted against today's target --}}
     @php
@@ -264,6 +338,10 @@
             </div>
         @endforeach
     </div>
+    @endif
+
+    @if($captureTasks->isNotEmpty())
+        @include('road-to-sold._capture-modal')
     @endif
 
     {{-- History popup --}}
@@ -357,6 +435,49 @@ function rtsPage(cfg) {
         valuation: false,
         appointmentAt: '',
         note: '',
+        // capture form (v2 phase 2)
+        capOpen: false,
+        capTasks: cfg.captureTasks || [],
+        capTaskId: '',
+        capToken: '',
+        capArea: '',
+        capWhen: '',
+        capQty: 1,
+        capNote: '',
+        capProps: [],
+        capContacts: [],
+        capKey: 0,
+        get capTask() {
+            return this.capTasks.find(t => String(t.id) === String(this.capTaskId)) || null;
+        },
+        newToken() {
+            return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2, 12);
+        },
+        blankProp(v) {
+            return Object.assign({ key: ++this.capKey, street_number: '', street_name: '', suburb: '', complex_name: '', unit_number: '', erf_number: '', owner_name: '', owner_phone: '', owner_email: '' }, v || {});
+        },
+        blankContact(v) {
+            return Object.assign({ key: ++this.capKey, name: '', phone: '', email: '' }, v || {});
+        },
+        capAddProp() { this.capProps.push(this.blankProp()); },
+        capAddContact() { this.capContacts.push(this.blankContact()); },
+        capReset() {
+            this.capProps = [this.blankProp()];
+            this.capContacts = [this.blankContact()];
+        },
+        openCapture(taskId) {
+            if (!this.capTasks.length) { return; }
+            this.capTaskId = taskId || (this.capTaskId || this.capTasks[0].id);
+            this.capToken = this.newToken();
+            this.capArea = ''; this.capWhen = ''; this.capQty = 1; this.capNote = '';
+            this.capReset();
+            this.capOpen = true;
+        },
+        // An error message links to the field to fix: open the form if it is closed, then focus the field.
+        focusCapture(id) {
+            this.capOpen = true;
+            this.$nextTick(() => { const el = document.getElementById(id); if (el) { el.scrollIntoView({ block: 'center' }); el.focus(); } });
+        },
         get current() {
             return this.choices.find(c => String(c.id) === String(this.chosen)) || null;
         },
@@ -364,6 +485,16 @@ function rtsPage(cfg) {
             return !!this.current && (this.current.needs_appointment || (this.current.offers_valuation && this.valuation));
         },
         init() {
+            // A refused capture comes back with what was typed (photos cannot be put back): reopen it on the same task.
+            if (cfg.captureReopen) {
+                const o = cfg.captureOld || {};
+                this.capTaskId = cfg.captureReopen;
+                this.capToken = this.newToken();
+                this.capArea = o.area || ''; this.capWhen = o.when || ''; this.capQty = o.qty || 1; this.capNote = o.note || '';
+                this.capProps = (o.properties && o.properties.length ? o.properties : [{}]).map(p => this.blankProp(p));
+                this.capContacts = (o.contacts && o.contacts.length ? o.contacts : [{}]).map(c => this.blankContact(c));
+                this.capOpen = true;
+            }
             const r = cfg.reopen;
             if (r && r.tp) {
                 this.tp = r.tp;

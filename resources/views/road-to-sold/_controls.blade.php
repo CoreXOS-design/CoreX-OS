@@ -22,4 +22,17 @@
     .rts-page .corex-btn-primary.corex-btn-xs { border-color: var(--brand-button, #0ea5e9); }
     .rts-page .rts-actions .corex-btn-xs { min-width: 5.5rem; }
     .rts-page select, .rts-page input:not([type="radio"]):not([type="checkbox"]) { padding-top: 0; padding-bottom: 0; }
+    /* The five states (behind / needs a push / on track / ahead / achieved) and "to do" - every colour behind a variable, so the colour round
+       with Johan changes values here and nothing in the markup. They map onto the design system tokens. */
+    .rts-page {
+        --rts-behind: var(--ds-red, #f87171);
+        --rts-amber: var(--ds-amber, #f59e0b);
+        --rts-on-track: var(--ds-green, #059669);
+        --rts-ahead: var(--ds-green, #059669);
+        --rts-achieved: var(--ds-green, #059669);
+        --rts-open: var(--border);
+    }
+    /* The header with the process buttons and the live status stays in view while the page scrolls under it. */
+    .rts-page .rts-sticky { position: sticky; top: 0; z-index: 30; background: var(--bg, #f4f6fb) !important; }
+    .rts-page textarea { box-sizing: border-box; }
 </style>
