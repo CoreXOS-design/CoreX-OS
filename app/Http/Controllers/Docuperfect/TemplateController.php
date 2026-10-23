@@ -184,6 +184,14 @@ class TemplateController extends Controller
             $draft = null;
         }
 
+        // A reused draft seeded before signing_parties was part of the seed has no such key,
+        // and the builder would show its default roles over the template's real ones.
+        if ($draft !== null && !array_key_exists('signing_parties', $draft->settings ?? [])) {
+            $draft->update(['settings' => array_merge($draft->settings ?? [], [
+                'signing_parties' => $template->signing_parties,
+            ])]);
+        }
+
         if (!$draft) {
             $draft = CdsDraft::create([
                 'user_id' => auth()->id(),
@@ -198,6 +206,12 @@ class TemplateController extends Controller
                     'party_mode' => $template->party_mode,
                     'allowed_delivery_modes' => $template->allowed_delivery_modes,
                     'security_tier' => $template->security_tier,
+                    // Every key the builder POSTs on save (cds-builder.blade.php
+                    // _doSaveDraft settings{}) must be seeded here too, or the
+                    // reopened builder shows its defaults instead of what was
+                    // saved. signing_parties was the one missing: a saved
+                    // Lessee/Tenant tick came back unticked on every reload.
+                    'signing_parties' => $template->signing_parties,
                     'category' => $template->category,
                     'document_type_id' => $template->document_type_id,
                 ],
