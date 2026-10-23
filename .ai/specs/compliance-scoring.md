@@ -1,6 +1,6 @@
 # Spec: Compliance Score (score, warn, inform — never block)
 
-**Status:** SPEC ONLY — drafted 2026-10-23 for Johan's review. No code has been written. Not buildable until Johan approves (Spec-First rule).
+**Status:** APPROVED by Johan 2026-10-23. Build starts after the weekly usage reset (Sat). Rules marked † stay inactive until the section number is verified against the current consolidated Act in the Legal Library. (Drafted 2026-10-23; no code written yet.)
 **Branch:** `spec-compliance-scoring-2026-10-23` (cut from `origin/QA1` at `1f03acac7`).
 **Input:** `.ai/audits/2026-10-22-legal-compliance-map.md` on `origin/audit-legal-compliance-2026-10-22` (93 rows: 16 Covered / 54 Partial / 19 Missing / 4 Not CoreX's job). Acts library source: `/mnt/HC_Volume_103099143/corex-knowledge/acts/INDEX.md` (70 files, 78 MB, downloaded 22 Oct, nothing loaded into any database yet).
 **Related specs:** `compliance.md`, `ESIGN-CANON.md` §7, `ppra-inspection-pack.md`, `agency-onboarding-setup.md` §6.1, `corex-domain-events-spec.md`.
@@ -100,7 +100,16 @@ There is **no generic audit table**. Three single-purpose patterns exist, all in
 - **Changing agency settings automatically.** CoreX only points at the fix.
 - Building any of the 22 missing features in §7.3 (each gets its own spec; a rule is "not yet scored" until its feature ships).
 - Re-wording any agency-owned document (leases, mandates, OTPs are the agency's text).
-- **Existing hard stops are not touched by this spec** — they predate the ruling and were set by Johan's earlier rulings: the external signer's FICA page (`SigningController.php:157`), the opt-in `require_fica_before_authorisation`, marketing readiness (`MarketingReadinessService`), exact-sanctions-hit lock (`FicaController.php:457-468`†), auction publish FFC gate (`AuctionPublishGate.php:61-88`†), outreach send-window and opt-out blocks, the retention floor of 5 years (`ContactGovernanceController.php:~72-74`), the expiry-notice clamp 40–80 (`LeaseSettingsController.php:127`†). They show on the screen as scored rules; whether any should become warn-only is **Q1**.
+- **Existing hard stops are not touched by this spec** — they predate the ruling and were set by Johan's earlier rulings: the external signer's FICA page (`SigningController.php:157`), the opt-in `require_fica_before_authorisation`, marketing readiness (`MarketingReadinessService`), exact-sanctions-hit lock (`FicaController.php:457-468`†), auction publish FFC gate (`AuctionPublishGate.php:61-88`†), outreach send-window and opt-out blocks, the retention floor of 5 years (`ContactGovernanceController.php:~72-74`), the expiry-notice clamp 40–80 (`LeaseSettingsController.php:127`†). They show on the screen as scored rules. Johan's Q1 ruling (23 Oct 2026) is recorded in the subsection below.
+
+### Hard stops (legal musts) — Johan's Q1 ruling, 2026-10-23
+Four existing hard stops **STAY as blocks**, because they are legal musts, not agency choices:
+1. An outside signer without FICA.
+2. Marketing with no mandate.
+3. An exact sanctions/TFS match.
+4. The 5-year retention floor.
+
+**Everything else in this spec is warn / score / inform — never block.** This spec adds no new stop. (The other pre-existing stops listed above — the opt-in `require_fica_before_authorisation`, the auction publish FFC gate, the outreach send-window/opt-out blocks and the expiry-notice clamp — are not part of the four-item ruling and are left untouched by this spec.)
 
 ## 4. Pillars, events, multi-agency
 
@@ -386,7 +395,7 @@ A rule's `section_ref` is **unverified** until the matching `legal_act_sections`
 - **CRUD floor:** results are system-computed (no create/edit/delete by users); acceptances are insert-only by law-of-the-ledger; the Legal Library has full CRUD (owner screen). Archive/restore applies to library records; results are append-only.
 
 ### 10.4 "Not yet scored" rules
-They are listed under the status filter "Not yet scored" with the feature name and **never count**. Whether agencies see that list at all is **Q2**; until Johan decides the screen shows only the count ("42 checks not yet active") on the Items tab footer and hides the rows.
+They are listed under the status filter "Not yet scored" with the feature name and **never count**. **Q2 ruling (Johan, 2026-10-23):** agencies see only the COUNT of checks pending a CoreX feature ("N further checks coming"), not the list — the rows are hidden from agency users. The CoreX super-admin sees the full list.
 
 ### 10.5 Reuse
 `x-list-header`, `x-corex-kpi-card`, `x-sort-header`, `x-pill`, `x-sticky-action-bar`, `layouts.corex`. Nothing new in the component library.
@@ -468,9 +477,9 @@ P1–P2 and P3–P4 can run in parallel lanes (two working lanes at a time). Fea
 
 ## 17. Reported, not changed (found while investigating)
 
-1. **Existing hard stops conflict with "never blocks"** — listed in §3; decision is Q1.
+1. **Existing hard stops conflict with "never blocks"** — listed in §3; resolved by Johan's Q1 ruling (four legal-must stops stay).
 2. **`KnowledgeController::destroy` deletes the stored file on "archive"** (`:119-124`) — contradicts soft-delete-only for recoverability.
-3. **Disclosure form cites PPA "Section 70"; the Act's disclosure-form section is 67** (§9.6).
+3. **Disclosure form cites PPA "Section 70"; the Act's disclosure-form section is 67** (§9.6). Open item: the sale disclosure form cites PPA "Section 70" — likely should be s67 (MDF); flagged for HFC's attorney, no change made.
 4. **RCR sidebar link hard-codes roles** (`corex-sidebar.blade.php:1836`).
 5. **Three FFC expiry sources can disagree** (`users.ffc_expiry_date`, the uploaded certificate, `AgentApplication.ffc_expiry`) — PPA-1 will use the roster's definition; unifying the sources is outside this spec.
 6. **QA1 database looks incomplete** (audit note): RMCP, sanctions, training, RCR, `properties`, `signature_*` tables returned "doesn't exist" on `corex_qa1` although migrations are recorded as run. Evaluators for those areas cannot be proved on QA1 until that is checked by whoever owns the QA1 database.
@@ -478,7 +487,11 @@ P1–P2 and P3–P4 can run in parallel lanes (two working lanes at a time). Fea
 
 ## 18. Open questions for Johan (business only)
 
-- **Q1 — Existing stops.** CoreX already stops in a few places (an outside signer who hasn't done FICA, marketing a property with no mandate, an exact sanctions match, auction publishing with a lapsed FFC, retention below 5 years). Under "never blocks", should any of these become warn-and-score too, or stay as they are? *Recommendation: leave them — you set them deliberately (including the 8 Oct FICA ruling) and they are the only places the system itself refuses; this spec adds none.*
-- **Q2 — Do agencies see what CoreX cannot yet check?** 42 of the 91 checks cannot be scored yet (for example the suspicious-transaction register). Listing them shows a paying agency — including the Cape Town agency — where CoreX has gaps. *Recommendation: show only the count ("42 checks not yet active") until each one is built, rather than naming them.*
+**Open items:** the sale disclosure form cites PPA "Section 70" — likely should be s67 (MDF); flagged for HFC's attorney, no change made.
+
+**Q1 and Q2 were RULED by Johan on 2026-10-23** (see §3 "Hard stops (legal musts)" and §10.4); the original questions are kept below for the record.
+
+- **Q1 — Existing stops (RULED — four legal-must stops stay as blocks).** CoreX already stops in a few places (an outside signer who hasn't done FICA, marketing a property with no mandate, an exact sanctions match, auction publishing with a lapsed FFC, retention below 5 years). Under "never blocks", should any of these become warn-and-score too, or stay as they are? *Recommendation: leave them — you set them deliberately (including the 8 Oct FICA ruling) and they are the only places the system itself refuses; this spec adds none.*
+- **Q2 — Do agencies see what CoreX cannot yet check? (RULED — agencies see the count only; CoreX super-admin sees the list.)** 42 of the 91 checks cannot be scored yet (for example the suspicious-transaction register). Listing them shows a paying agency — including the Cape Town agency — where CoreX has gaps. *Recommendation: show only the count ("42 checks not yet active") until each one is built, rather than naming them.*
 - **Q3 — One legal line on the screen?** The score is guidance, not legal advice. A single fixed footer line would protect CoreX but is the one piece of text on a screen you want free of text. *Recommendation: include it in the Legal Library pages, not on the score screen.*
 - Wording of the plain risk lines and the e-sign v2 warning is draft and needs your approval (and counsel's) before build; weights (Critical 10 / High 6 / Medium 3 / Low 1) are a starting point you can change later without a release.
