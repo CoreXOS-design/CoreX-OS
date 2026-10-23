@@ -2198,3 +2198,20 @@ Calculations (escalation in words, the service fee, net to owner) read the RAW n
 What is printed still reads back to the lease value: `LeaseAgreementValuesReader` parses `R 8,500.00`, `1 November 2026` and `10%` (pinned in the tests), so the change check and the renewal reader are unaffected.
 
 Tests: `LeaseSeedDisplayFormatsTest` (new - every type, raw stored record, bare/iso, round trip, raw deduction in the schedule, words kept as typed, the template detector incl. the stray-"R" cases); `LeaseSigningLauncherTest` (seeded values now the dressed ones; plain text-box agreement and an own-"R"/"%" agreement end to end). Not changed: `WebTemplateDataService` still hands a raw rental/date to templates that resolve from document details (a different path - the lease launcher does not use it for these fields).
+
+## Lease seeds find the wizard's box (23 Oct 2026, QA1 - Mega lease 2, template 82)
+
+The deposit on Mega's lease printed raw ("5500.00", no R, no comma) after the format fix. **Cause: a name drift, not a format bug.** The agency's map says `deposit` -> `deposit_amount`, which is the name the agency's own document prints (its `data-field`; what the field-map dropdown offers and what the change check reads back). The e-sign wizard names the same property-bound box `property_deposit_amount`, because `ESignWizardController::deriveBladeName()` has no `deposit_amount` entry (`WebTemplateDataService` and `TemplateController` have one - three copies of one table, one of them behind). The seed looked for an exact name, found none, and dropped the value without a word; the wizard's own auto-fill then put the raw deposit in.
+
+**Rule: a map name and the wizard's name for the same box meet in one place - `LeaseWizardFieldResolver::find()`.** Order, first hit wins: exact name; every non-word character made `_` (`property_address+suburb` for `property_address_suburb`); the `property_` prefix added or removed. An exact name always beats an alias. Signature/initial boxes are never targets. It serves the seed (`LeaseSigningLauncher::seedFieldValues`), the native-date-box check (`LeaseSeedPresentation`) and the set-up check.
+
+**Never silent.** A seed that still has no box is logged (`Lease agreement seed dropped…`, WARNING, field names listed). `LeaseAgreementTemplateGuard::statusFor()` now also returns `warnings`: one line per map entry (contact-side keys excepted) that points at a box the document does not have, "it will be left blank". A warning does not block preparing the lease - the rest of the agreement is still right - but it is no longer invisible. A template with no readable fields (scanned PDF) says nothing.
+
+**Map entries stay as the document names them.** Mega's `deposit` -> `deposit_amount` is correct; changing it to the wizard's name would make the change check read nothing (it looks the printed span up by the document's name).
+
+**No lease fee in CoreX.** Nothing on `leases`, `lease_agreement_terms`, the agency's rental settings or the property holds a lease (letting/placement) fee; the template's `lease_fee` box is only ever filled by hand. Closest existing things: the calculated `agent_service_fee` (rent x letting commission %, VAT only if the agency is VAT-registered) and an agency-specific text key typed on the capture screen (kept in `lease_agreement_terms.extra`). Whether a lease fee becomes a real term is Johan's call.
+
+Not changed (reported): `ESignWizardController::deriveBladeName()` is missing `deposit_amount`, `erf` and `unit_number` that the other two copies carry; it is a gated e-sign pipeline file, so it needs its own prompt and SigningView tests.
+
+Tests: `LeaseWizardFieldResolverTest` (new); `LeaseSigningLauncherTest` (deposit seeded through the alias, a dropped seed is logged, the set-up check warns without blocking).
+

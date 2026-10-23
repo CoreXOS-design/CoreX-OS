@@ -55,17 +55,9 @@ class LeaseSeedPresentation
     /** @param array<int|string,array<string,mixed>> $fields */
     private function isDateInput(array $fields, string $fieldName): bool
     {
-        $wanted = preg_replace('/[^a-zA-Z0-9_]/', '_', $fieldName);
-        foreach ($fields as $field) {
-            $name = (string) ($field['field_name'] ?? '');
-            if ($name !== $fieldName && preg_replace('/[^a-zA-Z0-9_]/', '_', $name) !== $wanted) {
-                continue;
-            }
+        $field = app(LeaseWizardFieldResolver::class)->find($fields, $fieldName);
 
-            return strtolower((string) ($field['type'] ?? $field['tag_type'] ?? '')) === 'date';
-        }
-
-        return false;
+        return $field !== null && strtolower((string) ($field['type'] ?? $field['tag_type'] ?? '')) === 'date';
     }
 
     /** The "R" is drawn by a `field-currency` class on the box, or written as a literal "R" right before it. */

@@ -148,27 +148,50 @@ class LeaseAgreementTemplateGuard
     }
 
     /**
-     * ready | needs_map | not_usable, with the reasons — what the set-up page shows as the row's chip.
+     * ready | needs_map | not_usable, with the reasons — what the set-up page shows as the row's chip - and the
+     * non-blocking warnings (a map entry pointing at a field the document does not have).
      *
-     * @return array{state: string, problems: array<int,string>}
+     * @return array{state: string, problems: array<int,string>, warnings: array<int,string>}
      */
     public function statusFor(RentalLeaseTemplate $row, int $agencyId): array
     {
         $template = $row->template;
         if (! $template) {
-            return ['state' => self::STATE_NOT_USABLE, 'problems' => ['The source document could not be found.']];
+            return ['state' => self::STATE_NOT_USABLE, 'problems' => ['The source document could not be found.'], 'warnings' => []];
         }
 
         $templateProblems = $this->problemsFor($template, $agencyId);
         if ($templateProblems !== []) {
-            return ['state' => self::STATE_NOT_USABLE, 'problems' => $templateProblems];
+            return ['state' => self::STATE_NOT_USABLE, 'problems' => $templateProblems, 'warnings' => []];
         }
 
         $mapProblems = $this->mapProblems((array) ($row->field_map ?? []));
 
-        return $mapProblems === []
-            ? ['state' => self::STATE_READY, 'problems' => []]
-            : ['state' => self::STATE_NEEDS_MAP, 'problems' => $mapProblems];
+        return [
+            'state' => $mapProblems === [] ? self::STATE_READY : self::STATE_NEEDS_MAP,
+            'problems' => $mapProblems,
+            'warnings' => $this->unresolvedWarnings($template, (array) ($row->field_map ?? [])),
+        ];
+    }
+
+    /**
+     * Map entries whose field is not on the document, in words. Not a blocker (the rest of the lease still prepares) -
+     * but never silent: a value seeded to a field that is not there goes nowhere.
+     *
+     * @return array<int, string>
+     */
+    public function unresolvedWarnings(Template $template, array $fieldMap): array
+    {
+        $registry = (array) config('lease-agreement-fields.fields', []);
+        $mapped = app(LeaseAgreementValuesReader::class)->normaliseMap($fieldMap);
+
+        $out = [];
+        foreach (app(LeaseWizardFieldResolver::class)->unresolved($template, $mapped) as $key => $field) {
+            $label = $mapped[$key]['label'] ?? ($registry[$key]['label'] ?? $key);
+            $out[] = "“{$label}” points at “{$field}”, which is not on this document - it will be left blank.";
+        }
+
+        return $out;
     }
 
     /**
