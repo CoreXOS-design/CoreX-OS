@@ -81,39 +81,7 @@
         </div>
     </div>
 
-    {{-- TV CODE CARD --}}
-    <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div class="flex items-center gap-3 flex-wrap">
-                <span class="ds-label">TV Code</span>
-                @if(isset($tvCode) && $tvCode)
-                    <span class="font-mono text-lg font-bold tracking-[0.3em] select-all" style="color: var(--text-primary);">{{ $tvCode->code }}</span>
-                    <span class="ds-badge ds-badge-success">Active</span>
-                @else
-                    <span class="text-sm" style="color: var(--text-muted);">No active code</span>
-                    <span class="ds-badge ds-badge-default">Inactive</span>
-                @endif
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-                @if(isset($tvCode) && $tvCode)
-                    <form method="POST" action="{{ route('bm.tv-code.generate') }}" class="inline">
-                        @csrf
-                        <button type="submit" class="corex-btn-outline">New Code</button>
-                    </form>
-                    <form method="POST" action="{{ route('bm.tv-code.revoke') }}" class="inline"
-                          onsubmit="return confirm('Revoke this code? TVs using it will stop working.')">
-                        @csrf
-                        <button type="submit" class="corex-btn-outline">Revoke</button>
-                    </form>
-                @else
-                    <form method="POST" action="{{ route('bm.tv-code.generate') }}" class="inline">
-                        @csrf
-                        <button type="submit" class="corex-btn-primary">Generate</button>
-                    </form>
-                @endif
-            </div>
-        </div>
-    </div>
+    {{-- The TV code card moved to Settings > TV Display (agency-tracker-rehome.md step 8). --}}
 
     {{-- EXPIRING MANDATES ALERT (§3.9 alert pattern) --}}
     @if($bmExpiringCount > 0)
@@ -466,18 +434,16 @@
                                                 <div class="text-xs" style="color: var(--text-muted);">Value target currently: <span class="font-bold">0</span></div>
                                             </div>
 
-                                            <form method="POST" action="{{ route('bm.performance.alignAgentToCompany') }}">
-                                                @csrf
-                                                <input type="hidden" name="period" value="{{ $r['period'] }}">
-                                                <input type="hidden" name="user_id" value="{{ (int)($u['user_id'] ?? 0) }}">
-                                                <button type="submit" class="corex-btn-primary whitespace-nowrap">Auto align</button>
-                                            </form>
+                                            {{-- Setting a missing target is done in Budgets & Targets now (this page only reports; agency-tracker-rehome.md step 7). --}}
+                                            @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.targets.index') && (auth()->user()?->hasPermission('road_to_sold.manage_targets') || auth()->user()?->hasPermission('road_to_sold.manage_settings')))
+                                            <a href="{{ route('road-to-sold.settings.targets.index', ['period' => $r['period']]) }}" class="corex-btn-outline whitespace-nowrap">Set target</a>
+                                            @endif
                                         </div>
                                     @endforeach
                                 </div>
 
                                 <div class="text-xs mt-2" style="color: var(--text-muted);">
-                                    "Set targets" will copy the agent's most recent non-zero targets into this period (safe default), then Projected Income updates immediately.
+                                    Set the missing targets in Budgets &amp; Targets, then Projected Income updates.
                                 </div>
                             </div>
                         @endif

@@ -151,9 +151,9 @@ final class AgencyScanFixesTest extends TestCase
     {
         $msgA = TvMessage::withoutAgencyStamping(fn () => TvMessage::create(['agency_id' => $this->agencyA->id, 'message' => 'A only message', 'is_enabled' => true]));
 
-        $this->actingAs($this->adminB)->get(route('admin.tv-messages'))->assertOk()->assertDontSee('A only message');
-        $this->actingAs($this->adminB)->post(route('admin.tv-messages.update', $msgA->id), ['message' => 'hijacked'])->assertNotFound();
-        $this->actingAs($this->adminB)->post(route('admin.tv-messages.delete', $msgA->id))->assertNotFound();
+        $this->actingAs($this->adminB)->get(route('corex.settings.tv-display.index'))->assertOk()->assertDontSee('A only message');
+        $this->actingAs($this->adminB)->post(route('corex.settings.tv-display.messages.update', $msgA->id), ['message' => 'hijacked'])->assertNotFound();
+        $this->actingAs($this->adminB)->post(route('corex.settings.tv-display.messages.archive', $msgA->id))->assertNotFound();
 
         $this->assertSame('A only message', DB::table('tv_messages')->where('id', $msgA->id)->value('message'));
         $this->assertNull(DB::table('tv_messages')->where('id', $msgA->id)->value('deleted_at'));
@@ -161,7 +161,7 @@ final class AgencyScanFixesTest extends TestCase
 
     public function test_tv_message_cannot_target_another_agencys_branch(): void
     {
-        $this->actingAs($this->adminB)->post(route('admin.tv-messages.store'), [
+        $this->actingAs($this->adminB)->post(route('corex.settings.tv-display.messages.store'), [
             'branch_id' => $this->branchA->id, 'message' => 'Planted on A TV',
         ])->assertSessionHasErrors('branch_id');
 

@@ -18,7 +18,9 @@ class MinionCaptureController extends Controller
 {
     private function agencyId(Request $r): int
     {
-        return (int) ($r->user()->agency_id ?? 0);
+        // effectiveAgencyId(): the agency the user is acting in (a platform owner switched into an agency, or a branch-based user),
+        // not the raw home column - which is null for them and would have read/written agency 0 (agency-tracker-rehome.md 10.1).
+        return (int) ($r->user()->effectiveAgencyId() ?? 0);
     }
 
     public function index(Request $request)
