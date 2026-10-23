@@ -112,6 +112,8 @@ final class BudgetsFollowUpReviewTest extends TestCase
         foreach ([[$this->north, 187500], [$this->south, 400000]] as [$b, $amount]) {
             $this->budgetRow(['level' => 'branch', 'branch_id' => $b->id, 'scope_key' => RtsBudget::keyForBranch($b->id), 'period' => '2026-10', 'requirement' => $amount]);
         }
+        // a leftover row that belongs to no branch (branch_id 0, the closed branch's) is never part of the sum
+        $this->budgetRow(['level' => 'branch', 'branch_id' => 0, 'scope_key' => RtsBudget::keyForBranch(0), 'period' => '2026-10', 'requirement' => 200000]);
         $svc = app(BudgetService::class);
 
         $d = $svc->agencyRequirementDetail($this->agency->id, '2026-10');
