@@ -114,18 +114,20 @@
         'worksheet.*',
         // 'agent.daily' + 'agent.daily.print' (the capture form) live under My Portal now; the summary stays here
         // until Road to Sold phase 3 replaces it (agency-tracker-rehome.md §14 step 3).
-        'agent.dashboard', 'agent.daily.summary*', 'agent.deals.*',
+        'agent.dashboard', 'agent.daily.summary*',
         'bm.performance*', 'bm.daily*', 'bm.listings*',
         'bm.worksheet.market*', 'bm.tv-messages*', 'bm.agent.performance*',
         'admin.performance', 'admin.agent.performance*', 'admin.branch.performance*',
         'admin.listings.*',
-        'admin.deals*', 'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
+        'admin.daily*', 'admin.targets*', 'admin.worksheet-market*',
         'admin.tv-messages*', 'admin.activity-mappings.*', 'admin.daily-activities.setup*',
         'admin.minion.*',
-        // Both links live in the Agency Tracker panel, so their routes must open it.
+        // The RCR link lives in the Agency Tracker panel, so its routes must open it.
         // 'corex.compliance.rcr.*' does NOT match the 'compliance.*' matcher below —
         // routeIs() globs the whole name, and this one is prefixed 'corex.'.
-        'deals-dr2.*', 'corex.compliance.rcr.*',
+        // (The deal register routes — deals-dr2.*, agent.deals.*, admin.deals* — moved to the
+        // Deals group; agency-tracker-rehome.md §14 step 6.)
+        'corex.compliance.rcr.*',
         'admin.expenses*',
         // 'tools.cma*' (not the exact 'tools.cma') so the Evaluation
         // Certificate sub-pages under it — tools.cma.evaluation.mine,
@@ -328,14 +330,20 @@
     )) {
         $activeGroup = 'settings';
     } elseif (request()->routeIs(
+        // Deals main menu (agency-tracker-rehome.md §8.2, Johan 20 Oct 2026): the register, My Deals,
+        // unfiled deal emails and every sub-page of them, plus the DR1 routes that still answer
+        // (settlement pages, until the settlement comparison is signed off)...
+        'deals-dr2.*',
+        'agent.deals.*',
+        'admin.deals*',
+        // ...and the four deal-settings doors at the bottom of the same menu.
         'deals-v2.suppliers.*',
         'deals-v2.pipeline.*',
         'admin.settings.deal-property-sync.*',
         'admin.settings.deal-distribution-rules.*',
         'admin.settings.document-distribution*'
     )) {
-        // Johan menu reorg — the four deal-register config doors live in one admin group.
-        $activeGroup = 'deal-register-settings';
+        $activeGroup = 'deals';
     } elseif (request()->routeIs('deals-v2.*') || request()->routeIs('admin.settings.deal-distribution-rules.*')) {
         $activeGroup = 'deals-v2';
     } elseif (request()->routeIs('admin.integrations.*')) {
@@ -1754,9 +1762,7 @@
                 @if(auth()->user()?->hasPermission('manage_targets') || auth()->user()?->hasPermission('manage_activity_mappings'))
                 <a href="{{ route('admin.daily-activities.setup') }}" class="corex-nav-subitem {{ request()->routeIs('admin.daily-activities.setup*') ? 'active' : '' }}">Setup</a>
                 @endif
-                @permission('view_deals')
-                <a href="{{ route('agent.deals.index') }}" class="corex-nav-subitem {{ request()->routeIs('agent.deals.*') ? 'active' : '' }}">My Deals</a>
-                @endpermission
+                {{-- My Deals moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 @endpermission
 
                 {{-- Branch Manager section (view branch stats) --}}
@@ -1768,14 +1774,7 @@
                 @permission('access_listing_stock')
                 <a href="{{ route('bm.listings') }}" class="corex-nav-subitem {{ request()->routeIs('bm.listings*') ? 'active' : '' }}">Branch Listing Stock</a>
                 @endpermission
-                @permission('view_deals')
-                @permission('create_deals')
-                <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                @endpermission
-                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
-                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
-                @endif
-                @endpermission
+                {{-- Deal Register (old + DR2) moved to the Deals main menu (agency-tracker-rehome.md §8.2, step 6). --}}
                 {{-- Branch Manager section ends here (matches the section's own opening
                      comment above) — permission-block fix, 2026-08-22. Previously the
                      matching @endpermission for view_branch_stats did not appear until
@@ -1803,35 +1802,7 @@
                      under Compliance — left alone, out of this task's stated scope,
                      flagged to Johan separately rather than removed silently. --}}
 
-                {{-- CX-109 (Johan, 2026-08-20) — Unfiled Emails, DR2's primary email-filing workflow --}}
-                @permission('view_deals')
-                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
-                    @php
-                        $unfiledEmailsCount = 0;
-                        try {
-                            $ufAgencyId = auth()->user()?->effectiveAgencyId();
-                            if ($ufAgencyId) {
-                                $unfiledEmailsCount = \App\Models\Communications\Communication::where('agency_id', $ufAgencyId)
-                                    ->where('channel', 'email')
-                                    ->whereNotExists(function ($q) {
-                                        $q->selectRaw('1')->from('communication_links')
-                                            ->whereColumn('communication_links.communication_id', 'communications.id')
-                                            ->where('communication_links.linkable_type', \App\Models\DealV2\DealV2::class)
-                                            ->whereNull('communication_links.deleted_at');
-                                    })->count();
-                            }
-                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
-                    @endphp
-                    <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
-                       class="corex-nav-subitem {{ request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}"
-                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-                        <span>Deal Register Unfiled Emails</span>
-                        @if($unfiledEmailsCount > 0)
-                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $unfiledEmailsCount > 99 ? '99+' : $unfiledEmailsCount }}</span>
-                        @endif
-                    </a>
-                @endif
-                @endpermission
+                {{-- Unfiled Emails moved to the Deals main menu as "Unfiled deal emails" (agency-tracker-rehome.md §8.2, step 6). --}}
 
                 @if(auth()->user() && in_array((string) auth()->user()->role, ['admin', 'super_admin', 'branch_manager', 'principal'], true) && \Illuminate\Support\Facades\Route::has('corex.compliance.rcr.index'))
                     @php
@@ -1936,14 +1907,7 @@
                 @endif
                 @endif
                 @endpermission
-                @permission('view_deals')
-                @permission('create_deals')
-                <a href="{{ route('admin.deals') }}" class="corex-nav-subitem {{ request()->routeIs('admin.deals*') ? 'active' : '' }}">Deal Register</a>
-                @endpermission
-                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
-                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*') ? 'active' : '' }}">Deal Register (DR2)</a>
-                @endif
-                @endpermission
+                {{-- The two duplicate admin copies of the Deal Register were removed (agency-tracker-rehome.md §8.2, step 6). --}}
                 @permission('view_listings')
                 {{-- HIDDEN 2026-08-24 (Johan, quick wins) — menu-only hide, legacy/pre-CoreX
                      screen; route + permission gate left fully live. Reversible: delete the
@@ -2020,6 +1984,113 @@
         </div>
         @endpermission
         @endfeature{{-- agency-tracker --}}
+
+        {{-- ═══════════════════════════════════════════
+             DEALS (expandable group) — agency-tracker-rehome.md §8.2, step 6 (Johan, 20 Oct 2026).
+             Deal Register (the former DR2), My Deals, Unfiled deal emails, and — at the bottom,
+             admin-only — Deal settings. Deals is a CORE pillar, so nothing here sits in an @feature
+             wrap (a core key is not a switch); the links are exempted by route in
+             SidebarFeatureCoverage::CORE_ROUTES instead. The old Deal Register (DR1) has no entry:
+             its URLs redirect to the Deal Register.
+             ═══════════════════════════════════════════ --}}
+        @if($user && $user->hasAnyPermission(['view_deals', 'deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
+        <div>
+            <button type="button" @click="push('deals')"
+                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deals' ? 'active' : '' }}">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z" />
+                </svg>
+                <span>Deals</span>
+                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
+            </button>
+
+            <div class="corex-nav-panel {{ $activeGroup === 'deals' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('deals') }">
+                <button type="button" @click="pop()" class="corex-nav-back">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
+                    <span>Back</span>
+                </button>
+                <div class="corex-nav-panel-title">Deals</div>
+
+                {{-- 1. Deal Register — the former DR2 (route names and /deals-dr2 URLs unchanged). The settlement
+                     pages of the old register (admin.deals.settle*) still answer until the settlement comparison is
+                     signed off, so they highlight here too. --}}
+                @permission('view_deals')
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
+                <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*', 'admin.deals*') && !request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}">Deal Register</a>
+                @endif
+                @endpermission
+
+                {{-- 2. My Deals — same gate as before the move (own stats + view deals). --}}
+                @permission('view_own_stats')
+                @permission('view_deals')
+                <a href="{{ route('agent.deals.index') }}" class="corex-nav-subitem {{ request()->routeIs('agent.deals.*') ? 'active' : '' }}">My Deals</a>
+                @endpermission
+                @endpermission
+
+                {{-- 3. Unfiled deal emails (with its count badge) --}}
+                @permission('view_deals')
+                {{-- CX-109 (Johan, 2026-08-20) — the email-filing workflow; label "Unfiled deal emails" since the Deals menu (Johan, 20 Oct 2026). --}}
+                @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
+                    @php
+                        $unfiledEmailsCount = 0;
+                        try {
+                            $ufAgencyId = auth()->user()?->effectiveAgencyId();
+                            if ($ufAgencyId) {
+                                $unfiledEmailsCount = \App\Models\Communications\Communication::where('agency_id', $ufAgencyId)
+                                    ->where('channel', 'email')
+                                    ->whereNotExists(function ($q) {
+                                        $q->selectRaw('1')->from('communication_links')
+                                            ->whereColumn('communication_links.communication_id', 'communications.id')
+                                            ->where('communication_links.linkable_type', \App\Models\DealV2\DealV2::class)
+                                            ->whereNull('communication_links.deleted_at');
+                                    })->count();
+                            }
+                        } catch (\Throwable $e) { /* sidebar must never blow up */ }
+                    @endphp
+                    <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
+                       class="corex-nav-subitem {{ request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}"
+                       style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+                        <span>Unfiled deal emails</span>
+                        @if($unfiledEmailsCount > 0)
+                            <span style="display:inline-block;min-width:18px;padding:1px 6px;background:#dc2626;color:#fff;border-radius:99px;font-size:0.625rem;font-weight:700;text-align:center;line-height:1.4;">{{ $unfiledEmailsCount > 99 ? '99+' : $unfiledEmailsCount }}</span>
+                        @endif
+                    </a>
+                @endif
+                @endpermission
+
+                {{-- 4. Deal settings — bottom of the menu, admin-only. Each door keeps its OWN page permission (and its
+                     route middleware, so a direct URL is refused for anyone without it); the block shows only when the
+                     user can open at least one door. By default only admin / super_admin hold these keys. --}}
+                @if($user && $user->hasAnyPermission(['deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
+                <div class="corex-nav-sublabel">Deal settings</div>
+
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
+                @endif
+                @endpermission
+
+                @permission('deals_v2.manage_pipeline')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
+                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">Deal Pipelines</a>
+                @endif
+                @endpermission
+
+                @permission('access_settings')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
+                <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">Deal Property Sync</a>
+                @endif
+                @endpermission
+
+                @permission('deals_v2.manage_distribution_rules')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+                <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
+                @endif
+                @endpermission
+                @endif
+            </div>
+        </div>
+        @endif
 
         {{-- ═══════════════════════════════════════════
              DOCUMENTS (DocuPerfect — expandable group)
@@ -3032,63 +3103,8 @@
         </div>
         @endif
 
-        {{-- Johan menu reorg (2026-07-12) — DEAL REGISTER SETTINGS group. The four
-             deal-register config doors (Supplier Directory, Deal Pipelines, Deal
-             Property Sync, Deal Document Distribution) were scattered as flat items
-             after Settings — themselves salvaged from the retired deals-v2 group
-             (AT-219). Collected here into ONE admin corner as a slide-panel group.
-             Routes are UNCHANGED — old bookmarks still resolve; only the nav home
-             moved. Each sub-item keeps its OWN page permission (sync = access_settings,
-             the rest = their deals_v2.* gate); the group shows if the user can open at
-             least one door. Order is Johan's. --}}
-        @if($user && $user->hasAnyPermission(['deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
-        <div>
-            <button type="button" @click="push('deal-register-settings')"
-                    class="corex-nav-item corex-nav-group-toggle {{ $activeGroup === 'deal-register-settings' ? 'active' : '' }}">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                </svg>
-                <span>Deal Register Settings</span>
-                <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
-            </button>
-
-            <div class="corex-nav-panel {{ $activeGroup === 'deal-register-settings' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('deal-register-settings') }">
-                <button type="button" @click="pop()" class="corex-nav-back">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
-                    <span>Back</span>
-                </button>
-                <div class="corex-nav-panel-title">Deal Register Settings</div>
-
-                {{-- 1. Supplier Directory --}}
-                @permission('deals_v2.manage_suppliers')
-                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
-                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
-                @endif
-                @endpermission
-
-                {{-- 2. Deal Pipelines (pipeline setup) --}}
-                @permission('deals_v2.manage_pipeline')
-                @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
-                <a href="{{ route('deals-v2.pipeline.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.pipeline.*') ? 'active' : '' }}">Deal Pipelines</a>
-                @endif
-                @endpermission
-
-                {{-- 3. Deal Property Sync --}}
-                @permission('access_settings')
-                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-property-sync.index'))
-                <a href="{{ route('admin.settings.deal-property-sync.index') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.deal-property-sync.*') ? 'active' : '' }}">Deal Property Sync</a>
-                @endif
-                @endpermission
-
-                {{-- 4. Deal Document Distribution (the distribution-rules matrix) --}}
-                @permission('deals_v2.manage_distribution_rules')
-                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
-                <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
-                @endif
-                @endpermission
-            </div>
-        </div>
-        @endif
+        {{-- The Deal Register Settings group (Supplier Directory, Deal Pipelines, Deal Property Sync, Deal Document Distribution)
+             now sits at the bottom of the Deals main menu, admin-only (agency-tracker-rehome.md §8.4, step 6). Routes unchanged. --}}
 
         {{-- AT-161 — "Email Setup" moved to Communications → Email (as "Email Capture
              Setup"). URL unchanged (settings/email-setup); only the nav home moved. --}}

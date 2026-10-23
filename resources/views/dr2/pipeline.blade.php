@@ -139,7 +139,7 @@
                 <a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">Timeline</a>
                 <a href="{{ route('deals-dr2.pipeline.list', $deal) }}" style="padding:.4rem .8rem;color:#374151;text-decoration:none;">List</a>
             </div>
-            <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary">← DR2 Register</a>
+            <a href="{{ route('deals-dr2.index') }}" class="corex-btn-secondary">← Deal Register</a>
         </div>
     </div>
 

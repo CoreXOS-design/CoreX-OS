@@ -3,25 +3,25 @@
     "flags": [
       "NO_ITEM"
     ],
-    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) \u2014 no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any \u2014 the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
   },
   "ppra-employment-letters.index": {
     "flags": [
       "NO_ITEM"
     ],
-    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) \u2014 no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any \u2014 the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
   },
   "ppra-employment-letters.show": {
     "flags": [
       "NO_ITEM"
     ],
-    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) — no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any — the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (routes/web.php, PpraEmploymentLetterController) \u2014 no sidebar link exists for it yet. Pre-existing, unrelated to the 2026-10-05 HR menu reorg (which only moved the separate admin.ppra-employment-letters.* register into HR -> Documents): this is cc2's own concurrent PPRA screens work, still in flight, and its own nav entry (if any \u2014 the task note says agents reach their own letter from My Portal) is that lane's scope, not this one's."
   },
   "ppra-employment-letters.signed-copy": {
     "flags": [
       "NO_ITEM"
     ],
-    "reason": "Agent-facing My Portal self-service PPRA letter flow (wet-ink signed-copy download, spec §20) — a file stream reached from the letter row/page in My Portal, no sidebar link by design. Same family as ppra-employment-letters.download."
+    "reason": "Agent-facing My Portal self-service PPRA letter flow (wet-ink signed-copy download, spec \u00a720) \u2014 a file stream reached from the letter row/page in My Portal, no sidebar link by design. Same family as ppra-employment-letters.download."
   },
   "admin.activity-mappings.index": {
     "flags": [
@@ -135,14 +135,14 @@
     "flags": [
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "admin.settings.deal-property-sync.index": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "admin.settings.document-types.index": {
     "flags": [
@@ -652,19 +652,19 @@
     "flags": [
       "MULTI_MATCH"
     ],
-    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+    "reason": "The Deal Register entry and the Unfiled deal emails entry both match the deals-dr2.* prefix on this sub-page (the audit cannot read the 'not unfiled-emails' exclusion on the Deal Register entry). Cosmetic double-highlight inside the same (correct) Deals panel."
   },
   "deals-dr2.unfiled-emails.index": {
     "flags": [
       "MULTI_MATCH"
     ],
-    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+    "reason": "The Deal Register entry and the Unfiled deal emails entry both match the deals-dr2.* prefix on this sub-page (the audit cannot read the 'not unfiled-emails' exclusion on the Deal Register entry). Cosmetic double-highlight inside the same (correct) Deals panel."
   },
   "deals-dr2.unfiled-emails.suggest": {
     "flags": [
       "MULTI_MATCH"
     ],
-    "reason": "Multiple Deal Register (DR2) sidebar entries share the deals-dr2.* prefix and light up together on this sub-page. Cosmetic double-highlight within the same (correct) Agency Tracker panel."
+    "reason": "The Deal Register entry and the Unfiled deal emails entry both match the deals-dr2.* prefix on this sub-page (the audit cannot read the 'not unfiled-emails' exclusion on the Deal Register entry). Cosmetic double-highlight inside the same (correct) Deals panel."
   },
   "deals-v2.create-wizard": {
     "flags": [
@@ -701,28 +701,28 @@
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.pipeline.edit": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.pipeline.index": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.pipeline.master": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.search.contacts": {
     "flags": [
@@ -783,21 +783,21 @@
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.suppliers.search": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Duplicate sidebar links: this route has a link in BOTH the 'Deals' panel (pre-reorg) and the 'Deal Register Settings' panel (post Johan reorg comment at corex-sidebar.blade.php ~line 268). The resolver opens Deal Register Settings. Flagged for Johan: decide whether the old Deals-panel link should be removed. Not fixed here (Step 2 forbids moving/removing menu items without explicit authorization)."
+    "reason": "Duplicate sidebar links: the route is linked from the retired prototype 'Deals' panel (disabled with @if(false) and kept so it can be restored) AND from the Deal settings list at the bottom of the Deals main menu (step 6, 23 Oct 2026; it was the 'Deal Register Settings' panel before). The resolver opens the Deals main menu, which is the right place; the disabled copy is the only cause of the flag. Nothing to fix until the disabled panel is deleted."
   },
   "deals-v2.suppliers.trade-picker": {
     "flags": [
       "MULTI_MATCH",
       "WRONG_GROUP"
     ],
-    "reason": "Not a screen: the JSON that fills the 'pick a contractor for this trade' popup on the fault / work order pages (14 Oct 2026). It sits in the Supplier Directory route family, so it inherits the same accepted duplicate-link cause as deals-v2.suppliers.index and .search (links in the Deals panel and the Deal Register Settings panel); nobody navigates to it."
+    "reason": "Not a screen: the JSON that fills the 'pick a contractor for this trade' popup on the fault / work order pages (14 Oct 2026). It sits in the Supplier Directory route family, so it inherits the same accepted duplicate-link cause as deals-v2.suppliers.index and .search (links in the disabled prototype Deals panel and the Deal settings list of the Deals main menu); nobody navigates to it."
   },
   "deposit-interest-calculator.show": {
     "flags": [

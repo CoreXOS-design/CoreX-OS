@@ -186,18 +186,30 @@ class Dr2CaptureTest extends TestCase
         $this->assertSame($before, DB::table('deals')->count(), 'No null-branch DR2 deal may be created.');
     }
 
-    public function test_dr1_capture_is_untouched_and_coexists(): void
+    public function test_the_old_register_urls_redirect_to_the_deal_register_and_its_route_names_still_resolve(): void
     {
-        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-coexist');
+        [$agency, $branch, $admin, $l, $s] = $this->scaffold('dr2-oldurls');
 
-        // DR1's own route still stores to the same table — proof the rebuild left DR1 intact.
-        $this->actingAs($admin)
-            ->post(route('admin.deals.store'), $this->payload($l->id, $s->id, ['branch_id' => $branch->id]))
-            ->assertSessionHasNoErrors();
+        // The old Deal Register (DR1) is retired (agency-tracker-rehome.md 8.3): every old route NAME still
+        // resolves and every old URL answers with a redirect to its twin in the Deal Register - never a 404.
+        $this->actingAs($admin)->get(route('admin.deals', ['status' => 'Pending', 'period' => '2026-06']))
+            ->assertStatus(301)->assertRedirect(route('deals-dr2.index', ['status' => 'Pending', 'period' => '2026-06']));
+        $this->actingAs($admin)->get(route('admin.deals.create'))
+            ->assertStatus(301)->assertRedirect(route('deals-dr2.create'));
+        $this->actingAs($admin)->get(route('admin.deals.edit', 41))
+            ->assertStatus(301)->assertRedirect(route('deals-dr2.edit', 41));
+        $this->actingAs($admin)->get(route('admin.deals.log', 41))
+            ->assertStatus(301)->assertRedirect(route('deals-dr2.log', 41));
 
-        $this->assertDatabaseHas('deals', [
-            'agency_id' => $agency->id, 'branch_id' => $branch->id, 'period' => '2026-06',
-        ]);
+        // A form left open from before the move still lands: POST keeps its method and body (308).
+        $this->actingAs($admin)->post(route('admin.deals.store'), $this->payload($l->id, $s->id, ['branch_id' => $branch->id]))
+            ->assertStatus(308)->assertRedirect(route('deals-dr2.store'));
+        $this->actingAs($admin)->post(route('admin.deals.update', 41))
+            ->assertStatus(308)->assertRedirect(route('deals-dr2.update', 41));
+        $this->actingAs($admin)->post(route('admin.deals.quickUpdate', 41))
+            ->assertStatus(308)->assertRedirect(route('deals-dr2.quickUpdate', 41));
+        $this->actingAs($admin)->post(route('admin.deals.remark', 41))
+            ->assertStatus(308)->assertRedirect(route('deals-dr2.remark', 41));
     }
 
     /**

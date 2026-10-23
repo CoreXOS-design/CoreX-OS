@@ -822,7 +822,7 @@ class ContactMatchController extends Controller
             return $deal;
         });
 
-        return redirect()->route('admin.deals.edit', $deal->id)
+        return redirect()->route('deals-dr2.edit', $deal->id)
             ->with('success', 'Deal created from match. Complete the missing details.');
     }
 

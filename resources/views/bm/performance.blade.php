@@ -164,7 +164,7 @@
     <div class="space-y-3">
         <h2 class="ds-section-header">Deal Status</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <a href="/admin/deals?status=Declined&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Declined&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-status-declined h-full">
                     <div class="ds-label mb-2">Declined</div>
                     <div class="grid grid-cols-2 gap-3">
@@ -180,7 +180,7 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Pending&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Pending&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-status-pending h-full">
                     <div class="ds-label mb-2">Pending</div>
                     <div class="grid grid-cols-2 gap-3">
@@ -196,7 +196,7 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Granted&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Granted&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-status-granted h-full">
                     <div class="ds-label mb-2">Granted</div>
                     <div class="grid grid-cols-2 gap-3">
@@ -212,7 +212,7 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Registered&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Registered&period={{ $r['period'] }}&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-status-registered h-full">
                     <div class="ds-label mb-2">Registered</div>
                     <div class="grid grid-cols-2 gap-3">
@@ -231,7 +231,7 @@
 
         <h2 class="ds-section-header">Outstanding Commission</h2>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <a href="/admin/deals?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Pending&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-money-pending h-full">
                     <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">
@@ -240,7 +240,7 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Granted&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-money-granted h-full">
                     <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">
@@ -252,7 +252,7 @@
                 </div>
             </a>
 
-            <a href="/admin/deals?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
+            <a href="/deals-dr2?status=Registered&commission_status=Not%20Paid&branch_id={{ (int)($r['branch_id'] ?? 0) }}" class="block h-full">
                 <div class="ds-status-card ds-money-registered h-full">
                     <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
                     <div class="ds-value-xl">

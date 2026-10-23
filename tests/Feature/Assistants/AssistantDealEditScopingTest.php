@@ -23,7 +23,7 @@ use Tests\TestCase;
  * WHY THIS FILE EXISTS. Deal edits were the one mutation surface with no per-record guard:
  * DealController::update/quickUpdate/edit/settle checked only the permission KEY, and
  * Deal::scopeVisibleTo() is a LOCAL scope that never runs on route-model binding. So list
- * visibility was correctly scoped while a hand-typed /admin/deals/{id}/edit opened ANY deal in
+ * visibility was correctly scoped while a hand-typed /deals-dr2/{id}/edit (formerly /admin/deals/{id}/edit) opened ANY deal in
  * the agency — an assistant could edit another agent's deal, and an 'own'-scope agent a
  * colleague's. AuthorizesDealAccess closes it, mirroring AuthorizesPropertyAccess and the exact
  * membership rules of scopeVisibleTo() so LIST and OPEN can never disagree.
@@ -67,8 +67,8 @@ final class AssistantDealEditScopingTest extends TestCase
         $this->dealA = $this->makeDeal($this->agentA->id);
         $this->dealB = $this->makeDeal($this->agentB->id);
 
-        // Both agents are 'own'-scope on deals, and can reach the edit surface.
-        foreach (['create_deals', 'deals.edit'] as $key) {
+        // Both agents are 'own'-scope on deals, and can reach the edit surface (the Deal Register's log route asks for view_deals as well).
+        foreach (['view_deals', 'create_deals', 'deals.edit'] as $key) {
             $this->grantRole($key);
         }
         $this->grantRole('deals.view', 'own'); // getDataScope('deals') reads deals.view's scope
@@ -84,17 +84,17 @@ final class AssistantDealEditScopingTest extends TestCase
     {
         // agentA owns dealA → allowed.
         $this->actingAs($this->agentA)
-            ->get(route('admin.deals.edit', $this->dealA))
+            ->get(route('deals-dr2.edit', $this->dealA))
             ->assertOk();
 
         // agentA does NOT own dealB (same agency + branch, so binding resolves it) → 403, not 404.
         $this->actingAs($this->agentA)
-            ->get(route('admin.deals.edit', $this->dealB))
+            ->get(route('deals-dr2.edit', $this->dealB))
             ->assertForbidden();
 
         // ...and the mutation path is guarded too, not just the edit form.
         $this->actingAs($this->agentA)
-            ->post(route('admin.deals.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
+            ->post(route('deals-dr2.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
             ->assertForbidden();
     }
 
@@ -104,7 +104,7 @@ final class AssistantDealEditScopingTest extends TestCase
      */
     public function test_an_assistant_can_work_their_agents_deal_but_not_another_agents(): void
     {
-        foreach (['create_deals', 'deals.edit'] as $key) {
+        foreach (['view_deals', 'create_deals', 'deals.edit'] as $key) {
             $this->grantAssistant($key);
         }
         $this->grantAssistant('deals.view', 'own');
@@ -112,17 +112,17 @@ final class AssistantDealEditScopingTest extends TestCase
 
         // agentA's deal — the assistant's whole job.
         $this->actingAs($this->assistant)
-            ->get(route('admin.deals.edit', $this->dealA))
+            ->get(route('deals-dr2.edit', $this->dealA))
             ->assertOk();
 
         // agentB's deal — must be refused on read...
         $this->actingAs($this->assistant)
-            ->get(route('admin.deals.edit', $this->dealB))
+            ->get(route('deals-dr2.edit', $this->dealB))
             ->assertForbidden();
 
         // ...and on write.
         $this->actingAs($this->assistant)
-            ->post(route('admin.deals.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
+            ->post(route('deals-dr2.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
             ->assertForbidden();
     }
 
@@ -137,7 +137,7 @@ final class AssistantDealEditScopingTest extends TestCase
         // The agent is a branch-scope user on deals; the matrix hands over the full branch width.
         $this->grantRole('deals.view', 'branch');
         $this->grantAssistant('deals.view', 'branch');
-        foreach (['create_deals', 'deals.edit'] as $key) {
+        foreach (['view_deals', 'create_deals', 'deals.edit'] as $key) {
             $this->grantRole($key);
             $this->grantAssistant($key);
         }
@@ -146,27 +146,27 @@ final class AssistantDealEditScopingTest extends TestCase
         // The AGENT themselves CAN edit agentB's deal (same branch) — proves the assistant is
         // strictly narrower than the agent, not merely equal to them.
         $this->actingAs($this->agentA)
-            ->get(route('admin.deals.edit', $this->dealB))
+            ->get(route('deals-dr2.edit', $this->dealB))
             ->assertOk();
 
         // The ASSISTANT may VIEW agentB's deal (the read-only log) at the agent's branch breadth —
         // they see what their agent sees.
         $this->actingAs($this->assistant)
-            ->get(route('admin.deals.log', $this->dealB))
+            ->get(route('deals-dr2.log', $this->dealB))
             ->assertOk();
 
         // ...but may NOT EDIT it — pinned to the agent's own book: 403 on the edit form and the
         // mutation.
         $this->actingAs($this->assistant)
-            ->get(route('admin.deals.edit', $this->dealB))
+            ->get(route('deals-dr2.edit', $this->dealB))
             ->assertForbidden();
         $this->actingAs($this->assistant)
-            ->post(route('admin.deals.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
+            ->post(route('deals-dr2.quickUpdate', $this->dealB), ['accepted_status' => 'A'])
             ->assertForbidden();
 
         // ...and still edits the assistant's own agent's deal.
         $this->actingAs($this->assistant)
-            ->get(route('admin.deals.edit', $this->dealA))
+            ->get(route('deals-dr2.edit', $this->dealA))
             ->assertOk();
     }
 

@@ -892,23 +892,34 @@ Route::middleware('auth')->group(function () {
         ->middleware('permission:manage_targets')->name('admin.listing-targets.store');
 
     // Deals
-    Route::get('/admin/deals', [DealController::class, 'index'])->name('admin.deals')->middleware('permission:create_deals');
-    // Agent: My Deals (read-only, remarks via log)
+    // ── The OLD Deal Register (DR1) is retired (agency-tracker-rehome.md §8.3, step 6; Johan 20 Oct 2026). ──
+    // DR2 runs on the SAME `deals` table, so every old screen has a twin in the Deal Register (deals-dr2.*).
+    // Every old route NAME is kept (about 60 callers; none may throw RouteNotFoundException) and every old
+    // URL answers: GET = 301 to the Deal Register equivalent with the query string kept; POST = 308
+    // (method and body kept) so a form left open from before the move still lands. Nothing 404s.
+    // The settlement pages below are NOT redirected yet: the DR1/DR2 settlement comparison
+    // (.ai/audits/2026-10-23-deal-settlement-dr1-vs-dr2.md) is money and waits for Johan's sign-off (answer 10).
+    Route::get('/admin/deals', fn (\Illuminate\Http\Request $request) => redirect()->route('deals-dr2.index', $request->query(), 301))
+        ->name('admin.deals');
+    Route::get('/admin/deals/create', fn (\Illuminate\Http\Request $request) => redirect()->route('deals-dr2.create', $request->query(), 301))
+        ->name('admin.deals.create');
+    Route::get('/admin/deals/{deal}/edit', fn (\Illuminate\Http\Request $request, $deal) => redirect()->route('deals-dr2.edit', ['deal' => $deal] + $request->query(), 301))
+        ->name('admin.deals.edit');
+    Route::get('/admin/deals/{deal}/log', fn (\Illuminate\Http\Request $request, $deal) => redirect()->route('deals-dr2.log', ['deal' => $deal] + $request->query(), 301))
+        ->name('admin.deals.log');
+    Route::post('/admin/deals', fn () => redirect()->route('deals-dr2.store', [], 308))
+        ->name('admin.deals.store');
+    Route::post('/admin/deals/{deal}', fn ($deal) => redirect()->route('deals-dr2.update', ['deal' => $deal], 308))
+        ->name('admin.deals.update');
+    Route::post('/admin/deals/{deal}/quick', fn ($deal) => redirect()->route('deals-dr2.quickUpdate', ['deal' => $deal], 308))
+        ->name('admin.deals.quickUpdate');
+    Route::post('/admin/deals/{deal}/remark', fn ($deal) => redirect()->route('deals-dr2.remark', ['deal' => $deal], 308))
+        ->name('admin.deals.remark');
+
+    // Agent: My Deals (read-only, remarks via log) — its menu entry now sits in the Deals main menu.
     Route::get('/agent/deals', [DealRegisterController::class, 'index'])->name('agent.deals.index')->middleware('permission:view_deals');
     Route::get('/agent/deals/{deal}/log', [DealRegisterController::class, 'log'])->name('agent.deals.log')->middleware('permission:view_deals');
     Route::post('/agent/deals/{deal}/remark', [DealRegisterController::class, 'addRemark'])->name('agent.deals.remark')->middleware('permission:view_deals');
-
-
-    Route::get('/admin/deals/create', [DealController::class, 'create'])->name('admin.deals.create')->middleware('permission:create_deals');
-
-    Route::post('/admin/deals', [DealController::class, 'store'])->name('admin.deals.store')->middleware('permission:create_deals');
-
-    Route::get('/admin/deals/{deal}/edit', [DealController::class, 'edit'])->name('admin.deals.edit')->middleware('permission:create_deals');
-    Route::get('/admin/deals/{deal}/log', [DealController::class, 'log'])->name('admin.deals.log')->middleware('permission:create_deals');
-    Route::post('/admin/deals/{deal}/remark', [DealController::class, 'addRemark'])->name('admin.deals.remark')->middleware('permission:create_deals');
-
-    Route::post('/admin/deals/{deal}', [DealController::class, 'update'])->name('admin.deals.update')->middleware('permission:create_deals');
-    Route::post('/admin/deals/{deal}/quick', [DealController::class, 'quickUpdate'])->name('admin.deals.quickUpdate')->middleware('permission:create_deals');
 
     // Deal Settlement (Per-deal Pay screen)
     Route::get('/admin/deals/{deal}/settle', [DealController::class, 'settle'])

@@ -235,7 +235,7 @@
         </form>
       @endif
       <div class="toggle"><a href="{{ route('deals-dr2.pipeline.timeline', $deal) }}">Timeline</a><span class="on">List</span></div>
-      <a class="back" href="{{ route('deals-dr2.index') }}">← DR2 Register</a>
+      <a class="back" href="{{ route('deals-dr2.index') }}">← Deal Register</a>
     </div>
   </div>
 

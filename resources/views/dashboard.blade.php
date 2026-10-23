@@ -108,7 +108,7 @@
                         </div>
                     </a>
 
-                    <a href="{{ route('admin.deals') }}"
+                    <a href="{{ route('deals-dr2.index') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">
                         <div class="flex items-start justify-between">
                             <div>
@@ -212,7 +212,7 @@
                         </div>
                     </a>
 
-                    <a href="{{ route('admin.deals') }}"
+                    <a href="{{ route('deals-dr2.index') }}"
                        class="border rounded-lg shadow-sm hover:shadow p-5 transition" style="background:var(--surface); border-color:var(--border)">
                         <div class="flex items-start justify-between">
                             <div>

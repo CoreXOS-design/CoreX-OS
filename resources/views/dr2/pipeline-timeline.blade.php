@@ -252,7 +252,7 @@
     </div>
     <div style="display:flex;align-items:center;gap:12px;">
       <div class="toggle"><span class="on">Timeline</span><a href="{{ route('deals-dr2.pipeline.list', $deal) }}">List</a></div>
-      <a class="back" href="{{ route('deals-dr2.index') }}">← DR2 Register</a>
+      <a class="back" href="{{ route('deals-dr2.index') }}">← Deal Register</a>
     </div>
   </div>
 

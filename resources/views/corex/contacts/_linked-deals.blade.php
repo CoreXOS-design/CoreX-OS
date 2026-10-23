@@ -21,7 +21,7 @@
         @endphp
         <div class="flex items-center gap-3 px-4 py-3 rounded-md mb-2" style="background:var(--surface-2); border:1px solid var(--border);">
             <div class="flex-1 min-w-0">
-                <a href="{{ route('admin.deals.edit', $deal) }}"
+                <a href="{{ route('deals-dr2.edit', $deal) }}"
                    class="text-sm font-semibold no-underline hover:underline"
                    style="color:var(--text-primary);">{{ $deal->property_address ?: 'Deal #' . $deal->deal_no }}</a>
                 @if($role)

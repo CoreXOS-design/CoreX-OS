@@ -6,7 +6,7 @@
                 <p class="text-sm text-[var(--text-secondary)]">Quick access to admin tools and setup.</p>
             </div>
 
-            <a href="{{ route('admin.deals') }}"
+            <a href="{{ route('deals-dr2.index') }}"
                class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[var(--surface-2)] hover:bg-[var(--surface)] text-[var(--text-primary)] border border-[var(--border)]">
                 <span>Open Deal Register</span>
                 <span class="text-[var(--text-faint)]">→</span>
@@ -14,7 +14,7 @@
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            <a href="{{ route('admin.deals') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
+            <a href="{{ route('deals-dr2.index') }}" class="block rounded-2xl border border-[var(--border)] bg-[var(--surface)] hover:bg-[var(--surface-2)] p-5">
                 <div class="text-sm text-[var(--text-muted)]">Money</div>
                 <div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">Deal Register</div>
                 <div class="mt-2 text-sm text-[var(--text-muted)]">Capture & settle deals, track commission status.</div>

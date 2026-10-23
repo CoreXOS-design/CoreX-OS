@@ -4,7 +4,7 @@
     Usage (server-side — preferred for large datasets):
     <x-list-header
         title="Deal Register"
-        :form-action="route('admin.deals')"
+        :form-action="route('deals-dr2.index')"
         :paginator="$deals"
         search-placeholder="Search deals..."
     >
