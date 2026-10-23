@@ -338,6 +338,18 @@ class SettingsService
         return (int) $this->scalar('summary_red_below_pct');
     }
 
+    /** A task is "ahead" at or above this share of where the agent should be by now (v2 phase 2, spec 11.1). */
+    public function summaryAheadFromPct(): int
+    {
+        return (int) $this->scalar('summary_ahead_from_pct');
+    }
+
+    /** How many hours back a captured task may be dated (spec 10.5 "Backdated completion"). */
+    public function captureBackDateHours(): int
+    {
+        return (int) $this->scalar('capture_back_date_hours');
+    }
+
     /** green at/above the green line, red below the red line, amber between. */
     public function statusForPct(float $pct): string
     {

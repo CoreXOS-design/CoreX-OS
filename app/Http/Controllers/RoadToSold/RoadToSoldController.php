@@ -6,6 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\RoadToSold\RtsListItem;
 use App\Models\RoadToSold\RtsOutcomeDefinition as Def;
 use App\Services\RoadToSold\CallListService;
+use App\Services\RoadToSold\CompletionListService;
+use App\Services\RoadToSold\NextActionService;
+use App\Services\RoadToSold\RecipeProgressService;
+use App\Services\RoadToSold\TaskCaptureService;
 use App\Services\RoadToSold\FeedService;
 use App\Services\RoadToSold\ListBuilderService;
 use App\Services\RoadToSold\SummaryBarService;
@@ -30,6 +34,10 @@ class RoadToSoldController extends Controller
         private readonly OutcomeDefinitionService $definitions,
         private readonly FeedService $feeds,
         private readonly SummaryBarService $bar,
+        private readonly RecipeProgressService $progress,
+        private readonly NextActionService $nextAction,
+        private readonly TaskCaptureService $capture,
+        private readonly CompletionListService $completionList,
     ) {
     }
 
@@ -53,7 +61,8 @@ class RoadToSoldController extends Controller
         $date = $this->list->resolveDate($request->query('date'));
         $this->buildIfMissing($viewer, $agentId, $date, $viewingOwn, $track);
 
-        $data = $this->list->page($viewer, $agentId, [
+        $isCaptures = $request->query('view') === 'captures';
+        $listFilters = [
             'view'      => $request->query('view'),
             'status'    => $request->query('status'),
             'selection' => $request->query('selection'),
@@ -62,7 +71,12 @@ class RoadToSoldController extends Controller
             'dir'       => $request->query('dir'),
             'date'      => $date->toDateString(),
             'page'      => (int) $request->query('page', 1),
-        ], $track);
+        ];
+        // The captures list (v2 phase 2) replaces the call list on the same page; it never builds the call list's rows.
+        $data = $isCaptures
+            ? ['rows' => new \Illuminate\Pagination\LengthAwarePaginator([], 0, CallListService::PER_PAGE), 'selections' => [], 'capped' => false,
+               'counts' => ['any' => 0, 'worked' => 0, 'target_items' => 0, 'added' => 0, 'added_worked' => 0]]
+            : $this->list->page($viewer, $agentId, $listFilters, $track);
 
         $agentUser = \App\Models\User::query()->find($agentId);
         // The three feeds (buyers, enquiries, expiring mandates) are sales work; another track shows none.
@@ -85,8 +99,33 @@ class RoadToSoldController extends Controller
                 && ! in_array($d->next_action, [Def::ACTION_APPOINTMENT, Def::ACTION_NEVER_AGAIN], true),
         ])->values()->all();
 
+        $progress = $agentUser ? $this->progress->forAgent($agentUser, $track) : ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
+        $nextAction = $this->nextAction->resolve($progress, $feeds, $this->todaysOpen($viewer, $agentId, $date, $track, $isCaptures, $listFilters, $data), $viewingOwn);
+        $captureTasks = $viewingOwn && $agentUser ? $this->capture->capturableTasks($agentUser, $track) : collect();
+        $captures = null;
+        $captureFilters = [];
+        $captureChoices = ['tasks' => [], 'steps' => []];
+        if ($isCaptures) {
+            $captureFilters = [
+                'q' => (string) $request->query('q', ''), 'sort' => $request->query('sort'), 'dir' => $request->query('dir'),
+                'task' => $request->query('task'), 'step' => $request->query('step'), 'state' => $request->query('state'),
+                'source' => $request->query('source'), 'status' => $request->query('status'), 'from' => $request->query('from'),
+                'to' => $request->query('to'), 'page' => $request->query('page'),
+            ];
+            $captures = $this->completionList->page($viewer, $agentId, $captureFilters, $track);
+            $captureChoices = $this->completionList->filterChoices($agencyId, $track);
+        }
+
         return view('road-to-sold.index', $data + [
             'feeds'          => $feeds,
+            'progress'       => $progress,
+            'nextAction'     => $nextAction,
+            'captureTasks'   => $captureTasks,
+            'isCaptures'     => $isCaptures,
+            'captures'       => $captures,
+            'captureFilters' => $captureFilters,
+            'captureChoices' => $captureChoices,
+            'canManageRecipe' => $viewer->hasPermission('road_to_sold.manage_recipe'),
             'bar'            => $agentUser ? $this->bar->forAgent($agentUser, $date, $track) : ['month' => $date->format('F Y'), 'steps' => []],
             'drilldownBase'  => route('road-to-sold.drilldown', [
                 'agent_id' => $agentId, 'period' => 'custom',
@@ -100,7 +139,7 @@ class RoadToSoldController extends Controller
             'viewingOwn'     => $viewingOwn,
             'date'           => $date,
             'filters'        => [
-                'view'      => in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today',
+                'view'      => $isCaptures ? 'captures' : (in_array($request->query('view'), CallListService::VIEWS, true) ? $request->query('view') : 'today'),
                 'status'    => in_array($request->query('status'), CallListService::STATUSES, true) ? $request->query('status') : 'open',
                 'selection' => (string) $request->query('selection', ''),
                 'q'         => (string) $request->query('q', ''),
@@ -113,6 +152,32 @@ class RoadToSoldController extends Controller
             'addChoices'        => collect(\App\Services\RoadToSold\SettingsService::forUser($viewer, $track)->selections())
                 ->where('enabled', true)->pluck('label', 'key')->all(),
         ]);
+    }
+
+    /**
+     * How many properties on today's list are still open and the first of them - what "do this next" calls. Taken from the page's own
+     * rows when it already shows the open list in order; otherwise one more read, so the card never depends on a filter the agent set.
+     *
+     * @return array{open:int,first:?array}
+     */
+    private function todaysOpen($viewer, int $agentId, $date, string $track, bool $isCaptures, array $f, array $data): array
+    {
+        if ($isCaptures || ! $date->isToday()) {
+            return ['open' => 0, 'first' => null];
+        }
+        $counts = $this->list->dayCounts($viewer, $agentId, $date, $track);
+        $open = max(0, $counts['target_items'] - $counts['worked']) + max(0, $counts['added'] - $counts['added_worked']);
+        if ($open === 0) {
+            return ['open' => 0, 'first' => null];
+        }
+        $default = in_array($f['view'] ?? 'today', [null, '', 'today'], true) && in_array($f['status'] ?? 'open', [null, '', 'open'], true)
+            && ($f['q'] ?? '') === '' && ($f['selection'] ?? '') === '' && in_array($f['sort'] ?? 'order', [null, '', 'order'], true) && ($f['dir'] ?? 'asc') !== 'desc';
+        $rows = $default && (int) ($f['page'] ?? 1) === 1
+            ? $data['rows']
+            : $this->list->page($viewer, $agentId, ['view' => 'today', 'status' => 'open', 'date' => $date->toDateString(), 'page' => 1], $track)['rows'];
+        $first = collect($rows->items())->firstWhere('status', 'open');
+
+        return ['open' => $open, 'first' => $first ? ['tracked_property_id' => $first['tracked_property_id'], 'list_item_id' => $first['list_item_id'], 'address' => $first['street'] !== '' ? $first['street'] : $first['address']] : null];
     }
 
     /** The overnight build normally has today's list ready; if it is missing, build it when the page opens. */

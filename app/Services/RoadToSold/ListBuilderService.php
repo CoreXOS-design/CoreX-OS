@@ -35,6 +35,7 @@ use InvalidArgumentException;
  *                   Idempotent: it tops the list up to the target, so a second run adds nothing.
  *   addToDay()      the agent asks for extra from one selection; origin "added", reported apart,
  *                   never counted toward the target.
+ *   addFound()      the properties a captured task (a drive) just found go straight onto the agent's list (v2 phase 2).
  *   closePastDays() end-of-day housekeeping: open items from earlier days become "missed", or are
  *                   "rolled" onto the next working day when the agency rolls over.
  *   markWorked()    called by the outcome capture (lane 3) when a property has been called.
@@ -153,6 +154,9 @@ class ListBuilderService
         // 1. follow-ups due (they count toward the target, and are never trimmed to fit it)
         $this->addFollowUps($user, $agencyId, $day, $track);
 
+        // 1b. what the agent found themselves (a drive, a door knock) and has not worked yet - theirs before any pool is
+        $this->addFoundByYou($user, $agencyId, $day, $track);
+
         // 2. new properties, selection by selection, in the agency's order
         $counted = $this->countedToward($user, $day, $track);
         $remaining = $target - $counted;
@@ -177,6 +181,68 @@ class ListBuilderService
         }
 
         Cache::put($marker, 1, now()->addMinutes(10));
+    }
+
+    /** The pseudo-selection key stored on a row that came from the agent's own captured work. */
+    public const SELECTION_FOUND_BY_YOU = 'found_by_you';
+
+    /**
+     * Tracked properties the agent found through a captured task and has not yet recorded a result for (oldest find first). Only the
+     * agent's own confirmed, un-archived captures count; a property someone else has taken or a do-not-contact is still refused by insert().
+     *
+     * @return int[]
+     */
+    public function foundTrackedIds(User $user, int $agencyId, string $track): array
+    {
+        return DB::table('rts_task_completion_records as r')
+            ->join('rts_task_completions as c', 'c.id', '=', 'r.completion_id')
+            ->join('tracked_properties as tp', 'tp.id', '=', 'r.record_id')
+            ->where('r.agency_id', $agencyId)->where('r.record_type', \App\Models\Prospecting\TrackedProperty::class)
+            ->where('c.user_id', $user->id)->where('c.track', $track)->where('c.source', 'captured')
+            ->whereNull('c.deleted_at')->whereIn('c.state', ['confirmed', 'overridden'])
+            ->whereNull('tp.deleted_at')->whereNotIn('tp.status', ['archived', 'duplicate'])
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('rts_contact_outcomes as o')
+                ->whereColumn('o.tracked_property_id', 'r.record_id')->where('o.user_id', $user->id)->where('o.track', $track)->whereNull('o.deleted_at'))
+            ->orderBy('c.occurred_at')->orderBy('r.id')
+            ->pluck('r.record_id')->map(fn ($v) => (int) $v)->unique()->values()->all();
+    }
+
+    private function addFoundByYou(User $user, int $agencyId, Carbon $day, string $track): void
+    {
+        foreach ($this->foundTrackedIds($user, $agencyId, $track) as $tid) {
+            $this->insert($user, $agencyId, $day, $track, new Candidate($tid, null, null, self::SELECTION_FOUND_BY_YOU, 'Found by you', true, true), RtsListItem::ORIGIN_AUTO);
+        }
+    }
+
+    /**
+     * Put properties a captured task just found on the agent's list for today, over and above the target (origin "added").
+     * Anything the gate refuses (another agent's stock, do-not-contact) is simply not placed.
+     *
+     * @param  int[]  $trackedIds
+     * @return int how many were placed
+     */
+    public function addFound(User $user, array $trackedIds, string $reason, string $track = RtsListItem::TRACK_SALES, CarbonInterface|string|null $date = null): int
+    {
+        $this->assertTrack($track);
+        $user = $this->listOwner($user);
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0 || $trackedIds === []) {
+            return 0;
+        }
+        $day = Carbon::parse($date ?? now())->startOfDay();
+        $lock = Cache::lock("rts-build:{$agencyId}:{$user->id}:{$track}:{$day->toDateString()}", 120);
+
+        return $lock->block(15, function () use ($user, $agencyId, $day, $track, $trackedIds, $reason) {
+            $this->stock = new OtherAgentStock($agencyId, $user->dataIdentityIds());
+            $placed = 0;
+            foreach (array_unique(array_map('intval', $trackedIds)) as $tid) {
+                if ($this->insert($user, $agencyId, $day, $track, new Candidate($tid, null, null, self::SELECTION_FOUND_BY_YOU, $reason, true, true), RtsListItem::ORIGIN_ADDED)) {
+                    $placed++;
+                }
+            }
+
+            return $placed;
+        });
     }
 
     private function addFollowUps(User $user, int $agencyId, Carbon $day, string $track): void

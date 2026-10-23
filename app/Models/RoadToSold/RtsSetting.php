@@ -50,6 +50,7 @@ class RtsSetting extends Model
         'refresh_portals', 'buyer_match_tiers', 'active_buyer_states', 'on_market_statuses',
         'add_to_day_max', 'scan_page_size', 'min_area_properties',
         'hot_pocket_weight_buyers', 'hot_pocket_weight_leads', 'hot_pocket_weight_sales',
+        'summary_ahead_from_pct', 'capture_back_date_hours',
     ];
 
     protected $casts = [
@@ -83,6 +84,8 @@ class RtsSetting extends Model
         'hot_pocket_weight_buyers'     => 'integer',
         'hot_pocket_weight_leads'      => 'integer',
         'hot_pocket_weight_sales'      => 'integer',
+        'summary_ahead_from_pct'       => 'integer',
+        'capture_back_date_hours'      => 'integer',
     ];
 
     /** Scalar defaults — the single source of truth (migration defaults mirror these). */
@@ -111,6 +114,8 @@ class RtsSetting extends Model
         'hold_days'                    => 30,
         'summary_green_from_pct'       => 90,
         'summary_red_below_pct'        => 70,
+        'summary_ahead_from_pct'       => 105,
+        'capture_back_date_hours'      => 48,
     ];
 
     /**
