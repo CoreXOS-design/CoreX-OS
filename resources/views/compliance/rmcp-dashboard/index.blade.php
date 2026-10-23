@@ -20,6 +20,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - RMCP Dashboard is a tab of Compliance > RMCP & Policies --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\RmcpPoliciesTabs::class])
+
     {{-- Version info --}}
     @if($activeVersion)
     <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"

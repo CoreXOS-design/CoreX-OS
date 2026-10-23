@@ -63,6 +63,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/rentals-menu-tabs.md - opened from Rentals (?nav=rentals) this is a tab of Rentals > Maintenance; the Deals entry shows no bar --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\MaintenanceTabs::class])
+
     {{-- Flash / validation alerts (§3.9) --}}
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm font-medium"

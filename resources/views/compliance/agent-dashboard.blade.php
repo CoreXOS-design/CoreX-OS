@@ -14,6 +14,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - Agent Compliance is a tab of Compliance > Agents & Staff --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceAgentsTabs::class])
+
     {{-- Summary KPIs --}}
     <div class="corex-kpi-grid">
         <x-corex-kpi-card title="Total Agents" :value="number_format($totalAgents)" />

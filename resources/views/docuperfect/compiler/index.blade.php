@@ -15,6 +15,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Compile Studio is a tab of Documents > Library --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentLibraryTabs::class])
+
     @if(session('success'))
         <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 12%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif

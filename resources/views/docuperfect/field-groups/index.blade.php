@@ -19,6 +19,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Field Groups is a tab of Documents > Templates --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentTemplatesTabs::class])
+
     @if(session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"
              style="background: color-mix(in srgb, var(--ds-green) 10%, transparent);

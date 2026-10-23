@@ -22,6 +22,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/documents-menu-tabs.md - Document Types is a tab of Documents > Templates --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\DocumentTemplatesTabs::class])
+
     {{-- Flash + validation messages (most success/error feedback is also surfaced
          by the global toast system; these page-level alerts are the fallback). --}}
     @if(session('status'))

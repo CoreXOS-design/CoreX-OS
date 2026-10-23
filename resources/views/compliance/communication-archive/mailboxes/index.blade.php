@@ -16,6 +16,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - Email Mailboxes (import) is a tab of Communications > Setup --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\CommsSetupTabs::class])
+
     {{-- AT-395 §7.2 — search, filters. Sort is column-header driven below.
          AT-393 — sits directly under the header; header + filters are frozen (the page
          wrapper is a full-height flex column) and ONLY the scroll region below scrolls. --}}

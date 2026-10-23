@@ -39,9 +39,14 @@ class SafeFeedUrl
     /**
      * Inspect a URL.
      *
+     * $allowedPorts defaults to the standard web ports (feeds). Pass null to accept any valid port
+     * (1-65535) — the address checks still apply in full; used for agency webhook addresses, whose
+     * receivers legitimately run on a custom port (SafeWebhookUrl).
+     *
+     * @param array<int, int>|null $allowedPorts
      * @return array{ok: bool, error: ?string, host: ?string, port: int, ips: array<int, string>, literal: bool}
      */
-    public function inspect(string $url): array
+    public function inspect(string $url, ?array $allowedPorts = self::ALLOWED_PORTS): array
     {
         $fail = static fn (string $why): array => ['ok' => false, 'error' => $why, 'host' => null, 'port' => 0, 'ips' => [], 'literal' => false];
 
@@ -58,7 +63,7 @@ class SafeFeedUrl
         }
 
         $port = isset($p['port']) ? (int) $p['port'] : (strtolower($p['scheme']) === 'https' ? 443 : 80);
-        if (! in_array($port, self::ALLOWED_PORTS, true)) {
+        if ($allowedPorts === null ? ($port < 1 || $port > 65535) : ! in_array($port, $allowedPorts, true)) {
             return $fail('Only normal web addresses are allowed (no custom port numbers).');
         }
 

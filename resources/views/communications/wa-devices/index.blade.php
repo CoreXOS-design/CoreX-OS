@@ -15,6 +15,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - WhatsApp Capture (Browser Extension) is a tab of Communications > WhatsApp --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\WhatsAppTabs::class])
+
     @if(session('success'))
     <div class="rounded-md px-4 py-3 text-sm" style="background: color-mix(in srgb, var(--ds-green) 10%, transparent); border:1px solid color-mix(in srgb, var(--ds-green) 30%, transparent); color: var(--text-primary);">{{ session('success') }}</div>
     @endif
