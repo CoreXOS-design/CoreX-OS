@@ -9,6 +9,8 @@ use App\Models\LeaseAgreementTerms;
 use App\Models\PerformanceSetting;
 use App\Models\RentalLeaseTemplate;
 use App\Support\AmountInWords;
+use App\Support\Money\Zar;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
@@ -21,37 +23,46 @@ use Illuminate\Support\Collection;
  * a service fee, an "other deduction" or a net amount (§15.12.5, multi-agency). Contact-side keys (names,
  * addresses, ID numbers) are NOT produced here: the e-sign wizard already resolves those from the recipients.
  *
- * Display shape follows what WebTemplateDataService::resolve() already puts in a document: money as a plain
- * decimal string (the "R" is the template's own), dates as Y-m-d, numbers bare, a month by name.
+ * DISPLAY (one place, {@see present()}): every key is worked out RAW and turned into the text a person reads only at
+ * the very end, by its registry type — money as the document money format (App\Support\Money\Zar, "R 8,500.00"), a
+ * date the way CoreX documents print dates ("1 November 2026", the 'j F Y' of WebTemplateDataService's lease/mandate
+ * dates), a percentage with its "%", a month by name, a number bare. The stored lease record stays raw.
+ *
+ * A template that already prints the unit itself must not get it twice, so the launcher passes a per-key
+ * $presentation ({@see LeaseSeedPresentation}): 'bare' = the template adds the "R" / "%" (the number alone is
+ * seeded), 'iso' = the field is a native date input (Y-m-d, which the input needs to show anything at all).
  */
 class LeaseAgreementDocumentValues
 {
     /**
      * @param array<string,mixed>|null $typedTerms agreement values typed on the capture screen but not yet saved
      *                                             (key => value); overrides the saved terms row when present
+     * @param array<string,string> $presentation   key => 'bare' | 'iso' — how THIS template prints that key ({@see LeaseSeedPresentation})
      * @return array<string, string> registry/agency key => the string to print
      */
-    public function forLease(Lease $lease, RentalLeaseTemplate $agreement, ?array $typedTerms = null): array
+    public function forLease(Lease $lease, RentalLeaseTemplate $agreement, ?array $typedTerms = null, array $presentation = []): array
     {
         $map = app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($agreement->field_map ?? []));
         $registry = (array) config('lease-agreement-fields.fields', []);
         $terms = $lease->relationLoaded('agreementTerms') ? $lease->agreementTerms : $lease->agreementTerms()->first();
         $typed = $typedTerms ?? [];
 
-        $values = [];
+        // key => [raw value, registry type]. Nothing in here is formatted: a calculation below must never read back
+        // a string it (or this method) already dressed up for the page.
+        $raw = [];
 
         // ── From the lease record ─────────────────────────────────────────────────────────
         if (isset($map['rent']) && $lease->rental_amount !== null) {
-            $values['rent'] = $this->money($lease->rental_amount);
+            $raw['rent'] = [$lease->rental_amount, 'money'];
         }
         if (isset($map['start_date']) && $lease->start_date) {
-            $values['start_date'] = $lease->start_date->toDateString();
+            $raw['start_date'] = [$lease->start_date, 'date'];
         }
         if (isset($map['end_date']) && $lease->end_date) {
-            $values['end_date'] = $lease->end_date->toDateString();
+            $raw['end_date'] = [$lease->end_date, 'date'];
         }
         if (isset($map['deposit']) && $lease->deposit_amount !== null) {
-            $values['deposit'] = $this->money($lease->deposit_amount);
+            $raw['deposit'] = [$lease->deposit_amount, 'money'];
         }
 
         // ── Agreement terms and schedule (typed, stored on lease_agreement_terms) ────────────
@@ -59,10 +70,9 @@ class LeaseAgreementDocumentValues
             if (! isset($map[$key]) || ! in_array($def['group'] ?? '', ['agreement', 'notice', 'schedule'], true)) {
                 continue;
             }
-            $raw = array_key_exists($key, $typed) ? $typed[$key] : $this->termValue($terms, $def, $key);
-            $display = $this->display($raw, (string) ($def['type'] ?? 'text'));
-            if ($display !== null) {
-                $values[$key] = $display;
+            $value = array_key_exists($key, $typed) ? $typed[$key] : $this->termValue($terms, $def, $key);
+            if (! $this->isBlank($value)) {
+                $raw[$key] = [$value, (string) ($def['type'] ?? 'text')];
             }
         }
         // Agency-specific extras the map declares (stored in `extra`).
@@ -70,28 +80,35 @@ class LeaseAgreementDocumentValues
             if (isset($registry[$key]) || (preg_match('/^(.*)_\d+$/', $key, $m) && ! empty($registry[$m[1]]['indexed']))) {
                 continue;
             }
-            $raw = array_key_exists($key, $typed) ? $typed[$key] : (($terms?->extra ?? [])[$key] ?? null);
-            $display = $this->display($raw, 'text');
-            if ($display !== null) {
-                $values[$key] = $display;
+            $value = array_key_exists($key, $typed) ? $typed[$key] : (($terms?->extra ?? [])[$key] ?? null);
+            if (! $this->isBlank($value)) {
+                $raw[$key] = [$value, 'text'];
             }
         }
 
         // ── Calculated (§15.12.5): the launcher seeds these itself because the resolver blanks or omits them ──
         if (isset($map['property_description']) && $lease->property) {
-            $values['property_description'] = $lease->property->buildDisplayAddress();
+            $raw['property_description'] = [$lease->property->buildDisplayAddress(), 'text'];
         }
         if (isset($map['rent_in_words']) && $lease->rental_amount !== null) {
-            $values['rent_in_words'] = AmountInWords::rands($lease->rental_amount);
+            $raw['rent_in_words'] = [AmountInWords::rands($lease->rental_amount), 'text'];
         }
-        if (isset($map['escalation_in_words']) && isset($values['escalation_percent'])) {
-            $values['escalation_in_words'] = $this->percentInWords((float) $values['escalation_percent']);
+        if (isset($map['escalation_in_words']) && isset($raw['escalation_percent']) && is_numeric($raw['escalation_percent'][0])) {
+            $raw['escalation_in_words'] = [$this->percentInWords((float) $raw['escalation_percent'][0]), 'text'];
         }
 
-        $schedule = $this->schedule($lease, $map, $values, $terms, $typed);
+        $schedule = $this->schedule($lease, $map, $raw, $terms, $typed);
         foreach (['agent_service_fee', 'net_to_owner'] as $key) {
             if (isset($map[$key]) && isset($schedule[$key])) {
-                $values[$key] = $schedule[$key];
+                $raw[$key] = [$schedule[$key], 'money'];
+            }
+        }
+
+        $values = [];
+        foreach ($raw as $key => [$value, $type]) {
+            $display = $this->present($value, $type, $presentation[$key] ?? null);
+            if ($display !== null) {
+                $values[$key] = $display;
             }
         }
 
@@ -101,11 +118,13 @@ class LeaseAgreementDocumentValues
     /**
      * The letting-commission side of the schedule: the service fee (rent × commission %, plus VAT only when the
      * AGENCY is VAT-registered, at the agency's own rate) and the net amount to the owner. Empty when the map
-     * carries neither key, or when the commission % is unknown.
+     * carries neither key, or when the commission % is unknown. Amounts come back RAW (floats) — {@see present()}
+     * dresses them.
      *
-     * @return array{agent_service_fee?: string, net_to_owner?: string}
+     * @param array<string,array{0:mixed,1:string}> $raw
+     * @return array{agent_service_fee?: float, net_to_owner?: float}
      */
-    private function schedule(Lease $lease, array $map, array $values, ?LeaseAgreementTerms $terms, array $typed): array
+    private function schedule(Lease $lease, array $map, array $raw, ?LeaseAgreementTerms $terms, array $typed): array
     {
         if (! isset($map['agent_service_fee']) && ! isset($map['net_to_owner'])) {
             return [];
@@ -120,11 +139,11 @@ class LeaseAgreementDocumentValues
         $vatRate = $this->vatRateFor((int) $lease->agency_id);
         $fee = round($rent * $commission / 100 * (1 + $vatRate / 100), 2);
 
-        $deduction = isset($values['other_deduction']) ? (float) $values['other_deduction'] : 0.0;
+        $deduction = isset($raw['other_deduction']) && is_numeric($raw['other_deduction'][0]) ? (float) $raw['other_deduction'][0] : 0.0;
 
         return [
-            'agent_service_fee' => $this->money($fee),
-            'net_to_owner' => $this->money(round($rent - $fee - $deduction, 2)),
+            'agent_service_fee' => $fee,
+            'net_to_owner' => round($rent - $fee - $deduction, 2),
         ];
     }
 
@@ -187,21 +206,66 @@ class LeaseAgreementDocumentValues
         return ($def['column'] ?? null) !== null ? $terms->{$def['column']} : (($terms->extra ?? [])[$key] ?? null);
     }
 
-    private function display(mixed $raw, string $type): ?string
+    private function isBlank(mixed $value): bool
     {
-        if ($raw instanceof \DateTimeInterface) {
-            return $raw->format('Y-m-d');
-        }
-        if ($raw === null || (is_string($raw) && trim($raw) === '')) {
+        return $value === null || (is_string($value) && trim($value) === '');
+    }
+
+    /**
+     * THE one place a seeded lease value is turned into what a person reads — by its registry type, the way CoreX's
+     * other documents show the same kinds of value:
+     *   money   → App\Support\Money\Zar ("R 8,500.00", the AT-177 document/money format)
+     *   date    → "1 November 2026" ('j F Y', WebTemplateDataService's lease and mandate dates; the change check reads it back)
+     *   percent → "10%" (7.5 → "7.5%")
+     *   month   → "March"; anything else → trimmed text
+     * $how = 'bare' leaves the "R" / "%" off (this template prints its own — never twice); 'iso' keeps a date as
+     * Y-m-d (the field is a native date input, which shows nothing for any other shape). A value that is not the
+     * type it claims (words typed in a money box) is kept exactly as typed — never invented, never blanked.
+     */
+    private function present(mixed $value, string $type, ?string $how = null): ?string
+    {
+        if ($this->isBlank($value)) {
             return null;
         }
 
         return match ($type) {
-            'money' => is_numeric($raw) ? $this->money($raw) : trim((string) $raw),
-            'percent' => is_numeric($raw) ? rtrim(rtrim(number_format((float) $raw, 2, '.', ''), '0'), '.') : trim((string) $raw),
-            'month' => $this->monthName($raw),
-            default => trim((string) $raw),
+            'money' => $this->presentMoney($value, $how === 'bare'),
+            'percent' => $this->presentPercent($value, $how === 'bare'),
+            'date' => $this->presentDate($value, $how === 'iso'),
+            'month' => $this->monthName($value),
+            default => $value instanceof \DateTimeInterface ? $value->format('Y-m-d') : trim((string) $value),
         };
+    }
+
+    private function presentMoney(mixed $value, bool $bare): string
+    {
+        if (! is_numeric($value)) {
+            return trim((string) $value);
+        }
+
+        return $bare ? number_format((float) $value, 2, '.', ',') : Zar::format((float) $value);
+    }
+
+    private function presentPercent(mixed $value, bool $bare): string
+    {
+        if (! is_numeric($value)) {
+            return trim((string) $value);
+        }
+
+        $number = rtrim(rtrim(number_format((float) $value, 2, '.', ''), '0'), '.');
+
+        return $bare ? $number : $number . '%';
+    }
+
+    private function presentDate(mixed $value, bool $iso): string
+    {
+        try {
+            $date = $value instanceof \DateTimeInterface ? Carbon::instance($value) : Carbon::parse(trim((string) $value));
+        } catch (\Throwable) {
+            return trim((string) $value);
+        }
+
+        return $date->format($iso ? 'Y-m-d' : 'j F Y');
     }
 
     private function monthName(mixed $raw): string
@@ -211,11 +275,6 @@ class LeaseAgreementDocumentValues
         }
 
         return trim((string) $raw);
-    }
-
-    private function money(mixed $amount): string
-    {
-        return number_format((float) $amount, 2, '.', '');
     }
 
     /**

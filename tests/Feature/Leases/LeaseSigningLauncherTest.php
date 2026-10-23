@@ -261,12 +261,12 @@ final class LeaseSigningLauncherTest extends TestCase
 
         $values = $flow->step_data['fill_review']['fieldValues'];
         $byField = $this->valuesByFieldName($flow, $values);
-        $this->assertSame('8500.00', $byField['monthly_rental']);
-        $this->assertSame('2026-11-01', $byField['lease_start']);
-        $this->assertSame('2027-10-31', $byField['lease_end']);
+        $this->assertSame('R 8,500.00', $byField['monthly_rental']);
+        $this->assertSame('1 November 2026', $byField['lease_start']);
+        $this->assertSame('31 October 2027', $byField['lease_end']);
         $this->assertSame('2', $byField['occupants']);
         $this->assertSame('One small dog', $byField['pets_allowed']);
-        $this->assertSame('7.5', $byField['escalation']);
+        $this->assertSame('7.5%', $byField['escalation']);
         $this->assertSame('March', $byField['esc_month']);
         $this->assertSame('Eight thousand five hundred Rand', $byField['rent_words'], 'the resolver blanks the words on a non-sale document, so the launcher writes them');
         $this->assertSame('seven point five', $byField['esc_words']);
@@ -298,14 +298,14 @@ final class LeaseSigningLauncherTest extends TestCase
 
         // Not VAT-registered: rent × commission, no VAT.
         $notRegistered = app(LeaseAgreementDocumentValues::class)->forLease($lease->fresh(), $row);
-        $this->assertSame('850.00', $notRegistered['agent_service_fee']);
-        $this->assertSame('7500.00', $notRegistered['net_to_owner'], '8500 − 850 − 150');
+        $this->assertSame('R 850.00', $notRegistered['agent_service_fee']);
+        $this->assertSame('R 7,500.00', $notRegistered['net_to_owner'], '8500 − 850 − 150');
 
         // VAT-registered: the agency's own rate (15 unless its setting says otherwise).
         $this->agency->update(['vat_registered' => true]);
         $registered = app(LeaseAgreementDocumentValues::class)->forLease($lease->fresh(), $row);
-        $this->assertSame('977.50', $registered['agent_service_fee']);
-        $this->assertSame('7372.50', $registered['net_to_owner']);
+        $this->assertSame('R 977.50', $registered['agent_service_fee']);
+        $this->assertSame('R 7,372.50', $registered['net_to_owner']);
     }
 
     /**
@@ -353,15 +353,69 @@ final class LeaseSigningLauncherTest extends TestCase
         $seeded = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
         $expected = [
             'property_full' => $this->property->fresh()->buildDisplayAddress(),
-            'occupants' => '2', 'kids' => '1', 'monthly_rental' => '6940.00', 'price_in_words' => 'Six thousand nine hundred and forty Rand',
-            'escalation' => '7.5', 'escalation_alpha' => 'seven point five', 'escalation_month' => 'March',
-            'property_lease_start_date' => '2027-03-01', 'notice_date' => '2028-01-31', 'property_lease_end_date' => '2028-02-28',
+            'occupants' => '2', 'kids' => '1', 'monthly_rental' => 'R 6,940.00', 'price_in_words' => 'Six thousand nine hundred and forty Rand',
+            'escalation' => '7.5%', 'escalation_alpha' => 'seven point five', 'escalation_month' => 'March',
+            'property_lease_start_date' => '1 March 2027', 'notice_date' => '31 January 2028', 'property_lease_end_date' => '28 February 2028',
             'renewal_period' => '12', 'what_pets_are_allowed' => 'One small dog', 'other_conditions' => 'No smoking indoors.',
-            'agent_fee_in_rands' => '798.10', 'lets_assists_fee' => '150.00', 'owner_nett' => '5991.90',
+            'agent_fee_in_rands' => 'R 798.10', 'lets_assists_fee' => 'R 150.00', 'owner_nett' => 'R 5,991.90',
         ];
         ksort($expected);
         ksort($seeded);
         $this->assertSame($expected, $seeded);
+    }
+
+    /**
+     * 23 Oct 2026 (QA1, Mega lease): a lease prepared for signing printed "2026-11-01", "5500.00" and "10". An agreement
+     * whose template is a plain text box gets the full "1 November 2026" / "R 8,500.00" / "7.5%"; one that already
+     * prints its own "R" and "%" (HFC's lease does) gets the bare number, so nothing prints "R R 8,500.00" or "7.5%%".
+     */
+    public function test_a_plain_text_box_agreement_is_filled_with_readable_dates_money_and_percent(): void
+    {
+        [$lease, $row] = $this->leaseWithAgreement([], ['escalation_percent' => ['field' => 'escalation'], 'deposit' => ['field' => 'deposit_amount']], $this->documentFields());
+        $lease->update(['deposit_amount' => 8500]);
+        $terms = LeaseAgreementTerms::forLease($lease);
+        $terms->escalation_percent = 10;
+        $terms->save();
+
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        $byField = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
+        $this->assertSame('R 8,500.00', $byField['monthly_rental']);
+        $this->assertSame('1 November 2026', $byField['lease_start']);
+        $this->assertSame('10%', $byField['escalation']);
+    }
+
+    public function test_an_agreement_that_prints_its_own_rand_sign_and_percent_sign_is_not_given_them_twice(): void
+    {
+        $dir = sys_get_temp_dir() . '/lease-launch-views-' . uniqid();
+        mkdir($dir);
+        $view = 'launchtpl' . uniqid();
+        file_put_contents($dir . '/' . $view . '.blade.php',
+            '<p>The Rental shall be <span class="field field-currency" data-field="monthly_rental">{{ $monthly_rental ?? \'\' }}</span></p>'
+            . '<p>an escalation of <span class="field" data-field="escalation">{{ $escalation ?? \'\' }}</span>% per annum</p>'
+            . '<p>commence <span class="field" data-field="lease_start">{{ $lease_start ?? \'\' }}</span> to <span class="field" data-field="lease_end">{{ $lease_end ?? \'\' }}</span></p>');
+        \Illuminate\Support\Facades\View::addLocation($dir);
+
+        [$lease, $row] = $this->leaseWithAgreement([], ['escalation_percent' => ['field' => 'escalation']], $this->documentFields());
+        $fields = $this->documentFields();
+        foreach ($fields as &$field) {
+            if ($field['field_name'] === 'lease_start') {
+                $field['type'] = 'date';   // a native date box: shows nothing for any value but Y-m-d
+            }
+        }
+        unset($field);
+        Template::query()->whereKey($row->docuperfect_template_id)->update(['render_type' => 'web', 'blade_view' => $view, 'fields_json' => json_encode($fields)]);
+        $terms = LeaseAgreementTerms::forLease($lease);
+        $terms->escalation_percent = 10;
+        $terms->save();
+
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row->fresh(), $this->agent);
+
+        $byField = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
+        $this->assertSame('8,500.00', $byField['monthly_rental'], 'the template draws the "R"');
+        $this->assertSame('10', $byField['escalation'], 'the template writes the "%" after the box');
+        $this->assertSame('2026-11-01', $byField['lease_start'], 'a date box needs Y-m-d');
+        $this->assertSame('31 October 2027', $byField['lease_end'], 'a plain text box gets the readable date');
     }
 
     public function test_the_commission_typed_on_the_screen_beats_the_propertys_own(): void
@@ -370,7 +424,7 @@ final class LeaseSigningLauncherTest extends TestCase
 
         $values = app(LeaseAgreementDocumentValues::class)->forLease($lease, $row, ['commission_percent' => '12.5']);
 
-        $this->assertSame('1062.50', $values['agent_service_fee']);
+        $this->assertSame('R 1,062.50', $values['agent_service_fee']);
     }
 
     public function test_an_agency_whose_lease_has_no_schedule_gets_none_of_it(): void

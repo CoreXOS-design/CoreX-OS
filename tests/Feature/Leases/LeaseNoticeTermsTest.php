@@ -393,7 +393,7 @@ final class LeaseNoticeTermsTest extends TestCase
 
         $this->assertSame('45', $doc['notice_period']);
         $this->assertSame('days', $doc['notice_period_unit']);
-        $this->assertSame('2026-12-01', $doc['earliest_notice_date']);
+        $this->assertSame('1 December 2026', $doc['earliest_notice_date']);
         $this->assertSame('yes', $doc['early_cancellation_allowed']);
         $this->assertSame('20', $doc['early_cancellation_notice']);
         $this->assertSame('Two months rent', $doc['early_cancellation_penalty']);
