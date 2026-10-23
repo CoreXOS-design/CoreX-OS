@@ -1385,6 +1385,65 @@
         </div>
     </div>
 
+    {{-- Adoption step (esign-signing-modes.md, Modes 2/3): the signer adopts their signature and initial once. Shown only
+         when the envelope was sent in an adoption mode and this signer signs by link. The capture modal below (z-50)
+         sits above this panel (z-40) so the SAME component draws / types both marks. --}}
+    @if(!empty($adoption['required']))
+    <template x-if="adoption && adoption.required">
+        <div>
+            <div x-show="showAdoption" x-cloak class="fixed inset-0 z-40 flex items-center justify-center p-4" style="background: rgba(15,23,42,0.55);">
+                <div class="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200 p-5 space-y-4 max-h-[92vh] overflow-y-auto">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-900">Adopt your signature and initial</h2>
+                        <p class="text-xs text-slate-500 mt-1">Do this once. Then you sign this document by clicking where it asks for your signature or initial.</p>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div class="rounded-xl border border-slate-200 p-3 text-center">
+                            <div class="text-[11px] font-semibold text-slate-500 mb-1">Your signature</div>
+                            <div class="h-16 flex items-center justify-center">
+                                <img x-show="adoptionSig" :src="adoptionSig" alt="Your signature" class="max-h-14 max-w-full object-contain">
+                                <span x-show="!adoptionSig" class="text-[11px] text-slate-400">Not added yet</span>
+                            </div>
+                            <button type="button" @click="openAdoptionCapture('signature')" class="mt-2 text-xs font-semibold text-slate-700 underline" style="min-height:44px;"
+                                    x-text="adoptionSig ? 'Change signature' : 'Add signature'"></button>
+                        </div>
+                        <div class="rounded-xl border border-slate-200 p-3 text-center">
+                            <div class="text-[11px] font-semibold text-slate-500 mb-1">Your initial</div>
+                            <div class="h-16 flex items-center justify-center">
+                                <img x-show="adoptionInit" :src="adoptionInit" alt="Your initial" class="max-h-14 max-w-full object-contain">
+                                <span x-show="!adoptionInit" class="text-[11px] text-slate-400">Not added yet</span>
+                            </div>
+                            <button type="button" @click="openAdoptionCapture('initial')" class="mt-2 text-xs font-semibold text-slate-700 underline" style="min-height:44px;"
+                                    x-text="adoptionInit ? 'Change initial' : 'Add initial'"></button>
+                        </div>
+                    </div>
+
+                    <label class="flex items-start gap-3 rounded-xl border border-slate-200 p-3 cursor-pointer">
+                        <input type="checkbox" x-model="adoptionAgree" :disabled="!adoptionSig || !adoptionInit" class="mt-0.5 h-5 w-5 rounded">
+                        <span class="text-sm text-slate-800" x-text="adoption.wording"></span>
+                    </label>
+
+                    <div class="flex items-center justify-end gap-2">
+                        <button type="button" @click="showAdoption = false" x-show="adoption.adopted" class="text-sm text-slate-600 px-3" style="min-height:44px;">Cancel</button>
+                        <button type="button" @click="submitAdoption()" :disabled="!adoptionSig || !adoptionInit || !adoptionAgree || adoptionBusy"
+                                class="rounded-lg px-4 text-sm font-semibold text-white disabled:opacity-40" style="background:#0f172a; min-height:44px;"
+                                x-text="adoptionBusy ? 'Saving…' : 'Adopt and continue'"></button>
+                    </div>
+                </div>
+            </div>
+
+            {{-- Reminder strip while the step is closed and not yet done; a small link to change the adopted marks afterwards. --}}
+            <div x-show="!showAdoption" x-cloak class="rounded-xl px-4 py-3 text-sm flex items-center justify-between gap-3"
+                 :style="adoption.adopted ? 'background:#f1f5f9;border:1px solid #e2e8f0;color:#334155' : 'background:#fffbeb;border:1px solid #fcd34d;color:#92400e'">
+                <span x-text="adoption.adopted ? 'Your signature and initial are adopted.' : 'Adopt your signature and initial before you sign.'"></span>
+                <button type="button" @click="showAdoption = true" class="font-semibold underline" style="min-height:44px;"
+                        x-text="adoption.adopted ? 'Change' : 'Adopt now'"></button>
+            </div>
+        </div>
+    </template>
+    @endif
+
     {{-- Web signature capture modal — THE single capture component (inline web-sig blocks + amendments).
          Same component as the marker/condition modal above, so the recipient sees ONE consistent modal. --}}
     @include('docuperfect.signatures.partials._capture-modal', [
@@ -1519,6 +1578,18 @@ function externalSign() {
         disclosureLockInfo: @json($disclosureLockInfo ?? null),          {{-- AT-303 Stage 1 --}}
         webConsented: false,
         showWebSigCapture: false,
+
+        // ── Adoption (esign-signing-modes.md, Modes 2/3) ──
+        // Required only when this signer's envelope was sent in an adoption mode and they sign by link. The signer
+        // draws / types their signature and initial ONCE and agrees to the stored wording; nothing can be placed
+        // (and the document cannot be completed) until that is recorded.
+        adoption: @json($adoption ?? ['required' => false]),
+        adoptionStage: null,          // 'signature' | 'initial' while the shared capture modal is collecting one of the two marks
+        adoptionSig: null,            // captured, not yet adopted (or the adopted one after a reload)
+        adoptionInit: null,
+        adoptionAgree: false,
+        adoptionBusy: false,
+        showAdoption: false,
         currentWebSigBlockId: null,
         pendingDisclosureAmend: null,   {{-- AT-303 Stage 2 — proposed disclosure-mark change awaiting the amender's initial --}}
         webSigMode: 'draw',
@@ -1556,6 +1627,11 @@ function externalSign() {
         rejectReasonText: '',
 
         init() {
+            if (this.adoption && this.adoption.required) {
+                this.adoptionSig = this.adoption.signatureImage || null;
+                this.adoptionInit = this.adoption.initialImage || null;
+                this.showAdoption = !this.adoption.adopted;
+            }
             this.firstSignatureDone = this.markers.some(m => m.is_mine && m.signed);
             this.initSavedSig();   // agent-only saved-signature availability check
 
@@ -1737,6 +1813,7 @@ function externalSign() {
 
                         el.addEventListener('click', () => {
                             if (el.getAttribute('data-signed') === 'true') return;
+                            if (self._adoptionGuard()) return;
                             self.currentWebSigBlockId = sigKey;
                             self.showWebSigCapture = true;
                             self.$nextTick(() => self.initWebSigCanvas());
@@ -1943,6 +2020,7 @@ function externalSign() {
 
                     el.addEventListener('click', () => {
                         if (entry.signed) return;
+                        if (self._adoptionGuard()) return;
                         self.currentWebSigBlockId = initKey;
                         self.showWebSigCapture = true;
                         self.$nextTick(() => self.initWebSigCanvas());
@@ -3309,7 +3387,71 @@ function externalSign() {
         },
 
         get canSubmitWeb() {
-            return this.webConsented && this.webIncompleteCount === 0;
+            return this.webConsented && this.webIncompleteCount === 0 && this._adoptionSatisfied();
+        },
+
+        // ── Adoption helpers (Modes 2/3) ──
+        _adoptionSatisfied() {
+            return !(this.adoption && this.adoption.required) || !!this.adoption.adopted;
+        },
+
+        // True (and the adoption step is shown) when the signer tries to place a mark before adopting.
+        _adoptionGuard() {
+            if (this._adoptionSatisfied()) return false;
+            this.showAdoption = true;
+            this.showNotification('Please adopt your signature and initial first.', 'info');
+            return true;
+        },
+
+        // Collect one of the two marks through the ONE shared capture modal (same pattern as a proposed
+        // disclosure change: applyWebSignature hands the captured image to _adoptionMarkCaptured).
+        openAdoptionCapture(kind) {
+            this.adoptionStage = kind;
+            this.currentWebSigBlockId = 'adoption-' + kind;
+            this.showWebSigCapture = true;
+            this.$nextTick(() => this.initWebSigCanvas());
+        },
+
+        _adoptionMarkCaptured(sigData) {
+            if (this.adoptionStage === 'initial') {
+                this.adoptionInit = sigData;
+            } else {
+                this.adoptionSig = sigData;
+            }
+            this.adoptionStage = null;
+            this.currentWebSigBlockId = null;
+            this.showWebSigCapture = false;
+            // A changed mark must be agreed to afresh.
+            this.adoptionAgree = false;
+        },
+
+        submitAdoption() {
+            if (this.adoptionBusy || !this.adoptionSig || !this.adoptionInit || !this.adoptionAgree) return;
+            this.adoptionBusy = true;
+            fetch('/sign/' + this.token + '/adopt', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').content,
+                },
+                body: JSON.stringify({ signature_image: this.adoptionSig, initial_image: this.adoptionInit, agreed: true }),
+            })
+            .then(r => r.json().then(d => ({ ok: r.ok, d })))
+            .then(({ ok, d }) => {
+                this.adoptionBusy = false;
+                if (ok && d.ok) {
+                    this.adoption.adopted = true;
+                    this.adoption.signatureImage = this.adoptionSig;
+                    this.adoption.initialImage = this.adoptionInit;
+                    this.showAdoption = false;
+                    this.showNotification('Your signature and initial are saved. Now sign the document.', 'success');
+                } else {
+                    const msg = (d && (d.error || (d.errors && Object.values(d.errors)[0] && Object.values(d.errors)[0][0]))) || 'Could not save your signature.';
+                    this.showNotification(msg, 'error');
+                }
+            })
+            .catch(() => { this.adoptionBusy = false; this.showNotification('Network error — please try again.', 'error'); });
         },
 
 
@@ -3974,6 +4116,12 @@ function externalSign() {
                 // (consistent height, width = name length), so the fixed-height render
                 // makes every signatory's mark the same size.
                 sigData = this._cropCanvasToInk(out) || out.toDataURL('image/png');
+            }
+
+            // Adoption (Modes 2/3) — this capture is one of the two marks being adopted, not a mark for a place.
+            if (this.adoptionStage) {
+                this._adoptionMarkCaptured(sigData);
+                return;
             }
 
             // AT-303 Stage 2 — this capture is the amender's INITIAL for a

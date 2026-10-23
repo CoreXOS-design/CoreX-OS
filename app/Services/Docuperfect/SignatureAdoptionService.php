@@ -41,10 +41,18 @@ class SignatureAdoptionService
         return SignatureAdoption::where('signature_request_id', $signingRequest->id)->current()->first();
     }
 
-    /** True when the signer's envelope is in a mode that needs an adoption before any place can be placed. */
+    /** Parties who keep the agent's own way of signing (saved signature + apply-to-all) — never asked to adopt. Ruling 3. */
+    public const AGENT_SIDE_ROLES = ['agent', 'supervisor', 'supervisor_final'];
+
+    /**
+     * True when this signer must adopt before any place can be placed: the envelope is in an adoption mode AND the
+     * signer signs by link (an agent / supervisor / authoriser keeps saved signature + apply-to-all — Johan's ruling 3).
+     * Whether the DOCUMENT is a web/CDS one is the caller's to check — only that path has a place-by-place ceremony.
+     */
     public function required(SignatureRequest $signingRequest): bool
     {
-        return in_array($this->modeOf($signingRequest), self::MODES, true);
+        return in_array($this->modeOf($signingRequest), self::MODES, true)
+            && ! in_array((string) $signingRequest->party_role, self::AGENT_SIDE_ROLES, true);
     }
 
     public function modeOf(SignatureRequest $signingRequest): string
