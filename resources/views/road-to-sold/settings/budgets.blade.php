@@ -24,7 +24,6 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div>
             <h1 class="text-xl font-bold text-white leading-tight">Road to Sold - budgets &amp; requirements</h1>
-            <p class="text-sm text-white/80 mt-1">What the agency, each branch and each agent needs to earn each month. Agents see their own figures on My Portal; they cannot change them.</p>
         </div>
     </div>
 
@@ -65,20 +64,22 @@
     </div>
 
     {{-- The agency --}}
-    @if($canEditAgency || $agencyRequirement > 0)
+    @if($canEditAgency || $agencyDetail['own'] > 0)
     <div class="rounded-md p-4" style="background:var(--surface); border:2px solid var(--brand-icon, #0ea5e9);">
-        <h3 class="text-sm font-bold mb-1" style="color:var(--text-primary);">What the agency needs for {{ $monthLabel }}</h3>
-        <p class="text-xs mb-3" style="color:var(--text-muted);">The income the whole agency must bring in this month. It is shown against what the agency has earned on the performance pages.</p>
+        <h3 class="text-sm font-bold mb-2" style="color:var(--text-primary);">What the agency needs for {{ $monthLabel }}</h3>
         <form method="POST" action="{{ route($rb . 'budgets.agency') }}" class="flex flex-wrap items-end gap-3">
             @csrf @method('PUT')
             <input type="hidden" name="period" value="{{ $period }}">
             @foreach($keep as $k => $v)<input type="hidden" name="{{ $k }}" value="{{ $v }}">@endforeach
             <div>
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="agency-req">Amount (rand)</label>
-                <input id="agency-req" type="number" min="0" step="0.01" name="requirement" value="{{ old('requirement', $agencyRequirement ?: '') }}" placeholder="0"
+                <input id="agency-req" type="number" min="0" step="0.01" name="requirement" value="{{ old('requirement', $agencyDetail['own'] ?: '') }}" placeholder="{{ $agencyDetail['source'] === 'branches' ? number_format($agencyDetail['branchSum'], 2, '.', '') : '0' }}"
                        @disabled(! $canEditAgency) class="w-48 rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
             </div>
             @if($canEditAgency)<button type="submit" class="corex-btn-primary">Save</button>@endif
+            @if($agencyDetail['source'] === 'branches')
+                <span class="text-sm pb-2" style="color:var(--text-muted);">Branches add up to <strong style="color:var(--text-primary);">{{ $money($agencyDetail['branchSum']) }}</strong></span>
+            @endif
         </form>
     </div>
     @endif
@@ -192,15 +193,15 @@
                     </td>
                     <td class="px-3 py-2">
                         <input type="number" min="0" step="0.01" form="{{ $fid }}" name="personal_budget" value="{{ $removed ? '' : ($b ? $b->personal_budget : '') }}"
-                               placeholder="{{ $removed ? number_format((float) ($src->personal_budget ?? 0), 2, '.', '') : '0' }}"
+                               placeholder="{{ $removed ? number_format((float) ($src->personal_budget ?? 0), 2, '.', '') : ($row['carried'] ? number_format($row['personal'], 2, '.', '') : '0') }}"
                                @disabled(! $canWrite || $removed) class="w-40 rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
                     </td>
                     <td class="px-3 py-2">
                         <input type="number" min="0" step="0.01" form="{{ $fid }}" name="business_budget" value="{{ $removed ? '' : ($b ? $b->business_budget : '') }}"
-                               placeholder="{{ $removed ? number_format((float) ($src->business_budget ?? 0), 2, '.', '') : '0' }}"
+                               placeholder="{{ $removed ? number_format((float) ($src->business_budget ?? 0), 2, '.', '') : ($row['carried'] ? number_format($row['business'], 2, '.', '') : '0') }}"
                                @disabled(! $canWrite || $removed) class="w-40 rounded-md px-3 py-2 text-sm" style="{{ $inputStyle }}">
                     </td>
-                    <td class="px-3 py-2 text-right font-semibold">{{ $src ? $money((float) $src->personal_budget + (float) $src->business_budget) : '-' }}</td>
+                    <td class="px-3 py-2 text-right font-semibold" @if(! $src && $row['carried']) style="color:var(--text-muted);" @endif>{{ $src ? $money((float) $src->personal_budget + (float) $src->business_budget) : ($row['carried'] ? $money($row['personal'] + $row['business']) : '-') }}</td>
                     <td class="px-4 py-2">
                         <form id="{{ $fid }}" method="POST" action="{{ route($rb . 'budgets.agent', $u->id) }}" class="flex flex-wrap gap-2">
                             @csrf @method('PUT')
@@ -225,7 +226,7 @@
                 <tr>
                     <td colspan="5" class="px-4 pb-2">
                         <details>
-                            <summary class="text-xs cursor-pointer" style="color:var(--text-muted);">Planning figures for {{ $u->name }} (used to work out how many sales and listings this budget needs)</summary>
+                            <summary class="text-xs cursor-pointer" style="color:var(--text-muted);">Planning figures</summary>
                             <div class="grid grid-cols-1 sm:grid-cols-5 gap-3 mt-2">
                                 @foreach($planningKeys as $key => [$label, $hint])
                                     <div>

@@ -28,6 +28,14 @@ Numbering follows the list Johan was given (answers 9–16 belong to this spec; 
 | 15 | RCR · FIC 2026? | **Unused on live: retire it (soft).** | finding 6; section 9.2 |
 | 16 | The R200,000 branch budget row with no branch? | **Drop it. It was Southbroom's; the branch is closed. Archive, never hard-delete.** | section 4.5 (data verification), section 14 step 4 |
 
+### 0.1 Johan's rulings of 23 Oct 2026 (Budgets and Targets)
+
+1. **The five other branch-less R200,000 budget rows (April to August: legacy Monthly Goals rows 10, 14, 18, 22, 26) are archived** (soft, restorable from Removed budgets), exactly like the one named in answer 16 - they were Southbroom's, and the branch is closed. *(Johan, 23 Oct 2026.)*
+2. **Budgets and the monthly Targets are NOT gated by the Prospecting / Road to Sold switch.** A rentals-only agency (Prospecting off, so Road to Sold off) must reach them. Built as: the two screens and their routes carry no `feature:road-to-sold` and are listed in the feature's `route_names_except` (config/corex-features.php, honoured by `EnforceFeatureRoutes`); the permission `road_to_sold.manage_targets` moved to the always-available permission module `targets`; the agents on both screens are every active, non-assistant agent in scope (the "may use Road to Sold" filter applies only while the feature is on - `VisibleAgents`); the Settings tab strip shows Budgets and Targets alone when the feature is off, and the daily call targets (weekday numbers) are not drawn. The call-list screens (General, Areas, daily call targets, Recipe) stay behind the switch. *(Johan, 23 Oct 2026.)*
+3. **"What the agency needs for a month" has one rule:** the agency's own figure when one is set, otherwise the branches' requirements added up (never the branch-less stray rows). The Budgets screen shows the sum next to the box; nothing is saved from it (`BudgetService::agencyRequirementDetail`). *(Conductor review, 23 Oct 2026.)*
+4. **A month with no budget row of its own shows the figures it is using** (the latest earlier month's) in the boxes' placeholders and the total, not zeros.
+
+
 ## 1. Read this first — what the code says that changes the plan
 
 These are facts found while verifying the rulings. Several change what a lane should build. None was fixed.
@@ -698,3 +706,11 @@ Command `php artisan daily-points:correct-calendar-credits` (`--apply` to change
 3. **Branch Performance / Agency Performance tiles pass `branch_id=`**, which the register does not filter on (it only uses it to show the branch's share); an admin clicking a branch tile lands on all branches' deals for that month and status. The register's own `branch` filter exists; mapping `branch_id` onto it would be the fix.
 4. `FeatureNavGuardCoverageTest` fails at baseline on `corex.alerts.index` (line 819) and four rentals cross-links; nothing deal-related. `scripts/dev-check.ps1` is PowerShell and has never run on this box (STANDARDS −1): replaced by `php -l`, `view:clear`, the single relevant test files and the post-deploy page fetch.
 5. Whether the legacy `layouts/navigation.blade.php` / `dashboard.blade.php` are rendered anywhere is still UNVERIFIED (14.1.6); their links were updated regardless.
+
+### P5 / P6 follow-up (AT-475, QA1, 23 Oct 2026)
+
+Landed with Johan's rulings of 23 Oct (section 0.1) and the conductor's browser review of P5/P6 on QA1:
+- **Gating:** see 0.1 item 2. Guard tests: `BudgetsTargetsWithoutRoadToSoldTest`; `FeatureNavGuardCoverageTest` now honours `route_names_except`. **Sidebar:** the "Road to Sold settings" link is wrapped in `@feature('road-to-sold')` at `resources/views/layouts/corex-sidebar.blade.php` lines 1103-1108 - cc5 owns the sidebar; until that link is shown without the feature a rentals-only agency reaches the screens by address (`/road-to-sold/settings/budgets`, `/road-to-sold/settings/targets`), not by menu.
+- **Agent page 404 for a platform owner:** `RoadToSoldController@index` (`:45`) required the viewer's own id to be one of the agency's agents; a platform owner switched into an agency belongs to no agency, so the page answered 404. With no `?agent=` they now land on the first agent they may see; a named `?agent=` outside their breadth still 404s.
+- **Budgets screen:** carried figures shown (item 4 of 0.1); one rule for the agency requirement (item 3); "Planning figures" is one short label per row; the page subtitle paragraphs on Budgets and Targets are gone (Johan's rule: every line is data or a control).
+- **Admin Daily Activity Summary** (`Admin/DailyActivitySummaryController`): it listed every agency's private copies of an activity (QA1: "Contacted New Buyers" - one system row and four other agencies' copies). It now lists the system activities plus the viewer's own agency's copies, and the same rule guards the three drill-downs.

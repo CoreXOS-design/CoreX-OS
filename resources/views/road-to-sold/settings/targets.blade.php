@@ -58,7 +58,7 @@
     <section id="monthly" class="space-y-4">
         <div>
             <h2 class="text-base font-bold" style="color:var(--text-primary);">Monthly targets</h2>
-            <p class="text-sm" style="color:var(--text-muted);">What each agent works towards in a month: points, deals, sales value and new listings. Under each box is what the agent has actually done so far, and how far ahead or behind that is. A box left blank is left as it was; type 0 to set zero.</p>
+            
         </div>
 
         <div class="rounded-md p-4 flex flex-wrap items-center gap-4" style="background:var(--surface); border:1px solid var(--border);">
@@ -227,9 +227,10 @@
         {{ $mo['rows']->links() }}
     </section>
 
+    {{-- The daily call targets belong to the Road to Sold call list: shown only while that feature is on (Johan, 23 Oct 2026 - Budgets and monthly targets stay without it). --}}
+    @if($weekdayOn)
     <div>
         <h2 class="text-base font-bold" style="color:var(--text-primary);">Daily call targets</h2>
-        <p class="text-sm" style="color:var(--text-muted);">How many properties each agent works on each day of the week.</p>
     </div>
 
     {{-- Agency default --}}
@@ -365,5 +366,6 @@
         </table>
     </div>
     {{ $rows->links() }}
+    @endif
 </div>
 @endsection

@@ -42,6 +42,11 @@ class RoadToSoldController extends Controller
         $track = Track::fromRequest($request);
         $agents = $this->list->viewableAgents($viewer);
         $agentId = (int) ($request->query('agent') ?: $viewer->ownershipUserId());
+        // A platform owner switched into an agency belongs to no agency, so their own id is never one of the agency's agents: with no
+        // ?agent= in the address they land on the first agent they may look at instead of a 404. A named ?agent= outside their breadth still 404s.
+        if (! $request->query('agent') && ! $agents->contains('id', $agentId) && $agents->isNotEmpty()) {
+            $agentId = (int) $agents->first()->id;
+        }
         abort_unless($agents->contains('id', $agentId), 404);
         $viewingOwn = $agentId === (int) $viewer->ownershipUserId();
 

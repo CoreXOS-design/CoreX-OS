@@ -47,8 +47,14 @@ class DailyActivitySummaryController extends Controller
         [$range, $start, $end, $month] = $this->rangeFromRequest($request);
 
         // Definitions visible company-wide: global + all branch scopes, enabled
+        // One agency's summary lists the system activities plus that agency's own copies - never another agency's private copies
+        // (each agency holds a copy of every activity it customised, which printed the same name once per agency). An owner with
+        // no agency selected is the one cross-agency view.
+        $viewerAgencyId = (int) ($u->effectiveAgencyId() ?: 0);
         $defs = DB::table('activity_definitions')
             ->where('is_enabled', 1)
+            ->when($viewerAgencyId > 0, fn ($q) => $q->where(fn ($w) => $w->where('scope', 'system')
+                ->orWhere(fn ($x) => $x->where('scope', 'agency')->where('agency_id', $viewerAgencyId))))
             ->orderBy('sort_order')->orderBy('id')
             ->get(['id','name','weight','scope','branch_id']);
 
@@ -127,8 +133,13 @@ class DailyActivitySummaryController extends Controller
 
         [$range, $start, $end, $month] = $this->rangeFromRequest($request);
 
-        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) {
+        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) use ($u) {
             $o->where('ad.is_enabled', 1);
+            $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+            if ($agencyId > 0) {
+                $o->where(fn ($w) => $w->where('ad.scope', 'system')
+                    ->orWhere(fn ($x) => $x->where('ad.scope', 'agency')->where('ad.agency_id', $agencyId)));
+            }
         });
 
         abort_unless($def, 404);
@@ -188,8 +199,13 @@ class DailyActivitySummaryController extends Controller
 
         [$range, $start, $end, $month] = $this->rangeFromRequest($request);
 
-        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) {
+        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) use ($u) {
             $o->where('ad.is_enabled', 1);
+            $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+            if ($agencyId > 0) {
+                $o->where(fn ($w) => $w->where('ad.scope', 'system')
+                    ->orWhere(fn ($x) => $x->where('ad.scope', 'agency')->where('ad.agency_id', $agencyId)));
+            }
         });
 
         abort_unless($def, 404);
@@ -257,8 +273,13 @@ class DailyActivitySummaryController extends Controller
 
         [$range, $start, $end, $month] = $this->rangeFromRequest($request);
 
-        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) {
+        $def = ActivityPointsService::drilldownDefinition((int)$definition, $u->effectiveAgencyId(), function ($o) use ($u) {
             $o->where('ad.is_enabled', 1);
+            $agencyId = (int) ($u->effectiveAgencyId() ?: 0);
+            if ($agencyId > 0) {
+                $o->where(fn ($w) => $w->where('ad.scope', 'system')
+                    ->orWhere(fn ($x) => $x->where('ad.scope', 'agency')->where('ad.agency_id', $agencyId)));
+            }
         });
 
         abort_unless($def, 404);

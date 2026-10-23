@@ -13,7 +13,7 @@ use Illuminate\Support\Collection;
  * in the query, never in the view (BUILD_STANDARD §1c).
  *
  * "Agents" = active, non-assistant users in the agency who may use Road to Sold
- * (hold `access_road_to_sold`).
+ * (hold `access_road_to_sold`) - or, when the Road to Sold feature is off, every such user.
  */
 class VisibleAgents
 {
@@ -37,9 +37,15 @@ class VisibleAgents
             $q->whereIn('id', $viewer->dataIdentityIds());
         }
 
-        return $q->with('branch')->orderBy('name')->get()
-            ->filter(fn (User $u) => $u->hasPermission('access_road_to_sold'))
-            ->keyBy('id');
+        $agents = $q->with('branch')->orderBy('name')->get();
+
+        // "May use Road to Sold" narrows the cohort only while the call-list feature is on. With it off (a rentals-only agency)
+        // nobody holds that permission, yet Budgets and the monthly targets still need the agency's agents (Johan, 23 Oct 2026).
+        if (Scope::callListOn($viewer)) {
+            $agents = $agents->filter(fn (User $u) => $u->hasPermission('access_road_to_sold'));
+        }
+
+        return $agents->keyBy('id');
     }
 
     /** True when $viewer's breadth covers $target (the direct-URL-by-id check). */

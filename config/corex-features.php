@@ -31,6 +31,7 @@
  *     'route_names'      => array,    // OPTIONAL — Str::is() globs of the signed-in web routes this feature owns.
  *                                     //   App\Http\Middleware\EnforceFeatureRoutes 404s them when the feature is off
  *                                     //   (in addition to any explicit `feature:` middleware already on the route).
+ *     'route_names_except' => array,  // OPTIONAL — Str::is() globs INSIDE route_names that the feature does NOT refuse when off
  *     'view_dirs'        => array,    // OPTIONAL — views/ path prefixes of the feature's OWN screens. Any other view
  *                                     //   that links to its routes must wrap the link in @feature('<key>')
  *                                     //   (guard: FeatureNavGuardCoverageTest).
@@ -219,6 +220,8 @@ return [
         'nav_permission' => ['access_road_to_sold'], 'sidebar_section' => 'real-estate',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
         'route_names' => ['road-to-sold.*'],
+        // Budgets and the monthly targets are the agency's planning numbers, not the call list: reachable with this feature off (Johan, 23 Oct 2026).
+        'route_names_except' => ['road-to-sold.settings.budgets.*', 'road-to-sold.settings.targets.index', 'road-to-sold.settings.targets.monthly.*'],
         'view_dirs' => ['road-to-sold/'],
         'permission_modules' => ['road_to_sold'],
     ],

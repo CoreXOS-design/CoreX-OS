@@ -452,8 +452,14 @@ class SettingsController extends Controller
             ['targets', 'Targets', 'road_to_sold.manage_targets', Routing::base() . 'targets.index'],
         ];
 
+        // Budgets and Targets are reachable without the Road to Sold feature; General and Areas are the call list's own.
+        $rtsOn = \App\Services\RoadToSold\Scope::callListOn($user);
+
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
+            if (! $rtsOn && in_array($key, ['general', 'areas'], true)) {
+                continue;
+            }
             if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {
                 $tabs[] = ['key' => $key, 'label' => $label, 'href' => route($route), 'active' => $key === $active];
             }
