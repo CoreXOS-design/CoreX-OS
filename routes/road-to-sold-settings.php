@@ -10,18 +10,22 @@ use Illuminate\Support\Facades\Route;
  * The hub is open to anyone who can manage settings, areas or targets; each tab re-checks its own key.
  */
 return function () {
+    // Everything here needs the Road to Sold (call list) feature EXCEPT Budgets and the monthly targets: those are the agency's
+    // planning numbers, not the prospecting list, so they stay reachable when the feature is off (Johan, 23 Oct 2026).
+    $rts = 'feature:road-to-sold';
+
     Route::get('/', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'index'])
-        ->middleware('permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets')
+        ->middleware([$rts, 'permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets'])
         ->name('index');
     Route::put('/general', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'update'])
-        ->middleware('permission:road_to_sold.manage_settings')
+        ->middleware([$rts, 'permission:road_to_sold.manage_settings'])
         ->name('general.update');
     Route::post('/general/reset', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'reset'])
-        ->middleware('permission:road_to_sold.manage_settings')
+        ->middleware([$rts, 'permission:road_to_sold.manage_settings'])
         ->name('general.reset');
 
     // Areas - which suburbs each agent works (spec section 5.2).
-    Route::middleware('permission:road_to_sold.manage_areas')->prefix('areas')->name('areas.')->group(function () {
+    Route::middleware([$rts, 'permission:road_to_sold.manage_areas'])->prefix('areas')->name('areas.')->group(function () use ($rts) {
         Route::get('/', [\App\Http\Controllers\RoadToSold\AreasController::class, 'index'])->name('index');
         Route::post('/agents/{user}', [\App\Http\Controllers\RoadToSold\AreasController::class, 'sync'])->whereNumber('user')->name('sync');
         Route::post('/hide', [\App\Http\Controllers\RoadToSold\AreasController::class, 'hide'])->middleware('permission:road_to_sold.manage_settings')->name('hide');
@@ -31,15 +35,15 @@ return function () {
     });
 
     // Targets - an agent's number for each weekday, over the agency default (spec section 5.3).
-    Route::middleware('permission:road_to_sold.manage_targets,road_to_sold.manage_settings')->prefix('targets')->name('targets.')->group(function () {
+    Route::middleware('permission:road_to_sold.manage_targets,road_to_sold.manage_settings')->prefix('targets')->name('targets.')->group(function () use ($rts) {
         $c = \App\Http\Controllers\RoadToSold\TargetsController::class;
         Route::get('/', [$c, 'index'])->name('index');
-        Route::put('/default', [$c, 'updateDefault'])->name('default');
-        Route::put('/agents/{user}', [$c, 'saveAgent'])->whereNumber('user')->name('agent');
-        Route::post('/agents/{user}/fill-weekdays', [$c, 'fillWeekdays'])->whereNumber('user')->name('fill-weekdays');
-        Route::post('/copy-to-agents', [$c, 'copyToAgents'])->name('copy-agents');
-        Route::delete('/agents/{user}', [$c, 'clear'])->whereNumber('user')->name('clear');
-        Route::post('/agents/{user}/restore', [$c, 'restore'])->whereNumber('user')->name('restore');
+        Route::put('/default', [$c, 'updateDefault'])->middleware($rts)->name('default');
+        Route::put('/agents/{user}', [$c, 'saveAgent'])->whereNumber('user')->middleware($rts)->name('agent');
+        Route::post('/agents/{user}/fill-weekdays', [$c, 'fillWeekdays'])->whereNumber('user')->middleware($rts)->name('fill-weekdays');
+        Route::post('/copy-to-agents', [$c, 'copyToAgents'])->middleware($rts)->name('copy-agents');
+        Route::delete('/agents/{user}', [$c, 'clear'])->whereNumber('user')->middleware($rts)->name('clear');
+        Route::post('/agents/{user}/restore', [$c, 'restore'])->whereNumber('user')->middleware($rts)->name('restore');
 
         // Monthly targets (points / deals / value / listings per agent per month) - agency-tracker-rehome.md 5.7.
         Route::put('/monthly/agents/{user}', [$c, 'saveMonthly'])->whereNumber('user')->name('monthly.save');

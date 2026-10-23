@@ -114,6 +114,7 @@ class TargetsController extends Controller
             'default'  => $default,
             'weekdays' => RtsWeekdayTarget::WEEKDAYS,
             'max'      => RtsWeekdayTarget::MAX_TARGET,
+            'weekdayOn' => \App\Services\RoadToSold\Scope::callListOn($viewer),
             'canWrite' => $this->canWrite($viewer),
             'canEditDefault' => $this->canEditDefault($viewer),
             'branches' => $agents->pluck('branch.name', 'branch_id')->filter()->sort(),

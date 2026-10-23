@@ -16,6 +16,18 @@ final class Scope
 {
     public const MODULE = 'road_to_sold';
 
+    /**
+     * Is the Road to Sold (call list) feature on for this user's agency? Budgets and the monthly targets do NOT depend on it (Johan,
+     * 23 Oct 2026), so they ask this to decide only what is drawn - the call-list tabs, the daily call targets, the access filter.
+     */
+    public static function callListOn(User $user): bool
+    {
+        $agencyId = (int) ($user->effectiveAgencyId() ?: 0);
+        $agency   = $agencyId > 0 ? \App\Models\Agency::query()->withoutGlobalScopes()->find($agencyId) : null;
+
+        return app(\App\Services\Features\AgencyFeatureService::class)->enabled('road-to-sold', $agency);
+    }
+
     public static function level(User $user): string
     {
         return PermissionService::getDataScope($user, self::MODULE) ?? 'own';

@@ -70,9 +70,12 @@ class BudgetsController extends Controller
                 $carried = $f['source'] === BudgetService::SOURCE_CARRIED ? $f : null;
             }
 
+            // A month with no row of its own shows the figures it is using (the latest earlier month's): a 0 next to
+            // "using April's figures" would contradict itself.
             return [
                 'user' => $u, 'row' => $row, 'archived' => $archived->get($u->id), 'carried' => $carried,
-                'personal' => (float) ($row->personal_budget ?? 0), 'business' => (float) ($row->business_budget ?? 0),
+                'personal' => (float) ($row->personal_budget ?? ($carried['personalBudget'] ?? 0)),
+                'business' => (float) ($row->business_budget ?? ($carried['businessBudget'] ?? 0)),
             ];
         })->values();
 
@@ -114,7 +117,7 @@ class BudgetsController extends Controller
             'rows'       => $page,
             'canWrite'   => $this->canWrite($viewer),
             'canEditAgency' => $this->canWrite($viewer) && $scope === 'all',
-            'agencyRequirement' => $this->budgets->agencyRequirement($agencyId, $period, $track),
+            'agencyDetail' => $this->budgets->agencyRequirementDetail($agencyId, $period, $track),
             'branchRows' => $branches->map(function (Branch $b) use ($reqs, $viewer, $agencyId, $period, $track) {
                 $r = $this->budgets->requirementFor($agencyId, (int) $b->id, $period, $track);
 
