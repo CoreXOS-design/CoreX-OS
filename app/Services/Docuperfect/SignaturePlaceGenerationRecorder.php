@@ -28,9 +28,10 @@ class SignaturePlaceGenerationRecorder
     /**
      * @param array<string,mixed> $posted         place key => data URI, exactly as the client posted them (signatures and initials)
      * @param array<string,mixed> $priorByKey     what the JSON map held for those keys BEFORE this completion
+     * @param array{method?:string,adoption_id?:int,fill_all_event_id?:int} $provenance how the marks got there (default: drawn)
      * @return array<int, SignaturePlaceGeneration> the generations written by this call (including recovered originals)
      */
-    public function record(Document $document, SignatureRequest $signingRequest, array $posted, array $priorByKey, Request $http): array
+    public function record(Document $document, SignatureRequest $signingRequest, array $posted, array $priorByKey, Request $http, array $provenance = []): array
     {
         $written = [];
 
@@ -41,7 +42,7 @@ class SignaturePlaceGenerationRecorder
             }
 
             $written = array_merge($written, DB::transaction(
-                fn () => $this->recordOne($document, $signingRequest, $placeKey, $image, $priorByKey[$placeKey] ?? null, $http)
+                fn () => $this->recordOne($document, $signingRequest, $placeKey, $image, $priorByKey[$placeKey] ?? null, $http, $provenance)
             ));
         }
 
@@ -49,7 +50,7 @@ class SignaturePlaceGenerationRecorder
     }
 
     /** @return array<int, SignaturePlaceGeneration> */
-    private function recordOne(Document $document, SignatureRequest $req, string $placeKey, string $image, mixed $prior, Request $http): array
+    private function recordOne(Document $document, SignatureRequest $req, string $placeKey, string $image, mixed $prior, Request $http, array $provenance = []): array
     {
         $hash = hash('sha256', $image);
         $kind = str_contains($placeKey, '-init-') ? SignaturePlaceGeneration::KIND_INITIAL : SignaturePlaceGeneration::KIND_SIGNATURE;
@@ -94,6 +95,9 @@ class SignaturePlaceGenerationRecorder
             'user_agent' => $http->userAgent(),
             'signed_at' => now(),
             'source' => SignaturePlaceGeneration::SOURCE_WEB_COMPLETE,
+            'method' => $provenance['method'] ?? SignaturePlaceGeneration::METHOD_DRAWN,
+            'adoption_id' => $provenance['adoption_id'] ?? null,
+            'fill_all_event_id' => $provenance['fill_all_event_id'] ?? null,
         ]);
         $out[] = $new;
 
@@ -118,6 +122,7 @@ class SignaturePlaceGenerationRecorder
                     'previous_image_hash' => $latest->image_hash,
                     'image_hash' => $hash,
                     'previous_source' => $latest->source,
+                    'method' => $new->method,
                 ],
             ]);
         }

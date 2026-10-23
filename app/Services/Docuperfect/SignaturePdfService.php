@@ -742,6 +742,14 @@ class SignaturePdfService
                 . (($meta['kind'] ?? 'signature') === 'initial' ? 'an initial' : 'a signature')
                 . " again (version " . ($meta['generation'] ?? '?') . "; the earlier version "
                 . ($meta['previous_generation'] ?? '?') . " is kept on record)",
+            // esign-signing-modes.md (Modes 2/3): the adoption, each click-stamp and the single fill-all confirmation.
+            'signature_adopted' => "{$name} adopted their signature and initial (agreement version " . ($meta['disclaimer_version'] ?? '?') . ")",
+            'signature_readopted' => "{$name} adopted their signature and initial again (version " . ($meta['generation'] ?? '?')
+                . "; agreement version " . ($meta['disclaimer_version'] ?? '?') . "; the earlier one is kept on record)",
+            'signature_placed' => "{$name} placed their " . (($meta['kind'] ?? 'signature') === 'initial' ? 'initial' : 'signature')
+                . " by clicking" . (isset($meta['page']) ? " on page {$meta['page']}" : ''),
+            'fill_all_confirmed' => "{$name} confirmed placing their signature and initial on " . ($meta['filled_count'] ?? '?')
+                . " places at once" . ((int) ($meta['excluded_count'] ?? 0) > 0 ? " ({$meta['excluded_count']} left to do one by one)" : ''),
             // A first acceptance reads exactly as before ("Section accepted"); only a repeat names its version.
             'section_accepted' => (int) ($meta['generation'] ?? 1) > 1
                 ? "{$name} accepted a section again (version {$meta['generation']}; the earlier versions are kept on record)"
