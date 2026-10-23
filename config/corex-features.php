@@ -453,7 +453,7 @@ return [
         'explain' => 'The calculator set — commission, CMA certificate, deposit interest and related quick tools.',
         'affects' => 'Whether the Calculators appear for your agents. Off hides them; they store no data.',
         'default' => true, 'core' => false, 'depends_on' => [],
-        'nav_permission' => ['access_calculators', 'access_deposit_calculator'], 'sidebar_section' => 'trust-interest',
+        'nav_permission' => ['access_calculators', 'access_deposit_calculator'], 'sidebar_section' => 'calculators',
         'settings_section' => null, 'route_prefixes' => ['deposit-interest-calculator', 'calculators'], 'global_flag' => null,
         'permission_modules' => ['calculators'],
     ],
@@ -471,8 +471,9 @@ return [
         'explain' => 'Office TV messages and leaderboards shown on a wall-mounted display.',
         'affects' => 'Whether the TV Display and its message manager appear. Off hides them; saved messages are kept.',
         'default' => true, 'core' => false, 'depends_on' => [],
-        'nav_permission' => ['manage_tv_messages'], 'sidebar_section' => 'agency-tracker',
-        'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
+        // No sidebar item any more: the TV codes and messages live in Settings > Operations > TV Display (agency-tracker-rehome.md step 8).
+        'nav_permission' => ['manage_tv_messages'], 'sidebar_section' => null,
+        'settings_section' => 'tv-display', 'route_prefixes' => [], 'global_flag' => null,
         'permission_modules' => ['tv_messages'],
     ],
     'guided-tours' => [
