@@ -2008,6 +2008,7 @@
 
 @if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
 @push('scripts')
+@include('partials.facebook-connect-explainer')
 <script>
     // Meta requires Page permissions (pages_show_list, pages_manage_posts, etc.)
     // for a Business-owned app to be requested via a Facebook Login for Business
@@ -2030,7 +2031,8 @@
         fjs.parentNode.insertBefore(js, fjs);
     }(document, 'script', 'facebook-jssdk'));
 
-    function corexConnectSocial(platform) {
+    async function corexConnectSocial(platform) {
+        if (platform === 'facebook' && !(await window.corexFacebookConnectExplainer())) { return; }
         var configId = @json(config('services.meta.login_config_id'));
         var state = btoa(JSON.stringify({ user_id: {{ auth()->id() }}, platform: platform }));
 

@@ -193,6 +193,7 @@
                 </form>
                 @else
                 <a href="{{ route('corex.social.oauth.redirect', ['platform'=>'facebook']) }}"
+                   onclick="event.preventDefault(); var href = this.href; window.corexFacebookConnectExplainer().then(function (ok) { if (ok) { window.location.href = href; } });"
                    class="text-xs px-3 py-1.5 rounded-lg font-medium no-underline" style="background:rgba(24,119,242,0.12); color:#1877f2; border:1px solid rgba(24,119,242,0.25);">Connect</a>
                 @endif
             </div>
@@ -530,4 +531,7 @@ function syncPost(postId, btn) {
     });
 }
 </script>
+@push('scripts')
+@include('partials.facebook-connect-explainer')
+@endpush
 @endsection
