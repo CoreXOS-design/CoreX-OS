@@ -7555,12 +7555,18 @@ class ESignWizardController extends Controller
         }
 
         if ($sourceType === 'property') {
+            // Must stay identical to WebTemplateDataService / TemplateController (a parity test pins it): a box the
+            // wizard names differently from the document's own `data-field` never reaches the printed page - the
+            // deposit on a lease printed raw because this copy lacked `deposit_amount` (QA1, 23 Oct 2026).
             $propMap = [
                 'property_number' => 'property_erf_number', 'erf_number' => 'property_erf_number',
+                'erf' => 'property_erf_number',
                 'address' => 'property_street', 'street' => 'property_street',
                 'suburb' => 'property_township', 'township' => 'property_township',
                 'district' => 'property_district', 'complex_name' => 'property_complex_name',
+                'unit_number' => 'unit_no',
                 'price' => 'price', 'rental_amount' => 'monthly_rental',
+                'deposit_amount' => 'deposit_amount',
                 'expiry_date' => 'mandate_expiry',
             ];
             return $propMap[$sourceColumn] ?? 'property_' . $sourceColumn;
