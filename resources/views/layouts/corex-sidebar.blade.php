@@ -1007,10 +1007,20 @@
                 @feature('road-to-sold')
                 @permission('access_road_to_sold')
                 @if(\Illuminate\Support\Facades\Route::has('road-to-sold.index'))
-                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.*') ? 'active' : '' }}">Road to Sold</a>
+                <a href="{{ route('road-to-sold.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.index', 'road-to-sold.drilldown', 'road-to-sold.report', 'road-to-sold.report.*', 'road-to-sold.add-to-day', 'road-to-sold.outcomes.*', 'road-to-sold.settings.index', 'road-to-sold.settings.general.*', 'road-to-sold.settings.areas.*', 'road-to-sold.settings.outcomes.*', 'road-to-sold.settings.recipe.*') ? 'active' : '' }}">Road to Sold</a>
                 @endif
                 @endpermission
                 @endfeature
+
+                {{-- AT-454 - Budgets & Targets: the agency's planning numbers (monthly budgets, requirements and targets), NOT part of the Road to Sold
+                     call list, so they are reachable with the Road to Sold switch OFF (Johan, 23 Oct 2026; the routes and the permission are already
+                     ungated). Permission-gated only - no @feature wrap - and exempted by route in SidebarFeatureCoverage::CORE_ROUTES. Same keys as the
+                     screens. The Road to Sold item above lights for its own settings tabs only, so each page lights exactly one item. --}}
+                @if(auth()->user()?->hasPermission('road_to_sold.manage_targets') || auth()->user()?->hasPermission('road_to_sold.manage_settings'))
+                @if(\Illuminate\Support\Facades\Route::has('road-to-sold.settings.budgets.index'))
+                <a href="{{ route('road-to-sold.settings.budgets.index') }}" class="corex-nav-subitem {{ request()->routeIs('road-to-sold.settings.budgets.*', 'road-to-sold.settings.targets.*') ? 'active' : '' }}">Budgets &amp; Targets</a>
+                @endif
+                @endif
 
                 {{-- Presentations: Presentations | Analytics | Outcomes | Refresh requests | Commercial evaluations. The open refresh-request
                      count (Phase 7) is on its tab and totalled here. Outcomes carries no count (CX, Johan 2026-08-20: a menu count must count
