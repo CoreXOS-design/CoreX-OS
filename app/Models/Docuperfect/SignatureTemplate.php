@@ -53,6 +53,7 @@ class SignatureTemplate extends Model
         'finalization_attempts',
         'finalization_started_at',
         'finalization_finished_at',
+        'signing_mode',
     ];
 
     protected $casts = [
@@ -70,6 +71,21 @@ class SignatureTemplate extends Model
         'finalization_started_at' => 'datetime',
         'finalization_finished_at' => 'datetime',
     ];
+
+    /**
+     * esign-signing-modes.md rule 5: the mode a document is signed in is fixed when its envelope is created, from
+     * the agency's setting at that moment — a later change to the setting never switches an envelope mid-signing.
+     * Done here (not at each of the creation sites) so no path can create an envelope without it. Registered after
+     * BelongsToAgency's own creating hook, so agency_id is already set.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (self $envelope) {
+            if (empty($envelope->signing_mode)) {
+                $envelope->signing_mode = EsignSettings::signingModeFor($envelope->agency_id ? (int) $envelope->agency_id : null);
+            }
+        });
+    }
 
     // Finalisation state (POST-completion work: PDF, filing, emails) — separate
     // from `status`, which stays `completed` regardless of this outcome.
