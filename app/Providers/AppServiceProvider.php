@@ -263,6 +263,7 @@ class AppServiceProvider extends ServiceProvider
         ], \App\View\Composers\OutreachWindowComposer::class);
 
         Agency::observe(AgencyObserver::class);
+        \App\Models\DailyActivityEntry::observe(\App\Observers\DailyActivityEntryObserver::class);
         CalendarEventFeedback::observe(CalendarEventFeedbackObserver::class);
         CalendarEvent::observe(CalendarEventObserver::class);
         Contact::observe(ContactObserver::class);

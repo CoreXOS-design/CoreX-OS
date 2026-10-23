@@ -40,7 +40,7 @@ class RtsTaskCompletion extends Model
 
     protected $fillable = [
         'agency_id', 'branch_id', 'user_id', 'recorded_by_user_id', 'recorded_by_kind', 'track', 'task_id', 'step_id', 'level_id',
-        'occurred_at', 'period_unit', 'period_start', 'quantity', 'points_awarded', 'points_legacy', 'state', 'source',
+        'occurred_at', 'period_unit', 'period_start', 'activity_date', 'period', 'legacy_source', 'legacy_entry_id', 'quantity', 'points_awarded', 'points_legacy', 'state', 'source',
         'subject_type', 'subject_id', 'event_id', 'idempotency_key', 'evidence_note', 'evidence',
         'confirmed_by_user_id', 'confirmed_at', 'revoked_at', 'revoke_reason', 'override_audit',
     ];
@@ -48,6 +48,7 @@ class RtsTaskCompletion extends Model
     protected $casts = [
         'occurred_at'    => 'datetime',
         'period_start'   => 'datetime',
+        'activity_date'  => 'date',
         'confirmed_at'   => 'datetime',
         'revoked_at'     => 'datetime',
         'quantity'       => 'integer',

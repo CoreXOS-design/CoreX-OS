@@ -39,7 +39,7 @@ class RecipeService
      *
      * @return array{steps:int,tasks:int,levels:int}  how many rows were created
      */
-    public function start(int $agencyId, string $track = 'sales'): array
+    public function start(int $agencyId, string $track = 'sales', bool $withDefaultTasks = true): array
     {
         $made = ['steps' => 0, 'tasks' => 0, 'levels' => 0];
 
@@ -71,7 +71,7 @@ class RecipeService
             }
 
             $sort = 0;
-            foreach (RecipeCatalogue::defaultTasks() as $def) {
+            foreach ($withDefaultTasks ? RecipeCatalogue::defaultTasks() : [] as $def) {
                 $sort++;
                 $task = RtsTask::query()->withoutGlobalScope(AgencyScope::class)->withTrashed()
                     ->where('agency_id', $agencyId)->where('track', $track)->where('key', $def['key'])->first();

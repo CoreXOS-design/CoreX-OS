@@ -36,12 +36,97 @@ use InvalidArgumentException;
  *   Every screen, from the agent's own daily page to the company rollup, uses
  *   this rule, so the same agent and month cannot show two different totals.
  *
+ * WHERE THE ROWS ARE (Road to Sold v2 phase 3, road-to-sold.md section 7): an agency that has been cut over (an rts_cutovers row; the
+ * daily-activity history was moved into the task completions and everything the old detectors credit afterwards is mirrored in by
+ * LegacyEntryBridge) is read from `rts_task_completions`; every other agency is read from `daily_activity_entries` exactly as before.
+ * Both are handed back as the SAME shape - alias `e` carries user_id, branch_id, period, activity_date and the points, alias `d` the
+ * activity or task name - so a caller does not know which one it got. A completion's points are its own snapshot (points_awarded); the
+ * old rows' are count x weight. The manual / automatic split is preserved: a completion is manual when it was captured (or copied from
+ * a manual entry) and automatic otherwise.
+ *
  * Callers add their own who/when filters (user, branch, period, date) to the
  * query `counted()` returns, then turn it into a number with `sum()` /
  * `sumByDate()`, or group it themselves with `sqlPoints()`.
  */
 final class ActivityPointsService
 {
+    /** @var array<int,bool> agency id => has been cut over */
+    private static array $cut = [];
+    private static ?array $cutIds = null;
+
+    /** Forget what was learned about cut-overs (after one is made, and between tests). */
+    public static function forgetCutovers(): void
+    {
+        self::$cut = [];
+        self::$cutIds = null;
+    }
+
+    /** @return int[] every agency that has been cut over */
+    private static function cutIds(): array
+    {
+        return self::$cutIds ??= DB::table('rts_cutovers')->distinct()->pluck('agency_id')->map(fn ($v) => (int) $v)->all();
+    }
+
+    /**
+     * Are this agency's points read from the task completions? Yes once it has been cut over. For no agency at all (a platform owner
+     * with no agency chosen) yes only when EVERY agency that has daily-activity entries has been cut over - otherwise the old entries,
+     * which are still written for everyone, are the complete record.
+     */
+    public static function usesCompletions(?int $agencyId): bool
+    {
+        if ($agencyId) {
+            return self::$cut[$agencyId] ??= in_array($agencyId, self::cutIds(), true);
+        }
+        $cut = self::cutIds();
+
+        return $cut !== [] && ! DB::table('daily_activity_entries')->whereNotIn('agency_id', $cut)->exists();
+    }
+
+    /** Is this a query counted() built over the completions? */
+    private static function overCompletions(Builder $counted): bool
+    {
+        return str_starts_with((string) $counted->from, 'rts_task_completions');
+    }
+
+    /** SQL: this completion is MANUAL (captured by the agent, or copied from a manual entry); everything else is automatic. */
+    public static function manualCompletionSql(string $alias = 'e'): string
+    {
+        self::assertAliases($alias);
+
+        return "({$alias}.source IN ('captured','manual') OR COALESCE({$alias}.legacy_source, '') = 'manual')";
+    }
+
+    /** The points of ONE row of whichever source `$counted` reads. */
+    public static function pointsExpr(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): string
+    {
+        return self::overCompletions($counted) ? self::completionPoints($entryAlias) : self::sqlPoints($entryAlias, $definitionAlias);
+    }
+
+    /** @return array{0: string, 1: string} manual-only and automatic-only points SQL for whichever source `$counted` reads */
+    public static function splitExprs(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
+    {
+        if (! self::overCompletions($counted)) {
+            return self::splitExpressions($entryAlias, $definitionAlias);
+        }
+        $pts = self::completionPoints($entryAlias);
+        $man = self::manualCompletionSql($entryAlias);
+
+        return ["(CASE WHEN {$man} THEN {$pts} ELSE 0 END)", "(CASE WHEN {$man} THEN 0 ELSE {$pts} END)"];
+    }
+
+    private static function completionPoints(string $entryAlias): string
+    {
+        self::assertAliases($entryAlias);
+
+        return "{$entryAlias}.`points_awarded`";
+    }
+
+    /** SQL: how many times, per row of whichever source `$counted` reads. */
+    private static function countExpr(Builder $counted, string $entryAlias): string
+    {
+        return self::overCompletions($counted) ? "{$entryAlias}.`quantity`" : "GREATEST({$entryAlias}.`value`, 0)";
+    }
+
     /**
      * Points for `$count` occurrences of an activity worth `$weight` each.
      *
@@ -82,6 +167,14 @@ final class ActivityPointsService
      */
     public static function counted(?int $agencyId, string $entryAlias = 'e', string $definitionAlias = 'd'): Builder
     {
+        return self::usesCompletions($agencyId)
+            ? self::countedCompletions($agencyId, $entryAlias, $definitionAlias)
+            : self::countedLegacy($agencyId, $entryAlias, $definitionAlias);
+    }
+
+    /** The old engine's rows (what counted() returns for an agency that has not been cut over). */
+    public static function countedLegacy(?int $agencyId, string $entryAlias = 'e', string $definitionAlias = 'd'): Builder
+    {
         self::assertAliases($entryAlias, $definitionAlias);
 
         return DB::table("daily_activity_entries as {$entryAlias}")
@@ -91,10 +184,26 @@ final class ActivityPointsService
             ->when($agencyId, fn (Builder $q) => $q->where("{$entryAlias}.agency_id", $agencyId));
     }
 
+    /**
+     * The same rule over the task completions: confirmed or overridden, not archived, and never a row copied from an `auto_other` entry
+     * (the old rule's own exclusion). Joined to its task so the name is at hand; the points are the completion's snapshot.
+     */
+    public static function countedCompletions(?int $agencyId, string $entryAlias = 'e', string $definitionAlias = 'd'): Builder
+    {
+        self::assertAliases($entryAlias, $definitionAlias);
+
+        return DB::table("rts_task_completions as {$entryAlias}")
+            ->join("rts_tasks as {$definitionAlias}", "{$definitionAlias}.id", '=', "{$entryAlias}.task_id")
+            ->whereNull("{$entryAlias}.deleted_at")
+            ->whereIn("{$entryAlias}.state", DailyActivityEntry::ACHIEVEMENT_TOTAL_STATES)
+            ->where(fn (Builder $w) => $w->whereNull("{$entryAlias}.legacy_source")->orWhere("{$entryAlias}.legacy_source", '<>', DailyActivityEntry::SOURCE_AUTO_OTHER))
+            ->when($agencyId, fn (Builder $q) => $q->where("{$entryAlias}.agency_id", $agencyId));
+    }
+
     /** Total points of whatever `counted()` query the caller narrowed down. */
     public static function sum(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): float
     {
-        return round((float) $counted->sum(DB::raw(self::sqlPoints($entryAlias, $definitionAlias))), 2);
+        return round((float) $counted->sum(DB::raw(self::pointsExpr($counted, $entryAlias, $definitionAlias))), 2);
     }
 
     /**
@@ -105,7 +214,7 @@ final class ActivityPointsService
      */
     public static function sumByDate(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
     {
-        $pts = self::sqlPoints($entryAlias, $definitionAlias);
+        $pts = self::pointsExpr($counted, $entryAlias, $definitionAlias);
 
         return $counted
             ->groupBy("{$entryAlias}.activity_date")
@@ -123,7 +232,7 @@ final class ActivityPointsService
      */
     public static function sumSplit(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
     {
-        [$man, $auto] = self::splitExpressions($entryAlias, $definitionAlias);
+        [$man, $auto] = self::splitExprs($counted, $entryAlias, $definitionAlias);
         $row = $counted->selectRaw("COALESCE(SUM({$man}), 0) as manual_pts, COALESCE(SUM({$auto}), 0) as auto_pts")->first();
 
         return self::splitPair((float) ($row->manual_pts ?? 0), (float) ($row->auto_pts ?? 0));
@@ -136,7 +245,7 @@ final class ActivityPointsService
      */
     public static function sumByDateSplit(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): array
     {
-        [$man, $auto] = self::splitExpressions($entryAlias, $definitionAlias);
+        [$man, $auto] = self::splitExprs($counted, $entryAlias, $definitionAlias);
         $out = [];
         $counted->groupBy("{$entryAlias}.activity_date")
             ->selectRaw("DATE({$entryAlias}.activity_date) as d, COALESCE(SUM({$man}), 0) as manual_pts, COALESCE(SUM({$auto}), 0) as auto_pts")
@@ -156,11 +265,19 @@ final class ActivityPointsService
     public static function entryRowsByDateSplit(Builder $counted, string $entryAlias = 'e'): array
     {
         self::assertAliases($entryAlias);
-        $man = self::sourceList(DailyActivityEntry::MANUAL_SOURCES);
-        $auto = self::sourceList(DailyActivityEntry::AUTOMATIC_SOURCES);
+        if (self::overCompletions($counted)) {
+            $isManual = self::manualCompletionSql($entryAlias);
+            $manRows = "SUM({$isManual})";
+            $autoRows = "SUM(NOT {$isManual})";
+        } else {
+            $man = self::sourceList(DailyActivityEntry::MANUAL_SOURCES);
+            $auto = self::sourceList(DailyActivityEntry::AUTOMATIC_SOURCES);
+            $manRows = "SUM({$entryAlias}.source IN ({$man}))";
+            $autoRows = "SUM({$entryAlias}.source IN ({$auto}))";
+        }
         $out = [];
         $counted->groupBy("{$entryAlias}.activity_date")
-            ->selectRaw("DATE({$entryAlias}.activity_date) as d, SUM({$entryAlias}.source IN ({$man})) as manual_rows, SUM({$entryAlias}.source IN ({$auto})) as auto_rows")
+            ->selectRaw("DATE({$entryAlias}.activity_date) as d, {$manRows} as manual_rows, {$autoRows} as auto_rows")
             ->get()
             ->each(function ($r) use (&$out) {
                 $out[(string) $r->d] = ['manual' => (int) $r->manual_rows, 'automatic' => (int) $r->auto_rows];
@@ -229,12 +346,14 @@ final class ActivityPointsService
     {
         self::assertAliases($entryAlias, $definitionAlias);
 
+        $count = self::countExpr($counted, $entryAlias);
+
         return $counted
-            ->groupBy("{$definitionAlias}.id", "{$definitionAlias}.name")
-            ->selectRaw("{$definitionAlias}.name as name, SUM(GREATEST({$entryAlias}.`value`, 0)) as n")
-            ->havingRaw("SUM(GREATEST({$entryAlias}.`value`, 0)) > 0")
+            ->groupBy("{$definitionAlias}.id", self::overCompletions($counted) ? "{$definitionAlias}.label" : "{$definitionAlias}.name")
+            ->selectRaw((self::overCompletions($counted) ? "{$definitionAlias}.label" : "{$definitionAlias}.name") . " as name, SUM({$count}) as n")
+            ->havingRaw("SUM({$count}) > 0")
             ->orderByDesc('n')
-            ->orderBy("{$definitionAlias}.name")
+            ->orderBy(self::overCompletions($counted) ? "{$definitionAlias}.label" : "{$definitionAlias}.name")
             ->pluck('n', 'name')
             ->map(fn ($v) => (int) $v)
             ->all();

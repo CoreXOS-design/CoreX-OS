@@ -126,6 +126,7 @@ class TaskCompletionService
         $occurredAt = AppDate::store(($context['occurred_at'] ?? null) ? Carbon::instance($context['occurred_at']) : now());
         $periodUnit = array_key_exists((string) $task->recurrence_unit, RtsTask::UNITS) ? (string) $task->recurrence_unit : 'day';
         $periodStart = $this->periodStart($agencyId, $periodUnit, $occurredAt);
+        $localDay    = $this->localDay($agencyId, $occurredAt);
 
         $subjectType = $subject[0] ?? null;
         $subjectId   = isset($subject[1]) ? (int) $subject[1] : null;
@@ -142,7 +143,7 @@ class TaskCompletionService
         $points     = $this->pointsFor($agencyId, $user, $task, $level, $levelTask);
 
         try {
-            return DB::transaction(function () use ($agencyId, $user, $recordedBy, $kind, $task, $level, $occurredAt, $periodUnit, $periodStart, $quantity, $points, $subjectType, $subjectId, $eventId, $key, $context) {
+            return DB::transaction(function () use ($agencyId, $user, $recordedBy, $kind, $task, $level, $occurredAt, $periodUnit, $periodStart, $localDay, $quantity, $points, $subjectType, $subjectId, $eventId, $key, $context) {
                 $completion = RtsTaskCompletion::withoutAgencyStamping(fn () => RtsTaskCompletion::create([
                     'agency_id'           => $agencyId,
                     'branch_id'           => $user->branch_id,
@@ -156,6 +157,8 @@ class TaskCompletionService
                     'occurred_at'         => $occurredAt,
                     'period_unit'         => $periodUnit,
                     'period_start'        => $periodStart,
+                    'activity_date'       => $localDay,
+                    'period'              => substr($localDay, 0, 7),
                     'quantity'            => $quantity,
                     'points_awarded'      => round($points * $quantity, 2),
                     'state'               => RtsTaskCompletion::STATE_CONFIRMED,
@@ -222,6 +225,15 @@ class TaskCompletionService
             ->orderByDesc('level_key')->first();
 
         return (float) ($override?->points ?? $levelTask->points);
+    }
+
+    /** The agency-local calendar day (Y-m-d) of a moment - the day a credit belongs to (the old activity_date). */
+    public function localDay(int $agencyId, CarbonInterface $at): string
+    {
+        static $tz = [];
+        $tz[$agencyId] ??= AppDate::agencyTimezone(Agency::query()->withoutGlobalScopes()->find($agencyId));
+
+        return Carbon::instance($at)->setTimezone($tz[$agencyId])->toDateString();
     }
 
     /** Start of the calendar-aligned period (agency timezone, weeks start Monday), stored in the app timezone. */
