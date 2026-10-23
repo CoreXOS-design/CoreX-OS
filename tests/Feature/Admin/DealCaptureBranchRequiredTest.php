@@ -66,7 +66,7 @@ class DealCaptureBranchRequiredTest extends TestCase
         $before = DB::table('deals')->count();
 
         $this->actingAs($admin)
-            ->post(route('admin.deals.store'), $this->payload($l->id, $s->id)) // no branch_id
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id)) // no branch_id
             ->assertSessionHasErrors('branch_id');
 
         $this->assertSame($before, DB::table('deals')->count(), 'No null-branch deal may be created.');
@@ -82,7 +82,7 @@ class DealCaptureBranchRequiredTest extends TestCase
         [$l, $s] = $this->twoAgents($agency, $branch);
 
         $this->actingAs($admin)
-            ->post(route('admin.deals.store'), $this->payload($l->id, $s->id, ['branch_id' => $branch->id]))
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id, ['branch_id' => $branch->id]))
             ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('deals', [
@@ -102,7 +102,7 @@ class DealCaptureBranchRequiredTest extends TestCase
         // Branch-scope capturer submits NO branch_id — it must be auto-stamped
         // from their home branch, and the deal saves cleanly (gate not reached).
         $this->actingAs($bm)
-            ->post(route('admin.deals.store'), $this->payload($l->id, $s->id))
+            ->post(route('deals-dr2.store'), $this->payload($l->id, $s->id))
             ->assertSessionHasNoErrors();
 
         $this->assertDatabaseHas('deals', [

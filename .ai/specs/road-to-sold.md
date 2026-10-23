@@ -1449,3 +1449,11 @@ Built the part of phase 0 (section 14) that records the Get Stock moments as dom
 ### Agency Tracker re-home step 4 built the budgets / monthly-targets interface (21 Oct 2026, AT-475; not yet on QA1)
 
 The interface of section 3.5 now exists as specified in `agency-tracker-rehome.md` 4.3 / 5.7: `RoadToSold\BudgetService` (table `rts_budgets`, levels agent / branch / agency) and `RoadToSold\TargetService` (monthly points / deals / value / listings in `targets`, with the Targets-zeroing fix), screens Settings -> Road to Sold -> Budgets and Targets, agency default `rts_settings.default_monthly_targets`. v2 phase 4-5 targets writes use `TargetService::saveMonthly`; they must not write `targets` any other way. Build log: `agency-tracker-rehome.md` section 17 "P5".
+
+### P7 - Agency Tracker re-home step 6, the Deals menu (AT-454 lane, QA1, 23 Oct 2026)
+
+Not Road to Sold engine work: this lane owned the sidebar, the nav fixture, the old-register redirects and the register controller while cc4 built the engine, so nothing here touches `RoadToSold\*`, the budgets / targets tables or the points service. Full entry, counts and decisions: `agency-tracker-rehome.md` section 17, P7.
+
+What changes for Road to Sold: (1) the Deals menu now sits beside Agency Tracker, so the Road to Sold list builder's "open the deal" style links should name `deals-dr2.*` (the old `admin.deals*` names still redirect); (2) the register honours `?period=YYYY-MM` and `?commission_status=`, which is what the Branch / Agency Performance tiles (and any future Road to Sold drill-down by month) link with; (3) the Deal Register now carries the per-record own / branch / all guard the old register had, so a Road to Sold link to a colleague's deal by id is refused for an own-scope agent exactly as the list hides it.
+
+Held for Johan: the twin backfill `--apply` (QA1 would create 63 twins; dry-run only so far) and the redirect of the old settlement addresses (comparison delivered in `.ai/audits/2026-10-23-deal-settlement-dr1-vs-dr2.md`).

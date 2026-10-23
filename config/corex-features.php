@@ -97,7 +97,7 @@ return [
         'explain' => 'The Deal pillar — the register of every sale and rental transaction.',
         'affects' => 'Always available. Deals are a core pillar and cannot be switched off.',
         'default' => true, 'core' => true, 'depends_on' => [],
-        'nav_permission' => ['view_deals'], 'sidebar_section' => 'agency-tracker',
+        'nav_permission' => ['view_deals'], 'sidebar_section' => 'deals',
         'settings_section' => null, 'route_prefixes' => [], 'global_flag' => null,
     ],
     'agents' => [

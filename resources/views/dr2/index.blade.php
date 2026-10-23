@@ -143,6 +143,11 @@
                 <option value="Loss" {{ request('commission') === 'Loss' ? 'selected' : '' }}>Loss</option>
             </select>
 
+            {{-- Deal month (the Performance tiles link here with ?period=YYYY-MM) --}}
+            <input type="month" name="period" value="{{ preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) request('period')) ? request('period') : '' }}"
+                   onchange="this.form.submit()" title="Deal month" aria-label="Deal month"
+                   class="list-header-filter {{ preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', (string) request('period')) ? 'is-active' : '' }}">
+
             @permission('settle_deals')
             <select name="branch" onchange="this.form.submit()" class="list-header-filter {{ request('branch') ? 'is-active' : '' }}">
                 <option value="">All branches</option>

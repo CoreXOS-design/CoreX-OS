@@ -8,7 +8,7 @@
                     <p class="text-xs" style="color: var(--text-muted);">{{ $deal->property_address ?: 'No address' }}</p>
                 </div>
                 <div class="flex flex-wrap items-center gap-2">
-                    <a href="{{ route('admin.deals') }}" class="corex-btn-outline text-xs shrink-0">
+                    <a href="{{ route('deals-dr2.index') }}" class="corex-btn-outline text-xs shrink-0">
                         &larr; Back
                     </a>
                     <a href="{{ route('admin.deals.settle.print', $deal) }}" target="_blank"

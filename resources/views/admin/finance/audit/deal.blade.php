@@ -47,7 +47,7 @@
                         @endif
                     </div>
                 </div>
-                <a href="{{ route('admin.deals.edit', $deal) }}" class="corex-btn-outline text-sm">
+                <a href="{{ route('deals-dr2.edit', $deal) }}" class="corex-btn-outline text-sm">
                     View in Deal Register &rarr;
                 </a>
             </div>
