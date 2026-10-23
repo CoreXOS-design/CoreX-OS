@@ -658,21 +658,14 @@ class LeaseSigningLauncher
      */
     private function wizardFieldsFor(Template $template): array
     {
-        $fields = $template->fields_json ?? [];
-        $skeletal = ! empty($fields) && empty($fields[0]['id'] ?? null) && empty($fields[0]['field_name'] ?? null);
-
-        if (($template->render_type ?? 'pdf') === 'web' && ! empty($template->field_mappings)
-            && (($template->template_type ?? '') === 'cds' || empty($fields) || $skeletal)) {
-            $fields = app(ESignWizardController::class)->buildFieldsFromMappings($template->field_mappings);
-        }
-
-        return $fields;
+        return app(LeaseWizardFieldResolver::class)->fieldsFor($template);
     }
 
     /**
      * Turn "template field name → value" into Fill & review's "field id → value". A value for a field the
-     * template does not actually have is dropped (the agency's map and its document can drift apart — the
-     * set-up page's check reports that; seeding must never invent a field).
+     * template does not actually have is dropped and logged (the agency's map and its document can drift apart —
+     * the set-up page's check lists it as a warning; seeding must never invent a field). A document name and the
+     * wizard's name for the same box are matched by {@see LeaseWizardFieldResolver} (deposit_amount / property_deposit_amount).
      *
      * @param array<int|string, array<string,mixed>> $fields
      * @param array<string,string> $seeds
@@ -684,23 +677,25 @@ class LeaseSigningLauncher
             return [];
         }
 
-        $byName = [];
-        foreach ($fields as $field) {
-            $name = (string) ($field['field_name'] ?? '');
-            $id = $field['id'] ?? null;
-            if ($name === '' || $id === null || in_array($field['tag_type'] ?? $field['type'] ?? '', ['signature', 'initial'], true)) {
+        $resolver = app(LeaseWizardFieldResolver::class);
+        $values = [];
+        $dropped = [];
+        foreach ($seeds as $fieldName => $value) {
+            if ($value === '') {
                 continue;
             }
-            $byName[$name] ??= (string) $id;
-            $byName[preg_replace('/[^a-zA-Z0-9_]/', '_', $name)] ??= (string) $id;
+            $field = $resolver->find($fields, (string) $fieldName);
+            if ($field === null) {
+                $dropped[] = (string) $fieldName;
+
+                continue;
+            }
+            $values[(string) $field['id']] = $value;
         }
 
-        $values = [];
-        foreach ($seeds as $fieldName => $value) {
-            $id = $byName[$fieldName] ?? $byName[preg_replace('/[^a-zA-Z0-9_]/', '_', $fieldName)] ?? null;
-            if ($id !== null && $value !== '') {
-                $values[$id] = $value;
-            }
+        // Never silent: the map names a field the agreement does not have, so that value went nowhere.
+        if ($dropped !== []) {
+            Log::warning('Lease agreement seed dropped: the agreement has no field with that name', ['fields' => $dropped]);
         }
 
         return $values;
