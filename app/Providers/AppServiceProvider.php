@@ -489,6 +489,10 @@ class AppServiceProvider extends ServiceProvider
         // AbstractDomainEvent subclass implements transitively.
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
 
+        // AT-454 Road to Sold v2 phase 1: the one generic listener that completes recipe tasks from domain events
+        // (.ai/specs/road-to-sold.md section 5.1). Only the events in RecipeCatalogue::EVENTS are looked at.
+        Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\CompleteTasksFromDomainEvent::class);
+
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.
         // The listener is SYNC on purpose: a queued listener on an

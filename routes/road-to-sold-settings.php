@@ -15,7 +15,7 @@ return function () {
     $rts = 'feature:road-to-sold';
 
     Route::get('/', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'index'])
-        ->middleware([$rts, 'permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets'])
+        ->middleware([$rts, 'permission:road_to_sold.manage_settings,road_to_sold.manage_areas,road_to_sold.manage_targets,road_to_sold.manage_recipe'])
         ->name('index');
     Route::put('/general', [\App\Http\Controllers\RoadToSold\SettingsController::class, 'update'])
         ->middleware([$rts, 'permission:road_to_sold.manage_settings'])
@@ -63,5 +63,30 @@ return function () {
         Route::delete('/agents/{user}', [$c, 'archiveAgent'])->whereNumber('user')->name('agent.archive');
         Route::post('/agents/{user}/restore', [$c, 'restoreAgent'])->whereNumber('user')->name('agent.restore');
         Route::post('/copy-previous', [$c, 'copyPrevious'])->name('copy-previous');
+    });
+
+    // Recipe - the 13 steps, the tasks inside them and the levels an agent works through (road-to-sold.md section 5, 10.4, 13.1).
+    Route::middleware([$rts, 'permission:road_to_sold.manage_recipe'])->prefix('recipe')->name('recipe.')->group(function () use ($rts) {
+        $c = \App\Http\Controllers\RoadToSold\RecipeController::class;
+        Route::get('/', [$c, 'index'])->name('index');
+        Route::post('/start', [$c, 'start'])->name('start');
+
+        Route::get('/tasks/create', [$c, 'taskCreate'])->name('tasks.create');
+        Route::post('/tasks', [$c, 'taskStore'])->name('tasks.store');
+        Route::get('/tasks/{task}/edit', [$c, 'taskEdit'])->whereNumber('task')->name('tasks.edit');
+        Route::put('/tasks/{task}', [$c, 'taskUpdate'])->whereNumber('task')->name('tasks.update');
+        Route::delete('/tasks/{task}', [$c, 'taskArchive'])->whereNumber('task')->name('tasks.archive');
+        Route::post('/tasks/{task}/restore', [$c, 'taskRestore'])->whereNumber('task')->withTrashed()->name('tasks.restore');
+
+        Route::put('/steps/{step}', [$c, 'stepUpdate'])->whereNumber('step')->name('steps.update');
+        Route::delete('/steps/{step}', [$c, 'stepArchive'])->whereNumber('step')->name('steps.archive');
+        Route::post('/steps/{step}/restore', [$c, 'stepRestore'])->whereNumber('step')->withTrashed()->name('steps.restore');
+
+        Route::get('/levels/create', [$c, 'levelCreate'])->name('levels.create');
+        Route::post('/levels', [$c, 'levelStore'])->name('levels.store');
+        Route::get('/levels/{level}/edit', [$c, 'levelEdit'])->whereNumber('level')->name('levels.edit');
+        Route::put('/levels/{level}', [$c, 'levelUpdate'])->whereNumber('level')->name('levels.update');
+        Route::delete('/levels/{level}', [$c, 'levelArchive'])->whereNumber('level')->name('levels.archive');
+        Route::post('/levels/{level}/restore', [$c, 'levelRestore'])->whereNumber('level')->withTrashed()->name('levels.restore');
     });
 };
