@@ -7056,6 +7056,14 @@ Route::prefix('docuperfect')->middleware(['auth', 'permission:access_docuperfect
             Route::post('/', [\App\Http\Controllers\Docuperfect\EsignFinalizationSettingsController::class, 'update'])->name('docuperfect.esign.settings.finalization.update');
         });
 
+    // How my signers sign (esign-signing-modes.md) — agency-scoped signing mode, same gate as the screens above.
+    Route::middleware(['permission:esign.settings', 'agency.required'])
+        ->prefix('esign/settings/signing-mode')
+        ->group(function () {
+            Route::get('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'edit'])->name('docuperfect.esign.settings.signing-mode');
+            Route::post('/', [\App\Http\Controllers\Docuperfect\EsignSigningModeSettingsController::class, 'update'])->name('docuperfect.esign.settings.signing-mode.update');
+        });
+
     // Page images (authenticated)
     Route::get('/templates/{id}/page/{page}', [\App\Http\Controllers\Docuperfect\PageImageController::class, 'show'])->name('docuperfect.page.image');
 
