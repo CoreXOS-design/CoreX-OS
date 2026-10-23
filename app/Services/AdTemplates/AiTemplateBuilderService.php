@@ -64,7 +64,7 @@ final class AiTemplateBuilderService
     /** … each cut to this many elements and to roughly this many characters of compact JSON, so the prompt stays bounded. */
     public const EXAMPLE_MAX_ELEMENTS   = 24;
     public const EXAMPLE_MAX_CHARS      = 3500;
-    private const PROMPT_VERSION        = 'at456b10-v3';
+    private const PROMPT_VERSION        = 'at456b10-v4';
     private const CALL_TIMEOUT_SECS = 100;
     private const RETRY_BUDGET_SECS = 120;
     /**
@@ -794,7 +794,7 @@ final class AiTemplateBuilderService
             systemPrompt:    $this->systemPrompt($agencyId, $size['w'], $size['h'], $generation, true),
             userPrompt:      $user,
             inputData:       ['generation' => $generation->id, 'type' => $type, 'attempt' => $attempt],
-            maxTokens:       1500 + 3000 * $count,
+            maxTokens:       1500 + 4500 * $count,   // room for the richer 14-22 element designs
             temperature:     0.7,
             cacheTtlMinutes: 1,
             agencyId:        $agencyId,
@@ -850,7 +850,7 @@ final class AiTemplateBuilderService
             systemPrompt:    $this->systemPrompt($agencyId, $size['w'], $size['h'], $generation),
             userPrompt:      $user,
             inputData:       ['generation' => $generation->id, 'attempt' => $attempt],
-            maxTokens:       1500 + 3000 * $count,
+            maxTokens:       1500 + 4500 * $count,   // room for the richer 14-22 element designs
             temperature:     0.9,
             cacheTtlMinutes: 1,
             agencyId:        $agencyId,
@@ -903,7 +903,14 @@ final class AiTemplateBuilderService
         $photoWords = $on('collage') ? 'image_1 to image_5, or a collage' : 'image_1 to image_5';
         $rule7    = $variantMode
             ? '7. You are ADAPTING approved designs, not inventing new ones: keep each design\'s look and structure; change only what the property type needs. Aim for roughly the same number of elements as the approved design. Use the new building blocks (' . $blockWords . ') only where the approved design already has them or the property type needs them.'
-            : '7. Make the design strong and distinctive. Aim for 8 to 14 elements per option. Use the new building blocks (' . $blockWords . ') where they genuinely help the idea - not all of them, and not for decoration\'s sake.';
+            // Richer by default (Johan, 2026-10-23: the designs looked too simple) - a layered, finished ad, not a photo and a few lines.
+            : '7. Make the design rich and finished, like a professional agency\'s paid ad - never a plain photo with a few lines of text. Aim for 14 to 22 elements, built in layers: '
+                . '(a) the main photo, given a shape (photoMask) or a frame (frameBorderWidth) where it suits the look, and a second photo (image_2 or image_3) where there is room; '
+                . '(b) depth under the text - a gradient or colour block - plus at least one accent shape, wave, curve or line in the brand colours; '
+                . '(c) a strong headline and a big price, each on its own pill or band; '
+                . '(d) beds, baths and garages as a neat row' . ($noIcons ? '' : ' with icons') . '; '
+                . '(e) the agent (avatar, name, phone) and the agency logo set off together on their own band or panel. '
+                . 'Use the building blocks (' . $blockWords . ') generously where they fit the idea, and keep clear space between everything so nothing overlaps.';
 
         return <<<PROMPT
 You are a senior graphic designer who makes reusable social-media ad TEMPLATES for South African real estate agencies. A template is a layout: the property's real photo, price, address and agent details are poured into it later, for many different listings. You are not designing one ad for one house.
