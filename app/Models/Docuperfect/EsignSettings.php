@@ -23,7 +23,14 @@ class EsignSettings extends Model
         'async_completion_enabled',
         'finalization_stuck_threshold_minutes',
         'whatsapp_resend_enabled',
+        'signing_mode',
     ];
+
+    // .ai/specs/esign-signing-modes.md — how this agency's signers sign. Fixed per envelope when it is created.
+    public const MODE_SIGN_EACH = 'sign_each';
+    public const MODE_ADOPT_THEN_STAMP = 'adopt_then_stamp';
+    public const MODE_ADOPT_AND_FILL_ALL = 'adopt_and_fill_all';
+    public const SIGNING_MODES = [self::MODE_SIGN_EACH, self::MODE_ADOPT_THEN_STAMP, self::MODE_ADOPT_AND_FILL_ALL];
 
     protected $casts = [
         'async_completion_enabled' => 'boolean',
@@ -44,6 +51,7 @@ class EsignSettings extends Model
                 'async_completion_enabled' => (bool) config('docuperfect.async_completion'),
                 'finalization_stuck_threshold_minutes' => 15,
                 'whatsapp_resend_enabled' => true,
+                'signing_mode' => self::MODE_SIGN_EACH,
             ]);
         }
 
@@ -53,8 +61,24 @@ class EsignSettings extends Model
                 'async_completion_enabled' => true,
                 'finalization_stuck_threshold_minutes' => 15,
                 'whatsapp_resend_enabled' => true,
+                'signing_mode' => self::MODE_SIGN_EACH,
             ]
         );
+    }
+
+    /**
+     * The signing mode an agency's NEW envelopes are created in. Anything unknown, an agency that never saved the
+     * setting, or no agency context at all, is sign_each — today's behaviour (esign-signing-modes.md rule 1).
+     */
+    public static function signingModeFor(?int $agencyId): string
+    {
+        if (! $agencyId || $agencyId <= 0) {
+            return self::MODE_SIGN_EACH;
+        }
+
+        $mode = static::query()->where('agency_id', $agencyId)->value('signing_mode');
+
+        return in_array($mode, self::SIGNING_MODES, true) ? $mode : self::MODE_SIGN_EACH;
     }
 
     /**
