@@ -261,3 +261,28 @@ components, roles, disclosure master, wet-ink block, FICA no-prefill). Its failu
    SUBMITTED, and the spec now says so.)
 
 **Before any further content build, these divergences are the work — not new templates.**
+
+---
+
+## §10 — SIGNATURE EVIDENCE: generations, never overwritten (Johan's standing rule, 9 Sep 2026; built 23 Oct 2026)
+
+**The rule.** A re-signature must NEVER overwrite the original. Every signing is kept.
+
+**What this means for each store of ink:**
+
+| Store | How a repeat is kept |
+|---|---|
+| Web/CDS places — `documents.web_template_data` (`signatures[blockId]`, `signed_initials[party][key]`) | Every place posted to `SigningController::completeWeb` is also written to **`signature_place_generations`** (append-only) by `SignaturePlaceGenerationRecorder`, **before** the JSON map is merged. Generation 1 is the first signing; a different image is generation N+1 and the previous row is stamped `superseded_at` / `superseded_by_id`. The JSON map keeps holding the **latest** generation, so the document, the PDF and the certificate render exactly as before. The same image posted again writes nothing. A document signed before this existed has its original recovered from the JSON as generation 1 (`source = legacy_json`, time/IP not on record — never invented) the moment it is first re-signed. |
+| Section acceptances — `section_acceptances` | `SectionAcceptance::recordGeneration()` — every acceptance or rejection is its own row (`generation`), the previous row is stamped `superseded_at`, and ip / user agent are kept per row. `SignatureRequest::sectionAcceptances` returns the current rows only (so every reader is unchanged); `sectionAcceptanceHistory` returns all of them. |
+| PDF-marker places — `signatures` | Already append-only (a re-capture adds a row). **Open: the PDF overlay reads the oldest row (`->first()`), not the latest** — reported 23 Oct 2026, not changed. |
+| Condition initials, sealed versions, audit log | Already immutable. |
+
+**Per-place record:** time (server), IP, user agent, the signer (name, email, request), the place key, kind (`signature` / `initial`), generation, image + SHA-256 of it.
+
+**Audit trail:** a repeat writes one `signature_resigned` row per place (new generation, previous generation, previous time, both image hashes) and a repeat section acceptance carries `generation` in its `section_accepted` row. `SignaturePdfService::auditActionDescription` words them for the certificate ("…signed a signature again (version 2; the earlier version 1 is kept on record)"). A first signing / first acceptance reads exactly as it always did.
+
+**Models are evidence:** `SignaturePlaceGeneration` and `SectionAcceptance` refuse any edit except stamping `superseded_*` and refuse delete.
+
+**Known remaining gaps (reported, not changed):** the agent's own web completion (`SignatureController::webSignComplete`) and the PDF-marker overlay read (above) have not been brought under this rule; `esign-signing-modes.md` (Modes 2/3) builds on this table.
+
+Tests: `tests/Feature/Docuperfect/SigningView/SignatureEvidenceGenerationsTest.php`, `SectionAcceptanceGenerationsTest.php`.

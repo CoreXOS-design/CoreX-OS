@@ -737,6 +737,15 @@ class SignaturePdfService
             'team_alert_sent' => "Team alert sent",
             'document_completed' => "Document finalised — signed PDF generated",
             'signed_pdf_emailed' => "Signed PDF emailed to {$recipientName}",
+            // Johan's signature-evidence rule (9 Sep 2026): a re-signature is a new generation, never an overwrite.
+            'signature_resigned' => "{$name} signed "
+                . (($meta['kind'] ?? 'signature') === 'initial' ? 'an initial' : 'a signature')
+                . " again (version " . ($meta['generation'] ?? '?') . "; the earlier version "
+                . ($meta['previous_generation'] ?? '?') . " is kept on record)",
+            // A first acceptance reads exactly as before ("Section accepted"); only a repeat names its version.
+            'section_accepted' => (int) ($meta['generation'] ?? 1) > 1
+                ? "{$name} accepted a section again (version {$meta['generation']}; the earlier versions are kept on record)"
+                : 'Section accepted',
             // AT-385/AT-332 — deliberately "opened", never "sent"/"delivered": a wa.me
             // deep link gives CoreX no delivery signal, only that the agent's browser
             // opened it. See SignatureAuditLog::ACTION_WHATSAPP_LINK_OPENED.

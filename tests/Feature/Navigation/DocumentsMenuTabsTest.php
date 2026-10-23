@@ -102,7 +102,7 @@ final class DocumentsMenuTabsTest extends TestCase
                 'packages' => fn (User $u) => $dp($u) && $u->isOwnerRole() && $p($u, 'templates.transfer'),
             ],
             ESignSettingsTabs::class => [
-                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign,
+                'presets' => $esign, 'recipient-templates' => $esign, 'finalisation' => $esign, 'signing-mode' => $esign,
             ],
         ];
     }

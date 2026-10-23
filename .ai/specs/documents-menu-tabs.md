@@ -13,7 +13,7 @@
 | 3 | **My Documents** | My Documents · My E-Sign Documents · Authorise Documents · Agency Documents · Shared Drive |
 | 4 | **Library** | Packs · Web Packs · Clause Library · Compile Studio |
 | 5 | **Templates** | Template Management · Field Groups · Named Fields · Document Types · Import Document · Template Packages |
-| 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings |
+| 6 | **E-Sign Settings** | Recipient Presets · Recipient Templates · Finalisation Settings · How my signers sign |
 
 Every label is unchanged. "Authorise Documents" is the My E-Sign Documents screen with `?filter=authorisation` (as its old menu
 item was): the two tabs share a route and the filter decides which is lit.
@@ -32,7 +32,7 @@ item was): the two tabs share a route and the filter decides which is lit.
 | Library | Compile Studio | `docuperfect.compiler.index` | `esign.compiler.view` |
 | Templates | Template Management · Field Groups · Named Fields · Document Types · Import Document | `docuperfect.templates.index` · `.field-groups.index` · `.settings.namedFields` · `.settings.types` · `.import.index` | `manage_templates` AND `access_docuperfect` |
 | Templates | Template Packages | `docuperfect.template-transfer.index` | System Owner only AND `templates.transfer` |
-| E-Sign Settings | Recipient Presets · Recipient Templates · Finalisation Settings | `docuperfect.esign.recipient-presets.index` · `docuperfect.recipient-templates.index` · `docuperfect.esign.settings.finalization` | `esign.settings` |
+| E-Sign Settings | Recipient Presets · Recipient Templates · Finalisation Settings · How my signers sign | `docuperfect.esign.recipient-presets.index` · `docuperfect.recipient-templates.index` · `docuperfect.esign.settings.finalization` · `docuperfect.esign.settings.signing-mode` | `esign.settings` |
 
 ## 2. No data, settings or new list screens
 
