@@ -63,7 +63,7 @@
                     <td class="px-3 py-2" style="color: var(--text-primary); width: 34%;">{{ $t['label'] }}</td>
                     <td class="px-3 py-2" style="width: 26%;">
                         @if($t['target'] > 0)
-                            <div class="ds-progress-track"><div class="ds-progress-bar {{ $stateBar($t['state']) }}" style="width: {{ $t['pct'] }}%;"></div></div>
+                            <div class="ds-progress-track" style="background: var(--ds-track, var(--border));"><div class="ds-progress-bar {{ $stateBar($t['state']) }}" style="width: {{ $t['pct'] }}%;"></div></div>
                         @endif
                     </td>
                     <td class="px-3 py-2 whitespace-nowrap" style="color: var(--text-primary);">

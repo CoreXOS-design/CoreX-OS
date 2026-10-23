@@ -165,7 +165,7 @@ class TaskCaptureService
                 }
 
                 $listed = $trackedIds !== []
-                    ? $this->lists->addFound($agent, $trackedIds, 'Found on your ' . Str::lower($task->label), $track)
+                    ? $this->lists->addFound($agent, $trackedIds, 'Found by you: ' . $task->label, $track)
                     : 0;
 
                 return ['completion' => $completion, 'duplicate' => false, 'properties' => count($trackedIds), 'contacts' => $contactCount, 'listed' => $listed, 'created' => $created];

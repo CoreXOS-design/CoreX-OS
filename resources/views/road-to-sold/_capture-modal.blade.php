@@ -39,7 +39,7 @@
             <div class="space-y-3">
                 <template x-for="(p, i) in capProps" :key="p.key">
                     <div class="rounded-md p-3 space-y-2" style="border: 1px solid var(--border);">
-                        <div class="grid gap-2" style="grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));">
+                        <div class="grid gap-2" style="grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));">
                             <input :id="'cap-properties-' + i + '-street_number'" type="text" :name="'properties[' + i + '][street_number]'" x-model="p.street_number" placeholder="Number" maxlength="20" class="rounded-md px-3 py-2 text-xs" style="{{ $capInput }}" aria-label="Street number">
                             <input :id="'cap-properties-' + i + '-street_name'" type="text" :name="'properties[' + i + '][street_name]'" x-model="p.street_name" placeholder="Street" maxlength="120" class="rounded-md px-3 py-2 text-xs" style="{{ $capInput }}" aria-label="Street name">
                             <input :id="'cap-properties-' + i + '-suburb'" type="text" :name="'properties[' + i + '][suburb]'" x-model="p.suburb" placeholder="Suburb" maxlength="120" class="rounded-md px-3 py-2 text-xs" style="{{ $capInput }}" aria-label="Suburb">

@@ -2,7 +2,7 @@
      The funnel tiles open the rows behind them; each recipe step with a target adds one tile of the same size: tasks met and progress. --}}
 @if(! empty($bar['steps']) || ! empty($progress['steps']))
 <div x-data="buyersReport({ drilldownBase: @js($drilldownBase) })">
-    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));">
+    <div class="grid gap-3" style="grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); grid-auto-rows: 1fr;">
         @foreach($bar['steps'] as $step)
             @php
                 $edge = match ($step['status']) {
