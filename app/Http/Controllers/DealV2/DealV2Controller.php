@@ -36,7 +36,7 @@ class DealV2Controller extends Controller
     private function dr2RetiredRedirect(): \Illuminate\Http\RedirectResponse
     {
         return redirect()->route('deals-dr2.index')
-            ->with('info', 'The Deal Register V2 prototype has been retired — this is the new Deal Register (DR2).');
+            ->with('info', 'The Deal Register V2 prototype has been retired — this is the new Deal Register.');
     }
 
     public function index(Request $request)

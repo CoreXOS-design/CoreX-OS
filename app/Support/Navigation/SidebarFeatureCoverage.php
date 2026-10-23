@@ -43,6 +43,11 @@ final class SidebarFeatureCoverage
         'corex.map.index'                   => 'properties',
         'corex.contacts.index'               => 'contacts',
         'deals-v2.*'                        => 'deals',
+        // The Deals main menu (agency-tracker-rehome.md §8.2, step 6): Deal Register, My Deals, Unfiled deal emails
+        // and the old-register routes that still answer (settlement pages). Deals is core, so these are not toggled.
+        'deals-dr2.*'                       => 'deals',
+        'agent.deals.*'                     => 'deals',
+        'admin.deals*'                      => 'deals',
         'admin.settings.deal-*'             => 'deals',
         'admin.settings.document-distribution*' => 'deals',
         'corex.settings'                    => 'settings',
@@ -58,14 +63,16 @@ final class SidebarFeatureCoverage
 
     /**
      * Sidebar group keys that are System-Owner-only (the System Developer section and
-     * its Hidden drawer). `deals-v2` / `deal-register-settings` are the retired Deals
-     * menu (`@if(false && …)`) — their pages are core `deals` routes, kept reachable by URL.
+     * its Hidden drawer). `deals-v2` is the retired prototype Deals menu (`@if(false && …)`) — its pages
+     * are core `deals` routes, kept reachable by URL. (The live "Deals" main menu is group `deals`, a core
+     * pillar covered by CORE_ROUTES above; the old `deal-register-settings` group no longer exists — its four
+     * doors sit at the bottom of the Deals menu.)
      *
      * @var list<string>
      */
     public const PLATFORM_GROUPS = [
         'agency', 'api-server', 'integration', 'importer', 'hidden',
-        'deals-v2', 'deal-register-settings',
+        'deals-v2',
     ];
 
     /**

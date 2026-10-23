@@ -95,7 +95,7 @@
 
         {{-- New Transaction --}}
         @if(auth()->user()?->hasPermission('create_deals'))
-        <a href="{{ route('admin.deals.create') }}" class="corex-btn-primary">
+        <a href="{{ route('deals-dr2.create') }}" class="corex-btn-primary">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" style="width:1rem;height:1rem">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>

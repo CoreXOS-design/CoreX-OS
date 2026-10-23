@@ -76,7 +76,7 @@
             {{-- Set 1: Period (counts) --}}
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
 
-                <a href="/admin/deals?status=Declined&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Declined&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
                     <div class="ds-status-card ds-status-declined h-full">
                         <div class="ds-label mb-2">Declined</div>
                         <div class="grid grid-cols-2 gap-3">
@@ -92,7 +92,7 @@
                     </div>
                 </a>
 
-                <a href="/admin/deals?status=Pending&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Pending&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
                     <div class="ds-status-card ds-status-pending h-full">
                         <div class="ds-label mb-2">Pending</div>
                         <div class="grid grid-cols-2 gap-3">
@@ -108,7 +108,7 @@
                     </div>
                 </a>
 
-                <a href="/admin/deals?status=Granted&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Granted&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
                     <div class="ds-status-card ds-status-granted h-full">
                         <div class="ds-label mb-2">Granted</div>
                         <div class="grid grid-cols-2 gap-3">
@@ -124,7 +124,7 @@
                     </div>
                 </a>
 
-                <a href="/admin/deals?status=Registered&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Registered&period={{ $r['period'] ?? now()->format('Y-m') }}" class="block transition-all duration-300">
                     <div class="ds-status-card ds-status-registered h-full">
                         <div class="ds-label mb-2">Registered</div>
                         <div class="grid grid-cols-2 gap-3">
@@ -145,7 +145,7 @@
             <h2 class="ds-section-header">Outstanding Commission</h2>
             {{-- Set 2: Outstanding (Not Paid) — Company ex VAT --}}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <a href="/admin/deals?status=Pending&commission_status=Not%20Paid" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Pending&commission_status=Not%20Paid" class="block transition-all duration-300">
                     <div class="ds-status-card ds-money-pending h-full">
                         <div class="ds-label">Pending (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">
@@ -154,7 +154,7 @@
                     </div>
                 </a>
 
-                <a href="/admin/deals?status=Granted&commission_status=Not%20Paid" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Granted&commission_status=Not%20Paid" class="block transition-all duration-300">
                     <div class="ds-status-card ds-money-granted h-full">
                         <div class="ds-label">Granted (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">
@@ -166,7 +166,7 @@
                     </div>
                 </a>
 
-                <a href="/admin/deals?status=Registered&commission_status=Not%20Paid" class="block transition-all duration-300">
+                <a href="/deals-dr2?status=Registered&commission_status=Not%20Paid" class="block transition-all duration-300">
                     <div class="ds-status-card ds-money-registered h-full">
                         <div class="ds-label">Registered (Not Paid) — Company ex VAT</div>
                         <div class="ds-value-xl mt-1">

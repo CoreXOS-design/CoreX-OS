@@ -87,7 +87,7 @@ class PerformanceDrilldownService
             $out[] = ['id' => (int) $d->id, 'register' => 'DR1', 'ref' => $d->deal_no,
                 'address' => $d->property_address, 'price' => (float) $d->property_value,
                 'commission' => (float) $d->total_commission, 'status' => $bucket,
-                'date' => $d->deal_date, 'url' => '/admin/deals/' . $d->id];
+                'date' => $d->deal_date, 'url' => route('deals-dr2.edit', $d->id, false)];
         }
         // DR2 (unlinked only)
         foreach (DB::table('deals_v2')->whereNull('deleted_at')->where('agency_id', $agencyId)->whereNull('legacy_deal_id')
@@ -252,6 +252,6 @@ class PerformanceDrilldownService
             'agent' => $r->agent_name ?: 'Unknown agent',
             'commission' => (float) $r->commission,
             'company_commission' => (float) $r->company_commission,
-            'url' => '/admin/deals/' . $r->id]);
+            'url' => route('deals-dr2.edit', $r->id, false)]);
     }
 }

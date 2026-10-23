@@ -49,6 +49,13 @@ use Illuminate\View\View;
  */
 class DealRegisterController extends Controller
 {
+    // The old register (DR1) guarded every single-deal screen with this per-record check (own / branch /
+    // all, an assistant pinned to the assigned agent's book — AT-267). DR1's URLs now redirect here, so the
+    // Deal Register must hold the same guard or retiring DR1 would remove the only guarded way in
+    // (agency-tracker-rehome.md 8.3, step 6). It mirrors Deal::scopeVisibleTo(), so a deal that is in the
+    // list can always be opened.
+    use \App\Http\Controllers\Concerns\AuthorizesDealAccess;
+
     /**
      * DR2 register list — a FAITHFUL copy of DR1's Admin\DealController::index()
      * (search, status/commission/branch/agent filters, sort, paid-not-settled
@@ -91,8 +98,22 @@ class DealRegisterController extends Controller
             }
         }
 
+        // The Branch / Agency Performance tiles link here with their own parameter names
+        // (?commission_status= and ?period=YYYY-MM; they used to land on the old register, which ignored
+        // both). Honoured so the list holds the deals the tile counted (agency-tracker-rehome.md 7.3, 8.7 check 4).
+        if (! $request->filled('commission') && $request->filled('commission_status')) {
+            $request->merge(['commission' => $request->input('commission_status')]);
+        }
+
         if ($commStatus = $request->input('commission')) {
             $query->where('commission_status', $commStatus);
+        }
+
+        // Deal date inside the month. A value that is not a real YYYY-MM is ignored, never an error.
+        $period = (string) $request->input('period', '');
+        if (preg_match('/^\d{4}-(0[1-9]|1[0-2])$/', $period)) {
+            $periodStart = \Carbon\Carbon::createFromFormat('Y-m-d', $period . '-01')->startOfMonth();
+            $query->whereBetween('deal_date', [$periodStart->toDateString(), $periodStart->copy()->endOfMonth()->toDateString()]);
         }
 
         if ($scope === 'all' && ($branchFilter = $request->input('branch'))) {
@@ -156,6 +177,7 @@ class DealRegisterController extends Controller
     public function log(Deal $deal): View
     {
         abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+        $this->authorizeDeal($deal, forEdit: false); // pure read — an assistant may view at the agent's breadth
 
         $logs = DealLog::query()
             ->where('deal_id', $deal->id)
@@ -175,6 +197,7 @@ class DealRegisterController extends Controller
     public function addRemark(Request $request, Deal $deal): RedirectResponse
     {
         abort_unless(auth()->user()?->hasPermission('deals.view'), 403);
+        $this->authorizeDeal($deal);
 
         $data = $request->validate([
             'remark' => ['required', 'string', 'max:2000'],
@@ -202,6 +225,7 @@ class DealRegisterController extends Controller
     public function quickUpdate(Request $request, Deal $deal): RedirectResponse
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+        $this->authorizeDeal($deal);
 
         $oldAccepted = (string) ($deal->accepted_status ?? '');
         $oldCommission = (string) ($deal->commission_status ?? '');
@@ -327,6 +351,7 @@ class DealRegisterController extends Controller
     public function edit(Deal $deal): View
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+        $this->authorizeDeal($deal);
 
         $agents   = User::where('is_assistant', false) // AT-267 / AUDIT 2026-07-26 (F4): an assistant is never a deal-side agent
             ->orderBy('name')->get();
@@ -629,6 +654,7 @@ class DealRegisterController extends Controller
     public function update(Request $request, Deal $deal): RedirectResponse
     {
         abort_unless(auth()->user()?->hasPermission('deals.edit'), 403);
+        $this->authorizeDeal($deal);
 
         try {
             return DB::transaction(fn () => $this->persistDeal($deal, $request, false));

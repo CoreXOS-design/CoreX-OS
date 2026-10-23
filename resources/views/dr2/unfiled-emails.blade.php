@@ -230,7 +230,7 @@
     <div class="rounded-md px-6 py-5 corex-page-banner">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Deal Register Unfiled Emails</h1>
+                <h1 class="text-base font-bold leading-tight" style="color: var(--text-primary);">Unfiled deal emails</h1>
                 <p class="text-xs" style="color: var(--text-muted);">Emails not yet filed to a deal, that you were actually a party to. File one, and any related unfiled emails are suggested.</p>
             </div>
             <div class="flex items-center gap-3">
