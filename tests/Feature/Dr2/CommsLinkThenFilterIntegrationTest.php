@@ -52,6 +52,8 @@ final class CommsLinkThenFilterIntegrationTest extends TestCase
 
         Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $agencyId]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'view_deals', 'agency_id' => $agencyId]);
+        // AT-454: the deal must be the agent's (own scope) - the agent is put on the deal below.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'deals.view', 'scope' => 'own', 'agency_id' => $agencyId]);
         Role::clearCache();
         PermissionService::clearCache();
 
@@ -72,6 +74,8 @@ final class CommsLinkThenFilterIntegrationTest extends TestCase
             'seller_name' => 'Test Seller', 'property_address' => '1 Test Rd',
             'agency_id' => $agencyId, 'branch_id' => $branchId, 'deal_v2_id' => $dealV2Id,
         ]));
+
+        $deal->agents()->attach($agent->id, ['side' => 'selling']);
 
         return [$agencyId, $agent, $deal, $dealV2Id];
     }

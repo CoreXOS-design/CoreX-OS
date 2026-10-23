@@ -63,6 +63,8 @@ class ProformaInvoiceTest extends TestCase
             'accepted_status' => 'G',   // granted
         ], $dealOverrides)));
 
+        $deal->agents()->attach($agent->id, ['side' => 'listing']); // AT-454: the register checks the deal is the agent's
+
         return compact('agency', 'branch', 'agent', 'property', 'seller', 'deal');
     }
 

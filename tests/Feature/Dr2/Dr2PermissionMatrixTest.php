@@ -106,6 +106,11 @@ final class Dr2PermissionMatrixTest extends TestCase
         $this->seedRole('agent', ['access_deal_register', 'view_deals', 'deals.view']);
         $agent = $this->user('agent');
         $deal = $this->makeDeal();
+        // AT-454: the register now checks the deal is the agent's (own scope, on the deal) - so the agent is put on this one.
+        RolePermission::where('role', 'agent')->where('permission_key', 'deals.view')->update(['scope' => 'own']);
+        DB::table('deal_user')->insert(['deal_id' => $deal->id, 'user_id' => $agent->id, 'side' => 'listing', 'created_at' => now(), 'updated_at' => now()]);
+        Role::clearCache();
+        PermissionService::clearCache();
 
         // FEEDBACK — agent may read the log and add a remark.
         $this->withoutVite();

@@ -98,6 +98,14 @@ return Application::configure(basePath: dirname(__DIR__))
             prepend: \App\Http\Middleware\EnsureDemoGrant::class,
         );
 
+        // AT-454: the deal-belongs-to-you check runs BEFORE route-model binding, so a colleague's deal is refused
+        // (403) whatever else is in the address (a step, document or property that does not exist would otherwise
+        // answer 404 first and tell the asker nothing was wrong with the deal part). Still after authentication.
+        $middleware->prependToPriorityList(
+            before: \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            prepend: \App\Http\Middleware\EnsureDealAccess::class,
+        );
+
         $middleware->alias([
             'auth.nocache' => \App\Http\Middleware\PreventAuthPageCaching::class,
             'rental.link.hold' => \App\Http\Middleware\RentalLinkHoldGuard::class,
@@ -129,6 +137,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 // AT-267 — the "download documents" toggle. Applied to every document-download
                 // route; 403s an assistant whose assignment has can_download_documents off.
                 'deny_assistant_download' => \App\Http\Middleware\DenyAssistantDownload::class,
+                'deal.access' => \App\Http\Middleware\EnsureDealAccess::class,
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,

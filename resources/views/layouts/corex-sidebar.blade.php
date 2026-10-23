@@ -332,7 +332,7 @@
     } elseif (request()->routeIs(
         // Deals main menu (agency-tracker-rehome.md §8.2, Johan 20 Oct 2026): the register, My Deals,
         // unfiled deal emails and every sub-page of them, plus the DR1 routes that still answer
-        // (settlement pages, until the settlement comparison is signed off)...
+        // (the old register address names, which all redirect here now)...
         'deals-dr2.*',
         'agent.deals.*',
         'admin.deals*',
@@ -2004,16 +2004,18 @@
                 <svg class="corex-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" /></svg>
             </button>
 
-            <div class="corex-nav-panel {{ $activeGroup === 'deals' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('deals') }">
+            {{-- data-manual-order: the alphabetical sorter at the foot of this file re-inserts every link of a panel after the page has
+                 painted, which restarts the links' fade-in and makes the lower ones flash faded; this panel is already written in the
+                 order it should show (Deal Register, My Deals, Unfiled first; the four settings alphabetically). --}}
+            <div class="corex-nav-panel {{ $activeGroup === 'deals' ? 'is-open' : '' }}" :class="{ 'is-open': inStack('deals') }" data-manual-order>
                 <button type="button" @click="pop()" class="corex-nav-back">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" /></svg>
                     <span>Back</span>
                 </button>
                 <div class="corex-nav-panel-title">Deals</div>
 
-                {{-- 1. Deal Register — the former DR2 (route names and /deals-dr2 URLs unchanged). The settlement
-                     pages of the old register (admin.deals.settle*) still answer until the settlement comparison is
-                     signed off, so they highlight here too. --}}
+                {{-- 1. Deal Register — the former DR2 (route names and /deals-dr2 URLs unchanged). The old register's
+                     addresses (admin.deals*) all redirect here now; the pattern stays so a route NAME match still lights this entry. --}}
                 @permission('view_deals')
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.index'))
                 <a href="{{ route('deals-dr2.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-dr2.*', 'admin.deals*') && !request()->routeIs('deals-dr2.unfiled-emails.*') ? 'active' : '' }}">Deal Register</a>
@@ -2032,19 +2034,10 @@
                 {{-- CX-109 (Johan, 2026-08-20) — the email-filing workflow; label "Unfiled deal emails" since the Deals menu (Johan, 20 Oct 2026). --}}
                 @if(\Illuminate\Support\Facades\Route::has('deals-dr2.unfiled-emails.index'))
                     @php
+                        // The badge counts exactly what the screen lists by default — one shared definition (UnfiledDealEmailsQuery).
                         $unfiledEmailsCount = 0;
                         try {
-                            $ufAgencyId = auth()->user()?->effectiveAgencyId();
-                            if ($ufAgencyId) {
-                                $unfiledEmailsCount = \App\Models\Communications\Communication::where('agency_id', $ufAgencyId)
-                                    ->where('channel', 'email')
-                                    ->whereNotExists(function ($q) {
-                                        $q->selectRaw('1')->from('communication_links')
-                                            ->whereColumn('communication_links.communication_id', 'communications.id')
-                                            ->where('communication_links.linkable_type', \App\Models\DealV2\DealV2::class)
-                                            ->whereNull('communication_links.deleted_at');
-                                    })->count();
-                            }
+                            $unfiledEmailsCount = app(\App\Services\Communications\UnfiledDealEmailsQuery::class)->countFor(auth()->user());
                         } catch (\Throwable $e) { /* sidebar must never blow up */ }
                     @endphp
                     <a href="{{ route('deals-dr2.unfiled-emails.index') }}"
@@ -2064,11 +2057,12 @@
                 @if($user && $user->hasAnyPermission(['deals_v2.manage_suppliers', 'deals_v2.manage_pipeline', 'access_settings', 'deals_v2.manage_distribution_rules']))
                 <div class="corex-nav-sublabel">Deal settings</div>
 
-                @permission('deals_v2.manage_suppliers')
-                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
-                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
+                @permission('deals_v2.manage_distribution_rules')
+                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
+                <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
                 @endif
                 @endpermission
+
 
                 @permission('deals_v2.manage_pipeline')
                 @if(\Illuminate\Support\Facades\Route::has('deals-v2.pipeline.index'))
@@ -2082,9 +2076,9 @@
                 @endif
                 @endpermission
 
-                @permission('deals_v2.manage_distribution_rules')
-                @if(\Illuminate\Support\Facades\Route::has('admin.settings.deal-distribution-rules.index'))
-                <a href="{{ route('admin.settings.document-distribution') }}" class="corex-nav-subitem {{ request()->routeIs('admin.settings.document-distribution*') ? 'active' : '' }}">Deal Document Distribution</a>
+                @permission('deals_v2.manage_suppliers')
+                @if(\Illuminate\Support\Facades\Route::has('deals-v2.suppliers.index'))
+                <a href="{{ route('deals-v2.suppliers.index') }}" class="corex-nav-subitem {{ request()->routeIs('deals-v2.suppliers.*') && request()->query('nav') !== 'rentals' ? 'active' : '' }}">Supplier Directory</a>
                 @endif
                 @endpermission
                 @endif
