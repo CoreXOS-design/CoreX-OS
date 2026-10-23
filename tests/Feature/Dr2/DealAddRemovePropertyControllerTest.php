@@ -49,7 +49,9 @@ final class DealAddRemovePropertyControllerTest extends TestCase
 
         Role::create(['name' => 'branch_manager', 'label' => 'Branch Manager', 'agency_id' => $this->agencyId]);
         foreach (['access_deal_register', 'view_deals', 'create_deals', 'deals.view', 'deals.create', 'deals.edit'] as $key) {
-            RolePermission::create(['role' => 'branch_manager', 'permission_key' => $key, 'agency_id' => $this->agencyId]);
+            // AT-454: every Deal Register action now checks the deal is within the user's scope; these tests work deals that
+            // have no agents on them, so the manager is given the whole agency (the ownership rules are in DealAccessGuardTest).
+            RolePermission::create(['role' => 'branch_manager', 'permission_key' => $key, 'agency_id' => $this->agencyId, 'scope' => $key === 'deals.view' ? 'all' : null]);
         }
         Role::clearCache();
         PermissionService::clearCache();

@@ -56,6 +56,8 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
 
         Role::create(['name' => 'agent', 'label' => 'Agent', 'agency_id' => $this->agencyId]);
         RolePermission::create(['role' => 'agent', 'permission_key' => 'view_deals', 'agency_id' => $this->agencyId]);
+        // AT-454: the deal must be the agent's (own scope) - the agent is put on the deal below.
+        RolePermission::create(['role' => 'agent', 'permission_key' => 'deals.view', 'scope' => 'own', 'agency_id' => $this->agencyId]);
         Role::clearCache();
         PermissionService::clearCache();
 
@@ -76,6 +78,7 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
             'seller_name' => 'Test Seller', 'property_address' => '1 Test Rd',
             'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $this->dealV2Id,
         ]));
+        $this->deal->agents()->attach($this->agent->id, ['side' => 'selling']);
     }
 
     protected function tearDown(): void
@@ -214,6 +217,7 @@ final class Dr2CommunicationAttachmentFilingTest extends TestCase
             'seller_name' => 'Other Seller', 'property_address' => '2 Other Rd',
             'agency_id' => $this->agencyId, 'branch_id' => $this->branchId, 'deal_v2_id' => $otherDealV2Id,
         ]));
+        $otherDeal->agents()->attach($this->agent->id, ['side' => 'selling']); // AT-454: the agent is on this deal too
 
         $bytes = 'shared attorney letterhead template ' . Str::random(20);
         $commA = $this->comm();

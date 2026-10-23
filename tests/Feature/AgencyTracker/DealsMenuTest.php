@@ -147,13 +147,14 @@ final class DealsMenuTest extends TestCase
 
         $this->assertNotSame('', $deals, 'the Deals panel exists');
         $positions = [];
-        foreach (['Deal Register', 'My Deals', 'Unfiled deal emails', 'Deal settings', 'Supplier Directory', 'Deal Pipelines', 'Deal Property Sync', 'Deal Document Distribution'] as $label) {
+        foreach (['Deal Register', 'My Deals', 'Unfiled deal emails', 'Deal settings', 'Deal Document Distribution', 'Deal Pipelines', 'Deal Property Sync', 'Supplier Directory'] as $label) {
             $at = strpos($deals, '>' . $label . '<');
             $this->assertNotFalse($at, "{$label} is in the Deals panel");
             $positions[$label] = $at;
         }
         $this->assertSame(array_values($positions), collect($positions)->sort()->values()->all(), 'entries appear in the ruled order, Deal settings at the bottom');
         $this->assertStringNotContainsString('DR2', $deals, 'no "DR2" wording is left on the menu');
+        $this->assertStringContainsString('data-manual-order', $html, 'the panel opts out of the re-sorting script that restarts the link fade-in');
     }
 
     public function test_the_agency_tracker_panel_keeps_none_of_the_moved_deal_entries(): void

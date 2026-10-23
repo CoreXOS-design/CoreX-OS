@@ -897,8 +897,6 @@ Route::middleware('auth')->group(function () {
     // Every old route NAME is kept (about 60 callers; none may throw RouteNotFoundException) and every old
     // URL answers: GET = 301 to the Deal Register equivalent with the query string kept; POST = 308
     // (method and body kept) so a form left open from before the move still lands. Nothing 404s.
-    // The settlement pages below are NOT redirected yet: the DR1/DR2 settlement comparison
-    // (.ai/audits/2026-10-23-deal-settlement-dr1-vs-dr2.md) is money and waits for Johan's sign-off (answer 10).
     Route::get('/admin/deals', fn (\Illuminate\Http\Request $request) => redirect()->route('deals-dr2.index', $request->query(), 301))
         ->name('admin.deals');
     Route::get('/admin/deals/create', fn (\Illuminate\Http\Request $request) => redirect()->route('deals-dr2.create', $request->query(), 301))
@@ -921,19 +919,18 @@ Route::middleware('auth')->group(function () {
     Route::get('/agent/deals/{deal}/log', [DealRegisterController::class, 'log'])->name('agent.deals.log')->middleware('permission:view_deals');
     Route::post('/agent/deals/{deal}/remark', [DealRegisterController::class, 'addRemark'])->name('agent.deals.remark')->middleware('permission:view_deals');
 
-    // Deal Settlement (Per-deal Pay screen)
-    Route::get('/admin/deals/{deal}/settle', [DealController::class, 'settle'])
-        ->middleware('permission:settle_deals')->name('admin.deals.settle');
-
-    Route::post('/admin/deals/{deal}/settle', [DealController::class, 'saveSettlement'])
-        ->middleware('permission:settle_deals')->name('admin.deals.settle.save');
-
-    // Deal Settlement Printing
-    Route::get('/admin/deals/{deal}/settle/print', [DealController::class, 'printSettlement'])
-        ->middleware('permission:settle_deals')->name('admin.deals.settle.print');
-
-    Route::get('/admin/deals/{deal}/settle/print/{user}', [DealController::class, 'printAgentPayslip'])
-        ->middleware('permission:settle_deals')->name('admin.deals.settle.print.agent');
+    // Deal Settlement (Per-deal Pay screen) — retired with the rest of the old register. The comparison
+    // (.ai/audits/2026-10-23-deal-settlement-dr1-vs-dr2.md) found identical sums and writes, and Johan (23 Oct 2026)
+    // ruled the redirect. The Deal Register copy (Dr2\DealSettlementController) keeps its own settle_deals permission and
+    // the same per-deal ownership check (also applied by the deal.access middleware on the deals-dr2 group).
+    Route::get('/admin/deals/{deal}/settle', fn (\Illuminate\Http\Request $request, $deal) => redirect()->route('deals-dr2.settle', ['deal' => $deal] + $request->query(), 301))
+        ->name('admin.deals.settle');
+    Route::post('/admin/deals/{deal}/settle', fn ($deal) => redirect()->route('deals-dr2.settle.save', ['deal' => $deal], 308))
+        ->name('admin.deals.settle.save');
+    Route::get('/admin/deals/{deal}/settle/print', fn (\Illuminate\Http\Request $request, $deal) => redirect()->route('deals-dr2.settle.print', ['deal' => $deal] + $request->query(), 301))
+        ->name('admin.deals.settle.print');
+    Route::get('/admin/deals/{deal}/settle/print/{user}', fn (\Illuminate\Http\Request $request, $deal, $user) => redirect()->route('deals-dr2.settle.print.agent', ['deal' => $deal, 'user' => $user] + $request->query(), 301))
+        ->name('admin.deals.settle.print.agent');
 
     Route::post('/admin/view-as', [ViewAsController::class, 'update'])->name('admin.viewas.update');
     Route::post('/admin/view-as/reset', [ViewAsController::class, 'clear'])->name('admin.viewas.reset');
@@ -1097,7 +1094,7 @@ Route::prefix('deposit-interest-calculator')->middleware(['auth', 'permission:ac
 // coexisting with DR1 behind its own nav + permission. Distinct from the abandoned
 // deals-v2 module (URI `deals-v2/*`), which sunsets under AT-219. Reuses DR1's deal
 // permissions (view_deals / create_deals). AT-217 (cc3) builds the capture into create/store.
-Route::prefix('deals-dr2')->middleware('auth')->name('deals-dr2.')->group(function () {
+Route::prefix('deals-dr2')->middleware(['auth', 'deal.access'])->name('deals-dr2.')->group(function () {
     Route::get('/',              [\App\Http\Controllers\Dr2\DealRegisterController::class, 'index'])->middleware('permission:view_deals')->name('index');
     Route::get('/create',        [\App\Http\Controllers\Dr2\DealRegisterController::class, 'create'])->middleware('permission:create_deals')->name('create');
     Route::post('/',             [\App\Http\Controllers\Dr2\DealRegisterController::class, 'store'])->middleware('permission:create_deals')->name('store');
