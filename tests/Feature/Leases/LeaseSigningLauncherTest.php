@@ -23,8 +23,10 @@ use App\Models\Property;
 use App\Models\RentalLeaseTemplate;
 use App\Models\User;
 use App\Services\Rentals\LeaseAgreementDocumentValues;
+use App\Services\Rentals\LeaseAgreementTemplateGuard;
 use App\Services\Rentals\LeaseSigningLauncher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -369,6 +371,46 @@ final class LeaseSigningLauncherTest extends TestCase
      * whose template is a plain text box gets the full "1 November 2026" / "R 8,500.00" / "7.5%"; one that already
      * prints its own "R" and "%" (HFC's lease does) gets the bare number, so nothing prints "R R 8,500.00" or "7.5%%".
      */
+    public function test_a_map_name_and_the_wizards_name_for_the_same_box_are_matched_so_the_deposit_is_seeded(): void
+    {
+        // The document prints `deposit_amount`; the e-sign wizard calls the same property-bound box `property_deposit_amount`.
+        // Found on QA1 (23 Oct 2026, Mega lease): the deposit was never seeded and printed raw "5500.00".
+        $fields = $this->documentFields();
+        $fields[] = ['id' => 'fld_dep', 'field_name' => 'property_deposit_amount', 'tag_type' => 'input', 'type' => 'placeholder', 'source' => 'property'];
+        [$lease, $row] = $this->leaseWithAgreement([], ['deposit' => ['field' => 'deposit_amount']], $fields);
+        $lease->update(['deposit_amount' => 8500]);
+
+        $flow = app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        $byField = $this->valuesByFieldName($flow, $flow->step_data['fill_review']['fieldValues']);
+        $this->assertSame('R 8,500.00', $byField['property_deposit_amount']);
+    }
+
+    public function test_a_seed_with_no_field_to_go_to_is_logged_not_silently_dropped(): void
+    {
+        [$lease, $row] = $this->leaseWithAgreement([], ['adults' => ['field' => 'no_such_field']], $this->documentFields());
+        $terms = LeaseAgreementTerms::forLease($lease);
+        $terms->adults = 2;
+        $terms->save();
+
+        Log::spy();
+        app(LeaseSigningLauncher::class)->launch($lease->fresh(), $row, $this->agent);
+
+        Log::shouldHaveReceived('warning')->withArgs(fn ($message, $context = []) => str_contains($message, 'seed dropped') && ($context['fields'] ?? []) === ['no_such_field'])->once();
+    }
+
+    public function test_the_setup_check_warns_about_a_map_entry_whose_field_is_not_on_the_document(): void
+    {
+        [, $row] = $this->leaseWithAgreement([], ['adults' => ['field' => 'no_such_field', 'label' => 'Adults'], 'deposit' => ['field' => 'deposit_amount']], $this->documentFields());
+
+        $status = app(LeaseAgreementTemplateGuard::class)->statusFor($row->fresh(), $this->agency->id);
+
+        $this->assertSame(LeaseAgreementTemplateGuard::STATE_READY, $status['state'], 'a dangling optional entry warns, it does not block the lease');
+        $this->assertCount(2, $status['warnings']);
+        $this->assertStringContainsString('“Adults” points at “no_such_field”', $status['warnings'][0]);
+        $this->assertStringContainsString('deposit_amount', $status['warnings'][1], 'no deposit box on this document at all');
+    }
+
     public function test_a_plain_text_box_agreement_is_filled_with_readable_dates_money_and_percent(): void
     {
         [$lease, $row] = $this->leaseWithAgreement([], ['escalation_percent' => ['field' => 'escalation'], 'deposit' => ['field' => 'deposit_amount']], $this->documentFields());
