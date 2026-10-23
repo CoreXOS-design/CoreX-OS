@@ -18,8 +18,12 @@
 @section('corex-content')
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-5 cx-equal-btns">
 
-    <div class="rounded-md px-6 py-5 corex-page-banner">
+    <div class="rounded-md px-6 py-5 corex-page-banner flex items-center justify-between flex-wrap gap-3">
         <h1 class="text-xl font-bold text-white leading-tight">Road to Sold - recipe</h1>
+        {{-- The rules for WHEN CoreX credits an activity by itself (calendar events, captured contacts, deals ...) are still set on the old Setup screen's Auto tab. --}}
+        @if(auth()->user()?->hasPermission('manage_activity_mappings') && \Illuminate\Support\Facades\Route::has('admin.daily-activities.setup'))
+            <a href="{{ route('admin.daily-activities.setup', ['tab' => 'auto']) }}" class="corex-btn-outline corex-btn-xs">Automatic credit rules</a>
+        @endif
     </div>
 
     @include('road-to-sold.settings._tabs', ['tabs' => $tabs])

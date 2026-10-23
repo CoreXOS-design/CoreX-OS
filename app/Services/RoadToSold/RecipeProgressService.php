@@ -11,6 +11,7 @@ use App\Models\RoadToSold\RtsTaskCompletion;
 use App\Models\RoadToSold\RtsUserTaskOverride;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\Activity\ActivityPointsService;
 use App\Support\AppDate;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
@@ -77,7 +78,7 @@ class RecipeProgressService
     public function forAgent(User $agent, string $track = 'sales', ?CarbonInterface $now = null): array
     {
         $agencyId = (int) ($agent->effectiveAgencyId() ?: $agent->agency_id ?: 0);
-        $empty = ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_label' => ''];
+        $empty = ['started' => false, 'level' => null, 'tasks' => [], 'steps' => [], 'met' => 0, 'counted' => 0, 'points' => 0.0, 'points_split' => ['manual' => 0.0, 'automatic' => 0.0, 'total' => 0.0], 'points_label' => ''];
         if ($agencyId <= 0) {
             return $empty;
         }
@@ -162,7 +163,7 @@ class RecipeProgressService
         usort($rows, fn ($a, $b) => [$a['step_pos'], $a['sort'], $a['task_id']] <=> [$b['step_pos'], $b['sort'], $b['task_id']]);
 
         $counted = collect($rows)->where('target', '>', 0);
-        $monthStart = $this->engine->periodStart($agencyId, 'month', $now);
+        $split = $this->monthPoints($agencyId, $agent, $local);
 
         return [
             'started'  => true,
@@ -171,7 +172,8 @@ class RecipeProgressService
             'steps'    => $this->rollUp($rows, $steps),
             'met'      => $counted->where('state', self::STATE_ACHIEVED)->count(),
             'counted'  => $counted->count(),
-            'points'   => $this->monthPoints($agencyId, $agent, $track, $monthStart),
+            'points'   => $split['total'],
+            'points_split' => $split,
             'points_label' => $local->format('F'),
         ];
     }
@@ -198,13 +200,17 @@ class RecipeProgressService
         return $out;
     }
 
-    private function monthPoints(int $agencyId, User $agent, string $track, CarbonInterface $monthStart): float
+    /**
+     * Points this month, split manual / automatic, from the ONE shared rule (ActivityPointsService) - the same figure every other screen
+     * shows, for an agency still on the old rows and for one that has been cut over.
+     *
+     * @return array{manual:float,automatic:float,total:float}
+     */
+    private function monthPoints(int $agencyId, User $agent, CarbonInterface $local): array
     {
-        return (float) RtsTaskCompletion::query()->withoutGlobalScopes()
-            ->where('agency_id', $agencyId)->where('user_id', $agent->id)->where('track', $track)
-            ->whereNull('deleted_at')->whereIn('state', [RtsTaskCompletion::STATE_CONFIRMED, RtsTaskCompletion::STATE_OVERRIDDEN])
-            ->where('occurred_at', '>=', $monthStart->format('Y-m-d H:i:s'))
-            ->sum('points_awarded');
+        return ActivityPointsService::sumSplit(
+            ActivityPointsService::counted($agencyId)->where('e.user_id', $agent->id)->where('e.period', $local->format('Y-m'))
+        );
     }
 
     /** The target's share that should be done by now: a week or month by working days passed, a day or hour = the whole target (no pace line). */

@@ -3,6 +3,7 @@
 namespace App\Services\RoadToSold;
 
 use App\Models\DailyActivityEntry;
+use App\Services\Activity\ActivityPointsService;
 use App\Models\RoadToSold\RtsCutover;
 use App\Models\RoadToSold\RtsLevel;
 use App\Models\RoadToSold\RtsLevelTask;
@@ -92,7 +93,31 @@ class DailyActivityMigrationService
                 ->get()->map(fn ($r) => ['point_state' => $r->point_state, 'source' => $r->source, 'n' => (int) $r->n])->all(),
             'points_before'     => $before,
             'corrected_rule'    => $this->correctedPoints($agencyId),
+            'road_to_sold_on'   => $this->featureOn($agencyId),
+            'roles_cut_off'     => $this->rolesWithOldAccessOnly($agencyId),
         ];
+    }
+
+    /** Is Road to Sold switched on for the agency? The old screens redirect there, so a cut-over agency must have it. */
+    private function featureOn(int $agencyId): bool
+    {
+        $agency = \App\Models\Agency::query()->withoutGlobalScopes()->find($agencyId);
+
+        return $agency !== null && app(\App\Services\Features\AgencyFeatureService::class)->enabled('road-to-sold', $agency);
+    }
+
+    /**
+     * Roles that can open the old daily-activity screens but not Road to Sold - after the move they would be redirected to a page that
+     * refuses them. For the agency (its own grants, or the platform default when it has none). Reported so a grant can be added first.
+     *
+     * @return string[]
+     */
+    private function rolesWithOldAccessOnly(int $agencyId): array
+    {
+        $roles = fn (string $key) => DB::table('role_permissions')->where('permission_key', $key)->whereNull('deleted_at')
+            ->where(fn ($w) => $w->where('agency_id', $agencyId)->orWhereNull('agency_id'))->pluck('role')->unique();
+
+        return $roles('access_daily_activity')->diff($roles('access_road_to_sold'))->values()->all();
     }
 
     /**
@@ -102,6 +127,10 @@ class DailyActivityMigrationService
      */
     public function apply(int $agencyId, string $track = 'sales'): array
     {
+        if (! $this->featureOn($agencyId)) {
+            throw new \RuntimeException("Switch Road to Sold on for agency {$agencyId} first: the old daily-activity screens will send people there.");
+        }
+
         return DB::transaction(function () use ($agencyId, $track) {
             $before = $this->countedPoints($agencyId);
             $entries = DB::table('daily_activity_entries')->where('agency_id', $agencyId)->count();
@@ -275,22 +304,20 @@ class DailyActivityMigrationService
     /** What the old engine counts today for the agency (confirmed + overridden, manual / calendar / instant), split manual and automatic. */
     public function countedPoints(int $agencyId): array
     {
-        $man = "'" . implode("','", DailyActivityEntry::MANUAL_SOURCES) . "'";
-        $row = ActivityPointsService::countedLegacy($agencyId)->selectRaw(
-            "COALESCE(SUM(CASE WHEN e.source IN ({$man}) THEN GREATEST(e.`value`,0)*d.weight ELSE 0 END),0) as manual_pts,"
-            . "COALESCE(SUM(CASE WHEN e.source NOT IN ({$man}) THEN GREATEST(e.`value`,0)*d.weight ELSE 0 END),0) as auto_pts"
-        )->first();
-
-        return $this->pair((float) $row->manual_pts, (float) $row->auto_pts);
+        return $this->splitOf(ActivityPointsService::countedLegacy($agencyId));
     }
 
     /** The same figure read from the completions - must equal countedPoints() the moment the copy is done. */
     public function completionPoints(int $agencyId): array
     {
-        $row = ActivityPointsService::countedCompletions($agencyId)->selectRaw(
-            'COALESCE(SUM(CASE WHEN ' . ActivityPointsService::MANUAL_COMPLETION_SQL . ' THEN e.points_awarded ELSE 0 END),0) as manual_pts,'
-            . 'COALESCE(SUM(CASE WHEN ' . ActivityPointsService::MANUAL_COMPLETION_SQL . ' THEN 0 ELSE e.points_awarded END),0) as auto_pts'
-        )->first();
+        return $this->splitOf(ActivityPointsService::countedCompletions($agencyId));
+    }
+
+    /** @return array{manual:float,automatic:float,total:float} */
+    private function splitOf(\Illuminate\Database\Query\Builder $counted): array
+    {
+        [$man, $auto] = ActivityPointsService::splitExprs($counted);
+        $row = $counted->selectRaw("COALESCE(SUM({$man}),0) as manual_pts, COALESCE(SUM({$auto}),0) as auto_pts")->first();
 
         return $this->pair((float) $row->manual_pts, (float) $row->auto_pts);
     }

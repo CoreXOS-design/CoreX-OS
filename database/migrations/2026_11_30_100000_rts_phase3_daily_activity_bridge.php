@@ -43,6 +43,10 @@ return new class extends Migration
             $table->index(['agency_id', 'activity_date'], 'rts_task_completions_date_idx');
         });
 
+        // Completions written before these columns existed (the engine's own, not the old system's) get their day and month from when they happened.
+        \Illuminate\Support\Facades\DB::table('rts_task_completions')->whereNull('activity_date')
+            ->update(['activity_date' => \Illuminate\Support\Facades\DB::raw('DATE(occurred_at)'), 'period' => \Illuminate\Support\Facades\DB::raw("DATE_FORMAT(occurred_at, '%Y-%m')")]);
+
         if (! Schema::hasTable('rts_cutovers')) {
             Schema::create('rts_cutovers', function (Blueprint $table) {
                 $table->id();

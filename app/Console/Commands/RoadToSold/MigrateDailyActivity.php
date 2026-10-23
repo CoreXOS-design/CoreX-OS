@@ -44,6 +44,8 @@ class MigrateDailyActivity extends Command
                 ['entries -> completions', $plan['entries'] . ' (' . $plan['entries_already_copied'] . ' already copied)'],
                 ['points counted today (manual / automatic / total)', "{$plan['points_before']['manual']} / {$plan['points_before']['automatic']} / {$plan['points_before']['total']}"],
                 ['the same history under the corrected rule (for information)', $plan['corrected_rule']],
+                ['Road to Sold switched on for the agency', $plan['road_to_sold_on'] ? 'yes' : 'NO - switch it on before applying'],
+                ['roles that open the old screens but not Road to Sold', $plan['roles_cut_off'] === [] ? 'none' : implode(', ', $plan['roles_cut_off'])],
             ]);
             $this->table(['State', 'Source', 'Entries'], array_map(fn ($r) => [$r['point_state'], $r['source'], $r['n']], $plan['entries_by_state_source']));
 

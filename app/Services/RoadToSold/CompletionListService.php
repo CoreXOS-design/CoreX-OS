@@ -9,6 +9,7 @@ use App\Models\RoadToSold\RtsTask;
 use App\Models\RoadToSold\RtsTaskCompletion;
 use App\Models\Scopes\AgencyScope;
 use App\Models\User;
+use App\Services\Activity\ActivityPointsService;
 use Carbon\CarbonImmutable;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
@@ -51,15 +52,21 @@ class CompletionListService
     /**
      * @param array{q?:?string,sort?:?string,dir?:?string,task?:mixed,step?:mixed,state?:?string,source?:?string,status?:?string,from?:?string,to?:?string,page?:mixed} $f
      */
-    public function page(User $viewer, int $agentId, array $f, string $track): LengthAwarePaginator
+    public function page(User $viewer, ?int $agentId, array $f, string $track): LengthAwarePaginator
     {
         $status = in_array($f['status'] ?? 'active', array_keys(self::STATUSES), true) ? $f['status'] : 'active';
         $sort   = array_key_exists($f['sort'] ?? 'when', self::SORTS) ? ($f['sort'] ?? 'when') : 'when';
         $dir    = ($f['dir'] ?? 'desc') === 'asc' ? 'asc' : 'desc';
 
+        // One agent, or - with no agent named - every agent inside the viewer's breadth (the team view). Breadth itself is applied by visibleTo().
         $q = $this->engine->visibleTo($viewer)
-            ->where('rts_task_completions.user_id', $agentId)->where('rts_task_completions.track', $track)
-            ->with(['task', 'step', 'recordedBy:id,name', 'records']);
+            ->where('rts_task_completions.track', $track)
+            ->with(['task', 'step', 'recordedBy:id,name', 'agent:id,name', 'records']);
+        if ($agentId) {
+            $q->where('rts_task_completions.user_id', $agentId);
+        } elseif (($agent = (int) ($f['agent'] ?? 0)) > 0) {
+            $q->where('rts_task_completions.user_id', $agent);
+        }
 
         if ($status === 'archived') {
             $q->onlyTrashed();
@@ -139,6 +146,32 @@ class CompletionListService
         }
 
         return $out;
+    }
+
+    /**
+     * Points per agent over a date range, split manual / automatic - from the SAME shared rule every other screen uses
+     * (ActivityPointsService), for the agents the viewer may see. Replaces the old BM and admin daily summaries' totals.
+     *
+     * @param  int[]  $agentIds
+     * @return array<int,array{user_id:int,name:string,manual:float,automatic:float,total:float,done:int}> biggest total first
+     */
+    public function teamTotals(User $viewer, array $agentIds, string $from, string $to): array
+    {
+        $agencyId = (int) ($viewer->effectiveAgencyId() ?: 0);
+        if ($agencyId <= 0 || $agentIds === []) {
+            return [];
+        }
+        $q = ActivityPointsService::counted($agencyId)->whereIn('e.user_id', $agentIds)->whereBetween('e.activity_date', [$from, $to]);
+        [$man, $auto] = ActivityPointsService::splitExprs($q);
+        $rows = $q->groupBy('e.user_id')
+            ->selectRaw("e.user_id as user_id, COALESCE(SUM({$man}),0) as manual_pts, COALESCE(SUM({$auto}),0) as auto_pts, COUNT(*) as n")->get();
+        $names = User::query()->withoutGlobalScopes()->whereIn('id', $rows->pluck('user_id'))->pluck('name', 'id');
+
+        return $rows->map(fn ($r) => [
+            'user_id' => (int) $r->user_id, 'name' => (string) ($names[$r->user_id] ?? '#' . $r->user_id),
+            'manual' => round((float) $r->manual_pts, 2), 'automatic' => round((float) $r->auto_pts, 2),
+            'total' => round((float) $r->manual_pts + (float) $r->auto_pts, 2), 'done' => (int) $r->n,
+        ])->sortByDesc('total')->values()->all();
     }
 
     /** The tasks and steps the filters offer: those the agency has, archived ones included (their completions still exist). */

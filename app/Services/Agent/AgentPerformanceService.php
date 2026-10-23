@@ -161,17 +161,9 @@ class AgentPerformanceService
         $period = $month->format('Y-m');
 
         // How many distinct days have entries this month (V2)
-        $dailyRows = (int) DB::table('daily_activity_entries')
-            ->where('user_id', $user->id)
-            ->where('period', $period)
-            ->distinct('activity_date')
-            ->count('activity_date');
+        $dailyRows = ActivityPointsService::distinctDays($user->effectiveAgencyId(), (int) $user->id, $period);
 
-
-        $dailyRowsAllTime = (int) DB::table('daily_activity_entries')
-            ->where('user_id', $user->id)
-            ->distinct('activity_date')
-            ->count('activity_date');
+        $dailyRowsAllTime = ActivityPointsService::distinctDays($user->effectiveAgencyId(), (int) $user->id);
 
 
         // daily_activity_entries has agency_id but no automatic tenant scope on

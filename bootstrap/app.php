@@ -141,6 +141,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 'onboarding.portal' => \App\Http\Middleware\ResolveOnboardingPortal::class,
                 'agency.setup.portal' => \App\Http\Middleware\ResolveAgencySetupPortal::class,
                 'agency.required' => \App\Http\Middleware\RequireAgencyContext::class,
+                'daily.moved' => \App\Http\Middleware\DailyActivityMovedToRoadToSold::class,
                 'branch.required' => \App\Http\Middleware\RequiresBranchAssignment::class,
                 'client.auth' => \App\Http\Middleware\AuthenticateClientPortal::class, // portal auth that a staff session in the same browser cannot answer for
                 'client.ability' => \App\Http\Middleware\EnsureClientAbility::class,

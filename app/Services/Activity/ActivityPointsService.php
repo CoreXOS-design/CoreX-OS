@@ -200,6 +200,21 @@ final class ActivityPointsService
             ->when($agencyId, fn (Builder $q) => $q->where("{$entryAlias}.agency_id", $agencyId));
     }
 
+    /**
+     * On how many distinct days did this user have ANY daily activity recorded (in one month, or ever)? Read from whichever source the
+     * agency uses. For the "days captured" figures on the agent dashboard.
+     */
+    public static function distinctDays(?int $agencyId, int $userId, ?string $period = null): int
+    {
+        if (self::usesCompletions($agencyId)) {
+            $q = DB::table('rts_task_completions')->where('user_id', $userId)->whereNull('deleted_at')->whereNotNull('activity_date');
+        } else {
+            $q = DB::table('daily_activity_entries')->where('user_id', $userId);
+        }
+
+        return (int) $q->when($period, fn (Builder $w) => $w->where('period', $period))->distinct()->count('activity_date');
+    }
+
     /** Total points of whatever `counted()` query the caller narrowed down. */
     public static function sum(Builder $counted, string $entryAlias = 'e', string $definitionAlias = 'd'): float
     {

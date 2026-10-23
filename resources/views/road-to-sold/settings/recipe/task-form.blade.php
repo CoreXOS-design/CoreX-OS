@@ -68,7 +68,7 @@
             <div class="sm:col-span-3">
                 <label class="block text-xs font-semibold mb-1" style="color:var(--text-muted);" for="event_key">What completes it</label>
                 <select id="event_key" name="event_key" class="w-full rounded-md px-3 py-2 text-sm" style="{{ $fieldStyle }}">
-                    <option value="">Pick one</option>
+                    <option value="">{{ ($task->legacy_activity_definition_id ?? null) ? "Credited by CoreX (keep)" : "Pick one" }}</option>
                     @foreach($events as $class => $label)<option value="{{ $class }}" @selected($evKey === $class)>{{ $label }}</option>@endforeach
                 </select>
             </div>
