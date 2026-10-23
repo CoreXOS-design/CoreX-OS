@@ -255,9 +255,16 @@ class SignatureRequest extends Model
         return $this->hasMany(Signature::class);
     }
 
+    /** The current acceptance / rejection of each section (superseded generations excluded). */
     public function sectionAcceptances()
     {
-        return $this->hasMany(SectionAcceptance::class);
+        return $this->hasMany(SectionAcceptance::class)->whereNull('superseded_at');
+    }
+
+    /** Every acceptance / rejection ever recorded, every generation (Johan's signature-evidence rule, 9 Sep 2026). */
+    public function sectionAcceptanceHistory()
+    {
+        return $this->hasMany(SectionAcceptance::class)->orderBy('section_index')->orderBy('generation');
     }
 
     // --- Scopes ---
