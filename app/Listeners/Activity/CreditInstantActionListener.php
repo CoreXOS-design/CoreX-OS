@@ -6,6 +6,7 @@ namespace App\Listeners\Activity;
 
 use App\Events\Contact\ContactCreated;
 use App\Events\Deal\DealClosed;
+use App\Events\Deal\DealCommissionFinalised;
 use App\Events\Deal\DealCreated;
 use App\Events\Deal\DealStageAdvanced;
 use App\Events\Deal\DealStatusChanged;
@@ -63,11 +64,10 @@ use Throwable;
  *                                         InstantPointService's
  *                                         updateOrCreate key)
  *   PresentationOutcomeRecorded (won*) → presentation.won
- *   PresentationOutcomeRecorded (lost*)→ NO CREDIT here (presentation.lost
- *                                         is seeded but credited at a
- *                                         later phase if Johan opts in;
- *                                         this commit follows the prompt's
- *                                         explicit Phase-1 list)
+ *   PresentationOutcomeRecorded (lost*)→ presentation.lost (Road to Sold
+ *                                         phase 0: the V1 "action, not
+ *                                         outcome" rule, as the seeder says)
+ *   DealCommissionFinalised            → deal.commission_finalised (each agent on the deal, once)
  *   PitchSent                          → outreach.pitch_sent
  *   TrackedPropertyPromotedToStock     → tracked_property.promoted_to_stock
  *   RcrSubmissionSubmitted             → rcr.submitted
@@ -158,6 +158,19 @@ final class CreditInstantActionListener
         }
     }
 
+    /**
+     * Road to Sold phase 0 (road-to-sold.md 6.2): the seeded `deal.commission_finalised` slug existed and nothing credited it.
+     * DealObserver raises DealCommissionFinalised once, when commission_status first moves to a paid state. Each agent on the deal
+     * is credited once (the idempotency key is user + day + slug + deal); the office user who marked it paid is not.
+     */
+    public function handleDealCommissionFinalised(DealCommissionFinalised $event): void
+    {
+        $this->creditParticipants(
+            $this->resolver->resolveForDealCommissionFinalised($event->deal),
+            $event->deal,
+        );
+    }
+
     public function handlePresentationGenerated(PresentationGenerated $event): void
     {
         // Idempotency: InstantPointService keys on (user, day, def,
@@ -170,15 +183,19 @@ final class CreditInstantActionListener
 
     public function handlePresentationOutcomeRecorded(PresentationOutcomeRecorded $event): void
     {
-        // V1: credit presentation.won when the outcome is in the WON_OUTCOMES
-        // set (won_mandate or won_sale). presentation.lost is seeded but not
-        // credited from this listener — the prompt's Phase-1 list explicitly
-        // names presentation.won only.
-        if (!in_array($event->outcome, PresentationOutcome::WON_OUTCOMES, true)) {
+        // V1 rule (Johan, ActivityInstantActionsSeeder): the agent did the work either way - presentation.won for a WON_OUTCOMES
+        // outcome (won_mandate / won_sale), presentation.lost for a LOST_OUTCOMES one (lost_to_*). Road to Sold phase 0 wired the
+        // lost half, which was seeded active but never credited. still_pending / other credit nothing.
+        $slug = match (true) {
+            in_array($event->outcome, PresentationOutcome::WON_OUTCOMES, true)  => 'presentation.won',
+            in_array($event->outcome, PresentationOutcome::LOST_OUTCOMES, true) => 'presentation.lost',
+            default => null,
+        };
+        if ($slug === null) {
             return;
         }
         $subject = Presentation::find($event->presentationId);
-        $this->safeCredit('presentation.won', $this->user($event->actorUserIdValue), $subject);
+        $this->safeCredit($slug, $this->user($event->actorUserIdValue), $subject);
     }
 
     public function handlePitchSent(PitchSent $event): void
