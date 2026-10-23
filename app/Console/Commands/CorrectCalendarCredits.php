@@ -32,6 +32,7 @@ class CorrectCalendarCredits extends Command
     protected $signature = 'daily-points:correct-calendar-credits
                             {--apply : Actually correct the entries (without it, only show what would change)}
                             {--agency= : Only this agency id}
+                            {--until= : Only credits dated on or before this day (YYYY-MM-DD) - to correct just the months Johan approved}
                             {--force-production : Required to run when APP_ENV is production}';
 
     protected $description = 'Correct confirmed calendar credits that were counted at weight x weight (audited, idempotent; dry run unless --apply)';
@@ -49,8 +50,15 @@ class CorrectCalendarCredits extends Command
             return self::FAILURE;
         }
 
+        $until = $this->option('until');
+        if ($until !== null && ! preg_match('/^\d{4}-\d{2}-\d{2}$/', (string) $until)) {
+            $this->error('--until must be a day written YYYY-MM-DD.');
+
+            return self::FAILURE;
+        }
+
         $apply = (bool) $this->option('apply');
-        $candidates = $this->candidates($this->option('agency') !== null ? (int) $this->option('agency') : null);
+        $candidates = $this->candidates($this->option('agency') !== null ? (int) $this->option('agency') : null, $until !== null ? (string) $until : null);
 
         if ($candidates->isEmpty()) {
             $this->info('Nothing to correct - every confirmed calendar credit is already at the right size.');
@@ -112,7 +120,7 @@ class CorrectCalendarCredits extends Command
     }
 
     /** @return \Illuminate\Support\Collection<int,object> */
-    private function candidates(?int $agencyId)
+    private function candidates(?int $agencyId, ?string $until = null)
     {
         return DB::table('daily_activity_entries as e')
             ->join('activity_definitions as d', 'd.id', '=', 'e.activity_definition_id')
@@ -126,6 +134,7 @@ class CorrectCalendarCredits extends Command
                     ->whereColumn('k.entry_id', 'e.id')->where('k.correction_key', self::CORRECTION_KEY);
             })
             ->when($agencyId, fn ($q) => $q->where('e.agency_id', $agencyId))
+            ->when($until, fn ($q) => $q->where('e.activity_date', '<=', $until))
             ->orderBy('e.period')->orderBy('u.name')->orderBy('e.id')
             ->get(['e.id', 'e.agency_id', 'e.user_id', 'e.activity_definition_id', 'e.activity_date', 'e.period', 'e.value',
                 'd.weight', 'd.name as activity', 'u.name as agent']);

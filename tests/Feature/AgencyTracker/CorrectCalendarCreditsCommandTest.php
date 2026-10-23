@@ -129,6 +129,21 @@ final class CorrectCalendarCreditsCommandTest extends TestCase
         $this->assertSame(1, $this->value($theirs));
     }
 
+    public function test_until_limits_the_correction_to_the_approved_months(): void
+    {
+        $p = $this->def(200);
+        $sept = $this->entry('2026-09-30', 200, $p);
+        $oct = $this->entry('2026-10-14', 200, $p);
+
+        $this->artisan('daily-points:correct-calendar-credits', ['--apply' => true, '--until' => '2026-09-30'])->assertSuccessful();
+
+        $this->assertSame(1, $this->value($sept));
+        $this->assertSame(200, $this->value($oct));
+
+        $this->artisan('daily-points:correct-calendar-credits', ['--apply' => true, '--until' => 'September'])->assertFailed();
+        $this->assertSame(200, $this->value($oct));
+    }
+
     public function test_a_production_environment_refuses_without_the_force_flag(): void
     {
         $p = $this->def(200);
