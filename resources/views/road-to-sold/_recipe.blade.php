@@ -47,12 +47,19 @@
         {{ $progress['level'] ? $progress['level']['name'] . ' has no tasks yet.' : 'The recipe has no active level.' }}
         @if($recipeUrl)<a href="{{ $recipeUrl }}" class="font-semibold underline">Add tasks to the level</a>@endif
     </div>
+@elseif(collect($progress['tasks'])->every(fn ($t) => $t['target'] <= 0 && $t['actual'] <= 0))
+    {{-- Tasks with no target and nothing done are not progress; they are reached with the Capture button. --}}
+    <div class="rounded-md px-4 py-3 text-xs" style="background: var(--surface); border: 1px solid var(--border); color: var(--text-primary);">
+        No targets are set for {{ $progress['level']['name'] }}.
+        @if($recipeUrl)<a href="{{ $recipeUrl }}" class="font-semibold underline">Set targets in the recipe</a>@endif
+    </div>
 @else
     <div class="rounded-md overflow-x-auto" style="background: var(--surface); border: 1px solid var(--border);">
         <table class="w-full text-xs ds-table">
             <tbody>
             @php $lastStep = null; @endphp
-            @foreach($progress['tasks'] as $t)
+            {{-- A task with a target, or with something done this period, is in play; the rest are reached with the Capture button. --}}
+            @foreach(collect($progress['tasks'])->filter(fn ($t) => $t['target'] > 0 || $t['actual'] > 0) as $t)
                 @if($lastStep !== $t['step_id'])
                     @php $lastStep = $t['step_id']; @endphp
                     <tr style="border-top: 1px solid var(--border); background: var(--bg, #f4f6fb);">

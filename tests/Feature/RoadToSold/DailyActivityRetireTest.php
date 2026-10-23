@@ -148,15 +148,29 @@ final class DailyActivityRetireTest extends TestCase
         $this->actingAs($this->admin)->get(route('admin.daily-activities.setup'))->assertOk();
     }
 
-    public function test_someone_who_cannot_open_road_to_sold_is_not_sent_into_a_refusal(): void
+    public function test_someone_who_cannot_open_road_to_sold_is_not_sent_into_a_refusal_and_cannot_save_a_credit_the_new_engine_would_not_see(): void
     {
         $this->cutOver();
         RolePermission::where('role', 'agent')->where('permission_key', 'access_road_to_sold')->delete();
         PermissionService::clearCache();
 
-        $res = $this->actingAs($this->agent)->get(route('agent.daily'));
+        // reading is left open (the summaries and the setup are not redirected into a refusal)
+        $summary = $this->actingAs($this->agent)->get(route('agent.daily.summary'));
+        $this->assertNotSame(route('road-to-sold.index') . '?view=captures', $summary->headers->get('Location'));
+        // capturing is refused plainly: a credit saved on the old page would never reach the completions
+        $this->actingAs($this->agent)->get(route('agent.daily'))->assertForbidden();
+        $this->actingAs($this->agent)->post('/agent/daily', [])->assertForbidden();
+    }
 
-        $this->assertNotSame(route('road-to-sold.index'), $res->headers->get('Location'));
+    public function test_only_agencies_with_history_are_moved_by_default(): void
+    {
+        $quiet = Agency::create(['name' => 'Quiet Agency', 'slug' => 'quiet-' . Str::random(6)]);
+        DB::table('activity_definition_calendar_classes')->insert([
+            'agency_id' => $quiet->id, 'activity_definition_id' => $this->def, 'trigger_kind' => 'instant', 'slug' => 'contact.captured',
+            'value_per_event' => 1, 'requires_feedback' => 0, 'auto_revoke_after_hours' => 24, 'back_date_limit_hours' => 48, 'is_active' => 1, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+
+        $this->assertSame([$this->agency->id], app(DailyActivityMigrationService::class)->agenciesInUse(), 'an agency with only automatic rules keeps its offer of the standard recipe');
     }
 
     // ── The Team view ─────────────────────────────────────────────────────
@@ -242,5 +256,17 @@ final class DailyActivityRetireTest extends TestCase
     private function recipeStarted(): void
     {
         app(\App\Services\RoadToSold\RecipeService::class)->start($this->agency->id, 'sales');
+    }
+
+    public function test_a_moved_agencys_zero_target_tasks_do_not_bury_the_page_and_the_team_view_drops_the_personal_sections(): void
+    {
+        $this->cutOver();
+
+        $page = $this->actingAs($this->agent)->get(route('road-to-sold.index'));
+        $page->assertOk()->assertSee('No targets are set for Level 1.')->assertDontSee('0 a day');
+        $this->assertCount(2, $page->viewData('progress')['tasks'], 'both migrated tasks exist and can be captured, they just carry no progress row');
+
+        $team = $this->actingAs($this->admin)->get(route('road-to-sold.index', ['view' => 'team']));
+        $team->assertOk()->assertDontSee('rts-next-action')->assertDontSee('No targets are set');
     }
 }

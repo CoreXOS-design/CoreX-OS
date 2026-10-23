@@ -24,8 +24,15 @@ class DailyActivityMovedToRoadToSold
         $user = $request->user();
         $agencyId = $user ? (int) ($user->effectiveAgencyId() ?: 0) : 0;
 
-        if ($agencyId <= 0 || ! ActivityPointsService::usesCompletions($agencyId)
-            || ! $user->hasPermission('access_road_to_sold') || ! Scope::callListOn($user)) {
+        if ($agencyId <= 0 || ! ActivityPointsService::usesCompletions($agencyId)) {
+            return $next($request);
+        }
+        if (! $user->hasPermission('access_road_to_sold') || ! Scope::callListOn($user)) {
+            // Saving on the old capture page would write a credit the new engine never sees: refuse it plainly instead. Reading stays open.
+            if ($kind === 'capture') {
+                abort(403, 'Daily activity is now captured in Road to Sold. Ask your administrator to give you access to it.');
+            }
+
             return $next($request);
         }
         // The Auto tab (when an automatic credit is earned) is still configured on the old Setup screen.

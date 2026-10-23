@@ -52,12 +52,16 @@ class DailyActivityMigrationService
     {
     }
 
-    /** Agencies that have daily-activity entries or an active automatic credit rule. @return int[] */
+    /**
+     * Agencies that have daily-activity entries. An agency with only automatic credit rules and no history is NOT moved (spec 7.3: it gets
+     * the neutral default recipe, and starting its recipe here would take that offer away).
+     *
+     * @return int[]
+     */
     public function agenciesInUse(): array
     {
-        return DB::table('daily_activity_entries')->select('agency_id')->whereNotNull('agency_id')
-            ->union(DB::table('activity_definition_calendar_classes')->select('agency_id')->whereNotNull('agency_id')->whereNull('deleted_at')->where('is_active', 1))
-            ->pluck('agency_id')->map(fn ($v) => (int) $v)->unique()->sort()->values()->all();
+        return DB::table('daily_activity_entries')->whereNotNull('agency_id')->distinct()->orderBy('agency_id')
+            ->pluck('agency_id')->map(fn ($v) => (int) $v)->all();
     }
 
     public function isCutOver(int $agencyId, string $track = 'sales'): bool

@@ -106,11 +106,14 @@
         </div>
     @endif
 
-    @include('road-to-sold._recipe', ['part' => 'next'])
+    {{-- The Team view is about everyone: the viewer's own next action, summary tiles and tasks do not belong above it. --}}
+    @unless($isTeam)
+        @include('road-to-sold._recipe', ['part' => 'next'])
 
-    @include('road-to-sold._summary-bar')
+        @include('road-to-sold._summary-bar')
 
-    @include('road-to-sold._recipe', ['part' => 'tasks'])
+        @include('road-to-sold._recipe', ['part' => 'tasks'])
+    @endunless
 
     {{-- Filters --}}
     <form method="GET" class="flex items-end gap-3 flex-wrap">
