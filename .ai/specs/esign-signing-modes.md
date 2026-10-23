@@ -1,6 +1,6 @@
 # E-Sign signing modes — each agency chooses how its signers sign
 
-> Status: **SPEC ONLY — no code.** Written 23 Oct 2026 on the esign-signing-modes-spec-2026-10-23 branch, cut from `origin/QA1` (`dd0047de7`).
+> Status: **APPROVED by Johan, 23 Oct 2026 14:52 — all five decisions in §11 are rulings.** Written 23 Oct 2026 on the esign-signing-modes-spec-2026-10-23 branch, cut from `origin/QA1` (`dd0047de7`). Build proceeds step by step on QA1 (§9), default Mode 1.
 > Requested by Sherry (Mega Real Estate, agency 23). Johan's ruling, 23 Oct 2026: *every agency selects how its e-sign works.*
 > Code facts below were read on QA1 at `fb9ab8d28` (the tip when the investigation began) and must be re-checked at build time — line numbers drift.
 > Related: `esign-ceremony-v3.md` §2 (consent profiles), `ESIGN-CANON.md`, `esign-mdf-mark-amendment.md` (AT-303), `ESIGN-WETINK.md`, `agency-timeline-and-platform-esign.md` §11.7.
@@ -58,7 +58,7 @@
 - **Table:** add `signing_mode` (string, default `sign_each`) to the existing per-agency `docuperfect_esign_settings` (model `App\Models\Docuperfect\EsignSettings`, `forAgency()` returns defaults when no row exists — so a never-saved agency is Mode 1 with no data change). Values: `sign_each`, `adopt_then_stamp`, `adopt_and_fill_all`.
 - **Screen:** a new sibling page under the E-Sign settings group next to *Finalisation Settings* (`docuperfect.esign.settings.finalization`, sidebar `corex-sidebar.blade.php:2141`): **"How my signers sign"**, route `docuperfect.esign.settings.signing-mode`, same middleware `permission:esign.settings` + `agency.required`, same save pattern as `EsignFinalizationSettingsController`. Three radio cards, each with a one-sentence plain description and a "What this changes" line. Mode 3 carries a plain warning that individual-consent places are still done one by one.
 - **Envelope snapshot:** `signature_templates.signing_mode` is set when the envelope is created (`SignatureService::createTemplate`, where `signing_order_json` is set) from the agency setting. Everything downstream reads the envelope's value, never the live setting (rule 5).
-- **Setup Wizard (non-negotiable #10a):** a new setting must reach `config/agency-onboarding-copy.php` — or Johan decides it stays out and §5.1 of `agency-onboarding-setup.md` records it (Q5).
+- **Setup Wizard (non-negotiable #10a) — RULED (Johan, 23 Oct 2026): the setting appears in the new-agency setup wizard once the feature is built and working.** Build step 7 adds it (`config/agency-onboarding-copy.php`, `explain` + `affects`, canonical saver wired into the step's `savers`, `$request->has()` guard on any boolean — `agency-onboarding-setup.md` §6.1). Until step 7 lands the setting is deliberately not in the wizard, and that is recorded in the commit messages of steps 1–6.
 - Permission key `esign.settings` already exists; no new permission. No new list screen, so the CRUD/list standard (#8) does not apply to this settings page.
 
 ## 4. The three flows, step by step
@@ -82,21 +82,21 @@
 
 **New table `signature_adoptions` (append-only).** `id, signature_request_id, envelope_id, signer_name, signer_email, signature_image, initial_image, signature_image_hash, initial_image_hash, disclaimer_version, disclaimer_text (full snapshot), mode, ip_address, user_agent, adopted_at, generation, superseded_at, superseded_by_id`. Re-adoption inserts generation+1 and stamps `superseded_*` on the old row; nothing is updated otherwise or deleted (non-negotiable #1; follow `RentalInspectionSignature` supersede pattern).
 
-**New table `signature_placements` (append-only).** `id, signature_request_id, document_id, place_key, kind (signature|initial), adoption_id, method (stamped_click|stamped_auto), fill_all_event_id (null for click), placed_at (server), ip_address, user_agent, represented_contact_id (proxy), generation, superseded_at, superseded_by_id`. `place_key` is the web block id / `<party>-init-<n>` / marker id used today. Removal or redo = new row, old row superseded.
+**Per-place records REUSE `signature_place_generations`** (built by the signature-evidence fix, branch `esign-evidence-generations-2026-10-23`, `ESIGN-CANON.md` §10 — Johan's rule that a re-signature never overwrites the original; it is a bug fix that lands first). That table already holds, per place: `document_id, signature_request_id, place_key, kind, generation, image, image_hash, signer, ip_address, user_agent, signed_at, superseded_at/by`. Modes 2/3 add three nullable columns to it (step 2): `method` (`drawn` — Mode 1 and a deliberate fresh capture; `stamped_click` — Mode 2; `stamped_auto` — Mode 3), `adoption_id` (which adoption's mark was stamped) and `fill_all_event_id` (Mode 3: the single confirmation). Removal or redo of a place = a new generation, the old one superseded. There is **no separate `signature_placements` table.**
 
 **Audit log (existing `signature_audit_log`).** New free-string actions: `signature_adopted` (metadata: adoption id, disclaimer version, both image hashes, generation), `signature_placed` (place_key, kind, method, adoption id), `fill_all_confirmed` (count filled, count excluded and why, place-list hash), `signature_readopted`. Document hash carried as on existing rows.
 
-**Mode 1 documents** keep writing exactly what they write today. (Per-place records for Mode 1 would be good evidence but change a working, gated pipeline; deliberately out of scope — a later, separate decision.)
+**Mode 1 documents** already get a generation row per place from the evidence fix (method `drawn`); nothing else about Mode 1 changes.
 
-**Generation rule check, per mode:** adoption rows and placement rows are never updated except to stamp `superseded_*`; the sealed-version chain continues to hold full document history at each hop; the `web_template_data` JSON is still written (the renderer reads it) but is no longer the only evidence. **Known gap in the existing code, reported not changed:** web-path JSON overwrite and `section_acceptances` `updateOrCreate` (§2). Outside this spec's scope; it should be raised with Johan separately (Q6).
+**Generation rule check, per mode:** adoption rows and placement rows are never updated except to stamp `superseded_*`; the sealed-version chain continues to hold full document history at each hop; the `web_template_data` JSON is still written (the renderer reads it) but is no longer the only evidence. **The web-path JSON overwrite and `section_acceptances` `updateOrCreate` (§2) were ruled a bug against Johan's rule and are fixed first (`ESIGN-CANON.md` §10).**
 
 **Certificate:** `audit-certificate.blade.php` gains, per party in Modes 2/3: the adoption time, agreement version, and a per-place list (place, kind, method, time). Mode 1 certificates unchanged.
 
 ## 6. Agreement wording (versioned)
 
 New config `config/esign-adoption.php`: `version` (integer, bumped on any wording change) and the wording per mode. Platform-wide (legal text, not agency-editable — an agency editing legal wording is a risk, not a setting). Each adoption stores the full text it was shown, so changing wording later never rewrites history.
-- **v1 Mode 2 (Johan's words):** "By signing here you agree this is your signature and initial and that it will be applied wherever you click to sign or initial on this document."
-- **v1 Mode 3 (draft — Johan to approve, Q2):** "By signing here you agree this is your signature and initial and that it will be applied to every signature and initial place on this document that is yours, without you clicking each one."
+- **v1 Mode 2 (APPROVED, Johan's words):** "By signing here you agree this is your signature and initial and that it will be applied wherever you click to sign or initial on this document."
+- **v1 Mode 3 (APPROVED by Johan as drafted, 23 Oct 2026):** "By signing here you agree this is your signature and initial and that it will be applied to every signature and initial place on this document that is yours, without you clicking each one."
 
 ## 7. What changes where
 
@@ -104,8 +104,8 @@ New config `config/esign-adoption.php`: `version` (integer, bumped on any wordin
 |---|---|
 | Recipient signing screen | Adoption step; click-to-stamp (2); confirm-and-fill (3); new shared partial `signatures/partials/adopt-and-stamp.blade.php` so the mode logic is not pasted into a 4,000-line view. Replaces the "recipients cannot apply to all" gate (`isAgent`, `external/sign.blade.php` ~3108 and ~4026) **only when the envelope mode is 2 or 3**; Mode 1 keeps it. Comments citing "Phase 1B.9" are updated. |
 | Server | `POST /sign/{token}/adopt`, `POST /sign/{token}/place` (per-click, server time), `POST /sign/{token}/place-all` (Mode 3). Token routes, like the existing `/sign/{token}/capture` — not `/api/v1` (not an API; precedent as existing signing routes). `completeWeb`: in Modes 2/3 every posted signature/initial image must hash-match the signer's current-or-prior adoption (`stamped_*`) or be a deliberate fresh capture for an individual-consent place; reconcile that a placement row exists for each posted place. Hash-matching stops a client posting arbitrary images. Existing "at least one mark" floor stays. |
-| Agent signing | Unchanged. Agent view (`signatures/sign.blade.php`, own JS) keeps saved signature + apply-all. (Q3 confirms.) |
-| Packs | A web pack is already **one merged document and one signing session** (`ESignWizardController::store`, `WebPackSlotResolver`; `signature_templates` is per envelope; initials restart per member document). Rule: **adopt once per envelope** (the signer's single session). Mode 2 click-stamps across all members. Mode 3 fills all of the signer's places across the whole pack, the confirmation showing the count per document. PDF packs are the same (`is_pdf_pack`). |
+| Agent signing | Unchanged. Agent view (`signatures/sign.blade.php`, own JS) keeps saved signature + apply-all. (Ruling 3.) |
+| Packs | A web pack is already **one merged document and one signing session** (`ESignWizardController::store`, `WebPackSlotResolver`; `signature_templates` is per envelope; initials restart per member document). Rule: **adopt once per envelope** (the signer's single session). Mode 2 click-stamps across all members. Mode 3 fills all of the signer's places across the whole pack (ruling 4), the confirmation showing the count per document. PDF packs are the same (`is_pdf_pack`). |
 | Deferred parties | Nothing to adopt until they open their link; the envelope's mode is the one it was created with. A deferred signer resumed later (`resumeDeferredSigning`) signs in that envelope mode. |
 | Proxy signing | Proxy has their own request (`is_proxy`, `proxy_excludes`, `represented_contact_id`); the proxy adopts their **own** mark and signs under their own name as today. Covered parties are `NOT_REQUIRED` and never adopt. Placement rows carry `represented_contact_id`. Mode 3 fills only places that belong to the proxy's own request — not those of parties they cover (covered parties have no places requiring signature anyway). Note: QA1 has zero proxy rows, so this path is untested on real data. |
 | Witness | A witness who is a recipient adopts their own mark; a witness cell is never filled by another party's adoption. Where witness cells are template-only (no recipient), nothing changes. |
@@ -122,12 +122,12 @@ Second agency: default Mode 1, no HFC wording, no agency ids in code. The agreem
 ## 9. Build steps (each ~1 lane-day, single-file tests via `scripts/lane-test.sh`)
 
 1. **Setting and snapshot.** Migration (`docuperfect_esign_settings.signing_mode`, `signature_templates.signing_mode`), `schema:dump` + DEFINER strip (#12a), model, settings page + sidebar item, resolver, snapshot in `createTemplate`, wizard decision (#10a). *Tests:* default is Mode 1 for a never-saved agency; save/validate; snapshot survives a later setting change; another agency isolated.
-2. **Evidence tables and agreement wording.** `signature_adoptions`, `signature_placements` + models (append-only; update/delete throw except `superseded_*`), `config/esign-adoption.php`, audit actions, certificate additions. *Tests:* append-only, re-adoption creates generation 2 and keeps generation 1, wording snapshot stored, certificate prints lines for Modes 2/3 and is unchanged for Mode 1.
+2. **Adoption evidence and agreement wording.** `signature_adoptions` (+ model, append-only) and three nullable columns on `signature_place_generations` (`method`, `adoption_id`, `fill_all_event_id`), `config/esign-adoption.php`, audit actions, certificate additions. *Tests:* adoption append-only, re-adoption creates generation 2 and keeps generation 1, wording snapshot stored, certificate prints lines for Modes 2/3 and is unchanged for Mode 1.
 3. **Adoption step on the recipient view.** New partial, `POST /sign/{token}/adopt`, places locked until adopted in Modes 2/3, Mode 1 untouched. *Tests (in `tests/Feature/Docuperfect/SigningView/` — required by the e-sign pipeline gate when `SigningController` changes):* adoption required, wording version stored, Mode 1 view renders without the step.
 4. **Mode 2 click-to-stamp.** Per-click `POST /sign/{token}/place`, remove/redo with generations, "Go to next" integration, completion gate states, `completeWeb` hash-match and reconcile. *Tests:* each click writes one placement with server time; a forged image is refused; redo supersedes.
 5. **Mode 3 fill-all.** `POST /sign/{token}/place-all`, server-built place list from the canonical document, confirmation with counts, `fill_all_confirmed`, exclusion of individual-consent places. *Tests:* count correct; excluded places not filled; client cannot add places; one confirm event referenced by all auto placements.
 6. **Packs, proxy, witness, deferred, disclosure/amendment interplay, mobile.** *Tests:* pack of two documents = one adoption; proxy placement carries the represented contact; covered party gets no adoption; AT-303 initial never auto-filled; deferred party signs in the envelope's mode.
-7. **Real-browser proof on QA1** (desktop and a phone-width viewport, Mega as the test agency, all three modes, a lease-sized document and a pack), certificate review, regression of Mode 1 with an HFC document, then hand to Johan.
+7. **Real-browser proof on QA1** (desktop and a phone-width viewport, Mega as the test agency, all three modes, a lease-sized document and a pack), certificate review, regression of Mode 1 with an HFC document, **then the Setup Wizard entry (ruling 5)**, then hand to Johan.
 
 ## 10. Risks
 
@@ -140,13 +140,12 @@ Second agency: default Mode 1, no HFC wording, no agency ids in code. The agreem
 - **Untested paths.** Proxy signing and witness-as-recipient have no real data on QA1.
 - **Moving target.** QA1 advanced (`fb9ab8d28` → `dd0047de7`) while this was being written; re-verify every cited file and line before building.
 
-## 11. Decisions Johan needs to make
+## 11. Rulings (Johan, 23 Oct 2026 14:52 — all approved)
 
-- **Q1 — Mode 3 against the settled rule.** Do you accept Mode 3 despite the standing rule that clients initial each page themselves? Proposed safeguards: a counted confirmation, the agreement stored, and condition / amendment / "every co-tenant" places always done one by one.
-- **Q2 — Mode 3 wording.** Approve the draft Mode 3 agreement in §6 (your wording only describes Mode 2).
-- **Q3 — Agents.** Confirm the mode applies only to people who sign by link, and agents keep their saved-signature and apply-to-all. (The alternative is agents also following the agency mode.)
-- **Q4 — Packs.** Confirm adopt once per pack (one signing session), not once per document in the pack.
-- **Q5 — Setup Wizard.** This is a new agency setting; rule #10a makes whether it appears in the new-agency wizard your call.
-- **Q6 — Existing evidence gap.** Do you want the web-path JSON overwrite and `section_acceptances` overwrite closed as its own piece of work? Separate from this spec.
+1. **Mode 3 is accepted as an agency choice**, with the safeguards: a confirmation that states how many places will be filled, the agreement stored with the signer, and individual-consent places (condition / amendment / "every co-tenant" / disclosure-grid amendment initials) always done one by one.
+2. **Agreement wording approved as drafted** (§6) — Mode 2: "By signing here you agree this is your signature and initial and that it will be applied wherever you click to sign or initial on this document." Mode 3: "By signing here you agree this is your signature and initial and that it will be applied to every signature and initial place on this document that is yours, without you clicking each one."
+3. **The modes apply to recipients signing by link only.** Agents keep their saved signature (PIN) and apply-to-all.
+4. **Adopt once per pack (envelope)**, not once per document.
+5. **The setting appears in the new-agency setup wizard once the feature is built and working** (build step 7).
 
-*Decisions already made in this spec (no ask): the setting snapshots onto each document at send; Mode 1 documents are not changed; wording is platform text not agency-editable; the new setting is a separate "How my signers sign" page.*
+*Also decided (no ask):* the setting snapshots onto each document at send; Mode 1 documents are not changed by this work; wording is platform text, not agency-editable; the setting is a separate "How my signers sign" page. The web-path overwrite is a bug fixed first (not a decision): `ESIGN-CANON.md` §10.
