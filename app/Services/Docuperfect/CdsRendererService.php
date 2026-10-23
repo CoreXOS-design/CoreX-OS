@@ -69,8 +69,50 @@ class CdsRendererService
 
         $number = isset($section['number']) ? "{$section['number']}. &nbsp;" : '';
         $text = e($section['text'] ?? $this->contentToText($section['content'] ?? []));
+        $look = $this->sourceLookAttributes($section, true);
 
-        return "<div class=\"{$class}\">{$number}{$text}</div>\n";
+        return "<div class=\"{$class}\"{$look}>{$number}{$text}</div>\n";
+    }
+
+    /**
+     * Document look — mark what the SOURCE document did to this block, as inert data
+     * attributes. They change nothing on their own: only a template whose look is "Match
+     * source document" (wrapper class `corex-look-source`, rules in corex-document.css)
+     * acts on them, so the CoreX standard look renders exactly as before.
+     *
+     *   data-src-align="center|right|justify"  — the source paragraph's alignment
+     *   data-src-band="1"                       — a section heading to draw as a grey band:
+     *                                             the source shaded it, or it is a bold
+     *                                             all-caps title.
+     */
+    private function sourceLookAttributes(array $section, bool $isHeading = false): string
+    {
+        $attrs = '';
+
+        $align = $section['align'] ?? null;
+        if (in_array($align, ['center', 'right', 'justify'], true)) {
+            $attrs .= ' data-src-align="' . $align . '"';
+        }
+
+        if ($isHeading && (!empty($section['shading']) || $this->isBoldAllCaps($section))) {
+            $attrs .= ' data-src-band="1"';
+        }
+
+        return $attrs;
+    }
+
+    /** A bold, all-caps heading ("DEFINITIONS", "LEASE AGREEMENT") — a section title. */
+    private function isBoldAllCaps(array $section): bool
+    {
+        $text = (string) ($section['text'] ?? $this->contentToText($section['content'] ?? []));
+        $letters = preg_replace('/[^A-Za-z]/', '', $text);
+        if (strlen($letters) < 3 || $letters !== strtoupper($letters)) {
+            return false;
+        }
+
+        $runs = array_filter($section['content'] ?? [], fn ($i) => ($i['type'] ?? '') === 'text' && trim((string) ($i['value'] ?? '')) !== '');
+
+        return $runs !== [] && count(array_filter($runs, fn ($i) => !empty($i['bold']))) === count($runs);
     }
 
     private function renderClause(array $section): string
@@ -80,7 +122,9 @@ class CdsRendererService
         $number = $section['number'] ?? '';
         $content = $this->renderContent($section['content'] ?? []);
 
-        return "<div class=\"corex-clause corex-clause-indent-{$indent}\">"
+        $look = $this->sourceLookAttributes($section);
+
+        return "<div class=\"corex-clause corex-clause-indent-{$indent}\"{$look}>"
             . "<span class=\"corex-clause-number\">{$number}</span> "
             . "<span class=\"corex-clause-text\">{$content}</span>"
             . "</div>\n";
@@ -89,7 +133,9 @@ class CdsRendererService
     private function renderParagraph(array $section): string
     {
         $content = $this->renderContent($section['content'] ?? []);
-        return "<div class=\"corex-clause corex-clause-indent-1\">"
+        $look = $this->sourceLookAttributes($section);
+
+        return "<div class=\"corex-clause corex-clause-indent-1\"{$look}>"
             . "<span class=\"corex-clause-text\">{$content}</span>"
             . "</div>\n";
     }

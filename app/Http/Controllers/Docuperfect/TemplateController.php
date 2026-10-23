@@ -200,6 +200,7 @@ class TemplateController extends Controller
                     'security_tier' => $template->security_tier,
                     'category' => $template->category,
                     'document_type_id' => $template->document_type_id,
+                    'document_look' => \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state),
                 ],
                 'source_template_id' => $template->id,
                 'status' => 'draft',
@@ -799,6 +800,10 @@ class TemplateController extends Controller
                 'tags' => $draft->tags,
                 'mappings' => $draft->mappings,
                 'tagged_html' => $draft->tagged_html,
+                // Document look (Template Settings) — the form value wins, else the draft's.
+                'document_look' => \App\Support\Docuperfect\DocumentLook::normalise(
+                    $request->input('document_look', $draft->settings['document_look'] ?? null)
+                ),
             ],
         ];
 
@@ -922,7 +927,8 @@ class TemplateController extends Controller
             $template->name,
             $template->signing_parties,
             $draft->tagged_html,
-            $draft->tags ?? []
+            $draft->tags ?? [],
+            \App\Support\Docuperfect\DocumentLook::fromState($template->editor_state)
         );
         $template->update(['blade_view' => $bladeView]);
 
@@ -1137,7 +1143,8 @@ class TemplateController extends Controller
         string $templateName,
         ?array $signingParties = null,
         ?string $taggedHtml = null,
-        ?array $tags = null
+        ?array $tags = null,
+        string $documentLook = \App\Support\Docuperfect\DocumentLook::STANDARD
     ): string {
         // Determine document body HTML
         if (!empty($taggedHtml)) {
@@ -1258,7 +1265,9 @@ BLADE;
         $blade .= '    <link href="/css/corex-document.css" rel="stylesheet">' . "\n";
         $blade .= "    <link href=\"https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap\" rel=\"stylesheet\">\n";
         $blade .= "</head>\n<body>\n";
-        $blade .= '<div class="corex-document-wrapper">' . "\n";
+        // Document look: "Match source document" adds one class to the wrapper; the rules live in
+        // corex-document.css, which the signing view and the signed PDF load too.
+        $blade .= '<div class="corex-document-wrapper' . \App\Support\Docuperfect\DocumentLook::wrapperClass($documentLook) . '">' . "\n";
         $blade .= '<div class="corex-page">' . "\n\n";
         $blade .= '@include("docuperfect.web-templates.components.company-header")' . "\n\n";
 
@@ -1665,7 +1674,8 @@ BLADE;
             $template->name,
             $template->signing_parties,
             $taggedHtml,
-            $editorState['tags'] ?? []
+            $editorState['tags'] ?? [],
+            \App\Support\Docuperfect\DocumentLook::fromState($editorState)
         );
         $template->blade_view = $bladeView;
         $template->save();

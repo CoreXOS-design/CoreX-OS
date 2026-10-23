@@ -180,6 +180,17 @@ class CdsParserService
                     'name' => $name,
                 ];
             }
+
+            // Document look — a style can carry the alignment its paragraphs inherit
+            // (a centred "Title" style) and may inherit it again from a parent style.
+            $jcNode = $xpath->query('w:pPr/w:jc', $style)->item(0);
+            if ($jcNode) {
+                $map[$styleId]['jc'] = $jcNode->getAttribute('w:val');
+            }
+            $basedOn = $xpath->query('w:basedOn', $style)->item(0);
+            if ($basedOn) {
+                $map[$styleId]['basedOn'] = $basedOn->getAttribute('w:val');
+            }
         }
 
         return $map;
@@ -608,6 +619,11 @@ class CdsParserService
             return null;
         }
 
+        // Document look — the source paragraph's alignment and shading, kept so the
+        // "Match source document" look can reproduce them. Both are optional: absent
+        // means left-aligned / unshaded, i.e. exactly what the standard look draws.
+        $look = $this->extractParagraphLook($node, $xpath, $styleId, $styleMap);
+
         // Determine section type
         if ($styleInfo && $styleInfo['type'] === 'heading') {
             return [
@@ -615,7 +631,7 @@ class CdsParserService
                 'level' => $styleInfo['level'],
                 'text' => $plainText,
                 'content' => $content,
-            ];
+            ] + $look;
         }
 
         if ($styleInfo && $styleInfo['type'] === 'title') {
@@ -623,7 +639,7 @@ class CdsParserService
                 'type' => 'title',
                 'text' => $plainText,
                 'content' => $content,
-            ];
+            ] + $look;
         }
 
         // Regular paragraph (may be a numbered clause — detected in post-processing)
@@ -643,7 +659,90 @@ class CdsParserService
             $result['styleId'] = $styleId;
         }
 
-        return $result;
+        return $result + $look;
+    }
+
+    /**
+     * Document look — read a paragraph's alignment (w:jc) and shading (w:shd).
+     *
+     * Returns only the keys that differ from the standard look, so a plain left-aligned,
+     * unshaded paragraph adds nothing to the stored CDS JSON:
+     *   'align'   => 'center' | 'right' | 'justify'
+     *   'shading' => 'rrggbb' (the fill colour; "auto" / white are not shading)
+     *
+     * Alignment: the paragraph's own w:jc wins (an explicit "left" wins too — it overrides a
+     * centred style); otherwise the paragraph style's w:jc, walking up w:basedOn.
+     * Shading: the paragraph's w:pPr/w:shd fill, or a run-level fill that EVERY text run carries.
+     *
+     * @return array{align?:string,shading?:string}
+     */
+    private function extractParagraphLook($node, DOMXPath $xpath, ?string $styleId, array $styleMap): array
+    {
+        $look = [];
+
+        $jc = null;
+        $jcNode = $xpath->query('w:pPr/w:jc', $node)->item(0);
+        if ($jcNode) {
+            $jc = $jcNode->getAttribute('w:val');
+        } else {
+            $seen = [];
+            $cursor = $styleId;
+            while ($cursor && ! isset($seen[$cursor]) && isset($styleMap[$cursor])) {
+                $seen[$cursor] = true;
+                if (isset($styleMap[$cursor]['jc'])) {
+                    $jc = $styleMap[$cursor]['jc'];
+                    break;
+                }
+                $cursor = $styleMap[$cursor]['basedOn'] ?? null;
+            }
+        }
+        $align = match (strtolower((string) $jc)) {
+            'center'                      => 'center',
+            'right', 'end'                => 'right',
+            'both', 'distribute', 'thaidistribute' => 'justify',
+            default                       => null,
+        };
+        if ($align !== null) {
+            $look['align'] = $align;
+        }
+
+        $fill = $this->shadingFill($xpath->query('w:pPr/w:shd', $node)->item(0));
+        if ($fill === null) {
+            // Word also shades through the run properties (highlighting a whole line).
+            $fills = [];
+            foreach ($xpath->query('w:r', $node) as $run) {
+                $text = '';
+                foreach ($xpath->query('w:t', $run) as $t) {
+                    $text .= $t->textContent;
+                }
+                if (trim($text) === '') {
+                    continue;
+                }
+                $fills[] = $this->shadingFill($xpath->query('w:rPr/w:shd', $run)->item(0));
+            }
+            if ($fills !== [] && ! in_array(null, $fills, true) && count(array_unique($fills)) === 1) {
+                $fill = $fills[0];
+            }
+        }
+        if ($fill !== null) {
+            $look['shading'] = $fill;
+        }
+
+        return $look;
+    }
+
+    /** A w:shd element's fill as 'rrggbb', or null when it is absent / auto / white / not a colour. */
+    private function shadingFill($shd): ?string
+    {
+        if (! $shd) {
+            return null;
+        }
+        $fill = strtolower((string) $shd->getAttribute('w:fill'));
+        if (! preg_match('/^[0-9a-f]{6}$/', $fill) || $fill === 'ffffff') {
+            return null;
+        }
+
+        return $fill;
     }
 
     /**
