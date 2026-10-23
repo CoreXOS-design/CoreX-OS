@@ -715,7 +715,11 @@ class LeaseSigningLauncher
     private function seedsFor(Lease $lease, RentalLeaseTemplate $agreement, array $terms): array
     {
         $map = app(LeaseAgreementValuesReader::class)->normaliseMap((array) ($agreement->field_map ?? []));
-        $values = app(LeaseAgreementDocumentValues::class)->forLease($lease, $agreement, $terms === [] ? null : $terms);
+        // How THIS agreement prints a date / rand / percent (a "R" or "%" it already draws itself, a native date box) — so
+        // each value is dressed for the page once, by type, and never twice.
+        $template = $agreement->template;
+        $presentation = app(LeaseSeedPresentation::class)->for($template, $map, $template ? $this->wizardFieldsFor($template) : []);
+        $values = app(LeaseAgreementDocumentValues::class)->forLease($lease, $agreement, $terms === [] ? null : $terms, $presentation);
 
         $seeds = [];
         foreach ($values as $key => $value) {

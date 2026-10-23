@@ -8,5 +8,7 @@
 --}}
 
 @section('corex-content')
+{{-- .ai/specs/real-estate-menu-tabs.md - this board is the Consent Funnel tab of Real Estate > Outreach --}}
+@include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\OutreachTabs::class])
 @include('corex.outreach-summary._board', ['rows' => $rows, 'totals' => $totals, 'hasAwaiting' => $hasAwaiting])
 @endsection

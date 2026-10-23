@@ -189,6 +189,7 @@ final class SherryWalkRound2Test extends TestCase
     public function test_the_header_row_wraps_so_the_chips_cannot_run_off_the_edge(): void
     {
         $html = $this->actingAs($this->agent)->get(route('corex.rental-applications.review', $this->application()))->assertOk()->getContent();
-        $this->assertStringContainsString('flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm leading-tight', $html);
+        // The header was redesigned on Staging (Andre): the rows are still flex-wrap, so the chips wrap instead of running off the edge.
+        $this->assertStringContainsString('flex flex-wrap items-center gap-x-2 gap-y-1', $html);
     }
 }

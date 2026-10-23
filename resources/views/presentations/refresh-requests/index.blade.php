@@ -58,6 +58,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/real-estate-menu-tabs.md - Refresh requests is a tab of Real Estate > Presentations --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\PresentationsTabs::class])
+
     {{-- Flash / validation alerts (§3.9) --}}
     @if (session('status'))
         <div class="rounded-md px-4 py-3 text-sm flex items-start gap-3"

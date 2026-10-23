@@ -20,6 +20,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - Policy Register is a tab of Compliance > RMCP & Policies --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\RmcpPoliciesTabs::class])
+
     {{-- Policy selector --}}
     <div class="rounded-md p-4" style="background: var(--surface); border: 1px solid var(--border);">
         <form method="GET" class="flex flex-wrap items-end gap-3">

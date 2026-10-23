@@ -1215,21 +1215,12 @@
                     <span style="font-size:0.7rem; font-weight:600; color:var(--text-muted); border:1px solid var(--border); border-radius:4px; padding:1px 6px; margin-left:6px; vertical-align:middle;">v{{ $corexExtVersion }}</span>
                 @endif
             </h3>
-            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Pull properties from Property24 directly into CoreX. After downloading, remove the old version in <code>chrome://extensions</code> and load this one — then confirm it shows <strong>v{{ $corexExtVersion ?? '3.1.0' }}</strong>.</p>
+            <p style="font-size:0.75rem; color:var(--text-secondary); margin:0 0 12px;">Pull properties from Property24 directly into CoreX. Install it from the Chrome Web Store — Chrome keeps it up to date automatically. If you previously loaded a downloaded copy, remove it in <code>chrome://extensions</code> first.</p>
             <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                <a href="{{ route('corex.extension.download') }}" class="corex-btn-primary">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-                    Download Extension
+                <a href="https://chromewebstore.google.com/detail/corex/hkphgfonopgghdpdjabdfpfdjlhedkcc?authuser=0&hl=en" target="_blank" rel="noopener" class="corex-btn-primary">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 0 0 3 8.25v10.5A2.25 2.25 0 0 0 5.25 21h10.5A2.25 2.25 0 0 0 18 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25"/></svg>
+                    Get it on the Chrome Web Store
                 </a>
-                {{-- 2026-09-29 investigation (property #21094) — this second link
-                     pointed at the STATIC public/downloads/portal-capture-extension.zip,
-                     which is never regenerated (found stale at v3.4.5, dated Aug 24,
-                     while the button above already correctly points at
-                     corex.extension.download — ProfileController::downloadExtension,
-                     which rebuilds the zip from the live source on every request). Two
-                     buttons offering two different extension versions on the same page
-                     was a real distribution risk; removed rather than fixed, since the
-                     correct one already existed right beside it. --}}
             </div>
         </div>
         @endif
@@ -2029,6 +2020,7 @@
 
 @if($user->portal_show_social_accounts && \Illuminate\Support\Facades\Route::has('corex.social.oauth.redirect'))
 @push('scripts')
+@include('partials.facebook-connect-explainer')
 <script>
     // Meta requires Page permissions (pages_show_list, pages_manage_posts, etc.)
     // for a Business-owned app to be requested via a Facebook Login for Business
@@ -2051,7 +2043,8 @@
         fjs.parentNode.insertBefore(js, fjs);
     }(document, 'script', 'facebook-jssdk'));
 
-    function corexConnectSocial(platform) {
+    async function corexConnectSocial(platform) {
+        if (platform === 'facebook' && !(await window.corexFacebookConnectExplainer())) { return; }
         var configId = @json(config('services.meta.login_config_id'));
         var state = btoa(JSON.stringify({ user_id: {{ auth()->id() }}, platform: platform }));
 

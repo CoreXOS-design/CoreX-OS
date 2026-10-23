@@ -186,7 +186,7 @@
                              affordance a link/unlink already happened here. --}}
                         <span class="rir-strip-linked-badge" x-show="tile.photo && groupForPhoto(tile.photo.id)"
                               title="Linked to a photo on the other side — click to compare"
-                              @click.stop="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})">&#128279;</span>
+                              @click.stop="tile.photo && openCompareViewer(tile.photo, {{ $inspectionJs }})"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" style="width:10px; height:10px; display:inline-block; vertical-align:middle;" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244" /></svg></span>
                         <span class="rir-strip-nomatch-label" x-show="!tile.photo">NO MATCH</span>
                         {{-- §25, AT-433 Part C — the photo note, under the
                              thumbnail, truncated to two lines. Keyed off
@@ -330,7 +330,7 @@
                             ? 'background:color-mix(in srgb, var(--brand-icon,#0ea5e9) 20%, transparent); color:var(--brand-icon,#0ea5e9);'
                             : 'background:var(--surface-2); color:var(--text-secondary);'"
                        :title="pendingUploadTilesFor({{ $inspectionJs }}, item).length ? 'Uploading…' : 'Add photo(s)'">
-                    <span>&#128247;</span>
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" class="w-6 h-6" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6.827 6.175A2.31 2.31 0 0 1 5.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 0 0-1.134-.175 2.31 2.31 0 0 1-1.64-1.055l-.822-1.316a2.192 2.192 0 0 0-1.736-1.039 48.774 48.774 0 0 0-5.232 0 2.192 2.192 0 0 0-1.736 1.039l-.821 1.316Z" /><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 12.75a4.5 4.5 0 1 1-9 0 4.5 4.5 0 0 1 9 0Z" /></svg>
                     <input type="file" data-qa="add-item-photo" accept="image/*" multiple class="hidden"
                            @change="onItemPhotosSelected({{ $inspectionJs }}, item, $event.target.files); $event.target.value = null;">
                 </label>

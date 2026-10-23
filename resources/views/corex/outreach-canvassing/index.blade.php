@@ -50,16 +50,10 @@
         </div>
     </div>
 
-    {{-- Tab switcher --}}
-    <div class="flex gap-1 flex-shrink-0 mt-3" style="border-bottom:1px solid var(--border,#e5e7eb);">
-        <button @click="tab = 'activity'"
-                :style="tab === 'activity' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-muted,#9ca3af);'"
-                :class="tab === 'activity' ? 'border-b-2' : 'border-b-2 border-transparent'"
-                class="px-4 py-2.5 text-sm font-semibold">Activity Feed</button>
-        <button @click="tab = 'consent'"
-                :style="tab === 'consent' ? 'color:var(--brand-icon,#0ea5e9); border-color:var(--brand-icon,#0ea5e9);' : 'color:var(--text-muted,#9ca3af);'"
-                :class="tab === 'consent' ? 'border-b-2' : 'border-b-2 border-transparent'"
-                class="px-4 py-2.5 text-sm font-semibold">Consent Funnel</button>
+    {{-- Tab switcher - .ai/specs/real-estate-menu-tabs.md: the Real Estate > Outreach tab bar (Activity | Consent | Queue). Activity and
+         Consent still switch on this page without a reload (this page's own Alpine `tab`); Queue opens the Outreach Queue screen. --}}
+    <div class="mt-3">
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\OutreachTabs::class, 'hubActiveTab' => $activeTab, 'hubAlpineTabs' => ['activity', 'consent']])
     </div>
 
     {{-- ════════════════ TAB 1 — ACTIVITY FEED ════════════════ --}}

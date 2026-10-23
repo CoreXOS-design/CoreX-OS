@@ -1041,6 +1041,7 @@ class SignatureController extends Controller
             $agentRequest = $template->requests()->where('party_role', 'agent')->first();
             if ($agentRequest) {
                 $sectionAcceptances = \App\Models\Docuperfect\SectionAcceptance::where('signature_request_id', $agentRequest->id)
+                    ->current()
                     ->get()
                     ->keyBy('section_index')
                     ->toArray();
@@ -1233,7 +1234,7 @@ class SignatureController extends Controller
             SignatureAuditLog::create([
                 'signature_template_id' => $template->id,
                 'action' => 'web_fields_saved',
-                'actor_type' => SignatureAuditLog::ACTOR_AGENT,
+                'actor_type' => SignatureAuditLog::ACTOR_USER,
                 'actor_name' => $user->name,
                 'actor_email' => $user->email,
                 'actor_ip_address' => $request->ip(),
@@ -4359,11 +4360,9 @@ class SignatureController extends Controller
             'initial_image' => 'nullable|string',
         ]);
 
-        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
-            [
-                'signature_request_id' => $agentRequest->id,
-                'section_index' => $request->section_index,
-            ],
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::recordGeneration(
+            $agentRequest->id,
+            (int) $request->section_index,
             [
                 'section_label' => $request->section_label,
                 'accepted' => true,
@@ -4371,7 +4370,26 @@ class SignatureController extends Controller
                 'rejection_reason' => null,
                 'initialled_at' => now(),
                 'initial_image' => $request->initial_image,
-            ]
+            ],
+            $request
+        );
+
+        // Johan's signature-evidence rule: every acceptance is in the audit trail, with its generation.
+        SignatureAuditLog::log(
+            $template,
+            'section_accepted',
+            SignatureAuditLog::ACTOR_USER,
+            $user->name,
+            $user->email,
+            actorId: $user->id,
+            requestId: $agentRequest->id,
+            ip: $request->ip(),
+            ua: $request->userAgent(),
+            metadata: [
+                'section_index' => (int) $request->section_index,
+                'section_label' => $request->section_label,
+                'generation' => $acceptance->generation,
+            ],
         );
 
         return response()->json(['success' => true, 'acceptance' => $acceptance]);

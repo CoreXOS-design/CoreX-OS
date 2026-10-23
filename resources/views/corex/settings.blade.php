@@ -1337,7 +1337,7 @@
                         [
                             'name'  => 'portal_show_api_token',
                             'title' => 'API Token & CoreX Chrome Extension',
-                            'desc'  => 'Used by the CoreX Chrome extension to authenticate with CoreX. Includes the generate-token button and extension download links.',
+                            'desc'  => 'Used by the CoreX Chrome extension to authenticate with CoreX. Includes the generate-token button and the Chrome Web Store install link.',
                             'value' => (bool) auth()->user()->portal_show_api_token,
                         ],
                         [

@@ -16,6 +16,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/communications-menu-tabs.md - My Communication Setup is a tab of Communications > Setup --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\CommsSetupTabs::class])
+
     {{-- 2026-09-09 (Johan, auth-lock safeguard) — visible BEFORE a Test
          Connection click, not discovered after. Reset is admin-only, on the
          Compliance → Archive Mailboxes screen. --}}

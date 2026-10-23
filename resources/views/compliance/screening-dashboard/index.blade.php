@@ -24,6 +24,9 @@
         </div>
     </div>
 
+    {{-- .ai/specs/compliance-menu-tabs.md - Staff Screening is a tab of Compliance > Agents & Staff --}}
+    @include('corex.partials._hub-tabs', ['hub' => \App\Support\Navigation\Hubs\ComplianceAgentsTabs::class])
+
     {{-- Metric tiles --}}
     @php
         $metrics = [

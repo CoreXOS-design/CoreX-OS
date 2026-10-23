@@ -2112,6 +2112,20 @@ class SigningController extends Controller
 
         // Save signatures (base64 data URIs keyed by block ID)
         $signatures = $request->input('signatures', []);
+
+        // Johan's signature-evidence rule (9 Sep 2026): a re-signature never overwrites the original. Every place
+        // posted here is kept as a numbered generation (time, IP, user agent) BEFORE the JSON map below is merged
+        // over — the map keeps the latest, so rendering is unchanged, and the earlier ones stay as evidence.
+        $postedPlaces = array_merge((array) $signatures, (array) $request->input('initials', []));
+        if (!empty($postedPlaces)) {
+            $priorPlaces = array_merge(
+                (array) ($webData['signed_initials'][$signingRequest->canonicalPartyKey()] ?? []),
+                (array) ($webData['signatures'] ?? [])
+            );
+            app(\App\Services\Docuperfect\SignaturePlaceGenerationRecorder::class)
+                ->record($document, $signingRequest, $postedPlaces, $priorPlaces, $request);
+        }
+
         if (!empty($signatures)) {
             $existingSigs = $webData['signatures'] ?? [];
             $webData['signatures'] = array_merge($existingSigs, $signatures);
@@ -4018,11 +4032,9 @@ CSS;
             'initial_image' => 'nullable|string',
         ]);
 
-        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
-            [
-                'signature_request_id' => $signingRequest->id,
-                'section_index' => $request->section_index,
-            ],
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::recordGeneration(
+            $signingRequest->id,
+            (int) $request->section_index,
             [
                 'section_label' => $request->section_label,
                 'accepted' => true,
@@ -4030,7 +4042,8 @@ CSS;
                 'rejection_reason' => null,
                 'initialled_at' => now(),
                 'initial_image' => $request->initial_image,
-            ]
+            ],
+            $request
         );
 
         SignatureAuditLog::log(
@@ -4045,6 +4058,7 @@ CSS;
             metadata: [
                 'section_index' => $request->section_index,
                 'section_label' => $request->section_label,
+                'generation' => $acceptance->generation,
             ],
         );
 
@@ -4067,11 +4081,9 @@ CSS;
             'rejection_reason' => 'required|string|max:2000',
         ]);
 
-        $acceptance = \App\Models\Docuperfect\SectionAcceptance::updateOrCreate(
-            [
-                'signature_request_id' => $signingRequest->id,
-                'section_index' => $request->section_index,
-            ],
+        $acceptance = \App\Models\Docuperfect\SectionAcceptance::recordGeneration(
+            $signingRequest->id,
+            (int) $request->section_index,
             [
                 'section_label' => $request->section_label,
                 'accepted' => false,
@@ -4079,7 +4091,8 @@ CSS;
                 'rejection_reason' => $request->rejection_reason,
                 'initialled_at' => null,
                 'initial_image' => null,
-            ]
+            ],
+            $request
         );
 
         SignatureAuditLog::log(
@@ -4095,6 +4108,7 @@ CSS;
                 'section_index' => $request->section_index,
                 'section_label' => $request->section_label,
                 'rejection_reason' => $request->rejection_reason,
+                'generation' => $acceptance->generation,
             ],
         );
 
