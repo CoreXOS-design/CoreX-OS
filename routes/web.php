@@ -8245,7 +8245,9 @@ Route::get('/tools/cma/evaluation/public/{certificate}', [\App\Http\Controllers\
 
 // AT-454 — Road to Sold settings (.ai/specs/road-to-sold.md section 5). Routes live in routes/road-to-sold-settings.php
 // so Road to Rented can mount the same screens under its own prefix and name root.
-Route::middleware(['auth', 'feature:road-to-sold'])
+// The feature switch is applied PER ROUTE inside the file: Budgets and the monthly targets are not part of the call-list
+// feature (Johan, 23 Oct 2026) - a rentals-only agency, with Prospecting and so Road to Sold off, must still reach them.
+Route::middleware(['auth'])
     ->prefix('road-to-sold/settings')
     ->name('road-to-sold.settings.')
     ->group(require base_path('routes/road-to-sold-settings.php'));

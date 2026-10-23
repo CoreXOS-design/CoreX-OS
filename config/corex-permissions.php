@@ -625,7 +625,9 @@ return [
         ['key' => 'road_to_sold.view',             'label' => 'View',                          'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 10],
         ['key' => 'road_to_sold.manage_settings',  'label' => 'Manage Road to Sold settings',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 11],
         ['key' => 'road_to_sold.manage_areas',     'label' => 'Assign areas to agents',        'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 12],
-        ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'road_to_sold',     'sort_order' => 13],
+        // Module 'targets' (always available), not 'road_to_sold': this key also opens Budgets and the monthly targets, which a rentals-only
+        // agency - Road to Sold off - must still reach (Johan, 23 Oct 2026). A permission module owned by a feature goes dark with it.
+        ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'targets',          'sort_order' => 13],
 
         // ── Core Matches ──
         ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],

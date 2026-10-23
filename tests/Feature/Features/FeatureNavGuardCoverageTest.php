@@ -203,7 +203,7 @@ class FeatureNavGuardCoverageTest extends TestCase
             }
             foreach (Route::getRoutes() as $route) {
                 $name = $route->getName();
-                if ($name === null || ! Str::is($def['route_names'], $name)) {
+                if ($name === null || ! Str::is($def['route_names'], $name) || Str::is((array) ($def['route_names_except'] ?? []), $name)) {
                     continue;
                 }
                 foreach (array_keys(SidebarFeatureCoverage::CORE_ROUTES) as $glob) {
@@ -273,7 +273,7 @@ class FeatureNavGuardCoverageTest extends TestCase
                 if (! preg_match_all("/route\\(\\s*['\"]([^'\"]+)['\"]/", $src, $m)) {
                     continue;
                 }
-                $hits = array_filter(array_unique($m[1]), fn ($n) => Str::is($def['route_names'], $n));
+                $hits = array_filter(array_unique($m[1]), fn ($n) => Str::is($def['route_names'], $n) && ! Str::is((array) ($def['route_names_except'] ?? []), $n));
                 if ($hits === []) {
                     continue;
                 }

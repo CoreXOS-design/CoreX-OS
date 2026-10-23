@@ -676,6 +676,11 @@ Numbering follows the list Johan was given. Answers 1–7 are Johan's. **Questio
 
 ---
 
+### 15.1 Rulings of 23 Oct 2026 that touch this spec
+
+- **Budgets and the monthly Targets are not part of the Road to Sold (call list) feature** and do not need Prospecting: a rentals-only agency reaches them. They live in the Road to Sold settings hub only because that is where the re-home put them; the General, Areas, daily call targets and Recipe tabs stay behind the `road-to-sold` switch. *(Johan, 23 Oct 2026; detail in `agency-tracker-rehome.md` section 0.1.)* Anything built here that reads agents for budgets or monthly targets must not require `access_road_to_sold` while the feature is off.
+- The five other branch-less R200,000 budget rows (legacy Monthly Goals rows 10, 14, 18, 22, 26) are archived. *(Johan, 23 Oct 2026.)*
+
 ## 16. Not verified in code (be honest about it)
 
 - **Production** row counts, grants and settings — all counts here are QA1 (a test copy). Re-read Prod before any promotion.

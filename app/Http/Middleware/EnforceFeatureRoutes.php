@@ -36,6 +36,9 @@ class EnforceFeatureRoutes
     /** @var array<string, list<string>>|null feature key => route-name globs (built once per process) */
     private static ?array $globs = null;
 
+    /** @var array<string, list<string>>|null feature key => route-name globs the feature does NOT refuse (built once per process) */
+    private static ?array $except = null;
+
     public function handle(Request $request, Closure $next): Response
     {
         $name = $request->route()?->getName();
@@ -44,7 +47,7 @@ class EnforceFeatureRoutes
             $svc = app(AgencyFeatureService::class);
 
             foreach (self::globs() as $key => $patterns) {
-                if (Str::is($patterns, $name) && ! $svc->enabled($key)) {
+                if (Str::is($patterns, $name) && ! Str::is(self::except()[$key] ?? [], $name) && ! $svc->enabled($key)) {
                     abort(404);
                 }
             }
@@ -70,9 +73,32 @@ class EnforceFeatureRoutes
         return self::$globs = $out;
     }
 
+    /**
+     * Route-name globs a feature owns by pattern but deliberately does NOT refuse (`route_names_except`): screens that sit under the
+     * feature's name root yet belong to something that must stay reachable when the feature is off.
+     *
+     * @return array<string, list<string>>
+     */
+    public static function except(): array
+    {
+        if (self::$except !== null) {
+            return self::$except;
+        }
+
+        $out = [];
+        foreach ((array) config('corex-features', []) as $key => $def) {
+            if (! empty($def['route_names_except'])) {
+                $out[$key] = array_values((array) $def['route_names_except']);
+            }
+        }
+
+        return self::$except = $out;
+    }
+
     /** Test seam: the config can change between tests in one process. */
     public static function flush(): void
     {
-        self::$globs = null;
+        self::$globs  = null;
+        self::$except = null;
     }
 }

@@ -167,6 +167,22 @@ final class BudgetService
     }
 
     /**
+     * What the agency needs for a month, and where that figure comes from (agency-tracker-rehome.md 4.3, Johan 23 Oct 2026 review):
+     * the agency's OWN figure when one is set; otherwise the branches' requirements added up (the branch-less stray rows are never
+     * part of the sum). Nothing is saved - a branch sum is a reading, never a stored number.
+     *
+     * @return array{own: float, branchSum: float, effective: float, source: string} source = 'own' | 'branches' | 'none'
+     */
+    public function agencyRequirementDetail(int $agencyId, string $period, string $track = RtsSetting::TRACK_SALES): array
+    {
+        $own = $this->agencyRequirement($agencyId, $period, $track);
+        $sum = round(array_sum($this->branchRequirements($agencyId, $period, $track)), 2);
+        [$effective, $source] = $own > 0 ? [$own, 'own'] : ($sum > 0 ? [$sum, 'branches'] : [0.0, 'none']);
+
+        return ['own' => $own, 'branchSum' => $sum, 'effective' => $effective, 'source' => $source];
+    }
+
+    /**
      * Every branch's requirement for a month (branch id => amount), for the pages that print one per branch.
      *
      * @return array<int, float>
