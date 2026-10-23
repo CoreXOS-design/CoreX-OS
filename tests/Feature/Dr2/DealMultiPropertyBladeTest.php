@@ -49,7 +49,7 @@ final class DealMultiPropertyBladeTest extends TestCase
 
         Role::create(['name' => 'branch_manager', 'label' => 'Branch Manager', 'agency_id' => $this->agencyId]);
         foreach (['access_deal_register', 'view_deals', 'create_deals', 'deals.view', 'deals.create', 'deals.edit'] as $key) {
-            RolePermission::create(['role' => 'branch_manager', 'permission_key' => $key, 'agency_id' => $this->agencyId]);
+            RolePermission::create(['role' => 'branch_manager', 'permission_key' => $key, 'agency_id' => $this->agencyId, 'scope' => $key === 'deals.view' ? 'all' : null]); // AT-454: the register checks the deal is in the user's scope; this test's deals have no agents on them
         }
         Role::clearCache();
         PermissionService::clearCache();

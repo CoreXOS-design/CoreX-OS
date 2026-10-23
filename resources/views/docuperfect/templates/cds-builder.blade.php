@@ -146,6 +146,7 @@
                             <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
+                            <input type="hidden" name="document_look" :value="documentLook">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -171,6 +172,7 @@
                             <input type="hidden" name="signing_parties" :value="JSON.stringify(templateSigningParties)">
                             <input type="hidden" name="category" :value="templateCategory">
                             <input type="hidden" name="document_type_id" :value="templateDocumentTypeId">
+                            <input type="hidden" name="document_look" :value="documentLook">
                             <button type="submit"
                                     class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm px-4 py-2 rounded-lg transition-colors font-semibold">
                                 Save Template &rarr;
@@ -203,7 +205,7 @@
         {{-- LEFT PANE: Document (70%) --}}
         <div class="w-[70%] h-full overflow-y-auto bg-gray-100" id="doc-pane">
             <div class="py-6 px-4 flex justify-center">
-                <div class="doc-tagging-page" id="docContainer" contenteditable="true" spellcheck="false" @click="handleDocClick($event)">
+                <div class="doc-tagging-page" id="docContainer" :class="{ 'corex-look-source': documentLook === 'source' }" contenteditable="true" spellcheck="false" @click="handleDocClick($event)">
                     {!! $html !!}
                 </div>
             </div>
@@ -337,6 +339,19 @@
                                 <option value="{{ $dt->id }}">{{ $dt->name }}</option>
                                 @endforeach
                             </select>
+                        </div>
+
+                        {{-- Document look --}}
+                        <div>
+                            <label class="text-[10px] font-semibold text-gray-500 uppercase block mb-1">Document look</label>
+                            <select x-model="documentLook"
+                                    class="w-full text-xs border border-gray-300 rounded px-2 py-1.5 bg-white text-gray-700 focus:ring-teal-400 focus:border-teal-400">
+                                <option value="standard">CoreX standard</option>
+                                <option value="source">Match source document</option>
+                            </select>
+                            <p class="text-[10px] text-gray-400 pt-1">
+                                Match source document keeps the Word file's centred titles and alignment, draws section headings as a light-grey band and uses greyscale only. It shows in this preview, the signing view and the signed PDF. Alignment is read from the Word file when it is imported, so a template imported before this setting existed keeps its original alignment until it is re-imported.
+                            </p>
                         </div>
 
                         {{-- Delivery Modes --}}
@@ -994,6 +1009,8 @@ function cdsEditor() {
         templateSigningParties: ['owner_party', 'agent'],
         templateCategory: '',
         templateDocumentTypeId: '',
+        // Document look ('standard' | 'source') — see App\Support\Docuperfect\DocumentLook.
+        documentLook: @json(\App\Support\Docuperfect\DocumentLook::fromState($savedSettings ?? [])),
         settingsExpanded: false,
 
         get isSalesContext() {
@@ -1223,6 +1240,7 @@ function cdsEditor() {
                             signing_parties: this.templateSigningParties,
                             category: this.templateCategory || null,
                             document_type_id: this.templateDocumentTypeId || null,
+                            document_look: this.documentLook,
                         },
                     }),
                 });

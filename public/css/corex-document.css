@@ -735,3 +735,34 @@ html.dark :is(.docuperfect-document-body, .corex-document-wrapper) textarea {
     border-color: #9ca3af !important;
     color-scheme: light;
 }
+
+/* === DOCUMENT LOOK: "Match source document" ===================================
+   A template's Template Settings carry a "Document look". The default, "CoreX
+   standard", adds nothing — every rule below is scoped under .corex-look-source,
+   which is only present when the template is set to "Match source document"
+   (on #docContainer in the builder, on .corex-document-wrapper in the published
+   blade — so signing view, agent review and the signed PDF all inherit it, and
+   the signing paginator keeps that wrapper).
+   The importer marks what the Word source did as inert attributes:
+     data-src-align="center|right|justify"   data-src-band="1"
+   GREYSCALE ONLY: no brand or accent colour in the body. */
+.corex-look-source [data-src-align="center"]  { text-align: center; }
+.corex-look-source [data-src-align="right"]   { text-align: right; }
+.corex-look-source [data-src-align="justify"] { text-align: justify; }
+
+.corex-look-source .corex-h1,
+.corex-look-source .corex-h2,
+.corex-look-source .corex-h3,
+.corex-look-source .corex-clause-text { color: #1a1a1a; }
+.corex-look-source .corex-clause-number { color: #404040; }
+.corex-look-source .corex-h1 { border-bottom-color: #b3b3b3; }
+
+/* A section heading the source shaded, or a bold all-caps section title: a light-grey band. */
+.corex-look-source [data-src-band] {
+    background: #e6e6e6;
+    color: #111111;
+    padding: 4px 8px;
+    border-bottom: none;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}

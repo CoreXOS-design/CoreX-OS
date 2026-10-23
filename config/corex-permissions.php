@@ -628,6 +628,7 @@ return [
         // Module 'targets' (always available), not 'road_to_sold': this key also opens Budgets and the monthly targets, which a rentals-only
         // agency - Road to Sold off - must still reach (Johan, 23 Oct 2026). A permission module owned by a feature goes dark with it.
         ['key' => 'road_to_sold.manage_targets',   'label' => 'Set agents\' weekday targets',  'section' => 'road-to-sold',     'type' => 'action',  'module' => 'targets',          'sort_order' => 13],
+        ['key' => 'road_to_sold.manage_recipe',    'label' => 'Manage the recipe (steps, tasks, levels)', 'section' => 'road-to-sold', 'type' => 'action', 'module' => 'road_to_sold', 'sort_order' => 14],
 
         // ── Core Matches ──
         ['key' => 'access_core_matches',        'label' => 'Access Core Matches',         'section' => 'core-matches',     'type' => 'access',  'module' => 'core_matches',     'sort_order' => 1],

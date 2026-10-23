@@ -466,6 +466,9 @@ class AppServiceProvider extends ServiceProvider
         \App\Models\Prospecting\TrackedProperty::observe(\App\Observers\TrackedPropertyObserver::class);
         \App\Models\PresentationDelivery::observe(\App\Observers\PresentationDeliveryObserver::class);
         \App\Models\DocumentProperty::observe(\App\Observers\DocumentPropertyObserver::class);
+        // Phase 0 remainder (build log P8): a viewing pack made, and (below) an e-signed OTP finalised.
+        \App\Models\ViewingPack::observe(\App\Observers\ViewingPackObserver::class);
+        Event::listen(\App\Events\Docuperfect\SignatureEnvelopeFinalized::class, \App\Listeners\RoadToSold\RaiseOtpSignedFromEnvelope::class);
 
         // Register calendar source services (Phase 1)
         $registry = $this->app->make(\App\Services\CommandCenter\Calendar\CalendarSourceRegistry::class);
@@ -488,6 +491,10 @@ class AppServiceProvider extends ServiceProvider
         // class — so this listens on the DomainEvent interface, which every
         // AbstractDomainEvent subclass implements transitively.
         Event::listen(DomainEvent::class, RecordDomainEvent::class);
+
+        // AT-454 Road to Sold v2 phase 1: the one generic listener that completes recipe tasks from domain events
+        // (.ai/specs/road-to-sold.md section 5.1). Only the events in RecipeCatalogue::EVENTS are looked at.
+        Event::listen(DomainEvent::class, \App\Listeners\RoadToSold\CompleteTasksFromDomainEvent::class);
 
         // ─────────────────────────────────────────────────────────────────
         // Syndication Approval Gate (layer 3) — .ai/specs/syndication-approval-gate.md §8.
@@ -657,6 +664,7 @@ class AppServiceProvider extends ServiceProvider
             \App\Events\Deal\DealStageAdvanced::class                       => 'handleDealStageAdvanced',
             \App\Events\Deal\DealClosed::class                              => 'handleDealClosed',
             \App\Events\Deal\DealStatusChanged::class                       => 'handleDealStatusChanged',
+            \App\Events\Deal\DealCommissionFinalised::class                 => 'handleDealCommissionFinalised',
             \App\Events\PresentationGenerated::class                        => 'handlePresentationGenerated',
             \App\Events\Presentation\PresentationOutcomeRecorded::class     => 'handlePresentationOutcomeRecorded',
             \App\Events\SellerOutreach\PitchSent::class                     => 'handlePitchSent',

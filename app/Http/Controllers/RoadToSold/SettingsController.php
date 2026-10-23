@@ -434,6 +434,7 @@ class SettingsController extends Controller
             $user->hasPermission('road_to_sold.manage_settings')
             || $user->hasPermission('road_to_sold.manage_areas')
             || $user->hasPermission('road_to_sold.manage_targets')
+            || $user->hasPermission('road_to_sold.manage_recipe')
         );
     }
 
@@ -450,14 +451,15 @@ class SettingsController extends Controller
             ['areas', 'Areas', 'road_to_sold.manage_areas', Routing::base() . 'areas.index'],
             ['budgets', 'Budgets', 'road_to_sold.manage_targets|road_to_sold.manage_settings', Routing::base() . 'budgets.index'],
             ['targets', 'Targets', 'road_to_sold.manage_targets', Routing::base() . 'targets.index'],
+            ['recipe', 'Recipe', 'road_to_sold.manage_recipe', Routing::base() . 'recipe.index'],
         ];
 
-        // Budgets and Targets are reachable without the Road to Sold feature; General and Areas are the call list's own.
+        // Budgets and Targets are reachable without the Road to Sold feature; General, Areas and Recipe are the call list's own.
         $rtsOn = \App\Services\RoadToSold\Scope::callListOn($user);
 
         $tabs = [];
         foreach ($defs as [$key, $label, $permission, $route]) {
-            if (! $rtsOn && in_array($key, ['general', 'areas'], true)) {
+            if (! $rtsOn && in_array($key, ['general', 'areas', 'recipe'], true)) {
                 continue;
             }
             if (\Illuminate\Support\Facades\Route::has($route) && collect(explode('|', $permission))->contains(fn ($p) => $user->hasPermission($p))) {

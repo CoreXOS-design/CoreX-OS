@@ -14,6 +14,7 @@ use App\Services\Communications\CommunicationDealLinkingService;
 use App\Services\Communications\Dr2DealPartyEmailResolver;
 use App\Services\Communications\Dr2EmailDismissalService;
 use App\Services\Communications\Dr2FilingSuggestionService;
+use App\Services\Communications\UnfiledDealEmailsQuery;
 use App\Services\PermissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -56,6 +57,7 @@ class UnfiledEmailsController extends Controller
         private Dr2DealPartyEmailResolver $dealParties,
         private Dr2FilingSuggestionService $filingSuggestions,
         private Dr2EmailDismissalService $dismissals,
+        private UnfiledDealEmailsQuery $unfiledQuery,
     ) {
     }
 
@@ -144,18 +146,8 @@ class UnfiledEmailsController extends Controller
         // reached Unfiled at all — confirmed empirically: all 15 real pending-suspense
         // rows on staging already satisfy matchingAnyEmail() below and were only ever
         // hidden by this.
-        $hasActiveDealLink = function ($q) {
-            $q->selectRaw('1')->from('communication_links')
-                ->whereColumn('communication_links.communication_id', 'communications.id')
-                ->where('communication_links.linkable_type', DealV2::class)
-                ->whereNull('communication_links.deleted_at')
-                ->whereNotNull('communication_links.confirmed_at');
-        };
-        $hasActiveDismissal = function ($q) {
-            $q->selectRaw('1')->from('communication_dr2_dismissals')
-                ->whereColumn('communication_dr2_dismissals.communication_id', 'communications.id')
-                ->whereNull('communication_dr2_dismissals.restored_at');
-        };
+        $hasActiveDealLink  = UnfiledDealEmailsQuery::hasActiveDealLink();
+        $hasActiveDismissal = UnfiledDealEmailsQuery::hasActiveDismissal();
 
         $query = Communication::query()
             ->where('agency_id', $agencyId)
@@ -164,7 +156,8 @@ class UnfiledEmailsController extends Controller
         if ($state === 'removed') {
             $query->whereExists($hasActiveDismissal);
         } elseif ($state === 'unfiled') {
-            $query->whereNotExists($hasActiveDismissal)->whereNotExists($hasActiveDealLink)->matchingAnyEmail($dealPartyEmails);
+            // The one shared definition (also the menu badge) — see UnfiledDealEmailsQuery.
+            $query = $this->unfiledQuery->candidates($agencyId);
         } elseif ($state === 'filed') {
             $query->whereNotExists($hasActiveDismissal)->whereExists($hasActiveDealLink);
         } else { // all

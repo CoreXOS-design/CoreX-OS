@@ -1462,3 +1462,69 @@ Not Road to Sold engine work: this lane owned the sidebar, the nav fixture, the 
 What changes for Road to Sold: (1) the Deals menu now sits beside Agency Tracker, so the Road to Sold list builder's "open the deal" style links should name `deals-dr2.*` (the old `admin.deals*` names still redirect); (2) the register honours `?period=YYYY-MM` and `?commission_status=`, which is what the Branch / Agency Performance tiles (and any future Road to Sold drill-down by month) link with; (3) the Deal Register now carries the per-record own / branch / all guard the old register had, so a Road to Sold link to a colleague's deal by id is refused for an own-scope agent exactly as the list hides it.
 
 Held for Johan: the twin backfill `--apply` (QA1 would create 63 twins; dry-run only so far) and the redirect of the old settlement addresses (comparison delivered in `.ai/audits/2026-10-23-deal-settlement-dr1-vs-dr2.md`).
+
+### P7 - phase 1, the engine (AT-454, QA1, 23 Oct 2026)
+
+Built exactly section 14 phase 1: the tables, `TaskCompletionService`, the generic event listener, the neutral default recipe, the Recipe tab and its permission.
+
+**Tables** (migration `2026_11_29_100000_create_rts_recipe_tables`): `rts_steps`, `rts_tasks`, `rts_levels`, `rts_level_tasks`, `rts_user_task_overrides`, `rts_task_completions`, `rts_task_completion_records`; all `agency_id` NOT NULL, soft deletes, unique keys that ignore soft deletes (every writer restores a trashed row). `rts_level_tasks` carries `agency_id` (the spec's column list omitted it; the scope needs it). NOT built here, by phase: `rts_agent_levels` and `rts_level_signoffs` (4), the funnel settings (5), `rts_referrals` (9). Nothing is seeded by the migration.
+
+**Engine.** `App\Listeners\RoadToSold\CompleteTasksFromDomainEvent` is registered on the `DomainEvent` interface (`AppServiceProvider`, beside `RecordDomainEvent`); it looks only at the events in `RecipeCatalogue::EVENTS`, never throws to the caller. `TaskCompletionService::completeFromEvent()` finds the agency's active, enabled-step, core tasks bound to that event whose filter the event satisfies, credits the agent the event names (an assistant's work counts under the agent; `recorded_by_user_id` / `recorded_by_kind` say who did it; a queue event with no actor is `system`), and `complete()` writes one confirmed `auto_event` completion with `points_awarded` SNAPSHOTTED. Idempotency: a unique `idempotency_key` = hash(user, task, period start, subject - or the event id when the event names no record). Periods are calendar-aligned in the agency timezone, weeks start Monday. Skipped: no agent, an agent of another agency, an inactive or assistant account, the agency's Road to Sold switched off, no recipe started, a task not in the agent's level.
+
+**Decisions made in the build (the spec left them open):**
+- **Seeding is explicit, never on read and never by an event.** The recipe starts with the "Start with the standard recipe" button on the Recipe tab (`RecipeService::start`, idempotent, only creates what is missing). Until then the tab shows the standard recipe as a preview, and no event completes anything for that agency. The spec's "lazily created" is read as "on first use by a person", because creating an agency's recipe from an arbitrary domain event would switch crediting on for agencies nobody has opted in.
+- **A task counts only when it is in the agent's level.** Until agents hold a level of their own (phase 4) every agent works the lowest active level. The neutral recipe puts three tasks in Level 1 (record a result for each call - 10 a day, 1 point; book an evaluation - 1 a week, 5 points; file a signed mandate - 1 a month, 10 points) and lists eight more tasks in the catalogue (not in any level, so inert until placed); levels 2 and 3 are empty shells.
+- **Which events may complete a task** is `RecipeCatalogue::EVENTS` - the ten events that really fire today (owner found, call outcome recorded, evaluation booked / done, presentation delivered, document filed to a property, listing live on a portal, marketing post published, deal opened / closed). Steps with no firing event (find, buyers, viewings, aftercare) have no automatic task. A filter is one fact of the event (for example `documentTypeSlug = mandate`); the pickers only offer facts the chosen event has.
+- **Per-user overrides** (`rts_user_task_overrides`): the table and the engine's use of it are built (a personal points figure beats the level's); the screen that sets them is a later phase (spec 10.4 "Task targets per user"). The personal target is stored but nothing reads it yet.
+- **Captured (Type B) tasks** can be defined on the Recipe tab; the agent's capture form is phase 2, so no one can complete one yet.
+- **No new agency setting**: every threshold is a field of a task or level (see the wizard note in `agency-onboarding-setup.md` section 5.1). No `rts-recipe` sub-feature switch was added (spec 13.3 "optional ... if Johan wants"); the Recipe tab sits behind the `road-to-sold` feature.
+- Direct-URL access: every `{task}` / `{step}` / `{level}` is a 404 outside the agency (and track); completions are read through `TaskCompletionService::visibleTo()` / `findVisible()` (own / branch / agency breadth from `road_to_sold.view`, applied in the query).
+
+**Screens** (Road to Sold settings -> Recipe, permission `road_to_sold.manage_recipe`, new; admin only by default): Tasks / Steps / Levels lists, each with search, sort (stated default), status filter, pagination, empty state, create / change / archive / restore. Tasks also filter by step, kind and how often. A level's page sets which tasks are in it, with a target, points and "needed for sign-off" per task.
+
+**Tests:** `tests/Feature/RoadToSold/RecipeEngineTest.php` (13) and `RecipeSettingsTest.php` (12). **Not run:** `scripts/dev-check.ps1` (no PowerShell on this box).
+
+**Found, not fixed (outside phase 1):** nothing new. Still open from section 6: `MandateSigned` / `DocumentSigned` never raised; `deal.commission_finalised` points wiring; `presentation.lost`; the wizard-draft `property.captured` placement; the `VisibleAgents` / `Scope::level` disagreement for a null scope.
+
+### P8 - phase 0 remainder: the Sell Stock events and the defect fixes (AT-454, QA1, 23 Oct 2026)
+
+Finishes phase 0 (section 14). Every event is raised through `SafeRaise` (a failing listener or event log never breaks the user's save), carries agency, branch and the agent the work counts for (`userId`), and is in `corex-domain-events-spec.md` section 5 in the same change. No page, view, sidebar or `app/Services/RoadToSold/TaskCompletionService.php` / `CompleteTasksFromDomainEvent` / `RecipeCatalogue` was touched (cc4's): what each event needs in the catalogue is listed at the end of this entry.
+
+| Moment (step) | Event | Raised by | Fires |
+|---|---|---|---|
+| seller link made (8b) | `Marketing\SellerLinkCreated` | `SellerLinkController::generate()` | once per press of "generate"; CoreX's own links (`PropertySellerLink::ensureExists`, called by some pages just by opening them) raise nothing; never for another agency's property |
+| seller link opened (8b) | `Marketing\SellerLinkOpened` | `SellerLinkController::show()` | the first real open of a link; link-preview robots (WhatsApp / Facebook fetch the page when the agent pastes it), empty user agents, revoked / sold links, repeats raise nothing |
+| viewing pack made (8c) | `Marketing\ViewingPackCreated` | new `ViewingPackObserver::created()` | once per pack, whichever of the three create paths made it; edit / archive / restore raise nothing |
+| Core Match made (9) | `Contact\ContactMatchCreated` | `ContactMatchObserver::created()` | once, when a wishlist is created with something to match on (same countable test as the pipeline landing); includes the wishlist seeded from a portal lead (no actor) |
+| viewing held (10) | `Viewing\ViewingHeld` | `CalendarEventFeedbackObserver::created()` + `updated()` | on the save that first makes a feedback row count (status "viewed", captured, not blank, not archived, viewing-category appointment); one per buyer and property |
+| OTP e-signed (11) | `Docuperfect\OtpSigned` | new listener `RaiseOtpSignedFromEnvelope` on `SignatureEnvelopeFinalized` | once per OTP envelope (a retried finalise job does not repeat it) |
+| OTP on paper (11) | `Document\DocumentFiledToProperty`, type `otp` | `DocumentPropertyObserver::created()` | `otp` added to the counted types; the event now also carries `branchId` and `dealId` |
+| mandate e-signed (6) | `Mandate\MandateSigned` (was dead) | `SignatureService::completeDocument()` after commit | once per signing; a repeat call for an already-completed envelope raises nothing; the log row holds ids only |
+
+**Defects:**
+- `deal.commission_finalised` is wired: `DealCommissionFinalised` (raised once by `DealObserver` when commission first moves to paid) now credits each agent on the deal once under that slug - the office user who pressed "mark paid" is NOT credited. It is credited at the seeded default (1 point x weight 1) until an agency tunes it; an archived deal revokes it with the other deal slugs.
+- `presentation.lost` is wired the way the seeder says Johan's V1 rule reads ("the agent did the work either way"): a `lost_to_*` outcome credits it; `still_pending` / `other` credit nothing.
+- `VisibleAgents` and `Scope::level` now agree: a role with the Road to Sold access key but no stored breadth is "own" in both (the Role Manager already shows "own" for this module). Before, the page showed such a user their own list while Areas / Targets / Budgets showed an empty cohort.
+- Wizard-draft `property.captured` credit: DOCUMENTED, not moved (comment in `PropertyObserver::created()`). Road to Sold does not use `PropertyCaptured` (step 7 is `PropertyWentLiveOnPortal`) and the points engine it feeds is replaced at the cut-over.
+- `MandateSigned` is wired (not deleted); `DocumentSigned` stays defined and unraised (nothing needs it; its only listener just logs).
+
+**Not built (and why):** `AreaDriveCompleted` is raised by the phase 2 capture form (cc4's). `DealPayslipGenerated` is blocked until the payslip clean-up day (Johan, answer 3); until then `DealCommissionFinalised` is the signal. The step 13 aftercare events are phase 9.
+
+**Decisions made in the build (the spec left them open):**
+- "Seller link made" is the agent pressing generate, not the model: some pages create the link as a side effect of being opened, which is not marketing work. The seller opening it (`SellerLinkOpened`) is the proof the link was used, so an agent who copies the auto-made link still earns the step when the seller opens it.
+- "Viewing pack made" is creation: a pack has no sent state.
+- "Already raised for this link / envelope" for `SellerLinkOpened` and `OtpSigned` is read from `domain_event_log` (durable, no new column). Two simultaneous first opens could both raise; the task engine's idempotency key (user, task, period, subject) absorbs that.
+- `ViewingHeld` follows the spec's step 10 rule (viewed + captured + not blank), so a viewing marked complete with no feedback does not tick it, although `PropertyViewings` counts that viewing as held for the property's own count.
+- A document and a property of two different agencies never raise `DocumentFiledToProperty` (guard added to P2's observer while adding `otp`).
+
+**For cc4 (RecipeCatalogue::EVENTS - not edited here).** Add, with `credit` = the agent the work counts for:
+- `Marketing\SellerLinkCreated` (credit `[]` = who pressed, assistants map to their agent), `Marketing\SellerLinkOpened` (credit `['userId']`), `Marketing\ViewingPackCreated` (credit `[]`) -> step `marketing`.
+- `Contact\ContactMatchCreated` (credit `['userId']`) -> step `buyers`.
+- `Viewing\ViewingHeld` (credit `['userId']`) -> step `viewings`.
+- `Docuperfect\OtpSigned` (credit `['userId']`) and the existing `DocumentFiledToProperty` with filter `documentTypeSlug = otp` -> step `otp`. They overlap for an e-signed OTP (both fire); bind a task to ONE of them. The default `otp-filed` task already binds `DocumentFiledToProperty`, which now covers paper and e-signed.
+- `Mandate\MandateSigned` (credit `['userId']`) -> step `mandate`; it fires at signing, `DocumentFiledToProperty` (mandate) fires later at filing - again bind ONE.
+- `Deal\DealCommissionFinalised` -> step `deal` (the "payslip" exit for now). Note for the engine: its actor is whoever presses "mark paid" (usually the office), and so is `DealClosed`'s and `DealCreated`'s - the agents of the deal are on the deal (`deal_user`), reachable through `ParticipantResolver::resolveForDealCommissionFinalised($deal)`.
+
+**Tests:** `tests/Feature/RoadToSold/RoadToSoldPhase0RemainderEventsTest.php` (42 tests, 119 assertions). Per event: fires with the facts and writes one `domain_event_log` row; the lookalikes that must not fire it (CoreX's own seller links, link-preview robots, revoked links, empty wishlist, blank / "did not happen" / archived / evaluation feedback, a mandate or lease for the OTP event, a repeat call, an edit); another agency's record raises nothing; a listener that throws never loses the save. The points defects run the REAL points engine (environment flipped from "testing", standard catalogue seeded). `VisibleAgents` was checked to fail against the old file. **Not run:** `scripts/dev-check.ps1` (no PowerShell on this box).
+
+**Deploy note:** new classes and a new explicit listener registration - the QA1 deploy needs `composer dump-autoload` and `php artisan event:clear` (discovery is off, `AppServiceProvider`). No migration, no schema change, nothing seeded.

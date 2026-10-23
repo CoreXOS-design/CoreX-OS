@@ -412,6 +412,12 @@ class PropertyObserver
         // the listing agent (set by creating() above). If no agent_id
         // resolves, actor = null and InstantPointService skips the
         // credit silently (covers system/import-created rows).
+        //
+        // KNOWN, DOCUMENTED (road-to-sold.md step 7 + build log P8): the Add Property wizard creates a real row with status
+        // 'draft' on its first step (PropertyWizardController::createDraft), so `property.captured` is credited at draft creation,
+        // not at publish. Left as is on purpose: Road to Sold does not use this event (step 7 is PropertyWentLiveOnPortal), and the
+        // instant-points engine this feeds is replaced at the Road to Sold cut-over, so moving the credit would change agents'
+        // points for a few weeks only.
         try {
             // AT-479 — a bulk take-on brings in stock that already existed: nothing was "captured", so no points.
             if (! $property->skipActivityPoints) {

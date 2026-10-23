@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Events\Evaluation\EvaluationCompleted;
+use App\Events\Viewing\ViewingHeld;
 use App\Models\BuyerPropertyView;
 use App\Models\CommandCenter\CalendarEvent;
 use App\Models\CommandCenter\CalendarEventClassSetting;
@@ -11,6 +12,7 @@ use App\Models\Contact;
 use App\Models\DailyActivityEntry;
 use App\Services\Activity\PointStateService;
 use App\Services\BuyerStateService;
+use App\Services\Properties\PropertyViewings;
 use App\Support\Events\SafeRaise;
 use Illuminate\Support\Facades\Log;
 
@@ -114,6 +116,7 @@ class CalendarEventFeedbackObserver
     public function created(CalendarEventFeedback $feedback): void
     {
         $this->raiseEvaluationCompleted($feedback);
+        $this->raiseViewingHeld($feedback, null);
     }
 
     public function updated(CalendarEventFeedback $feedback): void
@@ -121,6 +124,56 @@ class CalendarEventFeedbackObserver
         if ($feedback->wasChanged('captured_at') && $feedback->getOriginal('captured_at') === null) {
             $this->raiseEvaluationCompleted($feedback);
         }
+        // The row as it was before this save: a viewing counts only on the save that first makes it count.
+        $this->raiseViewingHeld($feedback, (new CalendarEventFeedback)->setRawAttributes($feedback->getOriginal(), true));
+    }
+
+    /**
+     * Road to Sold step 10: a buyer's viewing of one property was held. Counts by the one rule PropertyViewings::capture() applies
+     * everywhere (status "viewed", not blank), plus captured and not archived, on a viewing-category appointment. Raised only on
+     * the save that moves the row from "does not count" to "counts" ($before = null on a create), so an edit of a row that already
+     * counted - or a second save of the same row - raises nothing. Never breaks the feedback save.
+     */
+    private function raiseViewingHeld(CalendarEventFeedback $feedback, ?CalendarEventFeedback $before): void
+    {
+        try {
+            if (! $this->countsAsViewingHeld($feedback) || ($before && $this->countsAsViewingHeld($before))) {
+                return;
+            }
+            $event = CalendarEvent::withoutGlobalScopes()->find($feedback->calendar_event_id);
+            if (! $event || $event->deleted_at !== null || ! in_array($event->category, PropertyViewings::VIEWING_CATEGORIES, true)) {
+                return;
+            }
+            if ($feedback->agency_id !== null && $event->agency_id !== null && (int) $feedback->agency_id !== (int) $event->agency_id) {
+                return;
+            }
+            SafeRaise::dispatch('ViewingHeld', fn () => new ViewingHeld(
+                feedbackId: (int) $feedback->id,
+                calendarEventId: (int) $event->id,
+                propertyId: $feedback->property_id !== null ? (int) $feedback->property_id : null,
+                contactId: $feedback->contact_id !== null ? (int) $feedback->contact_id : ($event->contact_id !== null ? (int) $event->contact_id : null),
+                agencyId: $event->agency_id !== null ? (int) $event->agency_id : null,
+                branchId: $event->branch_id !== null ? (int) $event->branch_id : null,
+                userId: $event->user_id !== null ? (int) $event->user_id : null,
+                heldAt: (string) $feedback->captured_at,
+                actorUserId: $feedback->captured_by_user_id !== null ? (int) $feedback->captured_by_user_id : null,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('ViewingHeld hook caught exception, feedback save proceeds', [
+                'feedback_id' => $feedback->id ?? null,
+                'message'     => $e->getMessage(),
+            ]);
+        }
+    }
+
+    private function countsAsViewingHeld(CalendarEventFeedback $feedback): bool
+    {
+        if (! $feedback->calendar_event_id || $feedback->captured_at === null || $feedback->deleted_at !== null) {
+            return false;
+        }
+        $capture = PropertyViewings::capture($feedback);
+
+        return $capture['status'] === PropertyViewings::STATUS_VIEWED && ! $capture['blank'];
     }
 
     /** Never breaks the feedback save. */
